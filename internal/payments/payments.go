@@ -223,12 +223,16 @@ func GetRun(ctx context.Context, id uuid.UUID) (Run, error) {
 
 // Item is an open item a payment settles.
 type Item struct {
-	FiscalYear int16        `json:"fiscal_year"`
-	EntryID    uuid.UUID    `json:"journal_entry_id"`
-	LineNo     int32        `json:"line_no"`
-	Amount     money.Minor  `json:"amount"` // paid: what the item owes, so a credit memo is negative
-	DueDate    partner.Date `json:"due_date"`
-	Active     bool         `json:"is_active"`
+	FiscalYear int16       `json:"fiscal_year"`
+	EntryID    uuid.UUID   `json:"journal_entry_id"`
+	LineNo     int32       `json:"line_no"`
+	Amount     money.Minor `json:"amount"` // paid: what the item owes, so a credit memo is negative
+	// Discount is the cash discount taken on the item (T36c), of its sign:
+	// the item pays Amount less Discount.
+	Discount money.Minor       `json:"discount_amount"`
+	DueDate  partner.Date      `json:"due_date"`
+	Active   bool              `json:"is_active"`
+	terms    *ledger.ItemTerms // the terms it was posted with, while proposing
 }
 
 // Payment is a row of payments.payment with its items.
@@ -237,7 +241,8 @@ type Payment struct {
 	RunID            uuid.UUID
 	SupplierID       uuid.UUID
 	BankAccountID    uuid.UUID
-	Amount           money.Minor
+	Amount           money.Minor // paid, after the items' discounts
+	Discount         money.Minor // the items' cash discounts
 	EndToEndID       string
 	JournalEntryYear *int16
 	JournalEntryID   *uuid.UUID
@@ -255,9 +260,10 @@ type Payment struct {
 const dropped = `EXISTS (SELECT FROM payments.payment_exclusion x WHERE x.tenant_id = p.tenant_id AND x.payment_run_id = p.payment_run_id
 		AND x.supplier_id = p.supplier_id)`
 
-const paymentSelect = `SELECT p.id, p.payment_run_id, p.supplier_id, p.bank_account_id, p.amount, p.end_to_end_id, p.journal_entry_year,
+const paymentSelect = `SELECT p.id, p.payment_run_id, p.supplier_id, p.bank_account_id, p.amount, p.discount_amount, p.end_to_end_id, p.journal_entry_year,
 		p.journal_entry_id, (SELECT json_agg(json_build_object('fiscal_year', i.item_fiscal_year, 'journal_entry_id', i.item_entry_id,
-			'line_no', i.item_line_no, 'amount', i.amount, 'due_date', i.due_date, 'is_active', i.is_active)
+			'line_no', i.item_line_no, 'amount', i.amount, 'discount_amount', i.discount_amount, 'due_date', i.due_date,
+			'is_active', i.is_active)
 			ORDER BY i.item_fiscal_year, i.item_entry_id, i.item_line_no)
 		 FROM payments.payment_item i WHERE i.tenant_id = p.tenant_id AND i.payment_id = p.id), p.created_at, p.created_by,
 		` + dropped + ` AS is_dropped
@@ -265,7 +271,7 @@ const paymentSelect = `SELECT p.id, p.payment_run_id, p.supplier_id, p.bank_acco
 
 func scanPayment(row pgx.Row) (Payment, error) {
 	var p Payment
-	err := row.Scan(&p.ID, &p.RunID, &p.SupplierID, &p.BankAccountID, &p.Amount, &p.EndToEndID, &p.JournalEntryYear, &p.JournalEntryID,
+	err := row.Scan(&p.ID, &p.RunID, &p.SupplierID, &p.BankAccountID, &p.Amount, &p.Discount, &p.EndToEndID, &p.JournalEntryYear, &p.JournalEntryID,
 		&p.Items, &p.CreatedAt, &p.CreatedBy, &p.Excluded)
 	return p, errs.Wrapf(err, "scan payment")
 }

@@ -2719,6 +2719,7 @@ components:
         run_date: {$ref: '#/components/schemas/Date'}
         due_by: {$ref: '#/components/schemas/Date'}
         total_amount: {$ref: '#/components/schemas/Money'}
+        discount_amount: {$ref: '#/components/schemas/Money', description: 'The cash discounts the run takes (T36c); total_amount is what it pays after them. Absent from events of releases before discounts were taken.'}
         payment_count: {type: integer, minimum: 0}
         exclusion_count: {type: integer, minimum: 0}
         proposed_by: {$ref: '#/components/schemas/Uuid'}

@@ -17249,7 +17249,11 @@ components:
           readOnly: true
         amount:
           $ref: "#/components/schemas/Money"
-          description: Amount paid on the item.
+          description: "The item's open amount the payment settles, before the discount; negative on a credit memo."
+          readOnly: true
+        discount_amount:
+          $ref: "#/components/schemas/Money"
+          description: "The cash discount taken on the item (T36c), by the payment terms it was posted with on the run date; of the item's sign, 0.00 when none. What the item pays is amount less discount_amount."
           readOnly: true
         due_date:
           type: string
@@ -17299,7 +17303,11 @@ components:
               readOnly: true
             amount:
               $ref: "#/components/schemas/Money"
-              description: "Amount; positive."
+              description: "Amount paid, after the cash discounts taken on the items; positive. The bank file pays it."
+              readOnly: true
+            discount_amount:
+              $ref: "#/components/schemas/Money"
+              description: "The cash discounts taken on the payment's items (T36c), credited to the cash discount account when it posts."
               readOnly: true
             end_to_end_id:
               type: string

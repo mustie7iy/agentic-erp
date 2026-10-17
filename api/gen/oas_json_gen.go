@@ -23775,6 +23775,12 @@ func (s *Payment) encodeFields(e *jx.Encoder) {
 		s.Amount.Encode(e)
 	}
 	{
+		if s.DiscountAmount.Set {
+			e.FieldStart("discount_amount")
+			s.DiscountAmount.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("end_to_end_id")
 		e.Str(s.EndToEndID)
 	}
@@ -23794,17 +23800,18 @@ func (s *Payment) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPayment = [10]string{
-	0: "id",
-	1: "created_at",
-	2: "created_by",
-	3: "payment_run_id",
-	4: "supplier_id",
-	5: "bank_account_id",
-	6: "amount",
-	7: "end_to_end_id",
-	8: "journal_entry_id",
-	9: "items",
+var jsonFieldsNameOfPayment = [11]string{
+	0:  "id",
+	1:  "created_at",
+	2:  "created_by",
+	3:  "payment_run_id",
+	4:  "supplier_id",
+	5:  "bank_account_id",
+	6:  "amount",
+	7:  "discount_amount",
+	8:  "end_to_end_id",
+	9:  "journal_entry_id",
+	10: "items",
 }
 
 // Decode decodes Payment from json.
@@ -23898,8 +23905,18 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"amount\"")
 			}
+		case "discount_amount":
+			if err := func() error {
+				s.DiscountAmount.Reset()
+				if err := s.DiscountAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"discount_amount\"")
+			}
 		case "end_to_end_id":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				v, err := d.Str()
 				s.EndToEndID = string(v)
@@ -23921,7 +23938,7 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"journal_entry_id\"")
 			}
 		case "items":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
 				s.Items = make([]PaymentItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -23948,8 +23965,8 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
-		0b11111111,
-		0b00000010,
+		0b01111111,
+		0b00000101,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -24289,6 +24306,12 @@ func (s *PaymentItem) encodeFields(e *jx.Encoder) {
 		s.Amount.Encode(e)
 	}
 	{
+		if s.DiscountAmount.Set {
+			e.FieldStart("discount_amount")
+			s.DiscountAmount.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("due_date")
 		json.EncodeDate(e, s.DueDate)
 	}
@@ -24298,13 +24321,14 @@ func (s *PaymentItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPaymentItem = [6]string{
+var jsonFieldsNameOfPaymentItem = [7]string{
 	0: "fiscal_year",
 	1: "journal_entry_id",
 	2: "line_no",
 	3: "amount",
-	4: "due_date",
-	5: "is_active",
+	4: "discount_amount",
+	5: "due_date",
+	6: "is_active",
 }
 
 // Decode decodes PaymentItem from json.
@@ -24362,8 +24386,18 @@ func (s *PaymentItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"amount\"")
 			}
+		case "discount_amount":
+			if err := func() error {
+				s.DiscountAmount.Reset()
+				if err := s.DiscountAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"discount_amount\"")
+			}
 		case "due_date":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.DueDate = v
@@ -24375,7 +24409,7 @@ func (s *PaymentItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"due_date\"")
 			}
 		case "is_active":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Bool()
 				s.IsActive = bool(v)
@@ -24396,7 +24430,7 @@ func (s *PaymentItem) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00111111,
+		0b01101111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

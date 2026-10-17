@@ -17826,8 +17826,11 @@ type Payment struct {
 	SupplierID uuid.UUID `json:"supplier_id"`
 	// Supplier bank account valid on the run date.
 	BankAccountID uuid.UUID `json:"bank_account_id"`
-	// Amount; positive.
+	// Amount paid, after the cash discounts taken on the items; positive. The bank file pays it.
 	Amount Money `json:"amount"`
+	// The cash discounts taken on the payment's items (T36c), credited to the cash discount account when
+	// it posts.
+	DiscountAmount OptMoney `json:"discount_amount"`
 	// ISO 20022 end-to-end id.
 	EndToEndID string `json:"end_to_end_id"`
 	// Payment journal entry, once posted.
@@ -17869,6 +17872,11 @@ func (s *Payment) GetBankAccountID() uuid.UUID {
 // GetAmount returns the value of Amount.
 func (s *Payment) GetAmount() Money {
 	return s.Amount
+}
+
+// GetDiscountAmount returns the value of DiscountAmount.
+func (s *Payment) GetDiscountAmount() OptMoney {
+	return s.DiscountAmount
 }
 
 // GetEndToEndID returns the value of EndToEndID.
@@ -17919,6 +17927,11 @@ func (s *Payment) SetBankAccountID(val uuid.UUID) {
 // SetAmount sets the value of Amount.
 func (s *Payment) SetAmount(val Money) {
 	s.Amount = val
+}
+
+// SetDiscountAmount sets the value of DiscountAmount.
+func (s *Payment) SetDiscountAmount(val OptMoney) {
+	s.DiscountAmount = val
 }
 
 // SetEndToEndID sets the value of EndToEndID.
@@ -18080,8 +18093,11 @@ type PaymentItem struct {
 	JournalEntryID uuid.UUID `json:"journal_entry_id"`
 	// Line of the open item.
 	LineNo int32 `json:"line_no"`
-	// Amount paid on the item.
+	// The item's open amount the payment settles, before the discount; negative on a credit memo.
 	Amount Money `json:"amount"`
+	// The cash discount taken on the item (T36c), by the payment terms it was posted with on the run date;
+	// of the item's sign, 0.00 when none. What the item pays is amount less discount_amount.
+	DiscountAmount OptMoney `json:"discount_amount"`
 	// Due date of the item.
 	DueDate time.Time `json:"due_date"`
 	// False once the run is rejected or failed (the item is free again).
@@ -18106,6 +18122,11 @@ func (s *PaymentItem) GetLineNo() int32 {
 // GetAmount returns the value of Amount.
 func (s *PaymentItem) GetAmount() Money {
 	return s.Amount
+}
+
+// GetDiscountAmount returns the value of DiscountAmount.
+func (s *PaymentItem) GetDiscountAmount() OptMoney {
+	return s.DiscountAmount
 }
 
 // GetDueDate returns the value of DueDate.
@@ -18136,6 +18157,11 @@ func (s *PaymentItem) SetLineNo(val int32) {
 // SetAmount sets the value of Amount.
 func (s *PaymentItem) SetAmount(val Money) {
 	s.Amount = val
+}
+
+// SetDiscountAmount sets the value of DiscountAmount.
+func (s *PaymentItem) SetDiscountAmount(val OptMoney) {
+	s.DiscountAmount = val
 }
 
 // SetDueDate sets the value of DueDate.

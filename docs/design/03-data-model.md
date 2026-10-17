@@ -1198,6 +1198,28 @@ supplier whose due items net to zero or a debit is excluded
 (`debit_balance`) and paid nothing: a credit memo never pays out alone,
 and stays open for a later run.
 
+A run takes cash discount by the payment terms each item was posted with
+(T36c): the tier its run date falls in (the first whose last day is on or
+after it), and it also pays an item not yet due when paying it on the
+due-by date instead would earn less discount, as SAP's payment run pays an
+item whose discount lapses before the next run. The discount base is the
+item's gross amount, tax included. A credit memo naming an invoice carries
+that invoice's terms, so it takes the invoice's discount off its credit
+(an invoice of 100 and its memo of 30 at 2% pay 68.60); a memo naming none
+takes none. **Rounding:** each item's discount is its tier's percent of the
+item, computed exactly and rounded half away from zero to the currency's
+minor unit, item by item; one that would round to the whole item is a
+minor unit less, so an item always pays something. `payment_item` keeps
+each item's discount (`discount_amount`, of the item's sign and smaller
+than it, migration 000067), `payment` their total, and a payment's amount
+is what it pays after them: the bank file pays it, and a supplier whose
+items net to nothing after their discounts is excluded (`debit_balance`).
+At release the settlement credits the bank with what is paid and the
+discounts to the legal entity's `cash_discount` account, both at the
+posting date's rates, so the items clear at their original amounts and
+what is left in local and group currency is the exchange difference
+(`ledger.Settle`; 422 `ledger.no_cash_discount_account` without one).
+
 A partial unique index on active `payment_item (tenant_id, item_fiscal_year,
 item_entry_id, item_line_no)` guarantees an open item is in at most one live run; rejecting a run
 deactivates its items. The run also reserves its items in the ledger

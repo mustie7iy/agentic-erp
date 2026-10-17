@@ -162,7 +162,7 @@ func (e *Endpoints) PostPayment(ctx context.Context, r Run, pay uuid.UUID) (post
 	text := "Payment run " + r.DocumentNumber
 	entry, err := e.Postings.Settle(ctx, ledger.Settlement{LegalEntityID: r.LegalEntityID, DocumentType: DocumentType, PostingDate: r.RunDate,
 		Currency: r.Currency, BankAccountID: hb.GLAccountID, Reference: &p.EndToEndID, HeaderText: &text, SourceContext: "payments",
-		SourceDocumentID: p.ID, Items: items, ReservedFor: r.ID})
+		SourceDocumentID: p.ID, Items: items, Discounts: discounts(p), ReservedFor: r.ID})
 	if err != nil {
 		return false, err
 	}
@@ -181,6 +181,16 @@ func report(ctx context.Context, tx pgx.Tx, r Run) error {
 		return fmt.Errorf("payments: count the posted payments of run %s: %w", r.ID, err)
 	}
 	return operations.Report(ctx, *r.ReleaseOpID, done, total)
+}
+
+// discounts are the cash discounts a payment takes on its items, in their
+// order (itemRefs).
+func discounts(p Payment) []money.Minor {
+	out := make([]money.Minor, len(p.Items))
+	for i, it := range p.Items {
+		out[i] = it.Discount
+	}
+	return out
 }
 
 // itemRefs are the open items a payment settles.
