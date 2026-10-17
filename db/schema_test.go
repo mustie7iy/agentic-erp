@@ -2214,3 +2214,57 @@ func TestTermsFrozenAtPosting(t *testing.T) {
 		failsOn(t, asApp(t, f.tenant, func(tx pgx.Tx) error { return tables["open_item_terms"](tx, 9, "NULL, NULL, NULL, NULL") }), "open_item_terms_line_fkey")
 	})
 }
+
+// TestPaymentItemDiscounts: a payment item takes a cash discount of its
+// own sign and less than its amount (T36c), fixed like the rest of the
+// item, and a payment records the discounts its items take.
+func TestPaymentItemDiscounts(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	hb, run, pay := id(), id(), id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, `INSERT INTO payments.house_bank (tenant_id, id, legal_entity_id, code, name, iban_cipher, iban_last4, bic, currency, gl_account_id, status, created_by, updated_by)
+			VALUES ($1,$2,$3,'MAIN','Main','\x00','5555','BUKBGB22','USD',$4,'active',$5,$5)`, f.tenant, hb, f.entity, f.bank, f.actor); err != nil {
+			return err
+		}
+		if err := exec(tx, `INSERT INTO payments.payment_run (tenant_id, id, document_number, legal_entity_id, house_bank_id, run_date, due_by, currency, total_amount, status, proposed_by, created_by, updated_by)
+			VALUES ($1,$2,'PR1',$3,$4,'2026-07-31','2026-07-31','USD',294,'proposed',$5,$5,$5)`, f.tenant, run, f.entity, hb, f.actor); err != nil {
+			return err
+		}
+		return exec(tx, `INSERT INTO payments.payment (tenant_id, id, payment_run_id, supplier_id, bank_account_id, amount, discount_amount, currency, end_to_end_id, created_by)
+			VALUES ($1,$2,$3,$4,$5,294,6,'USD','E2E-1',$6)`, f.tenant, pay, run, f.supplier, id(), f.actor)
+	})
+	item := func(amount, discount int) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.payment_item (tenant_id, payment_id, item_fiscal_year, item_entry_id, item_line_no, amount, discount_amount, due_date)
+				VALUES ($1, $2, 2026, $3, 2, $4, $5, '2026-07-31')`, f.tenant, pay, id(), amount, discount)
+		}
+	}
+	for _, c := range []struct {
+		name             string
+		amount, discount int
+		fails            string
+	}{
+		{"an invoice's discount", 300, 6, ""},
+		{"a credit memo's discount", -50, -1, ""},
+		{"no discount", 300, 0, ""},
+		{"a discount of the other sign", 300, -6, "payment_item_discount_within"},
+		{"a discount of the whole amount", 300, 300, "payment_item_discount_within"},
+		{"a credit memo's discount of the other sign", -50, 1, "payment_item_discount_within"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := asApp(t, f.tenant, item(c.amount, c.discount))
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("insert: got %v, want success", err)
+				}
+				return
+			}
+			failsOn(t, err, c.fails)
+		})
+	}
+	t.Run("a discount changed", func(t *testing.T) {
+		_, err := testDB.Exec(context.Background(), "UPDATE payments.payment_item SET discount_amount = 1 WHERE tenant_id = $1 AND discount_amount = 6", f.tenant)
+		failsWith(t, err, "only be deactivated")
+	})
+}
