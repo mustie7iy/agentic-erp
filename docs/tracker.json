@@ -4930,13 +4930,19 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Continuous delivery with approvals and rollback",
       "r": "T40d",
       "c": [
        {
+        "s": "D",
+        "t": "Promotions: a release pinned per cell by pull request, along dev, test, staging, the production canary and production, after the staging drill; the pinned images verified against the release's commit",
+        "r": "deploy/environments · scripts/promotion-checks.sh · .github/workflows/promotion.yml · ADR-0035 · T40d2",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "T40d: Argo CD in tooling, promotions, the staging rollback drill",
+        "t": "T40d: Argo CD in tooling (its cluster and how it reaches the cells' private APIs: decision pending), the staging rollback drill, the production approvers (CODEOWNERS)",
         "r": "ADR-0035",
         "c": []
        },

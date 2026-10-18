@@ -12,6 +12,8 @@ on:
     branches: [main]
     paths: &paths
       - deploy/**
+      # Promotions have a workflow of their own (promotion.yml).
+      - "!deploy/environments/**"
       - scripts/deploy-checks.sh
       - scripts/helm-checks.sh
       - scripts/admission-checks.sh

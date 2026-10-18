@@ -1,0 +1,90 @@
+name: promotion
+
+# A promotion pull request (ADR-0035, T40d) pins a release's image digests
+# for one cell (deploy/environments/<env>/<cell>/release.json), which Argo
+# CD then rolls out. It merges only after:
+#   - scripts/promotion-checks.sh: one cell, a well-formed release, the
+#     path dev -> test -> staging -> the production canary -> production,
+#     the staging rollback drill passed before production, or a rollback
+#     to what the cell ran before (offline, a few seconds);
+#   - scripts/verify-image.sh on each pinned image: signed by the release
+#     key, both attestations, provenance naming the release's commit. This
+#     job runs in the `delivery` environment, as the erp-delivery role
+#     (GitHub's OIDC), which may read the images and the key's public half
+#     only.
+# Only these paths run it, and the deploy workflow skips them, so a
+# promotion costs two short jobs. The `delivery` environment sets:
+#   variables  ERP_DELIVERY_ROLE_ARN  envs/tooling delivery_role_arn
+#              ERP_COSIGN_KEY         awskms:///<the release key's ARN>
+#              ERP_AWS_REGION         the key's and the registry's region
+#              ERP_REGISTRIES         the ECR registries the releases pin, comma-separated
+on:
+  pull_request:
+    paths:
+      - deploy/environments/**
+      - scripts/promotion-checks.sh
+      - scripts/test-promotion-checks.sh
+      - .github/workflows/promotion.yml
+
+concurrency:
+  group: promotion-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      images: ${{ steps.check.outputs.images }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: The checks' own tests
+        run: ./scripts/test-promotion-checks.sh
+      - name: Promotion checks
+        id: check
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          OUT="$RUNNER_TEMP/images" ./scripts/promotion-checks.sh "$BASE"
+          if [ -s "$RUNNER_TEMP/images" ]; then echo "images=true" >> "$GITHUB_OUTPUT"; fi
+
+  verify:
+    needs: checks
+    if: needs.checks.outputs.images == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: delivery
+    permissions:
+      contents: read
+      id-token: write # the erp-delivery role: read the images and the key's public half
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # The images again, from the same commits (seconds, and no artifact).
+      - name: The pinned images
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: OUT="$RUNNER_TEMP/images" ./scripts/promotion-checks.sh "$BASE"
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.ERP_DELIVERY_ROLE_ARN }}
+          aws-region: ${{ vars.ERP_AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registries: ${{ vars.ERP_REGISTRIES }}
+      - name: Verify the pinned images
+        env:
+          ERP_COSIGN_PUBLIC_KEY: ${{ vars.ERP_COSIGN_KEY }}
+        run: |
+          while read -r commit ref; do
+            ERP_EXPECTED_COMMIT="$commit" ./scripts/verify-image.sh "$ref"
+          done <"$RUNNER_TEMP/images"

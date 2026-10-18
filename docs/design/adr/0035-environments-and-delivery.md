@@ -414,6 +414,27 @@ production: deploy N, deploy N+1, revert to N, smoke tests and readiness
 with N's code on N+1's schema, which expand, migrate, contract (§6.4) makes
 safe. Rollback in production is the same revert, per cell.
 
+*Promotions (T40d2).* Each cell's release is a file,
+`deploy/environments/<env>/<cell>/release.json`: the release's version and
+commit and the image digests (server, router, PgBouncer, NATS,
+erp-temporal), each from its own repository in the cell's region's
+registry. It is JSON, so it is also the release's values file for the
+erp-cell and erp-global charts (`images.*`). A promotion pull request
+changes one cell's file and nothing else; `deploy/environments/path.json`
+orders the cells (`dev/dev1`, `test/test1`, `staging/stg1`,
+`production/prod1`, the canary), and a cell may take only the release the
+one before it runs on the base branch, every further production cell what
+the canary runs, or a release it ran before (a rollback is a revert). A
+release reaches production only once `staging/stg1/drills/<version>.json`
+records its drill passed (release, the release rolled back to, result, the
+run), committed by a pull request of its own. `scripts/promotion-checks.sh`
+checks all of it offline, `test-promotion-checks.sh` on a throwaway
+repository; the `promotion` workflow runs both and then, in the
+`delivery` environment as the erp-delivery role, `verify-image.sh` on
+every pinned image against the release's commit. Only promotion paths run
+it and the deploy workflow skips them, so a promotion costs two short
+jobs.
+
 **Bootstrap runbook.** Every root is initialised with
 `-backend-config="bucket=<bucket>" -backend-config="region=<region>" -backend-config="kms_key_id=<state key ARN>"`:
 the S3 backend with `encrypt = true` and no `kms_key_id` writes SSE-S3,
