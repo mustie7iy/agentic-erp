@@ -335,7 +335,9 @@ The tenant's **AI policy** (`getAiPolicy`, `updateAiPolicy`, human-only,
 which models they may route to, its monthly cap in USD and whether
 documents may go to models. Its kill switch has two hands: `enabled`, the
 tenant's administrators', and `suspended`, the platform's operators', which
-wins. While either is off, the gateway refuses every call with 403
+wins: they suspend and resume it on the control plane (`suspendAi`,
+`resumeAi` in `api/control.yaml`) with a reason the tenant's administrators
+see and events and the audit trail leave out. While either is off, the gateway refuses every call with 403
 `agents.ai_disabled`. Each change is audited and published as
 `AiPolicyChanged`.
 

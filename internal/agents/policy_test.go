@@ -142,14 +142,16 @@ func TestSuspendAI(t *testing.T) {
 		})
 	}
 	if err := run(func(ctx context.Context, tx pgx.Tx) (agents.Policy, error) {
-		return agents.Suspend(ctx, tx, operator, "billing dispute")
+		return agents.Suspend(ctx, tx, operator, etag.IfMatch("*"), "billing dispute")
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if p.Active() || !p.Suspended || p.SuspendedReason == nil || *p.SuspendedReason != "billing dispute" || !p.Enabled {
 		t.Errorf("suspended: got %+v, want suspended for its reason, the tenant's setting on", p)
 	}
-	if err := run(func(ctx context.Context, tx pgx.Tx) (agents.Policy, error) { return agents.Resume(ctx, tx, operator) }); err != nil {
+	if err := run(func(ctx context.Context, tx pgx.Tx) (agents.Policy, error) {
+		return agents.Resume(ctx, tx, operator, etag.IfMatch("*"))
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if !p.Active() || p.SuspendedReason != nil {
@@ -158,7 +160,7 @@ func TestSuspendAI(t *testing.T) {
 	for name, reason := range map[string]string{"no reason": "", "a reason past 500 characters": string(make([]byte, 501))} {
 		t.Run(name, func(t *testing.T) {
 			err := run(func(ctx context.Context, tx pgx.Tx) (agents.Policy, error) {
-				return agents.Suspend(ctx, tx, operator, reason)
+				return agents.Suspend(ctx, tx, operator, etag.IfMatch("*"), reason)
 			})
 			if codeOf(err) != "agents.invalid_policy/invalid_length" {
 				t.Errorf("got %v, want agents.invalid_policy/invalid_length", err)
@@ -211,10 +213,13 @@ func TestPolicyDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"suspend": func(ctx context.Context, tx pgx.Tx) error {
-			_, err := agents.Suspend(ctx, tx, actor, "audit")
+			_, err := agents.Suspend(ctx, tx, actor, etag.IfMatch("*"), "audit")
 			return err
 		},
-		"resume": func(ctx context.Context, tx pgx.Tx) error { _, err := agents.Resume(ctx, tx, actor); return err },
+		"resume": func(ctx context.Context, tx pgx.Tx) error {
+			_, err := agents.Resume(ctx, tx, actor, etag.IfMatch("*"))
+			return err
+		},
 		"event": func(ctx context.Context, tx pgx.Tx) error {
 			_, err := agents.PolicyEvent(ctx, tx, ten.ID, agents.Policy{MonthlyCap: &limit}, []string{"monthly_cap"})
 			return err

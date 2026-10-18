@@ -122,12 +122,13 @@ func UpdatePolicy(ctx context.Context, tx pgx.Tx, actor uuid.UUID, ifMatch func(
 }
 
 // Suspend switches the tenant's AI off on the operators' hand, whatever
-// the tenant's administrators set, until an operator resumes it.
-func Suspend(ctx context.Context, tx pgx.Tx, actor uuid.UUID, reason string) (Policy, error) {
+// the tenant's administrators set, until an operator resumes it; guarded
+// by ifMatch.
+func Suspend(ctx context.Context, tx pgx.Tx, actor uuid.UUID, ifMatch func(int32) error, reason string) (Policy, error) {
 	if len(reason) == 0 || len(reason) > 500 {
 		return Policy{}, invalidPolicy("reason", "invalid_length", "A suspension needs its reason, 1 to 500 characters.")
 	}
-	p, err := lockPolicy(ctx, tx, func(int32) error { return nil })
+	p, err := lockPolicy(ctx, tx, ifMatch)
 	if err != nil {
 		return p, err
 	}
@@ -135,9 +136,10 @@ func Suspend(ctx context.Context, tx pgx.Tx, actor uuid.UUID, reason string) (Po
 	return writePolicy(ctx, tx, actor, p)
 }
 
-// Resume lifts the operators' suspension; the tenant's own setting stands.
-func Resume(ctx context.Context, tx pgx.Tx, actor uuid.UUID) (Policy, error) {
-	p, err := lockPolicy(ctx, tx, func(int32) error { return nil })
+// Resume lifts the operators' suspension, guarded by ifMatch; the
+// tenant's own setting stands.
+func Resume(ctx context.Context, tx pgx.Tx, actor uuid.UUID, ifMatch func(int32) error) (Policy, error) {
+	p, err := lockPolicy(ctx, tx, ifMatch)
 	if err != nil {
 		return p, err
 	}

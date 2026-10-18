@@ -33,6 +33,8 @@ tags:
     description: The tenants of the cell and their lifecycle.
   - name: identity
     description: "Each tenant's identity providers and authentication policy (ADR-0031)."
+  - name: agents
+    description: "The operators' hand on each tenant's AI kill switch (ADR-0036)."
 paths:
   /control/v1/tenants:
     get:
@@ -548,6 +550,104 @@ paths:
           $ref: "#/components/responses/PreconditionFailed"
         "422":
           $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  "/control/v1/tenants/{id}/ai-policy":
+    get:
+      operationId: getTenantAiPolicy
+      tags:
+        - agents
+      summary: Get a tenant's AI kill switch
+      description: "Whether the tenant's AI runs (ADR-0036): the tenant's administrators' hand (`enabled`, set through the public API's `updateAiPolicy`) and the operators' (`suspended`), which wins. Routes, models and caps are the tenant's own and are not shown. A tenant whose policy was never changed has the defaults, version 1."
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The tenant's AI kill switch.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiPolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  "/control/v1/tenants/{id}/ai-policy:suspend":
+    post:
+      operationId: suspendAi
+      tags:
+        - agents
+      summary: Suspend a tenant's AI
+      description: "The operators' hand on the tenant's kill switch (ADR-0036): until it is resumed, the cell's model gateway refuses every call of the tenant, capture's included (403 `agents.ai_disabled`), and the tenant's agents' API requests are refused, whatever the tenant's administrators set. People and services work on. The reason, 1 to 500 characters, is shown to the tenant's administrators and stays out of the event and the audit entry (422 `agents.invalid_policy` without one). Suspending a suspended tenant's AI again replaces the reason. Recorded in the tenant's audit trail and published as `AiPolicyChanged`. Refused with 409 `tenancy.invalid_transition` once the tenant is offboarded."
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        description: Why.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiSuspension"
+      responses:
+        "200":
+          description: The tenant's AI kill switch, suspended.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiPolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  "/control/v1/tenants/{id}/ai-policy:resume":
+    post:
+      operationId: resumeAi
+      tags:
+        - agents
+      summary: Resume a tenant's AI
+      description: "Lifts the operators' suspension of the tenant's AI; the tenant's administrators' own setting (`enabled`) stands. Resuming AI that is not suspended changes nothing but the version. Recorded in the tenant's audit trail and published as `AiPolicyChanged`. Refused with 409 `tenancy.invalid_transition` once the tenant is offboarded."
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: The tenant's AI kill switch, resumed.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiPolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
   "/control/v1/tenants/{id}/principals":
@@ -1528,6 +1628,56 @@ components:
       examples:
         - mfa_required: true
           idle_timeout_seconds: 900
+    AiPolicy:
+      type: object
+      description: "A tenant's AI kill switch (ADR-0036)."
+      required:
+        - tenant_id
+        - enabled
+        - suspended
+        - active
+        - version
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+          description: The tenant.
+        enabled:
+          type: boolean
+          description: "The tenant's administrators' hand: false switches its AI off."
+        suspended:
+          type: boolean
+          description: "The operators' hand, which wins."
+        suspended_reason:
+          type: string
+          description: "Why the operators suspended it, while suspended."
+        active:
+          type: boolean
+          description: "Whether the tenant's AI runs: enabled and not suspended."
+        version:
+          type: integer
+          format: int32
+          description: "Optimistic-lock version; equals the ETag. 1 for the defaults."
+      examples:
+        - tenant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          enabled: true
+          suspended: true
+          suspended_reason: "Unpaid invoices since August"
+          active: false
+          version: 3
+    AiSuspension:
+      type: object
+      description: "Why the operators suspend a tenant's AI."
+      required:
+        - reason
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: "Shown to the tenant's administrators; never in events or the audit trail."
+      examples:
+        - reason: "Unpaid invoices since August"
     TenantPrincipal:
       type: object
       description: "A principal of the tenant as the operators see it: its binding to an identity provider (ADR-0031)."
