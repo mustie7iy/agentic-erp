@@ -4080,6 +4080,35 @@ func (s *CancelOperationOKHeaders) SetResponse(val Operation) {
 
 func (*CancelOperationOKHeaders) cancelOperationRes() {}
 
+// A cash discount for payment by a date.
+// Ref: #/components/schemas/CashDiscountTier
+type CashDiscountTier struct {
+	// The last day a payment earns the discount.
+	Until time.Time `json:"until"`
+	// Percent off, a decimal of up to three places.
+	Percent string `json:"percent"`
+}
+
+// GetUntil returns the value of Until.
+func (s *CashDiscountTier) GetUntil() time.Time {
+	return s.Until
+}
+
+// GetPercent returns the value of Percent.
+func (s *CashDiscountTier) GetPercent() string {
+	return s.Percent
+}
+
+// SetUntil sets the value of Until.
+func (s *CashDiscountTier) SetUntil(val time.Time) {
+	s.Until = val
+}
+
+// SetPercent sets the value of Percent.
+func (s *CashDiscountTier) SetPercent(val string) {
+	s.Percent = val
+}
+
 // One computed difference between the base and the proposed configuration.
 // Ref: #/components/schemas/ChangeItem
 type ChangeItem struct {
@@ -11428,6 +11457,60 @@ func (s *GrIrBalancePageHeaders) SetResponse(val GrIrBalancePage) {
 
 func (*GrIrBalancePageHeaders) listGrIrBalancesRes() {}
 
+// Payment terms frozen when a document posted (T36b), as SAP keeps ZTERM, ZFBDT and ZBD1T..ZBD3T: a
+// later change to the payment term changes neither the net due date nor the discounts.
+// Ref: #/components/schemas/ItemPaymentTerms
+type ItemPaymentTerms struct {
+	// The payment term the terms were taken from.
+	Code string `json:"code"`
+	// The date the days count from (the invoice date).
+	BaselineDate time.Time `json:"baseline_date"`
+	// When the item is due without discount.
+	NetDueDate time.Time `json:"net_due_date"`
+	// Cash discount tiers, earliest first.
+	Discounts []CashDiscountTier `json:"discounts"`
+}
+
+// GetCode returns the value of Code.
+func (s *ItemPaymentTerms) GetCode() string {
+	return s.Code
+}
+
+// GetBaselineDate returns the value of BaselineDate.
+func (s *ItemPaymentTerms) GetBaselineDate() time.Time {
+	return s.BaselineDate
+}
+
+// GetNetDueDate returns the value of NetDueDate.
+func (s *ItemPaymentTerms) GetNetDueDate() time.Time {
+	return s.NetDueDate
+}
+
+// GetDiscounts returns the value of Discounts.
+func (s *ItemPaymentTerms) GetDiscounts() []CashDiscountTier {
+	return s.Discounts
+}
+
+// SetCode sets the value of Code.
+func (s *ItemPaymentTerms) SetCode(val string) {
+	s.Code = val
+}
+
+// SetBaselineDate sets the value of BaselineDate.
+func (s *ItemPaymentTerms) SetBaselineDate(val time.Time) {
+	s.BaselineDate = val
+}
+
+// SetNetDueDate sets the value of NetDueDate.
+func (s *ItemPaymentTerms) SetNetDueDate(val time.Time) {
+	s.NetDueDate = val
+}
+
+// SetDiscounts sets the value of Discounts.
+func (s *ItemPaymentTerms) SetDiscounts(val []CashDiscountTier) {
+	s.Discounts = val
+}
+
 // A posted journal entry. Insert-only: it never changes; corrections are reversals. The ETag is
 // derived from the representation (it changes when the entry is reversed).
 // Ref: #/components/schemas/JournalEntry
@@ -14233,6 +14316,9 @@ type OpenItem struct {
 	DocumentNumber string `json:"document_number"`
 	// External reference.
 	Reference OptString `json:"reference"`
+	// The payment terms the item was posted with, on a supplier item posted from T36 on; absent on others,
+	// which are due by their supplier's current terms.
+	PaymentTerms OptItemPaymentTerms `json:"payment_terms"`
 }
 
 // GetFiscalYear returns the value of FiscalYear.
@@ -14290,6 +14376,11 @@ func (s *OpenItem) GetReference() OptString {
 	return s.Reference
 }
 
+// GetPaymentTerms returns the value of PaymentTerms.
+func (s *OpenItem) GetPaymentTerms() OptItemPaymentTerms {
+	return s.PaymentTerms
+}
+
 // SetFiscalYear sets the value of FiscalYear.
 func (s *OpenItem) SetFiscalYear(val int32) {
 	s.FiscalYear = val
@@ -14343,6 +14434,11 @@ func (s *OpenItem) SetDocumentNumber(val string) {
 // SetReference sets the value of Reference.
 func (s *OpenItem) SetReference(val OptString) {
 	s.Reference = val
+}
+
+// SetPaymentTerms sets the value of PaymentTerms.
+func (s *OpenItem) SetPaymentTerms(val OptItemPaymentTerms) {
+	s.PaymentTerms = val
 }
 
 // One page of open items.
@@ -15392,6 +15488,52 @@ func (o OptInt64) Get() (v int64, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptInt64) Or(d int64) int64 {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptItemPaymentTerms returns new OptItemPaymentTerms with value set to v.
+func NewOptItemPaymentTerms(v ItemPaymentTerms) OptItemPaymentTerms {
+	return OptItemPaymentTerms{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptItemPaymentTerms is optional ItemPaymentTerms.
+type OptItemPaymentTerms struct {
+	Value ItemPaymentTerms
+	Set   bool
+}
+
+// IsSet returns true if OptItemPaymentTerms was set.
+func (o OptItemPaymentTerms) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptItemPaymentTerms) Reset() {
+	var v ItemPaymentTerms
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptItemPaymentTerms) SetTo(v ItemPaymentTerms) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptItemPaymentTerms) Get() (v ItemPaymentTerms, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptItemPaymentTerms) Or(d ItemPaymentTerms) ItemPaymentTerms {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -17684,8 +17826,15 @@ type Payment struct {
 	SupplierID uuid.UUID `json:"supplier_id"`
 	// Supplier bank account valid on the run date.
 	BankAccountID uuid.UUID `json:"bank_account_id"`
-	// Amount; positive.
+	// Amount paid, after the cash discounts taken on the items; positive. The bank file pays it.
 	Amount Money `json:"amount"`
+	// The cash discounts taken on the payment's items (T36c), their total, posted to the cash discount
+	// account when the payment posts; negative when the discounts credit memos give back exceed those of
+	// the invoices.
+	DiscountAmount OptMoney `json:"discount_amount"`
+	// The last day the payment's cash discounts are earned (T36d): a release of the run after it is
+	// refused with 409 `payments.discount_lapsed`. Absent when the payment takes no discount.
+	DiscountUntil OptDate `json:"discount_until"`
 	// ISO 20022 end-to-end id.
 	EndToEndID string `json:"end_to_end_id"`
 	// Payment journal entry, once posted.
@@ -17727,6 +17876,16 @@ func (s *Payment) GetBankAccountID() uuid.UUID {
 // GetAmount returns the value of Amount.
 func (s *Payment) GetAmount() Money {
 	return s.Amount
+}
+
+// GetDiscountAmount returns the value of DiscountAmount.
+func (s *Payment) GetDiscountAmount() OptMoney {
+	return s.DiscountAmount
+}
+
+// GetDiscountUntil returns the value of DiscountUntil.
+func (s *Payment) GetDiscountUntil() OptDate {
+	return s.DiscountUntil
 }
 
 // GetEndToEndID returns the value of EndToEndID.
@@ -17777,6 +17936,16 @@ func (s *Payment) SetBankAccountID(val uuid.UUID) {
 // SetAmount sets the value of Amount.
 func (s *Payment) SetAmount(val Money) {
 	s.Amount = val
+}
+
+// SetDiscountAmount sets the value of DiscountAmount.
+func (s *Payment) SetDiscountAmount(val OptMoney) {
+	s.DiscountAmount = val
+}
+
+// SetDiscountUntil sets the value of DiscountUntil.
+func (s *Payment) SetDiscountUntil(val OptDate) {
+	s.DiscountUntil = val
 }
 
 // SetEndToEndID sets the value of EndToEndID.
@@ -17938,8 +18107,11 @@ type PaymentItem struct {
 	JournalEntryID uuid.UUID `json:"journal_entry_id"`
 	// Line of the open item.
 	LineNo int32 `json:"line_no"`
-	// Amount paid on the item.
+	// The item's open amount the payment settles, before the discount; negative on a credit memo.
 	Amount Money `json:"amount"`
+	// The cash discount taken on the item (T36c), by the payment terms it was posted with on the run date;
+	// of the item's sign, 0.00 when none. What the item pays is amount less discount_amount.
+	DiscountAmount OptMoney `json:"discount_amount"`
 	// Due date of the item.
 	DueDate time.Time `json:"due_date"`
 	// False once the run is rejected or failed (the item is free again).
@@ -17964,6 +18136,11 @@ func (s *PaymentItem) GetLineNo() int32 {
 // GetAmount returns the value of Amount.
 func (s *PaymentItem) GetAmount() Money {
 	return s.Amount
+}
+
+// GetDiscountAmount returns the value of DiscountAmount.
+func (s *PaymentItem) GetDiscountAmount() OptMoney {
+	return s.DiscountAmount
 }
 
 // GetDueDate returns the value of DueDate.
@@ -17994,6 +18171,11 @@ func (s *PaymentItem) SetLineNo(val int32) {
 // SetAmount sets the value of Amount.
 func (s *PaymentItem) SetAmount(val Money) {
 	s.Amount = val
+}
+
+// SetDiscountAmount sets the value of DiscountAmount.
+func (s *PaymentItem) SetDiscountAmount(val OptMoney) {
+	s.DiscountAmount = val
 }
 
 // SetDueDate sets the value of DueDate.
@@ -24428,6 +24610,11 @@ type SupplierInvoice struct {
 	Source string `json:"source"`
 	// Journal entry posted for the invoice (statuses `posted` and `reversed`).
 	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The payment terms the invoice posted with (T36b): its order's term, else its supplier's in the legal
+	// entity, counted from the invoice date; a correction naming an invoice has that invoice's. Absent
+	// before posting, on a credit memo or subsequent credit naming no invoice (due at once, no discount),
+	// and on invoices posted before terms were kept.
+	PaymentTerms OptItemPaymentTerms `json:"payment_terms"`
 	// Journal entry that reversed the posting (status `reversed`).
 	ReversalEntryID OptUUID `json:"reversal_entry_id"`
 	// Approval request for an invoice exception, if any.
@@ -24543,6 +24730,11 @@ func (s *SupplierInvoice) GetSource() string {
 // GetJournalEntryID returns the value of JournalEntryID.
 func (s *SupplierInvoice) GetJournalEntryID() OptUUID {
 	return s.JournalEntryID
+}
+
+// GetPaymentTerms returns the value of PaymentTerms.
+func (s *SupplierInvoice) GetPaymentTerms() OptItemPaymentTerms {
+	return s.PaymentTerms
 }
 
 // GetReversalEntryID returns the value of ReversalEntryID.
@@ -24673,6 +24865,11 @@ func (s *SupplierInvoice) SetSource(val string) {
 // SetJournalEntryID sets the value of JournalEntryID.
 func (s *SupplierInvoice) SetJournalEntryID(val OptUUID) {
 	s.JournalEntryID = val
+}
+
+// SetPaymentTerms sets the value of PaymentTerms.
+func (s *SupplierInvoice) SetPaymentTerms(val OptItemPaymentTerms) {
+	s.PaymentTerms = val
 }
 
 // SetReversalEntryID sets the value of ReversalEntryID.

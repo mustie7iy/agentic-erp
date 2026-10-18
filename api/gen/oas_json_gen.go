@@ -6434,6 +6434,119 @@ func (s *BusinessPartnerPage) UnmarshalJSON(data []byte) error {
 }
 
 // Encode implements json.Marshaler.
+func (s *CashDiscountTier) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *CashDiscountTier) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("until")
+		json.EncodeDate(e, s.Until)
+	}
+	{
+		e.FieldStart("percent")
+		e.Str(s.Percent)
+	}
+}
+
+var jsonFieldsNameOfCashDiscountTier = [2]string{
+	0: "until",
+	1: "percent",
+}
+
+// Decode decodes CashDiscountTier from json.
+func (s *CashDiscountTier) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CashDiscountTier to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "until":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.Until = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"until\"")
+			}
+		case "percent":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.Percent = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"percent\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode CashDiscountTier")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000011,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfCashDiscountTier) {
+					name = jsonFieldsNameOfCashDiscountTier[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CashDiscountTier) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CashDiscountTier) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
 func (s *ChangeItem) Encode(e *jx.Encoder) {
 	e.ObjStart()
 	s.encodeFields(e)
@@ -14699,6 +14812,163 @@ func (s *GrIrBalancePage) UnmarshalJSON(data []byte) error {
 }
 
 // Encode implements json.Marshaler.
+func (s *ItemPaymentTerms) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *ItemPaymentTerms) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("code")
+		e.Str(s.Code)
+	}
+	{
+		e.FieldStart("baseline_date")
+		json.EncodeDate(e, s.BaselineDate)
+	}
+	{
+		e.FieldStart("net_due_date")
+		json.EncodeDate(e, s.NetDueDate)
+	}
+	{
+		e.FieldStart("discounts")
+		e.ArrStart()
+		for _, elem := range s.Discounts {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+}
+
+var jsonFieldsNameOfItemPaymentTerms = [4]string{
+	0: "code",
+	1: "baseline_date",
+	2: "net_due_date",
+	3: "discounts",
+}
+
+// Decode decodes ItemPaymentTerms from json.
+func (s *ItemPaymentTerms) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ItemPaymentTerms to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "code":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.Code = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"code\"")
+			}
+		case "baseline_date":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.BaselineDate = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"baseline_date\"")
+			}
+		case "net_due_date":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.NetDueDate = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"net_due_date\"")
+			}
+		case "discounts":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				s.Discounts = make([]CashDiscountTier, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem CashDiscountTier
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Discounts = append(s.Discounts, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"discounts\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode ItemPaymentTerms")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00001111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfItemPaymentTerms) {
+					name = jsonFieldsNameOfItemPaymentTerms[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ItemPaymentTerms) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ItemPaymentTerms) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
 func (s *JournalEntry) Encode(e *jx.Encoder) {
 	e.ObjStart()
 	s.encodeFields(e)
@@ -18927,9 +19197,15 @@ func (s *OpenItem) encodeFields(e *jx.Encoder) {
 			s.Reference.Encode(e)
 		}
 	}
+	{
+		if s.PaymentTerms.Set {
+			e.FieldStart("payment_terms")
+			s.PaymentTerms.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfOpenItem = [11]string{
+var jsonFieldsNameOfOpenItem = [12]string{
 	0:  "fiscal_year",
 	1:  "journal_entry_id",
 	2:  "line_no",
@@ -18941,6 +19217,7 @@ var jsonFieldsNameOfOpenItem = [11]string{
 	8:  "amount_lc",
 	9:  "document_number",
 	10: "reference",
+	11: "payment_terms",
 }
 
 // Decode decodes OpenItem from json.
@@ -19075,6 +19352,16 @@ func (s *OpenItem) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"reference\"")
+			}
+		case "payment_terms":
+			if err := func() error {
+				s.PaymentTerms.Reset()
+				if err := s.PaymentTerms.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"payment_terms\"")
 			}
 		default:
 			return d.Skip()
@@ -20300,6 +20587,39 @@ func (s OptInt64) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *OptInt64) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ItemPaymentTerms as json.
+func (o OptItemPaymentTerms) Encode(e *jx.Encoder) {
+	if !o.Set {
+		return
+	}
+	o.Value.Encode(e)
+}
+
+// Decode decodes ItemPaymentTerms from json.
+func (o *OptItemPaymentTerms) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode OptItemPaymentTerms to nil")
+	}
+	o.Set = true
+	if err := o.Value.Decode(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s OptItemPaymentTerms) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OptItemPaymentTerms) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -23455,6 +23775,18 @@ func (s *Payment) encodeFields(e *jx.Encoder) {
 		s.Amount.Encode(e)
 	}
 	{
+		if s.DiscountAmount.Set {
+			e.FieldStart("discount_amount")
+			s.DiscountAmount.Encode(e)
+		}
+	}
+	{
+		if s.DiscountUntil.Set {
+			e.FieldStart("discount_until")
+			s.DiscountUntil.Encode(e, json.EncodeDate)
+		}
+	}
+	{
 		e.FieldStart("end_to_end_id")
 		e.Str(s.EndToEndID)
 	}
@@ -23474,17 +23806,19 @@ func (s *Payment) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPayment = [10]string{
-	0: "id",
-	1: "created_at",
-	2: "created_by",
-	3: "payment_run_id",
-	4: "supplier_id",
-	5: "bank_account_id",
-	6: "amount",
-	7: "end_to_end_id",
-	8: "journal_entry_id",
-	9: "items",
+var jsonFieldsNameOfPayment = [12]string{
+	0:  "id",
+	1:  "created_at",
+	2:  "created_by",
+	3:  "payment_run_id",
+	4:  "supplier_id",
+	5:  "bank_account_id",
+	6:  "amount",
+	7:  "discount_amount",
+	8:  "discount_until",
+	9:  "end_to_end_id",
+	10: "journal_entry_id",
+	11: "items",
 }
 
 // Decode decodes Payment from json.
@@ -23578,8 +23912,28 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"amount\"")
 			}
+		case "discount_amount":
+			if err := func() error {
+				s.DiscountAmount.Reset()
+				if err := s.DiscountAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"discount_amount\"")
+			}
+		case "discount_until":
+			if err := func() error {
+				s.DiscountUntil.Reset()
+				if err := s.DiscountUntil.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"discount_until\"")
+			}
 		case "end_to_end_id":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				v, err := d.Str()
 				s.EndToEndID = string(v)
@@ -23601,7 +23955,7 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"journal_entry_id\"")
 			}
 		case "items":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				s.Items = make([]PaymentItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -23628,8 +23982,8 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
-		0b11111111,
-		0b00000010,
+		0b01111111,
+		0b00001010,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -23969,6 +24323,12 @@ func (s *PaymentItem) encodeFields(e *jx.Encoder) {
 		s.Amount.Encode(e)
 	}
 	{
+		if s.DiscountAmount.Set {
+			e.FieldStart("discount_amount")
+			s.DiscountAmount.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("due_date")
 		json.EncodeDate(e, s.DueDate)
 	}
@@ -23978,13 +24338,14 @@ func (s *PaymentItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPaymentItem = [6]string{
+var jsonFieldsNameOfPaymentItem = [7]string{
 	0: "fiscal_year",
 	1: "journal_entry_id",
 	2: "line_no",
 	3: "amount",
-	4: "due_date",
-	5: "is_active",
+	4: "discount_amount",
+	5: "due_date",
+	6: "is_active",
 }
 
 // Decode decodes PaymentItem from json.
@@ -24042,8 +24403,18 @@ func (s *PaymentItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"amount\"")
 			}
+		case "discount_amount":
+			if err := func() error {
+				s.DiscountAmount.Reset()
+				if err := s.DiscountAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"discount_amount\"")
+			}
 		case "due_date":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.DueDate = v
@@ -24055,7 +24426,7 @@ func (s *PaymentItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"due_date\"")
 			}
 		case "is_active":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Bool()
 				s.IsActive = bool(v)
@@ -24076,7 +24447,7 @@ func (s *PaymentItem) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00111111,
+		0b01101111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -33515,6 +33886,12 @@ func (s *SupplierInvoice) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.PaymentTerms.Set {
+			e.FieldStart("payment_terms")
+			s.PaymentTerms.Encode(e)
+		}
+	}
+	{
 		if s.ReversalEntryID.Set {
 			e.FieldStart("reversal_entry_id")
 			s.ReversalEntryID.Encode(e)
@@ -33546,7 +33923,7 @@ func (s *SupplierInvoice) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSupplierInvoice = [26]string{
+var jsonFieldsNameOfSupplierInvoice = [27]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -33568,11 +33945,12 @@ var jsonFieldsNameOfSupplierInvoice = [26]string{
 	18: "hold_reason",
 	19: "source",
 	20: "journal_entry_id",
-	21: "reversal_entry_id",
-	22: "workflow_request_id",
-	23: "items",
-	24: "extensions",
-	25: "expanded",
+	21: "payment_terms",
+	22: "reversal_entry_id",
+	23: "workflow_request_id",
+	24: "items",
+	25: "extensions",
+	26: "expanded",
 }
 
 // Decode decodes SupplierInvoice from json.
@@ -33818,6 +34196,16 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"journal_entry_id\"")
 			}
+		case "payment_terms":
+			if err := func() error {
+				s.PaymentTerms.Reset()
+				if err := s.PaymentTerms.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"payment_terms\"")
+			}
 		case "reversal_entry_id":
 			if err := func() error {
 				s.ReversalEntryID.Reset()
@@ -33839,7 +34227,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"workflow_request_id\"")
 			}
 		case "items":
-			requiredBitSet[2] |= 1 << 7
+			requiredBitSet[3] |= 1 << 0
 			if err := func() error {
 				s.Items = make([]SupplierInvoiceItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -33857,7 +34245,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"items\"")
 			}
 		case "extensions":
-			requiredBitSet[3] |= 1 << 0
+			requiredBitSet[3] |= 1 << 1
 			if err := func() error {
 				if err := s.Extensions.Decode(d); err != nil {
 					return err
@@ -33888,8 +34276,8 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 	for i, mask := range [4]uint8{
 		0b11011111,
 		0b00110111,
-		0b10001010,
-		0b00000001,
+		0b00001010,
+		0b00000011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

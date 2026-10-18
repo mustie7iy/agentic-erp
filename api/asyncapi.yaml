@@ -2662,6 +2662,25 @@ components:
         journal_entry_id: {$ref: '#/components/schemas/Uuid'}
         journal_entry_year: {$ref: '#/components/schemas/FiscalYear'}
         status: {type: string, description: 'Open enum; posted in v1.'}
+        payment_terms:
+          description: 'The payment terms the invoice posted with (T36b); null when it has none (a credit memo or subsequent credit naming no invoice). Absent from events of releases before they were kept.'
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [code, baseline_date, net_due_date, discounts]
+              properties:
+                code: {type: string}
+                baseline_date: {$ref: '#/components/schemas/Date'}
+                net_due_date: {$ref: '#/components/schemas/Date'}
+                discounts:
+                  type: array
+                  maxItems: 2
+                  items:
+                    type: object
+                    required: [until, percent]
+                    properties:
+                      until: {$ref: '#/components/schemas/Date'}
+                      percent: {type: string, description: 'Percent off, a decimal of up to three places.'}
     SupplierInvoiceCancelledV1:
       type: object
       required: [supplier_invoice_id, supplier_id, legal_entity_id, previous_status, status]
@@ -2700,6 +2719,7 @@ components:
         run_date: {$ref: '#/components/schemas/Date'}
         due_by: {$ref: '#/components/schemas/Date'}
         total_amount: {$ref: '#/components/schemas/Money'}
+        discount_amount: {$ref: '#/components/schemas/Money', description: 'The cash discounts the run takes (T36c); total_amount is what it pays after them. Absent from events of releases before discounts were taken.'}
         payment_count: {type: integer, minimum: 0}
         exclusion_count: {type: integer, minimum: 0}
         proposed_by: {$ref: '#/components/schemas/Uuid'}

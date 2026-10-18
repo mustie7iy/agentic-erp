@@ -73,19 +73,33 @@ func (PaymentTerms) Check(_ context.Context, base, proposed *config.Config) ([]c
 	return out, nil
 }
 
-// Apply creates new payment terms and updates changed ones.
+// Apply creates new payment terms and updates changed ones, with their
+// cash discount tiers (validated in the document: at most two, later
+// tiers smaller, all within the net days).
 func (PaymentTerms) Apply(ctx context.Context, doc *config.Config) error {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return err
 	}
 	for _, t := range doc.PaymentTerms {
-		if _, err := tx.Exec(ctx, `INSERT INTO partner.payment_term AS t (tenant_id, code, description, net_days, created_by, updated_by)
-			VALUES ($1, $2, $3, $4, $5, $5)
+		if len(t.Discounts) > 2 {
+			return fmt.Errorf("partner: apply payment term %s: %d discount tiers, the table holds two", t.Key, len(t.Discounts))
+		}
+		var days [2]*int
+		var pct [2]*string
+		for i, d := range t.Discounts {
+			days[i], pct[i] = &d.Days, &d.Percent
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO partner.payment_term AS t (tenant_id, code, description, net_days, discount_days, discount_pct,
+				discount2_days, discount2_pct, created_by, updated_by)
+			VALUES ($1, $2, $3, $4, $5, $6::numeric, $7, $8::numeric, $9, $9)
 			ON CONFLICT (tenant_id, code) DO UPDATE SET description = EXCLUDED.description, net_days = EXCLUDED.net_days,
-				version = t.version + 1, updated_by = EXCLUDED.updated_by
-			WHERE (t.description, t.net_days) IS DISTINCT FROM (EXCLUDED.description, EXCLUDED.net_days)`,
-			p.TenantID, t.Key, t.Description, t.NetDays, p.ID); err != nil {
+				discount_days = EXCLUDED.discount_days, discount_pct = EXCLUDED.discount_pct, discount2_days = EXCLUDED.discount2_days,
+				discount2_pct = EXCLUDED.discount2_pct, version = t.version + 1, updated_by = EXCLUDED.updated_by
+			WHERE (t.description, t.net_days, t.discount_days, t.discount_pct, t.discount2_days, t.discount2_pct)
+				IS DISTINCT FROM (EXCLUDED.description, EXCLUDED.net_days, EXCLUDED.discount_days, EXCLUDED.discount_pct,
+					EXCLUDED.discount2_days, EXCLUDED.discount2_pct)`,
+			p.TenantID, t.Key, t.Description, t.NetDays, days[0], pct[0], days[1], pct[1], p.ID); err != nil {
 			return fmt.Errorf("partner: apply payment term %s: %w", t.Key, err)
 		}
 	}
@@ -154,6 +168,47 @@ func (Suppliers) Supplier(ctx context.Context, partnerID, legalEntity uuid.UUID)
 		s.SetUp, s.ReconciliationID, s.PaymentTermCode, s.IsPostingBlocked, s.IsPaymentBlocked = true, *recon, *term, *posting, *payment
 	}
 	return s, true, nil
+}
+
+// PaymentTerm is a payment term as payables posts with it: its net days
+// and up to two cash discount tiers, earliest first (T36a).
+type PaymentTerm struct {
+	Code      string
+	NetDays   int
+	Discounts []Discount
+}
+
+// Discount is a cash discount tier: Percent (a plain decimal) off for
+// payment within Days of the baseline date.
+type Discount struct {
+	Days    int
+	Percent string
+}
+
+// PaymentTerm returns the configured payment term, or ok = false.
+func (Suppliers) PaymentTerm(ctx context.Context, code string) (PaymentTerm, bool, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return PaymentTerm{}, false, err
+	}
+	t := PaymentTerm{Code: code}
+	var days1, days2 *int
+	var pct1, pct2 *string
+	err = tx.QueryRow(ctx, `SELECT net_days, discount_days, trim_scale(discount_pct)::text, discount2_days, trim_scale(discount2_pct)::text
+		FROM partner.payment_term WHERE code = $1`, code).Scan(&t.NetDays, &days1, &pct1, &days2, &pct2)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return PaymentTerm{}, false, nil
+	}
+	if err != nil {
+		return PaymentTerm{}, false, fmt.Errorf("partner: read payment term %s: %w", code, err)
+	}
+	if days1 != nil { // a tier's days and percent are null together (000004, 000067)
+		t.Discounts = append(t.Discounts, Discount{Days: *days1, Percent: *pct1})
+	}
+	if days2 != nil {
+		t.Discounts = append(t.Discounts, Discount{Days: *days2, Percent: *pct2})
+	}
+	return t, true, nil
 }
 
 // PaymentTermExists reports whether the payment terms are configured.

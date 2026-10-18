@@ -994,7 +994,8 @@ type Invoker interface {
 	// Creates a run in status `proposing` (the Operation's `resource` points to it from the start), then
 	// selects due open items, applies exclusions (blocks, missing or recently changed bank details) and
 	// reserves the items; the run becomes `proposed`, or `failed`. Runs can exceed 100,000 items, so this
-	// returns an Operation.
+	// returns an Operation. A run that takes cash discount in a legal entity without a cash discount
+	// account fails with 422 `payments.no_cash_discount_account` (T36d).
 	//
 	// POST /v1/payment-runs:propose
 	ProposePaymentRun(ctx context.Context, request *PaymentRunPropose, params ProposePaymentRunParams) (ProposePaymentRunRes, error)
@@ -1050,7 +1051,8 @@ type Invoker interface {
 	// be rejected. Human-only. Segregation of duties: the proposer can never release or reject the run
 	// (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). Sets
 	// `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a failed release
-	// operation, which resumes it.
+	// operation, which resumes it. 409 `payments.discount_lapsed` when a payment takes a cash discount
+	// whose last day has passed (T36d): reject the run and propose again.
 	//
 	// POST /v1/payment-runs/{id}:release
 	ReleasePaymentRun(ctx context.Context, request OptDecisionInput, params ReleasePaymentRunParams) (ReleasePaymentRunRes, error)
@@ -25350,7 +25352,8 @@ func (c *Client) sendPostSupplierInvoice(ctx context.Context, request OptSupplie
 // Creates a run in status `proposing` (the Operation's `resource` points to it from the start), then
 // selects due open items, applies exclusions (blocks, missing or recently changed bank details) and
 // reserves the items; the run becomes `proposed`, or `failed`. Runs can exceed 100,000 items, so this
-// returns an Operation.
+// returns an Operation. A run that takes cash discount in a legal entity without a cash discount
+// account fails with 422 `payments.no_cash_discount_account` (T36d).
 //
 // POST /v1/payment-runs:propose
 func (c *Client) ProposePaymentRun(ctx context.Context, request *PaymentRunPropose, params ProposePaymentRunParams) (ProposePaymentRunRes, error) {
@@ -26283,7 +26286,8 @@ func (c *Client) sendReleaseContract(ctx context.Context, params ReleaseContract
 // be rejected. Human-only. Segregation of duties: the proposer can never release or reject the run
 // (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). Sets
 // `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a failed release
-// operation, which resumes it.
+// operation, which resumes it. 409 `payments.discount_lapsed` when a payment takes a cash discount
+// whose last day has passed (T36d): reject the run and propose again.
 //
 // POST /v1/payment-runs/{id}:release
 func (c *Client) ReleasePaymentRun(ctx context.Context, request OptDecisionInput, params ReleasePaymentRunParams) (ReleasePaymentRunRes, error) {

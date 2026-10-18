@@ -217,8 +217,10 @@ func (v *validator) chartOfAccounts(p string, co *Company) {
 
 // accountDetermination checks that each determined account is in the chart
 // with the type its use needs, a vendor reconciliation account where the
-// use is one and no other account; the FX accounts are optional, and the
-// GR/IR account comes with a price difference account.
+// use is one and no other account; the FX accounts are optional, the
+// GR/IR account comes with a price difference account, and the cash
+// discount account is a revenue (SAP SKE, cash discount received; its
+// presence is required by the payment terms, paymentTerms).
 func (v *validator) accountDetermination(p string, co *Company) {
 	ad := co.AccountDetermination
 	check := func(field, number string, want AccountType, recon bool) {
@@ -250,6 +252,9 @@ func (v *validator) accountDetermination(p string, co *Company) {
 	}
 	if ad.GRIR != "" || ad.PriceDifference != "" {
 		check("price_difference", ad.PriceDifference, Expense, false)
+	}
+	if ad.CashDiscount != "" {
+		check("cash_discount", ad.CashDiscount, Revenue, false)
 	}
 }
 
@@ -328,9 +333,50 @@ func (v *validator) paymentTerms(c *Config) {
 		if t.NetDays < 0 || t.NetDays > 365 {
 			v.err(p+".net_days", "must be 0-365")
 		}
+		v.discounts(p, t)
 	}
 	if len(c.PaymentTerms) == 0 {
 		v.err("payment_terms", "at least one payment term is required")
+	}
+	if slices.ContainsFunc(c.PaymentTerms, func(t PaymentTerm) bool { return len(t.Discounts) > 0 }) {
+		for _, co := range c.Companies {
+			if co.AccountDetermination.CashDiscount == "" {
+				v.err(fmt.Sprintf("companies[%s].account_determination.cash_discount", co.Code),
+					"is required: payment terms grant cash discounts, which payments in any company may take")
+			}
+		}
+	}
+}
+
+// discounts checks a term's cash discount tiers: at most two (SAP T052),
+// each within the net days and later than the one before, and each giving
+// a percent above 0 and below 100, of at most three decimals, smaller
+// than the one before, so paying earlier never earns less.
+func (v *validator) discounts(p string, t PaymentTerm) {
+	if len(t.Discounts) > 2 {
+		v.err(p+".discounts", "at most two cash discount tiers")
+		return
+	}
+	var prevDays int
+	var prevPct money.Minor
+	for i, d := range t.Discounts {
+		dp := fmt.Sprintf("%s.discounts[%d]", p, i)
+		switch {
+		case d.Days < 0 || d.Days >= t.NetDays:
+			v.err(dp+".days", "must be 0 or more and less than the net days %d", t.NetDays)
+		case i > 0 && d.Days <= prevDays:
+			v.err(dp+".days", "must be later than the tier before (%d days)", prevDays)
+		}
+		pct, err := money.ParseDecimal(d.Percent, 3)
+		switch {
+		case err != nil:
+			v.err(dp+".percent", "%v", err)
+		case pct <= 0 || pct >= 100_000:
+			v.err(dp+".percent", "must be above 0 and below 100")
+		case i > 0 && pct >= prevPct:
+			v.err(dp+".percent", "must be less than the tier before")
+		}
+		prevDays, prevPct = d.Days, pct
 	}
 }
 

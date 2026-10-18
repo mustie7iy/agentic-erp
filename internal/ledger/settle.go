@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"math"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,6 +34,9 @@ type PayableItem struct {
 	PartnerID    uuid.UUID
 	DocumentDate time.Time
 	Amount       money.Minor
+	// Terms are the payment terms the item was posted with (T36b), or nil
+	// for an item posted without (before T36, manual or migrated).
+	Terms *ItemTerms
 }
 
 // Payable returns the legal entity's open supplier items in the currency
@@ -47,8 +53,11 @@ func (OpenItems) Payable(ctx context.Context, legalEntity uuid.UUID, currency st
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT l.fiscal_year, l.journal_entry_id, l.line_no, l.account_id, l.partner_id, e.document_date, l.amount_tc
+	rows, _ := tx.Query(ctx, `SELECT l.fiscal_year, l.journal_entry_id, l.line_no, l.account_id, l.partner_id, e.document_date, l.amount_tc,
+			`+termsColumns+`
 		FROM ledger.journal_line l
+		LEFT JOIN ledger.open_item_terms t ON t.tenant_id = l.tenant_id AND t.fiscal_year = l.fiscal_year AND t.journal_entry_id = l.journal_entry_id
+			AND t.line_no = l.line_no
 		JOIN ledger.ledger g ON g.tenant_id = l.tenant_id AND g.id = l.ledger_id AND g.is_leading
 		JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id AND a.reconciliation_kind = 'supplier'
 		JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
@@ -61,7 +70,10 @@ func (OpenItems) Payable(ctx context.Context, legalEntity uuid.UUID, currency st
 		ORDER BY l.partner_id, l.fiscal_year, l.journal_entry_id, l.line_no`, legalEntity, currency, documentDateTo)
 	items, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (PayableItem, error) {
 		var p PayableItem
-		err := errs.Wrapf(r.Scan(&p.FiscalYear, &p.EntryID, &p.LineNo, &p.AccountID, &p.PartnerID, &p.DocumentDate, &p.Amount), "scan payable item")
+		var t storedTerms
+		err := errs.Wrapf(r.Scan(append([]any{&p.FiscalYear, &p.EntryID, &p.LineNo, &p.AccountID, &p.PartnerID, &p.DocumentDate, &p.Amount},
+			t.fields()...)...), "scan payable item")
+		p.Terms = t.terms()
 		return p, err
 	})
 	if err != nil {
@@ -131,6 +143,10 @@ type Settlement struct {
 	SourceContext    string
 	SourceDocumentID uuid.UUID
 	Items            []ItemRef
+	// Discounts are the cash discounts taken on the items (T36c), in the
+	// transaction currency and in the sign the items are paid in (positive
+	// on an invoice), one per item and smaller than it; nil for none.
+	Discounts []money.Minor
 	// ReservedFor is the owner whose reservation of the items this
 	// settlement pays (a payment run), or uuid.Nil: items another owner
 	// holds are refused, and the owner's reservations of the settled items
@@ -142,10 +158,12 @@ type Settlement struct {
 // transaction currency against a bank account, and clears the items with
 // it (the entry is the clearing document, as a payment is in SAP). Each
 // item is offset on its account at its original amounts in all three
-// currencies; the bank is credited with their total, converted at the
-// rates of the posting date; what that leaves in local or group currency
-// is a realized exchange difference on the account determination's
-// fx_gain or fx_loss account. The partner lines are cleared with the items.
+// currencies; the bank is credited with their total less any cash
+// discounts taken, which go to the cash_discount account, both converted
+// at the rates of the posting date; what that leaves in local or group
+// currency is a realized exchange difference on the account
+// determination's fx_gain or fx_loss account. The partner lines are
+// cleared with the items.
 func (p Postings) Settle(ctx context.Context, in Settlement) (Entry, error) {
 	tx, actor, err := reqctx.Request(ctx)
 	if err != nil {
@@ -167,16 +185,11 @@ func (p Postings) Settle(ctx context.Context, in Settlement) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	bank, err := e.bankAmounts(ctx, tx, in, le, tc)
+	paid, bank, err := e.paymentLines(ctx, tx, in, le, items, settled{tc: tc, lc: lc, gc: gc})
 	if err != nil {
 		return Entry{}, err
 	}
-	lines = append(lines, Line{AccountID: in.BankAccountID, TC: tc, LC: bank.lc, GC: bank.gc, Text: in.HeaderText})
-	fx, err := exchangeDifferenceLines(ctx, le.ID, lc, gc, bank, in.HeaderText)
-	if err != nil {
-		return Entry{}, err
-	}
-	lines = append(lines, fx...)
+	lines = append(lines, paid...)
 	if err := e.checkAccounts(ctx, tx, le.ID, lines, false); err != nil {
 		return Entry{}, err
 	}
@@ -204,11 +217,126 @@ func (p Postings) Settle(ctx context.Context, in Settlement) (Entry, error) {
 }
 
 // settlementBank is the bank line's local and group amounts with the
-// rates of the posting date they were converted at.
+// rates of the posting date they were converted at, and the currencies'
+// exponents to convert other amounts of the settlement at them.
 type settlementBank struct {
-	group          string
-	rateLC, rateGC exchange
-	lc, gc         money.Minor
+	group               string
+	rateLC, rateGC      exchange
+	expTC, expLC, expGC int
+	lc, gc              money.Minor
+}
+
+// convert is a transaction amount in local and group currency at the
+// settlement's rates.
+func (b settlementBank) convert(tc money.Minor) (lc, gc money.Minor, err error) {
+	if lc, err = convert(tc, b.rateLC, b.expTC, b.expLC); err != nil {
+		return 0, 0, err
+	}
+	gc, err = convert(lc, b.rateGC, b.expLC, b.expGC)
+	return lc, gc, err
+}
+
+// settled is the items' total in the three currencies.
+type settled struct{ tc, lc, gc money.Minor }
+
+// paymentLines are what pays the items: the bank line, credited with
+// their total less the discounts taken (T36c); a line crediting the
+// discounts to the cash_discount account; both converted at the posting
+// date's rates, and what that leaves of the items' local and group totals
+// as exchange differences.
+func (e *Endpoints) paymentLines(ctx context.Context, tx pgx.Tx, in Settlement, le tenancy.Entity, items []item, total settled) ([]Line, settlementBank, error) {
+	discount, bankTC, err := settlementDiscount(in, items, total.tc)
+	if err != nil {
+		return nil, settlementBank{}, err
+	}
+	bank, err := e.bankAmounts(ctx, tx, in, le, bankTC)
+	if err != nil {
+		return nil, settlementBank{}, err
+	}
+	lines := []Line{{AccountID: in.BankAccountID, TC: bankTC, LC: bank.lc, GC: bank.gc, Text: in.HeaderText}}
+	paid := bank
+	if discount != 0 {
+		dl, err := discountLines(ctx, tx, le.ID, bank, items, in, discount)
+		if err != nil {
+			return nil, settlementBank{}, err
+		}
+		for _, d := range dl {
+			if paid.lc, err = money.Sum(paid.lc, d.LC); err == nil {
+				paid.gc, err = money.Sum(paid.gc, d.GC)
+			}
+			if err != nil {
+				return nil, settlementBank{}, errTotalTooLarge("items")
+			}
+		}
+		lines = append(lines, dl...)
+	}
+	fx, err := exchangeDifferenceLines(ctx, le.ID, total.lc, total.gc, paid, in.HeaderText)
+	return append(lines, fx...), bank, err
+}
+
+// settlementDiscount is the total of the discounts taken on the items, in
+// the sign they are paid in, and what the bank pays after them (the items'
+// total tc, negative when paid out, less the discounts): one discount per
+// item (or none at all), each 0 or of the item's sign and smaller than it
+// (422 ledger.invalid_discount).
+func settlementDiscount(in Settlement, items []item, tc money.Minor) (discount, bank money.Minor, err error) {
+	if len(in.Discounts) == 0 {
+		return 0, tc, nil
+	}
+	invalid := func(detail string) error {
+		return problem.Unprocessable("ledger.invalid_discount", "A settlement's cash discounts "+detail+".")
+	}
+	if len(in.Discounts) != len(items) {
+		return 0, 0, invalid(fmt.Sprintf("are one per item: %d for %d items", len(in.Discounts), len(items)))
+	}
+	for i, d := range in.Discounts {
+		paid := -items[i].tc
+		if d != 0 && (d == math.MinInt64 || (d > 0) != (paid > 0) || d.Abs() >= paid.Abs()) {
+			return 0, 0, invalid(fmt.Sprintf("are of their item's sign and smaller than it: %d on an item paid at %d", d, paid))
+		}
+	}
+	if discount, err = money.Sum(in.Discounts...); err == nil {
+		bank, err = money.Sum(tc, discount)
+	}
+	if err != nil {
+		return 0, 0, errTotalTooLarge("discounts")
+	}
+	return discount, bank, nil
+}
+
+// discountLines credit the discounts taken: their net part to the legal
+// entity's cash_discount account (SAP SKE), and their tax share to each
+// tax line's account with its tax code (discountTax), all at the
+// settlement's rates.
+func discountLines(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, bank settlementBank, items []item, in Settlement, discount money.Minor) ([]Line, error) {
+	account, ok, err := Accounts{}.Determination(ctx, legalEntity, "cash_discount")
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, problem.Unprocessable("ledger.no_cash_discount_account", "The payment takes a cash discount, and the legal entity has no cash_discount account in its account determination.")
+	}
+	taxes, tax, err := discountTax(ctx, tx, items, in.Discounts)
+	if err != nil {
+		return nil, err
+	}
+	// The tax share is part of the discount, of its sign and at most it
+	// (itemTaxShares), so the net is of the discount's sign or 0, when
+	// rounding gives the tax the whole of a small discount: no line then.
+	var lines []Line
+	if net := discount - tax; net != 0 {
+		lines = append(lines, Line{AccountID: account, TC: -net, Text: in.HeaderText})
+	}
+	for _, k := range slices.SortedFunc(maps.Keys(taxes), compareTaxKeys) {
+		code := k.code
+		lines = append(lines, Line{AccountID: k.account, TC: -taxes[k], TaxCode: &code, Text: in.HeaderText})
+	}
+	for i := range lines {
+		if lines[i].LC, lines[i].GC, err = bank.convert(lines[i].TC); err != nil {
+			return nil, err
+		}
+	}
+	return lines, nil
 }
 
 // bankAmounts converts the settled transaction amount to local currency,
@@ -226,10 +354,8 @@ func (e *Endpoints) bankAmounts(ctx context.Context, tx pgx.Tx, in Settlement, l
 	if b.rateLC, b.rateGC, err = postingRates(ctx, tx, in.Currency, le.LocalCurrency, b.group, in.PostingDate); err != nil {
 		return settlementBank{}, err
 	}
-	if b.lc, err = convert(tc, b.rateLC, exps[in.Currency], exps[le.LocalCurrency]); err != nil {
-		return settlementBank{}, err
-	}
-	if b.gc, err = convert(b.lc, b.rateGC, exps[le.LocalCurrency], exps[b.group]); err != nil {
+	b.expTC, b.expLC, b.expGC = exps[in.Currency], exps[le.LocalCurrency], exps[b.group]
+	if b.lc, b.gc, err = b.convert(tc); err != nil {
 		return settlementBank{}, err
 	}
 	return b, nil

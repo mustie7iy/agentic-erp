@@ -63,34 +63,67 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Invoice{}, err
 	}
-	order, err := e.invoiceOrder(ctx, v)
+	in, terms, err := e.posting(ctx, tx, v, sup, *date)
 	if err != nil {
 		return Invoice{}, err
 	}
-	lines, grir, err := e.invoiceLines(ctx, v, sup, *date, order)
+	entry, err := e.Postings.Post(ctx, in)
 	if err != nil {
 		return Invoice{}, err
 	}
-	posting := invoicePosting(v, id, *date)
-	posting.Lines, posting.GRIR = lines, grir
-	entry, err := e.Postings.Post(ctx, posting)
-	if err != nil {
+	if err := markPosted(ctx, tx, p, v, entry, *date, terms); err != nil {
 		return Invoice{}, err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET status = 'posted', posting_date = $2, journal_entry_year = $3, journal_entry_id = $4,
-		version = version + 1, updated_by = $5 WHERE id = $1`, id, *date, entry.FiscalYear, entry.ID, p.ID); err != nil {
-		return Invoice{}, fmt.Errorf("payables: mark invoice %s posted: %w", id, err)
 	}
 	posted, err := load(ctx, tx, id, false)
 	if err != nil {
 		return Invoice{}, err
 	}
-	return posted, record(ctx, "payables.supplier_invoice.post", id, map[string]any{"journal_entry_id": entry.ID, "document_number": entry.DocumentNumber},
+	return posted, recordPosted(ctx, posted, entry)
+}
+
+// posting is the entry an invoice posts, with the payment terms it posts
+// with (invoiceTerms), which the ledger keeps with its open item.
+func (e *Endpoints) posting(ctx context.Context, tx pgx.Tx, v Invoice, sup partner.Supplier, date time.Time) (ledger.Posting, *ledger.ItemTerms, error) {
+	order, err := e.orderOf(ctx, v)
+	if err != nil {
+		return ledger.Posting{}, nil, err
+	}
+	lines, grir, err := e.invoiceLines(ctx, v, sup, date, grirOnly(order))
+	if err != nil {
+		return ledger.Posting{}, nil, err
+	}
+	terms, err := e.invoiceTerms(ctx, tx, v, sup, order)
+	if err != nil {
+		return ledger.Posting{}, nil, err
+	}
+	posting := invoicePosting(v, v.ID, date)
+	posting.Lines, posting.GRIR, posting.Terms = lines, grir, terms
+	return posting, terms, nil
+}
+
+// markPosted records an invoice as posted with its entry and the terms it
+// posted with.
+func markPosted(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Invoice, entry ledger.Entry, date time.Time, terms *ledger.ItemTerms) error {
+	if err := keepTerms(ctx, tx, p, v, terms); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET status = 'posted', posting_date = $2, journal_entry_year = $3, journal_entry_id = $4,
+		version = version + 1, updated_by = $5 WHERE id = $1`, v.ID, date, entry.FiscalYear, entry.ID, p.ID); err != nil {
+		return fmt.Errorf("payables: mark invoice %s posted: %w", v.ID, err)
+	}
+	return nil
+}
+
+// recordPosted audits a posted invoice and publishes SupplierInvoicePosted,
+// with its amounts signed by its kind.
+func recordPosted(ctx context.Context, posted Invoice, entry ledger.Entry) error {
+	return record(ctx, "payables.supplier_invoice.post", posted.ID, map[string]any{"journal_entry_id": entry.ID, "document_number": entry.DocumentNumber},
 		event(posted, "supplier_invoice_posted", map[string]any{"document_number": posted.DocumentNumber, "supplier_reference": posted.SupplierReference,
-			"invoice_date": posted.InvoiceDate.Format(time.DateOnly), "posting_date": date.Format(time.DateOnly),
+			"invoice_date": posted.InvoiceDate.Format(time.DateOnly), "posting_date": posted.PostingDate.Format(time.DateOnly),
 			"gross_amount": money.EventAmount(signed(posted, posted.Gross), posted.Currency, posted.Exponent),
 			"tax_amount":   money.EventAmount(signed(posted, posted.Tax), posted.Currency, posted.Exponent), "kind": posted.Kind,
-			"purchase_order_id": posted.PurchaseOrderID, "journal_entry_id": entry.ID, "journal_entry_year": entry.FiscalYear, "status": Posted}))
+			"purchase_order_id": posted.PurchaseOrderID, "journal_entry_id": entry.ID, "journal_entry_year": entry.FiscalYear, "status": Posted,
+			"payment_terms": termsEvent(posted.Terms)}))
 }
 
 // invoicePosting is the journal entry's header for invoice id of its
@@ -238,14 +271,29 @@ func invoicePostingDate(ctx context.Context, tx pgx.Tx, v Invoice, postingDate *
 // order whose items its items clear, or nil: a directly valued order's
 // items post their own accounts, as an invoice without an order's do.
 func (e *Endpoints) invoiceOrder(ctx context.Context, v Invoice) (*procurement.Order, error) {
+	o, err := e.orderOf(ctx, v)
+	return grirOnly(o), err
+}
+
+// orderOf is the invoice's order, or nil without one; a missing order is
+// refused (replayCache.order).
+func (e *Endpoints) orderOf(ctx context.Context, v Invoice) (*procurement.Order, error) {
 	if v.PurchaseOrderID == nil {
 		return nil, nil
 	}
 	o, err := newReplayCache().order(ctx, e.Orders, v)
-	if err != nil || o.Valuation != procurement.ValuationGRIR {
+	if err != nil {
 		return nil, err
 	}
 	return &o, nil
+}
+
+// grirOnly is the order if it is valued through GR/IR, else nil.
+func grirOnly(o *procurement.Order) *procurement.Order {
+	if o == nil || o.Valuation != procurement.ValuationGRIR {
+		return nil
+	}
+	return o
 }
 
 // invoiceLines builds the entry: Dr expense per non-zero item, or a GR/IR

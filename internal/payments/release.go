@@ -20,6 +20,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -162,7 +163,7 @@ func (e *Endpoints) PostPayment(ctx context.Context, r Run, pay uuid.UUID) (post
 	text := "Payment run " + r.DocumentNumber
 	entry, err := e.Postings.Settle(ctx, ledger.Settlement{LegalEntityID: r.LegalEntityID, DocumentType: DocumentType, PostingDate: r.RunDate,
 		Currency: r.Currency, BankAccountID: hb.GLAccountID, Reference: &p.EndToEndID, HeaderText: &text, SourceContext: "payments",
-		SourceDocumentID: p.ID, Items: items, ReservedFor: r.ID})
+		SourceDocumentID: p.ID, Items: items, Discounts: discounts(p), ReservedFor: r.ID})
 	if err != nil {
 		return false, err
 	}
@@ -181,6 +182,16 @@ func report(ctx context.Context, tx pgx.Tx, r Run) error {
 		return fmt.Errorf("payments: count the posted payments of run %s: %w", r.ID, err)
 	}
 	return operations.Report(ctx, *r.ReleaseOpID, done, total)
+}
+
+// discounts are the cash discounts a payment takes on its items, in their
+// order (itemRefs).
+func discounts(p Payment) []money.Minor {
+	out := make([]money.Minor, len(p.Items))
+	for i, it := range p.Items {
+		out[i] = it.Discount
+	}
+	return out
 }
 
 // itemRefs are the open items a payment settles.
@@ -372,7 +383,30 @@ func (e *Endpoints) recheck(ctx context.Context, r Run, pays []Payment) error {
 				"); reject the run and propose again.")
 		}
 	}
+	if err := e.recheckDiscounts(r, pays); err != nil {
+		return err
+	}
 	return e.recheckItems(ctx, r, pays)
+}
+
+// recheckDiscounts refuses the release of a proposed run after the last day
+// a payment's cash discounts are earned (409 payments.discount_lapsed):
+// paying later would take a discount the supplier no longer grants; the
+// run is rejected and proposed again, at the discount then earned. Days
+// are compared in UTC. A releasing run being resumed is not refused: some
+// of its payments may have posted already.
+func (e *Endpoints) recheckDiscounts(r Run, pays []Payment) error {
+	if r.Status != Proposed {
+		return nil
+	}
+	today := clock.Now(e.Now).UTC().Truncate(24 * time.Hour)
+	for _, pay := range pays {
+		if pay.DiscountUntil != nil && today.After(*pay.DiscountUntil) {
+			return problem.Conflict("payments.discount_lapsed", fmt.Sprintf("The payment to supplier %s takes cash discount earned until %s; reject the run and propose again.",
+				pay.SupplierID, pay.DiscountUntil.Format(time.DateOnly)))
+		}
+	}
+	return nil
 }
 
 // unpayableText says why an item can no longer be paid (OpenItems.Unpayable).

@@ -416,7 +416,11 @@ erDiagram
     text status
     uuid workflow_request_id }
   payment_term { text code PK
-    smallint net_days }
+    smallint net_days
+    smallint discount_days "tier 1"
+    numeric discount_pct
+    smallint discount2_days "tier 2"
+    numeric discount2_pct }
 ```
 
 One business partner can be both supplier and customer (SAP business partner
@@ -424,6 +428,25 @@ model). Company-specific supplier data lives in `supplier_company`. Bank
 accounts are effective-dated; a change creates a new row with `valid_from`,
 which drives the payment hold after bank changes. Fingerprints detect
 duplicate tax numbers and bank accounts across partners without decrypting.
+
+A payment term grants up to two cash discount tiers before its net days,
+as SAP's T052 does (ZTAG1/ZPRZ1, ZTAG2/ZPRZ2, ZTAG3; migration 000067,
+T36a): a percent off for payment within so many days of the baseline date,
+the second tier later and smaller than the first and both within the net
+days (`payment_term_discount2_tiers`). The configuration document carries
+them as `payment_terms[].discounts` (`{days, percent}`, percent a decimal
+of at most three places), validated the same way; a change to them is
+posting-related, since it changes what payments post. Once any term grants
+a discount, every company names its cash discount account
+(`account_determination.cash_discount`, a revenue account, SAP's SKE),
+which payments post the discounts they take to. The SAP load reads a T052
+position with a percent as a tier and the first without one as the net
+days, a position of no days after a tier (empty, or zero-filled as NUMC
+extracts write it) as unused, and a decimal comma as the point. A term
+whose last discount runs to its net due date ("within 14 days 2%"), which
+the configuration cannot hold, or that counts in months or fixed days
+(ZMONA, ZFAEL), is drafted to fail validation with a note until a reviewer
+sets it.
 
 ## 3.7 General ledger (`ledger`)
 
@@ -670,12 +693,23 @@ Other ledger tables: `ledger` (leading 0L, parallel ledgers), `exchange_rate`
 (rate type `average | bank_buying | bank_selling | planning`, currency pair,
 `valid_from`; insert-only), `account_determination` (which account
 automatic postings use per legal entity and key: `ap_reconciliation`,
-`input_tax`, `bank`, `fx_gain`, `fx_loss`, and for GR/IR clearing (T33)
-`gr_ir` and `price_difference`; the GR/IR account is a liability that no
+`input_tax`, `bank`, `fx_gain`, `fx_loss`, `cash_discount` (T36a), and for
+GR/IR clearing (T33) `gr_ir` and `price_difference`; the GR/IR account is a liability that no
 tax code posts, starts without postings other than a migration run's, and
 stays once activated (configuration validation, `ledger.Setup.Check`); order
 items that named it before stay as they are, and posting them is refused),
 `tax_code` (rate, account, direction).
+
+An open item on a supplier reconciliation account keeps the payment terms
+it was posted with (`open_item_terms`, migration 000068, T36b), as SAP
+copies ZTERM, ZFBDT and ZBD1T..ZBD3T into the vendor line: the term's
+code, the baseline date, the net days and up to two discount tiers, with
+`partner.payment_term`'s rules, insert-only. The posting context passes
+them with the entry (`ledger.Posting.Terms`; terms for an entry without a
+supplier open item are refused). The payable items and `GET
+/v1/open-items` show them, with the net due date and each discount's last
+day (`payment_terms`); an item posted without them (before T36, manual,
+migrated) has none and is due by its supplier's current terms.
 
 ## 3.8 Procurement (`procurement`)
 
@@ -1013,6 +1047,17 @@ Each kind is matched and posted by its kind (T34c):
   such invoice is entered `on_hold` with the reason, for the reference to
   be entered by hand rather than dropped; an invoice printing one is not
   captured.
+- **Payment terms** (T36b): a document posts with the payment terms SAP's
+  invoice verification would give it, kept in `supplier_invoice_terms`
+  (migration 000068, insert-only) and passed to the ledger for its open
+  item (§3.7): a correction naming an invoice has that invoice's terms
+  (none for one posted before terms were kept); a credit memo or
+  subsequent credit naming none has none, as it is due at once and earns
+  no discount; any other document has its order's term, else its
+  supplier's in the legal entity, counted from its invoice date (422
+  `payables.unknown_payment_term` for a term that is not configured). The
+  invoice resource and `SupplierInvoicePosted` show them as
+  `payment_terms`; a later change to the term changes neither.
 
 A partial unique index on `(tenant_id, supplier_id, supplier_reference_norm)`
 for non-rejected invoices makes duplicate invoices impossible at the database
@@ -1144,8 +1189,9 @@ erDiagram
 ```
 
 A proposal pays each supplier its open items due by the run's due date,
-netted in one payment: an invoice is due its supplier's net days after its
-document date; every debit on the supplier account (a credit memo, whether
+netted in one payment: an invoice is due on the net due date of the terms
+it was posted with (T36b), or, posted without them (before T36, manual,
+migrated), its supplier's net days after its document date; every debit on the supplier account (a credit memo, whether
 or not it names an invoice, a subsequent credit, a manual or migrated
 debit) on its document date (T34d), so it nets with the next run that pays
 the supplier. SAP has a credit memo without an invoice reference due at
@@ -1154,6 +1200,52 @@ earlier never pays more than is owed. A
 supplier whose due items net to zero or a debit is excluded
 (`debit_balance`) and paid nothing: a credit memo never pays out alone,
 and stays open for a later run.
+
+A run takes cash discount by the payment terms each item was posted with
+(T36c): the tier its run date falls in (the first whose last day is on or
+after it), and it also pays an item not yet due when paying it on the
+due-by date instead would earn less discount, as SAP's payment run pays an
+item whose discount lapses before the next run. The discount base is the
+item's gross amount, tax included. A credit memo naming an invoice carries
+that invoice's terms, so it takes the invoice's discount off its credit
+(an invoice of 100 and its memo of 30 at 2% pay 68.60); a memo naming none
+takes none. **Rounding:** each item's discount is its tier's percent of the
+item, computed exactly and rounded half away from zero to the currency's
+minor unit, item by item; one that would round to the whole item is a
+minor unit less, so an item always pays something. `payment_item` keeps
+each item's discount (`discount_amount`, of the item's sign and smaller
+than it, migration 000069), `payment` their total (derived when the
+proposal writes both), and a payment's amount
+is what it pays after them: the bank file pays it, and a supplier whose
+items net to nothing after their discounts is excluded (`debit_balance`).
+At release the settlement credits the bank with what is paid and the
+discounts to the legal entity's `cash_discount` account, both at the
+posting date's rates, so the items clear at their original amounts and
+what is left in local and group currency is the exchange difference
+(`ledger.Settle`). The discount is taken off the gross amount, so its tax
+share corrects the input tax (T36d, SAP's tax adjustment, §17 UStG): each
+item's discount is split by its entry's tax lines (a line with a tax code
+on that code's account) in proportion to the gross the entry owes the
+supplier, the tax share rounded half away from zero and divided among the
+tax lines by largest remainder, so net and tax add up to the discount; the
+net goes to `cash_discount`, each tax share to its tax line's account with
+its tax code, so the VAT return sees it; the tax share is converted at
+the payment date's rate, like the rest of the payment. An entry without
+tax lines (a manual entry, or tax posted without a tax code), one whose
+tax lines do not all run in its payment's direction (§13b and intra-EU
+pairs, whose input and output tax corrections would net to zero), or
+one whose tax is at least what it owes the supplier, puts all its
+discount on `cash_discount`; the net line carries no tax code, so a VAT
+report driven by bases does not see the base reduction (input tax, as
+UStVA reports it, is corrected). A run that takes a
+discount fails at proposal without a `cash_discount` account (422
+`payments.no_cash_discount_account`). A payment records the last day its
+discounts are earned (`discount_until`, migration 000070, shown on the
+payment so the approver knows the release-by date), and the release
+of a proposed run after it is refused (409 `payments.discount_lapsed`,
+days in UTC): the run is rejected and proposed again, at the discount then
+earned; a release being resumed is not refused, since some of its
+payments may have posted.
 
 A partial unique index on active `payment_item (tenant_id, item_fiscal_year,
 item_entry_id, item_line_no)` guarantees an open item is in at most one live run; rejecting a run
@@ -1444,6 +1536,6 @@ activate, and orders under them are refused.
 | T012K | `payments.house_bank` |
 | T052 | `partner.payment_term` |
 | T007A | `ledger.tax_code` |
-| T030 | `ledger.account_determination` |
+| T030 | `ledger.account_determination` (VST, BNK, WRX, PRD, SKE) |
 | AGR_* | `identity.role`, `role_permission`, `principal_role` |
 | NRIV | `config.number_range` |

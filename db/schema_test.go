@@ -2102,3 +2102,169 @@ func TestSupplierInvoiceItemQuantities(t *testing.T) {
 		}), "supplier_invoice_item_quantity_kind")
 	})
 }
+
+// TestPaymentTermDiscountTiers: a payment term has up to two cash discount
+// tiers (SAP T052 ZTAG1/ZPRZ1, ZTAG2/ZPRZ2), each of days and percent; the
+// second only after the first, both within the net days, and the later
+// tier gives less.
+func TestPaymentTermDiscountTiers(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	for i, c := range []struct {
+		name, tiers, fails string
+	}{
+		{"net only", "NULL, NULL, NULL, NULL", ""},
+		{"one tier", "14, 3, NULL, NULL", ""},
+		{"two tiers", "14, 3, 30, 2", ""},
+		{"second tier without days", "14, 3, NULL, 2", "payment_term_discount2_pair"},
+		{"second tier without the first", "NULL, NULL, 30, 2", "payment_term_discount2_tiers"},
+		{"second tier not later", "14, 3, 14, 2", "payment_term_discount2_tiers"},
+		{"second tier at the net days", "14, 3, 45, 2", "payment_term_discount2_tiers"},
+		{"second tier not less", "14, 3, 30, 3", "payment_term_discount2_tiers"},
+		{"second tier percent", "14, 3, 30, 0", "payment_term_discount2_pct_check"},
+		// No valid term reaches 100 on the second tier (it is below the
+		// first, itself below 100), so the first breaks its check too; the
+		// column check is evaluated before the table checks.
+		{"second tier percent 100", "14, 100, 30, 100", "payment_term_discount2_pct_check"},
+		{"second tier days negative", "14, 3, -1, 2", "payment_term_discount2_days_check"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+				return exec(tx, `INSERT INTO partner.payment_term (tenant_id, code, description, net_days, discount_days, discount_pct, discount2_days, discount2_pct,
+					created_by, updated_by) VALUES ($1, $2, 'Terms', 45, `+c.tiers+`, $3, $3)`, f.tenant, fmt.Sprintf("T%d", i), f.actor)
+			})
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("insert: got %v, want success", err)
+				}
+				return
+			}
+			failsOn(t, err, c.fails)
+		})
+	}
+}
+
+// TestTermsFrozenAtPosting: an open item and a posted supplier invoice keep
+// the payment terms they were posted with (T36b), by the rules of
+// partner.payment_term, and the terms never change.
+func TestTermsFrozenAtPosting(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	var je uuid.UUID
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		var err error
+		je, err = f.entry(tx, 4, "2026-04-02", line{account: f.expense, amount: 500}, line{account: f.ap, amount: -500, partner: &f.supplier})
+		return err
+	})
+	invoice, ins := f.invoiceOf("invoice", nil, nil, 500)
+	mustApp(t, f.tenant, ins)
+	tables := map[string]func(tx pgx.Tx, line int, tiers string) error{
+		"open_item_terms": func(tx pgx.Tx, line int, tiers string) error {
+			return exec(tx, `INSERT INTO ledger.open_item_terms (tenant_id, fiscal_year, journal_entry_id, line_no, payment_term_code, baseline_date, net_days,
+				discount_days, discount_pct, discount2_days, discount2_pct) VALUES ($1, 2026, $2, $3, 'ZB01', '2026-04-02', 45, `+tiers+`)`, f.tenant, je, line)
+		},
+		"supplier_invoice_terms": func(tx pgx.Tx, _ int, tiers string) error {
+			return exec(tx, `INSERT INTO payables.supplier_invoice_terms (tenant_id, supplier_invoice_id, payment_term_code, baseline_date, net_days,
+				discount_days, discount_pct, discount2_days, discount2_pct) VALUES ($1, $2, 'ZB01', '2026-04-02', 45, `+tiers+`)`, f.tenant, invoice)
+		},
+	}
+	for table, insert := range tables {
+		for _, c := range []struct {
+			name, tiers, fails string
+		}{
+			{"first tier without its percent", "14, NULL, NULL, NULL", "pairs"},
+			{"first tier at the net days", "45, 3, NULL, NULL", "tiers"},
+			{"second tier without the first", "NULL, NULL, 30, 2", "tiers"},
+			{"second tier not less", "14, 3, 30, 3", "tiers"},
+			{"second tier not later", "14, 3, 14, 2", "tiers"},
+			{"percent 100", "14, 100, NULL, NULL", "discount_pct_check"},
+			{"percent 0", "14, 0, NULL, NULL", "discount_pct_check"},
+			{"first tier days negative", "-1, 3, NULL, NULL", "discount_days_check"},
+			{"second tier days negative", "14, 3, -1, 2", "discount2_days_check"},
+			{"second tier percent 0", "14, 3, 30, 0", "discount2_pct_check"},
+		} {
+			t.Run(table+": "+c.name, func(t *testing.T) {
+				failsOn(t, asApp(t, f.tenant, func(tx pgx.Tx) error { return insert(tx, 2, c.tiers) }), table+"_"+c.fails)
+			})
+		}
+		t.Run(table+": two tiers, then frozen", func(t *testing.T) {
+			mustApp(t, f.tenant, func(tx pgx.Tx) error { return insert(tx, 2, "14, 3, 30, 2") })
+			name := map[string]string{"open_item_terms": "ledger", "supplier_invoice_terms": "payables"}[table] + "." + table
+			_, err := testDB.Exec(context.Background(), "UPDATE "+name+" SET net_days = 60 WHERE tenant_id = $1", f.tenant)
+			failsWith(t, err, "insert-only")
+			_, err = testDB.Exec(context.Background(), "DELETE FROM "+name+" WHERE tenant_id = $1", f.tenant)
+			failsWith(t, err, "insert-only")
+		})
+	}
+	for _, net := range []int{-1, 366} {
+		t.Run(fmt.Sprintf("net days %d", net), func(t *testing.T) {
+			failsOn(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+				return exec(tx, `INSERT INTO ledger.open_item_terms (tenant_id, fiscal_year, journal_entry_id, line_no, payment_term_code, baseline_date, net_days)
+					VALUES ($1, 2026, $2, 1, 'ZB01', '2026-04-02', $3)`, f.tenant, je, net)
+			}), "open_item_terms_net_days_check")
+		})
+	}
+	t.Run("terms of no invoice", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payables.supplier_invoice_terms (tenant_id, supplier_invoice_id, payment_term_code, baseline_date, net_days)
+				VALUES ($1, $2, 'ZB01', '2026-04-02', 30)`, f.tenant, id())
+		}), "supplier_invoice_terms_tenant_id_supplier_invoice_id_fkey")
+	})
+	t.Run("terms of no line", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, func(tx pgx.Tx) error { return tables["open_item_terms"](tx, 9, "NULL, NULL, NULL, NULL") }), "open_item_terms_line_fkey")
+	})
+}
+
+// TestPaymentItemDiscounts: a payment item takes a cash discount of its
+// own sign and less than its amount (T36c), fixed like the rest of the
+// item, and a payment records the discounts its items take.
+func TestPaymentItemDiscounts(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	hb, run, pay := id(), id(), id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, `INSERT INTO payments.house_bank (tenant_id, id, legal_entity_id, code, name, iban_cipher, iban_last4, bic, currency, gl_account_id, status, created_by, updated_by)
+			VALUES ($1,$2,$3,'MAIN','Main','\x00','5555','BUKBGB22','USD',$4,'active',$5,$5)`, f.tenant, hb, f.entity, f.bank, f.actor); err != nil {
+			return err
+		}
+		if err := exec(tx, `INSERT INTO payments.payment_run (tenant_id, id, document_number, legal_entity_id, house_bank_id, run_date, due_by, currency, total_amount, status, proposed_by, created_by, updated_by)
+			VALUES ($1,$2,'PR1',$3,$4,'2026-07-31','2026-07-31','USD',294,'proposed',$5,$5,$5)`, f.tenant, run, f.entity, hb, f.actor); err != nil {
+			return err
+		}
+		return exec(tx, `INSERT INTO payments.payment (tenant_id, id, payment_run_id, supplier_id, bank_account_id, amount, discount_amount, currency, end_to_end_id, created_by)
+			VALUES ($1,$2,$3,$4,$5,294,6,'USD','E2E-1',$6)`, f.tenant, pay, run, f.supplier, id(), f.actor)
+	})
+	item := func(amount, discount int) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.payment_item (tenant_id, payment_id, item_fiscal_year, item_entry_id, item_line_no, amount, discount_amount, due_date)
+				VALUES ($1, $2, 2026, $3, 2, $4, $5, '2026-07-31')`, f.tenant, pay, id(), amount, discount)
+		}
+	}
+	for _, c := range []struct {
+		name             string
+		amount, discount int
+		fails            string
+	}{
+		{"an invoice's discount", 300, 6, ""},
+		{"a credit memo's discount", -50, -1, ""},
+		{"no discount", 300, 0, ""},
+		{"a discount of the other sign", 300, -6, "payment_item_discount_within"},
+		{"a discount of the whole amount", 300, 300, "payment_item_discount_within"},
+		{"a credit memo's discount of the other sign", -50, 1, "payment_item_discount_within"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := asApp(t, f.tenant, item(c.amount, c.discount))
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("insert: got %v, want success", err)
+				}
+				return
+			}
+			failsOn(t, err, c.fails)
+		})
+	}
+	t.Run("a discount changed", func(t *testing.T) {
+		_, err := testDB.Exec(context.Background(), "UPDATE payments.payment_item SET discount_amount = 1 WHERE tenant_id = $1 AND discount_amount = 6", f.tenant)
+		failsWith(t, err, "only be deactivated")
+	})
+}

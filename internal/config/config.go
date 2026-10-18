@@ -98,6 +98,11 @@ type AccountDetermination struct {
 	// PriceDifference takes what an invoice on an order valued through
 	// GR/IR differs from the order price; required with GRIR.
 	PriceDifference string `yaml:"price_difference,omitempty" json:"price_difference,omitempty"`
+	// CashDiscount takes the cash discounts payments take from suppliers
+	// (SAP SKE, cash discount received); required in every company once a
+	// payment term has discounts (T36a). Discounts granted to customers
+	// (SAP SKT, an expense) will need a key of their own.
+	CashDiscount string `yaml:"cash_discount,omitempty" json:"cash_discount,omitempty"`
 }
 
 type TaxCode struct {
@@ -123,6 +128,17 @@ type PaymentTerm struct {
 	Key         string `yaml:"key" json:"key"`
 	Description string `yaml:"description" json:"description"`
 	NetDays     int    `yaml:"net_days" json:"net_days"`
+	// Discounts are the cash discount tiers, earliest first: at most two,
+	// as SAP's T052 has (T36a).
+	Discounts []Discount `yaml:"discounts,omitempty" json:"discounts,omitempty"`
+}
+
+// Discount is a cash discount tier: Percent off for payment within Days
+// of the baseline date. Percent is a plain decimal of at most three
+// decimals, as SAP keeps it.
+type Discount struct {
+	Days    int    `yaml:"days" json:"days"`
+	Percent string `yaml:"percent" json:"percent"`
 }
 
 type Purchasing struct {

@@ -520,9 +520,46 @@
       ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Cash discount on early payment",
-      "r": "T36",
+      "r": "T36 · partner.payment_term tiers · ledger.open_item_terms · payments discounts · migrations 000067-000070",
+      "c": [
+       {
+        "s": "D",
+        "t": "Payment terms carry up to two cash discount tiers (SAP T052), validated; the cash discount account (SKE) in the account determination",
+        "r": "payment_terms[].discounts · account_determination.cash_discount · T36a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Supplier invoices post with the terms SAP invoice verification gives them, frozen with the open item; corrections take their invoice's terms",
+        "r": "payables.supplier_invoice_terms · ledger.open_item_terms · OpenItem.payment_terms · T36b",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Settlements and payment runs take the cash discount earned on the payment date, gross, with the pro-rata tax correction",
+        "r": "payment_item.discount_amount · Settle discount lines · T36c",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Runs check their discounts at proposal and at release; a lapsed discount refuses a late release",
+        "r": "payments propose/release · T36d",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Payments show the last day their discounts are earned; the exit criterion as one flow through the API",
+        "r": "discount_until · TestCashDiscountExitCriterion · T36e",
+        "c": []
+       }
+      ]
+     },
+     {
+      "s": "T",
+      "t": "Cash discounts granted to customers (SAP SKT, an expense) need an account determination key of their own",
+      "r": "",
       "c": []
      },
      {

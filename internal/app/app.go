@@ -174,7 +174,8 @@ func Payments(cfg Config) *payments.Endpoints {
 	return &payments.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{},
 		Postings: postings(),
 		Payees:   partner.Payees{Keys: cfg.FieldKeys}, Numbers: configuration.Numbers{}, Calendar: calendar(),
-		Settings: configuration.Settings{}, Actors: identity.Actors{}, Keys: cfg.FieldKeys, Connector: cfg.Connector, Objects: cfg.Objects}
+		Settings: configuration.Settings{}, Actors: identity.Actors{}, Keys: cfg.FieldKeys, Connector: cfg.Connector, Objects: cfg.Objects,
+		Accounts: ledger.Accounts{}, Now: cfg.Now}
 }
 
 // Integration is the integration context as the API wires it: migration

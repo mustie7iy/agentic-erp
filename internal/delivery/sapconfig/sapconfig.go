@@ -8,6 +8,7 @@
 package sapconfig
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"slices"
@@ -16,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
 
@@ -124,23 +126,92 @@ func (g *gen) note(path, msg string) { g.notes = append(g.notes, Note{path, msg}
 const unknownDays = -1
 
 // paymentTerms is SAP's payment terms (T052), or a net-30 placeholder with
-// a note when the extract has none. Days are whole numbers in SAP; a term
-// whose days do not parse gets unknownDays and a note.
+// a note when the extract has none.
 func (g *gen) paymentTerms() []config.PaymentTerm {
 	var out []config.PaymentTerm
 	for _, t := range g.e.T052 {
-		days, err := strconv.Atoi(strings.TrimSpace(t.ZTAG1))
-		if err != nil {
-			days = unknownDays
-			g.note("payment_terms["+t.ZTERM+"].net_days", fmt.Sprintf("T052 days %q are not a whole number; set the term's days (left at %d, which fails validation)", t.ZTAG1, unknownDays))
-		}
-		out = append(out, config.PaymentTerm{Key: t.ZTERM, Description: t.TEXT1, NetDays: days})
+		out = append(out, g.paymentTerm(t))
 	}
 	if len(out) == 0 {
 		out = []config.PaymentTerm{{Key: "NT30", Description: "Net 30 days", NetDays: 30}}
 		g.note("payment_terms", "T052 not in extract; added NT30 as a placeholder")
 	}
 	return out
+}
+
+// paymentTerm reads a T052 row: its positions ZTAG1/ZPRZ1, ZTAG2/ZPRZ2 and
+// ZTAG3 are cash discount tiers while they carry a percent, and the first
+// without one holds the net days (a net-only term has them in ZTAG1).
+// After a tier, a position of no days (empty, or zero-filled as NUMC
+// extracts write it) is unused: the last discount runs to the net due
+// date (SAP's "within 14 days 2%"), which the configuration cannot hold
+// (netUntilDiscount). Days are whole numbers; a term whose numbers do not
+// parse, or that counts in months or fixed days (ZMONA, ZFAEL), gets
+// unknownDays and a note, which fails validation until a reviewer sets
+// the term.
+func (g *gen) paymentTerm(t sap.T052) config.PaymentTerm {
+	p := "payment_terms[" + t.ZTERM + "]"
+	term := config.PaymentTerm{Key: t.ZTERM, Description: t.TEXT1, NetDays: unknownDays}
+	if _, err := strconv.Atoi(strings.TrimSpace(t.ZTAG1)); err != nil {
+		g.note(p+".net_days", fmt.Sprintf("T052 days %q are not a whole number; set the term's days (left at %d, which fails validation)", t.ZTAG1, unknownDays))
+		return term
+	}
+	if calendar := strings.Trim(t.ZMONA1+t.ZFAEL1+t.ZMONA2+t.ZFAEL2+t.ZMONA3+t.ZFAEL3, "0 "); calendar != "" {
+		g.note(p, fmt.Sprintf("T052 counts in months or fixed days (ZMONA/ZFAEL), which the configuration's days cannot hold; set the term (net days left at %d, which fails validation)",
+			unknownDays))
+		return term
+	}
+positions:
+	for i, pos := range [][2]string{{t.ZTAG1, t.ZPRZ1}, {t.ZTAG2, t.ZPRZ2}, {t.ZTAG3, ""}} {
+		days, err := strconv.Atoi(cmp.Or(strings.TrimSpace(pos[0]), "0"))
+		pct, perr := percent(pos[1])
+		switch {
+		case err != nil || perr != nil:
+			field := ".discounts"
+			if i == 2 {
+				field = ".net_days"
+			}
+			g.note(p+field, fmt.Sprintf("T052 ZTAG%d/ZPRZ%d %q/%q are not whole days and a percent; set the term (net days left at %d, which fails validation)",
+				i+1, i+1, pos[0], pos[1], unknownDays))
+			return term
+		case i > 0 && days == 0:
+			return g.netUntilDiscount(p, term)
+		case pct == "": // ZTAG3 carries none, so the loop always ends here
+			term.NetDays = days
+			break positions
+		}
+		term.Discounts = append(term.Discounts, config.Discount{Days: days, Percent: pct})
+	}
+	return term
+}
+
+// netUntilDiscount is a term whose last discount runs to its net due
+// date (SAP's "within 14 days 2%"): its net days are the tier's, which
+// fails validation, with a note, until a reviewer sets them.
+func (g *gen) netUntilDiscount(p string, term config.PaymentTerm) config.PaymentTerm {
+	last := term.Discounts[len(term.Discounts)-1]
+	term.NetDays = last.Days
+	g.note(p+".net_days", fmt.Sprintf("T052 grants %s%% until the net due date (day %d); the net days must come after the last discount: set them",
+		last.Percent, last.Days))
+	return term
+}
+
+// percent is a T052 percent as the configuration holds it, with a
+// decimal point, or "" when it is none (empty or zero); like wholePercent
+// it reads the decimal comma of locale-formatted file extracts.
+func percent(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if !strings.Contains(s, ".") {
+		s = strings.Replace(s, ",", ".", 1) // a lone comma is the decimal separator
+	}
+	if s == "" {
+		return "", nil
+	}
+	m, err := money.ParseDecimal(s, 3)
+	if err != nil || m == 0 {
+		return "", err
+	}
+	return s, nil
 }
 
 // wholePercent parses an SAP percentage ("2", "2.0", "2.5", ".5", or
@@ -195,6 +266,8 @@ func (g *gen) company(t sap.T001) config.Company {
 			co.AccountDetermination.GRIR = g.oneAccount(p+".account_determination.gr_ir", r, co.AccountDetermination.GRIR)
 		case "PRD":
 			co.AccountDetermination.PriceDifference = g.oneAccount(p+".account_determination.price_difference", r, co.AccountDetermination.PriceDifference)
+		case "SKE":
+			co.AccountDetermination.CashDiscount = g.oneAccount(p+".account_determination.cash_discount", r, co.AccountDetermination.CashDiscount)
 		}
 	}
 	co.AccountDetermination.APReconciliation = g.apReconciliation(p, t.BUKRS)

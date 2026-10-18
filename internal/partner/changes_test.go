@@ -328,7 +328,8 @@ func TestPorts(t *testing.T) {
 	})
 
 	base := &config.Config{PaymentTerms: []config.PaymentTerm{{Key: "NT30", Description: "Net 30", NetDays: 30}, {Key: "NT90", Description: "Net 90", NetDays: 90}}}
-	proposed := &config.Config{PaymentTerms: []config.PaymentTerm{{Key: "NT30", Description: "Net thirty", NetDays: 31}, {Key: "NT10", Description: "Net 10", NetDays: 10}}}
+	proposed := &config.Config{PaymentTerms: []config.PaymentTerm{{Key: "NT30", Description: "Net thirty", NetDays: 31}, {Key: "NT10", Description: "Net 10", NetDays: 10,
+		Discounts: []config.Discount{{Days: 5, Percent: "3"}, {Days: 8, Percent: "2.5"}}}}}
 	terms := partner.PaymentTerms{}
 	if f, err := terms.Check(context.Background(), nil, proposed); err != nil || f != nil {
 		t.Fatalf("first version: %v %v", f, err)
@@ -368,5 +369,48 @@ func TestPorts(t *testing.T) {
 	if err := terms.Apply(context.Background(), proposed); err == nil {
 		t.Error("apply outside a request")
 	}
+	if got := discountTiers(t, e.ten.ID, "NT10"); got != "5 3.000000 8 2.500000 v1" {
+		t.Errorf("NT10 discount tiers: got %s, want 5 3.000000 8 2.500000 v1", got)
+	}
+	if got := discountTiers(t, e.ten.ID, "NT30"); got != "<nil> <nil> <nil> <nil> v2" {
+		t.Errorf("NT30 discount tiers: got %s, want none", got)
+	}
+	proposed.PaymentTerms[1].Discounts = proposed.PaymentTerms[1].Discounts[:1]
+	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error { return terms.Apply(ctx, proposed) }); err != nil {
+		t.Fatal(err)
+	}
+	if got := discountTiers(t, e.ten.ID, "NT10"); got != "5 3.000000 <nil> <nil> v2" {
+		t.Errorf("NT10 with one tier left: got %s, want 5 3.000000 <nil> <nil> v2", got)
+	}
+	three := &config.Config{PaymentTerms: []config.PaymentTerm{{Key: "NT60", Description: "Net 60", NetDays: 60,
+		Discounts: []config.Discount{{Days: 5, Percent: "3"}, {Days: 10, Percent: "2"}, {Days: 20, Percent: "1"}}}}}
+	err = apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error { return terms.Apply(ctx, three) })
+	pgtest.CheckErr(t, err, "3 discount tiers")
 	apitest.EveryFailure(t, e.ten, e.ten.Human, "payment terms", func(ctx context.Context) error { return terms.Apply(ctx, proposed) })
+}
+
+// discountTiers is a payment term's tiers as stored, with its version.
+func discountTiers(t *testing.T, tenant uuid.UUID, code string) string {
+	t.Helper()
+	var days1, days2 *int
+	var pct1, pct2 *string
+	var version int
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT discount_days, discount_pct::text, discount2_days, discount2_pct::text, version
+		FROM partner.payment_term WHERE tenant_id = $1 AND code = $2`, tenant, code).Scan(&days1, &pct1, &days2, &pct2, &version); err != nil {
+		t.Fatalf("read the tiers of %s: %v", code, err)
+	}
+	show := func(v any) string {
+		switch x := v.(type) {
+		case *int:
+			if x != nil {
+				return fmt.Sprint(*x)
+			}
+		case *string:
+			if x != nil {
+				return *x
+			}
+		}
+		return "<nil>"
+	}
+	return fmt.Sprintf("%s %s %s %s v%d", show(days1), show(pct1), show(days2), show(pct2), version)
 }

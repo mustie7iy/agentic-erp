@@ -105,6 +105,19 @@ func TestValidationRules(t *testing.T) {
 		{"terms key", func(c *Config) { c.PaymentTerms[0].Key = "net thirty days!" }, "payment_terms[net thirty days!]"},
 		{"terms days", func(c *Config) { c.PaymentTerms[0].NetDays = 400 }, "payment_terms[NT14].net_days"},
 		{"no terms", func(c *Config) { c.PaymentTerms = nil }, "payment_terms"},
+		{"discount days negative", discounts(Discount{Days: -1, Percent: "2"}), "payment_terms[NT30].discounts[0].days"},
+		{"discount days at the net days", discounts(Discount{Days: 30, Percent: "2"}), "payment_terms[NT30].discounts[0].days"},
+		{"discount percent zero", discounts(Discount{Days: 10, Percent: "0"}), "payment_terms[NT30].discounts[0].percent"},
+		{"discount percent 100", discounts(Discount{Days: 10, Percent: "100"}), "payment_terms[NT30].discounts[0].percent"},
+		{"discount percent decimals", discounts(Discount{Days: 10, Percent: "2.0001"}), "payment_terms[NT30].discounts[0].percent"},
+		{"discount percent text", discounts(Discount{Days: 10, Percent: "two"}), "payment_terms[NT30].discounts[0].percent"},
+		{"discount tiers not later", discounts(Discount{Days: 14, Percent: "3"}, Discount{Days: 14, Percent: "2"}), "payment_terms[NT30].discounts[1].days"},
+		{"discount tiers not less", discounts(Discount{Days: 10, Percent: "2"}, Discount{Days: 20, Percent: "2.5"}), "payment_terms[NT30].discounts[1].percent"},
+		{"three discount tiers", discounts(Discount{Days: 5, Percent: "3"}, Discount{Days: 10, Percent: "2"}, Discount{Days: 20, Percent: "1"}),
+			"payment_terms[NT30].discounts"},
+		{"discount without a cash discount account", discounts(Discount{Days: 10, Percent: "2"}), "companies[1000].account_determination.cash_discount"},
+		{"cash discount unknown", func(c *Config) { c.Companies[0].AccountDetermination.CashDiscount = "999999" }, "companies[1000].account_determination.cash_discount"},
+		{"cash discount wrong type", func(c *Config) { c.Companies[0].AccountDetermination.CashDiscount = "140000" }, "companies[1000].account_determination.cash_discount"},
 		{"tiers empty", func(c *Config) { c.Purchasing.RequisitionApproval = nil }, "purchasing.requisition_approval"},
 		{"order tiers empty", func(c *Config) { c.Purchasing.OrderReleaseApproval = nil }, "purchasing.order_release_approval"},
 		{"order last tier capped", func(c *Config) { c.Purchasing.OrderReleaseApproval[2].UpTo = "1000000.00" }, "purchasing.order_release_approval[2].up_to"},
@@ -134,6 +147,44 @@ func TestValidationRules(t *testing.T) {
 				t.Fatalf("no error at %s; got %v", tc.path, fs)
 			}
 		})
+	}
+}
+
+// discounts gives NT30 the cash discount tiers.
+func discounts(tiers ...Discount) func(c *Config) {
+	return func(c *Config) { c.PaymentTerm("NT30").Discounts = tiers }
+}
+
+// TestDiscountTiersValid: a term of 3% within 14 days and 2% within 21,
+// net 30, is valid in companies that name their cash discount account
+// (SAP's SKE), and a change to it is posting-related, since it changes
+// what payments post.
+func TestDiscountTiersValid(t *testing.T) {
+	c := fixture(t)
+	discounts(Discount{Days: 14, Percent: "3"}, Discount{Days: 21, Percent: "2.5"})(c)
+	for i := range c.Companies {
+		c.Companies[i].AccountDetermination.CashDiscount = "400000"
+	}
+	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
+		t.Fatalf("discount tiers: got %v, want no errors", fs)
+	}
+	changed := fixture(t)
+	discounts(Discount{Days: 14, Percent: "3"}, Discount{Days: 21, Percent: "2"})(changed)
+	for i := range changed.Companies {
+		changed.Companies[i].AccountDetermination.CashDiscount = "400000"
+	}
+	changes, err := Diff(c, changed)
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	if len(changes) != 1 {
+		t.Fatalf("changes: got %v, want the second tier's percent", changes)
+	}
+	if got := changes[0].Path; got != "payment_terms[NT30].discounts[1].percent" {
+		t.Errorf("change path: got %s, want payment_terms[NT30].discounts[1].percent", got)
+	}
+	if changes[0].Tier != TierPostingRelated {
+		t.Errorf("change tier: got %v, want %v", changes[0].Tier, TierPostingRelated)
 	}
 }
 

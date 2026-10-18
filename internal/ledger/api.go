@@ -341,11 +341,24 @@ func (e *Endpoints) ListOpenItems(ctx context.Context, params gen.ListOpenItemsP
 		page.Items[i] = gen.OpenItem{FiscalYear: int32(o.FiscalYear), JournalEntryID: o.EntryID, LineNo: o.LineNo, LegalEntityID: o.LegalEntityID,
 			AccountID: o.AccountID, PartnerID: apitypes.OptUUID(o.PartnerID), PostingDate: o.PostingDate, Amount: apitypes.Money(o.TC, o.CurrencyTC, o.ExpTC),
 			AmountLc: apitypes.Money(o.LC, o.CurrencyLC, o.ExpLC), DocumentNumber: o.DocumentNumber, Reference: apitypes.OptString(o.Reference)}
+		if o.Terms != nil {
+			page.Items[i].PaymentTerms.SetTo(TermsToAPI(*o.Terms))
+		}
 	}
 	if next != "" {
 		page.NextPageToken.SetTo(next)
 	}
 	return &gen.OpenItemPageHeaders{Response: page}, nil
+}
+
+// TermsToAPI is payment terms as the API shows them: the net due date
+// and each discount's last day.
+func TermsToAPI(t ItemTerms) gen.ItemPaymentTerms {
+	out := gen.ItemPaymentTerms{Code: t.PaymentTermCode, BaselineDate: t.BaselineDate, NetDueDate: t.NetDueDate(), Discounts: []gen.CashDiscountTier{}}
+	for _, d := range t.Discounts {
+		out.Discounts = append(out.Discounts, gen.CashDiscountTier{Until: t.Until(d), Percent: d.Percent})
+	}
+	return out
 }
 
 var balanceSort = pagination.Sort{Default: "account_id", Fields: []pagination.Field{

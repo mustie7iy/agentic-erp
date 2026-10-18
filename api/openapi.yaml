@@ -7394,7 +7394,7 @@ paths:
       tags:
         - payments
       summary: Propose a payment run
-      description: "Creates a run in status `proposing` (the Operation's `resource` points to it from the start), then selects due open items, applies exclusions (blocks, missing or recently changed bank details) and reserves the items; the run becomes `proposed`, or `failed`. Runs can exceed 100,000 items, so this returns an Operation."
+      description: "Creates a run in status `proposing` (the Operation's `resource` points to it from the start), then selects due open items, applies exclusions (blocks, missing or recently changed bank details) and reserves the items; the run becomes `proposed`, or `failed`. Runs can exceed 100,000 items, so this returns an Operation. A run that takes cash discount in a legal entity without a cash discount account fails with 422 `payments.no_cash_discount_account` (T36d)."
       x-permission: payments.run.propose
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -7505,7 +7505,7 @@ paths:
       tags:
         - payments
       summary: Release a payment run
-      description: "The F110 release step, a direct human transition (not an approval request), as an operation (ADR-0012): the run moves to `releasing`, each payment is posted with the entry that clears its items (one transaction per payment, progress on the operation), and the bank file is produced; the run is `released` when the operation succeeds. Every supplier, and every item of a proposed run, is checked again before anything is posted (409 `payments.proposal_outdated`). A payment not posted yet whose item was reversed, or is no longer open, since the proposal can never post: the release drops it (the supplier is excluded with `item_reversed` or `item_not_open`, its items are freed, the run's total no longer counts it, `PaymentExcluded` is published) and goes on with the others; a release that drops every payment fails with `payments.nothing_to_pay` and returns the run to `proposed`, to be rejected. Human-only. Segregation of duties: the proposer can never release or reject the run (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). Sets `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a failed release operation, which resumes it."
+      description: "The F110 release step, a direct human transition (not an approval request), as an operation (ADR-0012): the run moves to `releasing`, each payment is posted with the entry that clears its items (one transaction per payment, progress on the operation), and the bank file is produced; the run is `released` when the operation succeeds. Every supplier, and every item of a proposed run, is checked again before anything is posted (409 `payments.proposal_outdated`). A payment not posted yet whose item was reversed, or is no longer open, since the proposal can never post: the release drops it (the supplier is excluded with `item_reversed` or `item_not_open`, its items are freed, the run's total no longer counts it, `PaymentExcluded` is published) and goes on with the others; a release that drops every payment fails with `payments.nothing_to_pay` and returns the run to `proposed`, to be rejected. Human-only. Segregation of duties: the proposer can never release or reject the run (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). Sets `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a failed release operation, which resumes it. 409 `payments.discount_lapsed` when a payment takes a cash discount whose last day has passed (T36d): reject the run and propose again."
       x-permission: payments.run.release
       x-agent: false
       parameters:
@@ -14306,6 +14306,10 @@ components:
           type: string
           description: External reference.
           readOnly: true
+        payment_terms:
+          $ref: "#/components/schemas/ItemPaymentTerms"
+          description: The payment terms the item was posted with, on a supplier item posted from T36 on; absent on others, which are due by their supplier's current terms.
+          readOnly: true
       examples:
         - fiscal_year: 2026
           journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dae"
@@ -14320,6 +14324,66 @@ components:
             amount: "1080.00"
             currency: EUR
           document_number: "5100000123"
+    ItemPaymentTerms:
+      type: object
+      description: "Payment terms frozen when a document posted (T36b), as SAP keeps ZTERM, ZFBDT and ZBD1T..ZBD3T: a later change to the payment term changes neither the net due date nor the discounts."
+      required:
+        - code
+        - baseline_date
+        - net_due_date
+        - discounts
+      properties:
+        code:
+          type: string
+          description: The payment term the terms were taken from.
+          pattern: "^[A-Z0-9_/]{1,10}$"
+          readOnly: true
+        baseline_date:
+          type: string
+          format: date
+          description: The date the days count from (the invoice date).
+          readOnly: true
+        net_due_date:
+          type: string
+          format: date
+          description: When the item is due without discount.
+          readOnly: true
+        discounts:
+          type: array
+          description: Cash discount tiers, earliest first.
+          maxItems: 2
+          readOnly: true
+          items:
+            $ref: "#/components/schemas/CashDiscountTier"
+      additionalProperties: false
+      example:
+        code: ZB01
+        baseline_date: "2026-03-01"
+        net_due_date: "2026-04-15"
+        discounts:
+          - until: "2026-03-15"
+            percent: "3"
+    CashDiscountTier:
+      type: object
+      description: A cash discount for payment by a date.
+      required:
+        - until
+        - percent
+      properties:
+        until:
+          type: string
+          format: date
+          description: The last day a payment earns the discount.
+          readOnly: true
+        percent:
+          type: string
+          description: Percent off, a decimal of up to three places.
+          pattern: "^[0-9]{1,2}(\\.[0-9]{1,3})?$"
+          readOnly: true
+      additionalProperties: false
+      example:
+        until: "2026-03-15"
+        percent: "3"
     GrIrBalance:
       type: object
       description: "The GR/IR position of one purchase order item: identified by (purchase_order_id, po_item_no)."
@@ -16440,6 +16504,10 @@ components:
               format: uuid
               description: "Journal entry posted for the invoice (statuses `posted` and `reversed`)."
               readOnly: true
+            payment_terms:
+              $ref: "#/components/schemas/ItemPaymentTerms"
+              description: "The payment terms the invoice posted with (T36b): its order's term, else its supplier's in the legal entity, counted from the invoice date; a correction naming an invoice has that invoice's. Absent before posting, on a credit memo or subsequent credit naming no invoice (due at once, no discount), and on invoices posted before terms were kept."
+              readOnly: true
             reversal_entry_id:
               type: string
               format: uuid
@@ -17181,7 +17249,11 @@ components:
           readOnly: true
         amount:
           $ref: "#/components/schemas/Money"
-          description: Amount paid on the item.
+          description: "The item's open amount the payment settles, before the discount; negative on a credit memo."
+          readOnly: true
+        discount_amount:
+          $ref: "#/components/schemas/Money"
+          description: "The cash discount taken on the item (T36c), by the payment terms it was posted with on the run date; of the item's sign, 0.00 when none. What the item pays is amount less discount_amount."
           readOnly: true
         due_date:
           type: string
@@ -17231,7 +17303,16 @@ components:
               readOnly: true
             amount:
               $ref: "#/components/schemas/Money"
-              description: "Amount; positive."
+              description: "Amount paid, after the cash discounts taken on the items; positive. The bank file pays it."
+              readOnly: true
+            discount_amount:
+              $ref: "#/components/schemas/Money"
+              description: "The cash discounts taken on the payment's items (T36c), their total, posted to the cash discount account when the payment posts; negative when the discounts credit memos give back exceed those of the invoices."
+              readOnly: true
+            discount_until:
+              type: string
+              format: date
+              description: "The last day the payment's cash discounts are earned (T36d): a release of the run after it is refused with 409 `payments.discount_lapsed`. Absent when the payment takes no discount."
               readOnly: true
             end_to_end_id:
               type: string

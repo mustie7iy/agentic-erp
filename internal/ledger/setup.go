@@ -233,8 +233,8 @@ func (s Setup) applyCompany(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 		SELECT $1, $2, k, g.id, $4 FROM unnest($5::text[], $6::text[]) AS x(k, n) JOIN ledger.gl_account g ON g.chart_id = $3 AND g.number = x.n
 		ON CONFLICT (tenant_id, legal_entity_id, key) DO UPDATE SET account_id = EXCLUDED.account_id, version = d.version + 1, updated_by = $4
 		WHERE d.account_id <> EXCLUDED.account_id`,
-		p.TenantID, le.ID, chart, p.ID, []string{"ap_reconciliation", "input_tax", "bank", "fx_gain", "fx_loss", "gr_ir", "price_difference"},
-		[]string{ad.APReconciliation, ad.InputTax, ad.Bank, ad.FXGain, ad.FXLoss, ad.GRIR, ad.PriceDifference}); err != nil {
+		p.TenantID, le.ID, chart, p.ID, []string{"ap_reconciliation", "input_tax", "bank", "fx_gain", "fx_loss", "gr_ir", "price_difference",
+			"cash_discount"}, []string{ad.APReconciliation, ad.InputTax, ad.Bank, ad.FXGain, ad.FXLoss, ad.GRIR, ad.PriceDifference, ad.CashDiscount}); err != nil {
 		return fmt.Errorf("ledger: apply company %s: account determination: %w", co.Code, err)
 	}
 	if err := s.calendar(ctx, tx, p, le.FiscalCalendarID, le.ID, co, doc); err != nil {

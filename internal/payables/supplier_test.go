@@ -19,6 +19,10 @@ func (vanished) Supplier(context.Context, uuid.UUID, uuid.UUID) (partner.Supplie
 	return partner.Supplier{}, false, nil
 }
 
+func (vanished) PaymentTerm(context.Context, string) (partner.PaymentTerm, bool, error) {
+	return partner.PaymentTerm{}, false, nil
+}
+
 // TestPostWithoutTheSupplier: an invoice whose supplier the partner context
 // no longer finds is refused with a reason that says so, never read as a
 // supplier with an empty status ("the business partner is ").
