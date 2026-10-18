@@ -439,3 +439,14 @@ func jsonDiffers(a, b map[string]any) bool {
 	y, _ := json.Marshal(b) // as above
 	return string(x) != string(y)
 }
+
+// Countries are the countries of the tenant's legal entities in tx, sorted:
+// whose tax identifiers the model gateway redacts (ADR-0036).
+func Countries(ctx context.Context, tx pgx.Tx) ([]string, error) {
+	rows, _ := tx.Query(ctx, `SELECT DISTINCT country_code FROM tenancy.legal_entity ORDER BY country_code`)
+	out, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("tenancy: the legal entities' countries: %w", err)
+	}
+	return out, nil
+}

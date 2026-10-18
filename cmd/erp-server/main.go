@@ -434,7 +434,8 @@ func modelClient(cfg config.Config) *http.Client {
 func (s *server) collaborators() {
 	if s.cfg.Model.Enabled() {
 		s.gateway = &agents.Gateway{Provider: agents.Anthropic{Endpoint: s.cfg.Model.Endpoint, Key: s.cfg.Model.APIKey, Client: modelClient(s.cfg)},
-			Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log, Timeout: modelTimeout, AgentBudget: identity.AgentBudget}
+			Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log, Timeout: modelTimeout, AgentBudget: identity.AgentBudget,
+			Countries: tenancy.Countries}
 		// Capture's model calls go through the gateway too, in the
 		// request's unit of work (ADR-0036).
 		s.extractor = &capture.ClaudeExtractor{LLM: llm.InProcess(s.gateway.Transport(), "erp-extraction")}

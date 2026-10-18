@@ -81,6 +81,9 @@ type Gateway struct {
 	// AgentBudget reads an agent's monthly budget (identity.AgentBudget);
 	// nil: agents are held by the tenant's cap only.
 	AgentBudget AgentBudget
+	// Countries reads the tenant's countries, whose tax identifiers are
+	// redacted (tenancy.Countries); nil: IBANs and card numbers only.
+	Countries Countries
 }
 
 // inTx runs fn in a transaction of the caller's tenant.
@@ -114,8 +117,9 @@ type price struct {
 type request struct {
 	alias, model string
 	fields       map[string]json.RawMessage
-	body         []byte // with the model in place of the alias, once routed
+	body         []byte // with the model in place of the alias, once routed, and redacted once screened
 	maxTokens    int64
+	redactions   int
 }
 
 // route sets the model the request goes to, in place of its alias.
@@ -142,7 +146,7 @@ func (g *Gateway) serve(ctx context.Context, p reqctx.Principal, c call) (answer
 	started := clock.Now(g.Now)
 	status, raw, sendErr := g.Provider.Messages(ctx, req.body, c.betas)
 	rec := g.meter(status, raw, sendErr, req.model, pr)
-	rec.id, rec.alias, rec.duration = res.call, req.alias, clock.Now(g.Now).Sub(started)
+	rec.id, rec.alias, rec.duration, rec.redactions = res.call, req.alias, clock.Now(g.Now).Sub(started), req.redactions
 	if err := c.record(context.WithoutCancel(ctx), func(ctx context.Context, tx pgx.Tx) error {
 		if err := recordCall(ctx, tx, p, c.session, rec); err != nil {
 			return err
@@ -166,7 +170,8 @@ func (g *Gateway) serve(ctx context.Context, p reqctx.Principal, c call) (answer
 // commits before the call is forwarded so that its reservation holds
 // against the calls after it: the tenant's AI is on, the session is p's
 // and running, the alias routes under the tenant's policy to a model it
-// allows and that is priced, and what the call may cost fits its budgets.
+// allows and that is priced, the text is redacted and documents go only
+// if the policy lets them, and what the call may cost fits its budgets.
 // A refusal for the budget commits its audit entry.
 func (g *Gateway) admit(ctx context.Context, p reqctx.Principal, c call, req *request) (price, reservation, error) {
 	var pr price
@@ -184,6 +189,9 @@ func (g *Gateway) admit(ctx context.Context, p reqctx.Principal, c call, req *re
 			return err
 		}
 		if err := routeUnder(pol, req); err != nil {
+			return err
+		}
+		if err := g.screen(ctx, tx, pol, req); err != nil {
 			return err
 		}
 		now := clock.Now(g.Now)
@@ -388,6 +396,7 @@ type row struct {
 	cost                       money.Micro
 	currency                   string
 	duration                   time.Duration
+	redactions                 int
 }
 
 // meter turns the provider's answer into a ledger row: an answer that is
@@ -438,9 +447,9 @@ func recordCall(ctx context.Context, tx pgx.Tx, p reqctx.Principal, session *uui
 		}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO agents.model_call (tenant_id, id, principal_id, session_id, alias, model, status, input_tokens, output_tokens,
-		cache_write_tokens, cache_read_tokens, cost_micro, currency, duration_ms) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+		cache_write_tokens, cache_read_tokens, cost_micro, currency, duration_ms, redactions) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
 		p.TenantID, r.id, p.ID, session, r.alias, r.model, r.status, r.input, r.output, r.write, r.read, r.cost, r.currency,
-		r.duration.Milliseconds()); err != nil {
+		r.duration.Milliseconds(), r.redactions); err != nil {
 		return fmt.Errorf("agents: record model call: %w", err)
 	}
 	if session == nil {

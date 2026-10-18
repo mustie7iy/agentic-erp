@@ -329,6 +329,11 @@ after: one that does not fit is 429 `agents.budget_exhausted`, with
 when calls in flight hold it. Each line's 80% and 100% are announced
 once a month (`BudgetThresholdReached`); since the input is estimated, a
 line may end its month past its cap by the estimate's error.
+Before forwarding, the gateway redacts the call's text (system prompt,
+messages, tool results): IBANs, card numbers and the tax identifiers of
+the tenant's countries become `[IBAN]`, `[CARD]` and `[TAX_ID]`, and the
+call records how many it replaced. Documents and images go only while the
+tenant's AI policy lets them (422 `agents.documents_withheld`).
 
 The tenant's **AI policy** (`getAiPolicy`, `updateAiPolicy`, human-only,
 `agents.ai_policy.read` and `.manage`) decides where its aliases route,
