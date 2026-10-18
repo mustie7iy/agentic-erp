@@ -96,8 +96,7 @@ func For(countries []string) *Redactor {
 // Text is s with its IBANs, card numbers and tax identifiers replaced,
 // and how many were.
 func (r *Redactor) Text(s string) (string, int) {
-	n := 0
-	s = replace(s, ibanLike, &n, ibanIn)
+	s, n := ibans(s)
 	s = replace(s, digitRun, &n, cardsIn)
 	for _, re := range r.taxIDs {
 		s = replace(s, re, &n, func(string) (string, int) { return TaxID, 1 })
@@ -115,14 +114,46 @@ func replace(s string, re *regexp.Regexp, n *int, with func(m string) (string, i
 	})
 }
 
-// ibanIn replaces the IBANs in a match: the longest prefix ending at a
-// group's end that is valid, then the same in what follows it; a match
-// with none goes on from its next group.
-func ibanIn(m string) (string, int) {
+// ibans replaces the IBANs in s. Each candidate is the longest prefix,
+// ending at a group's end, of an ibanLike match that is valid. The search
+// then goes on from where the IBAN ended, or past the candidate's first
+// group when it held none, over the whole text: a match is bounded at
+// eight groups, and an IBAN may begin inside the groups a match took, or
+// run past its end, so the search cannot stop at a match's end ("AA11 ...
+// 1Y1 0000 AA11 11 A0 7A11 8A11 0000" holds two). Each step moves forward,
+// so one pass leaves no IBAN behind.
+func ibans(s string) (string, int) {
+	var out strings.Builder
+	n, pos := 0, 0
+	for {
+		loc := ibanLike.FindStringIndex(s[pos:])
+		if loc == nil {
+			break
+		}
+		start, m := pos+loc[0], s[pos+loc[0]:pos+loc[1]]
+		out.WriteString(s[pos:start])
+		if end := validPrefix(m); end > 0 {
+			out.WriteString(IBAN)
+			n, pos = n+1, start+end
+			continue
+		}
+		next := len(m) // past the first group: the next candidate starts at a later one
+		if i := strings.IndexByte(m, ' '); i >= 0 {
+			next = i
+		}
+		out.WriteString(m[:next])
+		pos = start + next
+	}
+	out.WriteString(s[pos:])
+	return out.String(), n
+}
+
+// validPrefix is the length of m's longest prefix ending at a group's end
+// that is a valid IBAN, or 0.
+func validPrefix(m string) int {
 	for end := len(m); end > 4; {
 		if iban.Valid(m[:end]) {
-			rest, n := ibansAfter(m[end:])
-			return IBAN + rest, n + 1
+			return end
 		}
 		i := strings.LastIndexByte(m[:end], ' ')
 		if i < 0 {
@@ -130,17 +161,7 @@ func ibanIn(m string) (string, int) {
 		}
 		end = i
 	}
-	if i := strings.IndexByte(m, ' '); i >= 0 {
-		rest, n := ibansAfter(m[i:])
-		return m[:i] + rest, n
-	}
-	return m, 0
-}
-
-// ibansAfter replaces the IBANs in the rest of a match.
-func ibansAfter(rest string) (string, int) {
-	n := 0
-	return replace(rest, ibanLike, &n, ibanIn), n
+	return 0
 }
 
 // cardsIn replaces the card numbers in a run of digit groups: from the

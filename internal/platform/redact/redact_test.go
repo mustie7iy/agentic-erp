@@ -31,6 +31,7 @@ func TestText(t *testing.T) {
 		{"two cards in a run", "4111 1111 1111 1111 5500 0000 0000 0004", "[CARD] [CARD]", 2},
 		{"a long run of digits", "1234567890123456789012345", "1234567890123456789012345", 0},
 		{"an IBAN after one that is not", "AB12 3456 DE89 3704 0044 0532 0130 00", "AB12 3456 [IBAN]", 1},
+		{"an IBAN begun inside the groups after another", "AA11 AA11 A11 1 1Y1 0000 AA11 11 A0 7A11 8A11 0000", "[IBAN] 0000 [IBAN] 0000", 2},
 		{"an IBAN with a wrong check", "DE89370400440532013001", "DE89370400440532013001", 0},
 		{"a card", "card 4111 1111 1111 1111 expires", "card [CARD] expires", 1},
 		{"a card with dashes", "5500-0000-0000-0004", "[CARD]", 1},
