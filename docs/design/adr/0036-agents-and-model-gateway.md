@@ -109,6 +109,9 @@ client certificates in production (ADR-0033). Today:
     replacements.
     Names and e-mail addresses pass: the work needs them (a supplier's
     name, the address a draft message goes to).
+    IBANs are taken in capitals only, as banks print them: with groups of
+    one to four characters, ordinary lower-case words would pass mod 97 by
+    chance about one time in 97 (PO, 2026-10-18).
   - Documents (PDF and image blocks) cannot be redacted. They leave only
     while the policy's `documents_to_models` is on, which it is by
     default; while a tenant has it off, the gateway refuses every call
