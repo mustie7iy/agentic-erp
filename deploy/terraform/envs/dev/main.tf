@@ -100,6 +100,8 @@ module "cell" {
   # The product owner's shape for dev and test: a single-AZ instance and
   # one zone's egress and endpoints. Staging and production keep the default.
   zone_redundant = false
+  # The home cell: the router runs on its cluster (the erp-global chart).
+  global_secrets = module.global.external_secrets
 }
 
 module "global" {

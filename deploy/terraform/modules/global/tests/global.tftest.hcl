@@ -115,3 +115,16 @@ run "a_single_az_directory_needs_its_zone" {
   }
   expect_failures = [var.directory_zone]
 }
+
+run "the_routers_secrets_are_empty_entries_under_the_global_key" {
+  command = apply
+
+  assert {
+    condition     = length(aws_secretsmanager_secret.global) == 3 && alltrue([for s in aws_secretsmanager_secret.global : s.kms_key_id == aws_kms_key.directory.arn && startswith(s.name, "erp/global/")])
+    error_message = "the router's secrets are under erp/global/ and encrypted with the global tier's key"
+  }
+  assert {
+    condition     = output.external_secrets.kms_key_arn == aws_kms_key.directory.arn && alltrue([for s in aws_secretsmanager_secret.global : contains(output.external_secrets.arns, s.arn)])
+    error_message = "the home cell's External Secrets Operator is told every global secret and their key"
+  }
+}

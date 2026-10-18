@@ -9,6 +9,15 @@ variable "secrets" {
   default     = ["page-token-key", "database-client-password", "temporal-codec-key", "temporal-database-password"]
 }
 
+variable "global_secrets" {
+  description = "On the environment's home cell, the global tier's secrets its External Secrets Operator also reads for the erp-global chart, and their key (modules/global external_secrets); none elsewhere."
+  type = object({
+    arns        = list(string)
+    kms_key_arn = optional(string)
+  })
+  default = { arns = [] }
+}
+
 resource "aws_s3_bucket" "objects" {
   bucket_prefix = "${local.prefix}-objects-"
   lifecycle {

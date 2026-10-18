@@ -308,3 +308,32 @@ run "a_cell_name_the_platform_refuses_is_refused" {
   }
   expect_failures = [var.name]
 }
+
+run "the_home_cell_reads_the_global_tiers_secrets_too" {
+  command = apply
+
+  variables {
+    global_secrets = {
+      arns        = ["arn:aws:secretsmanager:eu-central-1:222222222222:secret:erp/global/router-public-key"]
+      kms_key_arn = "arn:aws:kms:eu-central-1:222222222222:key/global"
+    }
+  }
+
+  assert {
+    condition     = contains(jsondecode(aws_iam_role_policy.workload["external_secrets"].policy).Statement[0].Resource, "arn:aws:secretsmanager:eu-central-1:222222222222:secret:erp/global/router-public-key")
+    error_message = "the home cell's External Secrets Operator reads the global secrets it is given"
+  }
+  assert {
+    condition     = contains(jsondecode(aws_iam_role_policy.workload["external_secrets"].policy).Statement[1].Resource, "arn:aws:kms:eu-central-1:222222222222:key/global")
+    error_message = "and decrypts them with the global tier's key"
+  }
+}
+
+run "another_cell_reads_its_own_secrets_alone" {
+  command = apply
+
+  assert {
+    condition     = length(jsondecode(aws_iam_role_policy.workload["external_secrets"].policy).Statement[1].Resource) == 1
+    error_message = "a cell given no global secrets decrypts with its data key alone"
+  }
+}

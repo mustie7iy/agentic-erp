@@ -26,11 +26,12 @@ locals {
       ]
     }
     # The External Secrets Operator: the cell's secrets and the database's
-    # RDS-managed master credentials, read only.
+    # RDS-managed master credentials, read only; on the home cell also the
+    # global tier's (the router's, and the directory's credentials).
     external_secrets = {
       statements = [
-        { Sid = "Secrets", Effect = "Allow", Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], Resource = concat([for secret in aws_secretsmanager_secret.cell : secret.arn], compact([local.database_master_secret_arn])) },
-        { Sid = "SecretsKey", Effect = "Allow", Action = "kms:Decrypt", Resource = aws_kms_key.data.arn },
+        { Sid = "Secrets", Effect = "Allow", Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], Resource = concat([for secret in aws_secretsmanager_secret.cell : secret.arn], compact([local.database_master_secret_arn]), var.global_secrets.arns) },
+        { Sid = "SecretsKey", Effect = "Allow", Action = "kms:Decrypt", Resource = compact([aws_kms_key.data.arn, var.global_secrets.kms_key_arn]) },
       ]
     }
     # cert-manager's aws-privateca-issuer: certificates from the

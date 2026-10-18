@@ -22,3 +22,11 @@ output "router_proxy_sources" {
   description = "The load balancer's subnets, whose connections carry a PROXY v2 header: the erp-global chart's router.proxyFrom (ERP_ROUTER_PROXY_FROM)."
   value       = sort(distinct([for s in data.aws_subnet.public : s.cidr_block]))
 }
+
+output "external_secrets" {
+  description = "What the home cell's External Secrets Operator reads for the erp-global chart: the global secrets, the directory's master credentials, and the key encrypting them (the cell module's global_secrets)."
+  value = {
+    arns        = concat([for s in aws_secretsmanager_secret.global : s.arn], compact([one(aws_db_instance.directory.master_user_secret[*].secret_arn)]))
+    kms_key_arn = aws_kms_key.directory.arn
+  }
+}
