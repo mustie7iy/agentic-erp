@@ -399,6 +399,9 @@ func (e *Endpoints) ReverseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 	if err := requireNoCorrections(ctx, tx, v); err != nil {
 		return Invoice{}, err
 	}
+	if err := requireNoClearedDownPayments(ctx, tx, v); err != nil {
+		return Invoice{}, err
+	}
 	cleared, err := e.Postings.IsCleared(ctx, *v.JournalEntryYear, *v.JournalEntryID)
 	if err != nil {
 		return Invoice{}, err

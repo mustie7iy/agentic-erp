@@ -7157,6 +7157,63 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/supplier-invoices/{id}:clearDownPayments":
+    post:
+      operationId: clearSupplierInvoiceDownPayments
+      tags:
+        - payables
+      summary: Clear down payments against a final invoice
+      description: "Clears paid down payment requests of the invoice's supplier against the posted invoice (SAP F-54; ADR-0037), whole: their total with what was cleared against it before is at most the invoice's gross amount (422 `payables.down_payments_exceed_invoice`), and a request naming a purchase order clears only against an invoice of that order. A transfer entry (document type AB) credits the down payment account, clearing each down payment, reverses the input tax its payment claimed, and debits the supplier's payables account with their total, an open item with the invoice's payment terms that the next run nets against the invoice, so a cash discount is taken on what remains to pay. The requests move to `cleared`; the invoice is not reversed while they stand. Requires status `posted` and kind `invoice`."
+      x-permission: payables.invoice.post
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of clearSupplierInvoiceDownPayments.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DownPaymentClearingInput"
+      responses:
+        "200":
+          description: The supplier invoice after clearSupplierInvoiceDownPayments.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierInvoice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   "/v1/supplier-invoices/{id}:cancel":
     post:
       operationId: cancelSupplierInvoice
@@ -7364,6 +7421,7 @@ paths:
             x-extensible-enum:
               - open
               - paid
+              - cleared
               - cancelled
         - name: purchase_order_id
           in: query
@@ -17527,16 +17585,27 @@ components:
               readOnly: true
             status:
               type: string
-              description: "Lifecycle status: `open`, `paid` by a payment run (whose payment posted the down payment on the down payment account, T46c), or `cancelled` (`:cancel`, refused while a live run pays it). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "Lifecycle status: `open`, `paid` by a payment run (whose payment posted the down payment on the down payment account, T46c), `cleared` against the supplier's final invoice (`supplier-invoices/{id}:clearDownPayments`, T46d), or `cancelled` (`:cancel`, refused while a live run pays it). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - open
                 - paid
+                - cleared
                 - cancelled
               readOnly: true
             journal_entry_id:
               type: string
               format: uuid
-              description: The journal entry of the payment that paid the request; set with status `paid`.
+              description: The journal entry of the payment that paid the request; set from status `paid` on.
+              readOnly: true
+            cleared_invoice_id:
+              type: string
+              format: uuid
+              description: The supplier invoice the down payment was cleared against; set with status `cleared`.
+              readOnly: true
+            clearing_entry_id:
+              type: string
+              format: uuid
+              description: The transfer entry that cleared the down payment; set with status `cleared`.
               readOnly: true
             cancel_reason:
               type: string
@@ -17563,6 +17632,25 @@ components:
           due_date: "2026-10-15"
           reference: AB-2026-17
           status: open
+    DownPaymentClearingInput:
+      type: object
+      description: The down payments to clear against the invoice.
+      required:
+        - posting_date
+        - items
+      properties:
+        posting_date:
+          type: string
+          format: date
+          description: Posting date of the transfer entry.
+        items:
+          type: array
+          description: "The down payments: the special G/L items A of paid down payment requests of the invoice's supplier (a request's payment entry, the line on the down payment account)."
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/ClearingItemRef"
+      additionalProperties: false
     DownPaymentRequestCreate:
       type: object
       description: "Request a down payment. It is created `open`."

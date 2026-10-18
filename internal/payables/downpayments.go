@@ -21,10 +21,11 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 )
 
-// Down payment request statuses (cleared follows with T46d).
+// Down payment request statuses.
 const (
 	RequestOpen      = "open"
-	RequestPaid      = "paid" // by a payment run, whose payment posted the down payment (T46c)
+	RequestPaid      = "paid"    // by a payment run, whose payment posted the down payment (T46c)
+	RequestCleared   = "cleared" // against the supplier's final invoice (T46d)
 	RequestCancelled = "cancelled"
 )
 
@@ -50,6 +51,10 @@ type DownPaymentRequest struct {
 	// JournalEntryYear and JournalEntryID are the entry that paid it.
 	JournalEntryYear *int16
 	JournalEntryID   *uuid.UUID
+	// ClearedInvoiceID and ClearingEntryID are the invoice the down
+	// payment was cleared against and the transfer entry (T46d).
+	ClearedInvoiceID *uuid.UUID
+	ClearingEntryID  *uuid.UUID
 	Version          int32
 	CreatedAt        time.Time
 	CreatedBy        uuid.UUID
@@ -69,13 +74,13 @@ type DownPaymentInput struct {
 }
 
 const requestSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.supplier_id, r.purchase_order_id, r.currency, c.exponent, r.amount, r.tax_code,
-		r.tax_amount, r.due_date, r.reference, r.status, r.cancel_reason, r.journal_entry_year, r.journal_entry_id, r.version, r.created_at, r.created_by, r.updated_at, r.updated_by
+		r.tax_amount, r.due_date, r.reference, r.status, r.cancel_reason, r.journal_entry_year, r.journal_entry_id, r.cleared_invoice_id, r.clearing_entry_id, r.version, r.created_at, r.created_by, r.updated_at, r.updated_by
 	FROM payables.down_payment_request r JOIN ref.currency c ON c.code = r.currency`
 
 func scanRequest(row pgx.Row) (DownPaymentRequest, error) {
 	var r DownPaymentRequest
 	err := row.Scan(&r.ID, &r.DocumentNumber, &r.LegalEntityID, &r.SupplierID, &r.PurchaseOrderID, &r.Currency, &r.Exponent, &r.Amount, &r.TaxCode,
-		&r.TaxAmount, &r.DueDate, &r.Reference, &r.Status, &r.CancelReason, &r.JournalEntryYear, &r.JournalEntryID, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy)
+		&r.TaxAmount, &r.DueDate, &r.Reference, &r.Status, &r.CancelReason, &r.JournalEntryYear, &r.JournalEntryID, &r.ClearedInvoiceID, &r.ClearingEntryID, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy)
 	return r, errs.Wrapf(err, "scan down payment request")
 }
 

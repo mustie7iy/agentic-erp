@@ -1177,6 +1177,25 @@ cancelling need their own permission, `payables.down_payment.request` (a
 request pays a supplier before any invoice backs it), and are audited and
 publish `DownPaymentRequested` and `DownPaymentRequestCancelled`.
 
+A paid request's down payment is cleared against the supplier's final
+invoice (`supplier-invoices/{id}:clearDownPayments`, SAP F-54; T46d):
+a posted invoice (kind `invoice`) of the request's supplier, legal entity
+and currency, on the request's purchase order when it names one; whole
+down payments only, so those cleared against an invoice add up to at most
+its gross amount (422 `payables.down_payments_exceed_invoice`). The
+transfer (`ledger.Postings.ClearDownPayments`, document type AB) credits
+each down payment on the down payment account, which clears it, reverses
+the input tax its payment claimed (refused when that entry's tax is shared
+with a down payment not cleared with it), and debits the supplier's
+payables account with their total, at the amounts already booked, so with
+no exchange difference. That debit keeps the invoice's payment terms, so
+the next run nets it against the invoice and takes a cash discount only on
+the remainder. The requests move to `cleared`, naming the invoice and the
+transfer (`down_payment_request_cleared`); the invoice is not reversed
+while they stand (409 `payables.down_payments_cleared`). The clearing is
+audited and publishes `DownPaymentsCleared`. Special G/L items keep no
+payment terms (`open_item_terms` is kept for the other supplier lines).
+
 ## 3.10 Payments (`payments`)
 
 ```mermaid

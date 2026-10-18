@@ -111,6 +111,7 @@ type Postings interface {
 	Post(ctx context.Context, in ledger.Posting) (ledger.Entry, error)
 	Reverse(ctx context.Context, entryID uuid.UUID, postingDate *time.Time, headerText *string) (ledger.Entry, error)
 	IsCleared(ctx context.Context, fiscalYear int16, entryID uuid.UUID) (bool, error)
+	ClearDownPayments(ctx context.Context, in ledger.DownPaymentClearing) (ledger.Entry, error)
 }
 
 // Accounts is what payables asks the ledger about accounts and tax codes.

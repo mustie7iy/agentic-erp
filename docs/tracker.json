@@ -448,6 +448,12 @@
         "t": "Product-owner question: publish DownPaymentRequestPaid when a run pays a request (today audited only; JournalEntryPosted and PaymentRunReleased carry the payment)",
         "r": "asyncapi · payables.DownPaymentRequests.Paid · question",
         "c": []
+       },
+       {
+        "s": "D",
+        "t": "Down payments cleared against the final invoice (F-54), whole: a transfer clears them, reverses their input tax and debits payables under the invoice's terms; the invoice is not reversed while it stands",
+        "r": "db/migrations/000074 · supplier-invoices/{id}:clearDownPayments · ledger.Postings.ClearDownPayments · DownPaymentsCleared · T46d",
+        "c": []
        }
       ]
      },

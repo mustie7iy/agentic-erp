@@ -73,6 +73,10 @@ type CaptureSupplierInvoiceRes interface {
 	captureSupplierInvoiceRes()
 }
 
+type ClearSupplierInvoiceDownPaymentsRes interface {
+	clearSupplierInvoiceDownPaymentsRes()
+}
+
 type CloseFiscalPeriodRes interface {
 	closeFiscalPeriodRes()
 }

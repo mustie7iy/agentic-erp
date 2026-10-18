@@ -257,3 +257,114 @@ func TestPayDownPayment(t *testing.T) {
 		return err
 	})
 }
+
+// TestClearDownPayments: clearing a down payment against an invoice posts
+// the transfer: Cr the down payment (clearing it), Cr its input tax back,
+// Dr the supplier's payables account with their total, an open item with
+// the invoice's terms (T46d). Only open down payments of the supplier in
+// the clearing's currency are cleared, and an entry whose tax two down
+// payments share is refused.
+func TestClearDownPayments(t *testing.T) {
+	e := setup(t)
+	downPayments(t, e)
+	dp, bank, ap, tax := settleAccount(t, e, "2000", "159000"), settleAccount(t, e, "2000", "100000"), settleAccount(t, e, "2000", "211000"),
+		settleAccount(t, e, "2000", "140000")
+	v1, a := "V1", "A"
+	paid := func(lines ...ledger.PostingLine) ledger.Entry {
+		var entry ledger.Entry
+		if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
+			entry, err = postings().Post(ctx, ledger.Posting{LegalEntityID: e.de, DocumentType: "SA", DocumentDate: date("2026-03-01"), PostingDate: date("2026-03-01"),
+				Currency: "EUR", SourceContext: "payments", SourceDocumentID: uuid.New(), Lines: lines})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return entry
+	}
+	taxed := paid(ledger.PostingLine{AccountID: dp, Amount: 10000, PartnerID: &e.supplier, SpecialGL: &a},
+		ledger.PostingLine{AccountID: tax, Amount: 1900, TaxCode: &v1}, ledger.PostingLine{AccountID: bank, Amount: -11900})
+	shared := paid(ledger.PostingLine{AccountID: dp, Amount: 100, PartnerID: &e.supplier, SpecialGL: &a},
+		ledger.PostingLine{AccountID: dp, Amount: 200, PartnerID: &e.supplier, SpecialGL: &a},
+		ledger.PostingLine{AccountID: tax, Amount: 57, TaxCode: &v1}, ledger.PostingLine{AccountID: bank, Amount: -357})
+	ordinary := paid(ledger.PostingLine{AccountID: ap, Amount: 500, PartnerID: &e.supplier}, ledger.PostingLine{AccountID: bank, Amount: -500})
+	in := ledger.DownPaymentClearing{LegalEntityID: e.de, SupplierID: e.supplier, APAccountID: ap, DocumentType: "SA", PostingDate: date("2026-03-20"),
+		Currency: "EUR", Items: []ledger.ItemRef{{FiscalYear: taxed.FiscalYear, EntryID: taxed.ID, LineNo: 1}}, SourceContext: "payables", SourceDocumentID: uuid.New(),
+		Terms: &ledger.ItemTerms{PaymentTermCode: "NT30", BaselineDate: date("2026-03-15"), NetDays: 30}}
+	var transfer ledger.Entry
+	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
+		transfer, err = postings().ClearDownPayments(ctx, in)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []struct {
+		account uuid.UUID
+		amount  money.Minor
+		special string
+	}{{dp, -10000, "A"}, {tax, -1900, ""}, {ap, 11900, ""}} {
+		t.Run(fmt.Sprintf("transfer line %d", i+1), func(t *testing.T) {
+			l := transfer.Lines[i]
+			if l.AccountID != want.account {
+				t.Errorf("account: got %s, want %s", l.AccountID, want.account)
+			}
+			if l.TC != want.amount {
+				t.Errorf("amount: got %v, want %v", l.TC, want.amount)
+			}
+			if got := special(l); got != want.special {
+				t.Errorf("special G/L: got %q, want %q", got, want.special)
+			}
+		})
+	}
+	page, _ := e.Must(200, "GET", "/v1/open-items?partner_id="+e.supplier.String(), "", "")
+	for _, it := range page["items"].([]any) {
+		m := it.(map[string]any)
+		if m["journal_entry_id"] == taxed.ID.String() {
+			t.Errorf("open items: got the cleared down payment %v", m)
+		}
+		if m["journal_entry_id"] == transfer.ID.String() && m["payment_terms"] == nil {
+			t.Errorf("transfer's payables debit: got no payment terms, want the invoice's")
+		}
+	}
+	for name, c := range map[string]struct {
+		mutate func(*ledger.DownPaymentClearing)
+		code   string
+	}{
+		"no items":        {func(c *ledger.DownPaymentClearing) { c.Items = nil }, "ledger.no_items"},
+		"an item twice":   {func(c *ledger.DownPaymentClearing) { c.Items = append(c.Items, c.Items[0]) }, "ledger.duplicate_item"},
+		"cleared already": {func(*ledger.DownPaymentClearing) {}, "ledger.item_already_cleared"},
+		"an ordinary item": {func(c *ledger.DownPaymentClearing) {
+			c.Items[0] = ledger.ItemRef{FiscalYear: ordinary.FiscalYear, EntryID: ordinary.ID, LineNo: 1}
+		}, "ledger.not_a_down_payment"},
+		"another supplier": {func(c *ledger.DownPaymentClearing) { c.SupplierID = uuid.New() }, "ledger.not_a_down_payment"},
+		"not an open item": {func(c *ledger.DownPaymentClearing) {
+			c.Items[0] = ledger.ItemRef{FiscalYear: taxed.FiscalYear, EntryID: taxed.ID, LineNo: 3}
+		}, "ledger.not_an_open_item"},
+		"another currency": {func(c *ledger.DownPaymentClearing) {
+			c.Items[0], c.Currency = ledger.ItemRef{FiscalYear: shared.FiscalYear, EntryID: shared.ID, LineNo: 1}, "USD"
+		}, "ledger.mixed_items"},
+		"tax of two payments": {func(c *ledger.DownPaymentClearing) {
+			c.Items[0] = ledger.ItemRef{FiscalYear: shared.FiscalYear, EntryID: shared.ID, LineNo: 1}
+		}, "ledger.down_payment_tax_shared"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c2 := in
+			c2.Items = append([]ledger.ItemRef{}, in.Items...)
+			c.mutate(&c2)
+			err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+				_, err := postings().ClearDownPayments(ctx, c2)
+				return err
+			})
+			pgtest.WantErr(t, err, c.code)
+		})
+	}
+	call := func(ctx context.Context) error {
+		c2 := in
+		c2.Items, c2.Terms = []ledger.ItemRef{{FiscalYear: shared.FiscalYear, EntryID: shared.ID, LineNo: 1}, {FiscalYear: shared.FiscalYear, EntryID: shared.ID, LineNo: 2}}, nil
+		_, err := postings().ClearDownPayments(ctx, c2)
+		return err
+	}
+	if err := call(context.Background()); err == nil {
+		t.Error("outside a unit of work: got nil error, want an error")
+	}
+	apitest.EveryFailure(t, e.ten, e.ten.Human, "clear down payments", call)
+}

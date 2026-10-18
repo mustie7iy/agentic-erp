@@ -2744,4 +2744,20 @@ func TestDownPaymentPayments(t *testing.T) {
 	t.Run("cancelled once paid", func(t *testing.T) {
 		failsOn(t, asApp(t, f.tenant, update("status = 'cancelled', cancel_reason = 'x'")), "down_payment_request_lifecycle")
 	})
+	// T46d: a cleared request names the invoice and the transfer, and its
+	// payment stays its payment.
+	t.Run("cleared without the transfer", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, update("status = 'cleared'")), "down_payment_request_cleared")
+	})
+	t.Run("cleared against an unknown invoice", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, update("status = 'cleared', cleared_invoice_id = gen_random_uuid(), clearing_entry_year = 2026, clearing_entry_id = gen_random_uuid()")),
+			"down_payment_request_invoice")
+	})
+	t.Run("the payment changed", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, update("journal_entry_id = gen_random_uuid()")), "down_payment_request_lifecycle")
+	})
+	t.Run("the payment changed on clearing", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, update("status = 'cleared', cleared_invoice_id = gen_random_uuid(), clearing_entry_year = 2026, clearing_entry_id = gen_random_uuid(), "+
+			"journal_entry_id = gen_random_uuid()")), "down_payment_request_fixed")
+	})
 }

@@ -23,7 +23,13 @@ import (
 // and company 2000's down payment account, 159000 (ADR-0037).
 func downPaymentSetup(t *testing.T) env {
 	t.Helper()
-	e := setupWith(t, []string{"payables.down_payment.request"}, func(*app.Config) {})
+	return downPaymentSetupWith(t, func(*app.Config) {})
+}
+
+// downPaymentSetupWith is downPaymentSetup with more API wiring.
+func downPaymentSetupWith(t *testing.T, configure func(*app.Config)) env {
+	t.Helper()
+	e := setupWith(t, []string{"payables.down_payment.request"}, configure)
 	doc := fixture.Document(t)
 	de := doc.Company("2000")
 	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "159000", Name: "Down payments made", Type: config.Asset, VendorReconciliation: true})

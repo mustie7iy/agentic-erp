@@ -49,3 +49,12 @@ general ledger that the payment program can pay.
   indicator.
 - Migrated SAP down payments (BSIK with UMSKZ A) load with the indicator on
   the down payment account (a follow-up of the SAP load).
+- A run pays a request as a payment of its own (kind `down_payment`), never
+  netted, and posts it as the special item with its input tax (T46c).
+- Clearing a down payment against the invoice reverses the input tax its
+  payment claimed, since the invoice claims the whole tax, and debits the
+  supplier under the invoice's terms, so a cash discount is taken, and its
+  tax corrected, only on the remainder; the invoice is not reversed while
+  the clearing stands (T46d).
+- Special G/L items keep no payment terms, and the tax share of a cash
+  discount counts only ordinary supplier lines as what an entry owes.

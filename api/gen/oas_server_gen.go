@@ -146,6 +146,20 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices:capture
 	CaptureSupplierInvoice(ctx context.Context, req *SupplierInvoiceCaptureMultipart, params CaptureSupplierInvoiceParams) (CaptureSupplierInvoiceRes, error)
+	// ClearSupplierInvoiceDownPayments implements clearSupplierInvoiceDownPayments operation.
+	//
+	// Clears paid down payment requests of the invoice's supplier against the posted invoice (SAP F-54;
+	// ADR-0037), whole: their total with what was cleared against it before is at most the invoice's gross
+	// amount (422 `payables.down_payments_exceed_invoice`), and a request naming a purchase order clears
+	// only against an invoice of that order. A transfer entry (document type AB) credits the down payment
+	// account, clearing each down payment, reverses the input tax its payment claimed, and debits the
+	// supplier's payables account with their total, an open item with the invoice's payment terms that the
+	// next run nets against the invoice, so a cash discount is taken on what remains to pay. The requests
+	// move to `cleared`; the invoice is not reversed while they stand. Requires status `posted` and kind
+	// `invoice`.
+	//
+	// POST /v1/supplier-invoices/{id}:clearDownPayments
+	ClearSupplierInvoiceDownPayments(ctx context.Context, req *DownPaymentClearingInput, params ClearSupplierInvoiceDownPaymentsParams) (ClearSupplierInvoiceDownPaymentsRes, error)
 	// CloseFiscalPeriod implements closeFiscalPeriod operation.
 	//
 	// Closes the period for postings. Requires status `open`.

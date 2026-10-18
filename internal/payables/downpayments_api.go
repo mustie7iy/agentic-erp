@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
@@ -21,7 +22,8 @@ func requestToAPI(r DownPaymentRequest) gen.DownPaymentRequest {
 		UpdatedBy: gen.NewOptUUID(r.UpdatedBy), LegalEntityID: r.LegalEntityID, SupplierID: r.SupplierID, PurchaseOrderID: apitypes.OptUUID(r.PurchaseOrderID),
 		Amount: apitypes.Money(r.Amount, r.Currency, r.Exponent), TaxCode: apitypes.OptString(r.TaxCode),
 		TaxAmount: apitypes.Money(r.TaxAmount, r.Currency, r.Exponent), DueDate: r.DueDate, Reference: apitypes.OptString(r.Reference),
-		Status: r.Status, CancelReason: apitypes.OptString(r.CancelReason), JournalEntryID: apitypes.OptUUID(r.JournalEntryID)}
+		Status: r.Status, CancelReason: apitypes.OptString(r.CancelReason), JournalEntryID: apitypes.OptUUID(r.JournalEntryID),
+		ClearedInvoiceID: apitypes.OptUUID(r.ClearedInvoiceID), ClearingEntryID: apitypes.OptUUID(r.ClearingEntryID)}
 }
 
 // CreateDownPaymentRequest implements POST /v1/down-payment-requests.
@@ -89,4 +91,18 @@ func (e *Endpoints) ListDownPaymentRequests(ctx context.Context, params gen.List
 		page.NextPageToken.SetTo(next)
 	}
 	return &gen.DownPaymentRequestPageHeaders{Response: page}, nil
+}
+
+// ClearSupplierInvoiceDownPayments implements POST /v1/supplier-invoices/{id}:clearDownPayments.
+func (e *Endpoints) ClearSupplierInvoiceDownPayments(ctx context.Context, req *gen.DownPaymentClearingInput,
+	params gen.ClearSupplierInvoiceDownPaymentsParams) (gen.ClearSupplierInvoiceDownPaymentsRes, error) {
+	items := make([]ledger.ItemRef, len(req.Items))
+	for i, it := range req.Items {
+		items[i] = ledger.ItemRef{FiscalYear: int16(it.FiscalYear), EntryID: it.JournalEntryID, LineNo: it.LineNo}
+	}
+	v, err := e.ClearDownPayments(ctx, params.ID, etag.IfMatch(params.IfMatch), req.PostingDate, items)
+	if err != nil {
+		return nil, err
+	}
+	return ok(v), nil
 }

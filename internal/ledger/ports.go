@@ -118,7 +118,8 @@ func (s storedTerms) terms() *ItemTerms {
 }
 
 // keepTerms keeps the terms with the entry's supplier open items: each
-// line on a supplier reconciliation account. Terms for an entry without
+// line on a supplier reconciliation account but special G/L items, which
+// no run pays (ADR-0037). Terms for an entry without
 // one are refused, rather than kept for nothing.
 func keepTerms(ctx context.Context, tx pgx.Tx, entry Entry, terms *ItemTerms) error {
 	if terms == nil {
@@ -136,7 +137,7 @@ func keepTerms(ctx context.Context, tx pgx.Tx, entry Entry, terms *ItemTerms) er
 			net_days, discount_days, discount_pct, discount2_days, discount2_pct)
 		SELECT l.tenant_id, l.fiscal_year, l.journal_entry_id, l.line_no, $3, $4, $5, $6, $7::numeric, $8, $9::numeric
 		FROM ledger.journal_line l JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id AND a.reconciliation_kind = 'supplier'
-		WHERE l.fiscal_year = $1 AND l.journal_entry_id = $2`,
+		WHERE l.fiscal_year = $1 AND l.journal_entry_id = $2 AND l.special_gl IS NULL`,
 		entry.FiscalYear, entry.ID, terms.PaymentTermCode, terms.BaselineDate, terms.NetDays, days[0], pct[0], days[1], pct[1])
 	if err != nil {
 		return fmt.Errorf("ledger: keep the terms of entry %s: %w", entry.ID, err)
