@@ -2630,3 +2630,54 @@ func TestSpecialGLItems(t *testing.T) {
 		}), "account_determination_down_payment_fixed")
 	})
 }
+
+// TestDownPaymentRequests: a down payment request (ADR-0037, T46b) is open
+// first, moves only from open to cancelled with a reason (an open request
+// is not edited), is for more than
+// zero, carries tax only with a tax code and below its amount, and what was
+// requested never changes.
+func TestDownPaymentRequests(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	insert := func(r uuid.UUID, amount int, taxCode any, tax int, status string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payables.down_payment_request (tenant_id, id, legal_entity_id, supplier_id, currency, amount, tax_code, tax_amount,
+				due_date, status, created_by, updated_by) VALUES ($1, $2, $3, $4, 'USD', $5, $6, $7, '2026-04-02', $8, $9, $9)`,
+				f.tenant, r, f.entity, f.supplier, amount, taxCode, tax, status, f.actor)
+		}
+	}
+	open := id()
+	mustApp(t, f.tenant, insert(open, 11900, "V1", 1900, "open"))
+	for _, c := range []struct {
+		name   string
+		insert func(tx pgx.Tx) error
+		fails  string
+	}{
+		{"zero", insert(id(), 0, nil, 0, "open"), "down_payment_request_amount_check"},
+		{"tax without a code", insert(id(), 100, nil, 10, "open"), "down_payment_request_tax"},
+		{"tax of the whole amount", insert(id(), 100, "V1", 100, "open"), "down_payment_request_tax"},
+		{"cancelled first", insert(id(), 100, nil, 0, "cancelled"), "down_payment_request_lifecycle"},
+		{"blank reference", func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payables.down_payment_request (tenant_id, id, legal_entity_id, supplier_id, currency, amount, due_date, reference,
+				created_by, updated_by) VALUES ($1, $2, $3, $4, 'USD', 100, '2026-04-02', '  ', $5, $5)`, f.tenant, id(), f.entity, f.supplier, f.actor)
+		}, "down_payment_request_reference_check"},
+	} {
+		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, c.insert), c.fails) })
+	}
+	update := func(set string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE payables.down_payment_request SET `+set+`, version = version + 1 WHERE tenant_id = $1 AND id = $2`, f.tenant, open)
+		}
+	}
+	for _, c := range []struct{ name, set, fails string }{
+		{"changed while open", "amount = 100", "down_payment_request_lifecycle"},
+		{"amount changed on cancelling", "status = 'cancelled', cancel_reason = 'x', amount = 100", "down_payment_request_fixed"},
+		{"cancelled without a reason", "status = 'cancelled'", "down_payment_request_cancel_reason"},
+	} {
+		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, update(c.set)), c.fails) })
+	}
+	mustApp(t, f.tenant, update("status = 'cancelled', cancel_reason = 'x'"))
+	t.Run("reopened", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, update("status = 'open', cancel_reason = NULL")), "down_payment_request_lifecycle")
+	})
+}

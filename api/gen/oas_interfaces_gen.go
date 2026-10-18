@@ -41,6 +41,10 @@ type CancelContractRes interface {
 	cancelContractRes()
 }
 
+type CancelDownPaymentRequestRes interface {
+	cancelDownPaymentRequestRes()
+}
+
 type CancelOperationRes interface {
 	cancelOperationRes()
 }
@@ -99,6 +103,10 @@ type CreateConnectorRes interface {
 
 type CreateContractRes interface {
 	createContractRes()
+}
+
+type CreateDownPaymentRequestRes interface {
+	createDownPaymentRequestRes()
 }
 
 type CreateExchangeRateRes interface {
@@ -255,6 +263,10 @@ type GetConnectorRes interface {
 
 type GetContractRes interface {
 	getContractRes()
+}
+
+type GetDownPaymentRequestRes interface {
+	getDownPaymentRequestRes()
 }
 
 type GetExchangeRateRes interface {
@@ -427,6 +439,10 @@ type ListConnectorsRes interface {
 
 type ListContractsRes interface {
 	listContractsRes()
+}
+
+type ListDownPaymentRequestsRes interface {
+	listDownPaymentRequestsRes()
 }
 
 type ListExchangeRatesRes interface {

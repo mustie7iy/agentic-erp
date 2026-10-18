@@ -430,6 +430,12 @@
         "t": "SAP load of open down payments (BSIK with UMSKZ A) on the down payment account with the indicator; the migration reconciliation's open payables then decide whether they count",
         "r": "internal/integration load · Reports.OpenPayables · follow-up of the SAP load",
         "c": []
+       },
+       {
+        "s": "D",
+        "t": "Down payment requests (F-47): payables documents outside the ledger, with optional input tax; entered, listed, read and cancelled, audited and published",
+        "r": "db/migrations/000062 · payables.down_payment_request · down-payment-requests · DownPaymentRequested · T46b",
+        "c": []
        }
       ]
      },

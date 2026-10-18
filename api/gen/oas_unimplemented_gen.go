@@ -116,6 +116,16 @@ func (UnimplementedHandler) CancelContract(ctx context.Context, params CancelCon
 	return r, ht.ErrNotImplemented
 }
 
+// CancelDownPaymentRequest implements cancelDownPaymentRequest operation.
+//
+// Cancels an open down payment request (status `cancelled`), which a payment run then no longer pays.
+// Requires status `open`.
+//
+// POST /v1/down-payment-requests/{id}:cancel
+func (UnimplementedHandler) CancelDownPaymentRequest(ctx context.Context, req *ReasonInput, params CancelDownPaymentRequestParams) (r CancelDownPaymentRequestRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CancelOperation implements cancelOperation operation.
 //
 // Requests cancellation where the operation supports it (409 otherwise). Work already committed stays
@@ -271,6 +281,18 @@ func (UnimplementedHandler) CreateConnector(ctx context.Context, req *ConnectorC
 //
 // POST /v1/contracts
 func (UnimplementedHandler) CreateContract(ctx context.Context, req *ContractCreate, params CreateContractParams) (r CreateContractRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateDownPaymentRequest implements createDownPaymentRequest operation.
+//
+// Requests a down payment to a supplier (SAP F-47, special G/L F): a payables document, not a ledger
+// posting (ADR-0037). It moves no value until a payment run pays it, which posts the down payment on
+// the legal entity's down payment account. Created `open`. With an input tax code, the tax the amount
+// includes is computed and claimed when it is paid.
+//
+// POST /v1/down-payment-requests
+func (UnimplementedHandler) CreateDownPaymentRequest(ctx context.Context, req *DownPaymentRequestCreate, params CreateDownPaymentRequestParams) (r CreateDownPaymentRequestRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -665,6 +687,15 @@ func (UnimplementedHandler) GetContract(ctx context.Context, params GetContractP
 	return r, ht.ErrNotImplemented
 }
 
+// GetDownPaymentRequest implements getDownPaymentRequest operation.
+//
+// Returns one down payment request.
+//
+// GET /v1/down-payment-requests/{id}
+func (UnimplementedHandler) GetDownPaymentRequest(ctx context.Context, params GetDownPaymentRequestParams) (r GetDownPaymentRequestRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetExchangeRate implements getExchangeRate operation.
 //
 // Returns one exchange rate.
@@ -1054,6 +1085,15 @@ func (UnimplementedHandler) ListConnectors(ctx context.Context, params ListConne
 //
 // GET /v1/contracts
 func (UnimplementedHandler) ListContracts(ctx context.Context, params ListContractsParams) (r ListContractsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListDownPaymentRequests implements listDownPaymentRequests operation.
+//
+// Down payment requests (SAP F-47, ADR-0037). Sortable by: `due_date`.
+//
+// GET /v1/down-payment-requests
+func (UnimplementedHandler) ListDownPaymentRequests(ctx context.Context, params ListDownPaymentRequestsParams) (r ListDownPaymentRequestsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

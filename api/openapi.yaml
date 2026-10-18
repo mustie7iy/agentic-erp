@@ -7343,6 +7343,202 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/down-payment-requests:
+    get:
+      operationId: listDownPaymentRequests
+      tags:
+        - payables
+      summary: List down payment requests
+      description: "Down payment requests (SAP F-47, ADR-0037). Sortable by: `due_date`."
+      x-permission: payables.invoice.read
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - $ref: "#/components/parameters/SupplierId"
+        - name: status
+          in: query
+          required: false
+          description: Only requests in this status.
+          schema:
+            type: string
+            description: "Request status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - open
+              - cancelled
+        - name: purchase_order_id
+          in: query
+          required: false
+          description: Only requests for this purchase order.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of down payment requests.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownPaymentRequestPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createDownPaymentRequest
+      tags:
+        - payables
+      summary: Request a down payment
+      description: "Requests a down payment to a supplier (SAP F-47, special G/L F): a payables document, not a ledger posting (ADR-0037). It moves no value until a payment run pays it, which posts the down payment on the legal entity's down payment account. Created `open`. With an input tax code, the tax the amount includes is computed and claimed when it is paid."
+      x-permission: payables.invoice.capture
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The down payment request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DownPaymentRequestCreate"
+      responses:
+        "201":
+          description: "Created; the new down payment request."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownPaymentRequest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/down-payment-requests/{id}":
+    get:
+      operationId: getDownPaymentRequest
+      tags:
+        - payables
+      summary: Get a down payment request
+      description: Returns one down payment request.
+      x-permission: payables.invoice.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The down payment request.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownPaymentRequest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/down-payment-requests/{id}:cancel":
+    post:
+      operationId: cancelDownPaymentRequest
+      tags:
+        - payables
+      summary: Cancel a down payment request
+      description: "Cancels an open down payment request (status `cancelled`), which a payment run then no longer pays. Requires status `open`."
+      x-permission: payables.invoice.capture
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of cancelDownPaymentRequest.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonInput"
+      responses:
+        "200":
+          description: The down payment request after cancelDownPaymentRequest.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownPaymentRequest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/payment-runs:
     get:
       operationId: listPaymentRuns
@@ -17274,6 +17470,147 @@ components:
                     currency: EUR
               extensions:
                 cost_object_hint: MKT-2026
+    DownPaymentRequest:
+      description: "A down payment request (SAP F-47, special G/L F; ADR-0037): a supplier is to be paid in advance of an invoice still to come. A payables document, not a ledger posting."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - legal_entity_id
+            - supplier_id
+            - amount
+            - tax_amount
+            - due_date
+            - status
+          properties:
+            legal_entity_id:
+              type: string
+              format: uuid
+              description: Legal entity.
+              readOnly: true
+            supplier_id:
+              type: string
+              format: uuid
+              description: Supplier.
+              readOnly: true
+            purchase_order_id:
+              type: string
+              format: uuid
+              description: "The purchase order the down payment is for: a released order of this supplier and legal entity in the request's currency."
+              readOnly: true
+            amount:
+              $ref: "#/components/schemas/Money"
+              description: "What is paid, tax included."
+            tax_code:
+              type: string
+              description: "Input tax code of the legal entity; the payment claims the tax the amount includes."
+              readOnly: true
+            tax_amount:
+              $ref: "#/components/schemas/Money"
+              description: "The input tax the amount includes, amount × rate / (100 + rate) rounded half away from zero; 0 without a tax code."
+            due_date:
+              type: string
+              format: date
+              description: When the down payment is due; a payment run pays it from then.
+              readOnly: true
+            reference:
+              type: string
+              description: Reference, such as the supplier's down payment request number.
+              maxLength: 40
+              readOnly: true
+            status:
+              type: string
+              description: "Lifecycle status: `open`, or `cancelled` (`:cancel`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - open
+                - cancelled
+              readOnly: true
+            cancel_reason:
+              type: string
+              description: Why the request was cancelled; set with status `cancelled`.
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+          version: 1
+          created_at: "2026-10-05T09:00:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d90"
+          updated_at: "2026-10-05T09:00:00Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d90"
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d02"
+          purchase_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d03"
+          amount:
+            amount: "1190.00"
+            currency: EUR
+          tax_code: V1
+          tax_amount:
+            amount: "190.00"
+            currency: EUR
+          due_date: "2026-10-15"
+          reference: AB-2026-17
+          status: open
+    DownPaymentRequestCreate:
+      type: object
+      description: "Request a down payment. It is created `open`."
+      required:
+        - legal_entity_id
+        - supplier_id
+        - amount
+        - due_date
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity.
+        supplier_id:
+          type: string
+          format: uuid
+          description: Supplier.
+        purchase_order_id:
+          type: string
+          format: uuid
+          description: "The purchase order the down payment is for: a released order of this supplier and legal entity in the amount's currency."
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "What is paid, tax included; more than zero."
+        tax_code:
+          type: string
+          description: "An input tax code of the legal entity valid on the due date."
+        due_date:
+          type: string
+          format: date
+          description: When the down payment is due.
+        reference:
+          type: string
+          description: Reference, such as the supplier's down payment request number.
+          minLength: 1
+          maxLength: 40
+      additionalProperties: false
+      examples:
+        - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d02"
+          purchase_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d03"
+          amount:
+            amount: "1190.00"
+            currency: EUR
+          tax_code: V1
+          due_date: "2026-10-15"
+          reference: AB-2026-17
+    DownPaymentRequestPage:
+      type: object
+      description: One page of down payment requests.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DownPaymentRequest"
+          description: The down payment requests on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
     MatchIssue:
       type: object
       description: One three-way match issue.

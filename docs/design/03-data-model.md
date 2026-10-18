@@ -1158,6 +1158,21 @@ request limit: purpose, content type, size limit, the object key the bytes
 go to, until when, and its status (`open`, `received` through the API,
 `used` by the invoice in `used_by`, with size and hash once known).
 
+`down_payment_request` (T46b, ADR-0037) is a request to pay a supplier in
+advance of an invoice still to come (SAP F-47, special G/L F, a noted
+item). It is a payables document, not a ledger posting: it moves no value
+until a payment run pays it (T46c), which posts the special G/L item A on
+the down payment account (§3.7). It holds the legal entity, the supplier,
+an optional released order of the supplier in the same currency, the
+amount to pay (tax included, more than zero), an optional input tax code
+with the tax the amount includes (amount × rate / (100 + rate), rounded
+half away from zero, valid on the due date), the due date and a
+reference. It is created `open` and moves only to `cancelled`, with a
+reason (`:cancel`); what was requested never changes, and an open request
+is not edited (trigger `down_payment_request_change`). Entering and
+cancelling are audited and publish `DownPaymentRequested` and
+`DownPaymentRequestCancelled`.
+
 ## 3.10 Payments (`payments`)
 
 ```mermaid

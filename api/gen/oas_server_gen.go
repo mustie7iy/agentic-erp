@@ -81,6 +81,13 @@ type Handler interface {
 	//
 	// POST /v1/contracts/{id}:cancel
 	CancelContract(ctx context.Context, params CancelContractParams) (CancelContractRes, error)
+	// CancelDownPaymentRequest implements cancelDownPaymentRequest operation.
+	//
+	// Cancels an open down payment request (status `cancelled`), which a payment run then no longer pays.
+	// Requires status `open`.
+	//
+	// POST /v1/down-payment-requests/{id}:cancel
+	CancelDownPaymentRequest(ctx context.Context, req *ReasonInput, params CancelDownPaymentRequestParams) (CancelDownPaymentRequestRes, error)
 	// CancelOperation implements cancelOperation operation.
 	//
 	// Requests cancellation where the operation supports it (409 otherwise). Work already committed stays
@@ -194,6 +201,15 @@ type Handler interface {
 	//
 	// POST /v1/contracts
 	CreateContract(ctx context.Context, req *ContractCreate, params CreateContractParams) (CreateContractRes, error)
+	// CreateDownPaymentRequest implements createDownPaymentRequest operation.
+	//
+	// Requests a down payment to a supplier (SAP F-47, special G/L F): a payables document, not a ledger
+	// posting (ADR-0037). It moves no value until a payment run pays it, which posts the down payment on
+	// the legal entity's down payment account. Created `open`. With an input tax code, the tax the amount
+	// includes is computed and claimed when it is paid.
+	//
+	// POST /v1/down-payment-requests
+	CreateDownPaymentRequest(ctx context.Context, req *DownPaymentRequestCreate, params CreateDownPaymentRequestParams) (CreateDownPaymentRequestRes, error)
 	// CreateExchangeRate implements createExchangeRate operation.
 	//
 	// Records a rate. Rates are insert-only; recording the same rate type, currency pair and `valid_from`
@@ -468,6 +484,12 @@ type Handler interface {
 	//
 	// GET /v1/contracts/{id}
 	GetContract(ctx context.Context, params GetContractParams) (GetContractRes, error)
+	// GetDownPaymentRequest implements getDownPaymentRequest operation.
+	//
+	// Returns one down payment request.
+	//
+	// GET /v1/down-payment-requests/{id}
+	GetDownPaymentRequest(ctx context.Context, params GetDownPaymentRequestParams) (GetDownPaymentRequestRes, error)
 	// GetExchangeRate implements getExchangeRate operation.
 	//
 	// Returns one exchange rate.
@@ -731,6 +753,12 @@ type Handler interface {
 	//
 	// GET /v1/contracts
 	ListContracts(ctx context.Context, params ListContractsParams) (ListContractsRes, error)
+	// ListDownPaymentRequests implements listDownPaymentRequests operation.
+	//
+	// Down payment requests (SAP F-47, ADR-0037). Sortable by: `due_date`.
+	//
+	// GET /v1/down-payment-requests
+	ListDownPaymentRequests(ctx context.Context, params ListDownPaymentRequestsParams) (ListDownPaymentRequestsRes, error)
 	// ListExchangeRates implements listExchangeRates operation.
 	//
 	// Exchange rates by type and currency pair. Sortable by: `valid_from`.

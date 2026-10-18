@@ -2620,6 +2620,7 @@ func (*BadRequestHeaders) blockOrgUnitRes()               {}
 func (*BadRequestHeaders) blockPrincipalRes()             {}
 func (*BadRequestHeaders) cancelApprovalRequestRes()      {}
 func (*BadRequestHeaders) cancelContractRes()             {}
+func (*BadRequestHeaders) cancelDownPaymentRequestRes()   {}
 func (*BadRequestHeaders) cancelOperationRes()            {}
 func (*BadRequestHeaders) cancelParkedJournalEntryRes()   {}
 func (*BadRequestHeaders) cancelPurchaseOrderChangeRes()  {}
@@ -2635,6 +2636,7 @@ func (*BadRequestHeaders) createClearingRes()             {}
 func (*BadRequestHeaders) createCompanyAccessRes()        {}
 func (*BadRequestHeaders) createConnectorRes()            {}
 func (*BadRequestHeaders) createContractRes()             {}
+func (*BadRequestHeaders) createDownPaymentRequestRes()   {}
 func (*BadRequestHeaders) createExchangeRateRes()         {}
 func (*BadRequestHeaders) createLegalEntityRes()          {}
 func (*BadRequestHeaders) createMigrationRunRes()         {}
@@ -2674,6 +2676,7 @@ func (*BadRequestHeaders) getCompanyAccessRes()           {}
 func (*BadRequestHeaders) getConfigVersionRes()           {}
 func (*BadRequestHeaders) getConnectorRes()               {}
 func (*BadRequestHeaders) getContractRes()                {}
+func (*BadRequestHeaders) getDownPaymentRequestRes()      {}
 func (*BadRequestHeaders) getExchangeRateRes()            {}
 func (*BadRequestHeaders) getFiscalPeriodRes()            {}
 func (*BadRequestHeaders) getGoodsReceiptRes()            {}
@@ -2717,6 +2720,7 @@ func (*BadRequestHeaders) listCompanyAccessRes()          {}
 func (*BadRequestHeaders) listConfigVersionsRes()         {}
 func (*BadRequestHeaders) listConnectorsRes()             {}
 func (*BadRequestHeaders) listContractsRes()              {}
+func (*BadRequestHeaders) listDownPaymentRequestsRes()    {}
 func (*BadRequestHeaders) listExchangeRatesRes()          {}
 func (*BadRequestHeaders) listFiscalPeriodsRes()          {}
 func (*BadRequestHeaders) listGoodsReceiptsRes()          {}
@@ -4574,6 +4578,78 @@ func (s *BusinessPartnerPageHeaders) SetResponse(val BusinessPartnerPage) {
 }
 
 func (*BusinessPartnerPageHeaders) listBusinessPartnersRes() {}
+
+// CancelDownPaymentRequestOKHeaders wraps DownPaymentRequest with response headers.
+type CancelDownPaymentRequestOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           DownPaymentRequest
+}
+
+// GetETag returns the value of ETag.
+func (s *CancelDownPaymentRequestOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CancelDownPaymentRequestOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *CancelDownPaymentRequestOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *CancelDownPaymentRequestOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *CancelDownPaymentRequestOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *CancelDownPaymentRequestOKHeaders) GetResponse() DownPaymentRequest {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CancelDownPaymentRequestOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CancelDownPaymentRequestOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *CancelDownPaymentRequestOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *CancelDownPaymentRequestOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *CancelDownPaymentRequestOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CancelDownPaymentRequestOKHeaders) SetResponse(val DownPaymentRequest) {
+	s.Response = val
+}
+
+func (*CancelDownPaymentRequestOKHeaders) cancelDownPaymentRequestRes() {}
 
 // CancelOperationOKHeaders wraps Operation with response headers.
 type CancelOperationOKHeaders struct {
@@ -6450,6 +6526,7 @@ func (*ConflictHeaders) blockOrgUnitRes()              {}
 func (*ConflictHeaders) blockPrincipalRes()            {}
 func (*ConflictHeaders) cancelApprovalRequestRes()     {}
 func (*ConflictHeaders) cancelContractRes()            {}
+func (*ConflictHeaders) cancelDownPaymentRequestRes()  {}
 func (*ConflictHeaders) cancelOperationRes()           {}
 func (*ConflictHeaders) cancelParkedJournalEntryRes()  {}
 func (*ConflictHeaders) cancelPurchaseOrderChangeRes() {}
@@ -6465,6 +6542,7 @@ func (*ConflictHeaders) createClearingRes()            {}
 func (*ConflictHeaders) createCompanyAccessRes()       {}
 func (*ConflictHeaders) createConnectorRes()           {}
 func (*ConflictHeaders) createContractRes()            {}
+func (*ConflictHeaders) createDownPaymentRequestRes()  {}
 func (*ConflictHeaders) createExchangeRateRes()        {}
 func (*ConflictHeaders) createLegalEntityRes()         {}
 func (*ConflictHeaders) createMigrationRunRes()        {}
@@ -7924,6 +8002,458 @@ func (s *DecisionInput) SetComment(val OptString) {
 	s.Comment = val
 }
 
+// Merged schema.
+// Ref: #/components/schemas/DownPaymentRequest
+type DownPaymentRequest struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// Legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Supplier.
+	SupplierID uuid.UUID `json:"supplier_id"`
+	// The purchase order the down payment is for: a released order of this supplier and legal entity in
+	// the request's currency.
+	PurchaseOrderID OptUUID `json:"purchase_order_id"`
+	// What is paid, tax included.
+	Amount Money `json:"amount"`
+	// Input tax code of the legal entity; the payment claims the tax the amount includes.
+	TaxCode OptString `json:"tax_code"`
+	// The input tax the amount includes, amount × rate / (100 + rate) rounded half away from zero; 0
+	// without a tax code.
+	TaxAmount Money `json:"tax_amount"`
+	// When the down payment is due; a payment run pays it from then.
+	DueDate time.Time `json:"due_date"`
+	// Reference, such as the supplier's down payment request number.
+	Reference OptString `json:"reference"`
+	// Lifecycle status: `open`, or `cancelled` (`:cancel`). Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// Why the request was cancelled; set with status `cancelled`.
+	CancelReason OptString `json:"cancel_reason"`
+}
+
+// GetID returns the value of ID.
+func (s *DownPaymentRequest) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *DownPaymentRequest) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *DownPaymentRequest) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *DownPaymentRequest) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *DownPaymentRequest) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *DownPaymentRequest) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *DownPaymentRequest) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetSupplierID returns the value of SupplierID.
+func (s *DownPaymentRequest) GetSupplierID() uuid.UUID {
+	return s.SupplierID
+}
+
+// GetPurchaseOrderID returns the value of PurchaseOrderID.
+func (s *DownPaymentRequest) GetPurchaseOrderID() OptUUID {
+	return s.PurchaseOrderID
+}
+
+// GetAmount returns the value of Amount.
+func (s *DownPaymentRequest) GetAmount() Money {
+	return s.Amount
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *DownPaymentRequest) GetTaxCode() OptString {
+	return s.TaxCode
+}
+
+// GetTaxAmount returns the value of TaxAmount.
+func (s *DownPaymentRequest) GetTaxAmount() Money {
+	return s.TaxAmount
+}
+
+// GetDueDate returns the value of DueDate.
+func (s *DownPaymentRequest) GetDueDate() time.Time {
+	return s.DueDate
+}
+
+// GetReference returns the value of Reference.
+func (s *DownPaymentRequest) GetReference() OptString {
+	return s.Reference
+}
+
+// GetStatus returns the value of Status.
+func (s *DownPaymentRequest) GetStatus() string {
+	return s.Status
+}
+
+// GetCancelReason returns the value of CancelReason.
+func (s *DownPaymentRequest) GetCancelReason() OptString {
+	return s.CancelReason
+}
+
+// SetID sets the value of ID.
+func (s *DownPaymentRequest) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *DownPaymentRequest) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *DownPaymentRequest) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *DownPaymentRequest) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *DownPaymentRequest) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *DownPaymentRequest) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *DownPaymentRequest) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetSupplierID sets the value of SupplierID.
+func (s *DownPaymentRequest) SetSupplierID(val uuid.UUID) {
+	s.SupplierID = val
+}
+
+// SetPurchaseOrderID sets the value of PurchaseOrderID.
+func (s *DownPaymentRequest) SetPurchaseOrderID(val OptUUID) {
+	s.PurchaseOrderID = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *DownPaymentRequest) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *DownPaymentRequest) SetTaxCode(val OptString) {
+	s.TaxCode = val
+}
+
+// SetTaxAmount sets the value of TaxAmount.
+func (s *DownPaymentRequest) SetTaxAmount(val Money) {
+	s.TaxAmount = val
+}
+
+// SetDueDate sets the value of DueDate.
+func (s *DownPaymentRequest) SetDueDate(val time.Time) {
+	s.DueDate = val
+}
+
+// SetReference sets the value of Reference.
+func (s *DownPaymentRequest) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetStatus sets the value of Status.
+func (s *DownPaymentRequest) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetCancelReason sets the value of CancelReason.
+func (s *DownPaymentRequest) SetCancelReason(val OptString) {
+	s.CancelReason = val
+}
+
+// Request a down payment. It is created `open`.
+// Ref: #/components/schemas/DownPaymentRequestCreate
+type DownPaymentRequestCreate struct {
+	// Legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Supplier.
+	SupplierID uuid.UUID `json:"supplier_id"`
+	// The purchase order the down payment is for: a released order of this supplier and legal entity in
+	// the amount's currency.
+	PurchaseOrderID OptUUID `json:"purchase_order_id"`
+	// What is paid, tax included; more than zero.
+	Amount Money `json:"amount"`
+	// An input tax code of the legal entity valid on the due date.
+	TaxCode OptString `json:"tax_code"`
+	// When the down payment is due.
+	DueDate time.Time `json:"due_date"`
+	// Reference, such as the supplier's down payment request number.
+	Reference OptString `json:"reference"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *DownPaymentRequestCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetSupplierID returns the value of SupplierID.
+func (s *DownPaymentRequestCreate) GetSupplierID() uuid.UUID {
+	return s.SupplierID
+}
+
+// GetPurchaseOrderID returns the value of PurchaseOrderID.
+func (s *DownPaymentRequestCreate) GetPurchaseOrderID() OptUUID {
+	return s.PurchaseOrderID
+}
+
+// GetAmount returns the value of Amount.
+func (s *DownPaymentRequestCreate) GetAmount() Money {
+	return s.Amount
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *DownPaymentRequestCreate) GetTaxCode() OptString {
+	return s.TaxCode
+}
+
+// GetDueDate returns the value of DueDate.
+func (s *DownPaymentRequestCreate) GetDueDate() time.Time {
+	return s.DueDate
+}
+
+// GetReference returns the value of Reference.
+func (s *DownPaymentRequestCreate) GetReference() OptString {
+	return s.Reference
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *DownPaymentRequestCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetSupplierID sets the value of SupplierID.
+func (s *DownPaymentRequestCreate) SetSupplierID(val uuid.UUID) {
+	s.SupplierID = val
+}
+
+// SetPurchaseOrderID sets the value of PurchaseOrderID.
+func (s *DownPaymentRequestCreate) SetPurchaseOrderID(val OptUUID) {
+	s.PurchaseOrderID = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *DownPaymentRequestCreate) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *DownPaymentRequestCreate) SetTaxCode(val OptString) {
+	s.TaxCode = val
+}
+
+// SetDueDate sets the value of DueDate.
+func (s *DownPaymentRequestCreate) SetDueDate(val time.Time) {
+	s.DueDate = val
+}
+
+// SetReference sets the value of Reference.
+func (s *DownPaymentRequestCreate) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// DownPaymentRequestHeaders wraps DownPaymentRequest with response headers.
+type DownPaymentRequestHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           DownPaymentRequest
+}
+
+// GetETag returns the value of ETag.
+func (s *DownPaymentRequestHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *DownPaymentRequestHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *DownPaymentRequestHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *DownPaymentRequestHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *DownPaymentRequestHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *DownPaymentRequestHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *DownPaymentRequestHeaders) GetResponse() DownPaymentRequest {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *DownPaymentRequestHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *DownPaymentRequestHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *DownPaymentRequestHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *DownPaymentRequestHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *DownPaymentRequestHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *DownPaymentRequestHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *DownPaymentRequestHeaders) SetResponse(val DownPaymentRequest) {
+	s.Response = val
+}
+
+func (*DownPaymentRequestHeaders) createDownPaymentRequestRes() {}
+
+// One page of down payment requests.
+// Ref: #/components/schemas/DownPaymentRequestPage
+type DownPaymentRequestPage struct {
+	// The down payment requests on this page.
+	Items []DownPaymentRequest `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *DownPaymentRequestPage) GetItems() []DownPaymentRequest {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *DownPaymentRequestPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *DownPaymentRequestPage) SetItems(val []DownPaymentRequest) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *DownPaymentRequestPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// DownPaymentRequestPageHeaders wraps DownPaymentRequestPage with response headers.
+type DownPaymentRequestPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           DownPaymentRequestPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *DownPaymentRequestPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *DownPaymentRequestPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *DownPaymentRequestPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *DownPaymentRequestPageHeaders) GetResponse() DownPaymentRequestPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *DownPaymentRequestPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *DownPaymentRequestPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *DownPaymentRequestPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *DownPaymentRequestPageHeaders) SetResponse(val DownPaymentRequestPage) {
+	s.Response = val
+}
+
+func (*DownPaymentRequestPageHeaders) listDownPaymentRequestsRes() {}
+
 // EndAgentSessionOKHeaders wraps AgentSession with response headers.
 type EndAgentSessionOKHeaders struct {
 	ETag               OptString
@@ -9218,6 +9748,7 @@ func (*ForbiddenHeaders) blockOrgUnitRes()               {}
 func (*ForbiddenHeaders) blockPrincipalRes()             {}
 func (*ForbiddenHeaders) cancelApprovalRequestRes()      {}
 func (*ForbiddenHeaders) cancelContractRes()             {}
+func (*ForbiddenHeaders) cancelDownPaymentRequestRes()   {}
 func (*ForbiddenHeaders) cancelOperationRes()            {}
 func (*ForbiddenHeaders) cancelParkedJournalEntryRes()   {}
 func (*ForbiddenHeaders) cancelPurchaseOrderChangeRes()  {}
@@ -9233,6 +9764,7 @@ func (*ForbiddenHeaders) createClearingRes()             {}
 func (*ForbiddenHeaders) createCompanyAccessRes()        {}
 func (*ForbiddenHeaders) createConnectorRes()            {}
 func (*ForbiddenHeaders) createContractRes()             {}
+func (*ForbiddenHeaders) createDownPaymentRequestRes()   {}
 func (*ForbiddenHeaders) createExchangeRateRes()         {}
 func (*ForbiddenHeaders) createLegalEntityRes()          {}
 func (*ForbiddenHeaders) createMigrationRunRes()         {}
@@ -9272,6 +9804,7 @@ func (*ForbiddenHeaders) getCompanyAccessRes()           {}
 func (*ForbiddenHeaders) getConfigVersionRes()           {}
 func (*ForbiddenHeaders) getConnectorRes()               {}
 func (*ForbiddenHeaders) getContractRes()                {}
+func (*ForbiddenHeaders) getDownPaymentRequestRes()      {}
 func (*ForbiddenHeaders) getExchangeRateRes()            {}
 func (*ForbiddenHeaders) getFiscalPeriodRes()            {}
 func (*ForbiddenHeaders) getGoodsReceiptRes()            {}
@@ -9315,6 +9848,7 @@ func (*ForbiddenHeaders) listCompanyAccessRes()          {}
 func (*ForbiddenHeaders) listConfigVersionsRes()         {}
 func (*ForbiddenHeaders) listConnectorsRes()             {}
 func (*ForbiddenHeaders) listContractsRes()              {}
+func (*ForbiddenHeaders) listDownPaymentRequestsRes()    {}
 func (*ForbiddenHeaders) listExchangeRatesRes()          {}
 func (*ForbiddenHeaders) listFiscalPeriodsRes()          {}
 func (*ForbiddenHeaders) listGoodsReceiptsRes()          {}
@@ -9886,6 +10420,67 @@ func (s *GetContractOKHeaders) SetResponse(val Contract) {
 }
 
 func (*GetContractOKHeaders) getContractRes() {}
+
+// GetDownPaymentRequestOKHeaders wraps DownPaymentRequest with response headers.
+type GetDownPaymentRequestOKHeaders struct {
+	ETag               OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           DownPaymentRequest
+}
+
+// GetETag returns the value of ETag.
+func (s *GetDownPaymentRequestOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *GetDownPaymentRequestOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *GetDownPaymentRequestOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *GetDownPaymentRequestOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *GetDownPaymentRequestOKHeaders) GetResponse() DownPaymentRequest {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetDownPaymentRequestOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *GetDownPaymentRequestOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *GetDownPaymentRequestOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *GetDownPaymentRequestOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetDownPaymentRequestOKHeaders) SetResponse(val DownPaymentRequest) {
+	s.Response = val
+}
+
+func (*GetDownPaymentRequestOKHeaders) getDownPaymentRequestRes() {}
 
 // GetExchangeRateOKHeaders wraps ExchangeRate with response headers.
 type GetExchangeRateOKHeaders struct {
@@ -14414,6 +15009,7 @@ func (*NotFoundHeaders) blockOrgUnitRes()               {}
 func (*NotFoundHeaders) blockPrincipalRes()             {}
 func (*NotFoundHeaders) cancelApprovalRequestRes()      {}
 func (*NotFoundHeaders) cancelContractRes()             {}
+func (*NotFoundHeaders) cancelDownPaymentRequestRes()   {}
 func (*NotFoundHeaders) cancelOperationRes()            {}
 func (*NotFoundHeaders) cancelParkedJournalEntryRes()   {}
 func (*NotFoundHeaders) cancelPurchaseOrderChangeRes()  {}
@@ -14444,6 +15040,7 @@ func (*NotFoundHeaders) getCompanyAccessRes()           {}
 func (*NotFoundHeaders) getConfigVersionRes()           {}
 func (*NotFoundHeaders) getConnectorRes()               {}
 func (*NotFoundHeaders) getContractRes()                {}
+func (*NotFoundHeaders) getDownPaymentRequestRes()      {}
 func (*NotFoundHeaders) getExchangeRateRes()            {}
 func (*NotFoundHeaders) getFiscalPeriodRes()            {}
 func (*NotFoundHeaders) getGoodsReceiptRes()            {}
@@ -19480,6 +20077,7 @@ func (*PreconditionFailedHeaders) blockOrgUnitRes()              {}
 func (*PreconditionFailedHeaders) blockPrincipalRes()            {}
 func (*PreconditionFailedHeaders) cancelApprovalRequestRes()     {}
 func (*PreconditionFailedHeaders) cancelContractRes()            {}
+func (*PreconditionFailedHeaders) cancelDownPaymentRequestRes()  {}
 func (*PreconditionFailedHeaders) cancelOperationRes()           {}
 func (*PreconditionFailedHeaders) cancelParkedJournalEntryRes()  {}
 func (*PreconditionFailedHeaders) cancelPurchaseOrderChangeRes() {}
@@ -19599,6 +20197,7 @@ func (*PreconditionRequiredHeaders) blockOrgUnitRes()              {}
 func (*PreconditionRequiredHeaders) blockPrincipalRes()            {}
 func (*PreconditionRequiredHeaders) cancelApprovalRequestRes()     {}
 func (*PreconditionRequiredHeaders) cancelContractRes()            {}
+func (*PreconditionRequiredHeaders) cancelDownPaymentRequestRes()  {}
 func (*PreconditionRequiredHeaders) cancelOperationRes()           {}
 func (*PreconditionRequiredHeaders) cancelParkedJournalEntryRes()  {}
 func (*PreconditionRequiredHeaders) cancelPurchaseOrderChangeRes() {}
@@ -24706,6 +25305,7 @@ func (*ServiceUnavailableHeaders) blockOrgUnitRes()               {}
 func (*ServiceUnavailableHeaders) blockPrincipalRes()             {}
 func (*ServiceUnavailableHeaders) cancelApprovalRequestRes()      {}
 func (*ServiceUnavailableHeaders) cancelContractRes()             {}
+func (*ServiceUnavailableHeaders) cancelDownPaymentRequestRes()   {}
 func (*ServiceUnavailableHeaders) cancelOperationRes()            {}
 func (*ServiceUnavailableHeaders) cancelParkedJournalEntryRes()   {}
 func (*ServiceUnavailableHeaders) cancelPurchaseOrderChangeRes()  {}
@@ -24721,6 +25321,7 @@ func (*ServiceUnavailableHeaders) createClearingRes()             {}
 func (*ServiceUnavailableHeaders) createCompanyAccessRes()        {}
 func (*ServiceUnavailableHeaders) createConnectorRes()            {}
 func (*ServiceUnavailableHeaders) createContractRes()             {}
+func (*ServiceUnavailableHeaders) createDownPaymentRequestRes()   {}
 func (*ServiceUnavailableHeaders) createExchangeRateRes()         {}
 func (*ServiceUnavailableHeaders) createLegalEntityRes()          {}
 func (*ServiceUnavailableHeaders) createMigrationRunRes()         {}
@@ -26388,6 +26989,7 @@ func (*TooManyRequestsHeaders) blockOrgUnitRes()               {}
 func (*TooManyRequestsHeaders) blockPrincipalRes()             {}
 func (*TooManyRequestsHeaders) cancelApprovalRequestRes()      {}
 func (*TooManyRequestsHeaders) cancelContractRes()             {}
+func (*TooManyRequestsHeaders) cancelDownPaymentRequestRes()   {}
 func (*TooManyRequestsHeaders) cancelOperationRes()            {}
 func (*TooManyRequestsHeaders) cancelParkedJournalEntryRes()   {}
 func (*TooManyRequestsHeaders) cancelPurchaseOrderChangeRes()  {}
@@ -26403,6 +27005,7 @@ func (*TooManyRequestsHeaders) createClearingRes()             {}
 func (*TooManyRequestsHeaders) createCompanyAccessRes()        {}
 func (*TooManyRequestsHeaders) createConnectorRes()            {}
 func (*TooManyRequestsHeaders) createContractRes()             {}
+func (*TooManyRequestsHeaders) createDownPaymentRequestRes()   {}
 func (*TooManyRequestsHeaders) createExchangeRateRes()         {}
 func (*TooManyRequestsHeaders) createLegalEntityRes()          {}
 func (*TooManyRequestsHeaders) createMigrationRunRes()         {}
@@ -26442,6 +27045,7 @@ func (*TooManyRequestsHeaders) getCompanyAccessRes()           {}
 func (*TooManyRequestsHeaders) getConfigVersionRes()           {}
 func (*TooManyRequestsHeaders) getConnectorRes()               {}
 func (*TooManyRequestsHeaders) getContractRes()                {}
+func (*TooManyRequestsHeaders) getDownPaymentRequestRes()      {}
 func (*TooManyRequestsHeaders) getExchangeRateRes()            {}
 func (*TooManyRequestsHeaders) getFiscalPeriodRes()            {}
 func (*TooManyRequestsHeaders) getGoodsReceiptRes()            {}
@@ -26485,6 +27089,7 @@ func (*TooManyRequestsHeaders) listCompanyAccessRes()          {}
 func (*TooManyRequestsHeaders) listConfigVersionsRes()         {}
 func (*TooManyRequestsHeaders) listConnectorsRes()             {}
 func (*TooManyRequestsHeaders) listContractsRes()              {}
+func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()    {}
 func (*TooManyRequestsHeaders) listExchangeRatesRes()          {}
 func (*TooManyRequestsHeaders) listFiscalPeriodsRes()          {}
 func (*TooManyRequestsHeaders) listGoodsReceiptsRes()          {}
@@ -26634,6 +27239,7 @@ func (*UnauthorizedHeaders) blockOrgUnitRes()               {}
 func (*UnauthorizedHeaders) blockPrincipalRes()             {}
 func (*UnauthorizedHeaders) cancelApprovalRequestRes()      {}
 func (*UnauthorizedHeaders) cancelContractRes()             {}
+func (*UnauthorizedHeaders) cancelDownPaymentRequestRes()   {}
 func (*UnauthorizedHeaders) cancelOperationRes()            {}
 func (*UnauthorizedHeaders) cancelParkedJournalEntryRes()   {}
 func (*UnauthorizedHeaders) cancelPurchaseOrderChangeRes()  {}
@@ -26649,6 +27255,7 @@ func (*UnauthorizedHeaders) createClearingRes()             {}
 func (*UnauthorizedHeaders) createCompanyAccessRes()        {}
 func (*UnauthorizedHeaders) createConnectorRes()            {}
 func (*UnauthorizedHeaders) createContractRes()             {}
+func (*UnauthorizedHeaders) createDownPaymentRequestRes()   {}
 func (*UnauthorizedHeaders) createExchangeRateRes()         {}
 func (*UnauthorizedHeaders) createLegalEntityRes()          {}
 func (*UnauthorizedHeaders) createMigrationRunRes()         {}
@@ -26688,6 +27295,7 @@ func (*UnauthorizedHeaders) getCompanyAccessRes()           {}
 func (*UnauthorizedHeaders) getConfigVersionRes()           {}
 func (*UnauthorizedHeaders) getConnectorRes()               {}
 func (*UnauthorizedHeaders) getContractRes()                {}
+func (*UnauthorizedHeaders) getDownPaymentRequestRes()      {}
 func (*UnauthorizedHeaders) getExchangeRateRes()            {}
 func (*UnauthorizedHeaders) getFiscalPeriodRes()            {}
 func (*UnauthorizedHeaders) getGoodsReceiptRes()            {}
@@ -26731,6 +27339,7 @@ func (*UnauthorizedHeaders) listCompanyAccessRes()          {}
 func (*UnauthorizedHeaders) listConfigVersionsRes()         {}
 func (*UnauthorizedHeaders) listConnectorsRes()             {}
 func (*UnauthorizedHeaders) listContractsRes()              {}
+func (*UnauthorizedHeaders) listDownPaymentRequestsRes()    {}
 func (*UnauthorizedHeaders) listExchangeRatesRes()          {}
 func (*UnauthorizedHeaders) listFiscalPeriodsRes()          {}
 func (*UnauthorizedHeaders) listGoodsReceiptsRes()          {}
@@ -26869,6 +27478,7 @@ func (*UnprocessableHeaders) blockOrgUnitRes()              {}
 func (*UnprocessableHeaders) blockPrincipalRes()            {}
 func (*UnprocessableHeaders) cancelApprovalRequestRes()     {}
 func (*UnprocessableHeaders) cancelContractRes()            {}
+func (*UnprocessableHeaders) cancelDownPaymentRequestRes()  {}
 func (*UnprocessableHeaders) cancelOperationRes()           {}
 func (*UnprocessableHeaders) cancelParkedJournalEntryRes()  {}
 func (*UnprocessableHeaders) cancelPurchaseOrderChangeRes() {}
@@ -26884,6 +27494,7 @@ func (*UnprocessableHeaders) createClearingRes()            {}
 func (*UnprocessableHeaders) createCompanyAccessRes()       {}
 func (*UnprocessableHeaders) createConnectorRes()           {}
 func (*UnprocessableHeaders) createContractRes()            {}
+func (*UnprocessableHeaders) createDownPaymentRequestRes()  {}
 func (*UnprocessableHeaders) createExchangeRateRes()        {}
 func (*UnprocessableHeaders) createLegalEntityRes()         {}
 func (*UnprocessableHeaders) createMigrationRunRes()        {}

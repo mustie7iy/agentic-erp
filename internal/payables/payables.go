@@ -12,6 +12,9 @@
 // (document type KR). On an order valued through GR/IR (T33), whose goods
 // receipts post Cr GR/IR, an item on an order item debits GR/IR at the
 // order price instead, with the price difference on its own line.
+//
+// Down payment requests (ADR-0037) are payables documents outside the
+// ledger: a payment run pays them, which posts the special G/L item.
 package payables
 
 import (
@@ -343,7 +346,7 @@ func (e *Endpoints) validate(ctx context.Context, tx pgx.Tx, in Input) (checked,
 		return checked{}, err
 	}
 	c := checked{currency: in.Gross.Currency, purchaseOrder: in.PurchaseOrderID}
-	exp, err := currencyExponent(ctx, tx, c.currency)
+	exp, err := currencyExponent(ctx, tx, c.currency, "gross_amount.currency")
 	if err != nil {
 		return checked{}, err
 	}
@@ -414,11 +417,12 @@ func notNegative(gross, tax money.Minor) error {
 	return nil
 }
 
-// currencyExponent reads the minor-unit digits of the invoice currency.
-func currencyExponent(ctx context.Context, tx pgx.Tx, code string) (int, error) {
-	exp, err := currency.Exponent(ctx, tx, code, invalid("payables.unknown_currency", "gross_amount.currency", "The currency is not known."))
+// currencyExponent reads the minor-unit digits of a document's currency;
+// field names it in the refusal of an unknown one.
+func currencyExponent(ctx context.Context, tx pgx.Tx, code, field string) (int, error) {
+	exp, err := currency.Exponent(ctx, tx, code, invalid("payables.unknown_currency", field, "The currency is not known."))
 	if err != nil {
-		return 0, fmt.Errorf("payables: invoice: %w", err)
+		return 0, fmt.Errorf("payables: currency %s: %w", code, err)
 	}
 	return exp, nil
 }
