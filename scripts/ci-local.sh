@@ -84,8 +84,11 @@ step contract vacuum lint -r api/vacuum-ruleset.yaml -b -q -d api/openapi.yaml a
 step breaking breaking
 step schema go test -count=1 ./db
 # Three shuffled runs with the race detector: CI's single race run and the
-# order dependence 07 §7.7 asks for, in one pass.
-step race go test -race -shuffle=on -count=3 ./...
+# order dependence 07 §7.7 asks for, in one pass. Three runs of a package
+# take three times go test's default limit of 10 minutes: the schema
+# tests, which migrate up and down again and again, took longer than
+# that on a busy machine without hanging.
+step race go test -race -shuffle=on -count=3 -timeout 30m ./...
 step budgets bash -c 'go test -count=1 -run Budget ./internal/ledger && go test -count=1 -run Perf ./internal/nfr'
 step coverage ./scripts/coverage.sh
 step fuzz make fuzz FUZZTIME=30s
