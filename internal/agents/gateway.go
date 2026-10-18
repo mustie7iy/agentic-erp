@@ -78,9 +78,6 @@ type Gateway struct {
 	Log      *slog.Logger
 	Now      func() time.Time
 	Timeout  time.Duration // a call's answer may be written for this long; 0: DefaultTimeout
-	// TenantCap is the tenant's monthly cap on model spending (the AI
-	// policy's); nil: none, the tenant's line is metered only.
-	TenantCap TenantCap
 	// AgentBudget reads an agent's monthly budget (identity.AgentBudget);
 	// nil: agents are held by the tenant's cap only.
 	AgentBudget AgentBudget
@@ -116,8 +113,16 @@ type price struct {
 // request is a call's request, checked and routed.
 type request struct {
 	alias, model string
-	body         []byte // with the model in place of the alias
+	fields       map[string]json.RawMessage
+	body         []byte // with the model in place of the alias, once routed
 	maxTokens    int64
+}
+
+// route sets the model the request goes to, in place of its alias.
+func (r *request) route(model string) {
+	r.model = model
+	r.fields["model"], _ = json.Marshal(model) // a string always encodes
+	r.body, _ = json.Marshal(r.fields)         // raw messages of a decoded object always encode
 }
 
 // serve makes one call for p: routed, priced, held against its budgets,
@@ -130,7 +135,7 @@ func (g *Gateway) serve(ctx context.Context, p reqctx.Principal, c call) (answer
 	if len(c.betas) > 0 {
 		return answer{}, problem.BadRequest("request.invalid_body", "The gateway forwards no provider betas.")
 	}
-	pr, res, err := g.admit(ctx, p, c, req)
+	pr, res, err := g.admit(ctx, p, c, &req)
 	if err != nil {
 		return answer{}, err
 	}
@@ -159,23 +164,33 @@ func (g *Gateway) serve(ctx context.Context, p reqctx.Principal, c call) (answer
 
 // admit runs the checks before the call, in their own transaction, which
 // commits before the call is forwarded so that its reservation holds
-// against the calls after it: the session is p's and running, the model is
-// priced, and the most the call may cost fits its budgets. A refusal for
-// the budget commits its audit entry.
-func (g *Gateway) admit(ctx context.Context, p reqctx.Principal, c call, req request) (price, reservation, error) {
+// against the calls after it: the tenant's AI is on, the session is p's
+// and running, the alias routes under the tenant's policy to a model it
+// allows and that is priced, and what the call may cost fits its budgets.
+// A refusal for the budget commits its audit entry.
+func (g *Gateway) admit(ctx context.Context, p reqctx.Principal, c call, req *request) (price, reservation, error) {
 	var pr price
 	var res reservation
 	var refused *problem.Problem
 	err := c.check(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		pol, err := ReadPolicy(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if err := enabled(pol); err != nil {
+			return err
+		}
 		if err := ownSession(ctx, tx, p, c.session); err != nil {
 			return err
 		}
+		if err := routeUnder(pol, req); err != nil {
+			return err
+		}
 		now := clock.Now(g.Now)
-		var err error
 		if pr, err = priceOf(ctx, tx, req.model, now); err != nil {
 			return err
 		}
-		res, refused, err = g.reserve(ctx, tx, p, mostOf(req, pr), now)
+		res, refused, err = g.reserve(ctx, tx, p, pol, mostOf(*req, pr), now)
 		return err
 	})
 	if err == nil && refused != nil {
@@ -237,10 +252,35 @@ func (g *Gateway) prepare(body []byte) (request, error) {
 		return out, problem.Unprocessable("agents.unknown_model", "The gateway routes no model alias "+out.alias+".",
 			problem.FieldError{Field: "model", Code: "unknown", Message: "a model alias: erp-default, erp-extraction or erp-analytics"})
 	}
-	out.model = model
-	req["model"], _ = json.Marshal(model) // a string always encodes
-	out.body, _ = json.Marshal(req)       // raw messages of a decoded object always encode
+	out.fields = req
+	out.route(model)
 	return out, nil
+}
+
+// enabled refuses every call while the tenant's AI is off: switched off by
+// its administrators, or suspended by the platform's operators, whose
+// hand wins (ADR-0036).
+func enabled(pol Policy) error {
+	switch {
+	case pol.Suspended:
+		return problem.Forbidden("agents.ai_disabled", "The platform's operators have suspended this tenant's AI.")
+	case !pol.Enabled:
+		return problem.Forbidden("agents.ai_disabled", "This tenant's administrators have switched its AI off.")
+	}
+	return nil
+}
+
+// routeUnder routes the request's alias under the tenant's policy, over the
+// gateway's routes, to a model the policy allows.
+func routeUnder(pol Policy, req *request) error {
+	if model, ok := pol.Routes[req.alias]; ok {
+		req.route(model)
+	}
+	if !pol.Allows(req.model) {
+		return problem.Unprocessable("agents.model_not_allowed", "The alias "+req.alias+" routes to "+req.model+", which the tenant's AI policy does not allow.",
+			problem.FieldError{Field: "model", Code: "not_allowed", Message: "an alias the tenant's policy routes to an allowed model"})
+	}
+	return nil
 }
 
 // checkTools refuses server tools: only the caller's own tools, which have

@@ -40,6 +40,12 @@ func budgeted(t *testing.T, ten pgtest.Tenant, minor money.Minor, cur string) {
 	budgets.Store(ten.Agent.ID, budget{minor, cur})
 }
 
+// capped sets the tenant's monthly cap, in cents, in its AI policy.
+func capped(t *testing.T, ten pgtest.Tenant, cents int64) {
+	t.Helper()
+	pgtest.Exec(t, `INSERT INTO agents.ai_policy (tenant_id, monthly_cap, cap_currency) VALUES ($1, $2, 'USD')`, ten.ID, cents)
+}
+
 // budgetOf reads the budgets above.
 func budgetOf(_ context.Context, _ pgx.Tx, agent uuid.UUID) (money.Minor, string, bool, error) {
 	b, ok := budgets.Load(agent)
@@ -128,8 +134,8 @@ func TestBudgets(t *testing.T) {
 	})
 	t.Run("the tenant's cap holds every caller", func(t *testing.T) {
 		ten := pgtest.NewTenant(t)
+		capped(t, ten, 1)
 		g := gateway(t, &provider{status: 200, body: answer})
-		g.TenantCap = func(context.Context, pgx.Tx) (money.Micro, bool, error) { return 1_000_000, true, nil }
 		rec := post(t, g, reqctx.Principal{ID: ten.Service.ID, Kind: reqctx.KindService, TenantID: ten.ID},
 			`{"model": "erp-default", "max_tokens": 1000, "messages": []}`, nil)
 		if rec.Code != http.StatusTooManyRequests {
@@ -137,16 +143,6 @@ func TestBudgets(t *testing.T) {
 		}
 		if n := count(t, ten, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'agents.budget.refuse' AND detail->>'line' = 'tenant'`); n != 1 {
 			t.Errorf("refusals on the tenant's line: got %d, want 1", n)
-		}
-	})
-	t.Run("an unreadable tenant cap fails the call", func(t *testing.T) {
-		ten := pgtest.NewTenant(t)
-		g := gateway(t, &provider{status: 200, body: answer})
-		g.TenantCap = func(context.Context, pgx.Tx) (money.Micro, bool, error) {
-			return 0, false, errors.New("policy unreadable")
-		}
-		if code, _, _ := call(t, g, ten, 10); code != http.StatusInternalServerError {
-			t.Errorf("status: got %d, want 500", code)
 		}
 	})
 	t.Run("a budget in another currency than the prices' refuses the agent", func(t *testing.T) {
@@ -308,7 +304,7 @@ func TestBudgetThresholds(t *testing.T) {
 			g.Now = func() time.Time { return now }
 			line, kind := "agent", any(&ten.Agent.ID)
 			if c.tenant {
-				g.TenantCap = func(context.Context, pgx.Tx) (money.Micro, bool, error) { return 2_000_000, true, nil }
+				capped(t, ten, 2)
 				line, kind = "tenant", nil
 			} else {
 				budgeted(t, ten, 2, "USD")

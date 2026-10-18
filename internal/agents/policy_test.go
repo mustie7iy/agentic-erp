@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -15,6 +17,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 // inTenant runs fn in the tenant's scope as the application and commits
@@ -240,4 +243,74 @@ func TestPolicyDatabaseFailures(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestKillSwitch: while a tenant's AI is off, switched off by its
+// administrators or suspended by the operators, the gateway refuses every
+// caller's call with 403 agents.ai_disabled, forwards nothing and holds
+// nothing (ADR-0036).
+func TestKillSwitch(t *testing.T) {
+	priced(t, "claude-opus-5-5")
+	for _, c := range []struct{ name, set string }{
+		{"switched off by the tenant", "enabled = false"},
+		{"suspended by the operators", "suspended = true, suspended_reason = 'billing dispute'"},
+	} {
+		for kind, as := range map[string]func(pgtest.Tenant) reqctx.Principal{
+			"an agent": principal,
+			"a service": func(ten pgtest.Tenant) reqctx.Principal {
+				return reqctx.Principal{ID: ten.Service.ID, Kind: reqctx.KindService, TenantID: ten.ID}
+			},
+		} {
+			t.Run(c.name+", "+kind, func(t *testing.T) {
+				ten := pgtest.NewTenant(t)
+				pgtest.Exec(t, `INSERT INTO agents.ai_policy (tenant_id) VALUES ($1)`, ten.ID)
+				pgtest.Exec(t, `UPDATE agents.ai_policy SET `+c.set+`, version = version + 1 WHERE tenant_id = $1`, ten.ID)
+				p := &provider{status: 200, body: message("claude-opus-5-5", "end_turn", 10, 1, 0, 0)}
+				rec := post(t, gateway(t, p), as(ten), `{"model": "erp-default", "max_tokens": 8, "messages": []}`, nil)
+				if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "agents.ai_disabled") {
+					t.Errorf("got %d %s, want 403 agents.ai_disabled", rec.Code, rec.Body)
+				}
+				if p.sent != nil {
+					t.Error("the call was forwarded")
+				}
+				if n := count(t, ten, `SELECT count(*) FROM agents.model_reservation WHERE tenant_id = $1`); n != 0 {
+					t.Errorf("reservations: got %d, want 0", n)
+				}
+			})
+		}
+	}
+}
+
+// TestTenantRouting: the tenant's policy routes its aliases over the
+// platform's, and the gateway forwards only to a model the policy allows.
+func TestTenantRouting(t *testing.T) {
+	priced(t, "claude-opus-5-5")
+	priced(t, "claude-haiku-5")
+	t.Run("the tenant's route", func(t *testing.T) {
+		ten := pgtest.NewTenant(t)
+		pgtest.Exec(t, `INSERT INTO agents.ai_policy (tenant_id, routes) VALUES ($1, '{"erp-default": "claude-haiku-5"}')`, ten.ID)
+		p := &provider{status: 200, body: message("claude-haiku-5", "end_turn", 10, 1, 0, 0)}
+		rec := post(t, gateway(t, p), principal(ten), `{"model": "erp-default", "max_tokens": 8, "messages": []}`, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status: got %d %s, want 200", rec.Code, rec.Body)
+		}
+		if !strings.Contains(string(p.sent), `"model":"claude-haiku-5"`) {
+			t.Errorf("forwarded: got %s, want the tenant's model claude-haiku-5", p.sent)
+		}
+		if got := rec.Header().Get("Erp-Model"); got != "claude-haiku-5" {
+			t.Errorf("Erp-Model: got %q, want claude-haiku-5", got)
+		}
+	})
+	t.Run("a model the policy does not allow", func(t *testing.T) {
+		ten := pgtest.NewTenant(t)
+		pgtest.Exec(t, `INSERT INTO agents.ai_policy (tenant_id, allowed_models) VALUES ($1, '{claude-haiku-5}')`, ten.ID)
+		p := &provider{status: 200, body: message("claude-opus-5-5", "end_turn", 10, 1, 0, 0)}
+		rec := post(t, gateway(t, p), principal(ten), `{"model": "erp-default", "max_tokens": 8, "messages": []}`, nil)
+		if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "agents.model_not_allowed") {
+			t.Errorf("got %d %s, want 422 agents.model_not_allowed", rec.Code, rec.Body)
+		}
+		if p.sent != nil {
+			t.Error("the call was forwarded")
+		}
+	})
 }

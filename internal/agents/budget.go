@@ -27,11 +27,7 @@ import (
 // Lock order, in every transaction: an agent session (recordCall), then
 // the tenant's line, then the agent's. Nothing locks a session after a
 // line, and the caps are read before any line is locked, so no two calls
-// deadlock; a TenantCap or AgentBudget must take no lock.
-
-// TenantCap reads the tenant's monthly cap on model spending in tx, in
-// Micro of the price currency; ok false means none.
-type TenantCap func(ctx context.Context, tx pgx.Tx) (limit money.Micro, ok bool, err error)
+// deadlock; an AgentBudget must take no lock.
 
 // AgentBudget reads an agent's monthly budget in tx, in minor units of its
 // currency; ok false means none (identity.AgentBudget, identity's
@@ -79,9 +75,9 @@ func monthOf(now time.Time) time.Time {
 // reserve holds most against p's lines for one call, or refuses it with
 // 429 agents.budget_exhausted, writing the refusal's audit entry in tx so
 // that it stands although the call does not.
-func (g *Gateway) reserve(ctx context.Context, tx pgx.Tx, p reqctx.Principal, most money.Micro, now time.Time) (reservation, *problem.Problem, error) {
+func (g *Gateway) reserve(ctx context.Context, tx pgx.Tx, p reqctx.Principal, pol Policy, most money.Micro, now time.Time) (reservation, *problem.Problem, error) {
 	res := reservation{call: uuid.Must(uuid.NewV7()), month: monthOf(now)}
-	limits, err := g.limits(ctx, tx, p)
+	limits, err := g.limits(ctx, tx, p, pol)
 	if err != nil {
 		return res, nil, err
 	}
@@ -117,20 +113,15 @@ func linesOf(p reqctx.Principal) []*uuid.UUID {
 	return []*uuid.UUID{nil}
 }
 
-// limits are the caps of p's lines: the tenant's, and an agent's monthly
-// budget. A budget in another currency than the prices' cannot be compared
-// with costs, and refuses the agent's calls rather than leaving them
-// uncapped.
-func (g *Gateway) limits(ctx context.Context, tx pgx.Tx, p reqctx.Principal) (map[string]*money.Micro, error) {
+// limits are the caps of p's lines: the tenant's (its AI policy's), and
+// an agent's monthly budget. A budget in another currency than the
+// prices' cannot be compared with costs, and refuses the agent's calls
+// rather than leaving them uncapped.
+func (g *Gateway) limits(ctx context.Context, tx pgx.Tx, p reqctx.Principal, pol Policy) (map[string]*money.Micro, error) {
 	out := map[string]*money.Micro{}
-	if g.TenantCap != nil {
-		limit, ok, err := g.TenantCap(ctx, tx)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			out["tenant"] = &limit
-		}
+	if pol.MonthlyCap != nil {
+		limit := money.MicroOf(*pol.MonthlyCap)
+		out["tenant"] = &limit
 	}
 	if p.Kind != reqctx.KindAgent || g.AgentBudget == nil {
 		return out, nil
