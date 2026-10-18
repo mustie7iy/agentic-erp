@@ -1488,7 +1488,7 @@ activate, and orders under them are refused.
 | `session` | One agent run: agent principal, purpose, model, tokens, cost (the sum of its model calls', exact in `cost_micro`), linked operation |
 | `tool_call` | Every tool call with input, result summary, error flag (insert-only) |
 | `recommendation` | What the agent proposed, on which object, and what people decided |
-| `model_call` | One row per call through the model gateway (ADR-0036): principal, session, alias, the model that answered, tokens, cost in millionths of the minor unit, outcome, duration; never content (insert-only, 000068) |
+| `model_call` | One row per call through the model gateway (ADR-0036): principal, session, alias, the model that answered, tokens, cost in millionths of the minor unit, outcome, duration, the number of redactions made in its text (000071); never content (insert-only, 000068) |
 | `spend` | A model budget line's month: the tenant's (`principal_id` NULL; its cap is the AI policy's) or an agent's (`agent_profile.monthly_budget`); what it has spent in millionths of the minor unit, in USD, and the highest threshold announced, 80 or 100 (000069) |
 | `ai_policy` | A tenant's AI policy, one row created on its first change (absent: the defaults): the kill switch's two hands, `enabled` (the tenant's administrators) and `suspended` with its reason (operators, which wins), the monthly cap in USD, alias routes over the platform's, the models allowed (empty: any priced model) and `documents_to_models` (000070) |
 | `model_reservation` | The most a call in flight may cost, held against each of its lines from before it is forwarded until it is settled; it lapses at its expiry, the call's time and its margin later, so a call that never settles frees its line (000069) |

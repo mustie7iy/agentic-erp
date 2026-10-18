@@ -2301,6 +2301,12 @@ func TestModelCalls(t *testing.T) {
 				VALUES ($1, gen_random_uuid(), $2, 'erp-default', 'claude-opus-5-5', 'succeeded', -1, 0, 0, 'USD')`, a.tenant, a.actor)
 		}), "model_call_input_tokens_check")
 	})
+	t.Run("redactions are counted, not negative", func(t *testing.T) {
+		failsWith(t, asApp(t, a.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO agents.model_call (tenant_id, id, principal_id, alias, model, status, input_tokens, output_tokens, cost_micro, currency, redactions)
+				VALUES ($1, gen_random_uuid(), $2, 'erp-default', 'claude-opus-5-5', 'succeeded', 0, 0, 0, 'USD', -1)`, a.tenant, a.actor)
+		}), "model_call_redactions_check")
+	})
 	t.Run("an outcome is known", func(t *testing.T) {
 		failsWith(t, asApp(t, a.tenant, func(tx pgx.Tx) error {
 			return exec(tx, `INSERT INTO agents.model_call (tenant_id, id, principal_id, alias, model, status, input_tokens, output_tokens, cost_micro, currency)
