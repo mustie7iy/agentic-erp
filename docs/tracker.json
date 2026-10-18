@@ -4924,9 +4924,9 @@
       ]
      },
      {
-      "s": "P",
+      "s": "D",
       "t": "Environments: dev, test, staging, production",
-      "r": "dev and test: deploy/terraform/envs · T40b; staging and production: T40d",
+      "r": "deploy/terraform/envs (dev, test, staging, production) · modules/environment · ADR-0035 · T40b · T40d1",
       "c": []
      },
      {

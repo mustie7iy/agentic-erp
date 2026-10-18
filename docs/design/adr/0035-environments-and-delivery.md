@@ -26,7 +26,11 @@ dedicated cell may get an account of its own.
 **Terraform.** `deploy/terraform/` holds modules (`state`, `accounts`,
 `signing-key`, `release-roles`, `ecr`, `private-ca`; from T40b `network`,
 `cell`, `global` and `subordinate-ca`) and one root per environment, region
-and cell under `envs/` (T40b: `dev` and `test`, one cell each).
+and cell under `envs/` (T40b: `dev` and `test`, one cell each; T40d:
+`staging` and `production`, whose home cell `prod1` is the canary). Each
+environment root calls `modules/environment` (the subordinate CA, the home
+cell and the global tier, wired together) with its account, cell, range
+and shape; a further cell is a root of its own calling `modules/cell`.
 State lives in one S3 bucket in tooling, versioned (superseded versions
 kept a year), encrypted with a key of its own, which the bucket enforces on
 every write, TLS-only, with S3's own locking (`use_lockfile`), one key per
@@ -438,7 +442,8 @@ which the state bucket refuses.
    keep more than one administrator role, since if every one were deleted
    only AWS Support could restore access. Set the release environment's
    variables from the outputs (`cosign_key`, `release_role_arn`, `region`).
-5. Apply each environment root (`envs/dev`, `envs/test`) in its account,
+5. Apply each environment root (`envs/dev`, `envs/test`, `envs/staging`,
+   `envs/production`) in its account,
    with `root_ca_arn` and `root_certificate` from tooling's outputs and
    `tooling_role_arn` naming a role in tooling the applying principal may
    assume that may issue from the root CA (`acm-pca:IssueCertificate`,
@@ -446,7 +451,7 @@ which the state bucket refuses.
    role, as in step 4. The root creates the account's Auto Scaling
    service-linked role, which the cell's volume key names and KMS only
    accepts once it exists; in an account that already has it, import it
-   first (`terraform import aws_iam_service_linked_role.autoscaling
+   first (`terraform import module.environment.aws_iam_service_linked_role.autoscaling
    arn:aws:iam::<account>:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling`).
    The role in tooling is made by hand for now. A second cell in the same
    account and region sets

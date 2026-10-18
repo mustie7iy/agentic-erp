@@ -30,3 +30,13 @@ output "external_secrets" {
     kms_key_arn = aws_kms_key.directory.arn
   }
 }
+
+output "directory_multi_az" {
+  description = "Whether the directory has a standby in another zone (the production shape)."
+  value       = aws_db_instance.directory.multi_az
+}
+
+output "directory_zone" {
+  description = "The directory's zone (its primary's, in the production shape)."
+  value       = aws_db_instance.directory.availability_zone
+}

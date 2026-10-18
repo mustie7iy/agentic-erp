@@ -1,7 +1,7 @@
 # The dev environment (ADR-0035): one cell, dev1, its global tier and the
-# environment's subordinate CA. Regions, administrator roles and the CA's
-# subject are settled at first apply, in a terraform.tfvars kept out of the
-# repository.
+# environment's subordinate CA, in the smaller single-AZ shape.
+# Regions, administrator roles and the CA's subject are settled at first
+# apply, in a terraform.tfvars kept out of the repository.
 
 variable "account_id" {
   description = "The dev account's id; any other account is refused."
@@ -64,92 +64,67 @@ variable "ca_country" {
   type        = string
 }
 
-module "subordinate_ca" {
-  source = "../../modules/subordinate-ca"
+module "environment" {
+  source = "../../modules/environment"
   providers = {
     aws         = aws
     aws.tooling = aws.tooling
   }
-  environment      = "dev"
-  organization     = var.ca_organization
-  country          = var.ca_country
-  root_ca_arn      = var.root_ca_arn
-  root_certificate = var.root_certificate
-}
-
-# The account's Auto Scaling service-linked role, which launches the
-# nodes' encrypted volumes. AWS creates it with the first Auto Scaling
-# group, but the cell's key names it before that, and KMS refuses a policy
-# naming a role that does not exist. In an account that already has it,
-# import it first (ADR-0035, bootstrap step 5).
-resource "aws_iam_service_linked_role" "autoscaling" {
-  aws_service_name = "autoscaling.amazonaws.com"
-}
-
-module "cell" {
-  source                    = "../../modules/cell"
-  name                      = "dev1"
-  autoscaling_role_arn      = aws_iam_service_linked_role.autoscaling.arn
-  image_registry_account_id = var.tooling_account_id
-  cidr                      = "10.16.0.0/16"
-  availability_zones        = var.availability_zones
-  admin_role_arns           = var.admin_role_arns
-  subordinate_ca_arn        = module.subordinate_ca.ca_arn
-  public_api_cidrs          = var.public_api_cidrs
-  node_scaling              = { min = 2, desired = 2, max = 4 }
-  # The product owner's shape for dev and test: a single-AZ instance and
-  # one zone's egress and endpoints. Staging and production keep the default.
+  environment        = "dev"
+  cell               = "dev1"
+  cidr               = "10.16.0.0/16"
+  availability_zones = var.availability_zones
+  admin_role_arns    = var.admin_role_arns
+  public_api_cidrs   = var.public_api_cidrs
+  tooling_account_id = var.tooling_account_id
+  root_ca_arn        = var.root_ca_arn
+  root_certificate   = var.root_certificate
+  ca_organization    = var.ca_organization
+  ca_country         = var.ca_country
+  # The product owner's shape for dev and test: a single-AZ database and
+  # directory, one zone's egress and endpoints.
   zone_redundant = false
-  # The home cell: the router runs on its cluster (the erp-global chart).
-  global_secrets = module.global.external_secrets
-}
-
-module "global" {
-  source                    = "../../modules/global"
-  environment               = "dev"
-  admin_role_arns           = var.admin_role_arns
-  vpc_id                    = module.cell.vpc_id
-  vpc_cidr                  = module.cell.cidr
-  private_subnet_ids        = module.cell.private_subnet_ids
-  public_subnet_ids         = module.cell.public_subnet_ids
-  cluster_security_group_id = module.cell.cluster_security_group_id
-  directory_multi_az        = false
-  directory_zone            = var.availability_zones[0]
+  node_scaling   = { min = 2, desired = 2, max = 4 }
 }
 
 output "cell" {
-  description = "The cell dev1: cluster, database, bucket, keys and workload roles (the erp-cell chart's values, T40c)."
-  value = {
-    cluster_name               = module.cell.cluster_name
-    vpc_id                     = module.cell.vpc_id
-    cluster_endpoint           = module.cell.cluster_endpoint
-    database_endpoint          = module.cell.database_endpoint
-    database_master_secret_arn = module.cell.database_master_secret_arn
-    object_bucket              = module.cell.object_bucket
-    field_kms_key_arn          = module.cell.field_kms_key_arn
-    cluster_kms_key_arn        = module.cell.cluster_kms_key_arn
-    workload_role_arns         = module.cell.workload_role_arns
-    aws_endpoints              = module.cell.aws_endpoints
-  }
+  description = "The cell dev1: cluster, database, bucket, keys and workload roles (the erp-cell chart's values)."
+  value       = module.environment.cell
 }
 
 output "global" {
-  description = "The directory and the router's load balancer (the erp-global chart's values, T40c)."
-  value = {
-    directory_endpoint          = module.global.directory_endpoint
-    directory_master_secret_arn = module.global.directory_master_secret_arn
-    router_dns_name             = module.global.router_dns_name
-    router_target_group_arn     = module.global.router_target_group_arn
-    router_proxy_sources        = module.global.router_proxy_sources
-  }
+  description = "The directory and the router's load balancer (the erp-global chart's values)."
+  value       = module.environment.global
 }
 
 output "subordinate_ca_certificate" {
-  description = "The environment's trust anchor (the erp-cell chart's trust.caBundle, ERP_TLS_CA)."
-  value       = module.subordinate_ca.ca_certificate
+  description = "The environment's trust anchor (the charts' trust.caBundle, ERP_TLS_CA)."
+  value       = module.environment.subordinate_ca_certificate
 }
 
 output "subordinate_ca_arn" {
-  description = "The environment's subordinate CA (cert-manager's AWSPCAClusterIssuer, T40c)."
-  value       = module.subordinate_ca.ca_arn
+  description = "The environment's subordinate CA (cert-manager's AWSPCAClusterIssuer)."
+  value       = module.environment.subordinate_ca_arn
+}
+
+# Since T40d the root calls modules/environment: a state applied before
+# moves with these.
+moved {
+  from = module.subordinate_ca
+  to   = module.environment.module.subordinate_ca
+}
+
+moved {
+  from = aws_iam_service_linked_role.autoscaling
+  to   = module.environment.aws_iam_service_linked_role.autoscaling
+}
+
+moved {
+  from = module.cell
+  to   = module.environment.module.cell
+}
+
+moved {
+  from = module.global
+  to   = module.environment.module.global
 }
