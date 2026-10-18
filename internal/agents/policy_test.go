@@ -198,7 +198,8 @@ func TestPolicyEvent(t *testing.T) {
 }
 
 // TestPolicyDatabaseFailures: each statement of reading, changing,
-// suspending and resuming the policy, and of its event, failing in turn
+// suspending and resuming the policy, of admitting an agent under it and
+// of its event, failing in turn
 // fails the operation with that error.
 func TestPolicyDatabaseFailures(t *testing.T) {
 	priced(t, "claude-opus-5-5")
@@ -207,7 +208,8 @@ func TestPolicyDatabaseFailures(t *testing.T) {
 	off, limit := false, money.Minor(100)
 	capped := &limit
 	ops := map[string]func(ctx context.Context, tx pgx.Tx) error{
-		"read": func(ctx context.Context, tx pgx.Tx) error { _, err := agents.ReadPolicy(ctx, tx); return err },
+		"read":  func(ctx context.Context, tx pgx.Tx) error { _, err := agents.ReadPolicy(ctx, tx); return err },
+		"admit": func(ctx context.Context, tx pgx.Tx) error { return agents.Admit(ctx, tx) },
 		"update": func(ctx context.Context, tx pgx.Tx) error {
 			_, err := agents.UpdatePolicy(ctx, tx, actor, etag.IfMatch("*"), agents.PolicyChange{Enabled: &off, MonthlyCap: &capped})
 			return err

@@ -130,3 +130,23 @@ func TestAIPolicyAPIDatabaseFailures(t *testing.T) {
 		})
 	}
 }
+
+// TestKillSwitchStopsAgents: while the tenant's AI is off, an agent's API
+// requests are refused too, so an agent stopped mid-run cannot act on the
+// answers it already has; people work on (ADR-0036).
+func TestKillSwitchStopsAgents(t *testing.T) {
+	for name, set := range map[string]string{
+		"switched off by the tenant": "enabled = false",
+		"suspended by the operators": "suspended = true, suspended_reason = 'billing dispute'",
+	} {
+		t.Run(name, func(t *testing.T) {
+			person, agent := setup(t)
+			agent.T, person.T = t, t
+			pgtest.Exec(t, `INSERT INTO agents.ai_policy (tenant_id) VALUES ($1)`, person.Tenant.ID)
+			pgtest.Exec(t, `UPDATE agents.ai_policy SET `+set+`, version = version + 1 WHERE tenant_id = $1`, person.Tenant.ID)
+			agent.Problem(403, "agents.ai_disabled", "GET", "/v1/agent-sessions", "", "")
+			agent.Problem(403, "agents.ai_disabled", "POST", "/v1/agent-sessions", `{"purpose": "p", "model": "m"}`, "")
+			person.Must(200, "GET", "/v1/agent-sessions", "", "")
+		})
+	}
+}

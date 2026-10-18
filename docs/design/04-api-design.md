@@ -338,8 +338,9 @@ tenant's administrators', and `suspended`, the platform's operators', which
 wins: they suspend and resume it on the control plane (`suspendAi`,
 `resumeAi` in `api/control.yaml`) with a reason the tenant's administrators
 see and events and the audit trail leave out. While either is off, the gateway refuses every call with 403
-`agents.ai_disabled`. Each change is audited and published as
-`AiPolicyChanged`.
+`agents.ai_disabled`, and the unit of work refuses agents' API requests
+with the same code, so an agent stopped mid-run cannot act on the answers
+it already has. Each change is audited and published as `AiPolicyChanged`.
 
 ## 4.14 Phase 1 resources
 

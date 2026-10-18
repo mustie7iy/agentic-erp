@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	ht "github.com/ogen-go/ogen/http"
 	"github.com/ogen-go/ogen/middleware"
 	"github.com/ogen-go/ogen/ogenerrors"
@@ -64,6 +65,9 @@ type Pipeline struct {
 	// RequireBoundAgents accepts agents' tokens only bound to their client
 	// certificates (production, ADR-0033).
 	RequireBoundAgents bool
+	// Agents admits an agent's request in its transaction (uow.Middleware's
+	// Agents: the tenant's AI kill switch); nil admits every agent.
+	Agents func(ctx context.Context, tx pgx.Tx) error
 	// Model is the model gateway (api/model.yaml, ADR-0036), served at its
 	// contract's route behind authentication but outside the unit of work:
 	// no transaction is held while a model works. Nil answers 503.
@@ -90,7 +94,8 @@ func New(h gen.Handler, p Pipeline) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	unit := &uow.Middleware{Pool: p.Pool, Role: p.AppRole, Log: p.Log, Now: p.Now, Sessions: p.Sessions, RequireBoundAgents: p.RequireBoundAgents}
+	unit := &uow.Middleware{Pool: p.Pool, Role: p.AppRole, Log: p.Log, Now: p.Now, Sessions: p.Sessions, RequireBoundAgents: p.RequireBoundAgents,
+		Agents: p.Agents}
 	chain := unit.Wrap(srv)
 	if p.Limits != nil {
 		chain = p.Limits.Middleware(chain)

@@ -3598,10 +3598,53 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Model routing, cost per agent, spend caps, kill switch",
-      "r": "T42",
-      "c": []
+      "r": "internal/agents · agents.Gateway (api/model.yaml) · T42",
+      "c": [
+       {
+        "s": "D",
+        "t": "Every model call through the cell's gateway, routed by alias, priced and recorded per call",
+        "r": "agents.Gateway · agents.model_call · ref.model_price (T42b)",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Budgets per agent and tenant reserved before the call, settled after; 80% and 100% announced",
+        "r": "agents.spend · agents.model_reservation · BudgetThresholdReached (T42c)",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Tenant AI policy: routes, allowed models, monthly cap, documents to models",
+        "r": "getAiPolicy · updateAiPolicy · agents.ai_policy (T42d)",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Kill switch: the tenant's administrators or the operators stop the gateway and agents' requests",
+        "r": "updateAiPolicy · suspendAi · resumeAi (control.yaml) · uow Agents (T42d)",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Text redacted before it leaves (IBANs, cards, tax ids); documents withheld when the policy says so",
+        "r": "T42e",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Cost per agent per month reported",
+        "r": "ai-usage · T42f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Autonomy levels 0-2 enforced in authorization",
+        "r": "T42g",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",

@@ -45,7 +45,7 @@ func (m *Middleware) authenticate(ctx context.Context, check func(ctx context.Co
 	if err != nil {
 		return p, err
 	}
-	if err := m.authorize(ctx, claims, p); err != nil {
+	if err := m.authorize(ctx, tx, claims, p); err != nil {
 		return p, err
 	}
 	return p, check(reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), p))

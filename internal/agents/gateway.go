@@ -257,6 +257,17 @@ func (g *Gateway) prepare(body []byte) (request, error) {
 	return out, nil
 }
 
+// Admit refuses an agent's API request while the tenant's AI is off, so an
+// agent stopped mid-run cannot go on acting on the model answers it
+// already has (ADR-0036): the unit of work's Agents.
+func Admit(ctx context.Context, tx pgx.Tx) error {
+	pol, err := ReadPolicy(ctx, tx)
+	if err != nil {
+		return err
+	}
+	return enabled(pol)
+}
+
 // enabled refuses every call while the tenant's AI is off: switched off by
 // its administrators, or suspended by the platform's operators, whose
 // hand wins (ADR-0036).

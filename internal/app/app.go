@@ -153,6 +153,7 @@ func New(cfg Config) (http.Handler, error) {
 		// People's sessions, recorded per replica (ADR-0031).
 		Sessions:           &identity.Sessions{Pool: cfg.Pool, AppRole: cfg.AppRole, Now: cfg.Now},
 		RequireBoundAgents: cfg.RequireBoundAgents,
+		Agents:             agents.Admit,
 		Model:              cfg.Model,
 	})
 }
