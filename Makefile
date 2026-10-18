@@ -94,7 +94,8 @@ coverage:
 
 FUZZTIME ?= 15s
 FUZZ_TARGETS = money:FuzzParseDecimal money:FuzzConvert config:FuzzParseValidateDiff analytics:FuzzNarrative \
-	bankfile:FuzzPain001Text bankfile:FuzzValidIBAN sap:FuzzODataValue sap:FuzzODataString
+	bankfile:FuzzPain001Text bankfile:FuzzValidIBAN sap:FuzzODataValue sap:FuzzODataString \
+	platform/redact:FuzzText
 
 # Fuzz every untrusted-input parser for FUZZTIME each. A run that fails
 # without saving a failing input under testdata/fuzz is the fuzz engine
