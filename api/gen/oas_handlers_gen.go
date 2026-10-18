@@ -3303,6 +3303,10 @@ func (s *Server) handleCancelSupplierInvoiceRequest(args [1]string, argsEscaped 
 //
 // Extracts a supplier invoice from a document and creates it `parked` with source `capture`.
 // Extraction can exceed 5 seconds, so this returns an Operation whose `resource` is the new invoice.
+// The document goes to a model through the cell's model gateway (ADR-0036), whose refusals are
+// answered as they are: 422 `agents.documents_withheld` while the tenant's AI policy withholds
+// documents from models, 403 `agents.ai_disabled` while its AI is off, 429 `agents.budget_exhausted`
+// when its cap is spent.
 //
 // POST /v1/supplier-invoices:capture
 func (s *Server) handleCaptureSupplierInvoiceRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

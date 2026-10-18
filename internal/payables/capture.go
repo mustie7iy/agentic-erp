@@ -91,6 +91,11 @@ func (e *Endpoints) capture(ctx context.Context, legalEntity uuid.UUID, document
 	}
 	ext, err := e.Extractor.Extract(ctx, document)
 	if err != nil {
+		// The model gateway's refusals reach the caller as they are: the
+		// tenant's AI off, a budget spent, documents withheld (ADR-0036).
+		if refused := (*problem.Problem)(nil); errors.As(err, &refused) {
+			return operations.Operation{}, refused
+		}
 		return operations.Operation{}, unreadable(err.Error())
 	}
 	in, held, err := e.capturedInput(ctx, tx, legalEntity, ext)

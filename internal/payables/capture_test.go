@@ -3,6 +3,8 @@ package payables_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -20,6 +22,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -165,6 +168,18 @@ func TestCapture(t *testing.T) {
 			}
 			_, err := run(x, "%PDF-1 "+name)
 			pgtest.WantErr(t, err, r.code)
+		})
+	}
+	// The model gateway's own refusals reach the caller as they are: the
+	// tenant's AI off, its budget spent, documents withheld (ADR-0036).
+	for _, code := range []string{"agents.documents_withheld", "agents.ai_disabled", "agents.budget_exhausted"} {
+		t.Run(code, func(t *testing.T) {
+			refused := problem.Unprocessable(code, "The gateway refused.")
+			x := extractor{err: fmt.Errorf("capture: extract invoice: %w", &url.Error{Op: "Post", URL: "http://model-gateway.internal", Err: refused})}
+			_, err := run(x, "%PDF-1 "+code)
+			if got := problem.From(err).Code; got != code {
+				t.Errorf("code: got %s, want %s", got, code)
+			}
 		})
 	}
 	_, err = run(nil, "%PDF")
