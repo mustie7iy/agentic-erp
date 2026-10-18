@@ -63,6 +63,38 @@ expect "a push of documentation since the last green commit" false EVENT=push FA
 expect "documentation after code whose run was cancelled" true EVENT=push FAKE_GREEN="$docs" HEAD="$tracker"
 expect "a last green commit that is not an ancestor" true EVENT=push FAKE_GREEN=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef HEAD="$tracker"
 
+# expect_out checks one more output line ($3=$4) for the change $2.
+expect_out() {
+  local name="$1" commit="$2" key="$3" want="$4" got
+  got="$(cd "$repo" && env PATH="$work/bin:$PATH" GITHUB_REPOSITORY=o/r EVENT=pull_request BASE="$prev" HEAD="$commit" \
+    "$root/scripts/ci-changes.sh" | sed -n "s/^$key=//p")"
+  if [ "$got" != "$want" ]; then
+    echo "FAIL $name: got $key=$got, want $want" >&2
+    failed=1
+  else
+    echo "ok   $name: $key=$got"
+  fi
+}
+prev="$(git -C "$repo" rev-parse HEAD)"
+c="$(change internal/z.go)"
+expect_out "Go code alone leaves the image checks out" "$c" images false
+expect_out "Go code alone leaves the release scripts out" "$c" release false
+prev="$c"
+c="$(change .ko.yaml)"
+expect_out "the image build's configuration runs the image checks" "$c" images true
+prev="$c"
+c="$(change scripts/sign-images.sh)"
+expect_out "a signing script runs the image checks" "$c" images true
+prev="$c"
+c="$(change scripts/free-disk.sh)"
+expect_out "the runner's disk clean-up runs the image checks" "$c" images true
+prev="$c"
+c="$(change cliff.toml)"
+expect_out "the changelog's configuration runs the release scripts" "$c" release true
+prev="$c"
+c="$(change docs/x.md)"
+expect_out "documentation runs neither" "$c" images false
+
 # A comparison git cannot make fails the script, so the step fails and the
 # gate (run != 'false') does not skip anything.
 if (cd "$repo" && EVENT=pull_request BASE="$base" HEAD=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef "$root/scripts/ci-changes.sh") >/dev/null 2>&1; then

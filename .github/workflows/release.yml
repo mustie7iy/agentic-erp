@@ -1,0 +1,191 @@
+name: release
+
+# A release (ADR-0032, 06 §6.9): dispatched by hand from a green main, it
+# waits for a second person's approval in the `release` environment, then
+# builds the images at that commit with the version stamped in, scans them,
+# pushes them (tagged with the version only), signs them and attests their
+# SBOM and provenance with the KMS key, verifies what it pushed, tags the
+# commit, publishes the GitHub Release with the generated notes and opens a
+# pull request adding them to CHANGELOG.md (main is protected; the tag
+# already names the built commit).
+#
+# Repository settings it needs:
+#   - the `release` environment: deployments from main only, a required
+#     reviewer, "Prevent self-review" on, and
+#       variables  ERP_COSIGN_KEY        awskms:///arn:aws:kms:<region>:<account>:key/<id>
+#                  ERP_RELEASE_ROLE_ARN  the IAM role assumed through GitHub's OIDC
+#                                        token, kms:Sign and kms:GetPublicKey on that
+#                                        key only, its trust policy pinned to
+#                                        sub repo:<owner>/agentic-erp:environment:release
+#                  ERP_AWS_REGION        the key's region
+#                  ERP_RELEASE_APP_ID    a GitHub App that may push a branch and open
+#                                        a pull request (contents and pull requests:
+#                                        write), so the changelog pull request runs CI
+#       secret     ERP_RELEASE_APP_KEY   that App's private key
+#
+# A re-run after the tag was pushed (the Release or the pull request failed)
+# is dispatched with the same version: the tag already names this commit,
+# so the run goes on from there; the images rebuild to the same digests and
+# signing again adds signatures beside the earlier ones.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release (vX.Y.Z); empty computes it from the history (scripts/next-version.sh)
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: release
+    permissions:
+      contents: write # the tag and the GitHub Release
+      packages: write # the images in GitHub's registry
+      id-token: write # the AWS role that may use the signing key
+    env:
+      GIT_CLIFF_VERSION: 2.14.2
+      GIT_CLIFF_SHA512: 26d1f7c8ea2400f2ccb0b2e7f321635f600b583bf4cd1f7afaa5e8c24068ad1088a2504e0a4d9f4333d4bb20a80329327d9462634343ee3af91e1a7fbdc6f18a
+    steps:
+      - name: Only main is released
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "releases are cut from main, not ${GITHUB_REF}" >&2
+          exit 1
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the version and the changelog read the history and its tags
+          persist-credentials: false # the token is given only to the steps that push
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Install git-cliff
+        # Outside the checkout: an untracked file in it would make the
+        # provenance say the build had uncommitted changes.
+        run: |
+          archive="git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          cd "$RUNNER_TEMP"
+          curl -sSfLO "https://github.com/orhun/git-cliff/releases/download/v${GIT_CLIFF_VERSION}/${archive}"
+          echo "${GIT_CLIFF_SHA512}  ${archive}" | sha512sum -c -
+          tar xzf "${archive}"
+          echo "$RUNNER_TEMP/git-cliff-${GIT_CLIFF_VERSION}" >> "$GITHUB_PATH"
+      - name: Version
+        id: version
+        env:
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          if [ -n "$REQUESTED" ] && [ "$(git rev-parse -q --verify "refs/tags/${REQUESTED}^{commit}" || true)" = "$GITHUB_SHA" ]; then
+            echo "version=${REQUESTED}" >> "$GITHUB_OUTPUT"
+            echo "Resuming ${REQUESTED}: its tag already names ${GITHUB_SHA}"
+            exit 0
+          fi
+          if [ -n "$REQUESTED" ]; then
+            version="$(scripts/next-version.sh --after "$REQUESTED")"
+          else
+            version="$(scripts/next-version.sh)"
+          fi
+          if git rev-parse -q --verify "refs/tags/${version}" >/dev/null; then
+            echo "${version} is already released from another commit" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Releasing ${version} from ${GITHUB_SHA}"
+      - name: Images, built and scanned before anything is pushed
+        env:
+          ERP_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          echo "ERP_BUILD_STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+          # A release is every platform of .ko.yaml (scripts/images.sh).
+          if [ -n "${KO_PLATFORMS:-}" ]; then
+            echo "a release builds every platform; KO_PLATFORMS is set to $KO_PLATFORMS" >&2
+            exit 1
+          fi
+          ./scripts/images.sh dist/images
+          make image-scan
+      - name: AWS credentials for the signing key
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.ERP_RELEASE_ROLE_ARN }}
+          aws-region: ${{ vars.ERP_AWS_REGION }}
+      - name: Images, pushed
+        # The same build again, now pushed: reproducible, so the same
+        # digests as the scanned ones. Tagged with the version only.
+        env:
+          ERP_VERSION: ${{ steps.version.outputs.version }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "$TOKEN" | go run github.com/google/ko@v0.19.1 login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+          cp dist/images/images.txt dist/scanned.txt
+          if [ -n "${KO_PLATFORMS:-}" ]; then
+            echo "a release builds every platform; KO_PLATFORMS is set to $KO_PLATFORMS" >&2
+            exit 1
+          fi
+          KO_DOCKER_REPO="ghcr.io/${owner}/agentic-erp" KO_TAGS="$ERP_VERSION" PUSH=true ./scripts/images.sh dist/images
+          if ! diff <(sed 's/.*@//' dist/scanned.txt) <(sed 's/.*@//' dist/images/images.txt); then
+            echo "the pushed images are not the scanned ones" >&2
+            exit 1
+          fi
+      - name: Sign and attest
+        env:
+          ERP_COSIGN_KEY: ${{ vars.ERP_COSIGN_KEY }}
+          ERP_VERSION: ${{ steps.version.outputs.version }}
+        run: ./scripts/sign-images.sh dist/images
+      - name: Verify what was pushed
+        env:
+          ERP_COSIGN_PUBLIC_KEY: ${{ vars.ERP_COSIGN_KEY }}
+          ERP_EXPECTED_COMMIT: ${{ github.sha }}
+        run: |
+          refs=()
+          while IFS= read -r ref; do refs+=("$ref"); done < dist/images/images.txt
+          ./scripts/verify-image.sh "${refs[@]}"
+      - name: Tag and GitHub Release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ./scripts/changelog.sh "$VERSION" dist/release-notes.md
+          gh auth setup-git
+          if ! git rev-parse -q --verify "refs/tags/${VERSION}" >/dev/null; then
+            git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              tag -a "$VERSION" -m "Release $VERSION" "$GITHUB_SHA"
+            git push origin "refs/tags/$VERSION"
+          fi
+          if ! gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release create "$VERSION" --verify-tag --title "$VERSION" --notes-file dist/release-notes.md \
+              dist/images/images.txt dist/images/sbom/*.spdx.json
+          fi
+      - name: Token of the release App
+        id: app
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.ERP_RELEASE_APP_ID }}
+          private-key: ${{ secrets.ERP_RELEASE_APP_KEY }}
+      - name: Changelog pull request
+        # Opened with the App's token, not GITHUB_TOKEN, whose pushes and
+        # pull requests start no workflow: CI must run on it to merge it.
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          branch="release/${VERSION}-changelog"
+          if [ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[]')" ]; then
+            echo "the changelog pull request for ${VERSION} is open already"
+            exit 0
+          fi
+          gh auth setup-git
+          git switch -c "$branch"
+          git add CHANGELOG.md
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "Release: changelog for ${VERSION}"
+          git push --force origin "$branch"
+          gh pr create --base main --head "$branch" --title "Changelog for ${VERSION}" \
+            --body "The changelog of ${VERSION}, generated by scripts/changelog.sh (ADR-0032)."

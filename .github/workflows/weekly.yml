@@ -11,7 +11,7 @@ on:
       jobs:
         description: Which jobs to run
         type: choice
-        options: [all, shuffle, nfr]
+        options: [all, images, release, shuffle, nfr]
         default: all
 
 # Weekly, and on demand before a release (06 §6.5): about four hours of
@@ -29,6 +29,73 @@ on:
 # hook) fails here rather than at random in CI. A failure prints the seed;
 # `go test -shuffle=<seed>` replays that order.
 jobs:
+  images:
+    # Vulnerabilities are disclosed after a commit passed CI, and the base
+    # image moves under its tag: rescan main's images every week, and fail
+    # when the pinned distroless digest is no longer the tag's (ADR-0032).
+    # The reproducibility gate and the signing round trip, which pull
+    # requests run only when their inputs change, run here regardless.
+    if: github.event_name == 'schedule' || inputs.jobs == 'all' || inputs.jobs == 'images'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      registry:
+        image: registry:2.8.3
+        ports: ["5000:5000"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Free disk for the image builds
+        run: ./scripts/free-disk.sh
+      - name: Container images, built twice and compared
+        run: |
+          make images-reproducible
+          df -h / | tail -1
+      - name: Image scan
+        run: |
+          make image-scan
+          df -h / | tail -1
+      - name: Signing round trip
+        if: success() || failure()
+        run: |
+          make signing-roundtrip SIGNING_REGISTRY=localhost:5000/erp
+          df -h / | tail -1
+      - name: Go vulnerabilities, standard library included
+        # ko's SBOM lists the modules but not the standard library, where
+        # most Go advisories are; govulncheck covers both, in the code that
+        # is called.
+        if: success() || failure()
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./... # the version scripts/ci-tools.sh pins
+      - name: Base image still current
+        # Distroless is rebuilt often: this step goes red whenever the tag
+        # moves, which asks for a reviewed digest bump, not a fix.
+        if: success() || failure()
+        run: ./scripts/base-image-current.sh
+
+  release-scripts:
+    # The version rules and the changelog (scripts/test-release-scripts.sh),
+    # which pull requests run only when those scripts change.
+    if: github.event_name == 'schedule' || inputs.jobs == 'all' || inputs.jobs == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GIT_CLIFF_VERSION: 2.14.2
+      GIT_CLIFF_SHA512: 26d1f7c8ea2400f2ccb0b2e7f321635f600b583bf4cd1f7afaa5e8c24068ad1088a2504e0a4d9f4333d4bb20a80329327d9462634343ee3af91e1a7fbdc6f18a
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install git-cliff
+        run: |
+          archive="git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          cd "$RUNNER_TEMP"
+          curl -sSfLO "https://github.com/orhun/git-cliff/releases/download/v${GIT_CLIFF_VERSION}/${archive}"
+          echo "${GIT_CLIFF_SHA512}  ${archive}" | sha512sum -c -
+          tar xzf "${archive}"
+          echo "GIT_CLIFF=$RUNNER_TEMP/git-cliff-${GIT_CLIFF_VERSION}/git-cliff" >> "$GITHUB_ENV"
+      - name: Version rules and changelog
+        run: ./scripts/test-release-scripts.sh
+
   shuffle:
     if: github.event_name == 'schedule' || inputs.jobs == 'all' || inputs.jobs == 'shuffle'
     runs-on: ubuntu-latest

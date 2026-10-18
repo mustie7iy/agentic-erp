@@ -4232,9 +4232,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Signed container images and SBOM",
-        "r": "T39",
+        "r": "scripts/sign-images.sh · scripts/verify-image.sh · ADR-0032 · T39b",
         "c": []
        }
       ]
@@ -4563,9 +4563,9 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "Container image (Dockerfile, distroless)",
-      "r": "T39",
+      "s": "D",
+      "t": "Container images (ko, distroless)",
+      "r": ".ko.yaml · scripts/images*.sh · ADR-0032 · T39a",
       "c": []
      },
      {
@@ -4593,9 +4593,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Release versioning and changelog",
-      "r": "T39",
+      "r": "scripts/next-version.sh · cliff.toml · .github/workflows/release.yml · ADR-0032 · T39c",
       "c": []
      }
     ]
@@ -5735,6 +5735,12 @@
       "s": "D",
       "t": "CI on every push",
       "r": ".github/workflows/ci.yml",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "CI image and signing checks run only when their inputs change, and weekly",
+      "r": "scripts/ci-changes.sh · .github/workflows/ci.yml · .github/workflows/weekly.yml · T39",
       "c": []
      },
      {

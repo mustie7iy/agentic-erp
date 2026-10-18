@@ -16,6 +16,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -156,6 +157,22 @@ func TestCallErrors(t *testing.T) {
 	fails(t, "cannot be read", "call", "listMigrationRuns")
 	fakeAPI(t, routes{"GET /v1/migration-runs": {ok(`{"items": []}`)}})
 	printFails(t, "call", "listMigrationRuns")
+}
+
+func TestVersion(t *testing.T) {
+	var got map[string]any
+	if err := json.Unmarshal([]byte(must(t, "version")), &got); err != nil {
+		t.Fatalf("erp version: output is not JSON: %v", err)
+	}
+	if got["version"] != buildinfo.Development {
+		t.Errorf("erp version of a test binary: got %v, want %s", got["version"], buildinfo.Development)
+	}
+	fails(t, "no arguments", "version", "extra")
+	fails(t, "flag provided", "version", "-x")
+	if code, _ := cli(t, "version", "-h"); code != 0 {
+		t.Errorf("erp version -h: got exit %d, want 0", code)
+	}
+	printFails(t, "version")
 }
 
 func TestLocalPreparationErrors(t *testing.T) {

@@ -125,7 +125,9 @@ Every change passes, before it is merged:
 | Performance budgets | `-run Budget`, `-run Perf` |
 | Coverage gate | `scripts/coverage.sh`, 100% of production statements |
 | Fuzz targets | Every target's seed corpus with the tests on PRs; `make fuzz` 30 s per target on `main`, 5 minutes weekly |
-| Build and container image | `go build`, image scan |
+| Image signing round trip | `make signing-roundtrip` against a registry service: push, sign and attest (SBOM, provenance) with a key pair made for the job, verify, and the refusals (another key, another commit, a tag, no signature, attestations without a signature, uncommitted changes) (ADR-0032). When signing or image inputs change, and weekly |
+| Release scripts | `scripts/test-release-scripts.sh`: the version rules and the changelog's grouping on throwaway repositories, with the pinned git-cliff (ADR-0032). When those scripts or their inputs change, and weekly |
+| Build and container images | `make build`; `make image-scan`: grype on each SBOM and the pinned base, failing on a fixable high or critical vulnerability; `make images-reproducible` (the three images built with ko twice, with private caches, and their digests compared) when image inputs change, and weekly (ADR-0032) |
 
 The checks are split between the author's machine and GitHub (the hybrid
 check, since 2026-10-18), so runner minutes go to the independent second
@@ -164,6 +166,18 @@ opinion rather than to repeating the slow gates:
   them directly would let a failed `changes` skip them into a pass.
 - A newer push cancels the running check of the same pull request or of
   `main`; the older commit then shows `ci-ok` failed, which is expected.
+- The image reproducibility gate and the signing round trip run when their
+  inputs change (`go.mod`, `go.sum`, `.ko.yaml`, `Makefile`, `cmd/`,
+  `scripts/image*`, `scripts/sign*`, `scripts/verify-image.sh`,
+  `scripts/provenance.sh`, `scripts/free-disk.sh`, `release/`, `ci.yml`,
+  `weekly.yml`); a pull request otherwise builds the images once and scans
+  them. Pull requests build and sign linux/amd64 only, to fit the runner's
+  disk (`scripts/free-disk.sh` clears unused toolchains first); both
+  platforms are built twice and signed weekly, and a push to `main` whose
+  tree was tested skips them like the rest of the suite. A change to
+  other Go code alone does not run the reproducibility gate; the weekly run
+  does. The release scripts' tests run when those scripts, `cliff.toml`,
+  the `Makefile` or a workflow that uses them change, and weekly.
 - The tools run at pinned versions (`scripts/ci-tools.sh`), built once in
   the job that uses them and cached until that file or the Go version
   changes. The `changes` job builds nothing: it gates every other job and
@@ -171,7 +185,9 @@ opinion rather than to repeating the slow gates:
   by hash.
 
 Weekly (Sundays) and on demand before a release: the load and soak suites
-(05 §5.8), the whole suite three times in random order, longer fuzzing,
+(05 §5.8), the whole suite three times in random order, longer fuzzing, the
+reproducibility gate, the signing round trip, the image scan of `main` again
+and a check that the pinned base image is still its tag's digest (ADR-0032),
 dependency updates. Latency budgets on the shared runner are scaled by `ERP_BUDGET_SCALE`
 (docs/testing.md); the budgets at scale 1 are checked in a cell-sized
 environment.
@@ -283,8 +299,23 @@ A change is done when:
 
 - Trunk-based: short-lived branches, pull requests into `main`, at least one
   reviewer; two for migrations, contracts and security-sensitive code.
-- Conventional commit messages; the pull request links its tracker item.
-- `main` is always releasable. Releases are container images promoted
-  through dev → staging → canary cell → all cells.
+- Commit subjects are a sentence naming the tracker item, prefixed `Fix:`,
+  `Refactor:`, `Tests:` (older history also `Test:`), `CI:`, `Plan:`,
+  `Tracker:`, `Process:` or `Release:` where they are one of those; the
+  version and the changelog are computed from them (ADR-0032). The pull
+  request links its tracker item.
+- `main` is always releasable. A release is cut by dispatching the release
+  workflow from a green `main` commit; a second person approves it in the
+  `release` environment. The workflow computes the version
+  (`scripts/next-version.sh`) unless one is given, builds and scans the
+  images, pushes them tagged with the version, signs and verifies them,
+  tags the built commit, publishes the GitHub Release with the generated
+  notes, and opens, as the release GitHub App so that CI runs on it, the
+  pull request that adds them to `CHANGELOG.md`. The environment's
+  settings (reviewers, the signing key, the AWS role, the App) are listed in
+  `.github/workflows/release.yml`. A run that failed after it pushed the tag
+  is dispatched again with the same version, which resumes from the tag.
+  Releases are container images promoted through dev → staging → canary
+  cell → all cells.
 - Feature flags (per tenant) hide incomplete features; flags are removed once
   a feature is fully rolled out.

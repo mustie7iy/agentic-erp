@@ -1,9 +1,37 @@
-.PHONY: generate run-server build lint lint-all test test-short ci-local db-up test-db coverage fuzz perf load soak resilience demo clean
+.PHONY: generate run-server build images images-reproducible image-scan signing-roundtrip test-release-scripts lint lint-all test test-short ci-local db-up test-db coverage fuzz perf load soak resilience demo clean
 
 build:
 	go build -o bin/erp ./cmd/erp
 	go build -o bin/erp-server ./cmd/erp-server
 	go build -o bin/erp-router ./cmd/erp-router
+
+# Container images of the three binaries with ko (.ko.yaml, ADR-0032), not
+# pushed: digests in dist/images/images.txt, SBOMs in dist/images/sbom.
+# images-reproducible builds twice with private caches and fails unless the
+# digests match (CI's gate); image-scan runs grype on the SBOMs and the base.
+images:
+	./scripts/images.sh dist/images
+
+images-reproducible:
+	./scripts/images-reproducible.sh dist/images
+
+image-scan:
+	./scripts/image-scan.sh dist/images
+
+# Signing round trip against a throwaway registry (SIGNING_REGISTRY): push,
+# sign and attest with a key pair made for the run, verify, and check the
+# refusals (scripts/signing-roundtrip.sh). Releases sign with the KMS key:
+# scripts/sign-images.sh and scripts/verify-image.sh (ADR-0032).
+SIGNING_REGISTRY ?= localhost:5000/erp
+signing-roundtrip:
+	./scripts/signing-roundtrip.sh $(SIGNING_REGISTRY)
+
+# The release version rules and changelog (scripts/next-version.sh,
+# cliff.toml) on throwaway repositories; GIT_CLIFF names git-cliff, without
+# it the changelog cases are skipped. The release itself is
+# .github/workflows/release.yml.
+test-release-scripts:
+	./scripts/test-release-scripts.sh
 
 # Structural lint (.golangci.yml). lint checks code changed since LINT_BASE,
 # the merge base with main: the fast local loop. lint-all checks the whole
@@ -103,4 +131,4 @@ demo:
 	DATABASE_URL="$(DATABASE_URL)" go test -count=1 -v ./cmd/erp -run TestEndToEnd
 
 clean:
-	rm -rf bin data
+	rm -rf bin data dist
