@@ -2485,14 +2485,14 @@ func TestAIPolicy(t *testing.T) {
 	})
 }
 
-// TestAgentModelAliases: 000073 maps the agent profiles that name a model
+// TestAgentModelAliases: 000076 maps the agent profiles that name a model
 // outright to the alias the gateway routes (ADR-0036): every Claude model
 // to erp-default. An alias stays, and a value it does not know stays too,
 // for the next write of the profile to refuse.
 func TestAgentModelAliases(t *testing.T) {
 	conn := emptyDatabase(t)
 	ctx := context.Background()
-	migrateBefore(t, conn, 73)
+	migrateBefore(t, conn, 76)
 	tenant, human := id(), id()
 	agents := map[string]string{"claude-opus-5-5": "erp-default", "claude-haiku-5": "erp-default", "erp-analytics": "erp-analytics", "gpt-9": "gpt-9"}
 	ids := map[string]uuid.UUID{}
@@ -2526,13 +2526,13 @@ func TestAgentModelAliases(t *testing.T) {
 	}
 }
 
-// TestExistingAgentsLevelTwo: 000074 raises the agents that exist to
+// TestExistingAgentsLevelTwo: 000077 raises the agents that exist to
 // autonomy level 2, the writes their permissions were given for; a new
 // profile still starts at 0.
 func TestExistingAgentsLevelTwo(t *testing.T) {
 	conn := emptyDatabase(t)
 	ctx := context.Background()
-	migrateBefore(t, conn, 74)
+	migrateBefore(t, conn, 77)
 	tenant, human, agent, other := id(), id(), id(), id()
 	exec := func(sql string, args ...any) {
 		t.Helper()

@@ -3629,7 +3629,7 @@
        {
         "s": "D",
         "t": "Text redacted before it leaves (IBANs, cards, tax ids); documents withheld when the policy says so",
-        "r": "platform/redact · agents.Gateway screen · model_call.redactions (000071) · T42e",
+        "r": "platform/redact · agents.Gateway screen · model_call.redactions (000074) · T42e",
         "c": []
        },
        {
@@ -3641,19 +3641,19 @@
        {
         "s": "D",
         "t": "Autonomy levels 0-2 enforced in authorization",
-        "r": "authz withinAutonomy · x-autonomy: propose · 000074 · T42g",
+        "r": "authz withinAutonomy · x-autonomy: propose · 000077 · T42g",
         "c": []
        },
        {
         "s": "D",
         "t": "Model call ledger index by time, so a month's usage report reads only that month",
-        "r": "model_call_by_time (000072) · T42f",
+        "r": "model_call_by_time (000075) · T42f",
         "c": []
        },
        {
         "s": "D",
         "t": "agent_profile.model names a model alias",
-        "r": "platform/modelalias · identity.unknown_model_alias · 000073 · T42f",
+        "r": "platform/modelalias · identity.unknown_model_alias · 000076 · T42f",
         "c": []
        },
        {

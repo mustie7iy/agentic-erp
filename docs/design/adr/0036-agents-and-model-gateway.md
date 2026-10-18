@@ -137,7 +137,7 @@ client certificates in production (ADR-0033). Today:
     propose` (sessions, tool-call records, recommendations, change
     requests, drafts); above its level an agent is refused with 403
     `identity.autonomy_insufficient`. An agent without a profile is at 0.
-    The agents that existed were raised to level 2 (000074); new agents
+    The agents that existed were raised to level 2 (000077); new agents
     start at 0 and an administrator raises them. Proposing are the
     agent's own sessions and records, change requests (configuration,
     partner data, bank accounts) and drafts that have no effect until
