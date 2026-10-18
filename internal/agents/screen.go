@@ -14,12 +14,6 @@ import (
 // (tenancy.Countries): whose tax identifiers are redacted.
 type Countries func(ctx context.Context, tx pgx.Tx) ([]string, error)
 
-// screened is what a request carries out of the cell once screened.
-type screened struct {
-	redactions int
-	documents  bool
-}
-
 // screen redacts the request's text before it leaves the cell, IBANs,
 // card numbers and the tax identifiers of the tenant's countries
 // (ADR-0036), and refuses documents, which cannot be redacted, while the
@@ -106,4 +100,54 @@ func (s *screener) text(text string) json.RawMessage {
 	s.n += n
 	raw, _ := json.Marshal(out) // a string always encodes
 	return raw
+}
+
+// minimize redacts a tool call's input and summary before they are
+// recorded, as what leaves for a model is (ADR-0036), for the tenant's
+// countries in tx; nil countries: IBANs and card numbers only.
+func minimize(ctx context.Context, tx pgx.Tx, countries Countries, input map[string]json.RawMessage, summary *string) (map[string]json.RawMessage, *string, error) {
+	var cs []string
+	if countries != nil {
+		var err error
+		if cs, err = countries(ctx, tx); err != nil {
+			return nil, nil, err
+		}
+	}
+	r := redact.For(cs)
+	out := make(map[string]json.RawMessage, len(input))
+	for k, v := range input {
+		out[k] = redactJSON(r, v)
+	}
+	if summary != nil {
+		s, _ := r.Text(*summary)
+		summary = &s
+	}
+	return out, summary, nil
+}
+
+// redactJSON is a JSON value with every string in it redacted.
+func redactJSON(r *redact.Redactor, raw json.RawMessage) json.RawMessage {
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return raw // not JSON: the database refuses it as it would have
+	}
+	out, _ := json.Marshal(redactValue(r, v)) // decoded JSON always encodes
+	return out
+}
+
+func redactValue(r *redact.Redactor, v any) any {
+	switch v := v.(type) {
+	case string:
+		out, _ := r.Text(v)
+		return out
+	case []any:
+		for i := range v {
+			v[i] = redactValue(r, v[i])
+		}
+	case map[string]any:
+		for k := range v {
+			v[k] = redactValue(r, v[k])
+		}
+	}
+	return v
 }

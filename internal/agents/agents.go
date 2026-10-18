@@ -42,6 +42,10 @@ const (
 // Endpoints implements the agents part of the generated API.
 type Endpoints struct {
 	Pages *pagination.Codec
+	// Countries reads the tenant's countries, whose tax identifiers a tool
+	// call's record is redacted of (tenancy.Countries); nil: IBANs and card
+	// numbers only.
+	Countries Countries
 }
 
 // Session is a row of agents.session.
@@ -181,14 +185,20 @@ func scanToolCall(row pgx.Row) (ToolCall, error) {
 	return c, errs.Wrapf(err, "scan tool call")
 }
 
-// RecordToolCall appends a tool call to the caller's running session. Tool
-// calls are not audited one by one: the API calls they describe are.
-func RecordToolCall(ctx context.Context, session uuid.UUID, tool string, input map[string]json.RawMessage, summary *string, isError bool) (ToolCall, error) {
+// RecordToolCall appends a tool call to the caller's running session, its
+// input and summary minimized (ADR-0036). Tool calls are not audited one by
+// one: the API calls they describe are.
+func RecordToolCall(ctx context.Context, session uuid.UUID, tool string, input map[string]json.RawMessage, summary *string, isError bool,
+	countries Countries) (ToolCall, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return ToolCall{}, err
 	}
 	if _, err := ownRunning(ctx, tx, p, session, func() error { return problem.NotFoundOf("agent session") }); err != nil {
+		return ToolCall{}, err
+	}
+	input, summary, err = minimize(ctx, tx, countries, input, summary)
+	if err != nil {
 		return ToolCall{}, err
 	}
 	c, err := scanToolCall(tx.QueryRow(ctx, `INSERT INTO agents.tool_call (tenant_id, session_id, seq, tool, input, result_summary, is_error)
@@ -462,7 +472,7 @@ func (e *Endpoints) RecordAgentToolCall(ctx context.Context, req *gen.AgentToolC
 	if s, ok := req.ResultSummary.Get(); ok {
 		summary = &s
 	}
-	c, err := RecordToolCall(ctx, params.ID, req.Tool, input, summary, req.IsError.Value)
+	c, err := RecordToolCall(ctx, params.ID, req.Tool, input, summary, req.IsError.Value, e.Countries)
 	if err != nil {
 		return nil, err
 	}

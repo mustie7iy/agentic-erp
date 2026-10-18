@@ -3627,9 +3627,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Text redacted before it leaves (IBANs, cards, tax ids); documents withheld when the policy says so",
-        "r": "T42e",
+        "r": "platform/redact · agents.Gateway screen · model_call.redactions (000071) · T42e",
         "c": []
        },
        {

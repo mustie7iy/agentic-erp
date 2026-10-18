@@ -140,7 +140,7 @@ func New(cfg Config) (http.Handler, error) {
 		paymentsAPI:    Payments(cfg),
 		auditAPI:       &audit.Endpoints{Pages: cfg.Pages, Anchors: cfg.Objects},
 		integrationAPI: Integration(cfg),
-		agentsAPI:      &agents.Endpoints{Pages: cfg.Pages},
+		agentsAPI:      &agents.Endpoints{Pages: cfg.Pages, Countries: tenancy.Countries},
 	}
 	return httpapi.New(h, httpapi.Pipeline{
 		Pool: cfg.Pool, AppRole: cfg.AppRole, Verifier: cfg.Verifier, Limits: cfg.Limits, RequestTimeout: cfg.RequestTimeout,

@@ -3,11 +3,17 @@ package agents_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/agents"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -105,5 +111,38 @@ func TestScreenPassesWhatItCannotRead(t *testing.T) {
 	g.Countries = func(context.Context, pgx.Tx) ([]string, error) { return nil, errors.New("tenancy unreadable") }
 	if rec := post(t, g, principal(ten), `{"model": "erp-default", "max_tokens": 8, "messages": []}`, nil); rec.Code != http.StatusInternalServerError {
 		t.Errorf("status: got %d, want 500", rec.Code)
+	}
+}
+
+// TestToolCallsMinimized: a tool call is recorded with its input's and its
+// summary's IBANs and card numbers redacted, as the gateway redacts what
+// leaves (ADR-0036); other values are kept as they were.
+func TestToolCallsMinimized(t *testing.T) {
+	_, agent := setup(t)
+	s, _ := agent.Must(201, "POST", "/v1/agent-sessions", `{"purpose": "p", "model": "m"}`, "")
+	c, _ := agent.Must(201, "POST", "/v1/agent-sessions/"+s["id"].(string)+"/tool-calls",
+		`{"tool": "payInvoice", "input": {"iban": "DE89 3704 0044 0532 0130 00", "cards": [{"pan": "4111 1111 1111 1111"}], "n": 5, "ok": true},
+		"result_summary": "paid to DE89370400440532013000"}`, "")
+	if got := fmt.Sprint(c["input"]); got != "map[cards:[map[pan:[CARD]]] iban:[IBAN] n:5 ok:true]" {
+		t.Errorf("input: got %s", got)
+	}
+	if c["result_summary"] != "paid to [IBAN]" {
+		t.Errorf("summary: got %v, want paid to [IBAN]", c["result_summary"])
+	}
+}
+
+// TestToolCallInputNotJSON: input that is not JSON, which the API's
+// decoder never passes, is refused by the database rather than recorded.
+func TestToolCallInputNotJSON(t *testing.T) {
+	_, agent := setup(t)
+	s, _ := agent.Must(201, "POST", "/v1/agent-sessions", `{"purpose": "p", "model": "m"}`, "")
+	h := &agents.Endpoints{}
+	err := apitest.InRequest(t, agent.Tenant, agent.As, func(ctx context.Context) error {
+		_, err := h.RecordAgentToolCall(ctx, &gen.AgentToolCallCreate{Tool: "x", Input: gen.AgentToolCallCreateInput{"a": []byte("{")}},
+			gen.RecordAgentToolCallParams{ID: uuid.MustParse(s["id"].(string))})
+		return err
+	})
+	if err == nil {
+		t.Error("got no error, want the database's refusal")
 	}
 }

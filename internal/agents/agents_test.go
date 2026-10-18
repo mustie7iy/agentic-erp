@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
@@ -177,7 +178,7 @@ func TestSessionsAndRecommendations(t *testing.T) {
 func TestDatabaseFailures(t *testing.T) {
 	person, agent := setup(t)
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	h := &agents.Endpoints{Pages: pages}
+	h := &agents.Endpoints{Pages: pages, Countries: tenancy.Countries}
 	s, _ := agent.Must(201, "POST", "/v1/agent-sessions", `{"purpose": "p", "model": "m"}`, "")
 	session := uuid.MustParse(s["id"].(string))
 	agent.Must(201, "POST", "/v1/agent-sessions/"+s["id"].(string)+"/tool-calls", `{"tool": "x", "input": {"a": 1}}`, "")

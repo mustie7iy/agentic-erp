@@ -1002,7 +1002,9 @@ type Handler interface {
 	// RecordAgentToolCall implements recordAgentToolCall operation.
 	//
 	// Records one tool call of a running session, numbered in order. Insert-only. Only the session's agent
-	// records its calls.
+	// records its calls. The input's strings and the result summary are recorded minimized, as the model
+	// gateway redacts what leaves the cell (ADR-0036): IBANs, card numbers and the tax identifiers of the
+	// tenant's countries become `[IBAN]`, `[CARD]` and `[TAX_ID]`.
 	//
 	// POST /v1/agent-sessions/{id}/tool-calls
 	RecordAgentToolCall(ctx context.Context, req *AgentToolCallCreate, params RecordAgentToolCallParams) (RecordAgentToolCallRes, error)
