@@ -42,8 +42,7 @@ func TestInvoicesPostWithTheirTerms(t *testing.T) {
 	e.term(t, "ZB01", 45, "14, 3, 30, 2")
 	e.term(t, "ZB02", 60, "NULL, NULL, NULL, NULL")
 	pgtest.Exec(t, `UPDATE partner.supplier_company SET payment_term_code = 'ZB02', version = version + 1 WHERE tenant_id = $1 AND partner_id = $2`, e.Tenant.ID, e.Supplier)
-	po := e.grirOrder(t, "PO-1")
-	pgtest.Exec(t, `UPDATE procurement.purchase_order SET payment_term_code = 'ZB01', version = version + 1 WHERE id = $1`, po)
+	po := e.grirOrderOn(t, "PO-1", "ZB01")
 	e.receive(t, po, 1, "10")
 	onOrder, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "INV-1", "142.80", "22.80", poItem(po, 1, "10", "EA", "120.00")), "")
 	onOrder = e.posted(t, onOrder)
@@ -87,8 +86,7 @@ func TestInvoicesPostWithTheirTerms(t *testing.T) {
 		t.Errorf("SupplierInvoicePosted terms of a memo naming no invoice: got %v, want null", got)
 	}
 
-	other := e.order(t, e.Supplier, "PO-2")
-	pgtest.Exec(t, `UPDATE procurement.purchase_order SET payment_term_code = 'ZZ99', version = version + 1 WHERE id = $1`, other)
+	other := e.grirOrderOn(t, "PO-2", "ZZ99")
 	e.receive(t, other, 1, "10")
 	unknown, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "INV-3", "142.80", "22.80", poItem(other, 1, "10", "EA", "120.00")), "")
 	e.act(t, 200, id(unknown), "match", "")
