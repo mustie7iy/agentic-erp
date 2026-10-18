@@ -4855,8 +4855,20 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "The erp-global chart: the router behind the load balancer's TargetGroupBinding with a readiness gate, public TLS from the operators' certificate, the PROXY v2 header read from the balancer's subnets alone, the directory's rotating master password read per connection; the home cell registers in the directory",
+        "r": "deploy/helm/erp-global · internal/platform/proxyproto · modules/global secrets.tf · ERP_DIRECTORY_PASSWORD · ADR-0035 · T40c5",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "T40c5: the erp-global chart (the router, its load balancer binding and TLS)",
+        "t": "Logins of their own in the directory for the router and the cells, in place of its master user",
+        "r": "deploy/helm/erp-global · deploy/helm/erp-cell",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Cells outside the home cell's VPC: reach the directory, and the router reaches them",
         "r": "ADR-0035",
         "c": []
        },
@@ -4868,7 +4880,7 @@
        },
        {
         "s": "T",
-        "t": "At first apply: check that the VPC CNI policy agent lets probes through, and fill the page-token-key and database-client-password secrets",
+        "t": "At first apply: check that the VPC CNI policy agent lets probes through, fill the page-token-key and database-client-password secrets, and load the router's public certificate, key and page-token key into erp/global/",
         "r": "",
         "c": []
        },

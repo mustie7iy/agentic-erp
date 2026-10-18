@@ -79,6 +79,19 @@ database:
   # for the region), which PgBouncer and the Job verify the writer with.
   caBundle: ""
 
+# The environment's global directory (ADR-0022), on its home cell, whose
+# VPC holds it (envs/<env> global.*): the cell keeps its tenants' entries
+# there, through which the router finds it. Empty endpoint: none.
+directory:
+  # host:port (global.directory_endpoint).
+  endpoint: ""
+  name: directory
+  # Its RDS-managed master user, whose rotating password the server reads
+  # again for each new connection (ERP_DIRECTORY_PASSWORD).
+  user: erp_admin
+  # The master credentials (global.directory_master_secret_arn).
+  masterSecretArn: ""
+
 pgbouncer:
   replicas: 2
   port: 6432

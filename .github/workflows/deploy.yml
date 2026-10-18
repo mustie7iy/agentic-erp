@@ -4,7 +4,7 @@ name: deploy
 # validate, `terraform test` against a mock provider, tflint, and the
 # encryption-at-rest policy with conftest (scripts/deploy-checks.sh); and
 # the cluster's Helm content: the pinned add-ons rendered and validated,
-# the erp-cluster chart, and its admission policies run by Kyverno's CLI
+# the erp-cluster, erp-cell and erp-global charts, and the admission policies run by Kyverno's CLI
 # against images signed in a local registry (scripts/helm-checks.sh). No
 # credentials and no account: nothing here plans against or applies to AWS.
 on:

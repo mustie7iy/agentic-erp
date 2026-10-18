@@ -13,6 +13,9 @@
 #     pass deploy/helm/policy (non-root, read-only, digests, budgets,
 #     default deny); the workflow engine's configuration it renders must be
 #     one erp-temporal accepts (check-config, built from temporal/);
+#   - deploy/helm/erp-global likewise, its router reading the PROXY header
+#     from, and taking public connections from, the load balancer's
+#     subnets alone, ready only once the load balancer finds it healthy;
 #   - scripts/admission-checks.sh then runs its policies against signed
 #     images and certificates.
 # HELM, KUBECONFORM and CONFTEST (which turns YAML into JSON here) name the
@@ -201,7 +204,7 @@ required cell region trustDomain vpcCidr trust.caBundle secrets.prefix \
   images.nats.repository images.nats.digest images.temporal.repository images.temporal.digest \
   server.roleArn server.operatorIssuers server.objectBucket server.fieldKmsKeyArn \
   server.awsEndpoints.sts server.awsEndpoints.kms server.awsEndpoints.s3 \
-  database.writerHost database.masterSecretArn database.caBundle
+  database.writerHost database.masterSecretArn database.caBundle directory.masterSecretArn
 for bad in 'images.server.digest=latest' 'images.server.repository=registry.example/erp-server@sha256:1' 'cell=dev-1'; do
   if "$HELM" template erp-cell "$chart" --namespace erp -f "$values" --set "$bad" >/dev/null 2>&1; then
     echo "helm-checks: erp-cell took $bad" >&2
@@ -209,5 +212,54 @@ for bad in 'images.server.digest=latest' 'images.server.repository=registry.exam
   fi
 done
 echo "helm-checks: erp-cell refuses to render without each value it requires, with an image not by digest, or a cell id ERP_CELL refuses"
+
+echo "== erp-global"
+chart=deploy/helm/erp-global
+values="$chart/tests/values.yaml"
+"$HELM" lint --strict "$chart" -f "$values"
+"$HELM" template erp-global "$chart" --namespace erp-global -f "$values" >"$work/erp-global.yaml"
+validate "$work/erp-global.yaml"
+"$CONFTEST" test --combine --policy deploy/helm/policy --namespace workloads --no-color "$work/erp-global.yaml"
+# The router reads the PROXY header from the load balancer's subnets, and
+# takes the public listener's connections from them alone.
+"$CONFTEST" parse --parser yaml "$work/erp-global.yaml" >"$work/erp-global.json"
+python3 - "$work/erp-global.json" <<'PY'
+import json, sys
+docs = [d for d in json.load(open(sys.argv[1])) if d]
+want = ["10.16.0.0/24", "10.16.1.0/24", "10.16.2.0/24"]
+router = next(d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"] == "erp-router")
+env = {e["name"]: e.get("value") for e in router["spec"]["template"]["spec"]["containers"][0]["env"]}
+if env.get("ERP_ROUTER_PROXY_FROM") != ",".join(want):
+    sys.exit("helm-checks: erp-global's ERP_ROUTER_PROXY_FROM is %r, want the load balancer's subnets" % env.get("ERP_ROUTER_PROXY_FROM"))
+policy = next(d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == "erp-router")
+sources = [p["ipBlock"]["cidr"] for rule in policy["spec"]["ingress"] for p in rule["from"]]
+if sources != want:
+    sys.exit("helm-checks: erp-global's public listener takes %r, want the load balancer's subnets alone" % sources)
+binding = next(d for d in docs if d["kind"] == "TargetGroupBinding")
+if "networking" in binding["spec"]:
+    sys.exit("helm-checks: erp-global's TargetGroupBinding manages security group rules; Terraform owns them")
+gates = [g["conditionType"] for g in router["spec"]["template"]["spec"].get("readinessGates", [])]
+if gates != ["target-health.elbv2.k8s.aws/" + binding["metadata"]["name"]]:
+    sys.exit("helm-checks: erp-global's router is ready before the load balancer finds it healthy (readiness gate %r)" % gates)
+PY
+for value in trustDomain vpcCidr trust.caBundle secrets.prefix images.router.repository images.router.digest \
+  router.targetGroupArn router.proxyFrom router.operatorIssuers directory.endpoint directory.masterSecretArn directory.caBundle; do
+  if "$HELM" template erp-global "$chart" --namespace erp-global -f "$values" --set "$value=null" >/dev/null 2>"$work/err"; then
+    echo "helm-checks: erp-global rendered without $value" >&2
+    exit 1
+  fi
+  if ! grep -q "$value" "$work/err"; then
+    cat "$work/err" >&2
+    echo "helm-checks: rendering erp-global without $value failed for another reason" >&2
+    exit 1
+  fi
+done
+for bad in 'images.router.digest=latest' 'router.proxyFrom={}' 'router.proxyFrom={10.16.0.0}'; do
+  if "$HELM" template erp-global "$chart" --namespace erp-global -f "$values" --set "$bad" >/dev/null 2>&1; then
+    echo "helm-checks: erp-global took $bad" >&2
+    exit 1
+  fi
+done
+echo "helm-checks: erp-global refuses to render without each value it requires, with an image not by digest, or no load balancer subnets"
 
 CRDS="$work/crds.yaml" HELM="$HELM" CONFTEST="$CONFTEST" ./scripts/admission-checks.sh

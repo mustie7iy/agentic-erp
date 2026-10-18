@@ -1,0 +1,25 @@
+# An environment's values for the checks (scripts/helm-checks.sh): what
+# its Terraform outputs and a release give a real one. The admission
+# checks replace the image with one they signed.
+trustDomain: dev.erp.example
+vpcCidr: 10.16.0.0/16
+images:
+  router:
+    repository: 111111111111.dkr.ecr.eu-central-1.amazonaws.com/erp-router
+    digest: sha256:3333333333333333333333333333333333333333333333333333333333333333
+trust:
+  caBundle: |
+    -----BEGIN CERTIFICATE-----
+    MIIBdzCCAR2gAwIBAgIUSubordinateForTheChecks0wCgYIKoZIzj0EAwIwEjEQ
+    -----END CERTIFICATE-----
+router:
+  targetGroupArn: arn:aws:elasticloadbalancing:eu-central-1:222222222222:targetgroup/erp-dev-router/0123456789abcdef
+  proxyFrom: [10.16.0.0/24, 10.16.1.0/24, 10.16.2.0/24]
+  operatorIssuers: '[{"issuer":"https://operators.example.com","audience":"erp-control"}]'
+directory:
+  endpoint: erp-dev-directory.abc.eu-central-1.rds.amazonaws.com:5432
+  masterSecretArn: "arn:aws:secretsmanager:eu-central-1:222222222222:secret:rds!db-2"
+  caBundle: |
+    -----BEGIN CERTIFICATE-----
+    MIIBdzCCAR2gAwIBAgIURdsBundleForTheChecks000wCgYIKoZIzj0EAwIwEjEQ
+    -----END CERTIFICATE-----

@@ -92,6 +92,17 @@ spec:
             - {name: ERP_TEMPORAL_SERVER_NAME, value: {{ printf "erp-temporal.%s.svc" .Release.Namespace | quote }}}
             - {name: ERP_TEMPORAL_NAMESPACE, value: {{ .Values.temporal.namespace | quote }}}
             - {name: ERP_TEMPORAL_CODEC_KEY, value: file:/etc/erp/secrets/temporal-codec-key}
+            {{- with .Values.directory.endpoint }}
+            # The global directory over verified TLS as its master user,
+            # whose rotating password is read again for each connection;
+            # the router reaches this cell at the URLs recorded there, as
+            # the cell's SPIFFE identity (ADR-0033).
+            - {name: ERP_DIRECTORY_URL, value: {{ printf "postgres://%s@%s/%s?sslmode=verify-full&sslrootcert=/etc/erp/rds/ca.pem" ($.Values.directory.user | urlquery) . $.Values.directory.name | quote }}}
+            - {name: ERP_DIRECTORY_PASSWORD, value: file:/etc/erp/secrets/directory-password}
+            - {name: ERP_CELL_API_URL, value: {{ printf "https://erp-server.%s.svc:8080" $.Release.Namespace | quote }}}
+            - {name: ERP_CELL_CONTROL_URL, value: {{ printf "https://erp-server.%s.svc:9090" $.Release.Namespace | quote }}}
+            - {name: ERP_CELL_REGION, value: {{ $.Values.region | quote }}}
+            {{- end }}
             {{- range $name, $value := .Values.server.extraEnv }}
             - {name: {{ $name }}, value: {{ $value | quote }}}
             {{- end }}
@@ -115,6 +126,9 @@ spec:
             - {name: secrets, mountPath: /etc/erp/secrets, readOnly: true}
             - {name: trust, mountPath: /etc/erp/trust, readOnly: true}
             - {name: tls, mountPath: /etc/erp/tls, readOnly: true}
+            {{- if .Values.directory.endpoint }}
+            - {name: rds, mountPath: /etc/erp/rds, readOnly: true}
+            {{- end }}
             - {name: tmp, mountPath: /tmp}
       volumes:
         - name: secrets
@@ -126,6 +140,11 @@ spec:
         - name: tls
           secret:
             secretName: erp-server-tls
+        {{- if .Values.directory.endpoint }}
+        - name: rds
+          configMap:
+            name: erp-rds-ca
+        {{- end }}
         - name: tmp
           emptyDir:
             sizeLimit: 256Mi

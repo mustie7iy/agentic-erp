@@ -1,0 +1,67 @@
+# The router's traffic (ADR-0035), default deny:
+# - the public listener takes connections from the load balancer's
+#   subnets only (client addresses are not preserved: the balancer
+#   connects from its own, with a PROXY v2 header naming the client);
+# - the admin listener takes no connection from another Pod: operators
+#   reach the global control plane by port-forward, and kubelet's probes
+#   are not subject to policies;
+# - the router reaches the home cell's API and admin listener, the
+#   directory in the VPC and, on 443, the tenants' identity providers;
+# - every Pod resolves names through the cluster's DNS.
+{{- $vpc := required "vpcCidr is required: cell.cidr" .Values.vpcCidr }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: erp-global-default-deny
+  labels:
+    {{- include "erp-global.labels" (dict "root" . "component" "erp-network") | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: erp-router
+  labels:
+    {{- include "erp-global.labels" (dict "root" . "component" "erp-router") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "erp-global.selector" . | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        {{- range .Values.router.proxyFrom }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: 8081}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.cellNamespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: erp-server
+      ports:
+        - {protocol: TCP, port: 8080}
+        - {protocol: TCP, port: 9090}
+    - to:
+        - ipBlock: {cidr: {{ $vpc | quote }}}
+      ports:
+        - {protocol: TCP, port: 5432}
+    - ports:
+        - {protocol: TCP, port: 443}

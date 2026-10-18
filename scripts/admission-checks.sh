@@ -12,7 +12,8 @@
 #     the subordinate CA in the platform's namespaces, with server or client
 #     auth, one SPIFFE identity and cluster names only, and certificate
 #     requests only from cert-manager's controller;
-#   - the erp-cell chart, rendered with those images, is admitted whole.
+#   - the erp-cell and erp-global charts, rendered with those images, are
+#     admitted whole.
 # What the CLI cannot model is checked on the rendered policies instead:
 # ephemeral containers are added through a subresource, which both image
 # policies must match.
@@ -165,7 +166,7 @@ admitted-deployment Deployment $full
 unsigned-deployment Deployment $unsigned
 foreign-deployment Deployment $foreign
 EOF
-for ns in erp default; do
+for ns in erp erp-global default; do
   echo "{\"apiVersion\": \"v1\", \"kind\": \"Namespace\", \"metadata\": {\"name\": \"$ns\", \"labels\": {\"kubernetes.io/metadata.name\": \"$ns\"}}}"
   echo "---"
 done >namespaces.yaml
@@ -277,3 +278,17 @@ expect cell.json erp-server:admitted erp-pgbouncer:admitted erp-migrate:admitted
   erp-temporal:admitted erp-temporal-schema:admitted \
   erp-server-tls:admitted erp-pgbouncer-tls:admitted erp-nats-tls:admitted erp-temporal-tls:admitted
 echo "admission-checks: the erp-cell chart's workloads and certificates are admitted"
+
+# The erp-global chart likewise, in its namespace.
+"$HELM" template erp-global "$root/deploy/helm/erp-global" --namespace erp-global -f "$root/deploy/helm/erp-global/tests/values.yaml" \
+  --set "images.router.repository=${full%@*}" --set "images.router.digest=${full#*@}" >global-rendered.yaml
+"$CONFTEST" parse --parser yaml global-rendered.yaml | python3 -c '
+import json, sys
+docs = [d for d in json.load(sys.stdin) if d]
+for d in docs:
+    d["metadata"].setdefault("namespace", "erp-global")
+print("\n---\n".join(json.dumps(d) for d in docs))
+' >global.yaml
+apply global.json --resource global.yaml --registry
+expect global.json erp-router:admitted erp-router-tls:admitted
+echo "admission-checks: the erp-global chart's router and its certificate are admitted"

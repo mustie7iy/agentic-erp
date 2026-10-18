@@ -148,9 +148,12 @@ in the production shape,
 TLS 1.3 only, with a key of its own; and the internet-facing Network Load
 Balancer, TCP 443 to the router's pods as IP targets (registered by the
 `erp-global` chart's TargetGroupBinding, T40c), health-checked over TCP,
-protected from deletion. The router sees the load balancer's addresses,
-not the clients': passing the client address (proxy protocol v2, which the
-router must then read) comes with the router's TLS in T40c. Revocation is
+protected from deletion. The target group sends a PROXY protocol v2
+header and does not preserve client addresses (T40c5), so every
+connection reaches the router from the balancer's subnets
+(`router_proxy_sources`) and names its client, which the router reads from
+those subnets alone (`ERP_ROUTER_PROXY_FROM`; from anywhere else a header
+is not looked for, so a client cannot name another address). Revocation is
 by short lifetime (see Revocation).
 
 **Helm (T40c).** An `erp-cell` chart (the server, PgBouncer, NATS,
@@ -279,6 +282,41 @@ tag, holds its workloads to `deploy/helm/policy/workloads.rego` (non-root,
 read-only root file system, no capability, no token, digests, resources,
 disruption budgets, default deny), and has Kyverno's CLI admit the whole
 chart rendered with images signed as the release signs them.
+
+**The erp-global chart (T40c5).** In the `erp-global` namespace of the
+environment's home cell, after the add-ons and `erp-cluster`:
+- The router: three replicas over the zones, a disruption budget, the
+  restricted profile, no service account token. Its public listener
+  terminates TLS with the operators' certificate (a public CA's, loaded by
+  operators into `erp/global/router-public-certificate` and
+  `router-public-key`, product owner: no ACME) and reads the PROXY header;
+  its admin listener (liveness, metrics, the global control plane with
+  `erp/global/page-token-key`) and its calls to the cells are TLS 1.3 as
+  `spiffe://<td>/global/erp-router`, the identity the cells expect.
+- A TargetGroupBinding registers the pods by IP in Terraform's target
+  group; it manages no security group rule. The pods carry the
+  controller's readiness gate, so a rollout's new pod counts only once the
+  load balancer finds it healthy, and a stopping pod keeps serving 20
+  seconds (`preStop` sleep) while its deregistration spreads, then drains.
+- The directory's only login is its RDS-managed master user, whose
+  password RDS rotates weekly. External Secrets refreshes it every five
+  minutes into a mounted file, and the router reads it again for each new
+  connection (`ERP_DIRECTORY_PASSWORD`, an `env:` or `file:` reference;
+  `database.Settings.Password`), so a rotation needs no restart. The home
+  cell's server registers in the directory the same way
+  (`directory.endpoint` of erp-cell: `ERP_DIRECTORY_URL`, its in-cluster
+  API and control URLs), which is how the router finds it. The global
+  module creates the three `erp/global/` entries empty, encrypted with the
+  global tier's key, and the home cell's External Secrets role may read
+  them and the directory's credentials (`global_secrets`).
+- Network policies: default deny; the public listener from the load
+  balancer's subnets alone; the admin listener from no Pod (operators use
+  port-forward); the router to the home cell's server, the directory in
+  the VPC, 443 (identity providers) and DNS.
+`helm-checks.sh` holds it to the same checks and policies as erp-cell,
+checks that the PROXY sources, the public listener's network policy and
+the readiness gate agree with the load balancer's subnets and the binding,
+and has Kyverno admit the router and its certificate.
 
 **Cluster add-ons and policies (T40c2).** Each cell runs five upstream
 charts, pinned by version and by their archive's SHA-256 in
