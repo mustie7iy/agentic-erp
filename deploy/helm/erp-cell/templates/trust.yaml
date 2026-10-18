@@ -1,0 +1,28 @@
+# The certificate authorities the cell trusts: the environment's
+# subordinate CA for its own services (ERP_TLS_CA, PgBouncer's clients),
+# and RDS's for the database (PgBouncer and the migrations Job). The RDS
+# bundle is a hook too, so that the migrations Job has it at pre-install;
+# Helm keeps a hook resource until the next release replaces it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: erp-trust
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-trust") | nindent 4 }}
+data:
+  ca.crt: |
+    {{- required "trust.caBundle is required: envs/<env> subordinate_ca_certificate" .Values.trust.caBundle | trim | nindent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: erp-rds-ca
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-rds-ca") | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation
+data:
+  ca.pem: |
+    {{- required "database.caBundle is required: the RDS certificate authorities' bundle" .Values.database.caBundle | trim | nindent 4 }}

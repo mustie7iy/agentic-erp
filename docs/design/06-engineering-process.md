@@ -128,6 +128,7 @@ Every change passes, before it is merged:
 | Image signing round trip | `make signing-roundtrip` against a registry service: push, sign and attest (SBOM, provenance) with a key pair made for the job, verify, and the refusals (another key, another commit, a tag, no signature, attestations without a signature, uncommitted changes) (ADR-0032). When signing or image inputs change, and weekly |
 | Release scripts | `scripts/test-release-scripts.sh`: the version rules and the changelog's grouping on throwaway repositories, with the pinned git-cliff (ADR-0032). When those scripts or their inputs change, and weekly |
 | Build and container images | `make build`; `make image-scan`: grype on each SBOM and the pinned base, failing on a fixable high or critical vulnerability; `make images-reproducible` (the three images built with ko twice, with private caches, and their digests compared) when image inputs change, and weekly (ADR-0032) |
+| Infrastructure (when `deploy/` changes) | `scripts/deploy-checks.sh`: `terraform fmt`, `validate` and `test` (mock provider, no credentials), tflint, and the encryption-at-rest policy with conftest: unit tests, every root and module, and a fixture it must refuse (ADR-0035) |
 
 The checks are split between the author's machine and GitHub (the hybrid
 check, since 2026-10-18), so runner minutes go to the independent second

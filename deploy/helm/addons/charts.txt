@@ -1,0 +1,15 @@
+# The cluster add-ons of every cell (ADR-0035), each an upstream chart
+# pinned by version and by the SHA-256 of its archive, installed as a
+# release of its own in its namespace with values/<name>.yaml and the
+# environment's values (Terraform outputs; Argo CD passes them, T40d).
+# The IRSA roles they run as trust exactly these namespaces and service
+# account names (deploy/terraform/modules/cell/irsa.tf). Install order:
+# these first, then deploy/helm/erp-cluster, whose resources need their
+# CRDs.
+#
+# name                         namespace         repository                                            chart                         version  sha256
+cert-manager                   cert-manager      https://charts.jetstack.io                            cert-manager                  v1.21.2  73a56e1728edd6c99f1f31082618c3259d279a76b7ebd3d4bdc5475c2442d34a
+aws-privateca-issuer           cert-manager      https://cert-manager.github.io/aws-privateca-issuer   aws-privateca-issuer          v1.10.0  f563408f75a0fb17bb9e513af10a94b5b1e09feef1f9a9d325f4601e33bf537d
+external-secrets               external-secrets  https://charts.external-secrets.io                    external-secrets              2.12.0   4b584136b7311c0af8c8719d377cc5b1a7ef12c2de18f1fdb30614eab75bdeb3
+aws-load-balancer-controller   kube-system       https://aws.github.io/eks-charts                      aws-load-balancer-controller  3.5.0    45051f634b33e10baccb3354d0681b7de787c60445e599fa276e0c9aedd4ccd5
+kyverno                        kyverno           https://kyverno.github.io/kyverno                     kyverno                       3.9.1    7b7fe51a431b5b133b0ce7eb9dcb222b6a37fb967c163223cf480054ad14d752

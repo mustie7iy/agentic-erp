@@ -1,0 +1,9 @@
+# cert-manager's issuer for AWS Private CA (ADR-0035). It runs as the
+# cell's cert_manager IRSA role, which trusts cert-manager/aws-privateca-issuer
+# only; the environment sets the role (cell.workload_role_arns.cert_manager):
+#   serviceAccount.annotations."eks.amazonaws.com/role-arn"
+fullnameOverride: aws-privateca-issuer
+replicaCount: 2
+serviceAccount:
+  create: true
+  name: aws-privateca-issuer

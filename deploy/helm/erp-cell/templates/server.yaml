@@ -1,0 +1,156 @@
+# The API server and its workers (one binary, ADR-0035), as the cell's
+# certificate's identity over TLS 1.3 (ADR-0033): the API serves the
+# router alone, /control the global plane. It reaches AWS as its IRSA role
+# through the VPC endpoints' regional names, the database through
+# PgBouncer, the bus and the workflow engine as its certificate's
+# identity, and reads its secrets as files.
+{{- $endpoints := .Values.server.awsEndpoints }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: erp-server
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-server") | nindent 4 }}
+  annotations:
+    eks.amazonaws.com/role-arn: {{ required "server.roleArn is required: cell.workload_role_arns.server" .Values.server.roleArn | quote }}
+automountServiceAccountToken: false
+---
+{{ include "erp-cell.certificate" (dict "root" . "name" "erp-server-tls" "component" "erp-server" "service" "erp-server" "usages" (list "digital signature" "server auth" "client auth")) }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: erp-server
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-server") | nindent 4 }}
+spec:
+  replicas: {{ .Values.server.replicas }}
+  revisionHistoryLimit: 5
+  strategy:
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels:
+      {{- include "erp-cell.selector" (dict "root" . "component" "erp-server") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "erp-cell.labels" (dict "root" . "component" "erp-server") | nindent 8 }}
+    spec:
+      serviceAccountName: erp-server
+      # No Service variables in the environment: the server reads ERP_*
+      # settings, and ERP_SERVER_* would be among them.
+      enableServiceLinks: false
+      # IRSA's token is projected by EKS; the Kubernetes API is not called.
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        {{- include "erp-cell.podSecurity" (dict "uid" 65532) | nindent 8 }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "erp-cell.selector" (dict "root" . "component" "erp-server") | nindent 14 }}
+      containers:
+        - name: server
+          image: {{ include "erp-cell.image" (dict "root" . "name" "server") }}
+          ports:
+            - {name: api, containerPort: 8080}
+            - {name: admin, containerPort: 9090}
+          env:
+            - {name: ERP_ENV, value: production}
+            - {name: ERP_CELL, value: {{ include "erp-cell.cell" . | quote }}}
+            - {name: ERP_TRUST_DOMAIN, value: {{ required "trustDomain is required" .Values.trustDomain | quote }}}
+            - {name: ERP_HTTP_ADDR, value: ":8080"}
+            - {name: ERP_ADMIN_ADDR, value: ":9090"}
+            - {name: ERP_LOG_LEVEL, value: {{ .Values.server.logLevel | quote }}}
+            - {name: ERP_MIGRATE_ON_START, value: "false"}
+            - {name: ERP_DB_MAX_CONNS, value: {{ .Values.server.dbMaxConns | quote }}}
+            - {name: DATABASE_URL, value: file:/etc/erp/secrets/database-url}
+            - {name: ERP_PAGE_TOKEN_KEY, value: file:/etc/erp/secrets/page-token-key}
+            - {name: ERP_TLS_CA, value: file:/etc/erp/trust/ca.crt}
+            - {name: ERP_TLS_CERT, value: file:/etc/erp/tls/tls.crt}
+            - {name: ERP_TLS_KEY, value: file:/etc/erp/tls/tls.key}
+            - {name: ERP_OPERATOR_ISSUERS, value: {{ required "server.operatorIssuers is required" .Values.server.operatorIssuers | quote }}}
+            - {name: ERP_FIELD_KMS_KEY, value: {{ required "server.fieldKmsKeyArn is required: cell.field_kms_key_arn" .Values.server.fieldKmsKeyArn | quote }}}
+            - {name: ERP_FIELD_KMS_REGION, value: {{ required "region is required" .Values.region | quote }}}
+            - {name: ERP_FIELD_KMS_ENDPOINT, value: {{ required "server.awsEndpoints.kms is required: cell.aws_endpoints.kms" $endpoints.kms | quote }}}
+            - {name: ERP_OBJECT_S3_ENDPOINT, value: {{ required "server.awsEndpoints.s3 is required: cell.aws_endpoints.s3" $endpoints.s3 | quote }}}
+            - {name: ERP_OBJECT_S3_BUCKET, value: {{ required "server.objectBucket is required: cell.object_bucket" .Values.server.objectBucket | quote }}}
+            - {name: ERP_OBJECT_S3_REGION, value: {{ .Values.region | quote }}}
+            # The VPC endpoint's private DNS answers for the regional name
+            # only; the global default would leave through the NAT gateway.
+            - {name: ERP_AWS_STS_ENDPOINT, value: {{ required "server.awsEndpoints.sts is required: cell.aws_endpoints.sts" $endpoints.sts | quote }}}
+            # The bus over TLS as the cell's identity (nats.yaml); its streams
+            # on volumes encrypted with the cluster key.
+            - {name: ERP_NATS_URL, value: {{ printf "tls://erp-nats.%s.svc:4222" .Release.Namespace | quote }}}
+            - {name: ERP_AT_REST, value: "postgres=storage-kms,objects=sse-kms,nats=volume"}
+            # The workflow engine over TLS as the cell's identity
+            # (temporal.yaml); payloads sealed with the codec key first.
+            - {name: ERP_TEMPORAL_ADDRESS, value: {{ printf "erp-temporal.%s.svc:7233" .Release.Namespace | quote }}}
+            - {name: ERP_TEMPORAL_SERVER_NAME, value: {{ printf "erp-temporal.%s.svc" .Release.Namespace | quote }}}
+            - {name: ERP_TEMPORAL_NAMESPACE, value: {{ .Values.temporal.namespace | quote }}}
+            - {name: ERP_TEMPORAL_CODEC_KEY, value: file:/etc/erp/secrets/temporal-codec-key}
+            {{- range $name, $value := .Values.server.extraEnv }}
+            - {name: {{ $name }}, value: {{ $value | quote }}}
+            {{- end }}
+          readinessProbe:
+            httpGet: {path: /readyz, port: admin, scheme: HTTPS}
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /livez, port: admin, scheme: HTTPS}
+            periodSeconds: 10
+            failureThreshold: 6
+          startupProbe:
+            httpGet: {path: /livez, port: admin, scheme: HTTPS}
+            periodSeconds: 2
+            failureThreshold: 60
+          securityContext:
+            {{- include "erp-cell.containerSecurity" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+          volumeMounts:
+            - {name: secrets, mountPath: /etc/erp/secrets, readOnly: true}
+            - {name: trust, mountPath: /etc/erp/trust, readOnly: true}
+            - {name: tls, mountPath: /etc/erp/tls, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: secrets
+          secret:
+            secretName: erp-server
+        - name: trust
+          configMap:
+            name: erp-trust
+        - name: tls
+          secret:
+            secretName: erp-server-tls
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: erp-server
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-server") | nindent 4 }}
+spec:
+  selector:
+    {{- include "erp-cell.selector" (dict "root" . "component" "erp-server") | nindent 4 }}
+  ports:
+    - {name: api, port: 8080, targetPort: api}
+    - {name: admin, port: 9090, targetPort: admin}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: erp-server
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-server") | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "erp-cell.selector" (dict "root" . "component" "erp-server") | nindent 6 }}

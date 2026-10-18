@@ -1,0 +1,11 @@
+apiVersion: v2
+name: erp-cell
+description: >-
+  A cell of the platform (ADR-0035): the API server and its workers, the
+  migrations Job each release runs first, and PgBouncer in front of the
+  cell's database, with their certificates, secrets, network policies and
+  disruption budgets. Installed in the erp namespace after the cluster's
+  add-ons and the erp-cluster chart.
+type: application
+version: 0.1.0
+kubeVersion: ">=1.33.0-0"

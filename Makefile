@@ -1,4 +1,4 @@
-.PHONY: generate run-server build images images-reproducible image-scan signing-roundtrip test-release-scripts lint lint-all test test-short ci-local db-up test-db coverage fuzz perf load soak resilience demo clean
+.PHONY: temporal-checks generate run-server build images images-reproducible image-scan signing-roundtrip test-release-scripts lint lint-all test test-short ci-local db-up test-db coverage fuzz perf load soak resilience demo clean
 
 build:
 	go build -o bin/erp ./cmd/erp
@@ -67,6 +67,11 @@ ci-local:
 # Whole-suite statement coverage of production code, with the CI minimum.
 # Schema tests need PostgreSQL. `make db-up` starts one in Docker on port 55432.
 DATABASE_URL ?= postgres://postgres:dev@localhost:55432/postgres?sslmode=disable
+
+# The workflow engine's module (temporal/, ADR-0035): vet, lint, tests with
+# -race three times shuffled, and 100% coverage.
+temporal-checks:
+	DATABASE_URL="$(DATABASE_URL)" ./scripts/temporal-checks.sh
 
 db-up:
 	docker start erp-pg 2>/dev/null || docker run -d --name erp-pg -e POSTGRES_PASSWORD=dev -p 55432:5432 postgres:17

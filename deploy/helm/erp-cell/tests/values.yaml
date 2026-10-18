@@ -1,0 +1,43 @@
+# A cell's values for the checks (scripts/helm-checks.sh): what an
+# environment's Terraform outputs and a release give a real one. The
+# admission checks replace the images with ones they signed.
+cell: dev1
+region: eu-central-1
+trustDomain: dev.erp.example
+vpcCidr: 10.16.0.0/16
+images:
+  server:
+    repository: 111111111111.dkr.ecr.eu-central-1.amazonaws.com/erp-server
+    digest: sha256:1111111111111111111111111111111111111111111111111111111111111111
+  pgbouncer:
+    repository: 111111111111.dkr.ecr.eu-central-1.amazonaws.com/erp-pgbouncer
+    digest: sha256:01f76846eb3d2b2c6f05fc0b45466d43364001cfdd68a4883067c69c8e14817f
+  nats:
+    repository: 111111111111.dkr.ecr.eu-central-1.amazonaws.com/erp-nats
+    digest: sha256:104c96a9d513e93352d64daf2943cd9df629c4d4122508d4993d8704638468dc
+  temporal:
+    repository: 111111111111.dkr.ecr.eu-central-1.amazonaws.com/erp-temporal
+    digest: sha256:2222222222222222222222222222222222222222222222222222222222222222
+trust:
+  caBundle: |
+    -----BEGIN CERTIFICATE-----
+    MIIBdzCCAR2gAwIBAgIUSubordinateForTheChecks0wCgYIKoZIzj0EAwIwEjEQ
+    -----END CERTIFICATE-----
+server:
+  roleArn: arn:aws:iam::222222222222:role/erp-dev1-server
+  operatorIssuers: '[{"issuer":"https://operators.example.com","audience":"erp-control"}]'
+  objectBucket: erp-dev1-objects-x
+  fieldKmsKeyArn: arn:aws:kms:eu-central-1:222222222222:key/0d5c2b1e-0000-4000-8000-000000000000
+  awsEndpoints:
+    sts: https://sts.eu-central-1.amazonaws.com
+    kms: https://kms.eu-central-1.amazonaws.com
+    s3: https://s3.eu-central-1.amazonaws.com
+database:
+  writerHost: erp-dev1.abc.eu-central-1.rds.amazonaws.com
+  masterSecretArn: "arn:aws:secretsmanager:eu-central-1:222222222222:secret:rds!db-1"
+  caBundle: |
+    -----BEGIN CERTIFICATE-----
+    MIIBdzCCAR2gAwIBAgIURdsBundleForTheChecks000wCgYIKoZIzj0EAwIwEjEQ
+    -----END CERTIFICATE-----
+secrets:
+  prefix: erp/dev1

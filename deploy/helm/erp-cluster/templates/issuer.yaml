@@ -1,0 +1,11 @@
+# The issuer of every service certificate in the cell: the environment's
+# subordinate CA in AWS Private CA (ADR-0035), through cert-manager's
+# aws-privateca-issuer, which runs as its IRSA role (cell.workload_role_arns
+# cert_manager: IssueCertificate on this CA with end-entity templates only).
+apiVersion: awspca.cert-manager.io/v1beta1
+kind: AWSPCAClusterIssuer
+metadata:
+  name: erp-subordinate
+spec:
+  arn: {{ required "subordinateCaArn is required" .Values.subordinateCaArn | quote }}
+  region: {{ include "erp-cluster.region" . | quote }}

@@ -17,3 +17,7 @@ bin/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 dist/
+
+# Terraform working directories; lock files are committed for the roots only.
+deploy/terraform/**/.terraform/
+deploy/terraform/modules/**/.terraform.lock.hcl

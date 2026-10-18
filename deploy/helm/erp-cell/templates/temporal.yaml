@@ -1,0 +1,276 @@
+# The cell's workflow engine (ADR-0012, ADR-0035): erp-temporal, Temporal's
+# server with the platform's authorization, all its services in each of
+# its replicas, which find each other through the database.
+#
+# Clients are authorized by their SPIFFE identity (ADR-0033): every
+# connection is TLS 1.3 with a client certificate from the environment's
+# CA; the cell's server may use the cell's namespace, the engine's own
+# identity (its nodes, its system worker) administers it, and any other
+# identity may call the health checks alone (spiffeauth). The server seals
+# payloads before they reach the engine (ERP_TEMPORAL_CODEC_KEY).
+#
+# Its databases, temporal and temporal_visibility, are on the cell's
+# writer under a login of their own; the erp-temporal-schema hook creates
+# the login and the databases and applies the release's schema with the
+# master credentials, which the engine itself never holds. It connects to
+# the writer directly, not through PgBouncer: Temporal's persistence keeps
+# session state that transaction pooling breaks. Each of its four services
+# has pools of its own, so its connections, at most (replicas + 1 during a
+# rollout) x 4 x (maxConns.default + maxConns.visibility), count against
+# the writer's limit beside PgBouncer's pool.
+{{- $ns := .Release.Namespace }}
+{{- $prefix := required "secrets.prefix is required: erp/<cell>" .Values.secrets.prefix }}
+{{- $master := required "database.masterSecretArn is required" .Values.database.masterSecretArn }}
+{{- $writer := required "database.writerHost is required: cell.database_endpoint" .Values.database.writerHost }}
+{{- $t := .Values.temporal }}
+{{ include "erp-cell.certificate" (dict "root" . "name" "erp-temporal-tls" "component" "erp-temporal" "service" "erp-temporal" "usages" (list "digital signature" "server auth" "client auth")) }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: erp-temporal
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-temporal") | nindent 4 }}
+data:
+  config.yaml: |
+    {{- include "erp-cell.temporal.conf" . | trim | nindent 4 }}
+---
+# The engine's login, as operators set it (<prefix>/temporal-database-password,
+# e.g. `openssl rand -hex 32`); the schema hook sets it on the login each
+# release, so a changed password takes effect with the next release.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: erp-temporal
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-temporal") | nindent 4 }}
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: {{ .Values.secrets.store }}
+  target:
+    name: erp-temporal
+    creationPolicy: Owner
+  data:
+    - secretKey: database-password
+      remoteRef:
+        key: {{ printf "%s/temporal-database-password" $prefix }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: erp-temporal
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-temporal") | nindent 4 }}
+spec:
+  replicas: {{ $t.replicas }}
+  revisionHistoryLimit: 5
+  strategy:
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels:
+      {{- include "erp-cell.selector" (dict "root" . "component" "erp-temporal") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "erp-cell.labels" (dict "root" . "component" "erp-temporal") | nindent 8 }}
+      annotations:
+        erp.platform/config: {{ include "erp-cell.temporal.conf" . | trim | sha256sum | trunc 16 | quote }}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # Long enough for the history service to hand its shards over.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        {{- include "erp-cell.podSecurity" (dict "uid" 65532) | nindent 8 }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "erp-cell.selector" (dict "root" . "component" "erp-temporal") | nindent 14 }}
+      containers:
+        - name: temporal
+          image: {{ include "erp-cell.image" (dict "root" . "name" "temporal") }}
+          args: [serve]
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef: {fieldPath: status.podIP}
+            - {name: ERP_TEMPORAL_CONFIG, value: /etc/temporal/config/config.yaml}
+            - {name: ERP_TRUST_DOMAIN, value: {{ required "trustDomain is required" .Values.trustDomain | quote }}}
+            - {name: ERP_CELL, value: {{ include "erp-cell.cell" . | quote }}}
+            - {name: ERP_TEMPORAL_NAMESPACE, value: {{ $t.namespace | quote }}}
+            - {name: ERP_TEMPORAL_RETENTION, value: {{ $t.retention | quote }}}
+            - {name: ERP_TEMPORAL_DATABASE_PASSWORD, value: file:/etc/temporal/secrets/database-password}
+          ports:
+            - {name: frontend, containerPort: 7233}
+            - {name: frontend-ring, containerPort: 6933}
+            - {name: history, containerPort: 7234}
+            - {name: history-ring, containerPort: 6934}
+            - {name: matching, containerPort: 7235}
+            - {name: matching-ring, containerPort: 6935}
+            - {name: worker, containerPort: 7239}
+            - {name: worker-ring, containerPort: 6939}
+          # The frontend's health check is gRPC over mutual TLS, which a
+          # probe cannot speak; a listening frontend is what is probed.
+          startupProbe:
+            tcpSocket: {port: frontend}
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket: {port: frontend}
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: frontend}
+            periodSeconds: 30
+            failureThreshold: 3
+          securityContext:
+            {{- include "erp-cell.containerSecurity" . | nindent 12 }}
+          resources:
+            {{- toYaml $t.resources | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /etc/temporal/config, readOnly: true}
+            - {name: secrets, mountPath: /etc/temporal/secrets, readOnly: true}
+            - {name: tls, mountPath: /etc/temporal/tls, readOnly: true}
+            - {name: trust, mountPath: /etc/temporal/trust, readOnly: true}
+            - {name: rds, mountPath: /etc/temporal/rds, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: config
+          configMap:
+            name: erp-temporal
+        - name: secrets
+          secret:
+            secretName: erp-temporal
+        - name: tls
+          secret:
+            secretName: erp-temporal-tls
+        - name: trust
+          configMap:
+            name: erp-trust
+        - name: rds
+          configMap:
+            name: erp-rds-ca
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+# The frontend, for the cell's server (ERP_TEMPORAL_ADDRESS) and the
+# engine's own system worker; the nodes reach each other by Pod address.
+apiVersion: v1
+kind: Service
+metadata:
+  name: erp-temporal
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-temporal") | nindent 4 }}
+spec:
+  selector:
+    {{- include "erp-cell.selector" (dict "root" . "component" "erp-temporal") | nindent 4 }}
+  ports:
+    - {name: frontend, port: 7233, targetPort: frontend}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: erp-temporal
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-temporal") | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "erp-cell.selector" (dict "root" . "component" "erp-temporal") | nindent 6 }}
+---
+# The schema hook's credentials: the master URL, which creates the
+# engine's login and databases, and the login's password. They live only
+# while the release's hooks run.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: erp-temporal-schema
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-temporal-schema") | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: {{ .Values.secrets.store }}
+  target:
+    name: erp-temporal-schema
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        admin-url: "postgres://{{ "{{" }} .username | urlquery {{ "}}" }}:{{ "{{" }} .password | urlquery {{ "}}" }}@{{ $writer }}:5432/postgres?sslmode=verify-full&sslrootcert=/etc/temporal/rds/ca.pem"
+        database-password: "{{ "{{" }} .temporalPassword {{ "}}" }}"
+  data:
+    - secretKey: username
+      remoteRef:
+        key: {{ $master }}
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: {{ $master }}
+        property: password
+    - secretKey: temporalPassword
+      remoteRef:
+        key: {{ printf "%s/temporal-database-password" $prefix }}
+---
+# The engine's schema, once per release and cell before its Pods: the
+# login (its password set again), the databases, and the schema versions
+# this release's erp-temporal embeds. Every step keeps what exists, so a
+# release without a schema change changes nothing.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: erp-temporal-schema
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-temporal-schema") | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: {{ .Values.migrations.deadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "erp-cell.labels" (dict "root" . "component" "erp-temporal-schema") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "erp-cell.podSecurity" (dict "uid" 65532) | nindent 8 }}
+      containers:
+        - name: schema
+          image: {{ include "erp-cell.image" (dict "root" . "name" "temporal") }}
+          args: [setup-schema]
+          env:
+            - {name: ERP_TEMPORAL_ADMIN_URL, value: file:/etc/temporal/schema/admin-url}
+            - {name: ERP_TEMPORAL_DATABASE_PASSWORD, value: file:/etc/temporal/schema/database-password}
+            - {name: ERP_TEMPORAL_DATABASE_USER, value: {{ $t.database.user | quote }}}
+            - {name: ERP_TEMPORAL_DATABASE, value: {{ $t.database.name | quote }}}
+            - {name: ERP_TEMPORAL_VISIBILITY_DATABASE, value: {{ $t.database.visibility | quote }}}
+          securityContext:
+            {{- include "erp-cell.containerSecurity" . | nindent 12 }}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 256Mi}
+          volumeMounts:
+            - {name: schema, mountPath: /etc/temporal/schema, readOnly: true}
+            - {name: rds, mountPath: /etc/temporal/rds, readOnly: true}
+      volumes:
+        - name: schema
+          secret:
+            secretName: erp-temporal-schema
+        - name: rds
+          configMap:
+            name: erp-rds-ca

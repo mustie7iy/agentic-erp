@@ -1,0 +1,14 @@
+# The values the chart's checks render with (scripts/helm-checks.sh); the
+# image tests replace the registry and the key with their own.
+region: eu-central-1
+subordinateCaArn: arn:aws:acm-pca:eu-central-1:222222222222:certificate-authority/2222
+clusterKmsKeyArn: arn:aws:kms:eu-central-1:222222222222:key/0000
+trustDomain: dev.erp.example
+release:
+  publicKey: |
+    -----BEGIN PUBLIC KEY-----
+    MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE7wGXEvA/1UhG8Ksv0b4Dn5c4m4Ef
+    uQf3nV3B3z1KQZ4tNnZ0c4M0pP7r1d5a8K7m7Q9yK3dVZQh8VnG1xYb9aA==
+    -----END PUBLIC KEY-----
+  registries:
+    - 111111111111.dkr.ecr.eu-central-1.amazonaws.com

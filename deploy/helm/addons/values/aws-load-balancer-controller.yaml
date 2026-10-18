@@ -1,0 +1,29 @@
+# The AWS Load Balancer Controller, for the erp-global chart's
+# TargetGroupBinding only (ADR-0035): it registers the router's pods in
+# the target group of modules/global and makes no load balancer, so the
+# Service mutator, the ingress class and the WAF and Shield integrations
+# are off. It runs as the cell's load_balancer IRSA role (describe,
+# register and deregister targets), which trusts
+# kube-system/aws-load-balancer-controller only. The environment sets:
+#   clusterName  cell.cluster_name
+#   region       the cell's region
+#   vpcId        cell.vpc_id
+#   serviceAccount.annotations."eks.amazonaws.com/role-arn"
+#                cell.workload_role_arns.load_balancer
+fullnameOverride: aws-load-balancer-controller
+replicaCount: 2
+serviceAccount:
+  create: true
+  name: aws-load-balancer-controller
+enableServiceMutatorWebhook: false
+createIngressClassResource: false
+enableShield: false
+enableWaf: false
+enableWafv2: false
+# No shared backend security group: its role may not create one, and the
+# router's NLB reaches the pods through a rule Terraform made.
+enableBackendSecurityGroup: false
+# The webhook's certificate from cert-manager (installed before it): the
+# chart's own would be generated anew on every render, and Argo CD would
+# see a change on every sync (T40d).
+enableCertManager: true

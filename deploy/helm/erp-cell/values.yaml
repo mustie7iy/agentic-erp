@@ -1,0 +1,137 @@
+# A cell's values: most from Terraform's outputs (envs/<env>: cell.*,
+# subordinate_ca_*; envs/tooling: the registry) and the release (image
+# digests, T40d). Every one without a default is required: rendering fails
+# without it.
+
+# The cell's name (ERP_CELL, the SPIFFE path), e.g. dev1.
+cell: ""
+# The cell's region.
+region: ""
+# The SPIFFE trust domain of the environment (ERP_TRUST_DOMAIN, ADR-0033).
+trustDomain: ""
+# The namespace the router and the global plane run in (erp-global
+# chart): the only callers of the API and /control.
+routerNamespace: erp-global
+# The cell's VPC CIDR (cell.cidr): the database and the AWS endpoints.
+vpcCidr: ""
+
+# The release's images, by digest from the release registry: the admission
+# policy admits nothing else.
+images:
+  server:
+    repository: ""
+    digest: ""
+  pgbouncer:
+    repository: ""
+    digest: ""
+  nats:
+    repository: ""
+    digest: ""
+  # erp-temporal (temporal/), built and signed with the platform's own.
+  temporal:
+    repository: ""
+    digest: ""
+
+# The environment's trust anchor (envs/<env> subordinate_ca_certificate,
+# PEM): the subordinate CA, not the root (ADR-0035, Revocation).
+trust:
+  caBundle: ""
+
+# Service certificates: a day, renewed with a third left (the erp-cluster
+# chart's policy refuses longer).
+certificates:
+  duration: 24h
+  renewBefore: 8h
+
+server:
+  replicas: 3
+  # IRSA role (cell.workload_role_arns.server).
+  roleArn: ""
+  # ERP_OPERATOR_ISSUERS: the operators' issuers, a JSON list.
+  operatorIssuers: ""
+  # The cell's object bucket (cell.object_bucket) and field key
+  # (cell.field_kms_key_arn).
+  objectBucket: ""
+  fieldKmsKeyArn: ""
+  # The regional endpoints the VPC endpoints answer (cell.aws_endpoints).
+  awsEndpoints:
+    sts: ""
+    kms: ""
+    s3: ""
+  # Connections each replica opens to PgBouncer.
+  dbMaxConns: 20
+  logLevel: info
+  resources:
+    requests: {cpu: 500m, memory: 512Mi}
+    limits: {memory: 1Gi}
+  # Further settings, by name.
+  extraEnv: {}
+
+database:
+  # The writer endpoint, host only (cell.database_endpoint): PgBouncer's
+  # upstream and the migrations Job's database.
+  writerHost: ""
+  name: erp
+  # The RDS-managed master credentials (cell.database_master_secret_arn),
+  # which External Secrets turns into the URLs.
+  masterSecretArn: ""
+  # The RDS certificate authorities' bundle (PEM, AWS's published bundle
+  # for the region), which PgBouncer and the Job verify the writer with.
+  caBundle: ""
+
+pgbouncer:
+  replicas: 2
+  port: 6432
+  # Server connections per pool; RDS's own limit bounds the sum.
+  poolSize: 40
+  maxClientConnections: 1000
+  resources:
+    requests: {cpu: 100m, memory: 64Mi}
+    limits: {memory: 256Mi}
+
+nats:
+  # Three nodes: JetStream's replicated streams need a quorum.
+  replicas: 3
+  storage: 20Gi
+  maxFileStore: 16G
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 1Gi}
+
+temporal:
+  # Each replica runs all of the engine's services.
+  replicas: 2
+  # Fixed for the life of the cell's engine database: Temporal cannot
+  # change it once the schema exists. 512 serves the large shape too.
+  historyShards: 512
+  # The cell's one namespace (ERP_TEMPORAL_NAMESPACE) and how long it
+  # keeps a closed workflow's history.
+  namespace: erp
+  retention: 720h
+  logLevel: info
+  database:
+    user: temporal
+    name: temporal
+    visibility: temporal_visibility
+    # Connections each of a replica's four services opens to the writer,
+    # per database: each service has pools of its own. At most
+    # (replicas + 1 during a rollout) x 4 x (default + visibility), 180
+    # here, beside PgBouncer's pool.
+    maxConns:
+      default: 10
+      visibility: 5
+  resources:
+    requests: {cpu: 500m, memory: 1Gi}
+    limits: {memory: 2Gi}
+
+migrations:
+  # How long a release's migrations may take before the hook fails.
+  deadlineSeconds: 3600
+
+secrets:
+  # The cell's entries in Secrets Manager: <prefix>/page-token-key,
+  # database-client-password, temporal-codec-key (base64 of 32 random
+  # bytes) and temporal-database-password.
+  prefix: ""
+  # The store of the erp-cluster chart.
+  store: erp-cell

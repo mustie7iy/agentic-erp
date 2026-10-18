@@ -1,0 +1,15 @@
+# Volumes of the cell's stateful workloads (NATS JetStream), encrypted with
+# the cell's cluster key (ADR-0035). Retained when their claim goes, so a
+# deleted StatefulSet does not take its stream with it.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: erp-encrypted
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  encrypted: "true"
+  kmsKeyId: {{ required "clusterKmsKeyArn is required" .Values.clusterKmsKeyArn | quote }}
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer

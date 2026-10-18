@@ -150,7 +150,7 @@ type Vault struct {
 // SecretSettings are the settings that may carry a secret reference
 // instead of a value.
 var SecretSettings = []string{"DATABASE_URL", "ERP_DIRECTORY_URL", "ERP_PAGE_TOKEN_KEY", "ERP_FIELD_KEY", "ERP_FIELD_KEYS", "ERP_FIELD_KMS_ACCESS_KEY", "ERP_FIELD_KMS_SECRET_KEY",
-	"ERP_OBJECT_S3_ACCESS_KEY", "ERP_OBJECT_S3_SECRET_KEY", "ERP_NATS_URL"}
+	"ERP_OBJECT_S3_ACCESS_KEY", "ERP_OBJECT_S3_SECRET_KEY", "ERP_NATS_URL", "ERP_TEMPORAL_CODEC_KEY"}
 
 // AtRest is how each store encrypts its data at rest, as ERP_AT_REST
 // states it ("postgres=storage-kms,objects=sse-kms,nats=volume"); empty:
@@ -229,6 +229,33 @@ func Load(getenv func(string) string) (Config, error) {
 	l.server(&c)
 	c.Environment = l.getenv("ERP_ENV")
 	l.errs = append(l.errs, checkEnvironment(c)...)
+	return c, errors.Join(l.errs...)
+}
+
+// LoadSchema reads what preparing the schema needs and nothing else: the
+// database (DATABASE_URL, which may be a secret reference), ERP_ENV,
+// ERP_LOG_LEVEL and ERP_DB_MAX_CONNS. erp-server migrate runs with it as a
+// Helm hook Job (ADR-0035), before the release's other resources exist and
+// without the keys, issuers and stores a server needs. ERP_MIGRATE_ON_START
+// is not read: the Job migrates whatever it says, and the pods keep it
+// false. In production the database must be reached over verified TLS
+// (ADR-0033), as the server's.
+func LoadSchema(getenv func(string) string) (Config, error) {
+	l := newLoader(getenv)
+	c := Config{Vault: l.vault, Secrets: l.resolver, DatabaseURL: l.getenv("DATABASE_URL"), Environment: l.getenv("ERP_ENV")}
+	if c.DatabaseURL == "" {
+		l.errs = append(l.errs, errors.New("DATABASE_URL is required"))
+	} else if c.Environment == Production {
+		// The writer over verified TLS, as the server's own database.
+		if err := CheckDatabaseTLS("DATABASE_URL", c.DatabaseURL); err != nil {
+			l.errs = append(l.errs, err)
+		}
+	}
+	if err := CheckEnvironment(c.Environment); err != nil {
+		l.errs = append(l.errs, err)
+	}
+	l.logLevel(&c)
+	l.dbMaxConns(&c)
 	return c, errors.Join(l.errs...)
 }
 
@@ -541,25 +568,35 @@ func (l *loader) server(c *Config) {
 	if c.MigrateOnStart, err = strconv.ParseBool(get("ERP_MIGRATE_ON_START", "false")); err != nil {
 		l.errs = append(l.errs, errors.New("ERP_MIGRATE_ON_START must be true or false"))
 	}
-	if err := c.LogLevel.UnmarshalText([]byte(get("ERP_LOG_LEVEL", "info"))); err != nil {
-		l.errs = append(l.errs, errors.New("ERP_LOG_LEVEL must be debug, info, warn or error"))
-	}
+	l.logLevel(c)
 	if c.ShutdownTimeout, err = time.ParseDuration(get("ERP_SHUTDOWN_TIMEOUT", "20s")); err != nil || c.ShutdownTimeout <= 0 {
 		l.errs = append(l.errs, errors.New("ERP_SHUTDOWN_TIMEOUT must be a positive duration such as 20s"))
 	}
 	if c.RequestTimeout, err = time.ParseDuration(get("ERP_REQUEST_TIMEOUT", "30s")); err != nil || c.RequestTimeout <= 0 {
 		l.errs = append(l.errs, errors.New("ERP_REQUEST_TIMEOUT must be a positive duration such as 30s"))
 	}
-	if n, err := strconv.Atoi(get("ERP_DB_MAX_CONNS", "0")); err != nil || n < 0 || n > 10_000 {
-		l.errs = append(l.errs, errors.New("ERP_DB_MAX_CONNS must be a whole number of connections (0: the driver's default)"))
-	} else {
-		c.DBMaxConns = int32(n) // #nosec G109 -- a pool size, checked to be a small whole number
-	}
+	l.dbMaxConns(c)
 	if c.TenantQuota, err = ratelimit.ParseQuota(get("ERP_RATE_LIMIT_TENANT", "2000/10000")); err != nil {
 		l.errs = append(l.errs, fmt.Errorf("ERP_RATE_LIMIT_TENANT: %w", err))
 	}
 	if c.PrincipalQuota, err = ratelimit.ParseQuota(get("ERP_RATE_LIMIT_PRINCIPAL", "50/100")); err != nil {
 		l.errs = append(l.errs, fmt.Errorf("ERP_RATE_LIMIT_PRINCIPAL: %w", err))
+	}
+}
+
+// logLevel reads ERP_LOG_LEVEL.
+func (l *loader) logLevel(c *Config) {
+	if err := c.LogLevel.UnmarshalText([]byte(l.get("ERP_LOG_LEVEL", "info"))); err != nil {
+		l.errs = append(l.errs, errors.New("ERP_LOG_LEVEL must be debug, info, warn or error"))
+	}
+}
+
+// dbMaxConns reads ERP_DB_MAX_CONNS.
+func (l *loader) dbMaxConns(c *Config) {
+	if n, err := strconv.Atoi(l.get("ERP_DB_MAX_CONNS", "0")); err != nil || n < 0 || n > 10_000 {
+		l.errs = append(l.errs, errors.New("ERP_DB_MAX_CONNS must be a whole number of connections (0: the driver's default)"))
+	} else {
+		c.DBMaxConns = int32(n) // #nosec G109 -- a pool size, checked to be a small whole number
 	}
 }
 

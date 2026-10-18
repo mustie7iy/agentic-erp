@@ -1,0 +1,129 @@
+# Admission of the platform's images (ADR-0032, ADR-0035). In the governed
+# namespaces a Pod (and, generated from it, every controller of Pods) is
+# admitted only when each of its images
+#   - comes from a release registry, named by digest (erp-release-images);
+#   - carries an image signature by the release key, its in-toto statement
+#     of type https://sigstore.dev/cosign/sign/v1. cosign v3 stores
+#     signatures and attestations alike as Sigstore bundles, and a
+#     signature check alone accepts an attestation for a signature (T39b),
+#     so the signature is required by its statement type;
+#   - carries an SPDX SBOM and a SLSA provenance attested by the same key.
+# Kyverno reads the signatures from the registry as its IRSA role
+# (cell.workload_role_arns kyverno). Failures deny: a registry Kyverno
+# cannot reach admits nothing. An update is verified again only when it
+# changes an image, so a registry outage or a key rotation does not block
+# the finalizers and labels of running Pods.
+#
+# Ephemeral containers come in through the pods/ephemeralcontainers
+# subresource. Each policy has a twin for it ("-ephemeral"): Kyverno
+# generates the controllers' policies only for a policy on pods alone.
+{{- $registries := include "erp-cluster.registries" . | fromJsonArray }}
+{{- range $twin := list (dict "suffix" "" "operations" (list "CREATE" "UPDATE") "resource" "pods") (dict "suffix" "-ephemeral" "operations" (list "UPDATE") "resource" "pods/ephemeralcontainers") }}
+---
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
+metadata:
+  name: erp-release-signed{{ $twin.suffix }}
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  webhookConfiguration:
+    # Three statements per image, read across accounts: more than the
+    # default 10 seconds on a cold cache.
+    timeoutSeconds: 30
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    {{- include "erp-cluster.namespaceSelector" $ | nindent 4 }}
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: {{ $twin.operations | toJson }}
+        resources: [{{ $twin.resource }}]
+  matchImageReferences:
+    {{- range $registries }}
+    - glob: {{ printf "%s/*" . | quote }}
+    {{- end }}
+  credentials:
+    providers: [amazon]
+    {{- if $.Values.release.allowInsecureRegistry }}
+    allowInsecureRegistry: true
+    {{- end }}
+  validationConfigurations:
+    mutateDigest: false
+    verifyDigest: true
+    # The validations verify every image, on creation and on an image
+    # change; an update changing none is not looked up again.
+    required: false
+  attestors:
+    - name: release
+      cosign:
+        key:
+          data: |
+            {{- required "release.publicKey is required: envs/tooling cosign_public_key" $.Values.release.publicKey | trim | nindent 12 }}
+        ctlog:
+          # Releases are not logged in a transparency log (ADR-0032).
+          insecureIgnoreTlog: true
+          insecureIgnoreSCT: true
+  attestations:
+    - name: signature
+      intoto:
+        type: https://sigstore.dev/cosign/sign/v1
+    - name: sbom
+      intoto:
+        type: https://spdx.dev/Document
+    - name: provenance
+      intoto:
+        type: https://slsa.dev/provenance/v1
+  variables:
+    - name: images
+      expression: >-
+        images.containers + images.?initContainers.orValue([]) + images.?ephemeralContainers.orValue([])
+    - name: unchanged
+      expression: >-
+        request.operation == 'UPDATE' &&
+        (object.spec.containers + object.spec.?initContainers.orValue([]) + object.spec.?ephemeralContainers.orValue([])).map(c, c.image) ==
+        (oldObject.spec.containers + oldObject.spec.?initContainers.orValue([]) + oldObject.spec.?ephemeralContainers.orValue([])).map(c, c.image)
+  validations:
+    - expression: >-
+        variables.unchanged || variables.images.all(image, verifyAttestationSignatures(image, attestations.signature, [attestors.release]) > 0)
+      message: an image is not signed by the release key
+    - expression: >-
+        variables.unchanged || variables.images.all(image, verifyAttestationSignatures(image, attestations.sbom, [attestors.release]) > 0)
+      message: an image has no SBOM attested by the release key
+    - expression: >-
+        variables.unchanged || variables.images.all(image, verifyAttestationSignatures(image, attestations.provenance, [attestors.release]) > 0)
+      message: an image has no build provenance attested by the release key
+---
+# The image policy above judges only images from the release registries;
+# this one keeps every other image out of the governed namespaces, and
+# requires digests, so a tag cannot be moved under a running release.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: erp-release-images{{ $twin.suffix }}
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  matchConstraints:
+    {{- include "erp-cluster.namespaceSelector" $ | nindent 4 }}
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: {{ $twin.operations | toJson }}
+        resources: [{{ $twin.resource }}]
+  variables:
+    - name: images
+      expression: >-
+        (object.spec.containers + object.spec.?initContainers.orValue([]) + object.spec.?ephemeralContainers.orValue([])).map(c, c.image)
+    - name: registries
+      expression: {{ $registries | toJson | quote }}
+  validations:
+    - expression: >-
+        variables.images.all(image, variables.registries.exists(r, image.startsWith(r + '/')))
+      message: images come from the release registries only
+    - expression: >-
+        variables.images.all(image, image.contains('@sha256:'))
+      message: images are named by digest, not by tag
+{{- end }}

@@ -1,0 +1,41 @@
+# Values from the environment's Terraform (envs/<env> outputs) and from
+# tooling's. Every one without a default is required: rendering fails
+# without it rather than installing a policy that admits too much.
+
+# The cell's region (the AWS clients' and the issuer's).
+region: ""
+
+# The environment's subordinate CA (envs/<env> subordinate_ca_arn), which
+# cert-manager's aws-privateca-issuer issues from.
+subordinateCaArn: ""
+
+# The cell's cluster key (cell.cluster_kms_key_arn): the StorageClass's
+# volumes are encrypted with it.
+clusterKmsKeyArn: ""
+
+# The SPIFFE trust domain of the environment (ERP_TRUST_DOMAIN, ADR-0033).
+trustDomain: ""
+
+# The namespaces whose workloads the policies govern: the platform's.
+# The add-ons' own namespaces run upstream images and are not governed.
+namespaces: [erp, erp-global]
+
+release:
+  # The release key's public half, PEM (envs/tooling cosign_public_key).
+  publicKey: ""
+  # The registries the release images come from: tooling's ECR in each
+  # region the images are replicated to, e.g.
+  # 111111111111.dkr.ecr.eu-central-1.amazonaws.com
+  registries: []
+  # Plain HTTP to the registry: the policy tests' local registry only.
+  allowInsecureRegistry: false
+
+certificates:
+  # Service certificates live a day and are renewed with a third of it
+  # left (product owner, T40c: revocation by short lifetime, no CRL or
+  # OCSP).
+  maxDuration: 24h
+  minRenewBefore: 8h
+  # The only maker of certificate requests to the subordinate CA:
+  # cert-manager's controller (deploy/helm/addons, release cert-manager).
+  requester: system:serviceaccount:cert-manager:cert-manager

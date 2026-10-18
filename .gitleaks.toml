@@ -10,4 +10,7 @@ description = "Documentation examples and test-only credentials"
 regexTarget = "line"
 regexes = [
   '''next_page_token: "[A-Za-z0-9._=-]+"''',
+  # A certificate authority's key algorithm in Terraform (AWS Private CA)
+  # names a curve, not a key: "EC_prime256v1", "EC_secp384r1".
+  '''key_algorithm\s*==?\s*"(EC_prime256v1|EC_secp384r1|RSA_2048|RSA_4096)"''',
 ]

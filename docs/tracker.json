@@ -4626,28 +4626,115 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Kubernetes manifests / Helm chart",
-      "r": "T40",
-      "c": []
+      "r": "deploy/helm · scripts/helm-checks.sh · ADR-0035 · T40c",
+      "c": [
+       {
+        "s": "D",
+        "t": "erp-server migrate: the migrations hook Job applies the pending migrations and exits, needing only the database (verified TLS in production)",
+        "r": "cmd/erp-server migrate.go · config.LoadSchema · T40c1",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Cluster add-ons pinned and the erp-cluster chart; Kyverno admission policies requiring signed images and conforming certificates",
+        "r": "deploy/helm/addons · deploy/helm/erp-cluster · deploy/helm/policy · T40c2",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "The erp-cell chart: the server, the migrations hook on the writer, PgBouncer, with their certificates, secrets and workload policies; PgBouncer and NATS images mirrored into the release registry by digest",
+        "r": "deploy/helm/erp-cell · scripts/mirror-images.sh · T40c3",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "NATS JetStream in the cell with SPIFFE users, and erp-temporal with its chart: an authorizer admitting the cell server by SPIFFE identity, its schema hook, internode TLS 1.3",
+        "r": "deploy/helm/erp-cell (nats, temporal) · temporal/cmd/erp-temporal · temporal/spiffeauth · ADR-0035 · T40c4",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "T40c5: the erp-global chart (the router, its load balancer binding and TLS)",
+        "r": "ADR-0035",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Wire mirror-images into the release before signing, with copy provenance for mirrored images",
+        "r": "scripts/mirror-images.sh · .github/workflows/release.yml",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "At first apply: check that the VPC CNI policy agent lets probes through, and fill the page-token-key and database-client-password secrets",
+        "r": "",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A PgBouncer preStop drain",
+        "r": "deploy/helm/erp-cell",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Pin the NATS route identity",
+        "r": "deploy/helm/erp-cell (nats)",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The SCRAM verifier in setup-schema",
+        "r": "temporal/cmd/erp-temporal schema.go",
+        "c": []
+       }
+      ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Infrastructure as code (Terraform)",
-      "r": "T40",
-      "c": []
+      "r": "deploy/terraform · deploy/policy · ADR-0035 · T40a · T40b",
+      "c": [
+       {
+        "s": "D",
+        "t": "Terraform foundation: an account per environment plus tooling, KMS-encrypted S3 state, the release signing key, GitHub OIDC release roles, ECR replicated per region, a Private CA root; encryption at rest a policy the infrastructure code must pass",
+        "r": "deploy/terraform/modules (accounts, state, signing-key, release-roles, ecr, private-ca) · deploy/policy/encryption.rego · ADR-0035 · T40a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Cells and the global tier: VPC with S3, KMS and STS endpoints, EKS, RDS Multi-AZ requiring TLS 1.3, bucket, secrets, IRSA; the directory database, router NLB and a subordinate CA per environment; dev and test as smaller single-AZ cells",
+        "r": "deploy/terraform/modules (network, cell, global, subordinate-ca) · deploy/terraform/envs/dev, test · ADR-0035 · T40b",
+        "c": []
+       }
+      ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Environments: dev, test, staging, production",
-      "r": "T40",
+      "r": "dev and test: deploy/terraform/envs · T40b; staging and production: T40d",
       "c": []
      },
      {
       "s": "T",
       "t": "Continuous delivery with approvals and rollback",
-      "r": "T40",
-      "c": []
+      "r": "T40d",
+      "c": [
+       {
+        "s": "T",
+        "t": "T40d: Argo CD in tooling, promotions, the staging rollback drill",
+        "r": "ADR-0035",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The migrations hook timeout, and wave -10 hooks surviving until the Job mounts them",
+        "r": "T40d",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",

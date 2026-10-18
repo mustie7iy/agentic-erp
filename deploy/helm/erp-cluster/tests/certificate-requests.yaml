@@ -1,0 +1,30 @@
+# Certificate requests for scripts/admission-checks.sh. "want" is the
+# outcome when cert-manager's controller makes the request; made by
+# anyone else, every one is refused.
+# want: request:admitted
+# want: request-long:refused
+# want: request-no-duration:refused
+# want: request-ca:refused
+# want: request-code-signing:refused
+# want: request-other-namespace:refused
+# want: request-renamed-issuer:refused
+# want-other: request:refused
+# want-other: request-long:refused
+# want-other: request-no-duration:refused
+# want-other: request-ca:refused
+# want-other: request-code-signing:refused
+# want-other: request-other-namespace:refused
+# want-other: request-renamed-issuer:refused
+{"apiVersion": "cert-manager.io/v1", "kind": "CertificateRequest", "metadata": {"name": "request", "namespace": "erp"}, "spec": {"request": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURSBSRVFVRVNULS0tLS0KTUlJQgotLS0tLUVORCBDRVJUSUZJQ0FURSBSRVFVRVNULS0tLS0K", "duration": "24h", "usages": ["digital signature", "server auth", "client auth"], "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}}
+---
+{"apiVersion": "cert-manager.io/v1", "kind": "CertificateRequest", "metadata": {"name": "request-long", "namespace": "erp"}, "spec": {"request": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURSBSRVFVRVNULS0tLS0KTUlJQgotLS0tLUVORCBDRVJUSUZJQ0FURSBSRVFVRVNULS0tLS0K", "duration": "2160h", "usages": ["digital signature", "server auth", "client auth"], "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}}
+---
+{"apiVersion": "cert-manager.io/v1", "kind": "CertificateRequest", "metadata": {"name": "request-no-duration", "namespace": "erp"}, "spec": {"request": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURSBSRVFVRVNULS0tLS0KTUlJQgotLS0tLUVORCBDRVJUSUZJQ0FURSBSRVFVRVNULS0tLS0K", "usages": ["digital signature", "server auth", "client auth"], "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}}
+---
+{"apiVersion": "cert-manager.io/v1", "kind": "CertificateRequest", "metadata": {"name": "request-ca", "namespace": "erp"}, "spec": {"request": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURSBSRVFVRVNULS0tLS0KTUlJQgotLS0tLUVORCBDRVJUSUZJQ0FURSBSRVFVRVNULS0tLS0K", "duration": "24h", "usages": ["digital signature", "server auth", "client auth"], "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}, "isCA": true}}
+---
+{"apiVersion": "cert-manager.io/v1", "kind": "CertificateRequest", "metadata": {"name": "request-code-signing", "namespace": "erp"}, "spec": {"request": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURSBSRVFVRVNULS0tLS0KTUlJQgotLS0tLUVORCBDRVJUSUZJQ0FURSBSRVFVRVNULS0tLS0K", "duration": "24h", "usages": ["server auth", "code signing"], "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}}
+---
+{"apiVersion": "cert-manager.io/v1", "kind": "CertificateRequest", "metadata": {"name": "request-other-namespace", "namespace": "default"}, "spec": {"request": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURSBSRVFVRVNULS0tLS0KTUlJQgotLS0tLUVORCBDRVJUSUZJQ0FURSBSRVFVRVNULS0tLS0K", "duration": "24h", "usages": ["digital signature", "server auth", "client auth"], "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAClusterIssuer", "name": "erp-subordinate"}}}
+---
+{"apiVersion": "cert-manager.io/v1", "kind": "CertificateRequest", "metadata": {"name": "request-renamed-issuer", "namespace": "default"}, "spec": {"request": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURSBSRVFVRVNULS0tLS0KTUlJQgotLS0tLUVORCBDRVJUSUZJQ0FURSBSRVFVRVNULS0tLS0K", "duration": "24h", "usages": ["digital signature", "server auth", "client auth"], "issuerRef": {"group": "awspca.cert-manager.io", "kind": "AWSPCAIssuer", "name": "same-ca"}}}

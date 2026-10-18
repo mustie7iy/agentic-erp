@@ -1,0 +1,120 @@
+# The service certificates (ADR-0033, ADR-0035). The issuer is
+# cluster-wide, so these policies judge every namespace.
+#
+# A Certificate is judged when it names an AWS Private CA issuer (any of
+# them runs as the issuer's role, whatever its name) or lives in a
+# governed namespace. It
+#   - comes from the environment's subordinate CA (erp-subordinate), and
+#     only in the platform's namespaces;
+#   - lives at most a day and is renewed with at least a third of it left:
+#     revocation is by short lifetime, with no CRL or OCSP (product owner);
+#   - is no CA, declares server auth and/or client auth, from which the
+#     issuer picks an end-entity template (the only ones its role may use),
+#     and no other extended usage;
+#   - names exactly one SPIFFE identity in the environment's trust domain,
+#     at most its own namespace's service names (<service>.<namespace>.svc,
+#     .svc.cluster.local, no wildcard), and no address, e-mail or other
+#     name.
+# A CertificateRequest goes to the issuer without a Certificate's checks,
+# and its SANs sit in a CSR no policy can read; so only cert-manager's
+# controller may make one, from a Certificate judged above, and its
+# lifetime, usages and namespace are held to the same rules.
+{{- $namespaces := required "namespaces is required" .Values.namespaces }}
+{{- $issuer := "object.spec.issuerRef.name == 'erp-subordinate' && object.spec.issuerRef.?kind.orValue('') == 'AWSPCAClusterIssuer' && object.spec.issuerRef.?group.orValue('') == 'awspca.cert-manager.io'" }}
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: erp-service-certificates
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [cert-manager.io]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [certificates]
+  matchConditions:
+    - name: issuer-or-namespace
+      expression: >-
+        object.spec.issuerRef.?group.orValue('') == 'awspca.cert-manager.io' || object.metadata.namespace in {{ $namespaces | toJson }}
+  variables:
+    - name: usages
+      expression: object.spec.?usages.orValue([])
+    - name: uris
+      expression: object.spec.?uris.orValue([])
+  validations:
+    - expression: >-
+        {{ $issuer }}
+      message: certificates in the platform's namespaces come from the environment's subordinate CA (erp-subordinate)
+    - expression: >-
+        object.metadata.namespace in {{ $namespaces | toJson }}
+      message: the subordinate CA issues to the platform's namespaces only
+    - expression: >-
+        has(object.spec.duration) && duration(object.spec.duration) <= duration({{ .Values.certificates.maxDuration | quote }})
+      message: {{ printf "certificates live at most %s (duration)" .Values.certificates.maxDuration | quote }}
+    - expression: >-
+        has(object.spec.renewBefore) && duration(object.spec.renewBefore) >= duration({{ .Values.certificates.minRenewBefore | quote }}) &&
+        duration(object.spec.renewBefore) < duration(object.spec.duration)
+      message: {{ printf "certificates are renewed with at least %s left (renewBefore)" .Values.certificates.minRenewBefore | quote }}
+    - expression: >-
+        !object.spec.?isCA.orValue(false)
+      message: service certificates are no CA
+    - expression: >-
+        (variables.usages.exists(u, u == 'server auth') || variables.usages.exists(u, u == 'client auth')) &&
+        variables.usages.all(u, u in ['digital signature', 'key encipherment', 'server auth', 'client auth'])
+      message: certificates declare server auth and/or client auth, and no other extended usage
+    - expression: >-
+        variables.uris.size() == 1 && variables.uris[0].startsWith({{ printf "spiffe://%s/" (required "trustDomain is required" .Values.trustDomain) | quote }})
+      message: certificates name exactly one SPIFFE identity in the environment's trust domain
+    - expression: >-
+        object.spec.?dnsNames.orValue([]).all(n, !n.contains('*') &&
+          (n.endsWith('.' + object.metadata.namespace + '.svc') || n.endsWith('.' + object.metadata.namespace + '.svc.cluster.local'))) &&
+        !has(object.spec.commonName) && !has(object.spec.ipAddresses) && !has(object.spec.emailAddresses) &&
+        !has(object.spec.otherNames)
+      message: certificates name their own namespace's services only (<service>.<namespace>.svc, no wildcard), no common name, address, e-mail or other name
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: erp-service-certificate-requests
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  evaluation:
+    # Who made the request is known at admission only.
+    background:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [cert-manager.io]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [certificaterequests]
+  matchConditions:
+    - name: issuer
+      expression: >-
+        object.spec.issuerRef.?group.orValue('') == 'awspca.cert-manager.io'
+  variables:
+    - name: usages
+      expression: object.spec.?usages.orValue([])
+  validations:
+    - expression: >-
+        request.operation != 'CREATE' || request.userInfo.username == {{ .Values.certificates.requester | quote }}
+      message: certificate requests to the subordinate CA come from cert-manager's controller, from a Certificate
+    - expression: >-
+        {{ $issuer }}
+      message: certificate requests to AWS Private CA go to the subordinate CA's issuer only
+    - expression: >-
+        object.metadata.namespace in {{ $namespaces | toJson }}
+      message: the subordinate CA issues to the platform's namespaces only
+    - expression: >-
+        has(object.spec.duration) && duration(object.spec.duration) <= duration({{ .Values.certificates.maxDuration | quote }})
+      message: {{ printf "certificates live at most %s (duration)" .Values.certificates.maxDuration | quote }}
+    - expression: >-
+        !object.spec.?isCA.orValue(false)
+      message: service certificates are no CA
+    - expression: >-
+        (variables.usages.exists(u, u == 'server auth') || variables.usages.exists(u, u == 'client auth')) &&
+        variables.usages.all(u, u in ['digital signature', 'key encipherment', 'server auth', 'client auth'])
+      message: certificates declare server auth and/or client auth, and no other extended usage

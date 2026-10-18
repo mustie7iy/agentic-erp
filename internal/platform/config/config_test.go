@@ -240,6 +240,8 @@ func TestSecretReferences(t *testing.T) {
 	m := valid()
 	m["DATABASE_URL"] = "vault:secret/erp/db#url"
 	m["ERP_FIELD_KEY"] = "file:" + filepath.Join(dir, "field-key")
+	// The engine's codec key, as the erp-cell chart mounts it.
+	m["ERP_TEMPORAL_CODEC_KEY"] = "file:" + filepath.Join(dir, "field-key")
 	m["ERP_PAGE_TOKEN_KEY"] = "env:PAGE_KEY"
 	m["PAGE_KEY"] = key
 	m["ERP_OBJECT_S3_ENDPOINT"], m["ERP_OBJECT_S3_BUCKET"] = "http://localhost:9000", "erp"
@@ -250,6 +252,7 @@ func TestSecretReferences(t *testing.T) {
 	checkFields(t, []field{
 		{"DatabaseURL", c.DatabaseURL, "postgres://erp:pw@db/erp"},
 		{"FieldKey length", len(c.FieldKey), 32},
+		{"Temporal codec key length", len(c.Temporal.CodecKey), 32},
 		{"PageTokenKey length", len(c.PageTokenKey), 32},
 		{"Objects access key", c.Objects.AccessKey, "AK"},
 		{"Objects secret key", c.Objects.SecretKey, "SK"},
@@ -821,6 +824,49 @@ func TestTrustDomain(t *testing.T) {
 			}
 			if cfg.TrustDomain != c.value {
 				t.Errorf("TrustDomain: got %q, want %q", cfg.TrustDomain, c.value)
+			}
+		})
+	}
+}
+
+// TestLoadSchema: the migrations Job's configuration is the database and
+// how to log and pool, even in production, with the URL a secret
+// reference; anything else it is given is ignored. Production requires
+// the database over verified TLS, as the server's configuration does.
+func TestLoadSchema(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "url"), []byte("postgres://erp@writer/erp?sslmode=verify-full\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := LoadSchema(env(map[string]string{
+		"DATABASE_URL": "file:" + filepath.Join(dir, "url"), "ERP_ENV": Production,
+		"ERP_LOG_LEVEL": "warn", "ERP_DB_MAX_CONNS": "2", "ERP_OIDC_ISSUERS": "not json",
+	}))
+	if err != nil {
+		t.Fatalf("load: got %v, want no error", err)
+	}
+	checkFields(t, []field{
+		{"DatabaseURL", c.DatabaseURL, "postgres://erp@writer/erp?sslmode=verify-full"},
+		{"Environment", c.Environment, Production},
+		{"LogLevel", c.LogLevel, slog.LevelWarn},
+		{"DBMaxConns", c.DBMaxConns, int32(2)},
+	})
+	cases := map[string]struct {
+		settings map[string]string
+		want     string
+	}{
+		"no database": {map[string]string{"ERP_ENV": Production}, "DATABASE_URL is required"},
+		"unresolved":  {map[string]string{"DATABASE_URL": "file:" + filepath.Join(dir, "missing"), "ERP_ENV": Production}, "DATABASE_URL:"},
+		"environment": {map[string]string{"DATABASE_URL": "postgres://x"}, "ERP_ENV"},
+		"unverified":  {map[string]string{"DATABASE_URL": "postgres://erp@writer/erp?sslmode=require", "ERP_ENV": Production}, "DATABASE_URL: "},
+		"log level":   {map[string]string{"DATABASE_URL": "postgres://x", "ERP_ENV": Development, "ERP_LOG_LEVEL": "loud"}, "ERP_LOG_LEVEL"},
+		"pool size":   {map[string]string{"DATABASE_URL": "postgres://x", "ERP_ENV": Development, "ERP_DB_MAX_CONNS": "x"}, "ERP_DB_MAX_CONNS"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := LoadSchema(env(tc.settings))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error: got %v, want one containing %q", err, tc.want)
 			}
 		})
 	}
