@@ -827,6 +827,9 @@ cancelled from draft, pending_approval or released (trigger
 (`purchase_order_draft_direct`). A migration run's order is released as
 loaded.
 
+The lifecycle of a released order (valuation price, release strategy,
+order changes, returns, contract renewal and alerts) is ADR-0034.
+
 A released order changes only through an order change
 (`purchase_order_change`, migration 000065, T47e): a draft of its header
 fields (payment terms, order date, extensions) and its complete items,
@@ -1431,6 +1434,11 @@ activate, and orders under them are refused.
 | EKKO/EKPO | `procurement.purchase_order` + items |
 | Outline agreements (EKKO BSTYP K) | `procurement.contract` |
 | MKPF/MSEG, MATDOC | `procurement.goods_movement` + items |
+| MSEG BWART 122/123, reason (MSEG-GRUND, T157D) | `goods_movement.movement_type` 122/123, `goods_movement.reason` (T47b) |
+| GR valuation at the PO price (EKBE, EKPO-NETPR at release) | `purchase_order_item.valuation_price`, `valuation_price_unit` (T47a) |
+| Purchase order release strategy (T16FS/T16FC, EKKO-FRGKE/FRGZU) | `purchasing.order_release_approval` tiers, `purchase_order.status` `pending_approval`, `workflow.approval_request` (`purchase_order`) (T47c/d) |
+| PO change documents and versions (CDHDR/CDPOS EINKBELEG, EREV, EKKO-REVNO) | `procurement.purchase_order_change` (`proposed`, `previous`, `revision`), `purchase_order.revision`; increases approved as `order_change` (T47e/f) |
+| Outline agreement validity end and follow-on contract (EKKO-KDATE, reference agreement) | `contract.valid_to`, `contract.renewal_of_id`, `expiry_alerted_on` and `ContractExpiring` (T47g) |
 | RBKP/RSEG | `payables.supplier_invoice` + items |
 | REGUH/REGUP (F110) | `payments.payment_run`, `payment`, `payment_item` |
 | T012K | `payments.house_bank` |

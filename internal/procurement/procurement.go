@@ -1,10 +1,14 @@
 // Package procurement is the procurement context (03-data-model §3.8):
 // purchase requisitions approved through the workflow context, purchasing
-// contracts, purchase orders and goods receipts (insert-only movements 101
-// and 102, limited by the ordered quantity plus the over-delivery
-// tolerance). Orders are valued at release, directly or through GR/IR;
-// movements on GR/IR orders post WE entries through the ledger's Postings
-// (T33, 03-data-model §3.8).
+// contracts (renewed by a successor, alerted before they expire), purchase
+// orders and goods movements (insert-only: receipts 101 and their reversals
+// 102, limited by the ordered quantity plus the over-delivery tolerance;
+// returns 122 and their reversals 123, limited by what was received).
+// Orders are valued at release, directly or through GR/IR, each item at
+// the valuation price fixed then; movements on GR/IR orders post WE entries
+// through the ledger's Postings (T33). An order without an approved
+// requisition is released by the release strategy, and a released order
+// changes only through order changes, its versions (ADR-0034).
 package procurement
 
 import (
