@@ -113,7 +113,7 @@ const (
 func withinAutonomy(ctx context.Context, tx pgx.Tx, agent uuid.UUID, op api.Operation) error {
 	need := writes
 	switch {
-	case op.Method == "GET":
+	case op.Method == "GET" || op.Method == "HEAD" || op.Method == "OPTIONS": // the unit of work runs them read-only
 		need = readOnly
 	case op.Proposes:
 		need = proposes

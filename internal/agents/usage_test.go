@@ -141,8 +141,8 @@ func TestAIUsageReadsOnlyItsMonth(t *testing.T) {
 	person, _ := policyAdmin(t)
 	ten := person.Tenant
 	pgtest.Exec(t, `INSERT INTO agents.model_call (tenant_id, id, principal_id, alias, model, status, input_tokens, output_tokens, cost_micro, currency, called_at)
-		SELECT $1, gen_random_uuid(), CASE WHEN g = 0 THEN $2 ELSE gen_random_uuid() END, 'erp-default', 'm', 'succeeded', 1, 1, 1, 'USD', timestamptz '2024-01-01' + g * interval '1 hour'
-		FROM generate_series(1, 2000) g`, ten.ID, ten.Agent.ID)
+		SELECT $1, gen_random_uuid(), gen_random_uuid(), 'erp-default', 'm', 'succeeded', 1, 1, 1, 'USD', timestamptz '2024-01-01' + g * interval '1 hour'
+		FROM generate_series(1, 2000) g`, ten.ID)
 	called(t, ten, ten.Agent.ID, "2026-10-05T00:00:00Z", 1, 0)
 	pgtest.Exec(t, `ANALYZE agents.model_call`)
 	h := &agents.Endpoints{}

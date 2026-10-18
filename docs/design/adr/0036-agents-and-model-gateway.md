@@ -128,8 +128,9 @@ client certificates in production (ADR-0033). Today:
     never decide approvals, identity, keys, periods or payments' release.
     They recommend, and a person records the decision on the
     recommendation.
-  - **Autonomy levels.** Level 0 reads. Level 1 also recommends. Level 2
-    also performs the contract's agent-permitted writes within their
+  - **Autonomy levels.** Level 0 reads, and calls models. Level 1 also
+    proposes: recommendations, change requests and drafts. Level 2 also
+    performs the contract's agent-permitted writes within their
     configured limits, such as auto-post. Level 3 is reserved.
   - Authz checks the level on every agent call (T42g, PO 2026-10-18):
     the contract marks the operations that only propose `x-autonomy:
@@ -137,7 +138,16 @@ client certificates in production (ADR-0033). Today:
     requests, drafts); above its level an agent is refused with 403
     `identity.autonomy_insufficient`. An agent without a profile is at 0.
     The agents that existed were raised to level 2 (000074); new agents
-    start at 0 and an administrator raises them.
+    start at 0 and an administrator raises them. Proposing are the
+    agent's own sessions and records, change requests (configuration,
+    partner data, bank accounts) and drafts that have no effect until
+    someone else acts (parked journal entries, requisitions, their submit
+    and cancel). Left at level 2, pending a product-owner ruling: draft
+    purchase orders, parked supplier invoices, payment run proposals
+    (which reserve items), cancelling one's approval request, and the
+    audit chain's verification (a long-running read run by POST). An
+    agent is offered every tool its permissions allow; those above its
+    level answer 403.
 
 ## Alternatives
 - **A global gateway service:** one place for keys and prices, but tenant

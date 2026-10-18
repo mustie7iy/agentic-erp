@@ -21,6 +21,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/modelalias"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -31,7 +32,8 @@ import (
 // provider and records the call, its tokens and cost but never its
 // content, in agents.model_call.
 
-// DefaultRoutes are the aliases callers name and the models they route to
+// DefaultRoutes are the aliases callers name (modelalias.Aliases,
+// TestRoutesAreTheAliases) and the models they route to
 // when nothing else is configured.
 var DefaultRoutes = map[string]string{"erp-default": "claude-opus-5-5", "erp-extraction": "claude-opus-5-5", "erp-analytics": "claude-opus-5-5"}
 
@@ -258,7 +260,7 @@ func (g *Gateway) prepare(body []byte) (request, error) {
 	model, ok := routes[out.alias]
 	if !ok {
 		return out, problem.Unprocessable("agents.unknown_model", "The gateway routes no model alias "+out.alias+".",
-			problem.FieldError{Field: "model", Code: "unknown", Message: "a model alias: erp-default, erp-extraction or erp-analytics"})
+			problem.FieldError{Field: "model", Code: "unknown", Message: "a model alias: " + strings.Join(modelalias.Aliases, ", ")})
 	}
 	out.fields = req
 	out.route(model)

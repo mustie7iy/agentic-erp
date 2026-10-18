@@ -5074,6 +5074,7 @@ paths:
       summary: Submit a requisition
       description: "Submits a draft for approval and opens an approval request. Requires status `draft`."
       x-permission: procurement.requisition.create
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -5124,6 +5125,7 @@ paths:
       summary: Cancel a requisition
       description: "Cancels a requisition that is not yet ordered; a pending approval request is cancelled with it."
       x-permission: procurement.requisition.create
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -8342,7 +8344,6 @@ paths:
       summary: Verify the audit chain
       description: Recomputes the tenant's hash chain over a range and compares it with the stored hashes and the write-once anchors.
       x-permission: audit.chain.verify
-      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:

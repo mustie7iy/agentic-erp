@@ -326,6 +326,15 @@ func TestAutonomyLevels(t *testing.T) {
 			})
 		})
 	}
+	// Below its level, an agent is refused for the level even without the
+	// permission: the level is checked first.
+	pgtest.Exec(t, `UPDATE identity.agent_profile SET autonomy_level = 0, version = version + 1 WHERE tenant_id = $1 AND principal_id = $2`, ten.ID, ten.Agent.ID)
+	unpermitted := authz.New(map[string]api.Operation{"x": {ID: "x", Method: "POST", Permission: "a.b.none", AgentAllowed: true}})
+	as(t, ten, ten.Agent, func(ctx context.Context) {
+		if got := problem.From(unpermitted.Authorize(ctx, "x")).Code; got != "identity.autonomy_insufficient" {
+			t.Errorf("without the permission: got %s, want identity.autonomy_insufficient", got)
+		}
+	})
 	for _, who := range []pgtest.Actor{ten.Human, ten.Service} {
 		as(t, ten, who, func(ctx context.Context) {
 			if err := a.Authorize(ctx, "write"); err != nil {
