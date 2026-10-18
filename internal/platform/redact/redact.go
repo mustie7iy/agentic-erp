@@ -22,12 +22,14 @@ const (
 )
 
 var (
-	// ibanLike is an IBAN as people write it, in either case: country and
-	// check digits, then letters and digits run together or in groups of
-	// up to four. A run of groups may go on into the next words ("... 1332
-	// EUR"), so each of its prefixes is tried, longest first; mod 97
-	// decides.
-	ibanLike = regexp.MustCompile(`\b[A-Za-z]{2}[0-9]{2}(?:[A-Za-z0-9]{11,30}|(?: [A-Za-z0-9]{1,4})+)\b`)
+	// ibanLike is an IBAN as people write it: country and check digits,
+	// then capitals and digits run together or in groups of up to four, at
+	// most eight groups (an IBAN has at most 30 characters after its check
+	// digits), so a match is short and its prefixes few. The groups may go
+	// on into the next words ("... 1332 EUR"), so each prefix is tried,
+	// longest first; mod 97 decides. Lower case is not taken: "on12 this
+	// week" would too often pass mod 97 by chance.
+	ibanLike = regexp.MustCompile(`\b[A-Z]{2}[0-9]{2}(?:[A-Z0-9]{11,30}|(?: [A-Z0-9]{1,4}){1,8})\b`)
 	// digitRun is digits in groups, spaces or dashes between them: a card
 	// number is 13 to 19 of them in consecutive groups that pass Luhn,
 	// wherever in the run they are ("Ref 2026 4111 1111 1111 1111 12/28").
@@ -164,16 +166,27 @@ func cardsIn(run string) (string, int) {
 	return out.String() + run[from:], n
 }
 
-// cardFrom is where the longest card number starting at group g ends.
+// cardFrom is where the longest card number starting at group g ends: the
+// groups from g are counted on only while they hold at most 19 digits, so
+// the search is short whatever the run's length.
 func cardFrom(run string, starts []int, g int) (int, bool) {
-	for last := len(starts) - 1; last >= g; last-- {
+	var ends []int // where a candidate of 13 to 19 digits ends
+	digits := 0
+	for last := g; last < len(starts); last++ {
 		end := len(run)
 		if last+1 < len(starts) {
 			end = starts[last+1] - 1
 		}
-		number := run[starts[g]:end]
-		if n := len(strings.NewReplacer(" ", "", "-", "").Replace(number)); n >= 13 && n <= 19 && luhn(number) {
-			return end, true
+		if digits += end - starts[last]; digits > 19 {
+			break
+		}
+		if digits >= 13 {
+			ends = append(ends, end)
+		}
+	}
+	for i := len(ends) - 1; i >= 0; i-- {
+		if luhn(run[starts[g]:ends[i]]) {
+			return ends[i], true
 		}
 	}
 	return 0, false
@@ -182,17 +195,19 @@ func cardFrom(run string, starts []int, g int) (int, bool) {
 // luhn checks a card number, spaces and dashes allowed, with the Luhn
 // algorithm.
 func luhn(s string) bool {
-	digits := strings.NewReplacer(" ", "", "-", "").Replace(s)
-	sum := 0
-	for i := len(digits) - 1; i >= 0; i-- {
-		d := int(digits[i] - '0')
-		if (len(digits)-i)%2 == 0 {
+	sum, pos := 0, 0 // pos: the digit's place from the right, separators skipped
+	for i := len(s) - 1; i >= 0; i-- {
+		if s[i] == ' ' || s[i] == '-' {
+			continue
+		}
+		d := int(s[i] - '0')
+		if pos%2 == 1 {
 			d *= 2
 			if d > 9 {
 				d -= 9
 			}
 		}
-		sum += d
+		sum, pos = sum+d, pos+1
 	}
 	return sum%10 == 0
 }

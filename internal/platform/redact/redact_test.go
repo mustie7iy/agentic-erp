@@ -1,6 +1,7 @@
 package redact_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/redact"
@@ -23,7 +24,7 @@ func TestText(t *testing.T) {
 		{"an IBAN of whole groups, then a short word", "ES91 2100 0418 4502 0005 1332 EUR", "[IBAN] EUR", 1},
 		{"an IBAN, then an amount and a word", "ES91 2100 0418 4502 0005 1332 1500 EUR", "[IBAN] 1500 EUR", 1},
 		{"an IBAN, then words", "ES91 2100 0418 4502 0005 1332 PAID 2026", "[IBAN] PAID 2026", 1},
-		{"an IBAN in lower case", "de89 3704 0044 0532 0130 00", "[IBAN]", 1},
+		{"lower case, taken for words", "on12 this week the cost was", "on12 this week the cost was", 0},
 		{"a card, then its expiry", "card 4111 1111 1111 1111 12/28", "card [CARD] 12/28", 1},
 		{"a card after a number", "qty 12 4111111111111111", "qty 12 [CARD]", 1},
 		{"a card after a year", "Ref 2026 4111 1111 1111 1111", "Ref 2026 [CARD]", 1},
@@ -70,6 +71,21 @@ func TestCountries(t *testing.T) {
 			}
 			if got, _ := redact.For(nil).Text(id); got != id {
 				t.Errorf("without its country: got %q, want it unchanged", got)
+			}
+		})
+	}
+}
+
+// TestLongRuns: a megabyte of short groups, of digits or of letters and
+// digits, redacts in linear time: the search for a card or an IBAN looks
+// at a few groups from each, never at the whole run.
+func TestLongRuns(t *testing.T) {
+	r := redact.For([]string{"DE", "US"})
+	for name, unit := range map[string]string{"digits": "1 ", "groups": "AA11 "} {
+		t.Run(name, func(t *testing.T) {
+			in := strings.Repeat(unit, (1<<20)/len(unit))
+			if out, n := r.Text(in); out != in || n != 0 {
+				t.Errorf("got %d replacements, want none", n)
 			}
 		})
 	}

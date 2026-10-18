@@ -11,7 +11,7 @@ import (
 // untrusted, redacts without failing; a text left unchanged counts no
 // replacement, and redacting the result again replaces nothing more.
 func FuzzText(f *testing.F) {
-	for _, s := range []string{"DE89 3704 0044 0532 0130 00", "4111-1111-1111-1111", "DE123456789", "12-3456789", ""} {
+	for _, s := range []string{"DE89 3704 0044 0532 0130 00", "4111-1111-1111-1111", "DE123456789", "12-3456789", "", strings.Repeat("1 ", 200), strings.Repeat("AA11 ", 200)} {
 		f.Add(s)
 	}
 	r := redact.For([]string{"AE", "AU", "BR", "CA", "CH", "CN", "DE", "DK", "ES", "FR", "GB", "IE", "IN", "IT", "JP", "MX", "NL", "NO", "PL",
