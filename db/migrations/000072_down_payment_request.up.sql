@@ -23,7 +23,7 @@ CREATE TABLE payables.down_payment_request (
   updated_by         uuid NOT NULL,
   version            integer NOT NULL DEFAULT 1,
   PRIMARY KEY (tenant_id, id),
-  UNIQUE (tenant_id, legal_entity_id, document_number),
+  CONSTRAINT down_payment_request_number UNIQUE (tenant_id, legal_entity_id, document_number),
   CONSTRAINT down_payment_request_tax CHECK (CASE WHEN tax_code IS NULL THEN tax_amount = 0 ELSE tax_amount >= 0 AND tax_amount < amount END),
   CONSTRAINT down_payment_request_cancel_reason CHECK ((status = 'cancelled') = (cancel_reason IS NOT NULL))
 );

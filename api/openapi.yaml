@@ -14863,6 +14863,7 @@ components:
         payment_terms:
           $ref: "#/components/schemas/ItemPaymentTerms"
           description: The payment terms the item was posted with, on a supplier item posted from T36 on; absent on others, which are due by their supplier's current terms.
+          readOnly: true
         special_gl:
           type: string
           description: "Special G/L indicator (ADR-0037): `A`, a down payment, kept on the down payment account and never netted in a payment run. Absent on ordinary items. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."

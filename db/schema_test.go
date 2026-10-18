@@ -2657,6 +2657,11 @@ func TestDownPaymentRequests(t *testing.T) {
 		{"tax without a code", insert(id(), 100, nil, 10, "open"), "down_payment_request_tax"},
 		{"tax of the whole amount", insert(id(), 100, "V1", 100, "open"), "down_payment_request_tax"},
 		{"cancelled first", insert(id(), 100, nil, 0, "cancelled"), "down_payment_request_lifecycle"},
+		{"a number twice", func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payables.down_payment_request (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, amount,
+				due_date, created_by, updated_by) SELECT $1, $2, document_number, legal_entity_id, supplier_id, currency, 100, due_date, $3, $3
+				FROM payables.down_payment_request WHERE tenant_id = $1 AND id = $4`, f.tenant, id(), f.actor, open)
+		}, "down_payment_request_number"},
 		{"blank reference", func(tx pgx.Tx) error {
 			return exec(tx, `INSERT INTO payables.down_payment_request (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, amount,
 				due_date, reference, created_by, updated_by) VALUES ($1, $2, gen_random_uuid()::text, $3, $4, 'USD', 100, '2026-04-02', '  ', $5, $5)`,
@@ -2673,6 +2678,7 @@ func TestDownPaymentRequests(t *testing.T) {
 	for _, c := range []struct{ name, set, fails string }{
 		{"changed while open", "amount = 100", "down_payment_request_lifecycle"},
 		{"amount changed on cancelling", "status = 'cancelled', cancel_reason = 'x', amount = 100", "down_payment_request_fixed"},
+		{"number changed on cancelling", "status = 'cancelled', cancel_reason = 'x', document_number = 'X'", "down_payment_request_fixed"},
 		{"cancelled without a reason", "status = 'cancelled'", "down_payment_request_cancel_reason"},
 	} {
 		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, update(c.set)), c.fails) })

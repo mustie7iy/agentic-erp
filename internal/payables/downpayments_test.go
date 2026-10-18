@@ -10,6 +10,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -120,7 +121,7 @@ func TestDownPaymentRequestRefusals(t *testing.T) {
 		"order of another":     {e.downPayment(e.Supplier, "1.00", "EUR", `, "purchase_order_id": "`+otherPO.String()+`"`), 422, "payables.invalid_purchase_order"},
 		"unknown tax code":     {e.downPayment(e.Supplier, "1.00", "EUR", `, "tax_code": "V7"`), 422, "payables.unknown_tax_code"},
 		"blank reference":      {e.downPayment(e.Supplier, "1.00", "EUR", `, "reference": "  "`), 422, "payables.invalid_reference"},
-		"no number range":      {strings.Replace(e.downPayment(e.Supplier, "1.00", "EUR", ""), "2026-03-15", "2031-03-15", 1), 422, "ledger.no_fiscal_period"},
+		"no fiscal year":       {strings.Replace(e.downPayment(e.Supplier, "1.00", "EUR", ""), "2026-03-15", "2031-03-15", 1), 422, "ledger.no_fiscal_period"},
 		"output tax code":      {e.downPayment(e.Supplier, "1.00", "EUR", `, "tax_code": "A1"`), 422, "payables.unknown_tax_code"},
 	}
 	for name, c := range cases {
@@ -128,6 +129,22 @@ func TestDownPaymentRequestRefusals(t *testing.T) {
 			e.in(t).Problem(c.status, c.code, "POST", "/v1/down-payment-requests", c.body, "")
 		})
 	}
+}
+
+// TestDownPaymentRequestPermission: requesting and cancelling a down
+// payment needs payables.down_payment.request; capturing invoices is not
+// enough, since a request pays a supplier before any invoice backs it.
+func TestDownPaymentRequestPermission(t *testing.T) {
+	var without []string
+	for _, p := range perms {
+		if p != "payables.down_payment.request" {
+			without = append(without, p)
+		}
+	}
+	e := env{Env: fixture.New(t, without...)}
+	e.Problem(403, "identity.permission_missing", "POST", "/v1/down-payment-requests", e.downPayment(e.Supplier, "1.00", "EUR", ""), "")
+	e.Problem(403, "identity.permission_missing", "POST", "/v1/down-payment-requests/"+uuid.NewString()+":cancel", `{"reason": "x"}`, `"1"`)
+	e.Must(200, "GET", "/v1/down-payment-requests", "", "")
 }
 
 // TestDownPaymentDatabaseFailures calls the down payment handlers outside a
