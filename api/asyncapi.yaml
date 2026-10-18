@@ -2439,6 +2439,7 @@ components:
               quantity: {$ref: '#/components/schemas/Quantity'}
               purchase_order_id: {$ref: '#/components/schemas/NullableUuid', description: 'Purchase order whose item a GR/IR line belongs to.'}
               po_item_no: {type: [integer, 'null'], minimum: 1, description: 'Item of the purchase order, set with purchase_order_id.'}
+              special_gl: {type: string, description: 'Special G/L indicator of a supplier line (ADR-0037), open enum: A, a down payment. Absent on ordinary lines.'}
     JournalEntryReversedV1:
       type: object
       required: [journal_entry_id, fiscal_year, legal_entity_id, document_number, reversal_entry_id, reversal_fiscal_year, reversal_document_number, reversal_posting_date]

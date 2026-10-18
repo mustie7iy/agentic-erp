@@ -103,6 +103,11 @@ type AccountDetermination struct {
 	// payment term has discounts (T36a). Discounts granted to customers
 	// (SAP SKT, an expense) will need a key of their own.
 	CashDiscount string `yaml:"cash_discount,omitempty" json:"cash_discount,omitempty"`
+	// DownPayment is the alternative reconciliation account of down
+	// payments (SAP T074, special G/L A; ADR-0037): an asset that is a
+	// vendor reconciliation account. Once activated it stays
+	// (ledger.Setup.Check).
+	DownPayment string `yaml:"down_payment,omitempty" json:"down_payment,omitempty"`
 }
 
 type TaxCode struct {

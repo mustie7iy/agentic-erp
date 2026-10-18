@@ -64,6 +64,7 @@ func (OpenItems) Payable(ctx context.Context, legalEntity uuid.UUID, currency st
 		WHERE l.legal_entity_id = $1 AND e.currency_tc = $2 AND e.document_date <= $3
 			AND NOT EXISTS (SELECT FROM ledger.clearing_item c WHERE c.tenant_id = l.tenant_id AND c.fiscal_year = l.fiscal_year
 				AND c.journal_entry_id = l.journal_entry_id AND c.line_no = l.line_no)
+			AND l.special_gl IS NULL -- special G/L items (down payments) never net in a run (ADR-0037)
 			AND NOT `+reversedLine+`
 			AND NOT EXISTS (SELECT FROM ledger.item_reservation ir WHERE ir.tenant_id = l.tenant_id AND ir.fiscal_year = l.fiscal_year
 				AND ir.journal_entry_id = l.journal_entry_id AND ir.line_no = l.line_no AND ir.released_at IS NULL)

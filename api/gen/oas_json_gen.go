@@ -17083,6 +17083,12 @@ func (s *JournalLine) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.SpecialGl.Set {
+			e.FieldStart("special_gl")
+			s.SpecialGl.Encode(e)
+		}
+	}
+	{
 		if s.LineText.Set {
 			e.FieldStart("line_text")
 			s.LineText.Encode(e)
@@ -17090,7 +17096,7 @@ func (s *JournalLine) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfJournalLine = [11]string{
+var jsonFieldsNameOfJournalLine = [12]string{
 	0:  "line_no",
 	1:  "account_id",
 	2:  "amount",
@@ -17101,7 +17107,8 @@ var jsonFieldsNameOfJournalLine = [11]string{
 	7:  "quantity",
 	8:  "purchase_order_id",
 	9:  "po_item_no",
-	10: "line_text",
+	10: "special_gl",
+	11: "line_text",
 }
 
 // Decode decodes JournalLine from json.
@@ -17216,6 +17223,16 @@ func (s *JournalLine) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"po_item_no\"")
+			}
+		case "special_gl":
+			if err := func() error {
+				s.SpecialGl.Reset()
+				if err := s.SpecialGl.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"special_gl\"")
 			}
 		case "line_text":
 			if err := func() error {
@@ -20316,9 +20333,15 @@ func (s *OpenItem) encodeFields(e *jx.Encoder) {
 			s.PaymentTerms.Encode(e)
 		}
 	}
+	{
+		if s.SpecialGl.Set {
+			e.FieldStart("special_gl")
+			s.SpecialGl.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfOpenItem = [12]string{
+var jsonFieldsNameOfOpenItem = [13]string{
 	0:  "fiscal_year",
 	1:  "journal_entry_id",
 	2:  "line_no",
@@ -20331,6 +20354,7 @@ var jsonFieldsNameOfOpenItem = [12]string{
 	9:  "document_number",
 	10: "reference",
 	11: "payment_terms",
+	12: "special_gl",
 }
 
 // Decode decodes OpenItem from json.
@@ -20475,6 +20499,16 @@ func (s *OpenItem) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"payment_terms\"")
+			}
+		case "special_gl":
+			if err := func() error {
+				s.SpecialGl.Reset()
+				if err := s.SpecialGl.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"special_gl\"")
 			}
 		default:
 			return d.Skip()

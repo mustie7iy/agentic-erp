@@ -13955,6 +13955,12 @@ components:
           description: Item of the purchase order, set with `purchase_order_id`.
           minimum: 1
           readOnly: true
+        special_gl:
+          type: string
+          description: "Special G/L indicator of a supplier line (ADR-0037): `A`, a down payment, on the legal entity's down payment account. Absent on ordinary lines. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - A
+          readOnly: true
         line_text:
           type: string
           description: Line text.
@@ -14661,6 +14667,11 @@ components:
         payment_terms:
           $ref: "#/components/schemas/ItemPaymentTerms"
           description: The payment terms the item was posted with, on a supplier item posted from T36 on; absent on others, which are due by their supplier's current terms.
+        special_gl:
+          type: string
+          description: "Special G/L indicator (ADR-0037): `A`, a down payment, kept on the down payment account and never netted in a payment run. Absent on ordinary items. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - A
           readOnly: true
       examples:
         - fiscal_year: 2026

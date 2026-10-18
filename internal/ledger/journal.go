@@ -34,6 +34,13 @@ func init() {
 		return problem.Unprocessable("ledger.automatic_account", "The GR/IR account is posted only by goods receipts and invoices, which name the order item of each line.",
 			problem.FieldError{Field: "lines.account_id", Code: "automatic", Message: "an account other than the legal entity's GR/IR account"})
 	})
+	problem.RegisterConstraint("account_determination_down_payment_fixed", func() *problem.Problem {
+		return problem.Conflict("ledger.down_payment_account_fixed", "The legal entity's down payment account cannot change once determined: its down payments are the lines on it.")
+	})
+	problem.RegisterConstraint("journal_line_special_gl_account", func() *problem.Problem {
+		return problem.Unprocessable("ledger.special_gl_account", "A line is on the down payment account exactly when it is a down payment (special G/L A).",
+			problem.FieldError{Field: "lines.special_gl", Code: "special_gl_account", Message: "A, on the down payment account"})
+	})
 	problem.RegisterConstraint("journal_line_uom_code_fkey", func() *problem.Problem {
 		return problem.Unprocessable("ledger.unknown_unit", "A quantity's unit of measure is not known.",
 			problem.FieldError{Field: "lines.quantity.unit", Code: "unknown", Message: "a unit of measure code from the reference data"})
@@ -88,6 +95,9 @@ type Line struct {
 	// quantity it moves.
 	PurchaseOrderID *uuid.UUID `json:"purchase_order_id"`
 	POItemNo        *int32     `json:"po_item_no"`
+	// SpecialGL is the special G/L indicator of a supplier line, A for a
+	// down payment (ADR-0037), or nil for an ordinary line.
+	SpecialGL *string `json:"special_gl"`
 }
 
 const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id, e.fiscal_year, e.fiscal_period, e.document_type, e.document_number,
@@ -96,7 +106,8 @@ const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id, e.fiscal_year,
 		e.posted_at, e.posted_by, ctc.exponent, clc.exponent, cgc.exponent,
 		(SELECT json_agg(json_build_object('line_no', l.line_no, 'account_id', l.account_id, 'tc', l.amount_tc, 'lc', l.amount_lc,
 			'gc', l.amount_gc, 'partner_id', l.partner_id, 'tax_code', l.tax_code, 'quantity', trim_scale(l.quantity)::text,
-			'unit', l.uom_code, 'text', l.line_text, 'purchase_order_id', l.purchase_order_id, 'po_item_no', l.po_item_no) ORDER BY l.line_no)
+			'unit', l.uom_code, 'text', l.line_text, 'purchase_order_id', l.purchase_order_id, 'po_item_no', l.po_item_no,
+			'special_gl', l.special_gl) ORDER BY l.line_no)
 		 FROM ledger.journal_line l WHERE l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year AND l.journal_entry_id = e.id)
 	FROM ledger.journal_entry e
 	JOIN ref.currency ctc ON ctc.code = e.currency_tc
@@ -231,21 +242,21 @@ func (e *Endpoints) post(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d d
 	nos, accounts, partners := make([]int32, n), make([]uuid.UUID, n), make([]*uuid.UUID, n)
 	tcs, lcs, gcs := make([]money.Minor, n), make([]money.Minor, n), make([]money.Minor, n)
 	taxes, quantities, units, texts := make([]*string, n), make([]*string, n), make([]*string, n), make([]*string, n)
-	orders, items := make([]*uuid.UUID, n), make([]*int32, n)
+	orders, items, specials := make([]*uuid.UUID, n), make([]*int32, n), make([]*string, n)
 	for i, l := range d.lines {
 		nos[i], accounts[i], partners[i] = int32(i+1), l.AccountID, l.PartnerID
 		tcs[i], lcs[i], gcs[i] = l.TC, l.LC, l.GC
 		taxes[i], quantities[i], units[i], texts[i] = l.TaxCode, l.Quantity, l.Unit, l.Text
-		orders[i], items[i] = l.PurchaseOrderID, l.POItemNo
+		orders[i], items[i], specials[i] = l.PurchaseOrderID, l.POItemNo, l.SpecialGL
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id,
 			fiscal_period, posting_date, account_id, amount_tc, amount_lc, amount_gc, partner_id, tax_code, quantity, uom_code, line_text,
-			purchase_order_id, po_item_no)
-		SELECT $1, $2, $3, n, $4, $5, $6, $7, a, tc, lc, gc, pa, tx, q::numeric, u, t, o, i
+			purchase_order_id, po_item_no, special_gl)
+		SELECT $1, $2, $3, n, $4, $5, $6, $7, a, tc, lc, gc, pa, tx, q::numeric, u, t, o, i, s
 		FROM unnest($8::int[], $9::uuid[], $10::bigint[], $11::bigint[], $12::bigint[], $13::uuid[], $14::text[], $15::text[], $16::text[], $17::text[],
-			$18::uuid[], $19::int[]) AS x(n, a, tc, lc, gc, pa, tx, q, u, t, o, i)`,
+			$18::uuid[], $19::int[], $20::text[]) AS x(n, a, tc, lc, gc, pa, tx, q, u, t, o, i, s)`,
 		p.TenantID, year, id, d.entity.ID, d.ledgerID, number, d.postingDate, nos, accounts, tcs, lcs, gcs, partners,
-		taxes, quantities, units, texts, orders, items); err != nil {
+		taxes, quantities, units, texts, orders, items, specials); err != nil {
 		return Entry{}, fmt.Errorf("ledger: post entry %s: lines: %w", id, err)
 	}
 	// Read back without the caller's company filter: the caller was let post
@@ -278,6 +289,9 @@ func postedEvent(e Entry) outbox.Event {
 		if l.PurchaseOrderID != nil {
 			line["purchase_order_id"], line["po_item_no"] = *l.PurchaseOrderID, *l.POItemNo
 		}
+		if l.SpecialGL != nil {
+			line["special_gl"] = *l.SpecialGL
+		}
 		lines[i] = line
 	}
 	return outbox.Event{Context: "ledger", Name: "journal_entry_posted", AggregateType: "ledger.journal_entry", AggregateID: e.ID,
@@ -300,6 +314,7 @@ type NewLine struct {
 	TaxCode        *string
 	Quantity, Unit *string
 	Text           *string
+	SpecialGL      *string // set by the posting contexts only (ADR-0037)
 }
 
 // NewEntry is a manual journal entry to post.
@@ -375,6 +390,7 @@ type account struct {
 	kind, status string
 	set          bool // has settings in the legal entity
 	blocked      bool
+	downPayment  bool // the legal entity's down payment account (ADR-0037)
 }
 
 // checkAccounts requires every line's account to be postable in the legal
@@ -394,6 +410,9 @@ func (e *Endpoints) checkAccounts(ctx context.Context, tx pgx.Tx, le uuid.UUID, 
 		field := fmt.Sprintf("lines[%d]", i)
 		a, ok := accounts[l.AccountID]
 		if err := requirePostable(i, field, a, ok); err != nil {
+			return err
+		}
+		if err := requireSpecialGL(i, field, l, a); err != nil {
 			return err
 		}
 		recon := a.kind == "supplier" || a.kind == "customer"
@@ -427,16 +446,34 @@ func lineAccounts(ctx context.Context, tx pgx.Tx, le uuid.UUID, lines []Line) (m
 	for i, l := range lines {
 		ids[i] = l.AccountID
 	}
-	rows, _ := tx.Query(ctx, `SELECT a.id, a.reconciliation_kind, a.status, ca.account_id IS NOT NULL, coalesce(ca.is_posting_blocked, false)
+	rows, _ := tx.Query(ctx, `SELECT a.id, a.reconciliation_kind, a.status, ca.account_id IS NOT NULL, coalesce(ca.is_posting_blocked, false),
+			EXISTS (SELECT FROM ledger.account_determination d WHERE d.tenant_id = a.tenant_id AND d.legal_entity_id = $2 AND d.key = 'down_payment'
+				AND d.account_id = a.id)
 		FROM ledger.gl_account a LEFT JOIN ledger.company_account ca ON ca.tenant_id = a.tenant_id AND ca.account_id = a.id AND ca.legal_entity_id = $2
 		WHERE a.id = ANY($1)`, ids, le)
 	accounts := map[uuid.UUID]account{}
 	var id uuid.UUID
 	var a account
-	if _, err := pgx.ForEachRow(rows, []any{&id, &a.kind, &a.status, &a.set, &a.blocked}, func() error { accounts[id] = a; return nil }); err != nil {
+	if _, err := pgx.ForEachRow(rows, []any{&id, &a.kind, &a.status, &a.set, &a.blocked, &a.downPayment}, func() error { accounts[id] = a; return nil }); err != nil {
 		return nil, fmt.Errorf("ledger: check accounts in %s: %w", le, err)
 	}
 	return accounts, nil
+}
+
+// requireSpecialGL holds line i to ADR-0037: a line is on the legal
+// entity's down payment account exactly when it is a down payment
+// (special G/L A).
+func requireSpecialGL(i int, field string, l Line, a account) error {
+	special := l.SpecialGL != nil
+	switch {
+	case a.downPayment && !special:
+		return problem.Unprocessable("ledger.special_gl_required", fmt.Sprintf("Line %d posts to the down payment account, which takes only down payments (special G/L A).", i+1),
+			problem.FieldError{Field: field + ".account_id", Code: "special_gl_required", Message: "the down payment account takes down payments only"})
+	case special && (!a.downPayment || *l.SpecialGL != "A"):
+		return problem.Unprocessable("ledger.special_gl_account", fmt.Sprintf("Line %d is a down payment (special G/L A), posted only to the down payment account.", i+1),
+			problem.FieldError{Field: field + ".special_gl", Code: "special_gl_account", Message: "A, on the down payment account"})
+	}
+	return nil
 }
 
 // requirePostable rejects line i when its account does not exist, is not
@@ -723,7 +760,8 @@ func entryLines(in NewEntry, expTC int) ([]Line, error) {
 				problem.FieldError{Field: field + ".amount", Code: "zero", Message: "debit positive, credit negative"})
 		}
 		amounts[i] = tc
-		lines[i] = Line{AccountID: l.AccountID, TC: tc, PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text}
+		lines[i] = Line{AccountID: l.AccountID, TC: tc, PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text,
+			SpecialGL: l.SpecialGL}
 	}
 	sum, err := money.Sum(amounts...)
 	if err != nil {
@@ -913,7 +951,7 @@ func reversalLines(orig Entry) []Line {
 	lines := make([]Line, len(orig.Lines))
 	for i, l := range orig.Lines {
 		lines[i] = Line{AccountID: l.AccountID, TC: -l.TC, LC: -l.LC, GC: -l.GC, PartnerID: l.PartnerID, TaxCode: l.TaxCode,
-			Quantity: negate(l.Quantity), Unit: l.Unit, Text: l.Text, PurchaseOrderID: l.PurchaseOrderID, POItemNo: l.POItemNo}
+			Quantity: negate(l.Quantity), Unit: l.Unit, Text: l.Text, PurchaseOrderID: l.PurchaseOrderID, POItemNo: l.POItemNo, SpecialGL: l.SpecialGL}
 	}
 	return lines
 }

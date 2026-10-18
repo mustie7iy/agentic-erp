@@ -415,10 +415,23 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Down payments",
       "r": "T46",
-      "c": []
+      "c": [
+       {
+        "s": "D",
+        "t": "Special G/L items: down payments on the legal entity's down payment account (indicator A), shown on lines, open items and events, never netted in runs, refused by clearing and settlement",
+        "r": "db/migrations/000061 · account_determination.down_payment · journal_line.special_gl · OpenItems.Payable · ledger.special_gl_item · T46a",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "SAP load of open down payments (BSIK with UMSKZ A) on the down payment account with the indicator; the migration reconciliation's open payables then decide whether they count",
+        "r": "internal/integration load · Reports.OpenPayables · follow-up of the SAP load",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",

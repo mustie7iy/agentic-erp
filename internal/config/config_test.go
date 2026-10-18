@@ -118,6 +118,12 @@ func TestValidationRules(t *testing.T) {
 		{"discount without a cash discount account", discounts(Discount{Days: 10, Percent: "2"}), "companies[1000].account_determination.cash_discount"},
 		{"cash discount unknown", func(c *Config) { c.Companies[0].AccountDetermination.CashDiscount = "999999" }, "companies[1000].account_determination.cash_discount"},
 		{"cash discount wrong type", func(c *Config) { c.Companies[0].AccountDetermination.CashDiscount = "140000" }, "companies[1000].account_determination.cash_discount"},
+		{"down payment account unknown", func(c *Config) { c.Companies[0].AccountDetermination.DownPayment = "159000" }, "companies[1000].account_determination.down_payment"},
+		{"down payment account not reconciliation", func(c *Config) { c.Companies[0].AccountDetermination.DownPayment = "100000" }, "companies[1000].account_determination.down_payment"},
+		{"down payment account a liability", func(c *Config) { c.Companies[0].AccountDetermination.DownPayment = "211000" }, "companies[1000].account_determination.down_payment"},
+		{"asset reconciliation account not for down payments", func(c *Config) {
+			c.Companies[0].ChartOfAccounts = append(c.Companies[0].ChartOfAccounts, Account{Number: "159000", Name: "Advances", Type: Asset, VendorReconciliation: true})
+		}, "companies[1000].chart_of_accounts[159000]"},
 		{"tiers empty", func(c *Config) { c.Purchasing.RequisitionApproval = nil }, "purchasing.requisition_approval"},
 		{"order tiers empty", func(c *Config) { c.Purchasing.OrderReleaseApproval = nil }, "purchasing.order_release_approval"},
 		{"order last tier capped", func(c *Config) { c.Purchasing.OrderReleaseApproval[2].UpTo = "1000000.00" }, "purchasing.order_release_approval[2].up_to"},
@@ -185,6 +191,20 @@ func TestDiscountTiersValid(t *testing.T) {
 	}
 	if changes[0].Tier != TierPostingRelated {
 		t.Errorf("change tier: got %v, want %v", changes[0].Tier, TierPostingRelated)
+	}
+}
+
+// TestDownPaymentAccountValid: a company's down payment account (SAP's
+// alternative reconciliation account for special G/L A, ADR-0037) is an
+// asset that is a vendor reconciliation account, the one asset that may
+// be.
+func TestDownPaymentAccountValid(t *testing.T) {
+	c := fixture(t)
+	co := &c.Companies[0]
+	co.ChartOfAccounts = append(co.ChartOfAccounts, Account{Number: "159000", Name: "Down payments made", Type: Asset, VendorReconciliation: true})
+	co.AccountDetermination.DownPayment = "159000"
+	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
+		t.Fatalf("down payment account: got %v, want no errors", fs)
 	}
 }
 

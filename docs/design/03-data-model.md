@@ -697,7 +697,10 @@ automatic postings use per legal entity and key: `ap_reconciliation`,
 GR/IR clearing (T33) `gr_ir` and `price_difference`; the GR/IR account is a liability that no
 tax code posts, starts without postings other than a migration run's, and
 stays once activated (configuration validation, `ledger.Setup.Check`); order
-items that named it before stay as they are, and posting them is refused),
+items that named it before stay as they are, and posting them is refused;
+and for down payments (T46, ADR-0037) `down_payment`, the alternative
+reconciliation account of special G/L items: an asset that is a vendor
+reconciliation account, fixed once determined),
 `tax_code` (rate, account, direction).
 
 An open item on a supplier reconciliation account keeps the payment terms
@@ -710,6 +713,20 @@ supplier open item are refused). The payable items and `GET
 /v1/open-items` show them, with the net due date and each discount's last
 day (`payment_terms`); an item posted without them (before T36, manual,
 migrated) has none and is due by its supplier's current terms.
+
+Special G/L items (T46, ADR-0037). `journal_line.special_gl` marks a
+supplier line as a special G/L item; `A` (down payment) is the only
+indicator. A line carries `A` exactly when it is on the legal entity's
+`down_payment` account (trigger `journal_line_special_gl_account`), and it
+has a partner (`journal_line_special_gl`). Special items are open items of
+their supplier, shown with their indicator in the open-items listing,
+journal entries and `JournalEntryPosted`, but `OpenItems.Payable` leaves
+them out, so they never net in a payment run or count towards a debit
+balance, and clearing, settlement and reservation refuse them
+(`ledger.special_gl_item`): they leave the account only by clearing against
+the supplier's invoice (T46d) or by a reversal, which keeps the indicator.
+Listing the `down_payment` account's open items (`account_id`) lists the
+supplier's down payments.
 
 ## 3.8 Procurement (`procurement`)
 

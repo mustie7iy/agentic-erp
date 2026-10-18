@@ -284,7 +284,8 @@ func (g grirPosting) lines(ctx context.Context, tx pgx.Tx) ([]Line, error) {
 	}
 	lines := make([]Line, 0, len(g.in.Lines)+2*len(g.in.GRIR)+2)
 	for _, l := range g.in.Lines {
-		lines = append(lines, Line{AccountID: l.AccountID, TC: l.Amount, PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text})
+		lines = append(lines, Line{AccountID: l.AccountID, TC: l.Amount, PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text,
+			SpecialGL: l.SpecialGL})
 	}
 	kept := make([]bool, len(lines))
 	moved, keep, err := g.itemLines(pos, keys)

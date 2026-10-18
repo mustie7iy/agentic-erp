@@ -202,8 +202,9 @@ func (v *validator) chartOfAccounts(p string, co *Company) {
 		}
 		if a.VendorReconciliation {
 			recon++
-			if a.Type != Liability {
-				v.err(ap, "a vendor reconciliation account must be a liability")
+			downPayment := a.Number == co.AccountDetermination.DownPayment && a.Type == Asset // advances to suppliers (ADR-0037)
+			if a.Type != Liability && !downPayment {
+				v.err(ap, "a vendor reconciliation account must be a liability, or the company's down payment account, an asset")
 			}
 		}
 	}
@@ -218,9 +219,10 @@ func (v *validator) chartOfAccounts(p string, co *Company) {
 // accountDetermination checks that each determined account is in the chart
 // with the type its use needs, a vendor reconciliation account where the
 // use is one and no other account; the FX accounts are optional, the
-// GR/IR account comes with a price difference account, and the cash
-// discount account is a revenue (SAP SKE, cash discount received; its
-// presence is required by the payment terms, paymentTerms).
+// GR/IR account comes with a price difference account, the cash discount
+// account is a revenue (SAP SKE, cash discount received; its presence is
+// required by the payment terms, paymentTerms), and the down payment
+// account is an asset vendor reconciliation account (ADR-0037).
 func (v *validator) accountDetermination(p string, co *Company) {
 	ad := co.AccountDetermination
 	check := func(field, number string, want AccountType, recon bool) {
@@ -255,6 +257,9 @@ func (v *validator) accountDetermination(p string, co *Company) {
 	}
 	if ad.CashDiscount != "" {
 		check("cash_discount", ad.CashDiscount, Revenue, false)
+	}
+	if ad.DownPayment != "" {
+		check("down_payment", ad.DownPayment, Asset, true)
 	}
 }
 

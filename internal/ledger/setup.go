@@ -175,6 +175,11 @@ func checkActivated(base, proposed *config.Config, out *findings) {
 		if was := old.AccountDetermination.GRIR; was != "" && co.AccountDetermination.GRIR != was {
 			out.add(p+".account_determination.gr_ir", "the GR/IR account cannot change once activated")
 		}
+		// Down payments are lines on the activated account, and their
+		// reversals and clearings post to it (ADR-0037).
+		if was := old.AccountDetermination.DownPayment; was != "" && co.AccountDetermination.DownPayment != was {
+			out.add(p+".account_determination.down_payment", "the down payment account cannot change once activated")
+		}
 		for _, was := range old.ChartOfAccounts {
 			a := co.Account(was.Number)
 			switch {
@@ -234,7 +239,8 @@ func (s Setup) applyCompany(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 		ON CONFLICT (tenant_id, legal_entity_id, key) DO UPDATE SET account_id = EXCLUDED.account_id, version = d.version + 1, updated_by = $4
 		WHERE d.account_id <> EXCLUDED.account_id`,
 		p.TenantID, le.ID, chart, p.ID, []string{"ap_reconciliation", "input_tax", "bank", "fx_gain", "fx_loss", "gr_ir", "price_difference",
-			"cash_discount"}, []string{ad.APReconciliation, ad.InputTax, ad.Bank, ad.FXGain, ad.FXLoss, ad.GRIR, ad.PriceDifference, ad.CashDiscount}); err != nil {
+			"cash_discount", "down_payment"}, []string{ad.APReconciliation, ad.InputTax, ad.Bank, ad.FXGain, ad.FXLoss, ad.GRIR, ad.PriceDifference,
+			ad.CashDiscount, ad.DownPayment}); err != nil {
 		return fmt.Errorf("ledger: apply company %s: account determination: %w", co.Code, err)
 	}
 	if err := s.calendar(ctx, tx, p, le.FiscalCalendarID, le.ID, co, doc); err != nil {
@@ -392,7 +398,10 @@ func fiscalYear(y, m int) []period {
 type Accounts struct{}
 
 // IsReconciliationAccount reports whether the account is an active
-// reconciliation account of the kind with settings in the legal entity.
+// reconciliation account of the kind with settings in the legal entity. The
+// down payment account is not one: it is an alternative reconciliation
+// account that takes only special G/L items (ADR-0037), never a partner's
+// own, whose invoices it would refuse.
 func (Accounts) IsReconciliationAccount(ctx context.Context, legalEntity, account uuid.UUID, kind string) (bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -401,7 +410,9 @@ func (Accounts) IsReconciliationAccount(ctx context.Context, legalEntity, accoun
 	var ok bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM ledger.gl_account a
 		JOIN ledger.company_account ca ON ca.tenant_id = a.tenant_id AND ca.account_id = a.id AND ca.legal_entity_id = $1
-		WHERE a.id = $2 AND a.reconciliation_kind = $3 AND a.status = 'active')`, legalEntity, account, kind).Scan(&ok)
+		WHERE a.id = $2 AND a.reconciliation_kind = $3 AND a.status = 'active'
+			AND NOT EXISTS (SELECT FROM ledger.account_determination d WHERE d.tenant_id = a.tenant_id AND d.legal_entity_id = $1
+				AND d.key = 'down_payment' AND d.account_id = a.id))`, legalEntity, account, kind).Scan(&ok)
 	if err != nil {
 		return ok, fmt.Errorf("ledger: is account %s a %s reconciliation account in %s: %w", account, kind, legalEntity, err)
 	}

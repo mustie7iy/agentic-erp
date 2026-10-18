@@ -12707,6 +12707,10 @@ type JournalLine struct {
 	PurchaseOrderID OptUUID `json:"purchase_order_id"`
 	// Item of the purchase order, set with `purchase_order_id`.
 	PoItemNo OptInt32 `json:"po_item_no"`
+	// Special G/L indicator of a supplier line (ADR-0037): `A`, a down payment, on the legal entity's down
+	// payment account. Absent on ordinary lines. Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
+	SpecialGl OptString `json:"special_gl"`
 	// Line text.
 	LineText OptString `json:"line_text"`
 }
@@ -12759,6 +12763,11 @@ func (s *JournalLine) GetPurchaseOrderID() OptUUID {
 // GetPoItemNo returns the value of PoItemNo.
 func (s *JournalLine) GetPoItemNo() OptInt32 {
 	return s.PoItemNo
+}
+
+// GetSpecialGl returns the value of SpecialGl.
+func (s *JournalLine) GetSpecialGl() OptString {
+	return s.SpecialGl
 }
 
 // GetLineText returns the value of LineText.
@@ -12814,6 +12823,11 @@ func (s *JournalLine) SetPurchaseOrderID(val OptUUID) {
 // SetPoItemNo sets the value of PoItemNo.
 func (s *JournalLine) SetPoItemNo(val OptInt32) {
 	s.PoItemNo = val
+}
+
+// SetSpecialGl sets the value of SpecialGl.
+func (s *JournalLine) SetSpecialGl(val OptString) {
+	s.SpecialGl = val
 }
 
 // SetLineText sets the value of LineText.
@@ -14890,6 +14904,10 @@ type OpenItem struct {
 	// The payment terms the item was posted with, on a supplier item posted from T36 on; absent on others,
 	// which are due by their supplier's current terms.
 	PaymentTerms OptItemPaymentTerms `json:"payment_terms"`
+	// Special G/L indicator (ADR-0037): `A`, a down payment, kept on the down payment account and never
+	// netted in a payment run. Absent on ordinary items. Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	SpecialGl OptString `json:"special_gl"`
 }
 
 // GetFiscalYear returns the value of FiscalYear.
@@ -14952,6 +14970,11 @@ func (s *OpenItem) GetPaymentTerms() OptItemPaymentTerms {
 	return s.PaymentTerms
 }
 
+// GetSpecialGl returns the value of SpecialGl.
+func (s *OpenItem) GetSpecialGl() OptString {
+	return s.SpecialGl
+}
+
 // SetFiscalYear sets the value of FiscalYear.
 func (s *OpenItem) SetFiscalYear(val int32) {
 	s.FiscalYear = val
@@ -15010,6 +15033,11 @@ func (s *OpenItem) SetReference(val OptString) {
 // SetPaymentTerms sets the value of PaymentTerms.
 func (s *OpenItem) SetPaymentTerms(val OptItemPaymentTerms) {
 	s.PaymentTerms = val
+}
+
+// SetSpecialGl sets the value of SpecialGl.
+func (s *OpenItem) SetSpecialGl(val OptString) {
+	s.SpecialGl = val
 }
 
 // One page of open items.
