@@ -3641,7 +3641,19 @@
        {
         "s": "T",
         "t": "Autonomy levels 0-2 enforced in authorization",
-        "r": "T42g",
+        "r": "T42g · awaiting PO: which operations each level allows, and the levels of existing agents",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Model call ledger index by time, so a month's usage report reads only that month",
+        "r": "(tenant_id, called_at) on agents.model_call · awaiting PO (migration)",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "agent_profile.model names a model alias",
+        "r": "ADR-0036 · awaiting PO: existing free-text values",
         "c": []
        }
       ]
