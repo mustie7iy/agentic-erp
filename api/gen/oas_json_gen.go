@@ -2184,8 +2184,10 @@ func (s *AiPolicy) encodeFields(e *jx.Encoder) {
 		e.Bool(s.DocumentsToModels)
 	}
 	{
-		e.FieldStart("updated_at")
-		json.EncodeDateTime(e, s.UpdatedAt)
+		if s.UpdatedAt.Set {
+			e.FieldStart("updated_at")
+			s.UpdatedAt.Encode(e, json.EncodeDateTime)
+		}
 	}
 	{
 		if s.UpdatedBy.Set {
@@ -2340,11 +2342,9 @@ func (s *AiPolicy) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"documents_to_models\"")
 			}
 		case "updated_at":
-			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
-				v, err := json.DecodeDateTime(d)
-				s.UpdatedAt = v
-				if err != nil {
+				s.UpdatedAt.Reset()
+				if err := s.UpdatedAt.Decode(d, json.DecodeDateTime); err != nil {
 					return err
 				}
 				return nil
@@ -2372,7 +2372,7 @@ func (s *AiPolicy) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11010111,
-		0b00000111,
+		0b00000011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

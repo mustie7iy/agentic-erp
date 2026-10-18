@@ -37,6 +37,9 @@ func TestAIPolicyAPI(t *testing.T) {
 	if got["active"] != true {
 		t.Errorf("active: got %v, want true", got["active"])
 	}
+	if _, ok := got["updated_at"]; ok {
+		t.Errorf("updated_at of the defaults: got %v, want none", got["updated_at"])
+	}
 	if routes := apitest.Object(t, got, "effective_routes"); routes["erp-extraction"] != agents.DefaultRoutes["erp-extraction"] {
 		t.Errorf("effective routes: got %v, want the platform's", routes)
 	}
@@ -56,6 +59,9 @@ func TestAIPolicyAPI(t *testing.T) {
 	}
 	if routes := apitest.Object(t, got, "effective_routes"); routes["erp-default"] != "claude-haiku-5" {
 		t.Errorf("effective route: got %v, want claude-haiku-5", routes["erp-default"])
+	}
+	if got["updated_at"] == nil {
+		t.Error("updated_at: got none, want the change's time")
 	}
 	if got["updated_by"] != person.As.ID.String() {
 		t.Errorf("updated_by: got %v, want %s", got["updated_by"], person.As.ID)

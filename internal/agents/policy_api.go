@@ -118,7 +118,10 @@ func PolicyToAPI(ctx context.Context, tx pgx.Tx, p Policy) (gen.AiPolicy, error)
 	}
 	out := gen.AiPolicy{Version: p.Version, Enabled: p.Enabled, Suspended: p.Suspended, SuspendedReason: apitypes.OptString(p.SuspendedReason),
 		Active: p.Active(), Routes: gen.AiPolicyRoutes(p.Routes), EffectiveRoutes: effective, AllowedModels: p.AllowedModels,
-		DocumentsToModels: p.DocumentsToModels, UpdatedAt: p.UpdatedAt, UpdatedBy: apitypes.OptUUID(p.UpdatedBy)}
+		DocumentsToModels: p.DocumentsToModels, UpdatedBy: apitypes.OptUUID(p.UpdatedBy)}
+	if p.UpdatedBy != nil {
+		out.UpdatedAt.SetTo(p.UpdatedAt)
+	}
 	if p.MonthlyCap != nil {
 		exp, err := currency.Exponent(ctx, tx, PriceCurrency, nil)
 		if err != nil {

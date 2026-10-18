@@ -9922,7 +9922,6 @@ components:
         - effective_routes
         - allowed_models
         - documents_to_models
-        - updated_at
       properties:
         version:
           type: integer
@@ -9968,16 +9967,16 @@ components:
             type: string
         documents_to_models:
           type: boolean
-          description: "Whether documents (PDF and image blocks) may go to models; while off, capture refuses with 422 `agents.documents_withheld`."
+          description: "Whether documents (PDF and image blocks) may go to models; while off, the gateway refuses a call carrying one, capture's included, with 422 `agents.documents_withheld`."
         updated_at:
           type: string
           format: date-time
-          description: Last change.
+          description: Last change, by the tenant's administrators or the platform's operators; absent while the policy has the defaults.
           readOnly: true
         updated_by:
           type: string
           format: uuid
-          description: Who changed it last; absent while the policy has the defaults.
+          description: Who changed it last, one of the tenant's administrators or a platform operator (`suspendAi`, `resumeAi`); absent while the policy has the defaults.
           readOnly: true
       additionalProperties: false
     AiPolicyUpdate:

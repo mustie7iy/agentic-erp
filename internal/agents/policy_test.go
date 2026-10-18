@@ -51,8 +51,16 @@ func TestAIPolicyDefaults(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if !p.Active() || !p.DocumentsToModels || p.MonthlyCap != nil || len(p.Routes) != 0 || len(p.AllowedModels) != 0 || p.Version != 1 {
-		t.Errorf("defaults: got %+v, want AI on, documents allowed, no cap, routes or allow-list, version 1", p)
+	for _, c := range []struct {
+		name      string
+		got, want any
+	}{
+		{"active", p.Active(), true}, {"documents to models", p.DocumentsToModels, true}, {"cap", p.MonthlyCap == nil, true},
+		{"routes", len(p.Routes), 0}, {"allowed models", len(p.AllowedModels), 0}, {"version", p.Version, int32(1)},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s: got %v, want %v", c.name, c.got, c.want)
+		}
 	}
 	if model, _ := p.Route("erp-default", agents.DefaultRoutes); model != agents.DefaultRoutes["erp-default"] {
 		t.Errorf("route: got %s, want the platform's %s", model, agents.DefaultRoutes["erp-default"])
@@ -146,18 +154,33 @@ func TestSuspendAI(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if p.Active() || !p.Suspended || p.SuspendedReason == nil || *p.SuspendedReason != "billing dispute" || !p.Enabled {
-		t.Errorf("suspended: got %+v, want suspended for its reason, the tenant's setting on", p)
+	if p.Active() {
+		t.Errorf("suspended active: got true, want false")
+	}
+	if p.SuspendedReason == nil || *p.SuspendedReason != "billing dispute" {
+		t.Errorf("reason: got %v, want billing dispute", p.SuspendedReason)
+	}
+	if !p.Enabled {
+		t.Errorf("the tenant's setting: got off, want on, unchanged")
 	}
 	if err := run(func(ctx context.Context, tx pgx.Tx) (agents.Policy, error) {
 		return agents.Resume(ctx, tx, operator, etag.IfMatch("*"))
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if !p.Active() || p.SuspendedReason != nil {
-		t.Errorf("resumed: got %+v, want active and no reason", p)
+	if !p.Active() {
+		t.Errorf("resumed active: got false, want true")
 	}
-	for name, reason := range map[string]string{"no reason": "", "a reason past 500 characters": string(make([]byte, 501))} {
+	if p.SuspendedReason != nil {
+		t.Errorf("resumed reason: got %v, want none", *p.SuspendedReason)
+	}
+	long := strings.Repeat("é", 500) // 500 characters, 1000 bytes: the column counts characters
+	if err := run(func(ctx context.Context, tx pgx.Tx) (agents.Policy, error) {
+		return agents.Suspend(ctx, tx, operator, etag.IfMatch("*"), long)
+	}); err != nil {
+		t.Errorf("a reason of 500 characters: got %v, want it accepted", err)
+	}
+	for name, reason := range map[string]string{"no reason": "", "a reason past 500 characters": strings.Repeat("é", 501)} {
 		t.Run(name, func(t *testing.T) {
 			err := run(func(ctx context.Context, tx pgx.Tx) (agents.Policy, error) {
 				return agents.Suspend(ctx, tx, operator, etag.IfMatch("*"), reason)

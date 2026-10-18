@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -126,7 +127,7 @@ func UpdatePolicy(ctx context.Context, tx pgx.Tx, actor uuid.UUID, ifMatch func(
 // the tenant's administrators set, until an operator resumes it; guarded
 // by ifMatch.
 func Suspend(ctx context.Context, tx pgx.Tx, actor uuid.UUID, ifMatch func(int32) error, reason string) (Policy, error) {
-	if len(reason) == 0 || len(reason) > 500 {
+	if n := utf8.RuneCountInString(reason); n == 0 || n > 500 { // characters, as the column's check counts them
 		return Policy{}, invalidPolicy("reason", "invalid_length", "A suspension needs its reason, 1 to 500 characters.")
 	}
 	p, err := lockPolicy(ctx, tx, ifMatch)

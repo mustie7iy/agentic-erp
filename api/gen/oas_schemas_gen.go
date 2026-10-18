@@ -1243,12 +1243,14 @@ type AiPolicy struct {
 	EffectiveRoutes AiPolicyEffectiveRoutes `json:"effective_routes"`
 	// The models the aliases may route to; empty: any model with a recorded price.
 	AllowedModels []string `json:"allowed_models"`
-	// Whether documents (PDF and image blocks) may go to models; while off, capture refuses with 422
-	// `agents.documents_withheld`.
+	// Whether documents (PDF and image blocks) may go to models; while off, the gateway refuses a call
+	// carrying one, capture's included, with 422 `agents.documents_withheld`.
 	DocumentsToModels bool `json:"documents_to_models"`
-	// Last change.
-	UpdatedAt time.Time `json:"updated_at"`
-	// Who changed it last; absent while the policy has the defaults.
+	// Last change, by the tenant's administrators or the platform's operators; absent while the policy has
+	// the defaults.
+	UpdatedAt OptDateTime `json:"updated_at"`
+	// Who changed it last, one of the tenant's administrators or a platform operator (`suspendAi`,
+	// `resumeAi`); absent while the policy has the defaults.
 	UpdatedBy OptUUID `json:"updated_by"`
 }
 
@@ -1303,7 +1305,7 @@ func (s *AiPolicy) GetDocumentsToModels() bool {
 }
 
 // GetUpdatedAt returns the value of UpdatedAt.
-func (s *AiPolicy) GetUpdatedAt() time.Time {
+func (s *AiPolicy) GetUpdatedAt() OptDateTime {
 	return s.UpdatedAt
 }
 
@@ -1363,7 +1365,7 @@ func (s *AiPolicy) SetDocumentsToModels(val bool) {
 }
 
 // SetUpdatedAt sets the value of UpdatedAt.
-func (s *AiPolicy) SetUpdatedAt(val time.Time) {
+func (s *AiPolicy) SetUpdatedAt(val OptDateTime) {
 	s.UpdatedAt = val
 }
 
