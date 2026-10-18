@@ -410,6 +410,16 @@ type Invoker interface {
 	//
 	// GET /v1/ai-policy
 	GetAiPolicy(ctx context.Context) (GetAiPolicyRes, error)
+	// GetAiUsage invokes getAiUsage operation.
+	//
+	// What the tenant's model calls through the gateway used and cost in one calendar month (UTC), per
+	// principal that called (ADR-0036): each agent, and each person or service whose request made a
+	// server-side call such as capture. Read from the model call ledger: tokens as the provider reported
+	// them, costs at the recorded prices, rounded to the cent per principal and in total. The month
+	// defaults to the current one. Human-only.
+	//
+	// GET /v1/ai-usage
+	GetAiUsage(ctx context.Context, params GetAiUsageParams) (GetAiUsageRes, error)
 	// GetApprovalRequest invokes getApprovalRequest operation.
 	//
 	// Returns one approval request with steps and decisions.
@@ -9031,6 +9041,144 @@ func (c *Client) sendGetAiPolicy(ctx context.Context) (res GetAiPolicyRes, err e
 
 	stage = "DecodeResponse"
 	result, err := decodeGetAiPolicyResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetAiUsage invokes getAiUsage operation.
+//
+// What the tenant's model calls through the gateway used and cost in one calendar month (UTC), per
+// principal that called (ADR-0036): each agent, and each person or service whose request made a
+// server-side call such as capture. Read from the model call ledger: tokens as the provider reported
+// them, costs at the recorded prices, rounded to the cent per principal and in total. The month
+// defaults to the current one. Human-only.
+//
+// GET /v1/ai-usage
+func (c *Client) GetAiUsage(ctx context.Context, params GetAiUsageParams) (GetAiUsageRes, error) {
+	res, err := c.sendGetAiUsage(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetAiUsage(ctx context.Context, params GetAiUsageParams) (res GetAiUsageRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAiUsage"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/ai-usage"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetAiUsageOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/ai-usage"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "month" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "month",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Month.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetAiUsageOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetAiUsageResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

@@ -209,6 +209,10 @@ type GetAiPolicyRes interface {
 	getAiPolicyRes()
 }
 
+type GetAiUsageRes interface {
+	getAiUsageRes()
+}
+
 type GetApprovalRequestRes interface {
 	getApprovalRequestRes()
 }

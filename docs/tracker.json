@@ -3633,9 +3633,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Cost per agent per month reported",
-        "r": "ai-usage · T42f",
+        "r": "getAiUsage (agents.model_call) · T42f",
         "c": []
        },
        {

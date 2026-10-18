@@ -1565,6 +1565,222 @@ func (s *AiPolicyUpdateRoutes) init() AiPolicyUpdateRoutes {
 	return m
 }
 
+// A tenant's model usage in one month (ADR-0036).
+// Ref: #/components/schemas/AiUsage
+type AiUsage struct {
+	// The month, YYYY-MM (UTC).
+	Month string `json:"month"`
+	// Model calls in the month.
+	Calls int64 `json:"calls"`
+	// What the month's calls cost, in USD, the prices' currency.
+	Cost Money `json:"cost"`
+	// The tenant's monthly cap (getAiPolicy); absent: none.
+	MonthlyCap OptMoney `json:"monthly_cap"`
+	// Usage per principal that called, the most costly first.
+	Principals []AiUsagePrincipal `json:"principals"`
+}
+
+// GetMonth returns the value of Month.
+func (s *AiUsage) GetMonth() string {
+	return s.Month
+}
+
+// GetCalls returns the value of Calls.
+func (s *AiUsage) GetCalls() int64 {
+	return s.Calls
+}
+
+// GetCost returns the value of Cost.
+func (s *AiUsage) GetCost() Money {
+	return s.Cost
+}
+
+// GetMonthlyCap returns the value of MonthlyCap.
+func (s *AiUsage) GetMonthlyCap() OptMoney {
+	return s.MonthlyCap
+}
+
+// GetPrincipals returns the value of Principals.
+func (s *AiUsage) GetPrincipals() []AiUsagePrincipal {
+	return s.Principals
+}
+
+// SetMonth sets the value of Month.
+func (s *AiUsage) SetMonth(val string) {
+	s.Month = val
+}
+
+// SetCalls sets the value of Calls.
+func (s *AiUsage) SetCalls(val int64) {
+	s.Calls = val
+}
+
+// SetCost sets the value of Cost.
+func (s *AiUsage) SetCost(val Money) {
+	s.Cost = val
+}
+
+// SetMonthlyCap sets the value of MonthlyCap.
+func (s *AiUsage) SetMonthlyCap(val OptMoney) {
+	s.MonthlyCap = val
+}
+
+// SetPrincipals sets the value of Principals.
+func (s *AiUsage) SetPrincipals(val []AiUsagePrincipal) {
+	s.Principals = val
+}
+
+// AiUsageHeaders wraps AiUsage with response headers.
+type AiUsageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           AiUsage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *AiUsageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *AiUsageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *AiUsageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *AiUsageHeaders) GetResponse() AiUsage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *AiUsageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *AiUsageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *AiUsageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AiUsageHeaders) SetResponse(val AiUsage) {
+	s.Response = val
+}
+
+func (*AiUsageHeaders) getAiUsageRes() {}
+
+// One principal's model usage in the month.
+// Ref: #/components/schemas/AiUsagePrincipal
+type AiUsagePrincipal struct {
+	// The principal that called: an agent, or the person or service whose request made the call.
+	PrincipalID uuid.UUID `json:"principal_id"`
+	// Calls made.
+	Calls int64 `json:"calls"`
+	// Input tokens, as the provider reported them.
+	InputTokens int64 `json:"input_tokens"`
+	// Output tokens.
+	OutputTokens int64 `json:"output_tokens"`
+	// Input tokens written to the provider's cache.
+	CacheWriteTokens int64 `json:"cache_write_tokens"`
+	// Input tokens read from it.
+	CacheReadTokens int64 `json:"cache_read_tokens"`
+	// Replacements the gateway made in the calls' text before it left the cell.
+	Redactions int64 `json:"redactions"`
+	// What the calls cost, in USD.
+	Cost Money `json:"cost"`
+}
+
+// GetPrincipalID returns the value of PrincipalID.
+func (s *AiUsagePrincipal) GetPrincipalID() uuid.UUID {
+	return s.PrincipalID
+}
+
+// GetCalls returns the value of Calls.
+func (s *AiUsagePrincipal) GetCalls() int64 {
+	return s.Calls
+}
+
+// GetInputTokens returns the value of InputTokens.
+func (s *AiUsagePrincipal) GetInputTokens() int64 {
+	return s.InputTokens
+}
+
+// GetOutputTokens returns the value of OutputTokens.
+func (s *AiUsagePrincipal) GetOutputTokens() int64 {
+	return s.OutputTokens
+}
+
+// GetCacheWriteTokens returns the value of CacheWriteTokens.
+func (s *AiUsagePrincipal) GetCacheWriteTokens() int64 {
+	return s.CacheWriteTokens
+}
+
+// GetCacheReadTokens returns the value of CacheReadTokens.
+func (s *AiUsagePrincipal) GetCacheReadTokens() int64 {
+	return s.CacheReadTokens
+}
+
+// GetRedactions returns the value of Redactions.
+func (s *AiUsagePrincipal) GetRedactions() int64 {
+	return s.Redactions
+}
+
+// GetCost returns the value of Cost.
+func (s *AiUsagePrincipal) GetCost() Money {
+	return s.Cost
+}
+
+// SetPrincipalID sets the value of PrincipalID.
+func (s *AiUsagePrincipal) SetPrincipalID(val uuid.UUID) {
+	s.PrincipalID = val
+}
+
+// SetCalls sets the value of Calls.
+func (s *AiUsagePrincipal) SetCalls(val int64) {
+	s.Calls = val
+}
+
+// SetInputTokens sets the value of InputTokens.
+func (s *AiUsagePrincipal) SetInputTokens(val int64) {
+	s.InputTokens = val
+}
+
+// SetOutputTokens sets the value of OutputTokens.
+func (s *AiUsagePrincipal) SetOutputTokens(val int64) {
+	s.OutputTokens = val
+}
+
+// SetCacheWriteTokens sets the value of CacheWriteTokens.
+func (s *AiUsagePrincipal) SetCacheWriteTokens(val int64) {
+	s.CacheWriteTokens = val
+}
+
+// SetCacheReadTokens sets the value of CacheReadTokens.
+func (s *AiUsagePrincipal) SetCacheReadTokens(val int64) {
+	s.CacheReadTokens = val
+}
+
+// SetRedactions sets the value of Redactions.
+func (s *AiUsagePrincipal) SetRedactions(val int64) {
+	s.Redactions = val
+}
+
+// SetCost sets the value of Cost.
+func (s *AiUsagePrincipal) SetCost(val Money) {
+	s.Cost = val
+}
+
 // Merged schema.
 // Ref: #/components/schemas/ApprovalRequest
 type ApprovalRequest struct {
@@ -2442,6 +2658,7 @@ func (*BadRequestHeaders) endSodRuleRes()                 {}
 func (*BadRequestHeaders) getAccountRes()                 {}
 func (*BadRequestHeaders) getAgentSessionRes()            {}
 func (*BadRequestHeaders) getAiPolicyRes()                {}
+func (*BadRequestHeaders) getAiUsageRes()                 {}
 func (*BadRequestHeaders) getApprovalRequestRes()         {}
 func (*BadRequestHeaders) getBankAccountRes()             {}
 func (*BadRequestHeaders) getBankFileContentRes()         {}
@@ -9039,6 +9256,7 @@ func (*ForbiddenHeaders) endSodRuleRes()                 {}
 func (*ForbiddenHeaders) getAccountRes()                 {}
 func (*ForbiddenHeaders) getAgentSessionRes()            {}
 func (*ForbiddenHeaders) getAiPolicyRes()                {}
+func (*ForbiddenHeaders) getAiUsageRes()                 {}
 func (*ForbiddenHeaders) getApprovalRequestRes()         {}
 func (*ForbiddenHeaders) getBankAccountRes()             {}
 func (*ForbiddenHeaders) getBankFileContentRes()         {}
@@ -26180,6 +26398,7 @@ func (*TooManyRequestsHeaders) endSodRuleRes()                 {}
 func (*TooManyRequestsHeaders) getAccountRes()                 {}
 func (*TooManyRequestsHeaders) getAgentSessionRes()            {}
 func (*TooManyRequestsHeaders) getAiPolicyRes()                {}
+func (*TooManyRequestsHeaders) getAiUsageRes()                 {}
 func (*TooManyRequestsHeaders) getApprovalRequestRes()         {}
 func (*TooManyRequestsHeaders) getBankAccountRes()             {}
 func (*TooManyRequestsHeaders) getBankFileContentRes()         {}
@@ -26425,6 +26644,7 @@ func (*UnauthorizedHeaders) endSodRuleRes()                 {}
 func (*UnauthorizedHeaders) getAccountRes()                 {}
 func (*UnauthorizedHeaders) getAgentSessionRes()            {}
 func (*UnauthorizedHeaders) getAiPolicyRes()                {}
+func (*UnauthorizedHeaders) getAiUsageRes()                 {}
 func (*UnauthorizedHeaders) getApprovalRequestRes()         {}
 func (*UnauthorizedHeaders) getBankAccountRes()             {}
 func (*UnauthorizedHeaders) getBankFileContentRes()         {}

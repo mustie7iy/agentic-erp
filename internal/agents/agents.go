@@ -46,6 +46,7 @@ type Endpoints struct {
 	// call's record is redacted of (tenancy.Countries); nil: IBANs and card
 	// numbers only.
 	Countries Countries
+	Now       func() time.Time // the usage report's current month; nil: the wall clock
 }
 
 // Session is a row of agents.session.

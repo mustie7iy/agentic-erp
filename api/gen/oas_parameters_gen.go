@@ -7250,6 +7250,98 @@ func decodeGetAgentSessionParams(args [1]string, argsEscaped bool, r *http.Reque
 	return params, nil
 }
 
+// GetAiUsageParams is parameters of getAiUsage operation.
+type GetAiUsageParams struct {
+	// The month, YYYY-MM; the current month (UTC) when absent.
+	Month OptString `json:",omitempty,omitzero"`
+}
+
+func unpackGetAiUsageParams(packed middleware.Parameters) (params GetAiUsageParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "month",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Month = v.(OptString)
+		}
+	}
+	return params
+}
+
+func decodeGetAiUsageParams(args [0]string, argsEscaped bool, r *http.Request) (params GetAiUsageParams, _ error) {
+	q := uri.NewQueryDecoder(r.URL.Query())
+	// Decode query: month.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "month",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotMonthVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotMonthVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Month.SetTo(paramsDotMonthVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.Month.Get(); ok {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     0,
+							MinLengthSet:  false,
+							MaxLength:     0,
+							MaxLengthSet:  false,
+							Email:         false,
+							Hostname:      false,
+							Regex:         regexMap["^[0-9]{4}-(0[1-9]|1[0-2])$"],
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(value)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "month",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
 // GetApprovalRequestParams is parameters of getApprovalRequest operation.
 type GetApprovalRequestParams struct {
 	// Resource identifier (UUIDv7).

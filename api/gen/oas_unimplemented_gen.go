@@ -550,6 +550,19 @@ func (UnimplementedHandler) GetAiPolicy(ctx context.Context) (r GetAiPolicyRes, 
 	return r, ht.ErrNotImplemented
 }
 
+// GetAiUsage implements getAiUsage operation.
+//
+// What the tenant's model calls through the gateway used and cost in one calendar month (UTC), per
+// principal that called (ADR-0036): each agent, and each person or service whose request made a
+// server-side call such as capture. Read from the model call ledger: tokens as the provider reported
+// them, costs at the recorded prices, rounded to the cent per principal and in total. The month
+// defaults to the current one. Human-only.
+//
+// GET /v1/ai-usage
+func (UnimplementedHandler) GetAiUsage(ctx context.Context, params GetAiUsageParams) (r GetAiUsageRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetApprovalRequest implements getApprovalRequest operation.
 //
 // Returns one approval request with steps and decisions.
