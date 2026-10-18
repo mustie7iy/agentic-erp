@@ -3661,6 +3661,12 @@
         "t": "Tax-identifier formats per country reviewed by a tax specialist before the pilot",
         "r": "platform/redact taxIDs · T42e",
         "c": []
+       },
+       {
+        "s": "T",
+        "t": "Ruling on draft-like operations left at autonomy level 2 (draft orders, parked invoices, payment run proposals, cancelling one's approval request, audit verification)",
+        "r": "ADR-0036 · awaiting PO",
+        "c": []
        }
       ]
      },
