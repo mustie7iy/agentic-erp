@@ -327,6 +327,10 @@ run "the_home_cell_reads_the_global_tiers_secrets_too" {
     condition     = contains(jsondecode(aws_iam_role_policy.workload["external_secrets"].policy).Statement[1].Resource, "arn:aws:kms:eu-central-1:222222222222:key/global")
     error_message = "and decrypts them with the global tier's key"
   }
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.workload["external_secrets"].policy).Statement[1].Condition.StringEquals["kms:ViaService"] == "secretsmanager.eu-central-1.amazonaws.com"
+    error_message = "through Secrets Manager only: the global key also encrypts the directory's storage"
+  }
 }
 
 run "another_cell_reads_its_own_secrets_alone" {

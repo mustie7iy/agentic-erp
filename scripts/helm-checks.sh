@@ -213,6 +213,29 @@ for bad in 'images.server.digest=latest' 'images.server.repository=registry.exam
 done
 echo "helm-checks: erp-cell refuses to render without each value it requires, with an image not by digest, or a cell id ERP_CELL refuses"
 
+# rotating JSON...: every ExternalSecret carrying an RDS-managed master
+# password (a password property) refreshes within five minutes, since a
+# rotation fails new connections until it does. A hook's lives only while
+# the release's hooks run, read afresh when it is made, and is not judged.
+rotating() {
+  python3 - "$@" <<'PY'
+import json, re, sys
+def seconds(d):
+    return sum(int(n) * {"h": 3600, "m": 60, "s": 1}[u] for n, u in re.findall(r"(\d+)([hms])", d))
+found = 0
+for path in sys.argv[1:]:
+    for d in json.load(open(path)):
+        if not d or d.get("kind") != "ExternalSecret" or "helm.sh/hook" in d["metadata"].get("annotations", {}):
+            continue
+        if any(x.get("remoteRef", {}).get("property") == "password" for x in d["spec"].get("data", [])):
+            found += 1
+            if seconds(d["spec"]["refreshInterval"]) > 300:
+                sys.exit("helm-checks: ExternalSecret %s refreshes a rotating password every %s, want 5m at most" % (d["metadata"]["name"], d["spec"]["refreshInterval"]))
+if not found:
+    sys.exit("helm-checks: no ExternalSecret carries a rotating password: the check judged nothing")
+PY
+}
+
 echo "== erp-global"
 chart=deploy/helm/erp-global
 values="$chart/tests/values.yaml"
@@ -261,5 +284,7 @@ for bad in 'images.router.digest=latest' 'router.proxyFrom={}' 'router.proxyFrom
   fi
 done
 echo "helm-checks: erp-global refuses to render without each value it requires, with an image not by digest, or no load balancer subnets"
+rotating "$work/erp-cell.json" "$work/erp-global.json"
+echo "helm-checks: every rotating password is refreshed within five minutes"
 
 CRDS="$work/crds.yaml" HELM="$HELM" CONFTEST="$CONFTEST" ./scripts/admission-checks.sh

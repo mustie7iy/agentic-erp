@@ -74,7 +74,11 @@ spec:
       ports:
         - {protocol: TCP, port: 7233}
     {{- if .Values.directory.endpoint }}
-    # The global directory, in the home cell's VPC.
+    # The global directory, in the home cell's VPC. The rule admits the
+    # VPC's 5432, the writer's too, which the server could then reach past
+    # PgBouncer; it holds no login for it (only PgBouncer and the Jobs
+    # hold the master credentials), and the writer's security group, not
+    # this policy, is what bounds it.
     - to:
         - ipBlock: {cidr: {{ $vpc | quote }}}
       ports:

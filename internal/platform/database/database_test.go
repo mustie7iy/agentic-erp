@@ -263,21 +263,25 @@ func TestPassword(t *testing.T) {
 		p.Close()
 		t.Fatal("the test database took a wrong password: the test proves nothing")
 	}
-	asked := 0
-	pool, err := database.Open(ctx, u.String(), database.Settings{Password: func(context.Context) (string, error) {
-		asked++
-		return right, nil
-	}})
-	if err != nil {
-		t.Fatalf("open with the asked password: %v", err)
-	}
-	pool.Close()
-	if asked == 0 {
-		t.Error("the password was not asked for")
-	}
-	boom := errors.New("unreadable")
-	_, err = database.Open(ctx, u.String(), database.Settings{Password: func(context.Context) (string, error) { return "", boom }})
-	if !errors.Is(err, boom) {
-		t.Errorf("open: got %v, want the password's error", err)
-	}
+	t.Run("asked for each connection", func(t *testing.T) {
+		asked := 0
+		pool, err := database.Open(ctx, u.String(), database.Settings{Password: func(context.Context) (string, error) {
+			asked++
+			return right, nil
+		}})
+		if err != nil {
+			t.Fatalf("open with the asked password: %v", err)
+		}
+		pool.Close()
+		if asked == 0 {
+			t.Error("the password was not asked for")
+		}
+	})
+	t.Run("its error refuses the connection", func(t *testing.T) {
+		boom := errors.New("unreadable")
+		_, err := database.Open(ctx, u.String(), database.Settings{Password: func(context.Context) (string, error) { return "", boom }})
+		if !errors.Is(err, boom) {
+			t.Errorf("open: got %v, want the password's error", err)
+		}
+	})
 }

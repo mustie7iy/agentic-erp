@@ -302,13 +302,17 @@ environment's home cell, after the add-ons and `erp-cluster`:
   password RDS rotates weekly. External Secrets refreshes it every five
   minutes into a mounted file, and the router reads it again for each new
   connection (`ERP_DIRECTORY_PASSWORD`, an `env:` or `file:` reference;
-  `database.Settings.Password`), so a rotation needs no restart. The home
+  `database.Settings.Password`), so a rotation needs no restart. New
+  connections opened between a rotation and the refresh (up to five
+  minutes and the kubelet's sync) fail, and the next request retries;
+  open ones keep working. That window is accepted. The home
   cell's server registers in the directory the same way
   (`directory.endpoint` of erp-cell: `ERP_DIRECTORY_URL`, its in-cluster
   API and control URLs), which is how the router finds it. The global
   module creates the three `erp/global/` entries empty, encrypted with the
   global tier's key, and the home cell's External Secrets role may read
-  them and the directory's credentials (`global_secrets`).
+  them and the directory's credentials (`global_secrets`), decrypting
+  through Secrets Manager only (`kms:ViaService`).
 - Network policies: default deny; the public listener from the load
   balancer's subnets alone; the admin listener from no Pod (operators use
   port-forward); the router to the home cell's server, the directory in

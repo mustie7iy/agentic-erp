@@ -153,12 +153,15 @@ func TestDeadline(t *testing.T) {
 		}
 	})
 	t.Run("none set", func(t *testing.T) {
-		conn := serve(t, loopback, 50*time.Millisecond, header(0x20, 0, nil))
+		// The header's deadline is far shorter than the read below waits, so
+		// a deadline left in place ends it long before the timer: wide
+		// margins, for loaded runners.
+		conn := serve(t, loopback, 10*time.Millisecond, header(0x20, 0, nil))
 		conn.RemoteAddr()                                                                 // reads the header
-		time.AfterFunc(150*time.Millisecond, func() { _ = conn.SetDeadline(time.Now()) }) // ends the read below
+		time.AfterFunc(500*time.Millisecond, func() { _ = conn.SetDeadline(time.Now()) }) // ends the read below
 		start := time.Now()
 		_, err := conn.Read(make([]byte, 1))
-		if elapsed := time.Since(start); elapsed < 100*time.Millisecond {
+		if elapsed := time.Since(start); elapsed < 250*time.Millisecond {
 			t.Errorf("read: ended after %v with %v, want the header's deadline lifted", elapsed, err)
 		}
 	})

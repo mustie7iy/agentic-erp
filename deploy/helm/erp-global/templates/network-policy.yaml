@@ -6,7 +6,9 @@
 #   reach the global control plane by port-forward, and kubelet's probes
 #   are not subject to policies;
 # - the router reaches the home cell's API and admin listener, the
-#   directory in the VPC and, on 443, the tenants' identity providers;
+#   directory in the VPC (the rule admits the VPC's 5432, the cell's
+#   writer's too, for which the router holds no login) and, on 443, the
+#   tenants' identity providers;
 # - every Pod resolves names through the cluster's DNS.
 {{- $vpc := required "vpcCidr is required: cell.cidr" .Values.vpcCidr }}
 apiVersion: networking.k8s.io/v1

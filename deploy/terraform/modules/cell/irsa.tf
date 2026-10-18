@@ -31,7 +31,9 @@ locals {
     external_secrets = {
       statements = [
         { Sid = "Secrets", Effect = "Allow", Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], Resource = concat([for secret in aws_secretsmanager_secret.cell : secret.arn], compact([local.database_master_secret_arn]), var.global_secrets.arns) },
-        { Sid = "SecretsKey", Effect = "Allow", Action = "kms:Decrypt", Resource = compact([aws_kms_key.data.arn, var.global_secrets.kms_key_arn]) },
+        # Through Secrets Manager only: the global tier's key also encrypts
+        # the directory's storage and logs.
+        { Sid = "SecretsKey", Effect = "Allow", Action = "kms:Decrypt", Resource = compact([aws_kms_key.data.arn, var.global_secrets.kms_key_arn]), Condition = { StringEquals = { "kms:ViaService" = "secretsmanager.${data.aws_region.current.region}.amazonaws.com" } } },
       ]
     }
     # cert-manager's aws-privateca-issuer: certificates from the

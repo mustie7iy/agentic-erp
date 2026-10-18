@@ -77,9 +77,10 @@ spec:
       # so a rollout never leaves the target group short.
       readinessGates:
         - conditionType: target-health.elbv2.k8s.aws/erp-router
-      # The balancer's deregistration (30 s) begins as the pod stops: the
-      # pod keeps serving while it spreads, then drains (ERP_SHUTDOWN_TIMEOUT).
-      terminationGracePeriodSeconds: 60
+      # The balancer's deregistration (30 s, and IP targets often take
+      # longer) begins as the pod stops: the pod keeps serving 40 s while it
+      # spreads, then drains (ERP_SHUTDOWN_TIMEOUT, 20 s).
+      terminationGracePeriodSeconds: 75
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
@@ -125,7 +126,7 @@ spec:
             {{- end }}
           lifecycle:
             preStop:
-              sleep: {seconds: 20}
+              sleep: {seconds: 40}
           readinessProbe:
             httpGet: {path: /livez, port: admin, scheme: HTTPS}
             periodSeconds: 5

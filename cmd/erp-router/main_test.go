@@ -422,7 +422,10 @@ func TestBehindTheLoadBalancer(t *testing.T) {
 		}
 		return c, err
 	}}}
-	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://"+base+"/v1/balances", nil)
+	req, err := http.NewRequestWithContext(t.Context(), "GET", "http://"+base+"/v1/balances", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req.Header.Set("Authorization", "Bearer "+is.Token(t, tenant, "ada", nil))
 	resp, err := balancer.Do(req)
 	if err != nil {
@@ -438,6 +441,9 @@ func TestBehindTheLoadBalancer(t *testing.T) {
 	// A connection from the balancer's addresses without the header is not
 	// served: net/http answers the failed read with a bare 400 (behind the
 	// public TLS, the handshake fails), and nothing reaches the cell.
+	// The client may see the 400 or, should the router close first, a
+	// broken connection: either way the request is not served, which the
+	// cell's silence below asserts.
 	r, err := http.DefaultClient.Do(req.Clone(t.Context()))
 	if err == nil {
 		_ = r.Body.Close() // only the status is asserted
