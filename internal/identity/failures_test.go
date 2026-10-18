@@ -32,7 +32,7 @@ func endpointCalls(f *fixture) map[string]func(ctx context.Context) error {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
 	e := &identity.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}}
 	soon := time.Now().UTC().AddDate(0, 0, 20).Truncate(24 * time.Hour)
-	profile := gen.NewOptAgentProfile(gen.AgentProfile{AutonomyLevel: 3, Model: "m2", Description: "d2",
+	profile := gen.NewOptAgentProfile(gen.AgentProfile{AutonomyLevel: 3, Model: "erp-analytics", Description: "d2",
 		MonthlyBudget: gen.NewOptMoney(gen.Money{Amount: "10.00", Currency: "EUR"})})
 	return map[string]func(ctx context.Context) error{
 		"create principal": func(ctx context.Context) error {
@@ -142,7 +142,7 @@ func endpointCalls(f *fixture) map[string]func(ctx context.Context) error {
 func TestDatabaseFailures(t *testing.T) {
 	c, ten := admin(t)
 	f := &fixture{ten: ten}
-	agent, _ := c.Must(201, "POST", "/v1/principals", `{"kind": "agent", "display_name": "A", "agent_profile": {"autonomy_level": 0, "model": "m", "description": "d"}}`, "")
+	agent, _ := c.Must(201, "POST", "/v1/principals", `{"kind": "agent", "display_name": "A", "agent_profile": {"autonomy_level": 0, "model": "erp-default", "description": "d"}}`, "")
 	f.agent = uuid.MustParse(id(agent))
 	f.role = uuid.MustParse(role(t, c, "R"))
 	p, _ := c.Must(201, "POST", "/v1/roles/"+f.role.String()+"/permissions", `{"permission_code": "payables.invoice.read"}`, "")

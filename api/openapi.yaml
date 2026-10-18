@@ -11367,7 +11367,7 @@ components:
           maximum: 3
         model:
           type: string
-          description: Model identifier the agent runs on.
+          description: "The model alias the agent runs on, which the model gateway routes under the tenant's AI policy (ADR-0036): `erp-default`, `erp-extraction` or `erp-analytics`; another value is 422 `identity.unknown_model_alias`. Profiles that named a Claude model before were moved to `erp-default`."
           minLength: 1
           maxLength: 100
         monthly_budget:
@@ -11380,7 +11380,7 @@ components:
           maxLength: 2000
       examples:
         - autonomy_level: 1
-          model: claude-opus
+          model: erp-default
           description: Office chairs, ergonomic
     Principal:
       description: A person, agent or service that can act. Agents are principals with their own roles and can never hold approval permissions. Legal entity access is granted through company access.

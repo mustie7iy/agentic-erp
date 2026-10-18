@@ -9,6 +9,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +23,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api"
 	"github.com/mustie7iy/agentic-erp/internal/agents"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/modelalias"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -577,5 +579,19 @@ func TestConcurrentCallsOfOneSession(t *testing.T) {
 	}
 	if each <= 0 || spent != each*int64(n) {
 		t.Errorf("session cost: got %d, want %d calls of %d", spent, n, each)
+	}
+}
+
+// TestRoutesAreTheAliases: the gateway routes exactly the aliases agents'
+// profiles may name.
+func TestRoutesAreTheAliases(t *testing.T) {
+	var got []string
+	for alias := range agents.DefaultRoutes {
+		got = append(got, alias)
+	}
+	slices.Sort(got)
+	want := slices.Sorted(slices.Values(modelalias.Aliases))
+	if !slices.Equal(got, want) {
+		t.Errorf("routes: got %v, want %v", got, want)
 	}
 }

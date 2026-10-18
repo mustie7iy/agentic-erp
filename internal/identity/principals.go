@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/modelalias"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -115,6 +117,12 @@ type ProfileInput struct {
 // the currency's minor-unit digits (ADR-0005).
 func profile(ctx context.Context, tx pgx.Tx, in ProfileInput) (AgentProfile, error) {
 	ap := AgentProfile{AutonomyLevel: in.AutonomyLevel, Model: in.Model, Description: in.Description}
+	// An agent runs on a model alias, which the gateway routes (ADR-0036);
+	// a model named outright would bypass the tenant's routing.
+	if !modelalias.Known(in.Model) {
+		return ap, problem.Unprocessable("identity.unknown_model_alias", "An agent runs on a model alias: "+strings.Join(modelalias.Aliases, ", ")+".",
+			problem.FieldError{Field: "agent_profile.model", Code: "unknown", Message: strings.Join(modelalias.Aliases, ", ")})
+	}
 	if in.Budget == nil {
 		return ap, nil
 	}

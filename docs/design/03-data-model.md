@@ -172,7 +172,7 @@ erDiagram
     date valid_to }
   agent_profile { uuid principal_id PK
     smallint autonomy_level "0-3"
-    text model }
+    text model "a model alias (000073)" }
   identity_provider { uuid id PK
     text issuer "OIDC iss"
     text audience "aud; (issuer, audience) active unique"

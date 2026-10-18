@@ -2484,3 +2484,44 @@ func TestAIPolicy(t *testing.T) {
 		}
 	})
 }
+
+// TestAgentModelAliases: 000073 maps the agent profiles that name a model
+// outright to the alias the gateway routes (ADR-0036): every Claude model
+// to erp-default. An alias stays, and a value it does not know stays too,
+// for the next write of the profile to refuse.
+func TestAgentModelAliases(t *testing.T) {
+	conn := emptyDatabase(t)
+	ctx := context.Background()
+	migrateBefore(t, conn, 73)
+	tenant, human := id(), id()
+	agents := map[string]string{"claude-opus-5-5": "erp-default", "claude-haiku-5": "erp-default", "erp-analytics": "erp-analytics", "gpt-9": "gpt-9"}
+	ids := map[string]uuid.UUID{}
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := conn.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	exec("INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, 'Acme', 'eu-west', 'EUR', 'active')", tenant)
+	for model := range agents {
+		ids[model] = id()
+		exec("INSERT INTO identity.principal (tenant_id, id, kind, display_name, status, created_by, updated_by) VALUES ($1,$2,'agent','Agent','active',$3,$3)",
+			tenant, ids[model], human)
+		exec("INSERT INTO identity.agent_profile (tenant_id, principal_id, model, description, created_by, updated_by) VALUES ($1,$2,$3,'d',$4,$4)",
+			tenant, ids[model], model, human)
+	}
+	if _, err := Migrate(ctx, conn); err != nil {
+		t.Fatal(err)
+	}
+	for model, want := range agents {
+		t.Run(model, func(t *testing.T) {
+			var got string
+			if err := conn.QueryRow(ctx, "SELECT model FROM identity.agent_profile WHERE principal_id = $1", ids[model]).Scan(&got); err != nil {
+				t.Fatal(err)
+			}
+			if got != want {
+				t.Errorf("model: got %s, want %s", got, want)
+			}
+		})
+	}
+}

@@ -470,7 +470,10 @@ func (s *Address) SetValidTo(val OptDate) {
 type AgentProfile struct {
 	// Autonomy level 0 (suggest only) to 3.
 	AutonomyLevel int32 `json:"autonomy_level"`
-	// Model identifier the agent runs on.
+	// The model alias the agent runs on, which the model gateway routes under the tenant's AI policy
+	// (ADR-0036): `erp-default`, `erp-extraction` or `erp-analytics`; another value is 422
+	// `identity.unknown_model_alias`. Profiles that named a Claude model before were moved to
+	// `erp-default`.
 	Model string `json:"model"`
 	// Monthly spending budget; absent when unlimited.
 	MonthlyBudget OptMoney `json:"monthly_budget"`

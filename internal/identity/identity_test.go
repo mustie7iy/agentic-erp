@@ -82,7 +82,7 @@ func (s *principals) createPrincipals(t *testing.T) {
 		t.Errorf("human ETag: got %s, want \"1\"", tag)
 	}
 	agent, _ := c.Must(201, "POST", "/v1/principals", `{"kind": "agent", "display_name": "AP agent", "all_companies": true,
-		"agent_profile": {"autonomy_level": 1, "model": "claude-opus-5-5", "description": "Invoice exceptions",
+		"agent_profile": {"autonomy_level": 1, "model": "erp-default", "description": "Invoice exceptions",
 		"monthly_budget": {"amount": "5000.00", "currency": "EUR"}}}`, "")
 	profile := agent["agent_profile"].(map[string]any)
 	if agent["all_companies"] != true {
@@ -125,11 +125,12 @@ func (s *principals) createPrincipals(t *testing.T) {
 		"unknown kind":          {`{"kind": "robot", "display_name": "R", "external_subject": "s1"}`, 422, "identity.unknown_principal_kind"},
 		"no subject":            {`{"kind": "human", "display_name": "H"}`, 422, "identity.subject_required"},
 		"agent no profile":      {`{"kind": "agent", "display_name": "A"}`, 422, "identity.agent_profile"},
-		"human profile":         {`{"kind": "human", "display_name": "H", "external_subject": "s2", "agent_profile": {"autonomy_level": 0, "model": "m", "description": "d"}}`, 422, "identity.agent_profile"},
+		"human profile":         {`{"kind": "human", "display_name": "H", "external_subject": "s2", "agent_profile": {"autonomy_level": 0, "model": "erp-default", "description": "d"}}`, 422, "identity.agent_profile"},
 		"subject taken":         {`{"kind": "human", "display_name": "H", "external_subject": "auth0|jonas"}`, 409, "identity.subject_taken"},
-		"bad budget":            {`{"kind": "agent", "display_name": "A", "agent_profile": {"autonomy_level": 0, "model": "m", "description": "d", "monthly_budget": {"amount": "5.001", "currency": "EUR"}}}`, 422, "request.invalid_amount"},
-		"budget too few digits": {`{"kind": "agent", "display_name": "A", "agent_profile": {"autonomy_level": 0, "model": "m", "description": "d", "monthly_budget": {"amount": "5.0", "currency": "EUR"}}}`, 422, "request.invalid_amount"},
-		"unknown currency":      {`{"kind": "agent", "display_name": "A", "agent_profile": {"autonomy_level": 0, "model": "m", "description": "d", "monthly_budget": {"amount": "5.00", "currency": "XXQ"}}}`, 422, "identity.unknown_currency"},
+		"bad budget":            {`{"kind": "agent", "display_name": "A", "agent_profile": {"autonomy_level": 0, "model": "erp-default", "description": "d", "monthly_budget": {"amount": "5.001", "currency": "EUR"}}}`, 422, "request.invalid_amount"},
+		"budget too few digits": {`{"kind": "agent", "display_name": "A", "agent_profile": {"autonomy_level": 0, "model": "erp-default", "description": "d", "monthly_budget": {"amount": "5.0", "currency": "EUR"}}}`, 422, "request.invalid_amount"},
+		"a model, not an alias": {`{"kind": "agent", "display_name": "A", "agent_profile": {"autonomy_level": 0, "model": "claude-opus-5-5", "description": "d"}}`, 422, "identity.unknown_model_alias"},
+		"unknown currency":      {`{"kind": "agent", "display_name": "A", "agent_profile": {"autonomy_level": 0, "model": "erp-default", "description": "d", "monthly_budget": {"amount": "5.00", "currency": "XXQ"}}}`, 422, "identity.unknown_currency"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			api := c
@@ -178,9 +179,9 @@ func (s *principals) readAndUpdatePrincipals(t *testing.T) {
 		t.Fatalf("email: %v", got)
 	}
 	c.Problem(412, "request.version_mismatch", "PATCH", "/v1/principals/"+id(human), `{}`, `"1"`)
-	c.Problem(422, "identity.agent_profile", "PATCH", "/v1/principals/"+id(human), `{"agent_profile": {"autonomy_level": 0, "model": "m", "description": "d"}}`, `"3"`)
+	c.Problem(422, "identity.agent_profile", "PATCH", "/v1/principals/"+id(human), `{"agent_profile": {"autonomy_level": 0, "model": "erp-default", "description": "d"}}`, `"3"`)
 	c.Problem(404, "request.not_found", "PATCH", "/v1/principals/"+uuid.NewString(), `{}`, `"1"`)
-	got, _ = c.Must(200, "PATCH", "/v1/principals/"+id(agent), `{"agent_profile": {"autonomy_level": 2, "model": "claude-opus-5-5", "description": "Invoice exceptions"}}`, `"1"`)
+	got, _ = c.Must(200, "PATCH", "/v1/principals/"+id(agent), `{"agent_profile": {"autonomy_level": 2, "model": "erp-default", "description": "Invoice exceptions"}}`, `"1"`)
 	p := got["agent_profile"].(map[string]any)
 	if p["autonomy_level"] != float64(2) {
 		t.Errorf("profile autonomy level: got %v, want 2", p["autonomy_level"])
@@ -189,7 +190,7 @@ func (s *principals) readAndUpdatePrincipals(t *testing.T) {
 		t.Errorf("profile monthly budget: got %v, want none", p["monthly_budget"])
 	}
 	// The same profile again changes nothing in it.
-	c.Must(200, "PATCH", "/v1/principals/"+id(agent), `{"agent_profile": {"autonomy_level": 2, "model": "claude-opus-5-5", "description": "Invoice exceptions"}}`, `"2"`)
+	c.Must(200, "PATCH", "/v1/principals/"+id(agent), `{"agent_profile": {"autonomy_level": 2, "model": "erp-default", "description": "Invoice exceptions"}}`, `"2"`)
 	changes := events(t, ten, "agent_profile_changed")
 	if len(changes) != 2 {
 		t.Fatalf("profile events: got %d, want 2: %v", len(changes), changes)
