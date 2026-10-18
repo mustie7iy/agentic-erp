@@ -147,20 +147,17 @@ func DevIssuer(adminURL string, h *http.Client) Mint {
 }
 
 // Gateway gives each repeat's agent the live model through the cell's
-// gateway, with its own token, on the suite's alias, metered.
+// gateway, with its own token, on the suite's alias; what it cost is read
+// from the tenant's ledger.
 type Gateway struct {
 	Alias string // the suite's
 }
 
 // For is the agent's runner on the gateway.
-func (g Gateway) For(_ context.Context, agent *apitools.Client, _ Case, _ map[string]string) (*llm.Runner, *Meter, error) {
-	m := &Meter{}
-	if agent.HTTP != nil {
-		m.Next = agent.HTTP.Transport
-	}
-	r := llm.Gateway(agent.BaseURL, agent.Token, &http.Client{Transport: m})
+func (g Gateway) For(_ context.Context, agent *apitools.Client, _ Case, _ map[string]string) (*llm.Runner, error) {
+	r := llm.Gateway(agent.BaseURL, agent.Token, agent.HTTP)
 	r.Model = g.Alias
-	return r, m, nil
+	return r, nil
 }
 
 func client(h *http.Client) *http.Client {

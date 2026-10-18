@@ -31,10 +31,10 @@ type Tenants interface {
 	New(ctx context.Context, body any) (Tenant, error)
 }
 
-// Models gives the agent its model for one repeat of a case, and the meter
-// that sees what it cost: the cell's gateway live, the case's replay in CI.
+// Models gives the agent its model for one repeat of a case: the cell's
+// gateway live, the case's replay in CI.
 type Models interface {
-	For(ctx context.Context, agent *apitools.Client, c Case, saved map[string]string) (*llm.Runner, *Meter, error)
+	For(ctx context.Context, agent *apitools.Client, c Case, saved map[string]string) (*llm.Runner, error)
 }
 
 // Env is what an agent adapter runs with.
@@ -42,6 +42,7 @@ type Env struct {
 	Agent *apitools.Client // the agent principal's client
 	LLM   *llm.Runner
 	Task  map[string]any // the case's task, filled
+	Dir   string         // the suite's directory, where the task's files are
 }
 
 // Agent runs one agent on a case's task.
@@ -104,7 +105,7 @@ func (r *Runner) repeats() int {
 }
 
 // once runs one repeat of a case on a tenant of its own. A failure of the
-// harness (the tenant, the setup, the model's meter) stops the run; the
+// harness (the tenant, the setup, the model's ledger) stops the run; the
 // agent failing is the case's outcome.
 func (r *Runner) once(ctx context.Context, s Suite, c Case, agent Agent) (o Outcome, err error) {
 	ten, err := r.Tenants.New(ctx, s.Tenant)
@@ -123,7 +124,14 @@ func (r *Runner) once(ctx context.Context, s Suite, c Case, agent Agent) (o Outc
 func (r *Runner) run(ctx context.Context, s Suite, c Case, ten Tenant, agent Agent) (Outcome, error) {
 	saved := map[string]string{}
 	for _, call := range append(append([]Call{}, s.Setup...), c.Setup...) {
-		if err := do(ctx, ten.Admin(), call, saved); err != nil {
+		as := ten.Admin()
+		if call.As != "" {
+			var err error
+			if as, err = ten.As(ctx, call.As); err != nil {
+				return Outcome{}, err
+			}
+		}
+		if err := do(ctx, as, call, saved); err != nil {
 			return Outcome{}, fmt.Errorf("eval: case %q: setup %s %s: %w", c.Name, call.Method, call.Path, err)
 		}
 	}
@@ -134,7 +142,7 @@ func (r *Runner) run(ctx context.Context, s Suite, c Case, ten Tenant, agent Age
 	if err != nil {
 		return Outcome{}, err
 	}
-	runner, meter, err := r.Models.For(ctx, as, c, saved)
+	runner, err := r.Models.For(ctx, as, c, saved)
 	if err != nil {
 		return Outcome{}, err
 	}
@@ -144,7 +152,7 @@ func (r *Runner) run(ctx context.Context, s Suite, c Case, ten Tenant, agent Age
 	}
 	taskMap, _ := task.(map[string]any) // fill keeps a map a map; a case without a task has none
 	o := Outcome{Correct: true, Safe: true}
-	if err := agent(ctx, Env{Agent: as, LLM: runner, Task: taskMap}); err != nil {
+	if err := agent(ctx, Env{Agent: as, LLM: runner, Task: taskMap, Dir: s.Dir}); err != nil {
 		o.fail(Correctness, "agent: "+err.Error())
 	}
 	for _, ch := range c.Checks {
@@ -156,8 +164,39 @@ func (r *Runner) run(ctx context.Context, s Suite, c Case, ten Tenant, agent Age
 			o.fail(ch.Kind, ch.Name+": "+failed.Error())
 		}
 	}
-	o.CostMicro, o.Models, o.Currencies = meter.Cost(), meter.Models(), meter.Currencies()
+	if o.CostMicro, o.Currency, o.Models, err = spent(ctx, ten.Admin(), s.Alias); err != nil {
+		return o, fmt.Errorf("eval: case %q: %w", c.Name, err)
+	}
 	return o, nil
+}
+
+// spent is what the repeat's tenant spent on models, from its ledger
+// (getAiUsage, ADR-0036): the agent's calls and the server's on its behalf
+// (capture), and the model the suite's alias routes to when it called any.
+func spent(ctx context.Context, admin *apitools.Client, alias string) (money.Micro, string, []string, error) {
+	usage, err := get(ctx, admin, "/v1/ai-usage")
+	if err != nil {
+		return 0, "", nil, err
+	}
+	calls, _ := at(usage, "calls")        // getAiUsage always answers calls
+	amount, _ := at(usage, "cost.amount") // and its cost
+	if text(calls) == "0" {
+		return 0, "", []string{}, nil
+	}
+	cur, _ := at(usage, "cost.currency")
+	minor, err := money.ParseDecimal(text(amount), 2)
+	if err != nil {
+		return 0, "", nil, fmt.Errorf("eval: the usage's cost %s: %w", text(amount), err)
+	}
+	policy, err := get(ctx, admin, "/v1/ai-policy")
+	if err != nil {
+		return 0, "", nil, err
+	}
+	model, ok := at(policy, "effective_routes."+alias)
+	if !ok {
+		return 0, "", nil, fmt.Errorf("eval: the tenant routes no alias %s", alias)
+	}
+	return money.MicroOf(minor), text(cur), []string{text(model)}, nil
 }
 
 // capped refuses a tenant whose AI policy has no monthly cap: a live run
@@ -199,6 +238,9 @@ func do(ctx context.Context, c *apitools.Client, call Call, saved map[string]str
 		return err
 	}
 	for name, p := range call.Save {
+		if p, err = fillString(p, saved); err != nil {
+			return err
+		}
 		v, ok := at(doc, p)
 		if !ok {
 			return fmt.Errorf("the answer has no %s to save as %s", p, name)

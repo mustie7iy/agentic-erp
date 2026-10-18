@@ -40,6 +40,9 @@ type Suite struct {
 	Configuration string `yaml:"configuration"`
 	Setup         []Call `yaml:"setup"` // every case's, before its own
 	Cases         []Case `yaml:"cases"`
+	// Dir is the suite file's directory, which Load sets: where a task's
+	// files are (a document to capture).
+	Dir string `yaml:"-"`
 	// ReplayVars name values a replay reads from the agent's requests to
 	// the model (name → a regular expression whose first group is the
 	// value), for its turns' {{name}}: the session id the agent opened,
@@ -62,10 +65,13 @@ type Case struct {
 	Replay []Turn         `yaml:"replay"` // the scripted model's turns, for replay runs
 }
 
-// Call is one API call of a setup, as the tenant's administrator. Saved
-// values (Save: name → dotted path in the answer) fill {{name}} in later
-// calls, the task, the checks and the replay.
+// Call is one API call of a setup, as the tenant's administrator or, with
+// As, another of its principals (an approver deciding what the
+// administrator asked). Saved values (Save: name → dotted path in the
+// answer, itself filled) fill {{name}} in later calls, the task, the
+// checks and the replay.
 type Call struct {
+	As     string            `yaml:"as"` // a subject; empty: the administrator
 	Method string            `yaml:"method"`
 	Path   string            `yaml:"path"`
 	Body   any               `yaml:"body"`
@@ -102,6 +108,7 @@ func Load(path string) (Suite, error) {
 		return Suite{}, fmt.Errorf("eval: read suite: %w", err)
 	}
 	s, err := Parse(raw)
+	s.Dir = filepath.Dir(path)
 	if err != nil || s.Configuration == "" {
 		return s, err
 	}

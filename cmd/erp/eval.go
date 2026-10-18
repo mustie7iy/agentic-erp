@@ -5,6 +5,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/mustie7iy/agentic-erp/internal/agent"
+	"github.com/mustie7iy/agentic-erp/internal/apitools"
 
 	"github.com/mustie7iy/agentic-erp/internal/eval"
 	"github.com/mustie7iy/agentic-erp/internal/money"
@@ -12,7 +18,36 @@ import (
 
 // evalAgents are the adapters of the agents a suite may evaluate, by agent
 // type (ADR-0039).
-var evalAgents = map[string]eval.Agent{}
+var evalAgents = map[string]eval.Agent{"ap_exceptions": apExceptions, "capture": captureEval}
+
+// captureEval captures the task's document for its legal entity as erp
+// capture does; the server's extraction runs through the cell's gateway on
+// erp-extraction. A capture the API refuses is the case's to judge.
+func captureEval(ctx context.Context, env eval.Env) error {
+	doc, err := os.ReadFile(filepath.Join(env.Dir, fmt.Sprint(env.Task["document"]))) // #nosec G304 -- a document the suite names
+	if err != nil {
+		return fmt.Errorf("capture: read the document: %w", err)
+	}
+	_, err = capture(ctx, env.Agent, map[string]string{"legal_entity_id": fmt.Sprint(env.Task["legal_entity_id"])}, doc)
+	var refused *apitools.Error
+	if errors.As(err, &refused) {
+		return nil
+	}
+	return err
+}
+
+// apExceptions reviews the held invoices as erp agent invoices does; an
+// invoice it could not review fails the case.
+func apExceptions(ctx context.Context, env eval.Env) error {
+	res, err := (&agent.Agent{LLM: env.LLM, API: env.Agent}).Review(ctx)
+	if err != nil {
+		return fmt.Errorf("review: %w", err)
+	}
+	if len(res.Errors) > 0 {
+		return fmt.Errorf("review: %s", strings.Join(res.Errors, "; "))
+	}
+	return nil
+}
 
 // evalModels gives a live run its model; tests replace it with the
 // scripted model, so no test spends.

@@ -63,34 +63,45 @@ func fillString(s string, saved map[string]string) (string, error) {
 	return v.(string), nil // fill keeps a string a string
 }
 
-// at is the value at a dotted path of a decoded JSON answer: object keys
-// and list indexes, and "#" for a list's length; ok false when the path
-// does not lead anywhere.
+// at is the value at a dotted path of a decoded JSON answer: object keys,
+// list indexes, "#" for a list's length and "?field=value" for a list's
+// first element whose field is value; ok false when the path does not lead
+// anywhere.
 func at(doc any, path string) (any, bool) {
 	cur := doc
 	for _, part := range strings.Split(path, ".") {
+		var ok bool
 		switch v := cur.(type) {
 		case map[string]any:
-			next, ok := v[part]
-			if !ok {
-				return nil, false
-			}
-			cur = next
+			cur, ok = v[part]
 		case []any:
-			if part == "#" {
-				cur = json.Number(strconv.Itoa(len(v)))
-				continue
-			}
-			i, err := strconv.Atoi(part)
-			if err != nil || i < 0 || i >= len(v) {
-				return nil, false
-			}
-			cur = v[i]
-		default:
+			cur, ok = inList(v, part)
+		}
+		if !ok {
 			return nil, false
 		}
 	}
 	return cur, true
+}
+
+// inList is one step of a path into a list: its length, an element by
+// index, or the first element whose field has a value.
+func inList(v []any, part string) (any, bool) {
+	if part == "#" {
+		return json.Number(strconv.Itoa(len(v))), true
+	}
+	if cond, ok := strings.CutPrefix(part, "?"); ok {
+		field, want, ok := strings.Cut(cond, "=")
+		if !ok {
+			return nil, false
+		}
+		return where(v, field, want)
+	}
+	i, err := strconv.Atoi(part)
+	if err != nil || i < 0 || i >= len(v) {
+		return nil, false
+	}
+	return v[i], true
 }
 
 // same reports whether a decoded JSON value equals a suite's expected one,
@@ -108,4 +119,16 @@ func text(v any) string {
 	}
 	b, _ := json.Marshal(v) // decoded JSON always encodes
 	return string(b)
+}
+
+// where is the first element of list whose field, as text, is want.
+func where(list []any, field, want string) (any, bool) {
+	for _, e := range list {
+		if m, ok := e.(map[string]any); ok {
+			if v, ok := m[field]; ok && text(v) == want {
+				return e, true
+			}
+		}
+	}
+	return nil, false
 }

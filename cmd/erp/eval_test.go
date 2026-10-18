@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -17,6 +18,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	capturepkg "github.com/mustie7iy/agentic-erp/internal/capture"
 	"github.com/mustie7iy/agentic-erp/internal/controlplane"
 	"github.com/mustie7iy/agentic-erp/internal/eval"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
@@ -33,6 +35,21 @@ import (
 type replayCell struct {
 	api, control *httptest.Server
 	mint         eval.Mint
+	extract      *swapExtractor // the server's own model calls (capture), scripted per case
+}
+
+// swapExtractor is capture's extraction on the scripted model the current
+// case plays.
+type swapExtractor struct {
+	mu     sync.Mutex
+	runner *llm.Runner
+}
+
+func (s *swapExtractor) Extract(ctx context.Context, pdf []byte) (*capturepkg.Extraction, error) {
+	s.mu.Lock()
+	r := s.runner
+	s.mu.Unlock()
+	return (&capturepkg.ClaudeExtractor{LLM: r}).Extract(ctx, pdf)
 }
 
 func newReplayCell(t *testing.T) replayCell {
@@ -40,7 +57,8 @@ func newReplayCell(t *testing.T) replayCell {
 	// The suites cap their tenants' AI; a cap's routes need priced models.
 	pgtest.Exec(t, `INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read, recorded_by)
 		VALUES ('claude-opus-5-5', '2026-01-01', 'USD', 400000000, 2000000000, 500000000, 20000000, 'test') ON CONFLICT DO NOTHING`)
-	api := apitest.New(t)
+	extract := &swapExtractor{}
+	api := apitest.NewWith(t, func(c *app.Config) { c.Extractor = extract })
 	is := api.Issuer
 	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
 	if err != nil {
@@ -54,7 +72,7 @@ func newReplayCell(t *testing.T) replayCell {
 	s := &controlplane.Service{Pool: pool, AppRole: "erp_app", ControlRole: "erp_control", Pages: pages, Keys: keys,
 		Provisioner: &provisioning.Provisioner{Pool: pool, AppRole: "erp_app", Keys: keys, Issuers: []string{is.URL},
 			Configuration: app.Configuration(app.Config{FieldKeys: keys})}}
-	c := replayCell{api: httptest.NewServer(api.Handler), control: httptest.NewServer(controlplane.Handler(s, v, slog.New(slog.NewTextHandler(io.Discard, nil))))}
+	c := replayCell{extract: extract, api: httptest.NewServer(api.Handler), control: httptest.NewServer(controlplane.Handler(s, v, slog.New(slog.NewTextHandler(io.Discard, nil))))}
 	t.Cleanup(c.api.Close)
 	t.Cleanup(c.control.Close)
 	c.mint = func(_ context.Context, tenant, subject string) (string, error) {
@@ -71,18 +89,19 @@ func newReplayCell(t *testing.T) replayCell {
 type replay struct {
 	t    *testing.T
 	vars map[string]*regexp.Regexp
+	cell replayCell
 }
 
-func newReplay(t *testing.T, s eval.Suite) replay {
+func newReplay(t *testing.T, s eval.Suite, c replayCell) replay {
 	t.Helper()
-	r := replay{t: t, vars: map[string]*regexp.Regexp{}}
+	r := replay{t: t, vars: map[string]*regexp.Regexp{}, cell: c}
 	for name, re := range s.ReplayVars {
 		r.vars[name] = regexp.MustCompile(re)
 	}
 	return r
 }
 
-func (r replay) For(_ context.Context, _ *apitools.Client, c eval.Case, saved map[string]string) (*llm.Runner, *eval.Meter, error) {
+func (r replay) For(_ context.Context, _ *apitools.Client, c eval.Case, saved map[string]string) (*llm.Runner, error) {
 	steps := make([]llmtest.Step, 0, len(c.Replay))
 	for _, turn := range c.Replay {
 		filled := func(body string, v any) any {
@@ -108,7 +127,11 @@ func (r replay) For(_ context.Context, _ *apitools.Client, c eval.Case, saved ma
 		}
 		steps = append(steps, llmtest.ToolFn(turn.Tool, func(body string) any { return filled(body, turn.Input) }))
 	}
-	return llmtest.New(r.t, steps...).Runner(), &eval.Meter{}, nil
+	runner := llmtest.New(r.t, steps...).Runner()
+	r.cell.extract.mu.Lock()
+	r.cell.extract.runner = runner // the server's calls play the same turns
+	r.cell.extract.mu.Unlock()
+	return runner, nil
 }
 
 // echo is the test adapter: it opens a session for the task's purpose,
@@ -152,7 +175,7 @@ func TestEvalReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	models, mint := evalModels, evalMint
-	evalModels = func(string) eval.Models { return newReplay(t, s) }
+	evalModels = func(string) eval.Models { return newReplay(t, s, c) }
 	evalMint = func(string) eval.Mint { return c.mint }
 	t.Cleanup(func() { evalModels, evalMint = models, mint })
 	dir := t.TempDir()
@@ -180,6 +203,42 @@ func TestEvalReplay(t *testing.T) {
 	t.Cleanup(func() { out, errOut = os.Stdout, os.Stderr })
 	if code := run(context.Background(), []string{"eval", "run", "-suite", suitePath, "-out", t.TempDir(), "-repeats", "1"}); code == 0 {
 		t.Error("a summary not printed: got exit 0")
+	}
+}
+
+// TestEvalSuites: every suite of the repository (evals/*/suite.yaml)
+// replays to level 2: its replays are what the agent should do, so the
+// suite, its setup through the API and its checks hold together. A suite
+// that does not is broken, not the agent.
+func TestEvalSuites(t *testing.T) {
+	suites, _ := filepath.Glob("../../evals/*/suite.yaml")
+	if len(suites) == 0 {
+		t.Fatal("no suites under evals/")
+	}
+	for _, path := range suites {
+		t.Run(filepath.Base(filepath.Dir(path)), func(t *testing.T) {
+			c := newReplayCell(t)
+			vars := map[string]string{"ERP_CONTROL_URL": c.control.URL, "ERP_API_URL": c.api.URL}
+			getenv = func(k string) string { return vars[k] }
+			t.Cleanup(func() { getenv = os.Getenv })
+			s, err := eval.Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			models, mint := evalModels, evalMint
+			evalModels = func(string) eval.Models { return newReplay(t, s, c) }
+			evalMint = func(string) eval.Mint { return c.mint }
+			t.Cleanup(func() { evalModels, evalMint = models, mint })
+			out := t.TempDir()
+			if got := must(t, "eval", "run", "-suite", path, "-out", out); !strings.Contains(got, "safety failures, level 2") {
+				reports, _ := filepath.Glob(filepath.Join(out, "*", "*", "*.json"))
+				for _, r := range reports {
+					b, _ := os.ReadFile(r)
+					t.Log(string(b))
+				}
+				t.Errorf("replay: got %s, want level 2", got)
+			}
+		})
 	}
 }
 

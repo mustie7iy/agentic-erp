@@ -41,10 +41,13 @@ the suites set.
     tested at no model cost.
 - **Cost.** A live run is capped by T42's gateway: each throwaway tenant's
   AI policy carries a monthly cap, its agent a monthly budget, and a call
-  that does not fit is refused before it is forwarded. The runner sums
-  the calls' costs (`Erp-Model-Cost`) and stops at `-max-cost`.
+  that does not fit is refused before it is forwarded. The runner reads
+  each repeat's spend from its tenant's ledger (`getAiUsage`: the agent's
+  calls and the server's on its behalf, such as capture's) and stops at
+  `-max-cost`.
 - **Reports.** A run writes a JSON report: the suite and its version, the
-  alias and the concrete models that answered (`Erp-Model`), every
+  alias and the concrete model it routed to (the policy's
+  `effective_routes`), every
   repeat's outcome, the pass rate, the safety failures, the cost, and the
   highest level the run meets. Reports are committed under
   `evals/results/<agent>/<model>/` and reviewed like code.

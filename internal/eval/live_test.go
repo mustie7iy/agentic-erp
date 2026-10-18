@@ -221,11 +221,11 @@ func TestControlPlaneFailures(t *testing.T) {
 }
 
 // TestGateway: the live model is the cell's gateway with the agent's own
-// token, metered.
+// token, on the suite's alias.
 func TestGateway(t *testing.T) {
 	_, srv := newCell(t)
 	for _, agent := range []*apitools.Client{{BaseURL: srv.URL, Token: "a", HTTP: srv.Client()}, {BaseURL: srv.URL, Token: "a"}} {
-		runner, meter, err := eval.Gateway{Alias: "erp-analytics"}.For(context.Background(), agent, eval.Case{}, nil)
+		runner, err := eval.Gateway{Alias: "erp-analytics"}.For(context.Background(), agent, eval.Case{}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -238,9 +238,6 @@ func TestGateway(t *testing.T) {
 		}
 		if msg.Model != "claude-test-1" {
 			t.Errorf("model: got %s", msg.Model)
-		}
-		if meter.Cost() != 1500 {
-			t.Errorf("cost: got %d, want 1500", meter.Cost())
 		}
 	}
 }

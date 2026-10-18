@@ -21,16 +21,20 @@ import (
 // fakeAPI is a tiny public API: things with a status the agent sets, and
 // the agent's recorded tool calls, per tenant (its token's prefix).
 type fakeAPI struct {
-	mu       sync.Mutex
-	status   map[string]string   // tenant → the thing's status
-	tools    map[string][]string // tenant → tools called
-	uncapped bool                // the tenants' AI policies have no cap
-	policy   string              // "down": the policy answers 503; "gone": the connection drops
+	mu          sync.Mutex
+	status      map[string]string   // tenant → the thing's status
+	tools       map[string][]string // tenant → tools called
+	uncapped    bool                // the tenants' AI policies have no cap
+	policy      string              // "down": the policy answers 503; "gone": the connection drops
+	cost        string              // what each tenant's ledger says it spent; empty: nothing
+	currency    string
+	usage       string         // "down": the usage answers 503; "unrouted": the alias routes nowhere once the cap is read
+	policyReads map[string]int // per tenant
 }
 
 func newFakeAPI(t *testing.T) (*fakeAPI, *httptest.Server) {
 	t.Helper()
-	f := &fakeAPI{status: map[string]string{}, tools: map[string][]string{}}
+	f := &fakeAPI{status: map[string]string{}, tools: map[string][]string{}, policyReads: map[string]int{}}
 	srv := httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(srv.Close)
 	return f, srv
@@ -71,7 +75,21 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 			items = append(items, map[string]string{"tool": tool})
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"items": items})
+	case r.URL.Path == "/v1/ai-usage":
+		switch {
+		case f.usage == "down":
+			w.WriteHeader(503)
+		case f.cost == "":
+			_, _ = w.Write([]byte(`{"calls": 0, "cost": {"amount": "0.00", "currency": "USD"}}`))
+		default:
+			_, _ = fmt.Fprintf(w, `{"calls": 2, "cost": {"amount": %q, "currency": %q}}`, f.cost, f.currency)
+		}
+	case r.URL.Path == "/v1/ai-policy" && f.usage == "policy down" && f.policyReads[ten] > 0:
+		w.WriteHeader(503)
+	case r.URL.Path == "/v1/ai-policy" && f.usage == "unrouted" && f.policyReads[ten] > 0:
+		_, _ = w.Write([]byte(`{"monthly_cap": {"amount": "50.00"}, "effective_routes": {}}`))
 	case r.URL.Path == "/v1/ai-policy":
+		f.policyReads[ten]++
 		switch f.policy {
 		case "down":
 			w.WriteHeader(503)
@@ -85,7 +103,7 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(`{"enabled": true}`))
 			return
 		}
-		_, _ = w.Write([]byte(`{"monthly_cap": {"amount": "50.00", "currency": "USD"}}`))
+		_, _ = w.Write([]byte(`{"monthly_cap": {"amount": "50.00", "currency": "USD"}, "effective_routes": {"erp-default": "claude-test-1"}}`))
 	case r.URL.Path == "/v1/down":
 		w.WriteHeader(502)
 	case r.URL.Path == "/v1/empty":
@@ -143,40 +161,12 @@ func (t *tenant) Close(context.Context) error {
 	return t.t.closeErr
 }
 
-// models gives no model: the fake agent needs none; each repeat costs
-// cost through a fake gateway answer.
-type models struct {
-	cost, currency string
-	err            error
+// models gives no model: the fake agent needs none.
+type models struct{ err error }
+
+func (m models) For(context.Context, *apitools.Client, eval.Case, map[string]string) (*llm.Runner, error) {
+	return nil, m.err
 }
-
-func (m models) For(ctx context.Context, _ *apitools.Client, _ eval.Case, _ map[string]string) (*llm.Runner, *eval.Meter, error) {
-	if m.err != nil {
-		return nil, nil, m.err
-	}
-	meter := &eval.Meter{Next: roundTrip(func(*http.Request) (*http.Response, error) {
-		h := http.Header{"Erp-Model-Cost": {m.cost}, "Erp-Model": {"claude-test-1"}, "Erp-Model-Cost-Currency": {"USD"}}
-		switch m.currency {
-		case "":
-		case "-":
-			h.Del("Erp-Model-Cost-Currency")
-		default:
-			h.Set("Erp-Model-Cost-Currency", m.currency)
-		}
-		return &http.Response{StatusCode: 200, Header: h, Body: http.NoBody}, nil
-	})}
-	req, _ := http.NewRequestWithContext(ctx, "POST", "http://gateway.test/v1/messages", nil)
-	resp, err := meter.RoundTrip(req)
-	if err != nil {
-		return nil, nil, err
-	}
-	_ = resp.Body.Close() // http.NoBody
-	return nil, meter, nil
-}
-
-type roundTrip func(*http.Request) (*http.Response, error)
-
-func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 const suiteYAML = `
 agent: fake_agent
@@ -232,8 +222,9 @@ func setThing(calls *int) eval.Agent {
 func runner(t *testing.T, calls *int) (*eval.Runner, *tenants) {
 	t.Helper()
 	api, srv := newFakeAPI(t)
+	api.cost, api.currency = "0.25", "USD"
 	ts := &tenants{url: srv.URL, api: api}
-	return &eval.Runner{Tenants: ts, Models: models{cost: "250000"}, Agents: map[string]eval.Agent{"fake_agent": setThing(calls)}}, ts
+	return &eval.Runner{Tenants: ts, Models: models{}, Agents: map[string]eval.Agent{"fake_agent": setThing(calls)}}, ts
 }
 
 // TestRunGrades: each case runs three times on a tenant of its own; a case
@@ -253,8 +244,8 @@ func TestRunGrades(t *testing.T) {
 	if rep.Level != 2 {
 		t.Errorf("level: got %d, want 2: %+v", rep.Level, rep.Cases)
 	}
-	if rep.CostMicro != 750000 {
-		t.Errorf("cost: got %d, want 750000", rep.CostMicro)
+	if rep.CostMicro != 75_000_000 {
+		t.Errorf("cost: got %d, want 75000000 (0.75 USD)", rep.CostMicro)
 	}
 	if len(rep.Models) != 1 || rep.Models[0] != "claude-test-1" {
 		t.Errorf("models: got %v, want [claude-test-1]", rep.Models)
@@ -332,7 +323,7 @@ func TestFewerRepeatsMeetNoLevel(t *testing.T) {
 func TestMaxCost(t *testing.T) {
 	var calls int
 	r, _ := runner(t, &calls)
-	r.MaxCost = 400000
+	r.MaxCost = 40_000_000
 	rep, err := r.Run(context.Background(), suite(t, suiteYAML))
 	if !errors.Is(err, eval.ErrMaxCost) {
 		t.Fatalf("got %v, want ErrMaxCost", err)
@@ -375,14 +366,22 @@ func TestHarnessFailures(t *testing.T) {
 			return strings.Replace(y, "body: {name: thing, tags: [a, 1]}", "body: {names: [\"{{nope}}\"]}", 1)
 		}, "{{nope}}"},
 		{"unsaved in the task", nil, func(y string) string { return strings.Replace(y, "thing: \"{{thing}}\"}", "thing: \"{{nope}}\"}", 1) }, "task"},
+		{"another principal's token", func(_ *eval.Runner, ts *tenants) { ts.asErr = boom }, func(y string) string {
+			return strings.Replace(y, "  - {path: /v1/empty, status: 204}", "  - {as: eval|approver, path: /v1/empty, status: 204}", 1)
+		}, "boom"},
+		{"unsaved in a save path", nil, func(y string) string { return strings.Replace(y, "amount: amount", "amount: \"{{nope}}\"", 1) }, "{{nope}}"},
 		{"unreachable API", func(_ *eval.Runner, ts *tenants) { ts.url = "http://127.0.0.1:1" }, nil, "call"},
-		{"no currency", func(r *eval.Runner, _ *tenants) { r.Models = models{cost: "1", currency: "-"} }, nil, "no stated currency"},
+		{"no currency", func(_ *eval.Runner, ts *tenants) { ts.api.currency = "" }, nil, "no stated currency"},
+		{"usage unreadable", func(_ *eval.Runner, ts *tenants) { ts.api.usage = "down" }, nil, "answered 503"},
+		{"usage not an amount", func(_ *eval.Runner, ts *tenants) { ts.api.cost = "lots" }, nil, "lots"},
+		{"policy unreadable for the model", func(_ *eval.Runner, ts *tenants) { ts.api.usage = "policy down" }, nil, "answered 503"},
+		{"the alias routed nowhere", func(_ *eval.Runner, ts *tenants) { ts.api.usage = "unrouted" }, nil, "routes no alias"},
 		{"check of a server failing", nil, func(y string) string { return strings.Replace(y, `get: "/v1/things/{{thing}}"`, `get: /v1/down`, 1) }, "answered 502"},
 		{"no monthly cap", func(_ *eval.Runner, ts *tenants) { ts.api.uncapped = true }, nil, "monthly cap"},
 		{"policy unreadable", func(_ *eval.Runner, ts *tenants) { ts.api.policy = "down" }, nil, "answered 503"},
 		{"policy unreachable", func(_ *eval.Runner, ts *tenants) { ts.api.policy = "gone" }, nil, "ai-policy"},
 		{"check answer not JSON", nil, func(y string) string { return strings.Replace(y, `get: "/v1/things/{{thing}}"`, `get: /v1/broken`, 1) }, "not JSON"},
-		{"another currency", func(r *eval.Runner, _ *tenants) { r.Models = models{cost: "1", currency: "EUR"} }, nil, "does not add up"},
+		{"another currency", func(_ *eval.Runner, ts *tenants) { ts.api.currency = "EUR" }, nil, "does not add up"},
 		{"check unreachable", nil, func(y string) string {
 			return strings.Replace(y, `get: "/v1/things/{{thing}}"`, `get: "http://127.0.0.1:1/x"`, 1)
 		}, "check"},
@@ -425,6 +424,10 @@ func TestCheckFailures(t *testing.T) {
 		{"a list index", `{name: c, kind: correctness, get: /v1/agent-sessions, expect: {items.0.id: s2}}`, "got s1"},
 		{"an index out of range", `{name: c, kind: correctness, get: /v1/agent-sessions, expect: {items.5.id: s1}}`, "items.5.id"},
 		{"into a value", `{name: c, kind: correctness, get: /v1/things/t1, expect: {status.x: s1}}`, "status.x"},
+		{"a filtered element", `{name: c, kind: correctness, get: /v1/agent-sessions, expect: {"items.?id=s1.id": s2}}`, "got s1"},
+		{"no element with the value", `{name: c, kind: correctness, get: /v1/agent-sessions, expect: {"items.?id=s9.id": s1}}`, "items.?id=s9.id"},
+		{"a filter without a value", `{name: c, kind: correctness, get: /v1/agent-sessions, expect: {"items.?id.id": s1}}`, "items.?id.id"},
+		{"a filter over other values", `{name: c, kind: correctness, get: /v1/things/t1, expect: {status: done, "id.?x=1": s1}}`, "id.?x=1"},
 		{"a tool outside", `{name: c, kind: safety, tools_within: [readThing]}`, "outside"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -460,7 +463,7 @@ func TestToolsUnreadable(t *testing.T) {
 			t.Cleanup(broken.Close)
 			_ = srv
 			var calls int
-			r := &eval.Runner{Tenants: &tenants{url: broken.URL}, Models: models{cost: "1"}, Agents: map[string]eval.Agent{"fake_agent": setThing(&calls)}, Repeats: 1}
+			r := &eval.Runner{Tenants: &tenants{url: broken.URL}, Models: models{}, Agents: map[string]eval.Agent{"fake_agent": setThing(&calls)}, Repeats: 1}
 			if _, err := r.Run(context.Background(), suite(t, suiteYAML)); err == nil || !strings.Contains(err.Error(), "list") {
 				t.Errorf("got %v, want the run stopped on the unreadable list", err)
 			}
@@ -567,38 +570,5 @@ func TestWrite(t *testing.T) {
 	}
 	if _, err := (eval.Report{Agent: "b"}).Write(dir); err == nil {
 		t.Error("write over a directory: got no error")
-	}
-}
-
-// TestMeter: the meter sums the gateway's costs and keeps the models that
-// answered; a failed call is passed on.
-func TestMeter(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Erp-Model-Cost", r.URL.Query().Get("cost"))
-		w.Header().Set("Erp-Model", r.URL.Query().Get("model"))
-	}))
-	t.Cleanup(srv.Close)
-	m := &eval.Meter{}
-	for _, q := range []string{"?cost=5&model=b", "?cost=7&model=a", "?cost=x&model=a", "?cost=-3"} {
-		req, _ := http.NewRequestWithContext(context.Background(), "GET", srv.URL+q, nil)
-		resp, err := m.RoundTrip(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_ = resp.Body.Close()
-	}
-	if m.Cost() != 12 {
-		t.Errorf("cost: got %d, want 12", m.Cost())
-	}
-	if got := strings.Join(m.Models(), ","); got != "a,b" {
-		t.Errorf("models: got %s, want a,b", got)
-	}
-	req, _ := http.NewRequestWithContext(context.Background(), "GET", "http://127.0.0.1:1", nil)
-	if resp, err := m.RoundTrip(req); err == nil {
-		_ = resp.Body.Close()
-		t.Error("an unreachable gateway: got no error")
-	}
-	if got := (&eval.Meter{}).Models(); got == nil || len(got) != 0 {
-		t.Errorf("no models: got %v, want an empty list", got)
 	}
 }
