@@ -202,7 +202,7 @@ func (Suppliers) PaymentTerm(ctx context.Context, code string) (PaymentTerm, boo
 	if err != nil {
 		return PaymentTerm{}, false, fmt.Errorf("partner: read payment term %s: %w", code, err)
 	}
-	if days1 != nil { // a tier's days and percent are null together (000004, 000065)
+	if days1 != nil { // a tier's days and percent are null together (000004, 000067)
 		t.Discounts = append(t.Discounts, Discount{Days: *days1, Percent: *pct1})
 	}
 	if days2 != nil {

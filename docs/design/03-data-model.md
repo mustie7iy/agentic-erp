@@ -430,7 +430,7 @@ which drives the payment hold after bank changes. Fingerprints detect
 duplicate tax numbers and bank accounts across partners without decrypting.
 
 A payment term grants up to two cash discount tiers before its net days,
-as SAP's T052 does (ZTAG1/ZPRZ1, ZTAG2/ZPRZ2, ZTAG3; migration 000065,
+as SAP's T052 does (ZTAG1/ZPRZ1, ZTAG2/ZPRZ2, ZTAG3; migration 000067,
 T36a): a percent off for payment within so many days of the baseline date,
 the second tier later and smaller than the first and both within the net
 days (`payment_term_discount2_tiers`). The configuration document carries
@@ -701,7 +701,7 @@ items that named it before stay as they are, and posting them is refused),
 `tax_code` (rate, account, direction).
 
 An open item on a supplier reconciliation account keeps the payment terms
-it was posted with (`open_item_terms`, migration 000066, T36b), as SAP
+it was posted with (`open_item_terms`, migration 000068, T36b), as SAP
 copies ZTERM, ZFBDT and ZBD1T..ZBD3T into the vendor line: the term's
 code, the baseline date, the net days and up to two discount tiers, with
 `partner.payment_term`'s rules, insert-only. The posting context passes
@@ -1046,7 +1046,7 @@ Each kind is matched and posted by its kind (T34c):
   captured.
 - **Payment terms** (T36b): a document posts with the payment terms SAP's
   invoice verification would give it, kept in `supplier_invoice_terms`
-  (migration 000066, insert-only) and passed to the ledger for its open
+  (migration 000068, insert-only) and passed to the ledger for its open
   item (§3.7): a correction naming an invoice has that invoice's terms
   (none for one posted before terms were kept); a credit memo or
   subsequent credit naming none has none, as it is due at once and earns
@@ -1211,7 +1211,7 @@ item, computed exactly and rounded half away from zero to the currency's
 minor unit, item by item; one that would round to the whole item is a
 minor unit less, so an item always pays something. `payment_item` keeps
 each item's discount (`discount_amount`, of the item's sign and smaller
-than it, migration 000067), `payment` their total (derived when the
+than it, migration 000069), `payment` their total (derived when the
 proposal writes both), and a payment's amount
 is what it pays after them: the bank file pays it, and a supplier whose
 items net to nothing after their discounts is excluded (`debit_balance`).
@@ -1237,7 +1237,7 @@ report driven by bases does not see the base reduction (input tax, as
 UStVA reports it, is corrected). A run that takes a
 discount fails at proposal without a `cash_discount` account (422
 `payments.no_cash_discount_account`). A payment records the last day its
-discounts are earned (`discount_until`, migration 000068, shown on the
+discounts are earned (`discount_until`, migration 000070, shown on the
 payment so the approver knows the release-by date), and the release
 of a proposed run after it is refused (409 `payments.discount_lapsed`,
 days in UTC): the run is rejected and proposed again, at the discount then

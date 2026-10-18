@@ -4,7 +4,7 @@
 -- terms it was posted with, and so does its open item, so a later change
 -- to a payment term changes neither its net due date nor the cash
 -- discount it earns. Baseline date, net days and up to two discount
--- tiers, with the rules of partner.payment_term (000004, 000065). Written
+-- tiers, with the rules of partner.payment_term (000004, 000067). Written
 -- in the posting transaction and never changed: like the line, history.
 -- Separate tables, so neither the partitioned journal nor the invoices
 -- are altered; an invoice or item posted before T36 has no row.
