@@ -29,6 +29,19 @@ func TestOperationsFromTheContract(t *testing.T) {
 	if approve := ops["approveApprovalRequest"]; approve.AgentAllowed {
 		t.Fatal("approval decisions must be refused to agents")
 	}
+	// Only proposing writes are x-autonomy: propose; no read is marked,
+	// since every level reads (ADR-0036).
+	for id, want := range map[string]bool{"createRecommendation": true, "createChangeRequest": true, "parkJournalEntry": true,
+		"postSupplierInvoice": false, "releasePurchaseOrder": false} {
+		if got := ops[id].Proposes; got != want {
+			t.Errorf("%s proposes: got %v, want %v", id, got, want)
+		}
+	}
+	for id, op := range ops {
+		if op.Proposes && op.Method == "GET" {
+			t.Errorf("%s: a read marked x-autonomy: propose", id)
+		}
+	}
 }
 
 func TestOperationsRejectsBadContracts(t *testing.T) {
@@ -36,6 +49,7 @@ func TestOperationsRejectsBadContracts(t *testing.T) {
 		"not yaml":      "paths: [",
 		"no permission": "paths:\n  /v1/x:\n    get:\n      operationId: getX\n",
 		"bad operation": "paths:\n  /v1/x:\n    get: [1]\n",
+		"bad autonomy":  "paths:\n  /v1/x:\n    post:\n      operationId: x\n      x-permission: a.b.c\n      x-autonomy: decide\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parseOperations([]byte(src), true); err == nil {

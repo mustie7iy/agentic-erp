@@ -29,6 +29,9 @@ type Operation struct {
 	Path         string
 	Permission   string // x-permission
 	AgentAllowed bool   // false when x-agent: false
+	// Proposes is x-autonomy: propose: the operation only proposes, and an
+	// agent of autonomy level 1 may perform it (ADR-0036).
+	Proposes bool
 }
 
 // Operations returns every operation in the contract by operationId.
@@ -57,6 +60,7 @@ func parseOperations(src []byte, permissioned bool) (map[string]Operation, error
 				ID         string `yaml:"operationId"`
 				Permission string `yaml:"x-permission"`
 				Agent      *bool  `yaml:"x-agent"`
+				Autonomy   string `yaml:"x-autonomy"`
 			}
 			if err := node.Decode(&op); err != nil {
 				return nil, fmt.Errorf("api: %s %s: %w", method, path, err)
@@ -64,9 +68,12 @@ func parseOperations(src []byte, permissioned bool) (map[string]Operation, error
 			if op.ID == "" || (permissioned && op.Permission == "") {
 				return nil, fmt.Errorf("api: %s %s: operationId and x-permission are required", method, path)
 			}
+			if op.Autonomy != "" && op.Autonomy != "propose" {
+				return nil, fmt.Errorf("api: %s %s: x-autonomy is propose or absent", method, path)
+			}
 			ops[op.ID] = Operation{
 				ID: op.ID, Method: strings.ToUpper(method), Path: path, Permission: op.Permission,
-				AgentAllowed: op.Agent == nil || *op.Agent,
+				AgentAllowed: op.Agent == nil || *op.Agent, Proposes: op.Autonomy == "propose",
 			}
 		}
 	}

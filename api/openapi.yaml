@@ -22,7 +22,7 @@ info:
     - **Resource kinds.** Mutable resources carry `id`, `version` (= ETag), `created_*` and `updated_*`. Insert-only resources (journal entries, goods receipts, clearings, match results, decisions, audit events) carry `id`, `created_at`, `created_by`; corrections are new documents (`:reverse`). Effective-dated grants (role assignments, role permissions, company access, SoD rules, bank accounts) add `valid_from`, `valid_to`, `ended_at`, `ended_by`: they are never updated otherwise and never deleted, only ended (`:end`). Resources without a version have an ETag derived from their representation, so `If-Match` still guards their custom methods.
     - **Long-running work** returns 202 with an `Operation` (ADR-0012).
     - **Approvals.** Approval decisions are made only on approval requests (`:approve`, `:reject`), which require `workflow.request.decide` plus the approval permission of the object type, listed per operation in `x-object-permissions` (object type to permission code). Payment runs are released directly (`payment-runs/{id}:release`) by a person other than the proposer.
-    - **Agents** call the same operations. Operations marked `x-agent: false` (approval decisions, identity administration) are never exposed as agent tools and refuse agent tokens. While the tenant's AI is off (`getAiPolicy`: switched off by its administrators or suspended by the platform's operators), every agent request is refused with 403 `agents.ai_disabled`.
+    - **Agents** call the same operations. Operations marked `x-agent: false` (approval decisions, identity administration) are never exposed as agent tools and refuse agent tokens. An agent acts within its autonomy level (`agent_profile.autonomy_level`, ADR-0036): level 0 only reads; level 1 also performs the operations marked `x-autonomy: propose`, which only propose (its sessions, tool-call records and recommendations, change requests, drafts); level 2 performs any write its permissions allow. Above its level an agent is refused with 403 `identity.autonomy_insufficient`. While the tenant's AI is off (`getAiPolicy`: switched off by its administrators or suspended by the platform's operators), every agent request is refused with 403 `agents.ai_disabled`.
     - **Rate limits.** Every response carries `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`; 429 adds `Retry-After`.
   contact:
     name: Platform API team
@@ -2069,6 +2069,7 @@ paths:
       summary: Propose a configuration change
       description: "Creates a change request in status `draft`."
       x-permission: config.change.propose
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -2157,6 +2158,7 @@ paths:
       summary: Update a draft or invalid change request
       description: "Changes a change request in status `draft` or `invalid`; an `invalid` one returns to `draft` and must be submitted again. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears an optional field, arrays are replaced as a whole."
       x-permission: config.change.propose
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -2214,6 +2216,7 @@ paths:
       summary: Submit a change request
       description: "Moves a draft to `validating`. The server validates it and computes items and tier; it becomes `invalid` (fix it with PATCH, which returns it to `draft`, or `:withdraw` it) or `awaiting_evidence`. Once the evidence its tier requires has passed it becomes `pending_approval` and an approval request is opened; decisions are made on that approval request, which moves the change to `approved` or `rejected`. Requires status `draft`."
       x-permission: config.change.propose
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -2264,6 +2267,7 @@ paths:
       summary: Simulate a change request
       description: "Replays recent business transactions against the proposed configuration and records the result as `simulation` evidence. Requires status `awaiting_evidence`."
       x-permission: config.change.propose
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -2314,6 +2318,7 @@ paths:
       summary: Withdraw a change request
       description: "Withdraws a change request that is not yet approved (status `withdrawn`); a pending approval request is cancelled with it."
       x-permission: config.change.propose
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -3032,6 +3037,7 @@ paths:
       summary: Request a bank detail change
       description: "Opens a pending partner change of kind `bank_change` that adds an account. The account exists only once the change is approved through its approval request; payments to the partner are held after the change takes effect. Returns the partner change; `Location` points to it."
       x-permission: partner.bank.change
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/Id"
@@ -3125,6 +3131,7 @@ paths:
       summary: Request to end a bank account
       description: "Opens a pending partner change of kind `bank_change` that ends the account; `valid_to`, `ended_at` and `ended_by` are set only when the change is approved through its approval request. Returns the partner change."
       x-permission: partner.bank.change
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/BankAccountId"
@@ -3243,6 +3250,7 @@ paths:
       summary: Request a partner master data change
       description: "Opens a pending partner change of kind `update`. At most one pending change of each kind per partner (409 otherwise)."
       x-permission: partner.supplier.change
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -4120,6 +4128,7 @@ paths:
       summary: Park a manual journal entry
       description: "Parks a manual journal entry for a person to post (`ParkedJournalEntryChanged`). It is checked as a posting is (legal entity, ledger, currency, balance, postable accounts, partners on reconciliation lines, tax codes) except for the open period and the exchange rates, which are checked when it is posted. An entry that could never be posted is refused as posting would refuse it: a line on the legal entity's GR/IR account (422 `ledger.automatic_account`; only goods receipts and invoices post it) or a quantity in an unknown unit (422 `ledger.unknown_unit`). Nothing is posted and no document number is drawn. Agents may park: this is how they propose an entry, which only a person can post. A person owns what they park; an agent's entry has no owner until a person takes it on."
       x-permission: ledger.entry.park
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -4230,6 +4239,7 @@ paths:
       summary: Change a parked journal entry
       description: "Changes a parked journal entry in status `parked` (409 `ledger.invalid_parked_status` otherwise). JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears `reference` or `header_text`, and `lines` replaces the lines as a whole. The legal entity does not change. The entry is checked again as parking checks it. Only its owner changes it (403 `ledger.not_entry_owner`): the person who parked it; a person who changes an agent's entry no person owns takes it on and becomes its owner; an agent changes only an entry it parked that no person has taken on."
       x-permission: ledger.entry.park
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -4287,6 +4297,7 @@ paths:
       summary: Cancel a parked journal entry
       description: "Cancels a parked journal entry in status `parked` for good (status `cancelled`, `ParkedJournalEntryChanged`); nothing was posted, so nothing is reversed. An entry waiting for approval is withdrawn first by cancelling its approval request, which returns it to `parked`. Only its owner cancels it (403 `ledger.not_entry_owner`): the person who parked it, a person taking on an agent's entry no person owns, or the agent that parked an entry no person has taken on."
       x-permission: ledger.entry.park
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -4915,6 +4926,7 @@ paths:
       summary: Create a requisition
       description: Creates a draft requisition.
       x-permission: procurement.requisition.create
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -5004,6 +5016,7 @@ paths:
       summary: Update a draft requisition
       description: "Changes a requisition in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears an optional field, arrays are replaced as a whole."
       x-permission: procurement.requisition.create
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -8329,6 +8342,7 @@ paths:
       summary: Verify the audit chain
       description: Recomputes the tenant's hash chain over a range and compares it with the stored hashes and the write-once anchors.
       x-permission: audit.chain.verify
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -9112,6 +9126,7 @@ paths:
       summary: Start an agent session
       description: "Opens a session for the calling agent: its tool calls and recommendations are recorded under it. Only agents start sessions (403 `agents.not_an_agent`)."
       x-permission: agents.session.record
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -9201,6 +9216,7 @@ paths:
       summary: End an agent session
       description: "Ends a running session with its outcome. Its tokens and cost are those of the model calls made in it through the model gateway (api/model.yaml, ADR-0036); tokens and cost in the request are ignored. Only the session's agent ends it. Requires status `running`."
       x-permission: agents.session.record
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -9293,6 +9309,7 @@ paths:
       summary: Record a tool call
       description: "Records one tool call of a running session, numbered in order. Insert-only. Only the session's agent records its calls. The input's strings and the result summary are recorded minimized, as the model gateway redacts what leaves the cell (ADR-0036): IBANs, card numbers and the tax identifiers of the tenant's countries become `[IBAN]`, `[CARD]` and `[TAX_ID]`."
       x-permission: agents.session.record
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -9411,6 +9428,7 @@ paths:
       summary: Make a recommendation
       description: "Records an agent's recommendation on a business object for people to decide. Agents recommend; people decide. The session must be the caller's and running."
       x-permission: agents.session.record
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
