@@ -191,6 +191,9 @@ func TestToolsCallTheAPIInASession(t *testing.T) {
 	if got := items[6].(map[string]any)["result_summary"]; got != "missing path parameter in /v1/connectors/{id}" {
 		t.Errorf("seventh tool call summary: got %v, want the missing path parameter", got)
 	}
+	// The gateway adds each model call to the session, a new version
+	// each time: ending it takes the session's current one (ADR-0036).
+	pgtest.Exec(t, `UPDATE agents.session SET cost_micro = cost_micro + 1, version = version + 1 WHERE id = $1`, s.ID)
 	if err := s.End(ctx, "completed", anthropic.BetaUsage{InputTokens: 3, OutputTokens: 2}); err != nil {
 		t.Fatal(err)
 	}
@@ -220,6 +223,8 @@ func TestToolsCallTheAPIInASession(t *testing.T) {
 func TestRun(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
+	servers := map[string]*llmtest.Server{}
+	srvOf := func(s *apitools.Session) *llmtest.Server { return servers[s.ID] }
 	run := func(steps ...llmtest.Step) (*apitools.Session, error) {
 		t.Helper()
 		srv := llmtest.New(t, steps...)
@@ -227,6 +232,7 @@ func TestRun(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		servers[s.ID] = srv
 		tools, _ := apitools.Tools(e.agent, s, "listConnectors")
 		r := srv.Runner()
 		_, err = apitools.Run(ctx, r, s, tools, r.Params("system", anthropic.NewBetaTextBlock("go")), 5)
@@ -240,11 +246,13 @@ func TestRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("completed run: %v", err)
 	}
-	got := session(s)
-	for field, want := range map[string]any{"status": "completed", "input_tokens": float64(20), "output_tokens": float64(10)} {
-		if got[field] != want {
-			t.Errorf("completed session %s: got %v, want %v", field, got[field], want)
-		}
+	if got := session(s)["status"]; got != "completed" {
+		t.Errorf("completed session status: got %v, want completed", got)
+	}
+	// Every model call names the session, for the gateway to add it there
+	// (this fake model is no gateway, so the session counts nothing).
+	if h := srvOf(s).Headers; len(h) == 0 || h[0].Get(apitools.SessionHeader) != s.ID {
+		t.Errorf("model calls: got headers %v, want %s: %s", h, apitools.SessionHeader, s.ID)
 	}
 	s, err = run(llmtest.Step{Text: "no", StopReason: "refusal"})
 	if err == nil {

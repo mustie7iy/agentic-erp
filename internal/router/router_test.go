@@ -18,6 +18,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/agents"
+
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
@@ -463,6 +465,53 @@ func TestForwardsTheClientCertificate(t *testing.T) {
 			rt.ServeHTTP(httptest.NewRecorder(), req)
 			if forwarded != c.want {
 				t.Errorf("forwarded thumbprint: got %q, want %q", forwarded, c.want)
+			}
+		})
+	}
+}
+
+// deadlineWriter records the write deadline asked of it.
+type deadlineWriter struct {
+	*httptest.ResponseRecorder
+	deadline time.Time
+}
+
+func (d *deadlineWriter) SetWriteDeadline(t time.Time) error { d.deadline = t; return nil }
+
+// TestModelCallsMayTakeTheirTime: a model call through the router may be
+// answered for the gateway's call time, not the listener's write timeout,
+// which would cut a long answer and have the SDK call again, billed again
+// (ADR-0036); other requests keep the listener's.
+func TestModelCallsMayTakeTheirTime(t *testing.T) {
+	is := authntest.New(t)
+	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenant := uuid.New()
+	m := &memory{entries: map[uuid.UUID]directory.Entry{tenant: {TenantID: tenant, Cell: "eu-1", APIURL: "https://eu1.internal", Status: directory.Active}}}
+	ok := roundTrip(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("{}")), Header: http.Header{}}, nil
+	})
+	// The router holds the answer longer than the cell's gateway does, its
+	// call and its margin to write, since the router's deadline starts first:
+	// the cell, not the router, is the one to cut a call that overruns.
+	if cell := agents.DefaultTimeout + agents.WriteMargin; router.ModelTimeout <= cell {
+		t.Errorf("router's model timeout: got %v, want more than the cell's %v", router.ModelTimeout, cell)
+	}
+	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	rt := &router.Router{Verifier: v, Directory: lookup{m}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Transport: ok, Now: func() time.Time { return now }}
+	for _, c := range []struct {
+		path string
+		want time.Time
+	}{{"/v1/model/v1/messages", now.Add(router.ModelTimeout)}, {"/v1/balances", time.Time{}}} {
+		t.Run(c.path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, c.path, strings.NewReader("{}"))
+			req.Header.Set("Authorization", "Bearer "+is.Token(t, tenant, "ada", nil))
+			w := &deadlineWriter{ResponseRecorder: httptest.NewRecorder()}
+			rt.ServeHTTP(w, req)
+			if !w.deadline.Equal(c.want) {
+				t.Errorf("write deadline: got %v, want %v", w.deadline, c.want)
 			}
 		})
 	}

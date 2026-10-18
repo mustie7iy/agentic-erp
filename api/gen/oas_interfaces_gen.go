@@ -205,6 +205,14 @@ type GetAgentSessionRes interface {
 	getAgentSessionRes()
 }
 
+type GetAiPolicyRes interface {
+	getAiPolicyRes()
+}
+
+type GetAiUsageRes interface {
+	getAiUsageRes()
+}
+
 type GetApprovalRequestRes interface {
 	getApprovalRequestRes()
 }
@@ -675,6 +683,10 @@ type UnblockOrgUnitRes interface {
 
 type UnlockFiscalPeriodRes interface {
 	unlockFiscalPeriodRes()
+}
+
+type UpdateAiPolicyRes interface {
+	updateAiPolicyRes()
 }
 
 type UpdateChangeRequestRes interface {

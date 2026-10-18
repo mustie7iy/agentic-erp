@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -90,8 +91,8 @@ func body(t *testing.T, output string) map[string]any {
 func model(t *testing.T, steps ...llmtest.Step) {
 	t.Helper()
 	srv := llmtest.New(t, steps...)
-	newRunner = srv.Runner
-	t.Cleanup(func() { newRunner = llm.New })
+	newRunner = func(*apitools.Client) *llm.Runner { return srv.Runner() }
+	t.Cleanup(func() { newRunner = gatewayRunner })
 }
 
 var (
@@ -189,11 +190,11 @@ func TestEndToEnd(t *testing.T) {
 			return map[string]any{"spec": analytics.Spec{Title: "Revenue", Tables: []analytics.Table{{Title: "t", QueryID: qidRe.FindString(b)}}}}
 		}),
 		llmtest.Final("Revenue is up."))
-	newAgent = func() *analytics.Agent {
+	newAgent = func(*apitools.Client) *analytics.Agent {
 		r := ask.Runner()
 		return &analytics.Agent{Client: r.Client, Model: r.Model, Today: func() time.Time { return time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC) }}
 	}
-	t.Cleanup(func() { newAgent = analytics.NewAgent })
+	t.Cleanup(func() { newAgent = defaultAgent })
 	got = must(t, "ask", "-out", "reports", "revenue", "by", "year")
 	reportID := regexp.MustCompile(`erp report -id (\S+)`).FindStringSubmatch(got)[1]
 	if got := must(t, "report", "-id", reportID, "-out", "reports"); !strings.Contains(got, "Refreshed") {

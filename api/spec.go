@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -17,6 +18,9 @@ var controlYAML []byte
 //go:embed directory.yaml
 var directoryYAML []byte
 
+//go:embed model.yaml
+var modelYAML []byte
+
 // Operation is what the request pipeline needs to know about an operation
 // beyond what the generated server enforces.
 type Operation struct {
@@ -25,6 +29,12 @@ type Operation struct {
 	Path         string
 	Permission   string // x-permission
 	AgentAllowed bool   // false when x-agent: false
+	// Proposes is x-autonomy: propose: the operation only proposes, and an
+	// agent of autonomy level 1 may perform it (ADR-0036).
+	Proposes bool
+	// Reads is x-autonomy: read: the operation changes no business data though it is
+	// not a GET, and an agent of any level may perform it.
+	Reads bool
 }
 
 // Operations returns every operation in the contract by operationId.
@@ -53,6 +63,7 @@ func parseOperations(src []byte, permissioned bool) (map[string]Operation, error
 				ID         string `yaml:"operationId"`
 				Permission string `yaml:"x-permission"`
 				Agent      *bool  `yaml:"x-agent"`
+				Autonomy   string `yaml:"x-autonomy"`
 			}
 			if err := node.Decode(&op); err != nil {
 				return nil, fmt.Errorf("api: %s %s: %w", method, path, err)
@@ -60,9 +71,12 @@ func parseOperations(src []byte, permissioned bool) (map[string]Operation, error
 			if op.ID == "" || (permissioned && op.Permission == "") {
 				return nil, fmt.Errorf("api: %s %s: operationId and x-permission are required", method, path)
 			}
+			if op.Autonomy != "" && op.Autonomy != "propose" && op.Autonomy != "read" {
+				return nil, fmt.Errorf("api: %s %s: x-autonomy is propose, read or absent", method, path)
+			}
 			ops[op.ID] = Operation{
 				ID: op.ID, Method: strings.ToUpper(method), Path: path, Permission: op.Permission,
-				AgentAllowed: op.Agent == nil || *op.Agent,
+				AgentAllowed: op.Agent == nil || *op.Agent, Proposes: op.Autonomy == "propose", Reads: op.Autonomy == "read",
 			}
 		}
 	}
@@ -110,4 +124,26 @@ func DirectorySpec() []byte { return directoryYAML }
 // x-permission.
 func DirectoryOperations() (map[string]Operation, error) {
 	return parseOperations(directoryYAML, false)
+}
+
+// ModelCallTimeout is how long a model call through the gateway may take:
+// the provider's client gives up after it, and the cell and the router keep
+// the answer's connection open for it and a minute more, past their
+// listeners' write timeouts (ADR-0036). It is here, beside the gateway's
+// contract, because the cell and the router share it.
+const ModelCallTimeout = 10 * time.Minute
+
+// ModelSpec is the embedded model gateway contract (model.yaml): every
+// model call, served on the public listener outside the generated server
+// by hand-written handlers (internal/agents), ADR-0036.
+func ModelSpec() []byte { return modelYAML }
+
+// MustModelOperations is ModelOperations for program start, as
+// MustOperations is for the public API's.
+func MustModelOperations() map[string]Operation { return mustParse(modelYAML) }
+
+// ModelOperations returns the model gateway's operations by operationId;
+// they declare their x-permission, as the public API's do.
+func ModelOperations() (map[string]Operation, error) {
+	return parseOperations(modelYAML, true)
 }

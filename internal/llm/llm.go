@@ -8,41 +8,58 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/shared/constant"
+	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
-// DefaultModel is used unless ERP_AGENT_MODEL says otherwise.
-const DefaultModel = "claude-opus-5-5"
+// DefaultModel is the model alias agents name unless ERP_AGENT_MODEL says
+// otherwise; the cell's gateway routes it to a model (ADR-0036).
+const DefaultModel = "erp-default"
 
 type Runner struct {
 	Client anthropic.Client
 	Model  string
 }
 
-// New uses the SDK's standard credential resolution (ANTHROPIC_API_KEY or
-// an `ant auth login` profile).
-func New() *Runner {
+// Gateway is an agent's runner: its calls go to the model gateway of the
+// API at apiURL (/v1/model, api/model.yaml) with the agent's own token,
+// never a provider key, which agents do not hold. client nil is the SDK's
+// default.
+func Gateway(apiURL, token string, client *http.Client) *Runner {
 	model := os.Getenv("ERP_AGENT_MODEL")
 	if model == "" {
 		model = DefaultModel
 	}
-	return &Runner{Client: anthropic.NewClient(), Model: model}
+	opts := []option.RequestOption{option.WithBaseURL(strings.TrimRight(apiURL, "/") + "/v1/model"), option.WithAuthToken(token),
+		option.WithHeaderDel("X-Api-Key")}
+	if client != nil {
+		opts = append(opts, option.WithHTTPClient(client))
+	}
+	return &Runner{Client: anthropic.NewClient(opts...), Model: model}
 }
 
-// Params builds a request with the platform defaults: cached system prompt,
-// medium effort, and server-side fallback if a request is declined.
+// InProcess is the server's own runner: its calls go to the gateway's
+// in-process transport (agents.Gateway.Transport), as the request's
+// principal, naming alias.
+func InProcess(transport http.RoundTripper, alias string) *Runner {
+	return &Runner{Client: anthropic.NewClient(option.WithBaseURL("http://model-gateway.internal"), option.WithAPIKey("in-process"),
+		option.WithHTTPClient(&http.Client{Transport: transport}), option.WithMaxRetries(0)), Model: alias}
+}
+
+// Params builds a request with the platform defaults: cached system prompt
+// and medium effort. No provider fallback: the gateway routes every call to
+// the one model it prices (ADR-0036), and a declined request is the
+// caller's refusal.
 func (r *Runner) Params(system string, user ...anthropic.BetaContentBlockParamUnion) anthropic.BetaMessageNewParams {
 	return anthropic.BetaMessageNewParams{
 		Model:        anthropic.Model(r.Model),
 		MaxTokens:    16000,
 		System:       []anthropic.BetaTextBlockParam{{Text: system, CacheControl: anthropic.NewBetaCacheControlEphemeralParam()}},
 		OutputConfig: anthropic.BetaOutputConfigParam{Effort: anthropic.BetaOutputConfigEffortMedium},
-		Fallbacks:    anthropic.BetaFallbacksParamUnion{OfDefault: constant.ValueOf[constant.Default]()},
-		Betas:        []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01},
 		Messages:     []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(user...)},
 	}
 }

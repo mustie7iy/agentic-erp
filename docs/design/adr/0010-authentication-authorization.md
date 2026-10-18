@@ -70,3 +70,11 @@ agent's token is accepted only bound, from a provider registered with
 `certificate_bound_tokens`; otherwise it is 401, logged. People and
 services are not asked. The token remains the principal; the certificate
 only proves the token's holder.
+
+**Amended 2026-10-16 (T42, ADR-0036).** Agents reach models only through
+the cell's model gateway, with their own tokens; they hold no provider
+key. A tenant's AI kill switch (the tenant's administrators, or an
+operator, whose suspension wins) refuses agents' model calls and agent
+principals' API requests alike; people and services are not affected.
+Autonomy levels: 0 reads, 1 also recommends, 2 also performs the
+agent-permitted writes within their configured limits, 3 reserved.

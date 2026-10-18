@@ -151,6 +151,12 @@ type Invoker interface {
 	//
 	// Extracts a supplier invoice from a document and creates it `parked` with source `capture`.
 	// Extraction can exceed 5 seconds, so this returns an Operation whose `resource` is the new invoice.
+	// The document goes to a model through the cell's model gateway (ADR-0036), whose refusals of the
+	// tenant's call are answered as they are: 422 `agents.documents_withheld` while the tenant's AI policy
+	// withholds documents from models, 403 `agents.ai_disabled` while its AI is off, 429
+	// `agents.budget_exhausted` when its cap is spent, 422 `agents.model_not_allowed` or
+	// `agents.model_unpriced` when its policy routes extraction to a model it does not allow or that has
+	// no price. The gateway failing is 422 `payables.unreadable_document`.
 	//
 	// POST /v1/supplier-invoices:capture
 	CaptureSupplierInvoice(ctx context.Context, request *SupplierInvoiceCaptureMultipart, params CaptureSupplierInvoiceParams) (CaptureSupplierInvoiceRes, error)
@@ -349,8 +355,9 @@ type Invoker interface {
 	EnableConnector(ctx context.Context, params EnableConnectorParams) (EnableConnectorRes, error)
 	// EndAgentSession invokes endAgentSession operation.
 	//
-	// Ends a running session with its outcome and the tokens and cost it used. Only the session's agent
-	// ends it. Requires status `running`.
+	// Ends a running session with its outcome. Its tokens and cost are those of the model calls made in it
+	// through the model gateway (api/model.yaml, ADR-0036); tokens and cost in the request are ignored.
+	// Only the session's agent ends it. Requires status `running`.
 	//
 	// POST /v1/agent-sessions/{id}:end
 	EndAgentSession(ctx context.Context, request *AgentSessionEnd, params EndAgentSessionParams) (EndAgentSessionRes, error)
@@ -394,6 +401,25 @@ type Invoker interface {
 	//
 	// GET /v1/agent-sessions/{id}
 	GetAgentSession(ctx context.Context, params GetAgentSessionParams) (GetAgentSessionRes, error)
+	// GetAiPolicy invokes getAiPolicy operation.
+	//
+	// Whether the tenant's model calls and agents run, where its model aliases route, which models they
+	// may route to, its monthly cap on model spending and whether documents may go to models (ADR-0036). A
+	// tenant whose policy was never changed has the defaults, version 1: AI on, the platform's routes, any
+	// priced model, no cap, documents allowed. Human-only.
+	//
+	// GET /v1/ai-policy
+	GetAiPolicy(ctx context.Context) (GetAiPolicyRes, error)
+	// GetAiUsage invokes getAiUsage operation.
+	//
+	// What the tenant's model calls through the gateway used and cost in one calendar month (UTC), per
+	// principal that called (ADR-0036): each agent, and each person or service whose request made a
+	// server-side call such as capture. Read from the model call ledger: tokens as the provider reported
+	// them, costs at the recorded prices, rounded to the cent per principal and in total. The month
+	// defaults to the current one. Human-only.
+	//
+	// GET /v1/ai-usage
+	GetAiUsage(ctx context.Context, params GetAiUsageParams) (GetAiUsageRes, error)
 	// GetApprovalRequest invokes getApprovalRequest operation.
 	//
 	// Returns one approval request with steps and decisions.
@@ -1009,7 +1035,9 @@ type Invoker interface {
 	// RecordAgentToolCall invokes recordAgentToolCall operation.
 	//
 	// Records one tool call of a running session, numbered in order. Insert-only. Only the session's agent
-	// records its calls.
+	// records its calls. The input's strings and the result summary are recorded minimized, as the model
+	// gateway redacts what leaves the cell (ADR-0036): IBANs, card numbers and the tax identifiers of the
+	// tenant's countries become `[IBAN]`, `[CARD]` and `[TAX_ID]`.
 	//
 	// POST /v1/agent-sessions/{id}/tool-calls
 	RecordAgentToolCall(ctx context.Context, request *AgentToolCallCreate, params RecordAgentToolCallParams) (RecordAgentToolCallRes, error)
@@ -1239,6 +1267,19 @@ type Invoker interface {
 	//
 	// POST /v1/fiscal-periods/{id}:unlock
 	UnlockFiscalPeriod(ctx context.Context, request *ReasonInput, params UnlockFiscalPeriodParams) (UnlockFiscalPeriodRes, error)
+	// UpdateAiPolicy invokes updateAiPolicy operation.
+	//
+	// Changes the policy. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` removes the
+	// monthly cap, `routes` and `allowed_models` are replaced as a whole. `enabled: false` is the tenant's
+	// kill switch: the model gateway refuses every call (403 `agents.ai_disabled`) and agents' requests
+	// are refused, while people and services work on. The platform's operators can suspend a tenant's AI
+	// too, which wins over `enabled`; only they lift it. The cap is in USD, the prices' currency. Every
+	// alias must route, under the policy, to a model it allows and that has a recorded price, and `routes`
+	// may name only the platform's aliases (422 `agents.invalid_policy`). Human-only. Recorded in the
+	// audit trail and published as `AiPolicyChanged`.
+	//
+	// PATCH /v1/ai-policy
+	UpdateAiPolicy(ctx context.Context, request *AiPolicyUpdate, params UpdateAiPolicyParams) (UpdateAiPolicyRes, error)
 	// UpdateChangeRequest invokes updateChangeRequest operation.
 	//
 	// Changes a change request in status `draft` or `invalid`; an `invalid` one returns to `draft` and
@@ -3970,6 +4011,12 @@ func (c *Client) sendCancelSupplierInvoice(ctx context.Context, request *ReasonI
 //
 // Extracts a supplier invoice from a document and creates it `parked` with source `capture`.
 // Extraction can exceed 5 seconds, so this returns an Operation whose `resource` is the new invoice.
+// The document goes to a model through the cell's model gateway (ADR-0036), whose refusals of the
+// tenant's call are answered as they are: 422 `agents.documents_withheld` while the tenant's AI policy
+// withholds documents from models, 403 `agents.ai_disabled` while its AI is off, 429
+// `agents.budget_exhausted` when its cap is spent, 422 `agents.model_not_allowed` or
+// `agents.model_unpriced` when its policy routes extraction to a model it does not allow or that has
+// no price. The gateway failing is 422 `payables.unreadable_document`.
 //
 // POST /v1/supplier-invoices:capture
 func (c *Client) CaptureSupplierInvoice(ctx context.Context, request *SupplierInvoiceCaptureMultipart, params CaptureSupplierInvoiceParams) (CaptureSupplierInvoiceRes, error) {
@@ -7800,8 +7847,9 @@ func (c *Client) sendEnableConnector(ctx context.Context, params EnableConnector
 
 // EndAgentSession invokes endAgentSession operation.
 //
-// Ends a running session with its outcome and the tokens and cost it used. Only the session's agent
-// ends it. Requires status `running`.
+// Ends a running session with its outcome. Its tokens and cost are those of the model calls made in it
+// through the model gateway (api/model.yaml, ADR-0036); tokens and cost in the request are ignored.
+// Only the session's agent ends it. Requires status `running`.
 //
 // POST /v1/agent-sessions/{id}:end
 func (c *Client) EndAgentSession(ctx context.Context, request *AgentSessionEnd, params EndAgentSessionParams) (EndAgentSessionRes, error) {
@@ -8877,6 +8925,260 @@ func (c *Client) sendGetAgentSession(ctx context.Context, params GetAgentSession
 
 	stage = "DecodeResponse"
 	result, err := decodeGetAgentSessionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetAiPolicy invokes getAiPolicy operation.
+//
+// Whether the tenant's model calls and agents run, where its model aliases route, which models they
+// may route to, its monthly cap on model spending and whether documents may go to models (ADR-0036). A
+// tenant whose policy was never changed has the defaults, version 1: AI on, the platform's routes, any
+// priced model, no cap, documents allowed. Human-only.
+//
+// GET /v1/ai-policy
+func (c *Client) GetAiPolicy(ctx context.Context) (GetAiPolicyRes, error) {
+	res, err := c.sendGetAiPolicy(ctx)
+	return res, err
+}
+
+func (c *Client) sendGetAiPolicy(ctx context.Context) (res GetAiPolicyRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAiPolicy"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/ai-policy"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetAiPolicyOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/ai-policy"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetAiPolicyOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetAiPolicyResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetAiUsage invokes getAiUsage operation.
+//
+// What the tenant's model calls through the gateway used and cost in one calendar month (UTC), per
+// principal that called (ADR-0036): each agent, and each person or service whose request made a
+// server-side call such as capture. Read from the model call ledger: tokens as the provider reported
+// them, costs at the recorded prices, rounded to the cent per principal and in total. The month
+// defaults to the current one. Human-only.
+//
+// GET /v1/ai-usage
+func (c *Client) GetAiUsage(ctx context.Context, params GetAiUsageParams) (GetAiUsageRes, error) {
+	res, err := c.sendGetAiUsage(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetAiUsage(ctx context.Context, params GetAiUsageParams) (res GetAiUsageRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAiUsage"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/ai-usage"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetAiUsageOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/ai-usage"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "month" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "month",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Month.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetAiUsageOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetAiUsageResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -25642,7 +25944,9 @@ func (c *Client) sendReconcileMigrationRun(ctx context.Context, params Reconcile
 // RecordAgentToolCall invokes recordAgentToolCall operation.
 //
 // Records one tool call of a running session, numbered in order. Insert-only. Only the session's agent
-// records its calls.
+// records its calls. The input's strings and the result summary are recorded minimized, as the model
+// gateway redacts what leaves the cell (ADR-0036): IBANs, card numbers and the tax identifiers of the
+// tenant's countries become `[IBAN]`, `[CARD]` and `[TAX_ID]`.
 //
 // POST /v1/agent-sessions/{id}/tool-calls
 func (c *Client) RecordAgentToolCall(ctx context.Context, request *AgentToolCallCreate, params RecordAgentToolCallParams) (RecordAgentToolCallRes, error) {
@@ -29825,6 +30129,154 @@ func (c *Client) sendUnlockFiscalPeriod(ctx context.Context, request *ReasonInpu
 
 	stage = "DecodeResponse"
 	result, err := decodeUnlockFiscalPeriodResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UpdateAiPolicy invokes updateAiPolicy operation.
+//
+// Changes the policy. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` removes the
+// monthly cap, `routes` and `allowed_models` are replaced as a whole. `enabled: false` is the tenant's
+// kill switch: the model gateway refuses every call (403 `agents.ai_disabled`) and agents' requests
+// are refused, while people and services work on. The platform's operators can suspend a tenant's AI
+// too, which wins over `enabled`; only they lift it. The cap is in USD, the prices' currency. Every
+// alias must route, under the policy, to a model it allows and that has a recorded price, and `routes`
+// may name only the platform's aliases (422 `agents.invalid_policy`). Human-only. Recorded in the
+// audit trail and published as `AiPolicyChanged`.
+//
+// PATCH /v1/ai-policy
+func (c *Client) UpdateAiPolicy(ctx context.Context, request *AiPolicyUpdate, params UpdateAiPolicyParams) (UpdateAiPolicyRes, error) {
+	res, err := c.sendUpdateAiPolicy(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUpdateAiPolicy(ctx context.Context, request *AiPolicyUpdate, params UpdateAiPolicyParams) (res UpdateAiPolicyRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("updateAiPolicy"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.URLTemplateKey.String("/v1/ai-policy"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UpdateAiPolicyOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/ai-policy"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PATCH", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUpdateAiPolicyRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UpdateAiPolicyOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUpdateAiPolicyResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

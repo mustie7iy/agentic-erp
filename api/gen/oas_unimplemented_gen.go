@@ -183,6 +183,12 @@ func (UnimplementedHandler) CancelSupplierInvoice(ctx context.Context, req *Reas
 //
 // Extracts a supplier invoice from a document and creates it `parked` with source `capture`.
 // Extraction can exceed 5 seconds, so this returns an Operation whose `resource` is the new invoice.
+// The document goes to a model through the cell's model gateway (ADR-0036), whose refusals of the
+// tenant's call are answered as they are: 422 `agents.documents_withheld` while the tenant's AI policy
+// withholds documents from models, 403 `agents.ai_disabled` while its AI is off, 429
+// `agents.budget_exhausted` when its cap is spent, 422 `agents.model_not_allowed` or
+// `agents.model_unpriced` when its policy routes extraction to a model it does not allow or that has
+// no price. The gateway failing is 422 `payables.unreadable_document`.
 //
 // POST /v1/supplier-invoices:capture
 func (UnimplementedHandler) CaptureSupplierInvoice(ctx context.Context, req *SupplierInvoiceCaptureMultipart, params CaptureSupplierInvoiceParams) (r CaptureSupplierInvoiceRes, _ error) {
@@ -465,8 +471,9 @@ func (UnimplementedHandler) EnableConnector(ctx context.Context, params EnableCo
 
 // EndAgentSession implements endAgentSession operation.
 //
-// Ends a running session with its outcome and the tokens and cost it used. Only the session's agent
-// ends it. Requires status `running`.
+// Ends a running session with its outcome. Its tokens and cost are those of the model calls made in it
+// through the model gateway (api/model.yaml, ADR-0036); tokens and cost in the request are ignored.
+// Only the session's agent ends it. Requires status `running`.
 //
 // POST /v1/agent-sessions/{id}:end
 func (UnimplementedHandler) EndAgentSession(ctx context.Context, req *AgentSessionEnd, params EndAgentSessionParams) (r EndAgentSessionRes, _ error) {
@@ -528,6 +535,31 @@ func (UnimplementedHandler) GetAccount(ctx context.Context, params GetAccountPar
 //
 // GET /v1/agent-sessions/{id}
 func (UnimplementedHandler) GetAgentSession(ctx context.Context, params GetAgentSessionParams) (r GetAgentSessionRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetAiPolicy implements getAiPolicy operation.
+//
+// Whether the tenant's model calls and agents run, where its model aliases route, which models they
+// may route to, its monthly cap on model spending and whether documents may go to models (ADR-0036). A
+// tenant whose policy was never changed has the defaults, version 1: AI on, the platform's routes, any
+// priced model, no cap, documents allowed. Human-only.
+//
+// GET /v1/ai-policy
+func (UnimplementedHandler) GetAiPolicy(ctx context.Context) (r GetAiPolicyRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetAiUsage implements getAiUsage operation.
+//
+// What the tenant's model calls through the gateway used and cost in one calendar month (UTC), per
+// principal that called (ADR-0036): each agent, and each person or service whose request made a
+// server-side call such as capture. Read from the model call ledger: tokens as the provider reported
+// them, costs at the recorded prices, rounded to the cent per principal and in total. The month
+// defaults to the current one. Human-only.
+//
+// GET /v1/ai-usage
+func (UnimplementedHandler) GetAiUsage(ctx context.Context, params GetAiUsageParams) (r GetAiUsageRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1422,7 +1454,9 @@ func (UnimplementedHandler) ReconcileMigrationRun(ctx context.Context, params Re
 // RecordAgentToolCall implements recordAgentToolCall operation.
 //
 // Records one tool call of a running session, numbered in order. Insert-only. Only the session's agent
-// records its calls.
+// records its calls. The input's strings and the result summary are recorded minimized, as the model
+// gateway redacts what leaves the cell (ADR-0036): IBANs, card numbers and the tax identifiers of the
+// tenant's countries become `[IBAN]`, `[CARD]` and `[TAX_ID]`.
 //
 // POST /v1/agent-sessions/{id}/tool-calls
 func (UnimplementedHandler) RecordAgentToolCall(ctx context.Context, req *AgentToolCallCreate, params RecordAgentToolCallParams) (r RecordAgentToolCallRes, _ error) {
@@ -1727,6 +1761,22 @@ func (UnimplementedHandler) UnblockOrgUnit(ctx context.Context, params UnblockOr
 //
 // POST /v1/fiscal-periods/{id}:unlock
 func (UnimplementedHandler) UnlockFiscalPeriod(ctx context.Context, req *ReasonInput, params UnlockFiscalPeriodParams) (r UnlockFiscalPeriodRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateAiPolicy implements updateAiPolicy operation.
+//
+// Changes the policy. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` removes the
+// monthly cap, `routes` and `allowed_models` are replaced as a whole. `enabled: false` is the tenant's
+// kill switch: the model gateway refuses every call (403 `agents.ai_disabled`) and agents' requests
+// are refused, while people and services work on. The platform's operators can suspend a tenant's AI
+// too, which wins over `enabled`; only they lift it. The cap is in USD, the prices' currency. Every
+// alias must route, under the policy, to a model it allows and that has a recorded price, and `routes`
+// may name only the platform's aliases (422 `agents.invalid_policy`). Human-only. Recorded in the
+// audit trail and published as `AiPolicyChanged`.
+//
+// PATCH /v1/ai-policy
+func (UnimplementedHandler) UpdateAiPolicy(ctx context.Context, req *AiPolicyUpdate, params UpdateAiPolicyParams) (r UpdateAiPolicyRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

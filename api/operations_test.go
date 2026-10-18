@@ -29,6 +29,24 @@ func TestOperationsFromTheContract(t *testing.T) {
 	if approve := ops["approveApprovalRequest"]; approve.AgentAllowed {
 		t.Fatal("approval decisions must be refused to agents")
 	}
+	// Only proposing writes are x-autonomy: propose; only a POST that
+	// changes no business data is x-autonomy: read (ADR-0036).
+	for id, want := range map[string]bool{"createRecommendation": true, "createChangeRequest": true, "parkJournalEntry": true,
+		"submitRequisition": true, "cancelRequisition": true, "createPurchaseOrder": true, "updatePurchaseOrder": true,
+		"createSupplierInvoice": true, "updateSupplierInvoice": true, "cancelApprovalRequest": true,
+		"postSupplierInvoice": false, "releasePurchaseOrder": false, "cancelPurchaseOrder": false, "proposePaymentRun": false, "verifyAuditChain": false} {
+		if got := ops[id].Proposes; got != want {
+			t.Errorf("%s proposes: got %v, want %v", id, got, want)
+		}
+	}
+	for id, op := range ops {
+		if op.Proposes && op.Method == "GET" {
+			t.Errorf("%s: a read marked x-autonomy: propose", id)
+		}
+		if op.Reads != (id == "verifyAuditChain") {
+			t.Errorf("%s reads: got %v", id, op.Reads)
+		}
+	}
 }
 
 func TestOperationsRejectsBadContracts(t *testing.T) {
@@ -36,6 +54,7 @@ func TestOperationsRejectsBadContracts(t *testing.T) {
 		"not yaml":      "paths: [",
 		"no permission": "paths:\n  /v1/x:\n    get:\n      operationId: getX\n",
 		"bad operation": "paths:\n  /v1/x:\n    get: [1]\n",
+		"bad autonomy":  "paths:\n  /v1/x:\n    post:\n      operationId: x\n      x-permission: a.b.c\n      x-autonomy: decide\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parseOperations([]byte(src), true); err == nil {
@@ -127,7 +146,9 @@ func TestControlOperations(t *testing.T) {
 		"getIdentityProvider": "GET /control/v1/tenants/{id}/identity-providers/{provider_id}", "updateIdentityProvider": "PATCH /control/v1/tenants/{id}/identity-providers/{provider_id}",
 		"retireIdentityProvider": "POST /control/v1/tenants/{id}/identity-providers/{provider_id}:retire",
 		"getAuthPolicy":          "GET /control/v1/tenants/{id}/auth-policy", "updateAuthPolicy": "PATCH /control/v1/tenants/{id}/auth-policy",
-		"listTenantPrincipals": "GET /control/v1/tenants/{id}/principals", "bindPrincipal": "POST /control/v1/tenants/{id}/principals/{principal_id}:bind"}
+		"listTenantPrincipals": "GET /control/v1/tenants/{id}/principals", "bindPrincipal": "POST /control/v1/tenants/{id}/principals/{principal_id}:bind",
+		"getTenantAiPolicy": "GET /control/v1/tenants/{id}/ai-policy", "suspendAi": "POST /control/v1/tenants/{id}/ai-policy:suspend",
+		"resumeAi": "POST /control/v1/tenants/{id}/ai-policy:resume"}
 	if len(ops) != len(want) {
 		t.Fatalf("operations: got %d, want %d", len(ops), len(want))
 	}
@@ -147,5 +168,30 @@ func TestControlOperations(t *testing.T) {
 	}
 	if !strings.Contains(string(ControlSpec()), "\nopenapi: \"3.1") {
 		t.Fatal("control spec")
+	}
+}
+
+// TestModelOperations: the model gateway's one operation, permissioned and
+// open to agents (ADR-0036).
+func TestModelOperations(t *testing.T) {
+	ops, err := ModelOperations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	op, ok := ops["createModelMessage"]
+	if len(ops) != 1 || !ok {
+		t.Fatalf("operations: got %v, want createModelMessage alone", ops)
+	}
+	if got := op.Method + " " + op.Path; got != "POST /v1/model/v1/messages" {
+		t.Errorf("route: got %s, want POST /v1/model/v1/messages", got)
+	}
+	if op.Permission != "agents.model.invoke" || !op.AgentAllowed {
+		t.Errorf("operation: got permission %q, agents %v, want agents.model.invoke, open to agents", op.Permission, op.AgentAllowed)
+	}
+	if !strings.Contains(string(ModelSpec()), "\nopenapi: \"3.1") {
+		t.Fatal("model spec")
+	}
+	if len(MustModelOperations()) != 1 {
+		t.Error("MustModelOperations: got other than the one operation")
 	}
 }

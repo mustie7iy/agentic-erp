@@ -303,8 +303,9 @@ Decisions taken while building it:
   `invoice_exception` request; an approved exception (the request id kept on
   the parked invoice) allows posting without a clean match. An invoice
   refers to one purchase order.
-- **Capture** extracts with Claude (`capture.ClaudeExtractor`) when
-  `ANTHROPIC_API_KEY` is set and answers 503 otherwise; the operation
+- **Capture** extracts with Claude (`capture.ClaudeExtractor`), through
+  the cell's model gateway in process since T42b (ADR-0036), when
+  `ERP_MODEL_API_KEY` is set and answers 503 otherwise; the operation
   completes within the request (`operations.Succeed`); the document must
   print a purchase order number, and low-confidence extractions are entered
   on hold.

@@ -53,6 +53,10 @@ type Middleware struct {
 	// RequireBoundAgents accepts an agent's token only bound to its client
 	// certificate by a provider that binds tokens (production, ADR-0033).
 	RequireBoundAgents bool
+	// Agents admits an agent's request in its transaction: the tenant's AI
+	// kill switch (agents.Admit, ADR-0036), so an agent stopped mid-run
+	// cannot go on acting; nil admits every agent.
+	Agents func(ctx context.Context, tx pgx.Tx) error
 }
 
 // Sessions checks a person's session: its lifetime and idle timeout. It
@@ -142,7 +146,7 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 	if err != nil {
 		return err
 	}
-	if err := m.authorize(ctx, claims, principal); err != nil {
+	if err := m.authorize(ctx, tx, claims, principal); err != nil {
 		return err
 	}
 	info := reqctx.InfoFrom(ctx)
@@ -188,11 +192,12 @@ func (m *Middleware) admit(ctx context.Context, claims reqctx.Claims) error {
 }
 
 // authorize checks what the token must prove for the principal it
-// resolved to. Multi-factor is asked of people only: services and agents
-// use their own credentials, which prove no second factor (ADR-0031).
-// identity.Sessions applies the same rule to decide which tokens start or
-// touch a session; the two stay in step.
-func (m *Middleware) authorize(ctx context.Context, claims reqctx.Claims, principal reqctx.Principal) error {
+// resolved to, and whether an agent may act at all. Multi-factor is asked
+// of people only: services and agents use their own credentials, which
+// prove no second factor (ADR-0031). identity.Sessions applies the same
+// rule to decide which tokens start or touch a session; the two stay in
+// step.
+func (m *Middleware) authorize(ctx context.Context, tx pgx.Tx, claims reqctx.Claims, principal reqctx.Principal) error {
 	if principal.Kind == reqctx.KindHuman {
 		if err := authn.CheckMFA(claims); err != nil {
 			return err
@@ -203,6 +208,9 @@ func (m *Middleware) authorize(ctx context.Context, claims reqctx.Claims, princi
 			m.Log.WarnContext(ctx, "certificate binding refused", "principal_id", principal.ID, "kind", principal.Kind, "bound", claims.CertThumbprint != "")
 			return err
 		}
+	}
+	if m.Agents != nil && principal.Kind == reqctx.KindAgent {
+		return m.Agents(ctx, tx)
 	}
 	return nil
 }

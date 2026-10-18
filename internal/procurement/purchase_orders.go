@@ -388,6 +388,11 @@ func orderedRequisition(ctx context.Context, tx pgx.Tx, in *NewOrder, le uuid.UU
 	if in.RequisitionID == nil {
 		return Requisition{}, nil
 	}
+	// Ordering a requisition reserves it for this order: more than a draft
+	// proposes (ADR-0036).
+	if err := authz.RequireWrites(ctx, "ordering a requisition"); err != nil {
+		return Requisition{}, err
+	}
 	req, err := getRequisition(ctx, tx, *in.RequisitionID, true)
 	if err != nil {
 		return Requisition{}, problem.Reference(err, "requisition_id", "requisition", "no requisition with this id that you can access")

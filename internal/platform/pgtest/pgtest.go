@@ -246,6 +246,10 @@ func NewTenant(tb testing.TB, permissions ...string) Tenant {
 		must(`INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, status, created_by, updated_by)
 			VALUES ($1, $2, $3, $4, $5, $3, 'active', $2, $2)`, ten.ID, a.ID, a.Kind, issuer, a.Subject)
 	}
+	// The agent writes what its permissions allow, as the agents that
+	// existed before autonomy levels were enforced do (000077, ADR-0036).
+	must(`INSERT INTO identity.agent_profile (tenant_id, principal_id, autonomy_level, model, description, created_by, updated_by)
+		VALUES ($1, $2, 2, 'erp-default', 'Test agent', $3, $3)`, ten.ID, ten.Agent.ID, ten.Human.ID)
 	human, machine := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	must(`INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1, $2, 'all', 'All', 'active', $3, $3), ($1, $4, 'machine', 'Machine', 'active', $3, $3)`,
 		ten.ID, human, ten.Human.ID, machine)

@@ -43,6 +43,9 @@ func Handler(s *Service, v *authn.Verifier, log *slog.Logger) http.Handler {
 	mux.HandleFunc(Base+"/tenants/{id}/identity-providers", h.providers)
 	mux.HandleFunc(Base+"/tenants/{id}/identity-providers/{rest}", h.provider)
 	mux.HandleFunc(Base+"/tenants/{id}/auth-policy", h.policy)
+	mux.HandleFunc(Base+"/tenants/{id}/ai-policy", h.aiPolicy)
+	mux.HandleFunc(Base+"/tenants/{id}/ai-policy:suspend", h.aiPolicy)
+	mux.HandleFunc(Base+"/tenants/{id}/ai-policy:resume", h.aiPolicy)
 	mux.HandleFunc(Base+"/tenants/{id}/principals", h.principals)
 	mux.HandleFunc(Base+"/tenants/{id}/principals/{rest}", h.principal)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +67,10 @@ var Roles = map[string]string{"listTenants": authn.RoleRead, "getTenant": authn.
 	"listIdentityProviders": authn.RoleRead, "getIdentityProvider": authn.RoleRead, "getAuthPolicy": authn.RoleRead,
 	"registerIdentityProvider": authn.RoleAdmin, "updateIdentityProvider": authn.RoleAdmin, "retireIdentityProvider": authn.RoleAdmin, "updateAuthPolicy": authn.RoleAdmin,
 	// Binding a principal to a subject hands its access to whoever holds the subject.
-	"listTenantPrincipals": authn.RoleRead, "bindPrincipal": authn.RoleAdmin}
+	"listTenantPrincipals": authn.RoleRead, "bindPrincipal": authn.RoleAdmin,
+	// The operators' hand on a tenant's AI kill switch is operational, as a
+	// tenant's suspension is (ADR-0036).
+	"getTenantAiPolicy": authn.RoleRead}
 
 func (h *handler) collection(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {

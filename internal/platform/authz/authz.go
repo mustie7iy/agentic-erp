@@ -1,6 +1,7 @@
 // Package authz authorizes every operation against the contract: the
 // operation's x-permission must be among the principal's current
 // permissions, operations marked x-agent: false refuse agents and services,
+// an agent acts within its autonomy level (ADR-0036),
 // and a principal whose permissions break a segregation-of-duties rule may
 // not use either permission of the rule (ADR-0010). Company access depends
 // on the resource and is checked by the handler with Companies.
@@ -85,6 +86,11 @@ func (a *Authorizer) Authorize(ctx context.Context, operationID string) error {
 	if !op.AgentAllowed && p.Kind != reqctx.KindHuman {
 		return problem.Forbidden("identity.agent_not_allowed", "Only a person may perform this operation.")
 	}
+	if p.Kind == reqctx.KindAgent {
+		if err := withinAutonomy(ctx, tx, p.ID, op); err != nil {
+			return err
+		}
+	}
 	set, err := Permissions(ctx)
 	if err != nil {
 		return err
@@ -93,6 +99,62 @@ func (a *Authorizer) Authorize(ctx context.Context, operationID string) error {
 		return problem.Forbidden("identity.permission_missing", "This action requires the permission "+op.Permission+".")
 	}
 	return checkSoD(ctx, tx, op.Permission, set)
+}
+
+// Autonomy levels (ADR-0036): what an agent may do beyond its permissions.
+const (
+	readOnly = 0 // reads
+	proposes = 1 // also the operations that only propose (x-autonomy: propose)
+	writes   = 2 // any write its permissions allow; 3 is reserved and acts as 2
+)
+
+// withinAutonomy refuses an agent an operation above its autonomy level,
+// read from its profile; an agent without one is at level 0.
+func withinAutonomy(ctx context.Context, tx pgx.Tx, agent uuid.UUID, op api.Operation) error {
+	need := writes
+	switch {
+	// GET, HEAD and OPTIONS run read-only; x-autonomy: read changes no
+	// business data.
+	case op.Method == "GET" || op.Method == "HEAD" || op.Method == "OPTIONS" || op.Reads:
+		need = readOnly
+	case op.Proposes:
+		need = proposes
+	}
+	if need == readOnly {
+		return nil
+	}
+	return atLevel(ctx, tx, agent, need, "the operation")
+}
+
+// RequireWrites refuses an agent below level 2 a part of an operation that
+// does more than propose, though the operation itself proposes (creating
+// an order from a requisition reserves the requisition, ADR-0036); what
+// names the part. People and services are not asked; an agent at level 0
+// never gets this far (its operation is refused first), and level 3 passes
+// as 2.
+func RequireWrites(ctx context.Context, what string) error {
+	tx, ok := reqctx.TxFrom(ctx)
+	p, ok2 := reqctx.PrincipalFrom(ctx)
+	if !ok || !ok2 {
+		return errOutsideRequest
+	}
+	if p.Kind != reqctx.KindAgent {
+		return nil
+	}
+	return atLevel(ctx, tx, p.ID, writes, what)
+}
+
+// atLevel refuses an agent whose level is below need.
+func atLevel(ctx context.Context, tx pgx.Tx, agent uuid.UUID, need int, what string) error {
+	var level int
+	if err := tx.QueryRow(ctx, `SELECT coalesce((SELECT autonomy_level FROM identity.agent_profile WHERE principal_id = $1), 0)`, agent).Scan(&level); err != nil {
+		return fmt.Errorf("authz: autonomy level: %w", err)
+	}
+	if level < need {
+		return problem.Forbidden("identity.autonomy_insufficient",
+			fmt.Sprintf("This agent's autonomy level is %d; %s needs %d (an administrator raises it in the agent's profile).", level, what, need))
+	}
+	return nil
 }
 
 // checkSoD refuses a permission while the principal also holds the other

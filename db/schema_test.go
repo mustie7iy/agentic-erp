@@ -2268,3 +2268,294 @@ func TestPaymentItemDiscounts(t *testing.T) {
 		failsWith(t, err, "only be deactivated")
 	})
 }
+
+// TestModelCalls: model prices are reference data the application reads;
+// a model call's row is the tenant's, never changed once written, with
+// non-negative tokens and cost and a known outcome; a session sums its
+// calls' cost in millionths of the minor unit (ADR-0036).
+func TestModelCalls(t *testing.T) {
+	need(t)
+	a, b := newFixture(t), newFixture(t)
+	session, call := id(), id()
+	// Prices are global; each run prices a model of its own.
+	priced := "test-" + id().String()
+	mustApp(t, a.tenant, func(tx pgx.Tx) error {
+		var n int
+		if err := tx.QueryRow(context.Background(), "SELECT count(*) FROM ref.model_price").Scan(&n); err != nil {
+			return err // the application reads prices
+		}
+		if err := exec(tx, "INSERT INTO agents.session (tenant_id, id, agent_id, purpose, model, status, cost_currency) VALUES ($1,$2,$3,'test','erp-default','running','USD')", a.tenant, session, a.actor); err != nil {
+			return err
+		}
+		return exec(tx, `INSERT INTO agents.model_call (tenant_id, id, principal_id, session_id, alias, model, status, input_tokens, output_tokens, cost_micro, currency)
+			VALUES ($1,$2,$3,$4,'erp-default','claude-opus-5-5','succeeded',10,20,4400,'USD')`, a.tenant, call, a.actor, session)
+	})
+	t.Run("a call is never changed", func(t *testing.T) {
+		failsWith(t, asApp(t, a.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE agents.model_call SET cost_micro = 0 WHERE tenant_id = $1 AND id = $2", a.tenant, call)
+		}), "model_call")
+	})
+	t.Run("tokens and cost are not negative", func(t *testing.T) {
+		failsWith(t, asApp(t, a.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO agents.model_call (tenant_id, id, principal_id, alias, model, status, input_tokens, output_tokens, cost_micro, currency)
+				VALUES ($1, gen_random_uuid(), $2, 'erp-default', 'claude-opus-5-5', 'succeeded', -1, 0, 0, 'USD')`, a.tenant, a.actor)
+		}), "model_call_input_tokens_check")
+	})
+	t.Run("redactions are counted, not negative", func(t *testing.T) {
+		failsWith(t, asApp(t, a.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO agents.model_call (tenant_id, id, principal_id, alias, model, status, input_tokens, output_tokens, cost_micro, currency, redactions)
+				VALUES ($1, gen_random_uuid(), $2, 'erp-default', 'claude-opus-5-5', 'succeeded', 0, 0, 0, 'USD', -1)`, a.tenant, a.actor)
+		}), "model_call_redactions_check")
+	})
+	t.Run("an outcome is known", func(t *testing.T) {
+		failsWith(t, asApp(t, a.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO agents.model_call (tenant_id, id, principal_id, alias, model, status, input_tokens, output_tokens, cost_micro, currency)
+				VALUES ($1, gen_random_uuid(), $2, 'erp-default', 'claude-opus-5-5', 'maybe', 0, 0, 0, 'USD')`, a.tenant, a.actor)
+		}), "model_call_status_check")
+	})
+	t.Run("another tenant sees none", func(t *testing.T) {
+		mustApp(t, b.tenant, func(tx pgx.Tx) error {
+			var n int
+			if err := tx.QueryRow(context.Background(), "SELECT count(*) FROM agents.model_call").Scan(&n); err != nil {
+				return err
+			}
+			if n != 0 {
+				return fmt.Errorf("calls visible to another tenant: %d", n)
+			}
+			return nil
+		})
+	})
+	t.Run("a session's cost in millionths", func(t *testing.T) {
+		mustApp(t, a.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE agents.session SET cost_micro = cost_micro + 4400, version = version + 1 WHERE tenant_id = $1 AND id = $2", a.tenant, session)
+		})
+		failsWith(t, asApp(t, a.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE agents.session SET cost_micro = -1, version = version + 1 WHERE tenant_id = $1 AND id = $2", a.tenant, session)
+		}), "session_cost_micro_check")
+	})
+	t.Run("prices are not negative", func(t *testing.T) {
+		_, err := testDB.Exec(context.Background(), "INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read, recorded_by) VALUES ($1, '2026-01-01', 'USD', -1, 0, 0, 0, 'ops')", priced)
+		failsWith(t, err, "model_price_input_check")
+	})
+	t.Run("prices are in one currency", func(t *testing.T) {
+		_, err := testDB.Exec(context.Background(), "INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read, recorded_by) VALUES ($1, '2026-03-01', 'EUR', 1, 1, 1, 1, 'ops')", priced)
+		failsWith(t, err, "model_price_currency_check")
+	})
+	t.Run("a recorded price stands", func(t *testing.T) {
+		if _, err := testDB.Exec(context.Background(), "INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read, recorded_by) VALUES ($1, '2026-02-01', 'USD', 1, 1, 1, 1, 'ops')", priced); err != nil {
+			t.Fatal(err)
+		}
+		_, err := testDB.Exec(context.Background(), "UPDATE ref.model_price SET input = 0 WHERE model = $1", priced)
+		failsWith(t, err, "insert-only")
+	})
+}
+
+// TestModelBudgets: a budget line is the tenant's or an agent's, one per
+// month and in the prices' currency, never spent below nothing, and
+// announces only 80% and 100%; a reservation holds a non-negative amount
+// until it expires, after it was made; the application settles
+// reservations but deletes neither them nor lines; another tenant sees
+// none (ADR-0036).
+func TestModelBudgets(t *testing.T) {
+	need(t)
+	a, b := newFixture(t), newFixture(t)
+	tenantLine, agentLine := id(), id()
+	insertLine := func(line uuid.UUID, agent *uuid.UUID, month, currency string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, "INSERT INTO agents.spend (tenant_id, id, principal_id, month, currency) VALUES ($1, $2, $3, $4, $5)", a.tenant, line, agent, month, currency)
+		}
+	}
+	insertReservation := func(amount int64, reserved, expires string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO agents.model_reservation (tenant_id, id, spend_id, amount_micro, reserved_at, expires_at) VALUES ($1, gen_random_uuid(), $2, $3, $4, $5)`,
+				a.tenant, tenantLine, amount, reserved, expires)
+		}
+	}
+	agent := id()
+	mustApp(t, a.tenant, insertLine(tenantLine, nil, "2026-10-01", "USD"))
+	mustApp(t, a.tenant, insertLine(agentLine, &agent, "2026-10-01", "USD"))
+	mustApp(t, a.tenant, insertReservation(2000000, "2026-10-17T12:00:00Z", "2026-10-17T12:12:00Z"))
+	for _, c := range []struct {
+		name       string
+		insert     func(tx pgx.Tx) error
+		constraint string
+	}{
+		{"one tenant line a month", insertLine(id(), nil, "2026-10-01", "USD"), "spend_line_key"},
+		{"one line a month per agent", insertLine(id(), &agent, "2026-10-01", "USD"), "spend_line_key"},
+		{"a month is its first day", insertLine(id(), nil, "2026-11-02", "USD"), "spend_month_check"},
+		{"in the prices' currency", insertLine(id(), nil, "2026-12-01", "EUR"), "spend_currency_check"},
+		{"a reservation holds no negative amount", insertReservation(-1, "2026-10-17T12:00:00Z", "2026-10-17T12:12:00Z"), "model_reservation_amount_check"},
+		{"a reservation expires after it is made", insertReservation(1, "2026-10-17T12:00:00Z", "2026-10-17T12:00:00Z"), "model_reservation_expiry_check"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			failsOn(t, asApp(t, a.tenant, c.insert), c.constraint)
+		})
+	}
+	for _, c := range []struct {
+		name, set, constraint string
+	}{{"spend is not negative", "spent_micro = -1", "spend_spent_micro_check"}, {"only 80% and 100% are announced", "threshold = 50", "spend_threshold_check"}} {
+		t.Run(c.name, func(t *testing.T) {
+			failsOn(t, asApp(t, a.tenant, func(tx pgx.Tx) error {
+				return exec(tx, "UPDATE agents.spend SET "+c.set+", version = version + 1 WHERE tenant_id = $1 AND id = $2", a.tenant, agentLine)
+			}), c.constraint)
+		})
+	}
+	t.Run("a reservation is settled", func(t *testing.T) {
+		mustApp(t, a.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE agents.model_reservation SET settled_at = now(), version = version + 1 WHERE tenant_id = $1 AND spend_id = $2", a.tenant, tenantLine)
+		})
+	})
+	for _, table := range []string{"agents.model_reservation", "agents.spend"} {
+		t.Run("the application deletes no row of "+table, func(t *testing.T) {
+			failsWith(t, asApp(t, a.tenant, func(tx pgx.Tx) error {
+				return exec(tx, "DELETE FROM "+table+" WHERE tenant_id = $1", a.tenant)
+			}), "permission denied")
+		})
+	}
+	t.Run("another tenant sees none", func(t *testing.T) {
+		mustApp(t, b.tenant, func(tx pgx.Tx) error {
+			var n int
+			if err := tx.QueryRow(context.Background(), "SELECT (SELECT count(*) FROM agents.spend) + (SELECT count(*) FROM agents.model_reservation)").Scan(&n); err != nil {
+				return err
+			}
+			if n != 0 {
+				return fmt.Errorf("budget rows visible to another tenant: %d", n)
+			}
+			return nil
+		})
+	})
+}
+
+// TestAIPolicy: a tenant's AI policy is one row, the tenant's alone; a
+// suspension says why and nothing else does; a cap is in the prices'
+// currency with its amount, never negative; routes are an object; the
+// permissions to read and manage it exist and are no approvals (ADR-0036).
+func TestAIPolicy(t *testing.T) {
+	need(t)
+	a, b := newFixture(t), newFixture(t)
+	mustApp(t, a.tenant, func(tx pgx.Tx) error {
+		return exec(tx, "INSERT INTO agents.ai_policy (tenant_id, updated_by) VALUES ($1, $2)", a.tenant, a.actor)
+	})
+	for _, c := range []struct {
+		name, set, constraint string
+	}{
+		{"a suspension says why", "suspended = true", "ai_policy_suspension_reason"},
+		{"only a suspension has a reason", "suspended_reason = 'audit'", "ai_policy_suspension_reason"},
+		{"a cap has its currency", "monthly_cap = 100", "ai_policy_cap_currency"},
+		{"a cap is not negative", "monthly_cap = -1, cap_currency = 'USD'", "ai_policy_monthly_cap_check"},
+		{"a cap is in the prices' currency", "monthly_cap = 100, cap_currency = 'EUR'", "ai_policy_cap_currency_check"},
+		{"routes are an object", "routes = '[]'", "ai_policy_routes_check"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			failsOn(t, asApp(t, a.tenant, func(tx pgx.Tx) error {
+				return exec(tx, "UPDATE agents.ai_policy SET "+c.set+", version = version + 1 WHERE tenant_id = $1", a.tenant)
+			}), c.constraint)
+		})
+	}
+	t.Run("one policy a tenant", func(t *testing.T) {
+		failsOn(t, asApp(t, a.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "INSERT INTO agents.ai_policy (tenant_id) VALUES ($1)", a.tenant)
+		}), "ai_policy_pkey")
+	})
+	t.Run("a suspension with its reason", func(t *testing.T) {
+		mustApp(t, a.tenant, func(tx pgx.Tx) error {
+			return exec(tx, "UPDATE agents.ai_policy SET suspended = true, suspended_reason = 'billing dispute', version = version + 1 WHERE tenant_id = $1", a.tenant)
+		})
+	})
+	t.Run("another tenant sees none", func(t *testing.T) {
+		mustApp(t, b.tenant, func(tx pgx.Tx) error {
+			var n int
+			if err := tx.QueryRow(context.Background(), "SELECT count(*) FROM agents.ai_policy").Scan(&n); err != nil {
+				return err
+			}
+			if n != 0 {
+				return fmt.Errorf("policies visible to another tenant: %d", n)
+			}
+			return nil
+		})
+	})
+	t.Run("the permissions exist", func(t *testing.T) {
+		var n int
+		if err := testDB.QueryRow(context.Background(), `SELECT count(*) FROM ref.permission WHERE code IN ('agents.ai_policy.read', 'agents.ai_policy.manage') AND NOT is_approval`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 2 {
+			t.Errorf("AI policy permissions: got %d, want 2", n)
+		}
+	})
+}
+
+// TestAgentModelAliases: 000076 maps the agent profiles that name a model
+// outright to the alias the gateway routes (ADR-0036): every Claude model
+// to erp-default. An alias stays, and a value it does not know stays too,
+// for the next write of the profile to refuse.
+func TestAgentModelAliases(t *testing.T) {
+	conn := emptyDatabase(t)
+	ctx := context.Background()
+	migrateBefore(t, conn, 76)
+	tenant, human := id(), id()
+	agents := map[string]string{"claude-opus-5-5": "erp-default", "claude-haiku-5": "erp-default", "erp-analytics": "erp-analytics", "gpt-9": "gpt-9"}
+	ids := map[string]uuid.UUID{}
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := conn.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	exec("INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, 'Acme', 'eu-west', 'EUR', 'active')", tenant)
+	for model := range agents {
+		ids[model] = id()
+		exec("INSERT INTO identity.principal (tenant_id, id, kind, display_name, status, created_by, updated_by) VALUES ($1,$2,'agent','Agent','active',$3,$3)",
+			tenant, ids[model], human)
+		exec("INSERT INTO identity.agent_profile (tenant_id, principal_id, model, description, created_by, updated_by) VALUES ($1,$2,$3,'d',$4,$4)",
+			tenant, ids[model], model, human)
+	}
+	if _, err := Migrate(ctx, conn); err != nil {
+		t.Fatal(err)
+	}
+	for model, want := range agents {
+		t.Run(model, func(t *testing.T) {
+			var got string
+			if err := conn.QueryRow(ctx, "SELECT model FROM identity.agent_profile WHERE principal_id = $1", ids[model]).Scan(&got); err != nil {
+				t.Fatal(err)
+			}
+			if got != want {
+				t.Errorf("model: got %s, want %s", got, want)
+			}
+		})
+	}
+}
+
+// TestExistingAgentsLevelTwo: 000077 raises the agents that exist to
+// autonomy level 2, the writes their permissions were given for; a new
+// profile still starts at 0.
+func TestExistingAgentsLevelTwo(t *testing.T) {
+	conn := emptyDatabase(t)
+	ctx := context.Background()
+	migrateBefore(t, conn, 77)
+	tenant, human, agent, other := id(), id(), id(), id()
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := conn.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	exec("INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, 'Acme', 'eu-west', 'EUR', 'active')", tenant)
+	for _, a := range []uuid.UUID{agent, other} {
+		exec("INSERT INTO identity.principal (tenant_id, id, kind, display_name, status, created_by, updated_by) VALUES ($1,$2,'agent','Agent','active',$3,$3)", tenant, a, human)
+	}
+	exec("INSERT INTO identity.agent_profile (tenant_id, principal_id, model, description, created_by, updated_by) VALUES ($1,$2,'erp-default','d',$3,$3)", tenant, agent, human)
+	if _, err := Migrate(ctx, conn); err != nil {
+		t.Fatal(err)
+	}
+	exec("INSERT INTO identity.agent_profile (tenant_id, principal_id, model, description, created_by, updated_by) VALUES ($1,$2,'erp-default','d',$3,$3)", tenant, other, human)
+	for a, want := range map[uuid.UUID]int{agent: 2, other: 0} {
+		var got int
+		if err := conn.QueryRow(ctx, "SELECT autonomy_level FROM identity.agent_profile WHERE principal_id = $1", a).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("level of %s: got %d, want %d", a, got, want)
+		}
+	}
+}

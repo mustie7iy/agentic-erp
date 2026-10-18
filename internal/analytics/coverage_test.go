@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/anthropics/anthropic-sdk-go"
 	"math"
 	"os"
 	"path/filepath"
@@ -89,17 +90,9 @@ func TestModelDefaultErrorIsDeterministic(t *testing.T) {
 // --- agent ---------------------------------------------------------------------
 
 func TestNewAgentAndToolText(t *testing.T) {
-	t.Setenv("ERP_AGENT_MODEL", "claude-haiku-5-5")
-	a := NewAgent()
-	if a.Model != "claude-haiku-5-5" {
-		t.Errorf("env model: got %s, want claude-haiku-5-5", a.Model)
-	}
-	if a.Today == nil {
-		t.Error("clock: got nil, want one")
-	}
-	t.Setenv("ERP_AGENT_MODEL", "")
-	if a := NewAgent(); a.Model != defaultModel {
-		t.Fatalf("default model: got %s, want %s", a.Model, defaultModel)
+	a := NewAgent(anthropic.NewClient(), Alias)
+	if a.Model != Alias || a.Today == nil {
+		t.Errorf("agent: got model %s, clock %v, want %s and a clock", a.Model, a.Today != nil, Alias)
 	}
 	r, err := toolText("plain")
 	if err != nil {

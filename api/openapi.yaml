@@ -22,7 +22,7 @@ info:
     - **Resource kinds.** Mutable resources carry `id`, `version` (= ETag), `created_*` and `updated_*`. Insert-only resources (journal entries, goods receipts, clearings, match results, decisions, audit events) carry `id`, `created_at`, `created_by`; corrections are new documents (`:reverse`). Effective-dated grants (role assignments, role permissions, company access, SoD rules, bank accounts) add `valid_from`, `valid_to`, `ended_at`, `ended_by`: they are never updated otherwise and never deleted, only ended (`:end`). Resources without a version have an ETag derived from their representation, so `If-Match` still guards their custom methods.
     - **Long-running work** returns 202 with an `Operation` (ADR-0012).
     - **Approvals.** Approval decisions are made only on approval requests (`:approve`, `:reject`), which require `workflow.request.decide` plus the approval permission of the object type, listed per operation in `x-object-permissions` (object type to permission code). Payment runs are released directly (`payment-runs/{id}:release`) by a person other than the proposer.
-    - **Agents** call the same operations. Operations marked `x-agent: false` (approval decisions, identity administration) are never exposed as agent tools and refuse agent tokens.
+    - **Agents** call the same operations. Operations marked `x-agent: false` (approval decisions, identity administration) are never exposed as agent tools and refuse agent tokens. An agent acts within its autonomy level (`agent_profile.autonomy_level`, ADR-0036): level 0 only reads; level 1 also performs the operations marked `x-autonomy: propose`, which only propose (its sessions, tool-call records and recommendations, change requests, drafts); level 2 performs any write its permissions allow. Operations marked `x-autonomy: read` change no business data though they are not GET (a long-running verification), and every level performs them. Above its level an agent is refused with 403 `identity.autonomy_insufficient`. While the tenant's AI is off (`getAiPolicy`: switched off by its administrators or suspended by the platform's operators), every agent request is refused with 403 `agents.ai_disabled`.
     - **Rate limits.** Every response carries `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`; 429 adds `Retry-After`.
   contact:
     name: Platform API team
@@ -2069,6 +2069,7 @@ paths:
       summary: Propose a configuration change
       description: "Creates a change request in status `draft`."
       x-permission: config.change.propose
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -2157,6 +2158,7 @@ paths:
       summary: Update a draft or invalid change request
       description: "Changes a change request in status `draft` or `invalid`; an `invalid` one returns to `draft` and must be submitted again. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears an optional field, arrays are replaced as a whole."
       x-permission: config.change.propose
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -2214,6 +2216,7 @@ paths:
       summary: Submit a change request
       description: "Moves a draft to `validating`. The server validates it and computes items and tier; it becomes `invalid` (fix it with PATCH, which returns it to `draft`, or `:withdraw` it) or `awaiting_evidence`. Once the evidence its tier requires has passed it becomes `pending_approval` and an approval request is opened; decisions are made on that approval request, which moves the change to `approved` or `rejected`. Requires status `draft`."
       x-permission: config.change.propose
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -2264,6 +2267,7 @@ paths:
       summary: Simulate a change request
       description: "Replays recent business transactions against the proposed configuration and records the result as `simulation` evidence. Requires status `awaiting_evidence`."
       x-permission: config.change.propose
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -2314,6 +2318,7 @@ paths:
       summary: Withdraw a change request
       description: "Withdraws a change request that is not yet approved (status `withdrawn`); a pending approval request is cancelled with it."
       x-permission: config.change.propose
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -3032,6 +3037,7 @@ paths:
       summary: Request a bank detail change
       description: "Opens a pending partner change of kind `bank_change` that adds an account. The account exists only once the change is approved through its approval request; payments to the partner are held after the change takes effect. Returns the partner change; `Location` points to it."
       x-permission: partner.bank.change
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/Id"
@@ -3125,6 +3131,7 @@ paths:
       summary: Request to end a bank account
       description: "Opens a pending partner change of kind `bank_change` that ends the account; `valid_to`, `ended_at` and `ended_by` are set only when the change is approved through its approval request. Returns the partner change."
       x-permission: partner.bank.change
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/BankAccountId"
@@ -3243,6 +3250,7 @@ paths:
       summary: Request a partner master data change
       description: "Opens a pending partner change of kind `update`. At most one pending change of each kind per partner (409 otherwise)."
       x-permission: partner.supplier.change
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -4120,6 +4128,7 @@ paths:
       summary: Park a manual journal entry
       description: "Parks a manual journal entry for a person to post (`ParkedJournalEntryChanged`). It is checked as a posting is (legal entity, ledger, currency, balance, postable accounts, partners on reconciliation lines, tax codes) except for the open period and the exchange rates, which are checked when it is posted. An entry that could never be posted is refused as posting would refuse it: a line on the legal entity's GR/IR account (422 `ledger.automatic_account`; only goods receipts and invoices post it) or a quantity in an unknown unit (422 `ledger.unknown_unit`). Nothing is posted and no document number is drawn. Agents may park: this is how they propose an entry, which only a person can post. A person owns what they park; an agent's entry has no owner until a person takes it on."
       x-permission: ledger.entry.park
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -4230,6 +4239,7 @@ paths:
       summary: Change a parked journal entry
       description: "Changes a parked journal entry in status `parked` (409 `ledger.invalid_parked_status` otherwise). JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears `reference` or `header_text`, and `lines` replaces the lines as a whole. The legal entity does not change. The entry is checked again as parking checks it. Only its owner changes it (403 `ledger.not_entry_owner`): the person who parked it; a person who changes an agent's entry no person owns takes it on and becomes its owner; an agent changes only an entry it parked that no person has taken on."
       x-permission: ledger.entry.park
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -4287,6 +4297,7 @@ paths:
       summary: Cancel a parked journal entry
       description: "Cancels a parked journal entry in status `parked` for good (status `cancelled`, `ParkedJournalEntryChanged`); nothing was posted, so nothing is reversed. An entry waiting for approval is withdrawn first by cancelling its approval request, which returns it to `parked`. Only its owner cancels it (403 `ledger.not_entry_owner`): the person who parked it, a person taking on an agent's entry no person owns, or the agent that parked an entry no person has taken on."
       x-permission: ledger.entry.park
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -4915,6 +4926,7 @@ paths:
       summary: Create a requisition
       description: Creates a draft requisition.
       x-permission: procurement.requisition.create
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -5004,6 +5016,7 @@ paths:
       summary: Update a draft requisition
       description: "Changes a requisition in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears an optional field, arrays are replaced as a whole."
       x-permission: procurement.requisition.create
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -5061,6 +5074,7 @@ paths:
       summary: Submit a requisition
       description: "Submits a draft for approval and opens an approval request. Requires status `draft`."
       x-permission: procurement.requisition.create
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -5111,6 +5125,7 @@ paths:
       summary: Cancel a requisition
       description: "Cancels a requisition that is not yet ordered; a pending approval request is cancelled with it."
       x-permission: procurement.requisition.create
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -5226,6 +5241,7 @@ paths:
       summary: Create a purchase order
       description: Creates a draft purchase order, optionally from an approved requisition (one live order per requisition).
       x-permission: procurement.order.create
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -5315,6 +5331,7 @@ paths:
       summary: Update a draft purchase order
       description: "Changes a purchase order in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears an optional field, arrays are replaced as a whole."
       x-permission: procurement.order.create
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -6497,6 +6514,7 @@ paths:
       summary: Enter a supplier invoice
       description: "Creates a parked supplier invoice. The same supplier reference for the same supplier is refused with 409 `payables.duplicate_invoice` (normalized: case, spaces and punctuation ignored)."
       x-permission: payables.invoice.capture
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -6609,7 +6627,7 @@ paths:
       tags:
         - payables
       summary: Capture a supplier invoice document
-      description: "Extracts a supplier invoice from a document and creates it `parked` with source `capture`. Extraction can exceed 5 seconds, so this returns an Operation whose `resource` is the new invoice."
+      description: "Extracts a supplier invoice from a document and creates it `parked` with source `capture`. Extraction can exceed 5 seconds, so this returns an Operation whose `resource` is the new invoice. The document goes to a model through the cell's model gateway (ADR-0036), whose refusals of the tenant's call are answered as they are: 422 `agents.documents_withheld` while the tenant's AI policy withholds documents from models, 403 `agents.ai_disabled` while its AI is off, 429 `agents.budget_exhausted` when its cap is spent, 422 `agents.model_not_allowed` or `agents.model_unpriced` when its policy routes extraction to a model it does not allow or that has no price. The gateway failing is 422 `payables.unreadable_document`."
       x-permission: payables.invoice.capture
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -6825,6 +6843,7 @@ paths:
       summary: Update a parked supplier invoice
       description: "Changes a supplier invoice in status `parked`. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears an optional field, arrays are replaced as a whole. An invoice on a purchase order is matched again after a change before it posts, and the change unlinks an approved exception request (`workflow_request_id`), decided on the invoice as it was."
       x-permission: payables.invoice.capture
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -8209,6 +8228,7 @@ paths:
       summary: Cancel an approval request
       description: "Withdraws a pending request. Only the requester may cancel, with a comment; agents and services may cancel requests they raised (cancelling is not an approval decision). Recorded as a decision."
       x-permission: workflow.request.cancel
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -8329,6 +8349,7 @@ paths:
       summary: Verify the audit chain
       description: Recomputes the tenant's hash chain over a range and compares it with the stored hashes and the write-once anchors.
       x-permission: audit.chain.verify
+      x-autonomy: read
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -9112,6 +9133,7 @@ paths:
       summary: Start an agent session
       description: "Opens a session for the calling agent: its tool calls and recommendations are recorded under it. Only agents start sessions (403 `agents.not_an_agent`)."
       x-permission: agents.session.record
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -9199,8 +9221,9 @@ paths:
       tags:
         - agents
       summary: End an agent session
-      description: "Ends a running session with its outcome and the tokens and cost it used. Only the session's agent ends it. Requires status `running`."
+      description: "Ends a running session with its outcome. Its tokens and cost are those of the model calls made in it through the model gateway (api/model.yaml, ADR-0036); tokens and cost in the request are ignored. Only the session's agent ends it. Requires status `running`."
       x-permission: agents.session.record
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -9291,8 +9314,9 @@ paths:
       tags:
         - agents
       summary: Record a tool call
-      description: "Records one tool call of a running session, numbered in order. Insert-only. Only the session's agent records its calls."
+      description: "Records one tool call of a running session, numbered in order. Insert-only. Only the session's agent records its calls. The input's strings and the result summary are recorded minimized, as the model gateway redacts what leaves the cell (ADR-0036): IBANs, card numbers and the tax identifiers of the tenant's countries become `[IBAN]`, `[CARD]` and `[TAX_ID]`."
       x-permission: agents.session.record
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -9411,6 +9435,7 @@ paths:
       summary: Make a recommendation
       description: "Records an agent's recommendation on a business object for people to decide. Agents recommend; people decide. The session must be the caller's and running."
       x-permission: agents.session.record
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -9550,6 +9575,133 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/ai-policy":
+    get:
+      operationId: getAiPolicy
+      tags:
+        - agents
+      summary: Get the tenant's AI policy
+      description: "Whether the tenant's model calls and agents run, where its model aliases route, which models they may route to, its monthly cap on model spending and whether documents may go to models (ADR-0036). A tenant whose policy was never changed has the defaults, version 1: AI on, the platform's routes, any priced model, no cap, documents allowed. Human-only."
+      x-permission: agents.ai_policy.read
+      x-agent: false
+      responses:
+        "200":
+          description: "The AI policy."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiPolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateAiPolicy
+      tags:
+        - agents
+      summary: Update the tenant's AI policy
+      description: "Changes the policy. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` removes the monthly cap, `routes` and `allowed_models` are replaced as a whole. `enabled: false` is the tenant's kill switch: the model gateway refuses every call (403 `agents.ai_disabled`) and agents' requests are refused, while people and services work on. The platform's operators can suspend a tenant's AI too, which wins over `enabled`; only they lift it. The cap is in USD, the prices' currency. Every alias must route, under the policy, to a model it allows and that has a recorded price, and `routes` may name only the platform's aliases (422 `agents.invalid_policy`). Human-only. Recorded in the audit trail and published as `AiPolicyChanged`."
+      x-permission: agents.ai_policy.manage
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the policy.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/AiPolicyUpdate"
+      responses:
+        "200":
+          description: "Updated; the policy after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiPolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/ai-usage":
+    get:
+      operationId: getAiUsage
+      tags:
+        - agents
+      summary: Get the tenant's model usage in a month
+      description: "What the tenant's model calls through the gateway used and cost in one calendar month (UTC), per principal that called (ADR-0036): each agent, and each person or service whose request made a server-side call such as capture. Read from the model call ledger: tokens as the provider reported them, costs at the recorded prices, rounded to the cent per principal and in total. The month defaults to the current one. Human-only."
+      x-permission: agents.ai_policy.read
+      x-agent: false
+      parameters:
+        - name: month
+          in: query
+          required: false
+          description: "The month, YYYY-MM; the current month (UTC) when absent."
+          schema:
+            type: string
+            pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+          example: "2026-10"
+      responses:
+        "200":
+          description: "The month's usage."
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiUsage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 components:
   securitySchemes:
     oidc:
@@ -9823,6 +9975,206 @@ components:
       description: Tenant custom fields (ADR-0009), validated against the tenant's published schema for this resource type. Keys are snake_case.
       example:
         cost_object_hint: MKT-2026
+    AiPolicy:
+      type: object
+      description: "A tenant's AI policy (ADR-0036)."
+      required:
+        - version
+        - enabled
+        - suspended
+        - active
+        - routes
+        - effective_routes
+        - allowed_models
+        - documents_to_models
+      properties:
+        version:
+          type: integer
+          format: int32
+          description: Optimistic-lock version; equals the ETag.
+          minimum: 1
+          readOnly: true
+        enabled:
+          type: boolean
+          description: "The tenant's administrators' hand on the kill switch: false switches the tenant's AI off."
+        suspended:
+          type: boolean
+          description: "The platform's operators' hand on the kill switch, which wins over `enabled`."
+          readOnly: true
+        suspended_reason:
+          type: string
+          description: "Why the operators suspended the tenant's AI, while suspended."
+          readOnly: true
+        active:
+          type: boolean
+          description: "Whether the tenant's AI runs: enabled and not suspended."
+          readOnly: true
+        monthly_cap:
+          $ref: "#/components/schemas/Money"
+          description: "The tenant's monthly cap on model spending, in USD; absent: none. Every caller's calls are held against it (ADR-0036)."
+        routes:
+          type: object
+          description: "Model alias → model, over the platform's routes."
+          additionalProperties:
+            type: string
+          examples:
+            - erp-default: claude-opus-5-5
+        effective_routes:
+          type: object
+          description: "Where each of the platform's aliases routes under the policy."
+          additionalProperties:
+            type: string
+          readOnly: true
+        allowed_models:
+          type: array
+          description: "The models the aliases may route to; empty: any model with a recorded price."
+          items:
+            type: string
+        documents_to_models:
+          type: boolean
+          description: "Whether documents (PDF and image blocks) may go to models; while off, the gateway refuses a call carrying one, capture's included, with 422 `agents.documents_withheld`."
+        updated_at:
+          type: string
+          format: date-time
+          description: Last change, by the tenant's administrators or the platform's operators; absent while the policy has the defaults.
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          description: Who changed it last, one of the tenant's administrators or a platform operator (`suspendAi`, `resumeAi`); absent while the policy has the defaults.
+          readOnly: true
+      additionalProperties: false
+    AiPolicyUpdate:
+      type: object
+      description: Merge patch of the AI policy.
+      properties:
+        enabled:
+          type: boolean
+          description: "false switches the tenant's AI off; true switches it back on, unless the operators have suspended it."
+        monthly_cap:
+          type:
+            - object
+            - "null"
+          description: "The monthly cap in USD. Send null to remove it."
+          required:
+            - amount
+            - currency
+          properties:
+            amount:
+              type: string
+              description: Decimal string with exactly the currency's minor-unit digits.
+              pattern: "^(0|[1-9][0-9]{0,17})(\\.[0-9]{1,4})?$"
+              example: "500.00"
+            currency:
+              type: string
+              description: ISO 4217 currency code; USD, the prices' currency.
+              pattern: "^[A-Z]{3}$"
+              example: USD
+          additionalProperties: false
+        routes:
+          type: object
+          description: "Model alias → model; replaces the policy's routes."
+          maxProperties: 16
+          additionalProperties:
+            type: string
+            minLength: 1
+            maxLength: 100
+        allowed_models:
+          type: array
+          description: "The models the aliases may route to; replaces the list. Empty: any priced model."
+          maxItems: 50
+          items:
+            type: string
+            minLength: 1
+            maxLength: 100
+        documents_to_models:
+          type: boolean
+          description: Whether documents may go to models.
+      additionalProperties: false
+      examples:
+        - enabled: false
+    AiUsage:
+      type: object
+      description: "A tenant's model usage in one month (ADR-0036)."
+      required:
+        - month
+        - calls
+        - cost
+        - principals
+      properties:
+        month:
+          type: string
+          description: The month, YYYY-MM (UTC).
+          example: "2026-10"
+        calls:
+          type: integer
+          format: int64
+          description: Model calls in the month.
+          minimum: 0
+        cost:
+          $ref: "#/components/schemas/Money"
+          description: What the month's calls cost, in USD, the prices' currency.
+        monthly_cap:
+          $ref: "#/components/schemas/Money"
+          description: "The tenant's monthly cap as it is now (getAiPolicy), which for a past month may not be the cap that held then; absent: none."
+        principals:
+          type: array
+          description: Usage per principal that called, the most costly first.
+          maxItems: 10000
+          items:
+            $ref: "#/components/schemas/AiUsagePrincipal"
+      additionalProperties: false
+    AiUsagePrincipal:
+      type: object
+      description: "One principal's model usage in the month."
+      required:
+        - principal_id
+        - calls
+        - input_tokens
+        - output_tokens
+        - cache_write_tokens
+        - cache_read_tokens
+        - redactions
+        - cost
+      properties:
+        principal_id:
+          type: string
+          format: uuid
+          description: "The principal that called: an agent, or the person or service whose request made the call."
+        calls:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Calls made.
+        input_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Input tokens, as the provider reported them.
+        output_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Output tokens.
+        cache_write_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Input tokens written to the provider's cache.
+        cache_read_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Input tokens read from it.
+        redactions:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Replacements the gateway made in the calls' text before it left the cell.
+        cost:
+          $ref: "#/components/schemas/Money"
+          description: What the calls cost, in USD.
+      additionalProperties: false
     AgentSession:
       type: object
       description: "A session in which an agent worked through the API: what it was for, which model, its tool calls and recommendations, and what it used."
@@ -9952,16 +10304,16 @@ components:
         input_tokens:
           type: integer
           format: int64
-          description: Input tokens used.
+          description: "Ignored: the gateway's ledger counts the session's tokens (ADR-0036)."
           minimum: 0
         output_tokens:
           type: integer
           format: int64
-          description: Output tokens used.
+          description: "Ignored: the gateway's ledger counts the session's tokens (ADR-0036)."
           minimum: 0
         cost:
           $ref: "#/components/schemas/Money"
-          description: Cost, when known.
+          description: "Ignored: the gateway's ledger prices the session's calls (ADR-0036)."
       additionalProperties: false
       examples:
         - status: completed
@@ -11040,7 +11392,7 @@ components:
           maximum: 3
         model:
           type: string
-          description: Model identifier the agent runs on.
+          description: "The model alias the agent runs on, which the model gateway routes under the tenant's AI policy (ADR-0036): `erp-default`, `erp-extraction` or `erp-analytics`; another value is 422 `identity.unknown_model_alias`. Profiles that named a Claude model before were moved to `erp-default`."
           minLength: 1
           maxLength: 100
         monthly_budget:
@@ -11053,7 +11405,7 @@ components:
           maxLength: 2000
       examples:
         - autonomy_level: 1
-          model: claude-opus
+          model: erp-default
           description: Office chairs, ergonomic
     Principal:
       description: A person, agent or service that can act. Agents are principals with their own roles and can never hold approval permissions. Legal entity access is granted through company access.

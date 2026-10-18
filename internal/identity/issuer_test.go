@@ -40,7 +40,7 @@ func TestCreatorWithoutIssuer(t *testing.T) {
 	}
 	err = apitest.Committed(t, ten, actor, func(ctx context.Context) error {
 		_, err := identity.CreatePrincipal(ctx, identity.NewPrincipal{Kind: identity.Agent, DisplayName: "Helper",
-			Profile: &identity.ProfileInput{Model: "m", Description: "d"}})
+			Profile: &identity.ProfileInput{Model: "erp-default", Description: "d"}})
 		return err
 	})
 	if err != nil {
@@ -67,7 +67,7 @@ func TestFirstAdministratorWithoutIssuer(t *testing.T) {
 // published as null.
 func TestIssuerFollowsTheSubject(t *testing.T) {
 	c, ten := admin(t)
-	profile := `"agent_profile": {"autonomy_level": 0, "model": "m", "description": "d"}`
+	profile := `"agent_profile": {"autonomy_level": 0, "model": "erp-default", "description": "d"}`
 	bound, _ := c.Must(201, "POST", "/v1/principals", `{"kind": "agent", "external_subject": "bot|ap", "display_name": "Bot", `+profile+`}`, "")
 	plain, _ := c.Must(201, "POST", "/v1/principals", `{"kind": "agent", "display_name": "Plain", `+profile+`}`, "")
 	read, _ := c.Must(200, "GET", "/v1/principals/"+plain["id"].(string), "", "")

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("AA11 AA11 A11 1 1Y1 0000 AA11 11 A0 7A11 8A11 0000")

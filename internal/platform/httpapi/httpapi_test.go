@@ -139,3 +139,28 @@ func verifier(t *testing.T) *authn.Verifier {
 	}
 	return v
 }
+
+// TestModelGatewayRoute: the gateway is served at its contract's route
+// (api/model.yaml) outside the generated server, behind the token check;
+// without a gateway the route answers 503 (ADR-0036).
+func TestModelGatewayRoute(t *testing.T) {
+	gateway := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTeapot) })
+	for _, c := range []struct {
+		name  string
+		model http.Handler
+		want  int
+	}{{"configured, no token", gateway, http.StatusUnauthorized}, {"not configured", nil, http.StatusServiceUnavailable}} {
+		t.Run(c.name, func(t *testing.T) {
+			h, err := New(gen.UnimplementedHandler{}, Pipeline{Verifier: verifier(t), Model: c.model, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+				Metrics: telemetry.NewMetrics(), Tracer: tracenoop.NewTracerProvider(), Meter: noop.NewMeterProvider(), Now: time.Now})
+			if err != nil {
+				t.Fatal(err)
+			}
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/model/v1/messages", strings.NewReader(`{}`)))
+			if rec.Code != c.want {
+				t.Errorf("got %d %s, want %d", rec.Code, rec.Body, c.want)
+			}
+		})
+	}
+}

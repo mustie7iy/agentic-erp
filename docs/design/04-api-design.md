@@ -312,6 +312,48 @@ agent call carries the same permission, company and SoD checks and the same
 audit record. Operations marked `x-agent: false` (approval decisions, user
 and role administration) are never exposed as agent tools.
 
+Agents reach models only through their cell's **model gateway**, a third
+small contract, [`api/model.yaml`](../../api/model.yaml) (ADR-0036): the
+provider's Messages API at `POST /v1/model/v1/messages`, so an agent's SDK
+only changes its base URL. The request names a model alias, which the
+gateway routes to a model with a recorded price; each call is one row of
+the tenant's model call ledger (tokens, cost, never content) and adds to
+the agent session it names (`Erp-Agent-Session`). It needs
+`agents.model.invoke`, authenticates in a short transaction of its own and
+writes the ledger in another after the call: no unit of work is held
+while the model works. Each call is held against the agent's monthly
+budget and the tenant's cap before it is forwarded, at all of
+`max_tokens` and an estimate of its input, and settled at its cost
+after: one that does not fit is 429 `agents.budget_exhausted`, with
+`Retry-After` at the next month when the budget is spent, or of seconds
+when calls in flight hold it. Each line's 80% and 100% are announced
+once a month (`BudgetThresholdReached`); since the input is estimated, a
+line may end its month past its cap by the estimate's error.
+Before forwarding, the gateway redacts the call's text (system prompt,
+messages, tool results): IBANs, card numbers and the tax identifiers of
+the tenant's countries become `[IBAN]`, `[CARD]` and `[TAX_ID]`, and the
+call records how many it replaced. Documents and images go only while the
+tenant's AI policy lets them (422 `agents.documents_withheld`).
+
+The tenant's **AI policy** (`getAiPolicy`, `updateAiPolicy`, human-only,
+`agents.ai_policy.read` and `.manage`) decides where its aliases route,
+which models they may route to, its monthly cap in USD and whether
+documents may go to models. Its kill switch has two hands: `enabled`, the
+tenant's administrators', and `suspended`, the platform's operators', which
+wins: they suspend and resume it on the control plane (`suspendAi`,
+`resumeAi` in `api/control.yaml`) with a reason the tenant's administrators
+see and events and the audit trail leave out. While either is off, the gateway refuses every call with 403
+`agents.ai_disabled`, and the unit of work refuses agents' API requests
+with the same code, so an agent stopped mid-run cannot act on the answers
+it already has. Each change is audited and published as `AiPolicyChanged`.
+An agent acts within its autonomy level: 0 reads, 1 also performs the
+operations marked `x-autonomy: propose`, 2 any write its permissions allow
+(403 `identity.autonomy_insufficient` above it); every level performs the
+operations marked `x-autonomy: read`, which change no business data.
+`getAiUsage` reports a month's model calls per principal from the call
+ledger: calls, tokens, redactions and cost, summed exact and rounded once,
+with the month's total against the tenant's cap.
+
 ## 4.14 Phase 1 resources
 
 | Context | Resources | Custom methods |

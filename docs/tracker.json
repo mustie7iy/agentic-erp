@@ -3598,10 +3598,89 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Model routing, cost per agent, spend caps, kill switch",
-      "r": "T42",
-      "c": []
+      "r": "internal/agents · agents.Gateway (api/model.yaml) · T42",
+      "c": [
+       {
+        "s": "D",
+        "t": "Every model call through the cell's gateway, routed by alias, priced and recorded per call",
+        "r": "agents.Gateway · agents.model_call · ref.model_price (T42b)",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Budgets per agent and tenant reserved before the call, settled after; 80% and 100% announced",
+        "r": "agents.spend · agents.model_reservation · BudgetThresholdReached (T42c)",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Tenant AI policy: routes, allowed models, monthly cap, documents to models",
+        "r": "getAiPolicy · updateAiPolicy · agents.ai_policy (T42d)",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Kill switch: the tenant's administrators or the operators stop the gateway and agents' requests",
+        "r": "updateAiPolicy · suspendAi · resumeAi (control.yaml) · uow Agents (T42d)",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Text redacted before it leaves (IBANs, cards, tax ids); documents withheld when the policy says so",
+        "r": "platform/redact · agents.Gateway screen · model_call.redactions (000074) · T42e",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Cost per agent per month reported",
+        "r": "getAiUsage (agents.model_call) · T42f",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Autonomy levels 0-2 enforced in authorization",
+        "r": "authz withinAutonomy · x-autonomy: propose · 000077 · T42g",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Model call ledger index by time, so a month's usage report reads only that month",
+        "r": "model_call_by_time (000075) · T42f",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "agent_profile.model names a model alias",
+        "r": "platform/modelalias · identity.unknown_model_alias · 000076 · T42f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Tax-identifier formats per country reviewed by a tax specialist before the pilot",
+        "r": "platform/redact taxIDs · T42e",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Draft-like operations propose (orders, parked invoices, cancelling one's approval request); the audit verification reads",
+        "r": "x-autonomy: propose / read · PO 2026-10-18 · T42g",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Agents offered only the tools their autonomy level allows",
+        "r": "internal/apitools · T42 follow-up",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "T47's order changes and renewContract stay at autonomy level 2",
+        "r": "PO 2026-10-18 · revisit with T43",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",
@@ -3616,9 +3695,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "ADR on agents and LLM use: permitted actions, approval points, budgets, audit, data sent to models",
-      "r": "docs/design/adr · T42",
+      "r": "ADR-0036 · T42",
       "c": []
      }
     ]

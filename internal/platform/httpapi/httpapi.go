@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	ht "github.com/ogen-go/ogen/http"
 	"github.com/ogen-go/ogen/middleware"
 	"github.com/ogen-go/ogen/ogenerrors"
@@ -64,6 +65,13 @@ type Pipeline struct {
 	// RequireBoundAgents accepts agents' tokens only bound to their client
 	// certificates (production, ADR-0033).
 	RequireBoundAgents bool
+	// Agents admits an agent's request in its transaction (uow.Middleware's
+	// Agents: the tenant's AI kill switch); nil admits every agent.
+	Agents func(ctx context.Context, tx pgx.Tx) error
+	// Model is the model gateway (api/model.yaml, ADR-0036), served at its
+	// contract's route behind authentication but outside the unit of work:
+	// no transaction is held while a model works. Nil answers 503.
+	Model http.Handler
 }
 
 // New builds the public API around h, the generated Handler the contexts
@@ -86,7 +94,8 @@ func New(h gen.Handler, p Pipeline) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	unit := &uow.Middleware{Pool: p.Pool, Role: p.AppRole, Log: p.Log, Now: p.Now, Sessions: p.Sessions, RequireBoundAgents: p.RequireBoundAgents}
+	unit := &uow.Middleware{Pool: p.Pool, Role: p.AppRole, Log: p.Log, Now: p.Now, Sessions: p.Sessions, RequireBoundAgents: p.RequireBoundAgents,
+		Agents: p.Agents}
 	chain := unit.Wrap(srv)
 	if p.Limits != nil {
 		chain = p.Limits.Middleware(chain)
@@ -99,8 +108,27 @@ func New(h gen.Handler, p Pipeline) (http.Handler, error) {
 	for pattern, route := range p.Routes {
 		mux.Handle(pattern, route)
 	}
+	op := api.MustModelOperations()["createModelMessage"]
+	mux.Handle(op.Method+" "+op.Path, modelRoute(p, unit, op.Permission))
 	mux.Handle("/", chain)
 	return telemetry.Middleware(p.Log, p.Metrics, p.Tracer)(mux), nil
+}
+
+// modelRoute is the model gateway behind the token check, the quotas and
+// an authentication of its own, which needs the operation's permission;
+// without a gateway, 503. It has no request deadline: the provider's
+// client bounds a call.
+func modelRoute(p Pipeline, unit *uow.Middleware, permission string) http.Handler {
+	if p.Model == nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			problem.Write(w, r, problem.Unavailable("No model provider is configured on this server (ERP_MODEL_API_KEY).", 0))
+		})
+	}
+	chain := unit.Authenticated(func(ctx context.Context) error { return authz.Require(ctx, permission) }, p.Model)
+	if p.Limits != nil {
+		chain = p.Limits.Middleware(chain)
+	}
+	return p.Verifier.Middleware(chain)
 }
 
 // deadline gives each request a deadline. Work past it fails with the

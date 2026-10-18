@@ -8,11 +8,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/mustie7iy/agentic-erp/internal/llm"
+	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
 	"io"
 	"log/slog"
 	"maps"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -88,7 +93,7 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 	is := authntest.New(t)
 	natsURL := natstest.Server(t)
 	env := environment(t, is, natsURL)
-	env["ANTHROPIC_API_KEY"] = "test" // invoice capture is wired; nothing calls the model here
+	env["ERP_MODEL_API_KEY"] = "test" // the model gateway and invoice capture are wired; nothing calls the model here
 	env["ERP_BANK_OUTBOX_DIR"] = t.TempDir()
 	maintenanceInterval = 10 * time.Millisecond // the partition maintenance runs while the server serves
 	defer func() { maintenanceInterval = 6 * time.Hour }()
@@ -1938,5 +1943,146 @@ func TestAtRestStatedAndChecked(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), `"msg":"encryption at rest","postgres":"storage-kms","objects":"sse-kms","nats":""`) {
 		t.Errorf("logs: got %s, want the statement logged", logs.String())
+	}
+}
+
+// TestModelGateway: with a model provider the server serves the gateway
+// (api/model.yaml): an agent holding agents.model.invoke calls a model
+// through its SDK with its own token, the call priced and recorded; an
+// agent without the permission is refused (ADR-0036).
+func TestModelGateway(t *testing.T) {
+	model := llmtest.New(t, llmtest.Final("hello"), llmtest.Final("unused"))
+	pgtest.Exec(t, `INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read, recorded_by)
+		VALUES ('claude-opus-5-5', '2026-01-01', 'USD', 400000000, 2000000000, 500000000, 20000000, 'test') ON CONFLICT DO NOTHING`)
+	is := authntest.New(t)
+	env := environment(t, is, "")
+	env["ERP_MODEL_API_KEY"], env["ERP_MODEL_ENDPOINT"] = "sk-cell", model.URL
+	allowed, denied, broke := pgtest.NewTenant(t, "agents.model.invoke"), pgtest.NewTenant(t), pgtest.NewTenant(t, "agents.model.invoke")
+	pgtest.Exec(t, `UPDATE identity.agent_profile SET monthly_budget = 0, budget_currency = 'USD', version = version + 1 WHERE tenant_id = $1 AND principal_id = $2`,
+		broke.ID, broke.Agent.ID)
+	ctx, cancel := context.WithCancel(context.Background())
+	addr := make(chan string, 1)
+	done := make(chan int, 1)
+	go func() {
+		done <- cli(ctx, nil, func(k string) string { return env[k] }, io.Discard, io.Discard, func(api, _ net.Listener) { addr <- api.Addr().String() })
+	}()
+	stop := sync.OnceValue(func() int { cancel(); return <-done })
+	defer stop()
+	base := "http://" + <-addr
+	call := func(ten pgtest.Tenant) (string, error) {
+		r := llm.Gateway(base, is.Token(t, ten.ID, ten.Agent.Subject, nil), nil)
+		msg, err := r.Client.Beta.Messages.New(t.Context(), r.Params("system", anthropic.NewBetaTextBlock("hi")), option.WithMaxRetries(0))
+		if err != nil {
+			return "", err
+		}
+		return llm.Text(msg), nil
+	}
+	if got, err := call(allowed); err != nil || got != "hello" {
+		t.Fatalf("an agent with the permission: got %q, %v, want hello", got, err)
+	}
+	if model.Headers[0].Get("X-Api-Key") != "sk-cell" || model.Headers[0].Get("Authorization") != "" {
+		t.Errorf("provider credentials: got X-Api-Key %q, Authorization %q, want the cell's key alone", model.Headers[0].Get("X-Api-Key"), model.Headers[0].Get("Authorization"))
+	}
+	var calls int
+	pgtest.Scan(t, `SELECT count(*) FROM agents.model_call WHERE tenant_id = $1 AND principal_id = $2 AND status = 'succeeded'`, []any{allowed.ID, allowed.Agent.ID}, &calls)
+	if calls != 1 {
+		t.Errorf("ledger: got %d calls, want 1", calls)
+	}
+	if _, err := call(denied); err == nil || !strings.Contains(err.Error(), "403") {
+		t.Errorf("an agent without the permission: got %v, want 403", err)
+	}
+	// The agent's budget is identity's, read through its published API.
+	if _, err := call(broke); err == nil || !strings.Contains(err.Error(), "agents.budget_exhausted") {
+		t.Errorf("an agent with no budget left: got %v, want 429 agents.budget_exhausted", err)
+	}
+	if code := stop(); code != 0 {
+		t.Errorf("stop: exit %d", code)
+	}
+}
+
+// TestPricesLoad: erp-server prices load records models' prices, all or
+// none, with who recorded them; a price recorded once stands.
+func TestPricesLoad(t *testing.T) {
+	env := environment(t, authntest.New(t), "")
+	getenv := func(k string) string { return env[k] }
+	dir := t.TempDir()
+	good := filepath.Join(dir, "prices.json")
+	model := "claude-load-" + uuid.NewString()[:8] // prices are global; each run loads a model of its own
+	if err := os.WriteFile(good, []byte(`[{"model": "`+model+`", "effective_from": "2026-11-01", "currency": "USD", "input": "4.00", "output": "20.00", "cache_write": "5.00", "cache_read": "0.20"}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	notJSON := filepath.Join(dir, "bad.json")
+	if err := os.WriteFile(notJSON, []byte(`{`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := cli(context.Background(), []string{"prices", "load", "-file", good, "-by", "ops|alice"}, getenv, &stdout, &stderr, nil); code != 0 {
+		t.Fatalf("load: exit %d %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "1 prices recorded by ops|alice") {
+		t.Errorf("output: got %s", stdout.String())
+	}
+	var by string
+	pgtest.Scan(t, `SELECT recorded_by FROM ref.model_price WHERE model = $1`, []any{model}, &by)
+	if by != "ops|alice" {
+		t.Errorf("recorded by: got %q, want ops|alice", by)
+	}
+	broken := maps.Clone(env)
+	broken["DATABASE_URL"] = "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"
+	for _, c := range []struct {
+		name string
+		args []string
+		env  map[string]string
+		code int
+		want string
+	}{
+		{"recorded already", []string{"prices", "load", "-file", good, "-by", "ops"}, env, 1, "already recorded"},
+		{"no subcommand", []string{"prices"}, env, 2, "erp-server prices load"},
+		{"another subcommand", []string{"prices", "drop"}, env, 2, "erp-server prices load"},
+		{"no operator", []string{"prices", "load", "-file", good}, env, 2, "-file and -by are required"},
+		{"a bad flag", []string{"prices", "load", "-x"}, env, 2, "flag provided"},
+		{"help", []string{"prices", "load", "-h"}, env, 0, "-by"},
+		{"no file", []string{"prices", "load", "-file", filepath.Join(dir, "none.json"), "-by", "ops"}, env, 1, "read"},
+		{"not JSON", []string{"prices", "load", "-file", notJSON, "-by", "ops"}, env, 1, "not a JSON list"},
+		{"no database", []string{"prices", "load", "-file", good, "-by", "ops"}, broken, 1, "database"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			stdout.Reset()
+			stderr.Reset()
+			if code := cli(context.Background(), c.args, func(k string) string { return c.env[k] }, &stdout, &stderr, nil); code != c.code || !strings.Contains(stderr.String(), c.want) {
+				t.Errorf("got %d %s, want %d and %q", code, stderr.String(), c.code, c.want)
+			}
+		})
+	}
+}
+
+// TestModelClient: the model provider is reached with the TLS material's
+// client when there is one (ADR-0033), within the model timeout either way.
+func TestModelClient(t *testing.T) {
+	plain := load(t, environment(t, authntest.New(t), ""))
+	material := load(t, tlsEnvironment(t, tlstest.NewCA(t)))
+	for name, cfg := range map[string]config.Config{"without material": plain, "with material": material} {
+		t.Run(name, func(t *testing.T) {
+			if c := modelClient(cfg); c.Timeout != modelTimeout {
+				t.Errorf("timeout: got %v, want %v", c.Timeout, modelTimeout)
+			}
+		})
+	}
+	if _, ok := modelClient(material).Transport.(*http.Transport); !ok {
+		t.Error("with material: got the default transport, want the material's")
+	}
+	// A redirect is not followed: the provider's key would go with it.
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://elsewhere.example.com/", http.StatusTemporaryRedirect)
+	}))
+	defer redirect.Close()
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, redirect.URL, nil)
+	resp, err := modelClient(plain).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close() // only the status is asserted
+	if resp.StatusCode != http.StatusTemporaryRedirect {
+		t.Errorf("redirect: got %d, want it answered, not followed", resp.StatusCode)
 	}
 }

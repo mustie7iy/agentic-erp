@@ -4,16 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 	"github.com/anthropics/anthropic-sdk-go/toolrunner"
 )
 
-const defaultModel = "claude-opus-5-5"
+// Alias is the model alias the analytics agent names unless ERP_AGENT_MODEL
+// says otherwise.
+const Alias = "erp-analytics"
 
 // Agent turns a plain-language question into semantic queries and a
 // dashboard. Its tools can only read governed metrics and compose specs;
@@ -24,14 +24,10 @@ type Agent struct {
 	Today  func() time.Time
 }
 
-// NewAgent uses the SDK's standard credential resolution. ERP_AGENT_MODEL
-// overrides the model.
-func NewAgent() *Agent {
-	model := os.Getenv("ERP_AGENT_MODEL")
-	if model == "" {
-		model = defaultModel
-	}
-	return &Agent{Client: anthropic.NewClient(), Model: model, Today: time.Now}
+// NewAgent calls models with client, naming model: the cell's model
+// gateway with the person's token, and its analytics alias (ADR-0036).
+func NewAgent(client anthropic.Client, model string) *Agent {
+	return &Agent{Client: client, Model: model, Today: time.Now}
 }
 
 const analystPrompt = `You are the analytics agent of an ERP system. People ask business questions in plain language; you answer each one with a dashboard built from governed data.
@@ -159,8 +155,6 @@ func (a *Agent) Ask(ctx context.Context, s *Session, question string) (*Answer, 
 				CacheControl: anthropic.NewBetaCacheControlEphemeralParam(),
 			}},
 			OutputConfig: anthropic.BetaOutputConfigParam{Effort: anthropic.BetaOutputConfigEffortMedium},
-			Fallbacks:    anthropic.BetaFallbacksParamUnion{OfDefault: constant.ValueOf[constant.Default]()},
-			Betas:        []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01},
 			Messages: []anthropic.BetaMessageParam{
 				anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(fmt.Sprintf(
 					"Today is %s. Question from %s:\n%s", today().Format("2 January 2006"), s.Principal.ID, question))),

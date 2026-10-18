@@ -3,13 +3,11 @@ package agents_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/agents"
@@ -17,8 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
-	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
-	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
@@ -144,17 +141,15 @@ func TestSessionsAndRecommendations(t *testing.T) {
 	}
 
 	agent.Problem(422, "agents.invalid_status", "POST", path+":end", `{"status": "running", "input_tokens": 1, "output_tokens": 1}`, tag)
-	agent.Problem(422, "agents.unknown_currency", "POST", path+":end", `{"status": "completed", "input_tokens": 1, "output_tokens": 1,
-		"cost": {"amount": "1.00", "currency": "XXX"}}`, tag)
-	agent.Problem(400, "request.invalid_amount", "POST", path+":end", `{"status": "completed", "input_tokens": 1, "output_tokens": 1,
-		"cost": {"amount": "1.0", "currency": "USD"}}`, tag)
+	// What the client says it used is ignored: the gateway's ledger counts
+	// the session's tokens and cost (ADR-0036).
 	ended, _ := agent.Must(200, "POST", path+":end", `{"status": "completed", "input_tokens": 18200, "output_tokens": 2100,
 		"cost": {"amount": "0.42", "currency": "USD"}}`, tag)
 	if ended["status"] != "completed" {
 		t.Errorf("ended status: got %v, want completed", ended["status"])
 	}
-	if cost, _ := ended["cost"].(map[string]any); cost["amount"] != "0.42" {
-		t.Errorf("ended cost: got %v, want 0.42", ended["cost"])
+	if cost, _ := ended["cost"].(map[string]any); cost["amount"] != "0.00" || ended["input_tokens"] != float64(0) {
+		t.Errorf("ended usage: got %v and %v tokens, want the ledger's: 0.00 and 0", ended["cost"], ended["input_tokens"])
 	}
 	if ended["ended_at"] == nil {
 		t.Errorf("ended_at: got nil, want a time (%v)", ended)
@@ -173,7 +168,7 @@ func TestSessionsAndRecommendations(t *testing.T) {
 	if list["next_page_token"] == nil {
 		t.Fatalf("sessions page: %v", list)
 	}
-	if got, _ := person.Must(200, "GET", path, "", ""); got["input_tokens"] != float64(18200) {
+	if got, _ := person.Must(200, "GET", path, "", ""); got["input_tokens"] != float64(0) {
 		t.Fatalf("get: %v", got)
 	}
 	person.Problem(404, "request.not_found", "GET", "/v1/agent-sessions/"+uuid.NewString(), "", "")
@@ -183,7 +178,7 @@ func TestSessionsAndRecommendations(t *testing.T) {
 func TestDatabaseFailures(t *testing.T) {
 	person, agent := setup(t)
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	h := &agents.Endpoints{Pages: pages}
+	h := &agents.Endpoints{Pages: pages, Countries: tenancy.Countries}
 	s, _ := agent.Must(201, "POST", "/v1/agent-sessions", `{"purpose": "p", "model": "m"}`, "")
 	session := uuid.MustParse(s["id"].(string))
 	agent.Must(201, "POST", "/v1/agent-sessions/"+s["id"].(string)+"/tool-calls", `{"tool": "x", "input": {"a": 1}}`, "")
@@ -287,36 +282,13 @@ func TestDatabaseFailures(t *testing.T) {
 	}
 }
 
-// failCurrency fails only the currency exponent read, so the test reaches it
-// whatever number of statements precede it.
-type failCurrency struct{ pgx.Tx }
-
-func (f failCurrency) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
-	if strings.Contains(sql, "FROM ref.currency WHERE") {
-		return (&pgtest.FailingTx{Tx: f.Tx, FailAt: 1}).QueryRow(ctx, sql, args...)
-	}
-	return f.Tx.QueryRow(ctx, sql, args...)
-}
-
-// A failed read of the cost's currency is a server error, not a 422 that
-// blames the client's currency.
-func TestEndSessionCurrencyReadFailure(t *testing.T) {
+// TestAutonomyThroughTheAPI: an agent at level 0 reads but does not start
+// a session; at level 1 it does, since a session only proposes (ADR-0036).
+func TestAutonomyThroughTheAPI(t *testing.T) {
 	person, agent := setup(t)
-	s, _ := agent.Must(201, "POST", "/v1/agent-sessions", `{"purpose": "p", "model": "m"}`, "")
-	session := uuid.MustParse(s["id"].(string))
-	err := apitest.InRequest(t, person.Tenant, agent.As, func(ctx context.Context) error {
-		tx, _, err := reqctx.Request(ctx)
-		if err != nil {
-			return err
-		}
-		_, err = agents.EndSession(reqctx.WithTx(ctx, failCurrency{tx}), session, func(int32) error { return nil },
-			agents.Usage{Status: agents.Completed, Cost: "1.00", Currency: "EUR"})
-		return err
-	})
-	if !errors.Is(err, pgtest.ErrInjected) {
-		t.Fatalf("got %v, want the injected failure", err)
-	}
-	if got := problem.From(err).Status; got != 500 {
-		t.Errorf("status: got %d, want 500", got)
-	}
+	pgtest.Exec(t, `UPDATE identity.agent_profile SET autonomy_level = 0, version = version + 1 WHERE tenant_id = $1 AND principal_id = $2`, person.Tenant.ID, agent.As.ID)
+	agent.Must(200, "GET", "/v1/agent-sessions", "", "")
+	agent.Problem(403, "identity.autonomy_insufficient", "POST", "/v1/agent-sessions", `{"purpose": "p", "model": "m"}`, "")
+	pgtest.Exec(t, `UPDATE identity.agent_profile SET autonomy_level = 1, version = version + 1 WHERE tenant_id = $1 AND principal_id = $2`, person.Tenant.ID, agent.As.ID)
+	agent.Must(201, "POST", "/v1/agent-sessions", `{"purpose": "p", "model": "m"}`, "")
 }

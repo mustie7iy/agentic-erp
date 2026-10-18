@@ -27,3 +27,10 @@ currency views (SAP ACDOCA: WSL, HSL, KSL).
 - Every amount column has a sibling currency column; CHECK constraints ensure
   balancing per currency.
 - Conversions are done once at posting and stored, never recomputed.
+
+**Amended 2026-10-16 (T42, ADR-0036).** A model call costs fractions of a
+minor unit (a few thousand tokens at a few dollars per million). Such
+costs are `money.Micro`: integer millionths of the currency's minor unit,
+summed exactly and shown in minor units rounded half up. They are never
+mixed with `money.Minor` amounts without that conversion, and never
+floats.
