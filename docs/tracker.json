@@ -444,9 +444,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Product-owner question: publish DownPaymentRequestPaid when a run pays a request (today audited only; JournalEntryPosted and PaymentRunReleased carry the payment)",
-        "r": "asyncapi · payables.DownPaymentRequests.Paid · question",
+        "s": "D",
+        "t": "DownPaymentRequestPaid published when a run pays a request; a request whose tax code ended is left out of the run (tax_code_invalid)",
+        "r": "asyncapi DownPaymentRequestPaid · payment_exclusion tax_code_invalid · T46c",
         "c": []
        },
        {

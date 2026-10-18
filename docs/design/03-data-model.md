@@ -1311,13 +1311,25 @@ separately. A proposal pays every open request of the legal entity due by
 the due-by date in the run's currency that no live run pays (a run
 proposing or proposed, or releasing with the payment not posted). A
 supplier that cannot be paid (blocked, no bank account, a bank change) is
-excluded with its requests, which add to its exclusion's amount; one whose
-items are a debit balance still has its requests paid. The release posts a
+excluded with its requests; one whose items are a debit balance still has
+its requests paid. A request whose input tax code is not valid on the run
+date is left out with reason `tax_code_invalid`, and the supplier's items
+are still paid. A request left out has an exclusion of its own, in
+`payments.request_exclusion` (key run and request, its supplier, reason and
+amount), beside `payment_exclusion`, which keeps one row per run and
+supplier for the items (the release's drop and the dropped check use it
+alone); the listing returns both. During the upgrade an application
+version from before T46c must not release a run a newer one proposed with
+request payments, which it would settle as items payments without items. A
+proposed run whose
+request's tax code ended since is refused at release (409
+`payments.proposal_outdated`). The release posts a
 request's payment through `ledger.Postings.PayDownPayment`: Dr the down
 payment account as the supplier's special G/L item A, net of tax; Dr input
 tax on the request's tax code; Cr bank, with the payment as its source
 document, so posting it again returns its entry; in the same transaction
-the payment records the entry and the request moves to `paid`, naming it.
+the payment records the entry and the request moves to `paid`, naming it
+(`DownPaymentRequestPaid`).
 A down payment's payment is never dropped by a release (it has no items to
 fall out of being open), and its bank file remittance is the request's
 number and reference. The payments context reads and records requests

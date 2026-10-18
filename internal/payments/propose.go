@@ -33,6 +33,10 @@ const (
 	// open, since the proposal (dropPayment).
 	ItemReversed = "item_reversed"
 	ItemNotOpen  = "item_not_open"
+	// TaxCodeInvalid leaves out a down payment request whose input tax
+	// code is not valid on the run date (T46c); the supplier's items may
+	// still be paid.
+	TaxCodeInvalid = "tax_code_invalid"
 )
 
 // Proposal is what a client asks to pay.
@@ -267,9 +271,9 @@ func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r 
 }
 
 // paymentsFor computes a run's payments and exclusions: of the suppliers'
-// due items and of the due down payment requests, refused when the legal
-// entity lacks an account the payments post to, or a request's tax code
-// is not valid on the run date.
+// due items and of the due down payment requests, those whose tax code is
+// not valid on the run date left out (invalidTaxCodes), refused when the
+// legal entity lacks an account the payments post to.
 func (e *Endpoints) paymentsFor(ctx context.Context, tx pgx.Tx, r Run, entityCode string, holdDays int) (proposal, error) {
 	requests, err := e.dueRequests(ctx, tx, r)
 	if err != nil {
@@ -283,19 +287,17 @@ func (e *Endpoints) paymentsFor(ctx context.Context, tx pgx.Tx, r Run, entityCod
 	if err != nil {
 		return proposal{}, err
 	}
-	if err := pr.payRequests(requests, payees, r, entityCode, holdDays); err != nil {
+	invalid, err := e.invalidTaxCodes(ctx, r, requests)
+	if err != nil {
+		return proposal{}, err
+	}
+	if err := pr.payRequests(requests, invalid, payees, r, entityCode, holdDays); err != nil {
 		return proposal{}, err
 	}
 	if err := e.requireCashDiscountAccount(ctx, r, pr); err != nil {
 		return proposal{}, err
 	}
 	if err := e.requireDownPaymentAccount(ctx, r, pr); err != nil {
-		return proposal{}, err
-	}
-	if err := e.requireRequestTaxCodes(ctx, r, paidRequests(requests, pr), func(d DownPayment) *problem.Problem {
-		return problem.Unprocessable("payments.request_tax_code_invalid", "Down payment request "+d.DocumentNumber+" has tax code "+*d.TaxCode+
-			", which is not valid on the run date; cancel the request and request it again.")
-	}); err != nil {
 		return proposal{}, err
 	}
 	return pr, nil
@@ -350,6 +352,7 @@ func lockProposals(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID) error 
 // columns they are inserted from.
 type proposal struct {
 	payIDs, suppliers, banks, exSuppliers []uuid.UUID
+	exRequests                            []*uuid.UUID // the request an exclusion leaves out, or nil for the supplier's items
 	kinds                                 []string
 	requests                              []*uuid.UUID // the down payment request a payment pays, or nil
 	amounts, discounts, exAmounts         []money.Minor
@@ -404,7 +407,7 @@ func propose(cands []candidate, payees map[uuid.UUID]partner.Payee, r Run, entit
 			reason = DebitBalance
 		}
 		if reason != "" {
-			pr.exSuppliers, pr.exReasons, pr.exAmounts = append(pr.exSuppliers, c.supplier), append(pr.exReasons, reason), append(pr.exAmounts, total)
+			pr.exclude(c.supplier, nil, reason, total)
 			continue
 		}
 		if err := pr.pay(c, *payee.BankAccountID, total, r, entityCode); err != nil {
@@ -480,9 +483,14 @@ func (pr *proposal) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r
 		p.TenantID, pr.itemPays, pr.itemYears, pr.itemEntries, pr.itemLines, pr.itemAmounts, pr.itemDiscounts, pr.itemDue); err != nil {
 		return fmt.Errorf("payments: insert the payment items of run %s: %w", r.ID, err)
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment_exclusion (tenant_id, payment_run_id, supplier_id, reason_code, amount)
-		SELECT $1, $2, s, c, a FROM unnest($3::uuid[], $4::text[], $5::bigint[]) AS t(s, c, a)`,
-		p.TenantID, r.ID, pr.exSuppliers, pr.exReasons, pr.exAmounts); err != nil {
+	// A supplier's items are excluded in payment_exclusion, a request left
+	// out in request_exclusion (T46c): the request is the row's key there.
+	if _, err := tx.Exec(ctx, `WITH x AS (SELECT * FROM unnest($3::uuid[], $4::text[], $5::bigint[], $6::uuid[]) AS t(s, c, a, q)),
+		items AS (INSERT INTO payments.payment_exclusion (tenant_id, payment_run_id, supplier_id, reason_code, amount)
+			SELECT $1, $2, s, c, a FROM x WHERE q IS NULL)
+		INSERT INTO payments.request_exclusion (tenant_id, payment_run_id, down_payment_request_id, supplier_id, reason_code, amount)
+		SELECT $1, $2, q, s, c, a FROM x WHERE q IS NOT NULL`,
+		p.TenantID, r.ID, pr.exSuppliers, pr.exReasons, pr.exAmounts, pr.exRequests); err != nil {
 		return fmt.Errorf("payments: insert the exclusions of run %s: %w", r.ID, err)
 	}
 	return nil

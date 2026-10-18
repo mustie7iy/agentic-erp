@@ -1,5 +1,6 @@
 -- Paid requests and request payments do not survive the downgrade: 000072
 -- knows neither.
+SET LOCAL row_security = off; -- the down migration changes every tenant's rows (06 §6.4)
 ALTER TABLE payables.down_payment_request DISABLE TRIGGER down_payment_request_change;
 UPDATE payables.down_payment_request SET status = 'open', journal_entry_year = NULL, journal_entry_id = NULL WHERE status = 'paid';
 ALTER TABLE payables.down_payment_request ENABLE TRIGGER down_payment_request_change;
@@ -31,10 +32,8 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
+DROP TABLE payments.request_exclusion;
 DELETE FROM payments.payment WHERE kind = 'down_payment';
-DROP INDEX payments.payment_by_request;
-DROP INDEX payments.payment_request_once;
-DROP INDEX payments.payment_items_once;
-ALTER TABLE payments.payment ADD CONSTRAINT payment_tenant_id_payment_run_id_supplier_id_key UNIQUE (tenant_id, payment_run_id, supplier_id);
 ALTER TABLE payments.payment DROP CONSTRAINT payment_down_payment_request;
+ALTER TABLE payments.payment DROP CONSTRAINT payment_kind_check;
 ALTER TABLE payments.payment DROP COLUMN kind, DROP COLUMN down_payment_request_id;

@@ -19394,7 +19394,15 @@ type PaymentExclusion struct {
 	// Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed
 	// here; values may be added within /v1. A release also excludes, with `item_reversed` or
 	// `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid.
+	// `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run
+	// date (T46c); a request's exclusion names it (`down_payment_request_id`), and the supplier's items
+	// may still be paid.
 	ReasonCode string `json:"reason_code"`
+	// The down payment request left out, when the exclusion is a request's (T46c): a run lists one
+	// exclusion per supplier for its items and one per request left out, so a supplier may appear more
+	// than once, not necessarily next to each other (the listing is ordered by supplier for items and by
+	// request for requests).
+	DownPaymentRequestID OptUUID `json:"down_payment_request_id"`
 	// Amount that would otherwise have been paid.
 	Amount Money `json:"amount"`
 }
@@ -19407,6 +19415,11 @@ func (s *PaymentExclusion) GetSupplierID() uuid.UUID {
 // GetReasonCode returns the value of ReasonCode.
 func (s *PaymentExclusion) GetReasonCode() string {
 	return s.ReasonCode
+}
+
+// GetDownPaymentRequestID returns the value of DownPaymentRequestID.
+func (s *PaymentExclusion) GetDownPaymentRequestID() OptUUID {
+	return s.DownPaymentRequestID
 }
 
 // GetAmount returns the value of Amount.
@@ -19422,6 +19435,11 @@ func (s *PaymentExclusion) SetSupplierID(val uuid.UUID) {
 // SetReasonCode sets the value of ReasonCode.
 func (s *PaymentExclusion) SetReasonCode(val string) {
 	s.ReasonCode = val
+}
+
+// SetDownPaymentRequestID sets the value of DownPaymentRequestID.
+func (s *PaymentExclusion) SetDownPaymentRequestID(val OptUUID) {
+	s.DownPaymentRequestID = val
 }
 
 // SetAmount sets the value of Amount.

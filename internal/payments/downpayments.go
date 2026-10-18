@@ -41,18 +41,22 @@ func (e *Endpoints) dueRequests(ctx context.Context, tx pgx.Tx, r Run) ([]DownPa
 }
 
 // payRequests adds a payment per due request, whole and never netted with
-// the supplier's items: SAP pays special G/L items separately. A supplier
-// that cannot be paid at all (exclusion: blocked, no bank account, a bank
-// change) is excluded with its requests, which add to its exclusion's
-// amount; one whose items are excluded for a debit balance still has its
-// requests paid, since they are not netted with those items.
-func (pr *proposal) payRequests(requests []DownPayment, payees map[uuid.UUID]partner.Payee, r Run, entityCode string, holdDays int) error {
+// the supplier's items: SAP pays special G/L items separately. A request
+// of a supplier that cannot be paid (exclusion: blocked, no bank account,
+// a bank change) is left out with that reason, and one whose tax code is
+// not valid on the run date (invalid) with tax_code_invalid, each in an
+// exclusion row of its own, apart from the supplier's items (a debit
+// balance of those does not stop its requests).
+func (pr *proposal) payRequests(requests []DownPayment, invalid map[uuid.UUID]bool, payees map[uuid.UUID]partner.Payee, r Run, entityCode string, holdDays int) error {
 	for _, d := range requests {
+		request := d.ID
 		payee, found := payees[d.SupplierID]
-		if reason := exclusion(payee, found, r.RunDate, holdDays); reason != "" {
-			if err := pr.exclude(d.SupplierID, reason, d.Amount); err != nil {
-				return err
-			}
+		reason := exclusion(payee, found, r.RunDate, holdDays)
+		if reason == "" && invalid[d.ID] {
+			reason = TaxCodeInvalid
+		}
+		if reason != "" {
+			pr.exclude(d.SupplierID, &request, reason, d.Amount)
 			continue
 		}
 		total, err := money.Sum(pr.total, d.Amount)
@@ -60,27 +64,16 @@ func (pr *proposal) payRequests(requests []DownPayment, payees map[uuid.UUID]par
 			return errTooLarge("the run")
 		}
 		pr.total = total
-		request := d.ID
 		pr.payment(d.SupplierID, *payee.BankAccountID, d.Amount, 0, KindDownPayment, &request, r, entityCode)
 	}
 	return nil
 }
 
-// exclude excludes the supplier for the reason, or adds the amount to its
-// exclusion when it has one.
-func (pr *proposal) exclude(supplier uuid.UUID, reason string, amount money.Minor) error {
-	for i, s := range pr.exSuppliers {
-		if s == supplier {
-			sum, err := money.Sum(pr.exAmounts[i], amount)
-			if err != nil {
-				return errTooLarge("supplier " + supplier.String())
-			}
-			pr.exAmounts[i] = sum
-			return nil
-		}
-	}
-	pr.exSuppliers, pr.exReasons, pr.exAmounts = append(pr.exSuppliers, supplier), append(pr.exReasons, reason), append(pr.exAmounts, amount)
-	return nil
+// exclude excludes the supplier's items (request nil) or one of its
+// requests for the reason.
+func (pr *proposal) exclude(supplier uuid.UUID, request *uuid.UUID, reason string, amount money.Minor) {
+	pr.exSuppliers, pr.exRequests = append(pr.exSuppliers, supplier), append(pr.exRequests, request)
+	pr.exReasons, pr.exAmounts = append(pr.exReasons, reason), append(pr.exAmounts, amount)
 }
 
 // postDownPayment posts a released run's payment of a down payment
@@ -126,43 +119,38 @@ func (e *Endpoints) requestRemittance(ctx context.Context, p Payment) (string, e
 	return strings.Join(parts, " "), nil
 }
 
-// paidRequests are the requests the proposal pays.
-func paidRequests(requests []DownPayment, pr proposal) []DownPayment {
-	var out []DownPayment
+// invalidTaxCodes are the requests whose input tax code is not valid on
+// the run date: their payment's posting would be refused at release, maybe
+// after other payments posted, leaving the run releasing; the proposal
+// leaves them out (payRequests).
+func (e *Endpoints) invalidTaxCodes(ctx context.Context, r Run, requests []DownPayment) (map[uuid.UUID]bool, error) {
+	out := map[uuid.UUID]bool{}
 	for _, d := range requests {
-		if slices.ContainsFunc(pr.requests, func(id *uuid.UUID) bool { return id != nil && *id == d.ID }) {
-			out = append(out, d)
+		valid, err := e.taxCodeValid(ctx, r, d)
+		if err != nil {
+			return nil, err
+		}
+		if !valid {
+			out[d.ID] = true
 		}
 	}
-	return out
+	return out, nil
 }
 
-// requireRequestTaxCodes refuses, with the problem refuse makes, a run
-// that pays a request whose input tax code is not valid on the run date:
-// its payment's posting would be refused at release, maybe after other
-// payments posted, leaving the run releasing. A request was checked on its
-// due date, so a code that ended since is caught here, at proposal, and
-// again before the release starts (recheck).
-func (e *Endpoints) requireRequestTaxCodes(ctx context.Context, r Run, requests []DownPayment, refuse func(DownPayment) *problem.Problem) error {
-	for _, d := range requests {
-		if d.TaxCode == nil || d.Tax == 0 {
-			continue
-		}
-		_, ok, err := e.Accounts.TaxCode(ctx, r.LegalEntityID, *d.TaxCode, r.RunDate)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return refuse(d)
-		}
+// taxCodeValid says whether a request's input tax code, if it has tax, is
+// valid on the run date.
+func (e *Endpoints) taxCodeValid(ctx context.Context, r Run, d DownPayment) (bool, error) {
+	if d.TaxCode == nil || d.Tax == 0 {
+		return true, nil
 	}
-	return nil
+	_, ok, err := e.Accounts.TaxCode(ctx, r.LegalEntityID, *d.TaxCode, r.RunDate)
+	return ok, err
 }
 
 // recheckRequests refuses the release of a proposed run that pays a
 // request whose tax code is no longer valid on the run date (409
 // payments.proposal_outdated): nothing is posted yet, so the run is
-// rejected and the request requested again.
+// rejected and proposed again, which leaves the request out.
 func (e *Endpoints) recheckRequests(ctx context.Context, r Run, pays []Payment) error {
 	if r.Status != Proposed {
 		return nil
@@ -178,8 +166,15 @@ func (e *Endpoints) recheckRequests(ctx context.Context, r Run, pays []Payment) 
 		}
 		requests = append(requests, d)
 	}
-	return e.requireRequestTaxCodes(ctx, r, requests, func(d DownPayment) *problem.Problem {
-		return problem.Conflict("payments.proposal_outdated", "Down payment request "+d.DocumentNumber+" has tax code "+*d.TaxCode+
-			", which is no longer valid on the run date; reject the run, and cancel and request the down payment again.")
-	})
+	for _, d := range requests {
+		valid, err := e.taxCodeValid(ctx, r, d)
+		if err != nil {
+			return err
+		}
+		if !valid {
+			return problem.Conflict("payments.proposal_outdated", "Down payment request "+d.DocumentNumber+" has tax code "+*d.TaxCode+
+				", which is no longer valid on the run date; reject the run, and propose again, which leaves the request out.")
+		}
+	}
+	return nil
 }

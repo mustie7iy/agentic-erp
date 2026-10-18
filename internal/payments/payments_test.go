@@ -242,7 +242,11 @@ func (e env) exclusions(t *testing.T, run map[string]any) map[string]string {
 	out := map[string]string{}
 	for _, x := range page["items"].([]any) {
 		m := x.(map[string]any)
-		out[m["supplier_id"].(string)] = m["reason_code"].(string) + " " + m["amount"].(map[string]any)["amount"].(string)
+		key := m["supplier_id"].(string)
+		if r, ok := m["down_payment_request_id"].(string); ok {
+			key = "request " + r // a request's own exclusion (T46c)
+		}
+		out[key] = m["reason_code"].(string) + " " + m["amount"].(map[string]any)["amount"].(string)
 	}
 	return out
 }

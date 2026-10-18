@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
+	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -78,7 +79,7 @@ func TestDownPaymentPayments(t *testing.T) {
 	e.credit(t, e.Vendor, "25.00", "2026-03-01")
 	blocked := e.NewSupplier(t, "BP90000005")
 	e.bankAccount(t, blocked, "DE89370400440532013000", "B", "2026-01-01", "", "create")
-	e.request(t, blocked, "70.00", "2026-03-10", "")
+	blockedRequest := e.request(t, blocked, "70.00", "2026-03-10", "")
 	e.invoice(t, blocked, "B-1", "10.00", "2026-03-01")
 	pgtest.Exec(t, `UPDATE partner.business_partner SET status = 'blocked', version = version + 1 WHERE id = $1`, blocked)
 	e.request(t, e.Supplier, "50.00", "2026-05-01", "") // due after the run's due-by date
@@ -99,7 +100,8 @@ func TestDownPaymentPayments(t *testing.T) {
 	if got := pays[e.Supplier.String()+" down_payment"]["down_payment_request_id"]; got != id(taxed) {
 		t.Errorf("request paid: got %v, want %s", got, id(taxed))
 	}
-	wantEx := map[string]string{e.Vendor.String(): "debit_balance -25.00", blocked.String(): "supplier_blocked 80.00"}
+	wantEx := map[string]string{e.Vendor.String(): "debit_balance -25.00", blocked.String(): "supplier_blocked 10.00",
+		"request " + id(blockedRequest): "supplier_blocked 70.00"}
 	if got := e.exclusions(t, run); fmt.Sprint(got) != fmt.Sprint(wantEx) {
 		t.Errorf("exclusions: got %v, want %v", got, wantEx)
 	}
@@ -119,6 +121,9 @@ func TestDownPaymentPayments(t *testing.T) {
 	e.Must(202, "POST", "/v1/bank-files/"+id(files["items"].([]any)[0].(map[string]any))+":transmit", "", `"1"`)
 	if want := "<Ustrd>Down payment " + paid["document_number"].(string) + " AB-17</Ustrd>"; !strings.Contains(string(e.connector.files[0].Content), want) {
 		t.Errorf("bank file: got\n%s\nwant it to contain %s", e.connector.files[0].Content, want)
+	}
+	if ev := apitest.Published(t, e.Tenant, outbox.Event{Context: "payables", Name: "down_payment_request_paid"}); len(ev) != 2 {
+		t.Errorf("DownPaymentRequestPaid: got %d events, want 2", len(ev))
 	}
 	if got, _ := e.Must(200, "GET", "/v1/down-payment-requests/"+id(debit), "", ""); got["status"] != "paid" {
 		t.Errorf("debit balance supplier's request: got %v, want paid", got["status"])
@@ -233,7 +238,7 @@ func TestDownPaymentDatabaseFailures(t *testing.T) {
 	pay := uuidOf(id(e.payments(t, releasing)[0].(map[string]any)))
 	e.request(t, e.Vendor, "40.00", "2026-03-15", `, "tax_code": "V1"`)
 	proposedRun := e.run(t, "2026-04-01", "2026-04-01")
-	e.request(t, e.Supplier, "20.00", "2026-03-15", "")
+	e.request(t, e.Supplier, "23.80", "2026-03-15", `, "tax_code": "V1"`)
 	queued := e.propose(t, "2026-04-02", "2026-04-02")
 	var job payments.Job
 	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
@@ -292,9 +297,10 @@ func (e env) operationError(t *testing.T, op map[string]any) any {
 }
 
 // TestDownPaymentRefusals: a run that pays a request fails at proposal in
-// a company without a down payment account, or when the request's tax code
-// is not valid on the run date; a proposed run whose request's tax code
-// has ended since is refused at release, to be rejected.
+// a company without a down payment account; a proposed run whose request's
+// tax code has ended since is refused at release, to be rejected, and the
+// next run leaves the request out (tax_code_invalid) and pays the
+// supplier's items.
 func TestDownPaymentRefusals(t *testing.T) {
 	t.Run("no down payment account", func(t *testing.T) {
 		e := setupWith(t, []string{"payables.down_payment.request"}, func(*app.Config) {})
@@ -320,7 +326,7 @@ func TestDownPaymentRefusals(t *testing.T) {
 	t.Run("tax code ended", func(t *testing.T) {
 		e := downPaymentSetup(t)
 		e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
-		e.request(t, e.Supplier, "119.00", "2026-03-15", `, "tax_code": "V1"`)
+		taxed := e.request(t, e.Supplier, "119.00", "2026-03-15", `, "tax_code": "V1"`)
 		run := e.run(t, "2026-03-31", "2026-03-31")
 		// The run dates are in the past, where a tax code's validity is not
 		// ended by the application (its trigger); the test ends it there.
@@ -330,10 +336,58 @@ func TestDownPaymentRefusals(t *testing.T) {
 		_, tag := e.Must(200, "GET", "/v1/payment-runs/"+id(run), "", "")
 		e.As(e.Approver).Problem(409, "payments.proposal_outdated", "POST", "/v1/payment-runs/"+id(run)+":release", "", tag)
 		e.decide(t, 200, run, "reject", `{"reason": "Tax code ended"}`)
-		op := e.propose(t, "2026-04-01", "2026-04-01")
-		work(t)
-		if got := e.operationError(t, op); got != "payments.request_tax_code_invalid" {
-			t.Errorf("proposal: got %v, want payments.request_tax_code_invalid", got)
+		e.invoice(t, e.Supplier, "INV-1", "40.00", "2026-03-01")
+		next := e.run(t, "2026-04-01", "2026-04-01")
+		want := map[string]string{"request " + id(taxed): "tax_code_invalid 119.00"}
+		if got := e.exclusions(t, next); fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Errorf("exclusions: got %v, want %v", got, want)
+		}
+		pays := byKind(e.payments(t, next))
+		if _, ok := pays[e.Supplier.String()+" items"]; len(pays) != 1 || !ok {
+			t.Fatalf("payments: got %v, want the supplier's items only", pays)
+		}
+		e.release(t, next, "")
+		if got, _ := e.Must(200, "GET", "/v1/down-payment-requests/"+id(taxed), "", ""); got["status"] != "open" {
+			t.Errorf("request left out: got %v, want open", got["status"])
 		}
 	})
+}
+
+// TestDropBesideAnExcludedRequest: a release that drops a supplier's items
+// payment (its invoice reversed since the proposal) records its exclusion
+// beside the one of the supplier's request left out for its tax code, and
+// releases the run with the payments that stand.
+func TestDropBesideAnExcludedRequest(t *testing.T) {
+	e := downPaymentSetup(t)
+	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
+	e.bankAccount(t, e.Vendor, "DE02120300000000202051", "Vendor", "2026-01-01", "", "create")
+	e.invoice(t, e.Supplier, "INV-A", "100.00", "2026-03-01")
+	x := e.invoice(t, e.Vendor, "INV-X", "40.00", "2026-03-01")
+	taxed := e.request(t, e.Vendor, "119.00", "2026-03-15", `, "tax_code": "V1"`)
+	pgtest.Exec(t, `ALTER TABLE ledger.tax_code DISABLE TRIGGER USER`) // the run date is in the past, where the application ends no validity
+	pgtest.Exec(t, `UPDATE ledger.tax_code SET valid_to = '2026-03-20' WHERE tenant_id = $1 AND legal_entity_id = $2 AND code = 'V1'`, e.Tenant.ID, e.DE)
+	pgtest.Exec(t, `ALTER TABLE ledger.tax_code ENABLE TRIGGER USER`)
+	run := e.run(t, "2026-04-15", "2026-04-15")
+	e.decide(t, 202, run, "release", "")
+	e.unpayable(t, x)
+	if _, err := e.releaser(t).RunOnce(context.Background()); err != nil {
+		t.Fatalf("release worker: %v", err)
+	}
+	got, _ := e.Must(200, "GET", "/v1/payment-runs/"+id(run), "", "")
+	if got["status"] != "released" {
+		t.Fatalf("run status: got %v, want released", got["status"])
+	}
+	want := map[string]string{e.Vendor.String(): "item_reversed 40.00", "request " + id(taxed): "tax_code_invalid 119.00"}
+	if exs := e.exclusions(t, run); fmt.Sprint(exs) != fmt.Sprint(want) {
+		t.Errorf("exclusions: got %v, want %v", exs, want)
+	}
+	if pays := e.payments(t, run); len(pays) != 1 {
+		t.Errorf("payments listed: got %d, want the supplier's alone", len(pays))
+	}
+	if got, _ := e.Must(200, "GET", "/v1/down-payment-requests/"+id(taxed), "", ""); got["status"] != "open" {
+		t.Errorf("request left out: got %v, want open", got["status"])
+	}
+	if ev := events(t, e.Tenant, "payment_excluded"); len(ev) != 1 {
+		t.Errorf("PaymentExcluded: got %d events, want 1, the dropped items payment's", len(ev))
+	}
 }

@@ -1230,6 +1230,28 @@ func TestExclusionReasons(t *testing.T) {
 		mustApp(t, f.tenant, exclude(reason))
 	}
 	failsWith(t, asApp(t, f.tenant, exclude("item_lost")), "payment_exclusion_reason_code_check")
+	// T46c: a request left out has an exclusion of its own, once per run,
+	// for a reason its supplier cannot be paid or its tax code.
+	request := id()
+	excludeRequest := func(request uuid.UUID, reason string, amount int) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.request_exclusion (tenant_id, payment_run_id, down_payment_request_id, supplier_id, reason_code, amount)
+				VALUES ($1,$2,$3,$4,$5,$6)`, f.tenant, run, request, id(), reason, amount)
+		}
+	}
+	mustApp(t, f.tenant, excludeRequest(request, "tax_code_invalid", 100))
+	mustApp(t, f.tenant, excludeRequest(id(), "supplier_blocked", 100))
+	for _, c := range []struct {
+		name   string
+		insert func(tx pgx.Tx) error
+		fails  string
+	}{
+		{"a request twice", excludeRequest(request, "supplier_blocked", 100), "request_exclusion_pkey"},
+		{"a debit balance", excludeRequest(id(), "debit_balance", 100), "request_exclusion_reason_code_check"},
+		{"nothing left out", excludeRequest(id(), "tax_code_invalid", 0), "request_exclusion_amount_check"},
+	} {
+		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, c.insert), c.fails) })
+	}
 }
 
 // TestPrincipalsAreTheirIssuersSubjects: a principal's issuer and subject

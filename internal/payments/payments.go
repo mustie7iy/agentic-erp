@@ -307,7 +307,8 @@ const (
 // unique index payment_items_once holds (000073). A down payment's payment
 // is never dropped: the release drops payments whose items are no longer
 // open, and it has none; it is paid even when the supplier's items are
-// excluded for a debit balance (proposeRequests).
+// excluded for a debit balance (payRequests). A request left out has its
+// exclusion in payments.request_exclusion, which leaves the items paid.
 const dropped = `(p.kind = 'items' AND EXISTS (SELECT FROM payments.payment_exclusion x WHERE x.tenant_id = p.tenant_id
 		AND x.payment_run_id = p.payment_run_id AND x.supplier_id = p.supplier_id))`
 
@@ -340,7 +341,9 @@ func paymentsOf(ctx context.Context, tx pgx.Tx, run uuid.UUID) ([]Payment, error
 
 // Exclusion is a supplier left out of a run.
 type Exclusion struct {
+	ID         uuid.UUID // the supplier, or the request of a request's exclusion: the listing's key
 	SupplierID uuid.UUID
+	RequestID  *uuid.UUID // the down payment request left out, or nil for the supplier's items
 	Reason     string
 	Amount     money.Minor
 }
