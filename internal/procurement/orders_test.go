@@ -455,3 +455,25 @@ func TestOrderByNumber(t *testing.T) {
 		return err
 	})
 }
+
+// TestOrderingARequisitionNeedsLevelTwo: an agent at autonomy level 1
+// drafts orders, which only propose, but not from a requisition, which
+// reserves the requisition for its order (ADR-0036).
+func TestOrderingARequisitionNeedsLevelTwo(t *testing.T) {
+	e := setup(t)
+	r := e.requisition(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), "")
+	e.act(t, "/v1/requisitions/"+id(r), "submit", "")
+	e.Approve(t, id(r))
+	e.Tenant.AllCompanies(t, e.Tenant.Agent)
+	pgtest.Exec(t, `UPDATE identity.agent_profile SET autonomy_level = 1, version = version + 1 WHERE tenant_id = $1 AND principal_id = $2`, e.Tenant.ID, e.Tenant.Agent.ID)
+	agent := e.As(e.Tenant.Agent)
+	body := func(extra string) string {
+		return fmt.Sprintf(`{"legal_entity_id": %q, "supplier_id": %q, "currency": "EUR", "order_date": "2026-03-10", "items": %s%s}`,
+			e.DE, e.Supplier, items(item(e.office, "1", "EA", "1.00", "EUR", "")), extra)
+	}
+	agent.Problem(403, "identity.autonomy_insufficient", "POST", "/v1/purchase-orders", body(fmt.Sprintf(`, "requisition_id": %q`, id(r))), "")
+	agent.Must(201, "POST", "/v1/purchase-orders", body(""), "")
+	if got, _ := e.Must(200, "GET", "/v1/requisitions/"+id(r), "", ""); got["status"] != "approved" {
+		t.Errorf("requisition: got %v, want approved, not reserved", got["status"])
+	}
+}

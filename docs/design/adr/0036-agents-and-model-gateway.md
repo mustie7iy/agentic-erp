@@ -143,10 +143,13 @@ client certificates in production (ADR-0033). Today:
     partner data, bank accounts) and drafts that have no effect until
     someone else acts (parked journal entries, requisitions with their
     submit and cancel, draft purchase orders, parked supplier invoices),
-    and cancelling an approval request one raised (PO, 2026-10-18).
+    and cancelling an approval request one raised (PO, 2026-10-18). A
+    draft order made from a requisition reserves the requisition, so that
+    part needs level 2; changing a parked invoice unlinks its approved
+    exception request, which only errs toward asking again.
     Payment run proposals reserve items and stay at level 2, as does
     cancelling a purchase order, which cancels released orders too.
-    `x-autonomy: read` marks an operation that changes nothing though it
+    `x-autonomy: read` marks an operation that changes no business data though it
     runs by POST (the audit chain's verification): every level performs
     it. An agent is offered every tool its permissions allow; those above
     its level answer 403 (filtering them by level is tracked).

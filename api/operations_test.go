@@ -29,8 +29,8 @@ func TestOperationsFromTheContract(t *testing.T) {
 	if approve := ops["approveApprovalRequest"]; approve.AgentAllowed {
 		t.Fatal("approval decisions must be refused to agents")
 	}
-	// Only proposing writes are x-autonomy: propose; no read is marked,
-	// since every level reads (ADR-0036).
+	// Only proposing writes are x-autonomy: propose; only a POST that
+	// changes no business data is x-autonomy: read (ADR-0036).
 	for id, want := range map[string]bool{"createRecommendation": true, "createChangeRequest": true, "parkJournalEntry": true,
 		"submitRequisition": true, "cancelRequisition": true, "createPurchaseOrder": true, "updatePurchaseOrder": true,
 		"createSupplierInvoice": true, "updateSupplierInvoice": true, "cancelApprovalRequest": true,

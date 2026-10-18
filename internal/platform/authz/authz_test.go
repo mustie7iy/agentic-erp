@@ -359,3 +359,30 @@ func TestAutonomyUnreadable(t *testing.T) {
 		t.Errorf("got %v, want the injected failure", err)
 	}
 }
+
+// TestRequireWrites: a part of an operation that does more than propose
+// needs an agent at level 2; people and services are not asked.
+func TestRequireWrites(t *testing.T) {
+	ten := pgtest.NewTenant(t)
+	if err := authz.RequireWrites(context.Background(), "x"); err == nil {
+		t.Error("outside a request: got no error, want one")
+	}
+	for level, want := range map[int]string{1: "identity.autonomy_insufficient", 2: ""} {
+		pgtest.Exec(t, `UPDATE identity.agent_profile SET autonomy_level = $3, version = version + 1 WHERE tenant_id = $1 AND principal_id = $2`, ten.ID, ten.Agent.ID, level)
+		as(t, ten, ten.Agent, func(ctx context.Context) {
+			err := authz.RequireWrites(ctx, "x")
+			var got string
+			if err != nil {
+				got = problem.From(err).Code
+			}
+			if got != want {
+				t.Errorf("level %d: got %q, want %q", level, got, want)
+			}
+		})
+	}
+	as(t, ten, ten.Human, func(ctx context.Context) {
+		if err := authz.RequireWrites(ctx, "x"); err != nil {
+			t.Errorf("a person: got %v, want nil", err)
+		}
+	})
+}

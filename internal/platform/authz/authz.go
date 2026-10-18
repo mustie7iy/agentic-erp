@@ -113,7 +113,9 @@ const (
 func withinAutonomy(ctx context.Context, tx pgx.Tx, agent uuid.UUID, op api.Operation) error {
 	need := writes
 	switch {
-	case op.Method == "GET" || op.Method == "HEAD" || op.Method == "OPTIONS" || op.Reads: // the unit of work runs the methods read-only
+	// GET, HEAD and OPTIONS run read-only; x-autonomy: read changes no
+	// business data.
+	case op.Method == "GET" || op.Method == "HEAD" || op.Method == "OPTIONS" || op.Reads:
 		need = readOnly
 	case op.Proposes:
 		need = proposes
@@ -121,13 +123,34 @@ func withinAutonomy(ctx context.Context, tx pgx.Tx, agent uuid.UUID, op api.Oper
 	if need == readOnly {
 		return nil
 	}
+	return atLevel(ctx, tx, agent, need, "the operation")
+}
+
+// RequireWrites refuses an agent below level 2 a part of an operation that
+// does more than propose, though the operation itself proposes (creating
+// an order from a requisition reserves the requisition, ADR-0036); what
+// names the part. People and services are not asked.
+func RequireWrites(ctx context.Context, what string) error {
+	tx, ok := reqctx.TxFrom(ctx)
+	p, ok2 := reqctx.PrincipalFrom(ctx)
+	if !ok || !ok2 {
+		return errOutsideRequest
+	}
+	if p.Kind != reqctx.KindAgent {
+		return nil
+	}
+	return atLevel(ctx, tx, p.ID, writes, what)
+}
+
+// atLevel refuses an agent whose level is below need.
+func atLevel(ctx context.Context, tx pgx.Tx, agent uuid.UUID, need int, what string) error {
 	var level int
 	if err := tx.QueryRow(ctx, `SELECT coalesce((SELECT autonomy_level FROM identity.agent_profile WHERE principal_id = $1), 0)`, agent).Scan(&level); err != nil {
 		return fmt.Errorf("authz: autonomy level: %w", err)
 	}
 	if level < need {
 		return problem.Forbidden("identity.autonomy_insufficient",
-			fmt.Sprintf("This agent's autonomy level is %d; the operation needs %d (an administrator raises it in the agent's profile).", level, need))
+			fmt.Sprintf("This agent's autonomy level is %d; %s needs %d (an administrator raises it in the agent's profile).", level, what, need))
 	}
 	return nil
 }

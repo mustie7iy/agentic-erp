@@ -32,7 +32,7 @@ type Operation struct {
 	// Proposes is x-autonomy: propose: the operation only proposes, and an
 	// agent of autonomy level 1 may perform it (ADR-0036).
 	Proposes bool
-	// Reads is x-autonomy: read: the operation changes nothing though it is
+	// Reads is x-autonomy: read: the operation changes no business data though it is
 	// not a GET, and an agent of any level may perform it.
 	Reads bool
 }
