@@ -1221,6 +1221,348 @@ func (s *AgentToolCallPageHeaders) SetResponse(val AgentToolCallPage) {
 
 func (*AgentToolCallPageHeaders) listAgentToolCallsRes() {}
 
+// A tenant's AI policy (ADR-0036).
+// Ref: #/components/schemas/AiPolicy
+type AiPolicy struct {
+	// Optimistic-lock version; equals the ETag.
+	Version int32 `json:"version"`
+	// The tenant's administrators' hand on the kill switch: false switches the tenant's AI off.
+	Enabled bool `json:"enabled"`
+	// The platform's operators' hand on the kill switch, which wins over `enabled`.
+	Suspended bool `json:"suspended"`
+	// Why the operators suspended the tenant's AI, while suspended.
+	SuspendedReason OptString `json:"suspended_reason"`
+	// Whether the tenant's AI runs: enabled and not suspended.
+	Active bool `json:"active"`
+	// The tenant's monthly cap on model spending, in USD; absent: none. Every caller's calls are held
+	// against it (ADR-0036).
+	MonthlyCap OptMoney `json:"monthly_cap"`
+	// Model alias → model, over the platform's routes.
+	Routes AiPolicyRoutes `json:"routes"`
+	// Where each of the platform's aliases routes under the policy.
+	EffectiveRoutes AiPolicyEffectiveRoutes `json:"effective_routes"`
+	// The models the aliases may route to; empty: any model with a recorded price.
+	AllowedModels []string `json:"allowed_models"`
+	// Whether documents (PDF and image blocks) may go to models; while off, capture refuses with 422
+	// `agents.documents_withheld`.
+	DocumentsToModels bool `json:"documents_to_models"`
+	// Last change.
+	UpdatedAt time.Time `json:"updated_at"`
+	// Who changed it last; absent while the policy has the defaults.
+	UpdatedBy OptUUID `json:"updated_by"`
+}
+
+// GetVersion returns the value of Version.
+func (s *AiPolicy) GetVersion() int32 {
+	return s.Version
+}
+
+// GetEnabled returns the value of Enabled.
+func (s *AiPolicy) GetEnabled() bool {
+	return s.Enabled
+}
+
+// GetSuspended returns the value of Suspended.
+func (s *AiPolicy) GetSuspended() bool {
+	return s.Suspended
+}
+
+// GetSuspendedReason returns the value of SuspendedReason.
+func (s *AiPolicy) GetSuspendedReason() OptString {
+	return s.SuspendedReason
+}
+
+// GetActive returns the value of Active.
+func (s *AiPolicy) GetActive() bool {
+	return s.Active
+}
+
+// GetMonthlyCap returns the value of MonthlyCap.
+func (s *AiPolicy) GetMonthlyCap() OptMoney {
+	return s.MonthlyCap
+}
+
+// GetRoutes returns the value of Routes.
+func (s *AiPolicy) GetRoutes() AiPolicyRoutes {
+	return s.Routes
+}
+
+// GetEffectiveRoutes returns the value of EffectiveRoutes.
+func (s *AiPolicy) GetEffectiveRoutes() AiPolicyEffectiveRoutes {
+	return s.EffectiveRoutes
+}
+
+// GetAllowedModels returns the value of AllowedModels.
+func (s *AiPolicy) GetAllowedModels() []string {
+	return s.AllowedModels
+}
+
+// GetDocumentsToModels returns the value of DocumentsToModels.
+func (s *AiPolicy) GetDocumentsToModels() bool {
+	return s.DocumentsToModels
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *AiPolicy) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *AiPolicy) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// SetVersion sets the value of Version.
+func (s *AiPolicy) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetEnabled sets the value of Enabled.
+func (s *AiPolicy) SetEnabled(val bool) {
+	s.Enabled = val
+}
+
+// SetSuspended sets the value of Suspended.
+func (s *AiPolicy) SetSuspended(val bool) {
+	s.Suspended = val
+}
+
+// SetSuspendedReason sets the value of SuspendedReason.
+func (s *AiPolicy) SetSuspendedReason(val OptString) {
+	s.SuspendedReason = val
+}
+
+// SetActive sets the value of Active.
+func (s *AiPolicy) SetActive(val bool) {
+	s.Active = val
+}
+
+// SetMonthlyCap sets the value of MonthlyCap.
+func (s *AiPolicy) SetMonthlyCap(val OptMoney) {
+	s.MonthlyCap = val
+}
+
+// SetRoutes sets the value of Routes.
+func (s *AiPolicy) SetRoutes(val AiPolicyRoutes) {
+	s.Routes = val
+}
+
+// SetEffectiveRoutes sets the value of EffectiveRoutes.
+func (s *AiPolicy) SetEffectiveRoutes(val AiPolicyEffectiveRoutes) {
+	s.EffectiveRoutes = val
+}
+
+// SetAllowedModels sets the value of AllowedModels.
+func (s *AiPolicy) SetAllowedModels(val []string) {
+	s.AllowedModels = val
+}
+
+// SetDocumentsToModels sets the value of DocumentsToModels.
+func (s *AiPolicy) SetDocumentsToModels(val bool) {
+	s.DocumentsToModels = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *AiPolicy) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *AiPolicy) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// Where each of the platform's aliases routes under the policy.
+type AiPolicyEffectiveRoutes map[string]string
+
+func (s *AiPolicyEffectiveRoutes) init() AiPolicyEffectiveRoutes {
+	m := *s
+	if m == nil {
+		m = map[string]string{}
+		*s = m
+	}
+	return m
+}
+
+// AiPolicyHeaders wraps AiPolicy with response headers.
+type AiPolicyHeaders struct {
+	ETag               OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           AiPolicy
+}
+
+// GetETag returns the value of ETag.
+func (s *AiPolicyHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *AiPolicyHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *AiPolicyHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *AiPolicyHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *AiPolicyHeaders) GetResponse() AiPolicy {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *AiPolicyHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *AiPolicyHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *AiPolicyHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *AiPolicyHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AiPolicyHeaders) SetResponse(val AiPolicy) {
+	s.Response = val
+}
+
+func (*AiPolicyHeaders) getAiPolicyRes() {}
+
+// Model alias → model, over the platform's routes.
+type AiPolicyRoutes map[string]string
+
+func (s *AiPolicyRoutes) init() AiPolicyRoutes {
+	m := *s
+	if m == nil {
+		m = map[string]string{}
+		*s = m
+	}
+	return m
+}
+
+// Merge patch of the AI policy.
+// Ref: #/components/schemas/AiPolicyUpdate
+type AiPolicyUpdate struct {
+	// False switches the tenant's AI off; true switches it back on, unless the operators have suspended
+	// it.
+	Enabled OptBool `json:"enabled"`
+	// The monthly cap in USD. Send null to remove it.
+	MonthlyCap OptNilAiPolicyUpdateMonthlyCap `json:"monthly_cap"`
+	// Model alias → model; replaces the policy's routes.
+	Routes OptAiPolicyUpdateRoutes `json:"routes"`
+	// The models the aliases may route to; replaces the list. Empty: any priced model.
+	AllowedModels []string `json:"allowed_models"`
+	// Whether documents may go to models.
+	DocumentsToModels OptBool `json:"documents_to_models"`
+}
+
+// GetEnabled returns the value of Enabled.
+func (s *AiPolicyUpdate) GetEnabled() OptBool {
+	return s.Enabled
+}
+
+// GetMonthlyCap returns the value of MonthlyCap.
+func (s *AiPolicyUpdate) GetMonthlyCap() OptNilAiPolicyUpdateMonthlyCap {
+	return s.MonthlyCap
+}
+
+// GetRoutes returns the value of Routes.
+func (s *AiPolicyUpdate) GetRoutes() OptAiPolicyUpdateRoutes {
+	return s.Routes
+}
+
+// GetAllowedModels returns the value of AllowedModels.
+func (s *AiPolicyUpdate) GetAllowedModels() []string {
+	return s.AllowedModels
+}
+
+// GetDocumentsToModels returns the value of DocumentsToModels.
+func (s *AiPolicyUpdate) GetDocumentsToModels() OptBool {
+	return s.DocumentsToModels
+}
+
+// SetEnabled sets the value of Enabled.
+func (s *AiPolicyUpdate) SetEnabled(val OptBool) {
+	s.Enabled = val
+}
+
+// SetMonthlyCap sets the value of MonthlyCap.
+func (s *AiPolicyUpdate) SetMonthlyCap(val OptNilAiPolicyUpdateMonthlyCap) {
+	s.MonthlyCap = val
+}
+
+// SetRoutes sets the value of Routes.
+func (s *AiPolicyUpdate) SetRoutes(val OptAiPolicyUpdateRoutes) {
+	s.Routes = val
+}
+
+// SetAllowedModels sets the value of AllowedModels.
+func (s *AiPolicyUpdate) SetAllowedModels(val []string) {
+	s.AllowedModels = val
+}
+
+// SetDocumentsToModels sets the value of DocumentsToModels.
+func (s *AiPolicyUpdate) SetDocumentsToModels(val OptBool) {
+	s.DocumentsToModels = val
+}
+
+// The monthly cap in USD. Send null to remove it.
+type AiPolicyUpdateMonthlyCap struct {
+	// Decimal string with exactly the currency's minor-unit digits.
+	Amount string `json:"amount"`
+	// ISO 4217 currency code; USD, the prices' currency.
+	Currency string `json:"currency"`
+}
+
+// GetAmount returns the value of Amount.
+func (s *AiPolicyUpdateMonthlyCap) GetAmount() string {
+	return s.Amount
+}
+
+// GetCurrency returns the value of Currency.
+func (s *AiPolicyUpdateMonthlyCap) GetCurrency() string {
+	return s.Currency
+}
+
+// SetAmount sets the value of Amount.
+func (s *AiPolicyUpdateMonthlyCap) SetAmount(val string) {
+	s.Amount = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *AiPolicyUpdateMonthlyCap) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// Model alias → model; replaces the policy's routes.
+type AiPolicyUpdateRoutes map[string]string
+
+func (s *AiPolicyUpdateRoutes) init() AiPolicyUpdateRoutes {
+	m := *s
+	if m == nil {
+		m = map[string]string{}
+		*s = m
+	}
+	return m
+}
+
 // Merged schema.
 // Ref: #/components/schemas/ApprovalRequest
 type ApprovalRequest struct {
@@ -2097,6 +2439,7 @@ func (*BadRequestHeaders) endRolePermissionRes()          {}
 func (*BadRequestHeaders) endSodRuleRes()                 {}
 func (*BadRequestHeaders) getAccountRes()                 {}
 func (*BadRequestHeaders) getAgentSessionRes()            {}
+func (*BadRequestHeaders) getAiPolicyRes()                {}
 func (*BadRequestHeaders) getApprovalRequestRes()         {}
 func (*BadRequestHeaders) getBankAccountRes()             {}
 func (*BadRequestHeaders) getBankFileContentRes()         {}
@@ -2215,6 +2558,7 @@ func (*BadRequestHeaders) unblockBusinessPartnerRes()     {}
 func (*BadRequestHeaders) unblockLegalEntityRes()         {}
 func (*BadRequestHeaders) unblockOrgUnitRes()             {}
 func (*BadRequestHeaders) unlockFiscalPeriodRes()         {}
+func (*BadRequestHeaders) updateAiPolicyRes()             {}
 func (*BadRequestHeaders) updateChangeRequestRes()        {}
 func (*BadRequestHeaders) updateConnectorRes()            {}
 func (*BadRequestHeaders) updateContractRes()             {}
@@ -5960,6 +6304,7 @@ func (*ConflictHeaders) unblockBusinessPartnerRes()    {}
 func (*ConflictHeaders) unblockLegalEntityRes()        {}
 func (*ConflictHeaders) unblockOrgUnitRes()            {}
 func (*ConflictHeaders) unlockFiscalPeriodRes()        {}
+func (*ConflictHeaders) updateAiPolicyRes()            {}
 func (*ConflictHeaders) updateChangeRequestRes()       {}
 func (*ConflictHeaders) updateConnectorRes()           {}
 func (*ConflictHeaders) updateContractRes()            {}
@@ -8691,6 +9036,7 @@ func (*ForbiddenHeaders) endRolePermissionRes()          {}
 func (*ForbiddenHeaders) endSodRuleRes()                 {}
 func (*ForbiddenHeaders) getAccountRes()                 {}
 func (*ForbiddenHeaders) getAgentSessionRes()            {}
+func (*ForbiddenHeaders) getAiPolicyRes()                {}
 func (*ForbiddenHeaders) getApprovalRequestRes()         {}
 func (*ForbiddenHeaders) getBankAccountRes()             {}
 func (*ForbiddenHeaders) getBankFileContentRes()         {}
@@ -8809,6 +9155,7 @@ func (*ForbiddenHeaders) unblockBusinessPartnerRes()     {}
 func (*ForbiddenHeaders) unblockLegalEntityRes()         {}
 func (*ForbiddenHeaders) unblockOrgUnitRes()             {}
 func (*ForbiddenHeaders) unlockFiscalPeriodRes()         {}
+func (*ForbiddenHeaders) updateAiPolicyRes()             {}
 func (*ForbiddenHeaders) updateChangeRequestRes()        {}
 func (*ForbiddenHeaders) updateConnectorRes()            {}
 func (*ForbiddenHeaders) updateContractRes()             {}
@@ -14942,6 +15289,52 @@ func (o OptAgentProfile) Or(d AgentProfile) AgentProfile {
 	return d
 }
 
+// NewOptAiPolicyUpdateRoutes returns new OptAiPolicyUpdateRoutes with value set to v.
+func NewOptAiPolicyUpdateRoutes(v AiPolicyUpdateRoutes) OptAiPolicyUpdateRoutes {
+	return OptAiPolicyUpdateRoutes{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAiPolicyUpdateRoutes is optional AiPolicyUpdateRoutes.
+type OptAiPolicyUpdateRoutes struct {
+	Value AiPolicyUpdateRoutes
+	Set   bool
+}
+
+// IsSet returns true if OptAiPolicyUpdateRoutes was set.
+func (o OptAiPolicyUpdateRoutes) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAiPolicyUpdateRoutes) Reset() {
+	var v AiPolicyUpdateRoutes
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAiPolicyUpdateRoutes) SetTo(v AiPolicyUpdateRoutes) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAiPolicyUpdateRoutes) Get() (v AiPolicyUpdateRoutes, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAiPolicyUpdateRoutes) Or(d AiPolicyUpdateRoutes) AiPolicyUpdateRoutes {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptBool returns new OptBool with value set to v.
 func NewOptBool(v bool) OptBool {
 	return OptBool{
@@ -15718,6 +16111,74 @@ func (o OptMoney) Get() (v Money, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptMoney) Or(d Money) Money {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptNilAiPolicyUpdateMonthlyCap returns new OptNilAiPolicyUpdateMonthlyCap with value set to v.
+func NewOptNilAiPolicyUpdateMonthlyCap(v AiPolicyUpdateMonthlyCap) OptNilAiPolicyUpdateMonthlyCap {
+	return OptNilAiPolicyUpdateMonthlyCap{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptNilAiPolicyUpdateMonthlyCap is optional nullable AiPolicyUpdateMonthlyCap.
+type OptNilAiPolicyUpdateMonthlyCap struct {
+	Value AiPolicyUpdateMonthlyCap
+	Set   bool
+	Null  bool
+}
+
+// IsSet returns true if OptNilAiPolicyUpdateMonthlyCap was set.
+func (o OptNilAiPolicyUpdateMonthlyCap) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptNilAiPolicyUpdateMonthlyCap) Reset() {
+	var v AiPolicyUpdateMonthlyCap
+	o.Value = v
+	o.Set = false
+	o.Null = false
+}
+
+// SetTo sets value to v.
+func (o *OptNilAiPolicyUpdateMonthlyCap) SetTo(v AiPolicyUpdateMonthlyCap) {
+	o.Set = true
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o OptNilAiPolicyUpdateMonthlyCap) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *OptNilAiPolicyUpdateMonthlyCap) SetToNull() {
+	o.Set = true
+	o.Null = true
+	var v AiPolicyUpdateMonthlyCap
+	o.Value = v
+}
+
+// IsEmpty returns true if the field was omitted from the payload (not Set and not Null).
+func (o OptNilAiPolicyUpdateMonthlyCap) IsEmpty() bool {
+	return !o.Set && !o.Null
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptNilAiPolicyUpdateMonthlyCap) Get() (v AiPolicyUpdateMonthlyCap, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptNilAiPolicyUpdateMonthlyCap) Or(d AiPolicyUpdateMonthlyCap) AiPolicyUpdateMonthlyCap {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -18813,6 +19274,7 @@ func (*PreconditionFailedHeaders) unblockBusinessPartnerRes()    {}
 func (*PreconditionFailedHeaders) unblockLegalEntityRes()        {}
 func (*PreconditionFailedHeaders) unblockOrgUnitRes()            {}
 func (*PreconditionFailedHeaders) unlockFiscalPeriodRes()        {}
+func (*PreconditionFailedHeaders) updateAiPolicyRes()            {}
 func (*PreconditionFailedHeaders) updateChangeRequestRes()       {}
 func (*PreconditionFailedHeaders) updateConnectorRes()           {}
 func (*PreconditionFailedHeaders) updateContractRes()            {}
@@ -18962,6 +19424,7 @@ func (*PreconditionRequiredHeaders) unblockBusinessPartnerRes()    {}
 func (*PreconditionRequiredHeaders) unblockLegalEntityRes()        {}
 func (*PreconditionRequiredHeaders) unblockOrgUnitRes()            {}
 func (*PreconditionRequiredHeaders) unlockFiscalPeriodRes()        {}
+func (*PreconditionRequiredHeaders) updateAiPolicyRes()            {}
 func (*PreconditionRequiredHeaders) updateChangeRequestRes()       {}
 func (*PreconditionRequiredHeaders) updateConnectorRes()           {}
 func (*PreconditionRequiredHeaders) updateContractRes()            {}
@@ -24069,6 +24532,7 @@ func (*ServiceUnavailableHeaders) unblockBusinessPartnerRes()     {}
 func (*ServiceUnavailableHeaders) unblockLegalEntityRes()         {}
 func (*ServiceUnavailableHeaders) unblockOrgUnitRes()             {}
 func (*ServiceUnavailableHeaders) unlockFiscalPeriodRes()         {}
+func (*ServiceUnavailableHeaders) updateAiPolicyRes()             {}
 func (*ServiceUnavailableHeaders) updateChangeRequestRes()        {}
 func (*ServiceUnavailableHeaders) updateConnectorRes()            {}
 func (*ServiceUnavailableHeaders) updateContractRes()             {}
@@ -25713,6 +26177,7 @@ func (*TooManyRequestsHeaders) endRolePermissionRes()          {}
 func (*TooManyRequestsHeaders) endSodRuleRes()                 {}
 func (*TooManyRequestsHeaders) getAccountRes()                 {}
 func (*TooManyRequestsHeaders) getAgentSessionRes()            {}
+func (*TooManyRequestsHeaders) getAiPolicyRes()                {}
 func (*TooManyRequestsHeaders) getApprovalRequestRes()         {}
 func (*TooManyRequestsHeaders) getBankAccountRes()             {}
 func (*TooManyRequestsHeaders) getBankFileContentRes()         {}
@@ -25831,6 +26296,7 @@ func (*TooManyRequestsHeaders) unblockBusinessPartnerRes()     {}
 func (*TooManyRequestsHeaders) unblockLegalEntityRes()         {}
 func (*TooManyRequestsHeaders) unblockOrgUnitRes()             {}
 func (*TooManyRequestsHeaders) unlockFiscalPeriodRes()         {}
+func (*TooManyRequestsHeaders) updateAiPolicyRes()             {}
 func (*TooManyRequestsHeaders) updateChangeRequestRes()        {}
 func (*TooManyRequestsHeaders) updateConnectorRes()            {}
 func (*TooManyRequestsHeaders) updateContractRes()             {}
@@ -25956,6 +26422,7 @@ func (*UnauthorizedHeaders) endRolePermissionRes()          {}
 func (*UnauthorizedHeaders) endSodRuleRes()                 {}
 func (*UnauthorizedHeaders) getAccountRes()                 {}
 func (*UnauthorizedHeaders) getAgentSessionRes()            {}
+func (*UnauthorizedHeaders) getAiPolicyRes()                {}
 func (*UnauthorizedHeaders) getApprovalRequestRes()         {}
 func (*UnauthorizedHeaders) getBankAccountRes()             {}
 func (*UnauthorizedHeaders) getBankFileContentRes()         {}
@@ -26074,6 +26541,7 @@ func (*UnauthorizedHeaders) unblockBusinessPartnerRes()     {}
 func (*UnauthorizedHeaders) unblockLegalEntityRes()         {}
 func (*UnauthorizedHeaders) unblockOrgUnitRes()             {}
 func (*UnauthorizedHeaders) unlockFiscalPeriodRes()         {}
+func (*UnauthorizedHeaders) updateAiPolicyRes()             {}
 func (*UnauthorizedHeaders) updateChangeRequestRes()        {}
 func (*UnauthorizedHeaders) updateConnectorRes()            {}
 func (*UnauthorizedHeaders) updateContractRes()             {}
@@ -26224,6 +26692,7 @@ func (*UnprocessableHeaders) unblockBusinessPartnerRes()    {}
 func (*UnprocessableHeaders) unblockLegalEntityRes()        {}
 func (*UnprocessableHeaders) unblockOrgUnitRes()            {}
 func (*UnprocessableHeaders) unlockFiscalPeriodRes()        {}
+func (*UnprocessableHeaders) updateAiPolicyRes()            {}
 func (*UnprocessableHeaders) updateChangeRequestRes()       {}
 func (*UnprocessableHeaders) updateConnectorRes()           {}
 func (*UnprocessableHeaders) updateContractRes()            {}
@@ -26238,6 +26707,78 @@ func (*UnprocessableHeaders) updateRoleRes()                {}
 func (*UnprocessableHeaders) updateSupplierInvoiceRes()     {}
 func (*UnprocessableHeaders) verifyAuditChainRes()          {}
 func (*UnprocessableHeaders) withdrawChangeRequestRes()     {}
+
+// UpdateAiPolicyOKHeaders wraps AiPolicy with response headers.
+type UpdateAiPolicyOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           AiPolicy
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateAiPolicyOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateAiPolicyOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *UpdateAiPolicyOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *UpdateAiPolicyOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *UpdateAiPolicyOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateAiPolicyOKHeaders) GetResponse() AiPolicy {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateAiPolicyOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateAiPolicyOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *UpdateAiPolicyOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *UpdateAiPolicyOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *UpdateAiPolicyOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateAiPolicyOKHeaders) SetResponse(val AiPolicy) {
+	s.Response = val
+}
+
+func (*UpdateAiPolicyOKHeaders) updateAiPolicyRes() {}
 
 // UpdateChangeRequestOKHeaders wraps ChangeRequest with response headers.
 type UpdateChangeRequestOKHeaders struct {

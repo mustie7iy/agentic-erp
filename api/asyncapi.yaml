@@ -284,13 +284,14 @@ channels:
   agents:
     address: 'erp.{cell}.agents.{tenant}.{event}'
     title: Agent events
-    description: Agent sessions, recommendations and model budgets.
+    description: Agent sessions, recommendations, model budgets and the tenant's AI policy.
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       RecommendationMade: {$ref: '#/components/messages/RecommendationMade'}
       RecommendationDecided: {$ref: '#/components/messages/RecommendationDecided'}
       BudgetThresholdReached: {$ref: '#/components/messages/BudgetThresholdReached'}
+      AiPolicyChanged: {$ref: '#/components/messages/AiPolicyChanged'}
   platform:
     address: 'erp.{cell}.platform.{tenant}.{event}'
     title: Platform operation events
@@ -450,6 +451,7 @@ operations:
       - $ref: '#/channels/agents/messages/RecommendationMade'
       - $ref: '#/channels/agents/messages/RecommendationDecided'
       - $ref: '#/channels/agents/messages/BudgetThresholdReached'
+      - $ref: '#/channels/agents/messages/AiPolicyChanged'
   publishPlatformEvents:
     action: send
     title: Platform publishes
@@ -2144,6 +2146,22 @@ components:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e0000000006a", "source": "/erp/eu-1/agents", "type": "com.example.erp.agents.recommendation_decided.v1", "subject": "0192a000-0000-7000-8000-000000000c02", "time": "2026-10-08T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000102"}
           payload: {"recommendation_id": "0192a000-0000-7000-8000-000000000c02", "session_id": "0192a000-0000-7000-8000-000000000c01", "object_type": "supplier_invoice", "object_id": "0192a000-0000-7000-8000-000000000701", "kind": "release_hold", "outcome": "accepted", "decided_by": "0192a000-0000-7000-8000-000000000102"}
+    AiPolicyChanged:
+      name: AiPolicyChanged
+      title: AI policy changed
+      summary: "The tenant's AI policy changed: its kill switch, routes, allowed models, monthly cap or whether documents may go to models."
+      description: "Emitted by `updateAiPolicy` (the tenant's administrators) and by the control plane's `suspendAi` and `resumeAi` (the platform's operators), ADR-0036. Carries the fields changed and the settings after the change; never the operators' reason for a suspension. Subject is the tenant id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.agents.ai_policy_changed.v1}
+      payload: {$ref: '#/components/schemas/AiPolicyChangedV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000402", "source": "/erp/eu-1/agents", "type": "com.example.erp.agents.ai_policy_changed.v1", "subject": "0192a000-0000-7000-8000-000000000001", "time": "2026-10-18T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000102"}
+          payload: {"changed_fields": ["enabled"], "enabled": false, "suspended": false, "active": false, "routes": {}, "allowed_models": [], "documents_to_models": true, "monthly_cap": {"amount": "500.00", "currency": "USD"}}
     BudgetThresholdReached:
       name: BudgetThresholdReached
       title: Budget threshold reached
@@ -3407,6 +3425,18 @@ components:
         status: {"type": "string", "description": "Open enum: acknowledged, rejected."}
         report_reference: {"type": ["string", "null"], "description": "The bank's status report reference, when given."}
         reason: {"type": "string", "description": "The bank's reason, as reported."}
+    AiPolicyChangedV1:
+      type: object
+      required: ["changed_fields", "enabled", "suspended", "active", "routes", "allowed_models", "documents_to_models", "monthly_cap"]
+      properties:
+        changed_fields: {"type": "array", "items": {"type": "string"}, "description": "The fields changed: enabled, suspended, monthly_cap, routes, allowed_models, documents_to_models."}
+        enabled: {"type": "boolean", "description": "The tenant's administrators' hand on the kill switch."}
+        suspended: {"type": "boolean", "description": "The operators' hand, which wins."}
+        active: {"type": "boolean", "description": "Whether the tenant's AI runs: enabled and not suspended."}
+        routes: {"type": "object", "additionalProperties": {"type": "string"}, "description": "Model alias → model, over the platform's routes."}
+        allowed_models: {"type": "array", "items": {"type": "string"}, "description": "The models the aliases may route to; empty: any priced model."}
+        documents_to_models: {"type": "boolean", "description": "Whether documents may go to models."}
+        monthly_cap: {"oneOf": [{"$ref": "#/components/schemas/Money"}, {"type": "null"}], "description": "The tenant's monthly cap; null: none."}
     BudgetThresholdReachedV1:
       type: object
       required: ["line", "agent_id", "month", "threshold", "limit", "spent"]

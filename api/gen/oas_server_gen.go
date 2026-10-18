@@ -374,6 +374,15 @@ type Handler interface {
 	//
 	// GET /v1/agent-sessions/{id}
 	GetAgentSession(ctx context.Context, params GetAgentSessionParams) (GetAgentSessionRes, error)
+	// GetAiPolicy implements getAiPolicy operation.
+	//
+	// Whether the tenant's model calls and agents run, where its model aliases route, which models they
+	// may route to, its monthly cap on model spending and whether documents may go to models (ADR-0036). A
+	// tenant whose policy was never changed has the defaults, version 1: AI on, the platform's routes, any
+	// priced model, no cap, documents allowed. Human-only.
+	//
+	// GET /v1/ai-policy
+	GetAiPolicy(ctx context.Context) (GetAiPolicyRes, error)
 	// GetApprovalRequest implements getApprovalRequest operation.
 	//
 	// Returns one approval request with steps and decisions.
@@ -1219,6 +1228,19 @@ type Handler interface {
 	//
 	// POST /v1/fiscal-periods/{id}:unlock
 	UnlockFiscalPeriod(ctx context.Context, req *ReasonInput, params UnlockFiscalPeriodParams) (UnlockFiscalPeriodRes, error)
+	// UpdateAiPolicy implements updateAiPolicy operation.
+	//
+	// Changes the policy. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` removes the
+	// monthly cap, `routes` and `allowed_models` are replaced as a whole. `enabled: false` is the tenant's
+	// kill switch: the model gateway refuses every call (403 `agents.ai_disabled`) and agents' requests
+	// are refused, while people and services work on. The platform's operators can suspend a tenant's AI
+	// too, which wins over `enabled`; only they lift it. The cap is in USD, the prices' currency. Every
+	// alias must route, under the policy, to a model it allows and that has a recorded price, and `routes`
+	// may name only the platform's aliases (422 `agents.invalid_policy`). Human-only. Recorded in the
+	// audit trail and published as `AiPolicyChanged`.
+	//
+	// PATCH /v1/ai-policy
+	UpdateAiPolicy(ctx context.Context, req *AiPolicyUpdate, params UpdateAiPolicyParams) (UpdateAiPolicyRes, error)
 	// UpdateChangeRequest implements updateChangeRequest operation.
 	//
 	// Changes a change request in status `draft` or `invalid`; an `invalid` one returns to `draft` and

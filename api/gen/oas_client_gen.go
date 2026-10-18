@@ -395,6 +395,15 @@ type Invoker interface {
 	//
 	// GET /v1/agent-sessions/{id}
 	GetAgentSession(ctx context.Context, params GetAgentSessionParams) (GetAgentSessionRes, error)
+	// GetAiPolicy invokes getAiPolicy operation.
+	//
+	// Whether the tenant's model calls and agents run, where its model aliases route, which models they
+	// may route to, its monthly cap on model spending and whether documents may go to models (ADR-0036). A
+	// tenant whose policy was never changed has the defaults, version 1: AI on, the platform's routes, any
+	// priced model, no cap, documents allowed. Human-only.
+	//
+	// GET /v1/ai-policy
+	GetAiPolicy(ctx context.Context) (GetAiPolicyRes, error)
 	// GetApprovalRequest invokes getApprovalRequest operation.
 	//
 	// Returns one approval request with steps and decisions.
@@ -1240,6 +1249,19 @@ type Invoker interface {
 	//
 	// POST /v1/fiscal-periods/{id}:unlock
 	UnlockFiscalPeriod(ctx context.Context, request *ReasonInput, params UnlockFiscalPeriodParams) (UnlockFiscalPeriodRes, error)
+	// UpdateAiPolicy invokes updateAiPolicy operation.
+	//
+	// Changes the policy. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` removes the
+	// monthly cap, `routes` and `allowed_models` are replaced as a whole. `enabled: false` is the tenant's
+	// kill switch: the model gateway refuses every call (403 `agents.ai_disabled`) and agents' requests
+	// are refused, while people and services work on. The platform's operators can suspend a tenant's AI
+	// too, which wins over `enabled`; only they lift it. The cap is in USD, the prices' currency. Every
+	// alias must route, under the policy, to a model it allows and that has a recorded price, and `routes`
+	// may name only the platform's aliases (422 `agents.invalid_policy`). Human-only. Recorded in the
+	// audit trail and published as `AiPolicyChanged`.
+	//
+	// PATCH /v1/ai-policy
+	UpdateAiPolicy(ctx context.Context, request *AiPolicyUpdate, params UpdateAiPolicyParams) (UpdateAiPolicyRes, error)
 	// UpdateChangeRequest invokes updateChangeRequest operation.
 	//
 	// Changes a change request in status `draft` or `invalid`; an `invalid` one returns to `draft` and
@@ -8879,6 +8901,122 @@ func (c *Client) sendGetAgentSession(ctx context.Context, params GetAgentSession
 
 	stage = "DecodeResponse"
 	result, err := decodeGetAgentSessionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetAiPolicy invokes getAiPolicy operation.
+//
+// Whether the tenant's model calls and agents run, where its model aliases route, which models they
+// may route to, its monthly cap on model spending and whether documents may go to models (ADR-0036). A
+// tenant whose policy was never changed has the defaults, version 1: AI on, the platform's routes, any
+// priced model, no cap, documents allowed. Human-only.
+//
+// GET /v1/ai-policy
+func (c *Client) GetAiPolicy(ctx context.Context) (GetAiPolicyRes, error) {
+	res, err := c.sendGetAiPolicy(ctx)
+	return res, err
+}
+
+func (c *Client) sendGetAiPolicy(ctx context.Context) (res GetAiPolicyRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAiPolicy"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/ai-policy"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetAiPolicyOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/ai-policy"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetAiPolicyOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetAiPolicyResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -29827,6 +29965,154 @@ func (c *Client) sendUnlockFiscalPeriod(ctx context.Context, request *ReasonInpu
 
 	stage = "DecodeResponse"
 	result, err := decodeUnlockFiscalPeriodResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UpdateAiPolicy invokes updateAiPolicy operation.
+//
+// Changes the policy. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` removes the
+// monthly cap, `routes` and `allowed_models` are replaced as a whole. `enabled: false` is the tenant's
+// kill switch: the model gateway refuses every call (403 `agents.ai_disabled`) and agents' requests
+// are refused, while people and services work on. The platform's operators can suspend a tenant's AI
+// too, which wins over `enabled`; only they lift it. The cap is in USD, the prices' currency. Every
+// alias must route, under the policy, to a model it allows and that has a recorded price, and `routes`
+// may name only the platform's aliases (422 `agents.invalid_policy`). Human-only. Recorded in the
+// audit trail and published as `AiPolicyChanged`.
+//
+// PATCH /v1/ai-policy
+func (c *Client) UpdateAiPolicy(ctx context.Context, request *AiPolicyUpdate, params UpdateAiPolicyParams) (UpdateAiPolicyRes, error) {
+	res, err := c.sendUpdateAiPolicy(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUpdateAiPolicy(ctx context.Context, request *AiPolicyUpdate, params UpdateAiPolicyParams) (res UpdateAiPolicyRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("updateAiPolicy"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.URLTemplateKey.String("/v1/ai-policy"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UpdateAiPolicyOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/ai-policy"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PATCH", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUpdateAiPolicyRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UpdateAiPolicyOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUpdateAiPolicyResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

@@ -9550,6 +9550,93 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/ai-policy":
+    get:
+      operationId: getAiPolicy
+      tags:
+        - agents
+      summary: Get the tenant's AI policy
+      description: "Whether the tenant's model calls and agents run, where its model aliases route, which models they may route to, its monthly cap on model spending and whether documents may go to models (ADR-0036). A tenant whose policy was never changed has the defaults, version 1: AI on, the platform's routes, any priced model, no cap, documents allowed. Human-only."
+      x-permission: agents.ai_policy.read
+      x-agent: false
+      responses:
+        "200":
+          description: "The AI policy."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiPolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateAiPolicy
+      tags:
+        - agents
+      summary: Update the tenant's AI policy
+      description: "Changes the policy. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` removes the monthly cap, `routes` and `allowed_models` are replaced as a whole. `enabled: false` is the tenant's kill switch: the model gateway refuses every call (403 `agents.ai_disabled`) and agents' requests are refused, while people and services work on. The platform's operators can suspend a tenant's AI too, which wins over `enabled`; only they lift it. The cap is in USD, the prices' currency. Every alias must route, under the policy, to a model it allows and that has a recorded price, and `routes` may name only the platform's aliases (422 `agents.invalid_policy`). Human-only. Recorded in the audit trail and published as `AiPolicyChanged`."
+      x-permission: agents.ai_policy.manage
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the policy.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/AiPolicyUpdate"
+      responses:
+        "200":
+          description: "Updated; the policy after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiPolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
 components:
   securitySchemes:
     oidc:
@@ -9823,6 +9910,125 @@ components:
       description: Tenant custom fields (ADR-0009), validated against the tenant's published schema for this resource type. Keys are snake_case.
       example:
         cost_object_hint: MKT-2026
+    AiPolicy:
+      type: object
+      description: "A tenant's AI policy (ADR-0036)."
+      required:
+        - version
+        - enabled
+        - suspended
+        - active
+        - routes
+        - effective_routes
+        - allowed_models
+        - documents_to_models
+        - updated_at
+      properties:
+        version:
+          type: integer
+          format: int32
+          description: Optimistic-lock version; equals the ETag.
+          minimum: 1
+          readOnly: true
+        enabled:
+          type: boolean
+          description: "The tenant's administrators' hand on the kill switch: false switches the tenant's AI off."
+        suspended:
+          type: boolean
+          description: "The platform's operators' hand on the kill switch, which wins over `enabled`."
+          readOnly: true
+        suspended_reason:
+          type: string
+          description: "Why the operators suspended the tenant's AI, while suspended."
+          readOnly: true
+        active:
+          type: boolean
+          description: "Whether the tenant's AI runs: enabled and not suspended."
+          readOnly: true
+        monthly_cap:
+          $ref: "#/components/schemas/Money"
+          description: "The tenant's monthly cap on model spending, in USD; absent: none. Every caller's calls are held against it (ADR-0036)."
+        routes:
+          type: object
+          description: "Model alias → model, over the platform's routes."
+          additionalProperties:
+            type: string
+          examples:
+            - erp-default: claude-opus-5-5
+        effective_routes:
+          type: object
+          description: "Where each of the platform's aliases routes under the policy."
+          additionalProperties:
+            type: string
+          readOnly: true
+        allowed_models:
+          type: array
+          description: "The models the aliases may route to; empty: any model with a recorded price."
+          items:
+            type: string
+        documents_to_models:
+          type: boolean
+          description: "Whether documents (PDF and image blocks) may go to models; while off, capture refuses with 422 `agents.documents_withheld`."
+        updated_at:
+          type: string
+          format: date-time
+          description: Last change.
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          description: Who changed it last; absent while the policy has the defaults.
+          readOnly: true
+      additionalProperties: false
+    AiPolicyUpdate:
+      type: object
+      description: Merge patch of the AI policy.
+      properties:
+        enabled:
+          type: boolean
+          description: "false switches the tenant's AI off; true switches it back on, unless the operators have suspended it."
+        monthly_cap:
+          type:
+            - object
+            - "null"
+          description: "The monthly cap in USD. Send null to remove it."
+          required:
+            - amount
+            - currency
+          properties:
+            amount:
+              type: string
+              description: Decimal string with exactly the currency's minor-unit digits.
+              pattern: "^(0|[1-9][0-9]{0,17})(\\.[0-9]{1,4})?$"
+              example: "500.00"
+            currency:
+              type: string
+              description: ISO 4217 currency code; USD, the prices' currency.
+              pattern: "^[A-Z]{3}$"
+              example: USD
+          additionalProperties: false
+        routes:
+          type: object
+          description: "Model alias → model; replaces the policy's routes."
+          maxProperties: 16
+          additionalProperties:
+            type: string
+            minLength: 1
+            maxLength: 100
+        allowed_models:
+          type: array
+          description: "The models the aliases may route to; replaces the list. Empty: any priced model."
+          maxItems: 50
+          items:
+            type: string
+            minLength: 1
+            maxLength: 100
+        documents_to_models:
+          type: boolean
+          description: Whether documents may go to models.
+      additionalProperties: false
+      examples:
+        - enabled: false
     AgentSession:
       type: object
       description: "A session in which an agent worked through the API: what it was for, which model, its tool calls and recommendations, and what it used."

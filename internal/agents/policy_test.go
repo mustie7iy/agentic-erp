@@ -176,7 +176,7 @@ func TestPolicyEvent(t *testing.T) {
 	p := agents.Policy{Enabled: true, Suspended: true, SuspendedReason: &reason, MonthlyCap: &limit, Routes: map[string]string{}, AllowedModels: []string{}}
 	var e map[string]any
 	if err := inTenant(t, ten, func(ctx context.Context, tx pgx.Tx) error {
-		ev, err := agents.PolicyEvent(ctx, tx, ten.ID, "ai_suspended", p, nil)
+		ev, err := agents.PolicyEvent(ctx, tx, ten.ID, p, []string{"suspended"})
 		e, _ = ev.Payload.(map[string]any)
 		return err
 	}); err != nil {
@@ -216,7 +216,7 @@ func TestPolicyDatabaseFailures(t *testing.T) {
 		},
 		"resume": func(ctx context.Context, tx pgx.Tx) error { _, err := agents.Resume(ctx, tx, actor); return err },
 		"event": func(ctx context.Context, tx pgx.Tx) error {
-			_, err := agents.PolicyEvent(ctx, tx, ten.ID, "ai_policy_changed", agents.Policy{MonthlyCap: &limit}, []string{"monthly_cap"})
+			_, err := agents.PolicyEvent(ctx, tx, ten.ID, agents.Policy{MonthlyCap: &limit}, []string{"monthly_cap"})
 			return err
 		},
 	}

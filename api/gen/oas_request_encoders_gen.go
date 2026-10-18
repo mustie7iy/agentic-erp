@@ -954,6 +954,20 @@ func encodeUnlockFiscalPeriodRequest(
 	return nil
 }
 
+func encodeUpdateAiPolicyRequest(
+	req *AiPolicyUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeUpdateChangeRequestRequest(
 	req *ChangeRequestUpdate,
 	r *http.Request,

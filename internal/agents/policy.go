@@ -234,10 +234,11 @@ func invalidPolicy(field, code, detail string) error {
 	return problem.Unprocessable("agents.invalid_policy", detail, problem.FieldError{Field: field, Code: code, Message: detail})
 }
 
-// PolicyEvent is the policy's event of the given name (ai_policy_changed,
-// ai_suspended, ai_resumed) with its settings after the change; the
-// suspension's reason is the operators' words and stays out of it.
-func PolicyEvent(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, name string, p Policy, fields []string) (outbox.Event, error) {
+// PolicyEvent is the policy's AiPolicyChanged event: the fields changed,
+// by the tenant's administrators or the operators, and the settings after
+// the change; the suspension's reason is the operators' words and stays
+// out of it.
+func PolicyEvent(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, p Policy, fields []string) (outbox.Event, error) {
 	payload := map[string]any{"enabled": p.Enabled, "suspended": p.Suspended, "active": p.Active(), "routes": p.Routes,
 		"allowed_models": p.AllowedModels, "documents_to_models": p.DocumentsToModels, "monthly_cap": nil}
 	if p.MonthlyCap != nil {
@@ -247,8 +248,6 @@ func PolicyEvent(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, name string, 
 		}
 		payload["monthly_cap"] = money.EventAmount(*p.MonthlyCap, PriceCurrency, exp)
 	}
-	if fields != nil {
-		payload["changed_fields"] = fields
-	}
-	return outbox.Event{Context: "agents", Name: name, AggregateType: "agents.ai_policy", AggregateID: tenant, Payload: payload}, nil
+	payload["changed_fields"] = fields
+	return outbox.Event{Context: "agents", Name: "ai_policy_changed", AggregateType: "agents.ai_policy", AggregateID: tenant, Payload: payload}, nil
 }
