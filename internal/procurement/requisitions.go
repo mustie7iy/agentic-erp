@@ -36,6 +36,10 @@ type Item struct {
 	TaxCode        *string     `json:"tax_code"`
 	ContractItemNo *int32      `json:"contract_item_no"`
 	Received       string      `json:"received"`
+	// The price a released order item's goods movements are valued at
+	// through GR/IR, fixed when it is released (T47a); none before.
+	ValuationPrice     *money.Minor `json:"valuation_price"`
+	ValuationPriceUnit *int32       `json:"valuation_price_unit"`
 }
 
 // total is the items' total for display. Decisions use documentTotal,

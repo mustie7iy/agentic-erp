@@ -437,6 +437,12 @@
       "t": "On foundation: invoices in a live payment run cannot be reversed",
       "r": "internal/payables · payments.Reservations",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "Payables reads received quantities FOR SHARE when matching and posting",
+      "r": "",
+      "c": []
      }
     ]
    },
@@ -1344,15 +1350,53 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "PO changes and versions",
-      "r": "T47",
+      "r": "internal/procurement · /v1/purchase-orders/{id}/changes · T47e · T47f",
+      "c": [
+       {
+        "s": "D",
+        "t": "Released orders change only through order changes, applied whole in one transaction",
+        "r": "procurement order_change_apply.go · migration 000065 · T47e",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "The order-change API: draft, patch, list and cancel a change; submit, approve and apply it",
+        "r": "/v1/purchase-orders/{id}/changes · procurement order_changes.go · T47f",
+        "c": []
+       }
+      ]
+     },
+     {
+      "s": "D",
+      "t": "Release strategy for POs without a requisition",
+      "r": "internal/procurement · internal/approvals · T47c · T47d",
+      "c": [
+       {
+        "s": "D",
+        "t": "Order release tiers in configuration; the approvals routes purchase_order and order_change",
+        "r": "internal/config · internal/approvals · migration 000062 · T47c",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Release waits for its approval by amount tier",
+        "r": "procurement purchase_orders.go · migration 000063 · T47d",
+        "c": []
+       }
+      ]
+     },
+     {
+      "s": "D",
+      "t": "Valuation price fixed at release: GR/IR never follows a later price",
+      "r": "procurement.releaseOrder · migration 000061 · T47a",
       "c": []
      },
      {
       "s": "T",
-      "t": "Release strategy for POs without a requisition",
-      "r": "T47",
+      "t": "Approving and closing an order take their locks in one order (today a detected deadlock, retryable)",
+      "r": "",
       "c": []
      },
      {
@@ -1393,10 +1437,23 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Expiry and renewal alerts",
-      "r": "T47",
-      "c": []
+      "r": "contracts/{id}:renew · procurement.ContractExpirer · migration 000066 · T47g",
+      "c": [
+       {
+        "s": "D",
+        "t": "Contracts are renewed by a draft successor that continues them",
+        "r": "contracts/{id}:renew · T47g1",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Contracts ending soon without a renewal are alerted once",
+        "r": "procurement.ContractExpirer · expiry_alerted_on · T47g2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
@@ -1485,9 +1542,9 @@
       ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Returns to vendor (122 clears the GR/IR credit a credit memo for returned goods leaves)",
-      "r": "T47",
+      "r": "movement 122/123 · GoodsReturned · migration 000064 · T47b",
       "c": []
      },
      {

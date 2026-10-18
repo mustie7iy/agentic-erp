@@ -291,11 +291,13 @@ func (e *Endpoints) invoiceLines(ctx context.Context, v Invoice, sup partner.Sup
 }
 
 // grirItem is an item's GR/IR item: its quantity at its order item's
-// price, its amount the invoiced net, both in its kind's direction: a
-// credit memo credits GR/IR for the quantity it credits, a subsequent debit
-// or credit moves no quantity, its amount going to price differences whole
-// (T34). An order item the order no longer has is refused, as the match
-// flags it (order_item_missing).
+// valuation price, the price it was released at (T47a), its amount the
+// invoiced net, which the ledger clears GR/IR with, putting the difference
+// on price_difference; both in its kind's direction: a credit memo credits
+// GR/IR for the quantity it credits, a subsequent debit or credit moves no
+// quantity, its amount going to price differences whole (T34). An order
+// item the order no longer has is refused, as the match flags it
+// (order_item_missing).
 func grirItem(o procurement.Order, kind string, it Item) (ledger.GRIRItem, error) {
 	quantity, amount := it.Quantity, it.Amount
 	if credits(kind) {
@@ -306,8 +308,8 @@ func grirItem(o procurement.Order, kind string, it Item) (ledger.GRIRItem, error
 	}
 	for _, oi := range o.Items {
 		if oi.ItemNo == *it.POItemNo {
-			return ledger.GRIRItem{PurchaseOrderID: o.ID, POItemNo: oi.ItemNo, Quantity: quantity, Unit: it.Unit, UnitPrice: oi.UnitPrice,
-				PriceUnit: oi.PriceUnit, Invoiced: &amount, Text: it.Description}, nil
+			return ledger.GRIRItem{PurchaseOrderID: o.ID, POItemNo: oi.ItemNo, Quantity: quantity, Unit: it.Unit, UnitPrice: oi.ValuationPrice,
+				PriceUnit: oi.ValuationPriceUnit, Invoiced: &amount, Text: it.Description}, nil
 		}
 	}
 	return ledger.GRIRItem{}, problem.Unprocessable("payables.order_item_missing",

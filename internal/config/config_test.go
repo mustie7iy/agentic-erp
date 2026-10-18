@@ -106,6 +106,11 @@ func TestValidationRules(t *testing.T) {
 		{"terms days", func(c *Config) { c.PaymentTerms[0].NetDays = 400 }, "payment_terms[NT14].net_days"},
 		{"no terms", func(c *Config) { c.PaymentTerms = nil }, "payment_terms"},
 		{"tiers empty", func(c *Config) { c.Purchasing.RequisitionApproval = nil }, "purchasing.requisition_approval"},
+		{"order tiers empty", func(c *Config) { c.Purchasing.OrderReleaseApproval = nil }, "purchasing.order_release_approval"},
+		{"order last tier capped", func(c *Config) { c.Purchasing.OrderReleaseApproval[2].UpTo = "1000000.00" }, "purchasing.order_release_approval[2].up_to"},
+		{"order tier role", func(c *Config) { c.Purchasing.OrderReleaseApproval[1].Steps[0].Role = " " }, "purchasing.order_release_approval[1].steps[0].role"},
+		{"no expiry notice", func(c *Config) { c.Purchasing.ContractExpiryNoticeDays = 0 }, "purchasing.contract_expiry_notice_days"},
+		{"expiry notice too long", func(c *Config) { c.Purchasing.ContractExpiryNoticeDays = 366 }, "purchasing.contract_expiry_notice_days"},
 		{"last tier capped", func(c *Config) { c.Purchasing.RequisitionApproval[1].UpTo = "1000000.00" }, "purchasing.requisition_approval[1].up_to"},
 		{"middle tier open", func(c *Config) { c.Purchasing.RequisitionApproval[0].UpTo = "" }, "purchasing.requisition_approval[0].up_to"},
 		{"tier order", func(c *Config) {
@@ -174,6 +179,8 @@ func TestDiffTiers(t *testing.T) {
 		{"terms", func(c *Config) { c.PaymentTerms[0].NetDays = 21 }, "payment_terms[NT14].net_days", TierOperational},
 		{"terms text", func(c *Config) { c.PaymentTerms[0].Description = "Two weeks" }, "payment_terms[NT14].description", TierCosmetic},
 		{"routing", func(c *Config) { c.Purchasing.RequisitionApproval[0].UpTo = "5000.00" }, "purchasing.requisition_approval[0].up_to", TierOperational},
+		{"order routing", func(c *Config) { c.Purchasing.OrderReleaseApproval[0].UpTo = "7500.00" }, "purchasing.order_release_approval[0].up_to", TierOperational},
+		{"expiry notice", func(c *Config) { c.Purchasing.ContractExpiryNoticeDays = 45 }, "purchasing.contract_expiry_notice_days", TierOperational},
 		{"hold days", func(c *Config) { c.Payments.BankChangeHoldDays = 10 }, "payments.bank_change_hold_days", TierOperational},
 		{"output", func(c *Config) { c.Output.PurchaseOrderChannel = "edi" }, "output.purchase_order_channel", TierOperational},
 		{"account determination", func(c *Config) { c.Companies[0].AccountDetermination.InputTax = "100000" }, "companies[1000].account_determination.input_tax", TierPostingRelated},
@@ -272,7 +279,7 @@ func TestRuntime(t *testing.T) {
 	if got := RequiredEvidence(TierStructural)[1]; got != "regression" {
 		t.Errorf("structural second evidence: got %s, want regression", got)
 	}
-	if got := strings.Join(c.RoleNames(), ","); got != "Z_PURCH_MGR,process_owner,Z_TREASURY_MGR,vendor_master_approver,controller,solution_architect" {
+	if got := strings.Join(c.RoleNames(), ","); got != "Z_PURCH_MGR,process_owner,Z_PURCH_HEAD,Z_TREASURY_MGR,vendor_master_approver,controller,solution_architect" {
 		t.Fatalf("role names: %s", got)
 	}
 	if c.PaymentTerm("NT30") == nil {

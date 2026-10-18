@@ -215,8 +215,10 @@ channels:
     messages:
       RequisitionSubmitted: {$ref: '#/components/messages/RequisitionSubmitted'}
       PurchaseOrderReleased: {$ref: '#/components/messages/PurchaseOrderReleased'}
+      PurchaseOrderChanged: {$ref: '#/components/messages/PurchaseOrderChanged'}
       GoodsReceived: {$ref: '#/components/messages/GoodsReceived'}
       GoodsReceiptReversed: {$ref: '#/components/messages/GoodsReceiptReversed'}
+      GoodsReturned: {$ref: '#/components/messages/GoodsReturned'}
       RequisitionCancelled: {$ref: '#/components/messages/RequisitionCancelled'}
       PurchaseOrderCancelled: {$ref: '#/components/messages/PurchaseOrderCancelled'}
       ContractActivated: {$ref: '#/components/messages/ContractActivated'}
@@ -227,6 +229,7 @@ channels:
       RequisitionOrdered: {$ref: '#/components/messages/RequisitionOrdered'}
       PurchaseOrderClosed: {$ref: '#/components/messages/PurchaseOrderClosed'}
       ContractExpired: {$ref: '#/components/messages/ContractExpired'}
+      ContractExpiring: {$ref: '#/components/messages/ContractExpiring'}
   payables:
     address: 'erp.{cell}.payables.{tenant}.{event}'
     title: Accounts payable events
@@ -380,8 +383,10 @@ operations:
     messages:
       - $ref: '#/channels/procurement/messages/RequisitionSubmitted'
       - $ref: '#/channels/procurement/messages/PurchaseOrderReleased'
+      - $ref: '#/channels/procurement/messages/PurchaseOrderChanged'
       - $ref: '#/channels/procurement/messages/GoodsReceived'
       - $ref: '#/channels/procurement/messages/GoodsReceiptReversed'
+      - $ref: '#/channels/procurement/messages/GoodsReturned'
       - $ref: '#/channels/procurement/messages/RequisitionCancelled'
       - $ref: '#/channels/procurement/messages/PurchaseOrderCancelled'
       - $ref: '#/channels/procurement/messages/ContractActivated'
@@ -392,6 +397,7 @@ operations:
       - $ref: '#/channels/procurement/messages/RequisitionOrdered'
       - $ref: '#/channels/procurement/messages/PurchaseOrderClosed'
       - $ref: '#/channels/procurement/messages/ContractExpired'
+      - $ref: '#/channels/procurement/messages/ContractExpiring'
   publishPayablesEvents:
     action: send
     title: Payables publishes
@@ -873,7 +879,7 @@ components:
       name: PurchaseOrderReleased
       title: Purchase order released
       summary: A purchase order was released to the supplier.
-      description: Emitted by `purchase-orders/{id}:release` when the order moves to `released`. Integration sends the order output; payables can match invoices against it from then on. Subject is the purchase order id.
+      description: Emitted when the order moves to `released`, by `purchase-orders/{id}:release` or, for an order waiting for its release approval, by `approval-requests/{id}:approve` in the deciding transaction. Integration sends the order output; payables can match invoices against it from then on. Subject is the purchase order id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -897,6 +903,36 @@ components:
             total_amount: {amount: '1000.00', currency: EUR}
             items:
               - {item_no: 1, quantity: {value: '2', unit: EA}, unit_price: {amount: '500.00', currency: EUR}, price_unit: 1, account_id: 0192a000-0000-7000-8000-000000000404, tax_code: V1}
+    PurchaseOrderChanged:
+      name: PurchaseOrderChanged
+      title: Purchase order changed
+      summary: An order change was applied to a released purchase order, making its next revision.
+      description: Emitted when an order change is applied, by `purchase-orders/{id}/changes/{change_id}:submit` for a change that does not raise the order's total or needs no approval, or by `approval-requests/{id}:approve` in the deciding transaction. The payload is the order as it reads after the change, with the totals before and after; integration sends the changed order output, and payables matches invoices against the changed prices from then on (GR/IR stays valued at each item's valuation price). Subject is the purchase order id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.procurement.purchase_order_changed.v1}
+      payload: {$ref: '#/components/schemas/PurchaseOrderChangedV1'}
+      examples:
+        - name: price
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000014, source: /erp/eu-1/procurement, type: com.example.erp.procurement.purchase_order_changed.v1, subject: 0192a000-0000-7000-8000-000000000602, time: '2026-10-08T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload:
+            purchase_order_id: 0192a000-0000-7000-8000-000000000602
+            document_number: '4500001234'
+            legal_entity_id: 0192a000-0000-7000-8000-000000000201
+            supplier_id: 0192a000-0000-7000-8000-000000000301
+            change_id: 0192a000-0000-7000-8000-000000000607
+            revision: 2
+            reason: Supplier lowered the price
+            order_date: '2026-10-02'
+            payment_term_code: NT30
+            contract_id: null
+            total_before: {amount: '1000.00', currency: EUR}
+            total_after: {amount: '960.00', currency: EUR}
+            items:
+              - {item_no: 1, quantity: {value: '2', unit: EA}, unit_price: {amount: '480.00', currency: EUR}, price_unit: 1, account_id: 0192a000-0000-7000-8000-000000000404, tax_code: V1}
     GoodsReceived:
       name: GoodsReceived
       title: Goods received
@@ -913,11 +949,27 @@ components:
         - name: gr
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000012, source: /erp/eu-1/procurement, type: com.example.erp.procurement.goods_received.v1, subject: 0192a000-0000-7000-8000-000000000603, time: '2026-10-04T13:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {goods_receipt_id: 0192a000-0000-7000-8000-000000000603, document_number: '5000000877', legal_entity_id: 0192a000-0000-7000-8000-000000000201, plant_id: 0192a000-0000-7000-8000-000000000606, movement_type: '101', document_date: '2026-10-04', posting_date: '2026-10-04', reference: DN-88812, items: [{item_no: 1, purchase_order_id: 0192a000-0000-7000-8000-000000000602, po_item_no: 1, quantity: {value: '2', unit: EA}}]}
+    GoodsReturned:
+      name: GoodsReturned
+      title: Goods returned to the supplier
+      summary: Goods received on purchase order items were returned to the supplier (movement type 122).
+      description: Emitted when a goods movement of type `122` is inserted. Its items' quantities are negative, and the received quantity of each order item falls by them; on orders valued gr_ir the return posts Dr GR/IR / Cr the order item's account at its valuation price, leaving an invoiced item's GR/IR position for a credit memo to clear. Subject is the goods movement id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.procurement.goods_returned.v1}
+      payload: {$ref: '#/components/schemas/GoodsReturnedV1'}
+      examples:
+        - name: damaged
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000013, source: /erp/eu-1/procurement, type: com.example.erp.procurement.goods_returned.v1, subject: 0192a000-0000-7000-8000-000000000604, time: '2026-10-06T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {goods_receipt_id: 0192a000-0000-7000-8000-000000000604, document_number: '5000000878', legal_entity_id: 0192a000-0000-7000-8000-000000000201, plant_id: null, movement_type: '122', document_date: '2026-10-06', posting_date: '2026-10-06', reference: null, reason: Damaged in transit, journal_entry_id: null, journal_entry_year: null, items: [{item_no: 1, purchase_order_id: 0192a000-0000-7000-8000-000000000602, po_item_no: 1, quantity: {value: '-1', unit: EA}}]}
     GoodsReceiptReversed:
       name: GoodsReceiptReversed
       title: Goods receipt reversed
-      summary: A goods receipt was reversed by a movement of type 102.
-      description: Emitted by `goods-receipts/{id}:reverse` when the reversing movement (type `102`) is inserted. Quantities are the reversed quantities as stored, i.e. negative. Subject is the id of the original (reversed) goods receipt.
+      summary: A goods receipt was reversed by a movement of type 102, or a return by a 123.
+      description: Emitted by `goods-receipts/{id}:reverse` when the reversing movement is inserted, a `102` reversing a receipt or a `123` reversing a return. Quantities are as stored, the original's negated (negative for a 102, positive for a 123). Subject is the id of the original (reversed) goods movement.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -1511,7 +1563,7 @@ components:
       examples:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e0000000004d", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.contract_activated.v1", "subject": "0192a000-0000-7000-8000-000000000607", "time": "2026-10-08T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
-          payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "valid_from": "2026-10-01", "valid_to": "2027-09-30", "target_value": {"amount": "250000.00", "currency": "EUR"}, "previous_status": "draft", "status": "active"}
+          payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "valid_from": "2026-10-01", "valid_to": "2027-09-30", "target_value": {"amount": "250000.00", "currency": "EUR"}, "renewal_of_id": null, "previous_status": "draft", "status": "active"}
     ContractTerminated:
       name: ContractTerminated
       title: Contract terminated
@@ -1978,6 +2030,22 @@ components:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000064", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.contract_expired.v1", "subject": "0192a000-0000-7000-8000-000000000607", "time": "2027-10-01T00:05:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
           payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "valid_to": "2027-09-30", "consumed_value": {"amount": "212400.00", "currency": "EUR"}, "previous_status": "active", "status": "expired"}
+    ContractExpiring:
+      name: ContractExpiring
+      title: Contract expiring
+      summary: "An active contract without a renewal ends within the notice period."
+      description: "Emitted once per contract (its `expiry_alerted_on` is set once), by a scheduled job, so the actor is a service, when an active contract that no live renewal continues ends within `purchasing.contract_expiry_notice_days`. An alert only: buyers renew it by `contracts/{id}:renew` or let it expire. Subject is the contract id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.procurement.contract_expiring.v1}
+      payload: {$ref: '#/components/schemas/ContractExpiringV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000065", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.contract_expiring.v1", "subject": "0192a000-0000-7000-8000-000000000607", "time": "2027-08-31T00:05:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
+          payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "valid_to": "2027-09-30", "days_left": 30, "consumed_value": {"amount": "212400.00", "currency": "EUR"}, "target_value": {"amount": "250000.00", "currency": "EUR"}}
     InvoiceHoldReleased:
       name: InvoiceHoldReleased
       title: Invoice hold released
@@ -2442,6 +2510,37 @@ components:
               account_id: {$ref: '#/components/schemas/Uuid'}
               tax_code: {type: [string, 'null']}
               contract_item_no: {type: [integer, 'null']}
+    PurchaseOrderChangedV1:
+      type: object
+      required: [purchase_order_id, document_number, legal_entity_id, supplier_id, change_id, revision, reason, order_date, payment_term_code, total_before, total_after, items]
+      properties:
+        purchase_order_id: {$ref: '#/components/schemas/Uuid'}
+        document_number: {type: string}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        supplier_id: {$ref: '#/components/schemas/Uuid'}
+        change_id: {$ref: '#/components/schemas/Uuid', description: '`procurement.purchase_order_change.id` applied.'}
+        revision: {type: integer, minimum: 2, description: The revision the change made.}
+        reason: {type: string}
+        order_date: {$ref: '#/components/schemas/Date'}
+        payment_term_code: {type: string}
+        contract_id: {$ref: '#/components/schemas/NullableUuid'}
+        total_before: {$ref: '#/components/schemas/Money'}
+        total_after: {$ref: '#/components/schemas/Money'}
+        items:
+          type: array
+          minItems: 1
+          description: The order's live items after the change.
+          items:
+            type: object
+            required: [item_no, quantity, unit_price, price_unit, account_id]
+            properties:
+              item_no: {type: integer, minimum: 1}
+              quantity: {$ref: '#/components/schemas/Quantity'}
+              unit_price: {$ref: '#/components/schemas/Money'}
+              price_unit: {type: integer, minimum: 1}
+              account_id: {$ref: '#/components/schemas/Uuid'}
+              tax_code: {type: [string, 'null']}
+              contract_item_no: {type: [integer, 'null']}
     GoodsMovementItem:
       type: object
       required: [item_no, purchase_order_id, po_item_no, quantity]
@@ -2465,6 +2564,22 @@ components:
         journal_entry_id: {$ref: '#/components/schemas/NullableUuid', description: 'WE entry the receipt posted (items of orders valued gr_ir), else null.'}
         journal_entry_year: {type: [integer, 'null'], description: 'Fiscal year of journal_entry_id.'}
         items: {type: array, minItems: 1, items: {$ref: '#/components/schemas/GoodsMovementItem'}}
+    GoodsReturnedV1:
+      type: object
+      required: [goods_receipt_id, document_number, legal_entity_id, movement_type, document_date, posting_date, reason, items]
+      properties:
+        goods_receipt_id: {$ref: '#/components/schemas/Uuid', description: '`procurement.goods_movement.id` of the return.'}
+        document_number: {type: string}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        plant_id: {$ref: '#/components/schemas/NullableUuid'}
+        movement_type: {type: string, description: '122 (return to the supplier).'}
+        document_date: {$ref: '#/components/schemas/Date'}
+        posting_date: {$ref: '#/components/schemas/Date'}
+        reference: {type: [string, 'null'], description: Return delivery note.}
+        reason: {type: string, description: Why the goods went back.}
+        journal_entry_id: {$ref: '#/components/schemas/NullableUuid', description: 'WE entry the return posted (items of orders valued gr_ir), else null.'}
+        journal_entry_year: {type: [integer, 'null'], description: 'Fiscal year of journal_entry_id.'}
+        items: {type: array, minItems: 1, items: {$ref: '#/components/schemas/GoodsMovementItem'}}
     GoodsReceiptReversedV1:
       type: object
       required: [goods_receipt_id, reversal_id, document_number, legal_entity_id, movement_type, posting_date, items]
@@ -2473,7 +2588,7 @@ components:
         reversal_id: {$ref: '#/components/schemas/Uuid', description: The reversing goods movement.}
         document_number: {type: string, description: Document number of the reversing movement.}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
-        movement_type: {type: string, description: '102 (reversal of 101).'}
+        movement_type: {type: string, description: '102 (reversal of a 101) or 123 (reversal of a 122).'}
         posting_date: {$ref: '#/components/schemas/Date'}
         journal_entry_id: {$ref: '#/components/schemas/NullableUuid', description: 'WE entry the reversal posted (items of orders valued gr_ir), else null.'}
         journal_entry_year: {type: [integer, 'null'], description: 'Fiscal year of journal_entry_id.'}
@@ -2645,7 +2760,7 @@ components:
       required: [approval_request_id, object_type, object_id, current_step, escalations, pending_since]
       properties:
         approval_request_id: {$ref: '#/components/schemas/Uuid'}
-        object_type: {type: string, description: 'Open enum: requisition, partner_change, config_change, invoice_exception, period_unlock, manual_entry.'}
+        object_type: {type: string, description: 'Open enum: requisition, partner_change, config_change, invoice_exception, period_unlock, manual_entry, purchase_order, order_change.'}
         object_id: {$ref: '#/components/schemas/Uuid'}
         current_step: {type: integer, minimum: 1, description: The step waiting for a decision.}
         escalations: {type: integer, minimum: 1, description: How often the request has now been escalated.}
@@ -2655,7 +2770,7 @@ components:
       required: [approval_request_id, object_type, object_id, title, requester_id, steps]
       properties:
         approval_request_id: {$ref: '#/components/schemas/Uuid'}
-        object_type: {type: string, description: 'Open enum: requisition, partner_change, config_change, invoice_exception, period_unlock, manual_entry.'}
+        object_type: {type: string, description: 'Open enum: requisition, partner_change, config_change, invoice_exception, period_unlock, manual_entry, purchase_order, order_change.'}
         object_id: {$ref: '#/components/schemas/Uuid'}
         title: {type: string}
         requester_id: {$ref: '#/components/schemas/Uuid', description: 'Principal that raised the request: human, agent or service.'}
@@ -2901,7 +3016,7 @@ components:
         requisition_id: {"$ref": "#/components/schemas/NullableUuid"}
         contract_id: {"$ref": "#/components/schemas/NullableUuid"}
         released_value: {"oneOf": [{"$ref": "#/components/schemas/Money"}, {"type": "null"}], "description": "Contract consumption given back; null when not contract-based."}
-        previous_status: {"type": "string", "description": "Open enum: draft, released."}
+        previous_status: {"type": "string", "description": "Open enum: draft, pending_approval, released."}
         status: {"type": "string", "description": "Open enum; cancelled in v1."}
     ContractActivatedV1:
       type: object
@@ -2914,6 +3029,7 @@ components:
         valid_from: {"$ref": "#/components/schemas/Date"}
         valid_to: {"$ref": "#/components/schemas/Date"}
         target_value: {"$ref": "#/components/schemas/Money"}
+        renewal_of_id: {"$ref": "#/components/schemas/NullableUuid", "description": "The contract this one renews, if any."}
         previous_status: {"type": "string", "description": "Open enum; draft in v1."}
         status: {"type": "string", "description": "Open enum; active in v1."}
     ContractTerminatedV1:
@@ -3193,6 +3309,18 @@ components:
         consumed_value: {"$ref": "#/components/schemas/Money", "description": "Sum of contract releases at expiry."}
         previous_status: {"type": "string", "description": "Open enum; active in v1."}
         status: {"type": "string", "description": "Open enum; expired in v1."}
+    ContractExpiringV1:
+      type: object
+      required: ["contract_id", "document_number", "legal_entity_id", "supplier_id", "valid_to", "days_left", "consumed_value", "target_value"]
+      properties:
+        contract_id: {"$ref": "#/components/schemas/Uuid"}
+        document_number: {"type": "string"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        supplier_id: {"$ref": "#/components/schemas/Uuid"}
+        valid_to: {"$ref": "#/components/schemas/Date"}
+        days_left: {"type": "integer", "minimum": 0, "description": "Days from the alert to valid_to."}
+        consumed_value: {"$ref": "#/components/schemas/Money", "description": "Sum of contract releases at the alert."}
+        target_value: {"$ref": "#/components/schemas/Money"}
     InvoiceHoldReleasedV1:
       type: object
       required: ["supplier_invoice_id", "supplier_id", "legal_entity_id", "previous_status", "status"]

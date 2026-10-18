@@ -558,9 +558,11 @@ func (s *server) startAudit(runCtx context.Context) {
 		rotator := &controlplane.KeyRotator{Pool: pool, Keys: s.keys, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Age: cfg.KeyRotationAge, Interval: rotationInterval, Log: log}
 		s.spawn("rotator", func() { rotator.Run(runCtx) })
 	}
-	// Active contracts past their validity are expired in rounds (the
-	// contract's ContractExpired is the job's).
-	expirer := &procurement.ContractExpirer{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: expiryInterval, Log: log}
+	// Active contracts past their validity are expired in rounds, and those
+	// ending soon alerted (the contract's ContractExpired and
+	// ContractExpiring are the job's).
+	expirer := &procurement.ContractExpirer{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: expiryInterval, Log: log,
+		Settings: configuration.Settings{}}
 	s.spawn("expirer", func() { expirer.Run(runCtx) })
 	// People's sessions ended or idle for a week are deleted in rounds
 	// (ADR-0031).

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
@@ -33,13 +34,13 @@ func TestContractExpiry(t *testing.T) {
 	logs := &pgtest.SyncBuffer{}
 	at := time.Date(2026, 3, 1, 9, 30, 0, 0, time.UTC)
 	x := &procurement.ContractExpirer{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Log: slog.New(slog.NewTextHandler(logs, nil)),
-		Now: func() time.Time { return at }}
-	n, err := x.RunOnce(ctx)
+		Settings: configuration.Settings{}, Now: func() time.Time { return at }}
+	round, err := x.RunOnce(ctx)
 	if err != nil {
 		t.Fatalf("round: %v", err)
 	}
-	if n != 1 {
-		t.Fatalf("round: got %d expired, want 1", n)
+	if round.Expired != 1 {
+		t.Fatalf("round: got %d expired, want 1", round.Expired)
 	}
 	if got, _ := e.Must(200, "GET", pastPath, "", ""); got["status"] != "expired" {
 		t.Fatalf("past contract: %v", got)
@@ -85,18 +86,37 @@ func TestContractExpiry(t *testing.T) {
 		t.Errorf("audit from status: got %v, want active", detail["from_status"])
 	}
 	// Nothing left to do: the next round is quiet.
-	n, err = x.RunOnce(ctx)
+	round, err = x.RunOnce(ctx)
 	if err != nil {
 		t.Fatalf("second round: %v", err)
 	}
-	if n != 0 {
-		t.Fatalf("second round: got %d expired, want 0", n)
+	if round.Expired != 0 {
+		t.Fatalf("second round: got %d expired, want 0", round.Expired)
 	}
 	// An expired contract takes no new orders and cannot be terminated.
 	e.Problem(409, "procurement.invalid_status", "POST", pastPath+":terminate", `{"reason": "Late"}`, "*")
-	// Every statement and transaction failing in turn is reported.
+	// Every statement and transaction failing in turn is reported: the
+	// cell's list of tenants, the first tenant's round, and this tenant's
+	// round statement by statement (others' contracts share the database).
 	e.act(t, "/v1/contracts/"+id(draft), "release", "")
 	pool := pgtest.Pool(t)
+	for n := 1; n <= 2; n++ {
+		count := 0
+		x.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, s)
+			if err != nil {
+				return nil, err
+			}
+			return &pgtest.FailingTx{Tx: tx, FailAt: n, Count: &count}, nil
+		}
+		if _, err := x.RunOnce(ctx); !errors.Is(err, pgtest.ErrInjected) {
+			t.Fatalf("round, statement %d failing: got %v, want the injected failure", n, err)
+		}
+	}
+	x.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
+	if _, err := x.RunOnce(ctx); err == nil {
+		t.Fatal("round without a database: got nil error, want an error")
+	}
 	for n := 1; n < 40; n++ {
 		count := 0
 		x.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
@@ -106,7 +126,7 @@ func TestContractExpiry(t *testing.T) {
 			}
 			return &pgtest.FailingTx{Tx: tx, FailAt: n, Count: &count}, nil
 		}
-		_, err := x.RunOnce(ctx)
+		_, err := x.Expire(ctx, e.Tenant.ID)
 		if err == nil {
 			if n == 1 {
 				t.Fatal("expired without a statement to fail")

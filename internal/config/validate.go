@@ -335,14 +335,23 @@ func (v *validator) paymentTerms(c *Config) {
 }
 
 func (v *validator) purchasing(c *Config) {
-	tiers := c.Purchasing.RequisitionApproval
+	v.tiers("purchasing.requisition_approval", c.Purchasing.RequisitionApproval, c)
+	v.tiers("purchasing.order_release_approval", c.Purchasing.OrderReleaseApproval, c)
+	if d := c.Purchasing.ContractExpiryNoticeDays; d < 1 || d > 365 {
+		v.err("purchasing.contract_expiry_notice_days", "must be 1-365")
+	}
+}
+
+// tiers checks approval tiers by amount: at least one, in increasing
+// order of their up_to, the last without one so every amount is covered.
+func (v *validator) tiers(path string, tiers []ApprovalTier, c *Config) {
 	if len(tiers) == 0 {
-		v.err("purchasing.requisition_approval", "at least one tier is required")
+		v.err(path, "at least one tier is required")
 		return
 	}
 	var prev money.Minor = -1
 	for i, t := range tiers {
-		p := fmt.Sprintf("purchasing.requisition_approval[%d]", i)
+		p := fmt.Sprintf("%s[%d]", path, i)
 		last := i == len(tiers)-1
 		switch {
 		case last && t.UpTo != "":
@@ -361,8 +370,9 @@ func (v *validator) purchasing(c *Config) {
 	}
 }
 
-// threshold reads a requisition approval limit. A limit applies to
-// requisitions in every company's currency, so it must read with the
+// threshold reads an approval tier's limit (requisitions, order
+// releases). A limit applies to documents in every company's currency, so
+// it must read with the
 // digits of each (ref.currency): the approval routing then never meets a
 // limit it cannot parse. Its value, for the order of the tiers, is read
 // with the most digits.

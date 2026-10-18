@@ -5173,6 +5173,7 @@ paths:
             description: "Purchase orders status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
             x-extensible-enum:
               - draft
+              - pending_approval
               - released
               - closed
               - cancelled
@@ -5369,7 +5370,7 @@ paths:
       tags:
         - procurement
       summary: Release a purchase order
-      description: "Releases a draft order to the supplier and consumes the contract, if any. Requires status `draft`; the supplier must not be blocked."
+      description: "Releases a draft order to the supplier and consumes the contract, if any. Requires status `draft`; the supplier must not be blocked. An order without an approved requisition, or whose total exceeds its requisition's, is released by the release strategy: when `purchasing.order_release_approval` asks for approval of its total (in its company's currency), it waits in `pending_approval` for a `purchase_order` approval request (`release_request_id`), raised by the caller, who can never approve it. Approving it releases the order, checked again (a blocked supplier or a used-up contract refuses the approval, which stays pending); rejecting or withdrawing it returns the order to `draft`. A configuration without the tiers is 422 `workflow.no_policy`."
       x-permission: procurement.order.release
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -5419,7 +5420,7 @@ paths:
       tags:
         - procurement
       summary: Close a purchase order
-      description: "Closes a released order: no further goods receipts or invoices are expected and both are refused from then on; the contract consumption stays. Requires status `released`. Orders fully received and invoiced are closed this way by the buyer."
+      description: "Closes a released order: no further goods receipts or invoices are expected and both are refused from then on; the contract consumption stays. Requires status `released`. Orders fully received and invoiced are closed this way by the buyer. An open order change is cancelled with it, and its approval request withdrawn."
       x-permission: procurement.order.release
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -5469,7 +5470,7 @@ paths:
       tags:
         - procurement
       summary: Cancel a purchase order
-      description: Cancels an order without receipts or invoices and returns its contract consumption.
+      description: "Cancels an order without receipts or invoices and returns its contract consumption. An order waiting for its release approval is cancelled too, and its request withdrawn; so is an open order change of a released order."
       x-permission: procurement.order.create
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -5493,6 +5494,294 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PurchaseOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/purchase-orders/{id}/changes":
+    get:
+      operationId: listPurchaseOrderChanges
+      tags:
+        - procurement
+      summary: List the changes of a purchase order
+      description: "The order changes of a released purchase order, newest first: its versions, each with the order as it was changed. Sortable by: `created_at`."
+      x-permission: procurement.order.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of order changes.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderChangePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createPurchaseOrderChange
+      tags:
+        - procurement
+      summary: Draft a change of a released purchase order
+      description: "Drafts an order change of a released order: its payment terms, order date, extensions and complete items as they are to read, checked as an order's are (the supplier, currency, contract and requisition do not change). An item keeps its account, unit, material and contract item, is never below what was received (allowing its over-delivery tolerance) and, with receipts, is never removed (422 `procurement.invalid_change`). Nothing changes until the change is submitted (T47f). Requires status `released` and no other open change (409 `procurement.change_open`)."
+      x-permission: procurement.order.create
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The order change.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseOrderChangeCreate"
+      responses:
+        "201":
+          description: "Created; the order change, a draft."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/purchase-orders/{id}/changes/{change_id}":
+    get:
+      operationId: getPurchaseOrderChange
+      tags:
+        - procurement
+      summary: Get a change of a purchase order
+      description: Returns one order change.
+      x-permission: procurement.order.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/ChangeId"
+      responses:
+        "200":
+          description: The order change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updatePurchaseOrderChange
+      tags:
+        - procurement
+      summary: Change a drafted order change
+      description: "Changes an order change in status `draft` (409 `procurement.invalid_status` otherwise). JSON Merge Patch (RFC 7396): absent fields are unchanged, `items` replaces the items as a whole. The change is checked again as a new one is."
+      x-permission: procurement.order.create
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/ChangeId"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the order change.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/PurchaseOrderChangeUpdate"
+      responses:
+        "200":
+          description: "The order change after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/purchase-orders/{id}/changes/{change_id}:cancel":
+    post:
+      operationId: cancelPurchaseOrderChange
+      tags:
+        - procurement
+      summary: Cancel a drafted order change
+      description: "Cancels an order change in status `draft` for good; the order is unchanged. A change waiting for approval is withdrawn by cancelling its approval request, which returns it to `draft`."
+      x-permission: procurement.order.create
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/ChangeId"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The order change after cancelPurchaseOrderChange."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/purchase-orders/{id}/changes/{change_id}:submit":
+    post:
+      operationId: submitPurchaseOrderChange
+      tags:
+        - procurement
+      summary: Submit a drafted order change
+      description: "Submits an order change in status `draft` (409 `procurement.invalid_status` otherwise) of an order still `released`, checked again against the order as it reads now (422 `procurement.invalid_change`). A change that does not raise the order's total is applied at once; one that raises it waits for an `order_change` approval request by amount tier on its new total (status `pending_approval`), whose approval applies it and whose rejection ends it (`rejected`); withdrawing the request returns it to `draft`. Applied, the order reads the change's header fields and items as its next `revision`: items it adds take their price as valuation price (an item added back keeps the one it was released at), a contract order consumes the difference of its total (409 `procurement.contract_exceeded` when what remains does not cover an increase), and `PurchaseOrderChanged` is published. Agents may submit; approving is for people."
+      x-permission: procurement.order.create
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/ChangeId"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The order change after submitPurchaseOrderChange: `applied` or `pending_approval`."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderChange"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -5537,6 +5826,13 @@ paths:
               - expired
               - terminated
               - cancelled
+        - name: expiring_before
+          in: query
+          required: false
+          description: "Only contracts whose validity ends before this date, e.g. active ones to renew."
+          schema:
+            type: string
+            format: date
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -5864,6 +6160,65 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/contracts/{id}:renew":
+    post:
+      operationId: renewContract
+      tags:
+        - procurement
+      summary: Renew a contract
+      description: "Creates a draft successor of an `active` or `expired` contract (409 `procurement.invalid_status` otherwise): valid from the day after it ends to `valid_to`, for `target_value`, with its legal entity, supplier, currency and items (each checked again as a new contract's are), naming it in `renewal_of_id`. A contract has one live renewal at a time (409 `procurement.contract_renewed`; a cancelled renewal does not count), and a renewed contract raises no expiry alert. The successor is changed, released and cancelled as any draft contract; released, its `ContractActivated` names the contract it renews."
+      x-permission: procurement.contract.manage
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The validity and target value of the renewal.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContractRenew"
+      responses:
+        "201":
+          description: "Created; the renewal, a draft contract."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contract"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/goods-receipts:
     get:
       operationId: listGoodsReceipts
@@ -5915,7 +6270,7 @@ paths:
       tags:
         - procurement
       summary: Post a goods receipt
-      description: "Posts a goods receipt against released purchase order items. Insert-only; corrections are reversals."
+      description: "Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122, with `reason`) of goods received on released or closed orders: never more than was received (409 `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections are reversals."
       x-permission: procurement.receipt.post
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -6004,7 +6359,7 @@ paths:
       tags:
         - procurement
       summary: Reverse a goods receipt
-      description: Posts a 102 movement that reverses the receipt. Refused (409) if it would make the received quantity negative. Returns the reversal.
+      description: "Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance. A movement on a closed order is reversed too, as a mistaken receipt or return is undone whenever it is found. Returns the reversal."
       x-permission: procurement.receipt.post
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -7547,6 +7902,8 @@ paths:
               - invoice_exception
               - period_unlock
               - manual_entry
+              - purchase_order
+              - order_change
         - name: object_id
           in: query
           required: false
@@ -7775,6 +8132,8 @@ paths:
         config_change: config.change.approve
         period_unlock: ledger.period.unlock.approve
         manual_entry: ledger.entry.approve
+        purchase_order: procurement.order.approve
+        order_change: procurement.order.approve
   "/v1/approval-requests/{id}:reject":
     post:
       operationId: rejectApprovalRequest
@@ -7840,6 +8199,8 @@ paths:
         config_change: config.change.approve
         period_unlock: ledger.period.unlock.approve
         manual_entry: ledger.entry.approve
+        purchase_order: procurement.order.approve
+        order_change: procurement.order.approve
   "/v1/approval-requests/{id}:cancel":
     post:
       operationId: cancelApprovalRequest
@@ -9215,6 +9576,15 @@ components:
         type: string
         format: uuid
       example: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d1f"
+    ChangeId:
+      name: change_id
+      in: path
+      required: true
+      description: Order change identifier (UUIDv7).
+      schema:
+        type: string
+        format: uuid
+      example: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d1f"
     BankAccountId:
       name: bank_account_id
       in: path
@@ -10297,6 +10667,26 @@ components:
         - outcome: rejected
           reference: "pain.002-2026-10-12-0002"
           reason: "AC01 Incorrect account number"
+    ContractRenew:
+      type: object
+      description: The renewal of a contract.
+      required:
+        - valid_to
+        - target_value
+      properties:
+        valid_to:
+          type: string
+          format: date
+          description: "Last day of the renewal; it starts the day after the contract it renews ends."
+        target_value:
+          $ref: "#/components/schemas/Money"
+          description: "Target value of the renewal; positive, in the contract's currency."
+      additionalProperties: false
+      examples:
+        - valid_to: "2027-12-31"
+          target_value:
+            amount: "50000.00"
+            currency: EUR
     ReasonInput:
       type: object
       description: Body of a transition that requires a reason.
@@ -14858,6 +15248,16 @@ components:
           $ref: "#/components/schemas/Quantity"
           description: "Derived: quantity received so far (101 receipts minus 102 reversals)."
           readOnly: true
+        valuation_price:
+          $ref: "#/components/schemas/Money"
+          description: "Price per `valuation_price_unit` the item's goods movements are valued at through GR/IR: its price when it was released, fixed from then on, so a later change of its price reaches GR/IR only through the invoice's price difference. Absent while the order is a draft."
+          readOnly: true
+        valuation_price_unit:
+          type: integer
+          format: int32
+          description: Quantity the valuation price refers to; set with `valuation_price`.
+          minimum: 1
+          readOnly: true
       examples:
         - description: Office chairs, ergonomic
           quantity:
@@ -14925,12 +15325,24 @@ components:
               description: Contract that prices the order.
             status:
               type: string
-              description: "Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "Lifecycle status: `pending_approval` while a release waits for its approval request (`release_request_id`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - draft
+                - pending_approval
                 - released
                 - closed
                 - cancelled
+              readOnly: true
+            revision:
+              type: integer
+              format: int32
+              description: "The order's version: 1 until an order change is applied to it, then one more for each change applied."
+              minimum: 1
+              readOnly: true
+            release_request_id:
+              type: string
+              format: uuid
+              description: "The `purchase_order` approval request (workflow context) the order waits for while `pending_approval`; absent otherwise."
               readOnly: true
             valuation:
               type: string
@@ -15097,6 +15509,190 @@ components:
       additionalProperties: false
       examples:
         - purchasing_org_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d75"
+    PurchaseOrderChange:
+      description: "A change of a released purchase order (T47): a version of the order with its reason. It moves `draft` -> `pending_approval` -> `applied` or `rejected`, back to `draft` when its approval request is withdrawn, straight to `applied` when it raises no total, or to `cancelled`; it changes only as a draft. Applied, it made the order's `revision`."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - purchase_order_id
+            - status
+            - reason
+            - base_revision
+            - order_date
+            - payment_term_code
+            - items
+            - total_before
+            - total_after
+          properties:
+            purchase_order_id:
+              type: string
+              format: uuid
+              description: The order it changes.
+              readOnly: true
+            status:
+              type: string
+              description: "Order change status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - draft
+                - pending_approval
+                - applied
+                - rejected
+                - cancelled
+              readOnly: true
+            reason:
+              type: string
+              description: Why the order changes.
+              readOnly: true
+            base_revision:
+              type: integer
+              format: int32
+              description: The order's revision the change is based on.
+              readOnly: true
+            revision:
+              type: integer
+              format: int32
+              description: "The order's revision the change made; set once `applied`."
+              readOnly: true
+            order_date:
+              type: string
+              format: date
+              description: The order date as changed.
+              readOnly: true
+            payment_term_code:
+              type: string
+              description: The payment terms as changed.
+              readOnly: true
+            extensions:
+              $ref: "#/components/schemas/Extensions"
+              description: The custom fields as changed.
+              readOnly: true
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/PurchaseOrderItem"
+              description: The complete items as changed.
+              readOnly: true
+            total_before:
+              $ref: "#/components/schemas/Money"
+              description: The order's total before the change.
+              readOnly: true
+            total_after:
+              $ref: "#/components/schemas/Money"
+              description: The order's total after it.
+              readOnly: true
+            approval_request_id:
+              type: string
+              format: uuid
+              description: "The `order_change` approval request (workflow context) the change waits for or was decided on."
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+          version: 1
+          created_at: "2026-10-12T09:30:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
+          updated_at: "2026-10-12T09:30:00Z"
+          purchase_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41"
+          status: draft
+          reason: Supplier raised the price of the chairs
+          base_revision: 1
+          order_date: "2026-10-09"
+          payment_term_code: NT30
+          items:
+            - item_no: 1
+              description: Office chairs, ergonomic
+              quantity:
+                value: "12.5"
+                unit: KG
+              unit_price:
+                amount: "1100.00"
+                currency: EUR
+              account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+          total_before:
+            amount: "13500.00"
+            currency: EUR
+          total_after:
+            amount: "13750.00"
+            currency: EUR
+    PurchaseOrderChangeCreate:
+      type: object
+      description: A change of a released purchase order.
+      required:
+        - reason
+      properties:
+        reason:
+          type: string
+          description: Why the order changes.
+          minLength: 1
+          maxLength: 2000
+        order_date:
+          type: string
+          format: date
+          description: "Order date; defaults to the order's."
+        payment_term_code:
+          type: string
+          description: "Payment terms; default to the order's."
+          pattern: "^[A-Z0-9_/]{1,10}$"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PurchaseOrderItem"
+          description: "Complete list of items as they are to read; defaults to the order's."
+          minItems: 1
+          maxItems: 10000
+        extensions:
+          $ref: "#/components/schemas/Extensions"
+          description: Custom fields, merged into the order's.
+      additionalProperties: false
+      examples:
+        - reason: Supplier raised the price of toner
+    PurchaseOrderChangeUpdate:
+      type: object
+      description: Merge patch of a drafted order change.
+      properties:
+        reason:
+          type: string
+          description: Why the order changes.
+          minLength: 1
+          maxLength: 2000
+        order_date:
+          type: string
+          format: date
+          description: Order date.
+        payment_term_code:
+          type: string
+          description: Payment terms.
+          pattern: "^[A-Z0-9_/]{1,10}$"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PurchaseOrderItem"
+          description: Complete list of items.
+          minItems: 1
+          maxItems: 10000
+        extensions:
+          $ref: "#/components/schemas/Extensions"
+          description: Custom fields.
+      additionalProperties: false
+      examples:
+        - reason: Supplier raised the price of toner and paper
+    PurchaseOrderChangePage:
+      type: object
+      description: One page of order changes.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PurchaseOrderChange"
+          description: The order changes on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
     PurchaseOrderPage:
       type: object
       description: One page of purchase orders.
@@ -15260,6 +15856,21 @@ components:
                 - expired
                 - terminated
                 - cancelled
+              readOnly: true
+            renewal_of_id:
+              type: string
+              format: uuid
+              description: "The contract this one renews (`contracts/{id}:renew`): it continues it from the day after it ends."
+              readOnly: true
+            renewed_by_id:
+              type: string
+              format: uuid
+              description: "The contract renewing this one, unless cancelled; a renewed contract raises no expiry alert."
+              readOnly: true
+            expiry_alerted_on:
+              type: string
+              format: date
+              description: "The day `ContractExpiring` was published for it, once, `purchasing.contract_expiry_notice_days` before it ends."
               readOnly: true
             items:
               type: array
@@ -15489,10 +16100,12 @@ components:
               readOnly: true
             movement_type:
               type: string
-              description: "Movement type: 101 receipt, 102 reversal of a receipt (SAP codes). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "Movement type (SAP codes): 101 receipt, 102 reversal of a receipt, 122 return to the supplier, 123 reversal of a return. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - "101"
                 - "102"
+                - "122"
+                - "123"
               readOnly: true
             document_date:
               type: string
@@ -15511,12 +16124,16 @@ components:
             reversal_of_id:
               type: string
               format: uuid
-              description: Receipt this one reverses (102 only).
+              description: Movement this one reverses (102 a 101, 123 a 122).
+              readOnly: true
+            reason:
+              type: string
+              description: Why goods are returned to the supplier (122 only).
               readOnly: true
             journal_entry_id:
               type: string
               format: uuid
-              description: "Journal entry (document type WE) the movement posted: Dr the order item's account / Cr GR/IR for a receipt, the other way for a reversal. Only for items of orders valued `gr_ir`; absent when it has none."
+              description: "Journal entry (document type WE) the movement posted: Dr the order item's account / Cr GR/IR for a receipt (101) or a return's reversal (123), the other way for a receipt's reversal (102) or a return (122). Only for items of orders valued `gr_ir`; absent when it has none."
               readOnly: true
             journal_entry_year:
               type: integer
@@ -15576,7 +16193,7 @@ components:
             unit: KG
     GoodsReceiptCreate:
       type: object
-      description: Post a goods receipt (movement type 101).
+      description: "Post a goods receipt (movement type 101) or a return to the supplier (122). Quantities are positive either way: a return's are stored negative."
       required:
         - legal_entity_id
         - document_date
@@ -15603,6 +16220,18 @@ components:
           type: string
           description: Delivery note or other reference.
           maxLength: 40
+        movement_type:
+          type: string
+          description: "101 (default) receives goods; 122 returns received goods to the supplier. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - "101"
+            - "122"
+          default: "101"
+        reason:
+          type: string
+          description: "Why the goods go back; required for a return (122), refused otherwise."
+          minLength: 1
+          maxLength: 200
         items:
           type: array
           items:
@@ -16925,6 +17554,8 @@ components:
                 - invoice_exception
                 - period_unlock
                 - manual_entry
+                - purchase_order
+                - order_change
               readOnly: true
             object_id:
               type: string

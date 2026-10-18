@@ -330,7 +330,9 @@ and every change to them traces back to an approved change request.
 
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
-in the currency of the requisition's company), the invoice price tolerance
+in the currency of the requisition's company), the order release
+thresholds (`purchasing.order_release_approval[].up_to`, likewise in the
+order's company's currency, T47c), the invoice price tolerance
 (`invoice_tolerance.price_absolute`), the auto-post limit
 (`auto_post_limit`) and the manual entry approval limit
 (`manual_entry_approval_limit`, T35: the largest manual journal entry, by
@@ -709,7 +711,9 @@ erDiagram
     date valid_from
     date valid_to
     bigint target_value
-    text status }
+    text status
+    uuid renewal_of_id
+    date expiry_alerted_on }
   contract_release { uuid contract_id PK
     uuid purchase_order_id PK
     bigint value }
@@ -718,7 +722,7 @@ erDiagram
     uuid supplier_id
     uuid requisition_id
     uuid contract_id
-    text status "draft | released | closed | cancelled"
+    text status "draft | pending_approval | released | closed | cancelled"
     text valuation "direct | gr_ir"
     int version }
   purchase_order_item { uuid purchase_order_id PK
@@ -728,7 +732,7 @@ erDiagram
     int price_unit
     numeric over_delivery_pct }
   goods_movement { uuid id PK
-    text movement_type "101 | 102"
+    text movement_type "101 | 102 | 122 | 123"
     date posting_date
     uuid reversal_of_id
     uuid journal_entry_id "gr_ir orders"
@@ -741,7 +745,28 @@ erDiagram
 ```
 
 Contract consumption is the sum of insert-only `contract_release` rows (no
-counter updated in place). Received quantity per PO item is the sum of goods
+counter updated in place).
+
+A contract is renewed (`contracts/{id}:renew`, migration 000066, T47g) by a
+draft successor naming it in `renewal_of_id`: valid from the day after it
+ends, in its legal entity, with its supplier, currency and items (trigger
+`contract_renewal`, constraint `contract_renewal_continues`, 422
+`procurement.invalid_renewal`); an active or expired contract has one live
+renewal at a time, a cancelled one not counting (`contract_renewed_once`,
+409 `procurement.contract_renewed`). The successor is changed, released
+and cancelled as any draft; its `ContractActivated` names the contract it
+renews. `expiry_alerted_on` is the day the contract's coming expiry was
+alerted (`ContractExpiring`), set once (`contract_alerted_once`).
+
+The contract expirer (`ContractExpirer`, hourly) runs one transaction per
+tenant: it expires the active contracts past their validity
+(`ContractExpired`) and alerts the active ones that no live renewal
+continues and that end within `purchasing.contract_expiry_notice_days`
+(1 to 365, operational; 30 from the SAP generator, which has no equivalent)
+by `ContractExpiring` with the days left, setting `expiry_alerted_on`. An
+alert is an event only: buyers renew the contract or let it expire. A
+configuration activated before the key existed reads 0: the round alerts
+nothing and logs a warning until a change request adds it. Received quantity per PO item is the sum of goods
 movement items (102 movements are negative). A materialized
 `po_item_receipt_summary` read model can be added for speed without changing
 the source of truth.
@@ -766,6 +791,110 @@ leaves none; the items of `gr_ir` orders in one movement share its one
 entry and so its currency (422 `procurement.mixed_currencies`). A 102
 posts its own WE entry the other way; the ledger's `:reverse` refuses a
 WE entry.
+
+A 122 returns goods received on a released or closed order to the
+supplier, with its `reason` (required on a 122 and only there,
+`goods_movement_return_reason`), and a 123 reverses a 122 as a 102
+reverses a 101 (migration 000064, T47b): each reverses only its own kind
+(trigger `goods_movement_reversal_type`), and each moves its quantity its
+own way, 101 and 123 in, 102 and 122 out (`goods_movement_item_sign`).
+`check_receipt` keeps the received quantity, the net of every movement,
+between zero and the tolerance, so a return never exceeds what was
+received (409 `procurement.return_exceeds_receipts`) and a 123 never
+takes it beyond the tolerance. On a `gr_ir` order a return posts Dr GR/IR
+/ Cr the order item's account at its valuation price: an item already
+invoiced is left with a debit GR/IR position, which the supplier's credit
+memo clears (T34); payables takes no invoice on a closed order
+(`order_not_open`), so a closed order's position waits for a GR/IR
+account clearing (SAP MR11), not yet built. Reversals do not check the order's status: a
+mistaken receipt or return is undone on a closed order too.
+
+An order is released by the release strategy (migration 000063, T47d)
+when it has no approved requisition or its total exceeds its
+requisition's (in the order's currency, the requisition's): when
+`purchasing.order_release_approval` asks for approval of its total, it
+waits in `pending_approval`, naming its `purchase_order` approval request
+in `release_request_id` exactly while it waits
+(`purchase_order_release_request_pending`); the approval releases it,
+checked again, in the deciding transaction under the guard that it still
+names that request, and a rejection or withdrawal returns it to draft. A
+contract that does not cover the order refuses it before any approval is
+asked. Its items are valued as it leaves draft, as they cannot change
+while it waits. Statuses move only draft -> pending_approval -> released,
+pending_approval -> draft, draft -> released, released -> closed, and to
+cancelled from draft, pending_approval or released (trigger
+`purchase_order_transition`); an order waiting for approval is direct
+(`purchase_order_draft_direct`). A migration run's order is released as
+loaded.
+
+A released order changes only through an order change
+(`purchase_order_change`, migration 000065, T47e): a draft of its header
+fields (payment terms, order date, extensions) and its complete items,
+with its reason and the totals before and after, based on the order's
+`revision`; one open change per order (`purchase_order_one_open_change`).
+A change moves draft -> pending_approval -> applied or rejected, back to
+draft when its request is withdrawn, straight to applied when it needs no
+approval, or to cancelled; it changes only as a draft, is decided only on
+the request it names, and makes the next revision, keeping what the order
+read before (`previous`). It is applied in one transaction (an order cannot commit naming it,
+`purchase_order_applied_at_once`): the order names
+it (`applying_change_id`, an open change of its own revision, only on a
+released order), its items are written, and its header changes and its
+revision moves on by one as the name is cleared (trigger
+`purchase_order_revision`), which needs the change to read applied at that
+revision, and a change is applied only while its order names it, so the
+two move together; a change starts as a draft. Outside that, a released
+order's items and header do not change, nor any order's revision; its
+supplier, currency, legal entity, contract, requisition, purchasing org
+and number never change once it left draft; an item of a released order
+is never active without its valuation price; an item keeps its account, unit,
+material and contract item, is never below what was received, nor removed
+with receipts (`purchase_order_item_received`), and its valuation price
+stays the one it was released at. The API (`/v1/purchase-orders/{id}/changes`,
+T47f) drafts a change against the order as it reads, locked: its items
+are checked as an order's are, under the order's supplier, currency and
+contract, and against the same rules before anything is written (422
+`procurement.invalid_change`), checked again on every patch as receipts
+may have been posted since; a second open change is 409
+`procurement.change_open`. An agent may draft a change; deciding one is
+human (`procurement.order.approve`).
+
+`:submit` checks the change again and applies it at once when it does not
+raise the order's total; one that raises it waits for an `order_change`
+approval request by amount tier on its new total (the order release tiers),
+unless the tiers ask for none. The approval applies it in the deciding
+transaction; a rejection ends it (`rejected`), a withdrawn request returns
+it to draft, and closing or cancelling the order cancels its open change
+and withdraws the request. The application locks the order, then the
+change, and writes in the order the triggers require: the order names the
+change, its items are written (an item added valued at its price; one
+added back, as it was, keeps the valuation price it was released at), the change records what the order read before
+(`previous`, a non-empty object: `purchase_order_change_previous`) and the
+revision it makes, and the order takes the change's header fields as the
+name is cleared. A contract order consumes the difference of its total as a
+`contract_release` row, negative for a decrease; an increase must be covered
+by what remains of the contract on the changed order date, checked before
+approval is asked and again as it is applied (409
+`procurement.contract_exceeded`). `PurchaseOrderChanged` publishes the order
+as changed. Receipts posted while a change waited that it would fall below
+refuse its approval (422 `procurement.invalid_change`, from
+`purchase_order_item_received`), and the request stays pending.
+
+Each item of a released order carries its `valuation_price` and
+`valuation_price_unit` (migration 000061, T47a): its price when it was
+released, with its order or as an order change adds it; only the release
+and the change set it, never a draft's edit. Goods movements
+post GR/IR at it, and invoices clear GR/IR at it, putting what they differ
+from it on `price_difference`; its `unit_price` is what invoices are matched
+against. The GR/IR engine values an item's whole open position at the price
+a posting gives it, so a later change of the item's price must not reach
+GR/IR: the valuation price never changes once set
+(`purchase_order_item_valuation_fixed`); the release values the items it
+releases (trigger `purchase_order_items_valued`, so an application that does
+not value them yet still releases during an upgrade); an item added to a
+released order carries its valuation price (`purchase_order_item_valued`);
+and items of orders released before T47a were valued at their price, which
+could not change after the release.
 
 ## 3.9 Accounts payable (`payables`)
 
@@ -1224,6 +1353,19 @@ within the limit the policy has no steps and the entry posts at once
 for direct posts). A company without a limit has a limit of 0. Above it,
 one approval by the role `controller` with `ledger.entry.approve`, whatever
 the configuration says, as for period unlocks.
+
+The release of a purchase order without an approved requisition (object
+type `purchase_order`) and a change that raises a released order's total
+(`order_change`) are routed by the order's total, converted exactly into
+its company's currency, through `purchasing.order_release_approval` tiers,
+as requisitions are through theirs (T47c), decided by holders of the
+tier's roles with `procurement.order.approve`. A document without those
+tiers routes nothing and refuses the order (422 `workflow.no_policy`). The key
+is required from T47c on: a tenant whose active document predates it has
+its next change request refused (422 `config.validation_failed`, field
+`proposed.purchasing.order_release_approval`) until the proposal adds the
+tiers, an operational-tier change; change requests approved before still
+activate, and orders under them are refused.
 
 ## 3.12 Audit (`audit`)
 

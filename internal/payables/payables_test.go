@@ -50,11 +50,13 @@ func (e env) order(t *testing.T, supplier uuid.UUID, number string) uuid.UUID {
 	t.Helper()
 	id := uuid.Must(uuid.NewV7())
 	pgtest.Exec(t, `INSERT INTO procurement.purchase_order (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, order_date,
-		payment_term_code, status, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, 'EUR', '2026-03-01', 'NT30', 'released', $6, $6)`,
+		payment_term_code, status, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, 'EUR', '2026-03-01', 'NT30', 'draft', $6, $6)`,
 		e.Tenant.ID, id, number, e.DE, supplier, e.Tenant.Human.ID)
 	pgtest.Exec(t, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, description, quantity, uom_code, unit_price,
-		price_unit, account_id, tax_code) VALUES ($1, $2, 1, 'Paper', 10, 'EA', 1200, 1, $3, 'V1'), ($1, $2, 2, 'Toner', 5, 'KG', 300, 1, $3, NULL)`,
+		price_unit, account_id, tax_code, valuation_price, valuation_price_unit)
+		VALUES ($1, $2, 1, 'Paper', 10, 'EA', 1200, 1, $3, 'V1', 1200, 1), ($1, $2, 2, 'Toner', 5, 'KG', 300, 1, $3, NULL, 300, 1)`,
 		e.Tenant.ID, id, e.expense)
+	pgtest.Exec(t, `UPDATE procurement.purchase_order SET status = 'released', version = version + 1 WHERE id = $1`, id)
 	return id
 }
 
@@ -239,7 +241,9 @@ func TestEntryRefusals(t *testing.T) {
 	po := e.order(t, e.Supplier, "PO-1")
 	otherPO := e.order(t, e.Vendor, "PO-2")
 	draft := e.order(t, e.Supplier, "PO-3")
-	pgtest.Exec(t, `UPDATE procurement.purchase_order SET status = 'draft', version = version + 1 WHERE id = $1`, draft)
+	// A released order back to draft, which no order goes (T47d), for an
+	// order payables meets as a draft.
+	pgtest.Unguarded(t, `UPDATE procurement.purchase_order SET status = 'draft', version = version + 1 WHERE id = $1`, draft)
 	blocked := e.NewSupplier(t, "BP90000003")
 	pgtest.Exec(t, `UPDATE partner.supplier_company SET is_posting_blocked = true, version = version + 1 WHERE partner_id = $1`, blocked)
 	usBank := e.Account(t, "1000", "100000")

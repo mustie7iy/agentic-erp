@@ -30,17 +30,23 @@ type Contract struct {
 	TargetValue    money.Minor
 	ConsumedValue  money.Minor
 	Status         string
-	Items          []Item
-	Version        int32
-	CreatedAt      time.Time
-	CreatedBy      uuid.UUID
-	UpdatedAt      time.Time
-	UpdatedBy      uuid.UUID
+	// The contract this one renews, the live renewal of this one (not
+	// cancelled), and the day its coming expiry was alerted (T47g).
+	RenewalOfID     *uuid.UUID
+	RenewedByID     *uuid.UUID
+	ExpiryAlertedOn *time.Time
+	Items           []Item
+	Version         int32
+	CreatedAt       time.Time
+	CreatedBy       uuid.UUID
+	UpdatedAt       time.Time
+	UpdatedBy       uuid.UUID
 }
 
 const contractSelect = `SELECT c.id, c.document_number, c.legal_entity_id, c.supplier_id, c.currency, cu.exponent, c.valid_from, c.valid_to,
 		c.target_value, coalesce((SELECT sum(value) FROM procurement.contract_release r WHERE r.tenant_id = c.tenant_id AND r.contract_id = c.id), 0)::bigint,
-		c.status, c.version, c.created_at, c.created_by, c.updated_at, c.updated_by,
+		c.status, c.renewal_of_id, (SELECT r.id FROM procurement.contract r WHERE r.tenant_id = c.tenant_id AND r.renewal_of_id = c.id AND r.status <> 'cancelled') AS renewed_by_id,
+		c.expiry_alerted_on, c.version, c.created_at, c.created_by, c.updated_at, c.updated_by,
 		coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'material_id', i.material_id, 'material_key', i.material_key,
 			'description', i.description, 'unit', i.uom_code, 'unit_price', i.unit_price, 'price_unit', i.price_unit, 'account_id', i.account_id)
 			ORDER BY i.item_no)
@@ -50,7 +56,7 @@ const contractSelect = `SELECT c.id, c.document_number, c.legal_entity_id, c.sup
 func scanContract(row pgx.Row) (Contract, error) {
 	var c Contract
 	if err := row.Scan(&c.ID, &c.DocumentNumber, &c.LegalEntityID, &c.SupplierID, &c.Currency, &c.Exponent, &c.ValidFrom, &c.ValidTo,
-		&c.TargetValue, &c.ConsumedValue, &c.Status, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy, &c.Items); err != nil {
+		&c.TargetValue, &c.ConsumedValue, &c.Status, &c.RenewalOfID, &c.RenewedByID, &c.ExpiryAlertedOn, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy, &c.Items); err != nil {
 		return Contract{}, fmt.Errorf("scan contract: %w", err)
 	}
 	return c, nil
@@ -152,6 +158,12 @@ type NewContract struct {
 
 // createContract creates a draft contract.
 func (e *Endpoints) createContract(ctx context.Context, in NewContract) (Contract, error) {
+	return e.draftContract(ctx, in, nil)
+}
+
+// draftContract creates a draft contract, renewing renewalOf when it is
+// not nil.
+func (e *Endpoints) draftContract(ctx context.Context, in NewContract, renewalOf *uuid.UUID) (Contract, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Contract{}, err
@@ -188,9 +200,9 @@ func (e *Endpoints) createContract(ctx context.Context, in NewContract) (Contrac
 	}
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.contract (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, valid_from,
-			valid_to, target_value, status, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', $10, $10)`,
-		p.TenantID, id, number, le.ID, in.SupplierID, in.Currency, in.ValidFrom, in.ValidTo, target, p.ID); err != nil {
+			valid_to, target_value, status, renewal_of_id, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', $10, $11, $11)`,
+		p.TenantID, id, number, le.ID, in.SupplierID, in.Currency, in.ValidFrom, in.ValidTo, target, renewalOf, p.ID); err != nil {
 		return Contract{}, fmt.Errorf("procurement: create contract %s: %w", number, err)
 	}
 	if err := writeContractItems(ctx, tx, p.TenantID, id, items); err != nil {
@@ -200,7 +212,11 @@ func (e *Endpoints) createContract(ctx context.Context, in NewContract) (Contrac
 	if err != nil {
 		return Contract{}, err
 	}
-	return c, audit.Record(ctx, "procurement.contract.create", "procurement.contract", id, map[string]any{"document_number": number, "items": len(items)})
+	action, detail := "procurement.contract.create", map[string]any{"document_number": number, "items": len(items)}
+	if renewalOf != nil {
+		action, detail["renewal_of_id"] = "procurement.contract.renew", *renewalOf
+	}
+	return c, audit.Record(ctx, action, "procurement.contract", id, detail)
 }
 
 // ContractChange is a merge patch of a draft contract.
@@ -304,6 +320,7 @@ func changeContract(ctx context.Context, id uuid.UUID, ifMatch func(int32) error
 	case Active:
 		payload["valid_from"], payload["valid_to"] = c.ValidFrom.Format(time.DateOnly), c.ValidTo.Format(time.DateOnly)
 		payload["target_value"] = money.EventAmount(c.TargetValue, c.Currency, c.Exponent)
+		payload["renewal_of_id"] = c.RenewalOfID
 	case Terminated:
 		payload["consumed_value"] = money.EventAmount(c.ConsumedValue, c.Currency, c.Exponent)
 	}

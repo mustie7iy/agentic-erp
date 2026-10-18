@@ -37,9 +37,11 @@ func (c *Config) RoleNames() []string {
 			out = append(out, r)
 		}
 	}
-	for _, t := range c.Purchasing.RequisitionApproval {
-		for _, s := range t.Steps {
-			add(s.Role)
+	for _, tiers := range [][]ApprovalTier{c.Purchasing.RequisitionApproval, c.Purchasing.OrderReleaseApproval} {
+		for _, t := range tiers {
+			for _, s := range t.Steps {
+				add(s.Role)
+			}
 		}
 	}
 	add(c.Payments.ReleaseRole)

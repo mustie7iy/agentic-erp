@@ -27,6 +27,14 @@ func (s *ContractItem) setDefaults() {
 }
 
 // setDefaults set default value of fields.
+func (s *GoodsReceiptCreate) setDefaults() {
+	{
+		val := string("101")
+		s.MovementType.SetTo(val)
+	}
+}
+
+// setDefaults set default value of fields.
 func (s *JournalEntryCreate) setDefaults() {
 	{
 		val := string("SA")

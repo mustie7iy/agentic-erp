@@ -100,10 +100,19 @@ type Handler interface {
 	CancelParkedJournalEntry(ctx context.Context, req *ReasonInput, params CancelParkedJournalEntryParams) (CancelParkedJournalEntryRes, error)
 	// CancelPurchaseOrder implements cancelPurchaseOrder operation.
 	//
-	// Cancels an order without receipts or invoices and returns its contract consumption.
+	// Cancels an order without receipts or invoices and returns its contract consumption. An order waiting
+	// for its release approval is cancelled too, and its request withdrawn; so is an open order change of
+	// a released order.
 	//
 	// POST /v1/purchase-orders/{id}:cancel
 	CancelPurchaseOrder(ctx context.Context, params CancelPurchaseOrderParams) (CancelPurchaseOrderRes, error)
+	// CancelPurchaseOrderChange implements cancelPurchaseOrderChange operation.
+	//
+	// Cancels an order change in status `draft` for good; the order is unchanged. A change waiting for
+	// approval is withdrawn by cancelling its approval request, which returns it to `draft`.
+	//
+	// POST /v1/purchase-orders/{id}/changes/{change_id}:cancel
+	CancelPurchaseOrderChange(ctx context.Context, params CancelPurchaseOrderChangeParams) (CancelPurchaseOrderChangeRes, error)
 	// CancelRequisition implements cancelRequisition operation.
 	//
 	// Cancels a requisition that is not yet ordered; a pending approval request is cancelled with it.
@@ -134,7 +143,8 @@ type Handler interface {
 	//
 	// Closes a released order: no further goods receipts or invoices are expected and both are refused
 	// from then on; the contract consumption stays. Requires status `released`. Orders fully received and
-	// invoiced are closed this way by the buyer.
+	// invoiced are closed this way by the buyer. An open order change is cancelled with it, and its
+	// approval request withdrawn.
 	//
 	// POST /v1/purchase-orders/{id}:close
 	ClosePurchaseOrder(ctx context.Context, params ClosePurchaseOrderParams) (ClosePurchaseOrderRes, error)
@@ -228,6 +238,17 @@ type Handler interface {
 	//
 	// POST /v1/purchase-orders
 	CreatePurchaseOrder(ctx context.Context, req *PurchaseOrderCreate, params CreatePurchaseOrderParams) (CreatePurchaseOrderRes, error)
+	// CreatePurchaseOrderChange implements createPurchaseOrderChange operation.
+	//
+	// Drafts an order change of a released order: its payment terms, order date, extensions and complete
+	// items as they are to read, checked as an order's are (the supplier, currency, contract and
+	// requisition do not change). An item keeps its account, unit, material and contract item, is never
+	// below what was received (allowing its over-delivery tolerance) and, with receipts, is never removed
+	// (422 `procurement.invalid_change`). Nothing changes until the change is submitted (T47f). Requires
+	// status `released` and no other open change (409 `procurement.change_open`).
+	//
+	// POST /v1/purchase-orders/{id}/changes
+	CreatePurchaseOrderChange(ctx context.Context, req *PurchaseOrderChangeCreate, params CreatePurchaseOrderChangeParams) (CreatePurchaseOrderChangeRes, error)
 	// CreateRecommendation implements createRecommendation operation.
 	//
 	// Records an agent's recommendation on a business object for people to decide. Agents recommend;
@@ -511,6 +532,12 @@ type Handler interface {
 	//
 	// GET /v1/purchase-orders/{id}
 	GetPurchaseOrder(ctx context.Context, params GetPurchaseOrderParams) (GetPurchaseOrderRes, error)
+	// GetPurchaseOrderChange implements getPurchaseOrderChange operation.
+	//
+	// Returns one order change.
+	//
+	// GET /v1/purchase-orders/{id}/changes/{change_id}
+	GetPurchaseOrderChange(ctx context.Context, params GetPurchaseOrderChangeParams) (GetPurchaseOrderChangeRes, error)
 	// GetRecommendation implements getRecommendation operation.
 	//
 	// Returns one recommendation.
@@ -794,6 +821,13 @@ type Handler interface {
 	//
 	// GET /v1/principals
 	ListPrincipals(ctx context.Context, params ListPrincipalsParams) (ListPrincipalsRes, error)
+	// ListPurchaseOrderChanges implements listPurchaseOrderChanges operation.
+	//
+	// The order changes of a released purchase order, newest first: its versions, each with the order as
+	// it was changed. Sortable by: `created_at`.
+	//
+	// GET /v1/purchase-orders/{id}/changes
+	ListPurchaseOrderChanges(ctx context.Context, params ListPurchaseOrderChangesParams) (ListPurchaseOrderChangesRes, error)
 	// ListPurchaseOrders implements listPurchaseOrders operation.
 	//
 	// Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`.
@@ -885,7 +919,11 @@ type Handler interface {
 	ParkJournalEntry(ctx context.Context, req *JournalEntryCreate, params ParkJournalEntryParams) (ParkJournalEntryRes, error)
 	// PostGoodsReceipt implements postGoodsReceipt operation.
 	//
-	// Posts a goods receipt against released purchase order items. Insert-only; corrections are reversals.
+	// Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122,
+	// with `reason`) of goods received on released or closed orders: never more than was received (409
+	// `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the
+	// item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections
+	// are reversals.
 	//
 	// POST /v1/goods-receipts
 	PostGoodsReceipt(ctx context.Context, req *GoodsReceiptCreate, params PostGoodsReceiptParams) (PostGoodsReceiptRes, error)
@@ -998,7 +1036,13 @@ type Handler interface {
 	// ReleasePurchaseOrder implements releasePurchaseOrder operation.
 	//
 	// Releases a draft order to the supplier and consumes the contract, if any. Requires status `draft`;
-	// the supplier must not be blocked.
+	// the supplier must not be blocked. An order without an approved requisition, or whose total exceeds
+	// its requisition's, is released by the release strategy: when `purchasing.order_release_approval`
+	// asks for approval of its total (in its company's currency), it waits in `pending_approval` for a
+	// `purchase_order` approval request (`release_request_id`), raised by the caller, who can never
+	// approve it. Approving it releases the order, checked again (a blocked supplier or a used-up contract
+	// refuses the approval, which stays pending); rejecting or withdrawing it returns the order to
+	// `draft`. A configuration without the tiers is 422 `workflow.no_policy`.
 	//
 	// POST /v1/purchase-orders/{id}:release
 	ReleasePurchaseOrder(ctx context.Context, params ReleasePurchaseOrderParams) (ReleasePurchaseOrderRes, error)
@@ -1008,6 +1052,18 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices/{id}:release
 	ReleaseSupplierInvoice(ctx context.Context, req OptDecisionInput, params ReleaseSupplierInvoiceParams) (ReleaseSupplierInvoiceRes, error)
+	// RenewContract implements renewContract operation.
+	//
+	// Creates a draft successor of an `active` or `expired` contract (409 `procurement.invalid_status`
+	// otherwise): valid from the day after it ends to `valid_to`, for `target_value`, with its legal
+	// entity, supplier, currency and items (each checked again as a new contract's are), naming it in
+	// `renewal_of_id`. A contract has one live renewal at a time (409 `procurement.contract_renewed`; a
+	// cancelled renewal does not count), and a renewed contract raises no expiry alert. The successor is
+	// changed, released and cancelled as any draft contract; released, its `ContractActivated` names the
+	// contract it renews.
+	//
+	// POST /v1/contracts/{id}:renew
+	RenewContract(ctx context.Context, req *ContractRenew, params RenewContractParams) (RenewContractRes, error)
 	// ReportBankFileStatus implements reportBankFileStatus operation.
 	//
 	// Applies the bank's status report (pain.002, camt.054) to a transmitted file: `accepted` moves it to
@@ -1036,8 +1092,10 @@ type Handler interface {
 	RequestBankAccountEnd(ctx context.Context, req *BankAccountEnd, params RequestBankAccountEndParams) (RequestBankAccountEndRes, error)
 	// ReverseGoodsReceipt implements reverseGoodsReceipt operation.
 	//
-	// Posts a 102 movement that reverses the receipt. Refused (409) if it would make the received quantity
-	// negative. Returns the reversal.
+	// Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make
+	// the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance. A
+	// movement on a closed order is reversed too, as a mistaken receipt or return is undone whenever it is
+	// found. Returns the reversal.
 	//
 	// POST /v1/goods-receipts/{id}:reverse
 	ReverseGoodsReceipt(ctx context.Context, req OptGoodsReceiptReverse, params ReverseGoodsReceiptParams) (ReverseGoodsReceiptRes, error)
@@ -1095,6 +1153,21 @@ type Handler interface {
 	//
 	// POST /v1/change-requests/{id}:submit
 	SubmitChangeRequest(ctx context.Context, params SubmitChangeRequestParams) (SubmitChangeRequestRes, error)
+	// SubmitPurchaseOrderChange implements submitPurchaseOrderChange operation.
+	//
+	// Submits an order change in status `draft` (409 `procurement.invalid_status` otherwise) of an order
+	// still `released`, checked again against the order as it reads now (422
+	// `procurement.invalid_change`). A change that does not raise the order's total is applied at once;
+	// one that raises it waits for an `order_change` approval request by amount tier on its new total
+	// (status `pending_approval`), whose approval applies it and whose rejection ends it (`rejected`);
+	// withdrawing the request returns it to `draft`. Applied, the order reads the change's header fields
+	// and items as its next `revision`: items it adds take their price as valuation price (an item added
+	// back keeps the one it was released at), a contract order consumes the difference of its total (409
+	// `procurement.contract_exceeded` when what remains does not cover an increase), and
+	// `PurchaseOrderChanged` is published. Agents may submit; approving is for people.
+	//
+	// POST /v1/purchase-orders/{id}/changes/{change_id}:submit
+	SubmitPurchaseOrderChange(ctx context.Context, params SubmitPurchaseOrderChangeParams) (SubmitPurchaseOrderChangeRes, error)
 	// SubmitRequisition implements submitRequisition operation.
 	//
 	// Submits a draft for approval and opens an approval request. Requires status `draft`.
@@ -1205,6 +1278,14 @@ type Handler interface {
 	//
 	// PATCH /v1/purchase-orders/{id}
 	UpdatePurchaseOrder(ctx context.Context, req *PurchaseOrderUpdate, params UpdatePurchaseOrderParams) (UpdatePurchaseOrderRes, error)
+	// UpdatePurchaseOrderChange implements updatePurchaseOrderChange operation.
+	//
+	// Changes an order change in status `draft` (409 `procurement.invalid_status` otherwise). JSON Merge
+	// Patch (RFC 7396): absent fields are unchanged, `items` replaces the items as a whole. The change is
+	// checked again as a new one is.
+	//
+	// PATCH /v1/purchase-orders/{id}/changes/{change_id}
+	UpdatePurchaseOrderChange(ctx context.Context, req *PurchaseOrderChangeUpdate, params UpdatePurchaseOrderChangeParams) (UpdatePurchaseOrderChangeRes, error)
 	// UpdateRequisition implements updateRequisition operation.
 	//
 	// Changes a requisition in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged,

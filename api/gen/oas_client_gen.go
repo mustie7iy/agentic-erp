@@ -121,10 +121,19 @@ type Invoker interface {
 	CancelParkedJournalEntry(ctx context.Context, request *ReasonInput, params CancelParkedJournalEntryParams) (CancelParkedJournalEntryRes, error)
 	// CancelPurchaseOrder invokes cancelPurchaseOrder operation.
 	//
-	// Cancels an order without receipts or invoices and returns its contract consumption.
+	// Cancels an order without receipts or invoices and returns its contract consumption. An order waiting
+	// for its release approval is cancelled too, and its request withdrawn; so is an open order change of
+	// a released order.
 	//
 	// POST /v1/purchase-orders/{id}:cancel
 	CancelPurchaseOrder(ctx context.Context, params CancelPurchaseOrderParams) (CancelPurchaseOrderRes, error)
+	// CancelPurchaseOrderChange invokes cancelPurchaseOrderChange operation.
+	//
+	// Cancels an order change in status `draft` for good; the order is unchanged. A change waiting for
+	// approval is withdrawn by cancelling its approval request, which returns it to `draft`.
+	//
+	// POST /v1/purchase-orders/{id}/changes/{change_id}:cancel
+	CancelPurchaseOrderChange(ctx context.Context, params CancelPurchaseOrderChangeParams) (CancelPurchaseOrderChangeRes, error)
 	// CancelRequisition invokes cancelRequisition operation.
 	//
 	// Cancels a requisition that is not yet ordered; a pending approval request is cancelled with it.
@@ -155,7 +164,8 @@ type Invoker interface {
 	//
 	// Closes a released order: no further goods receipts or invoices are expected and both are refused
 	// from then on; the contract consumption stays. Requires status `released`. Orders fully received and
-	// invoiced are closed this way by the buyer.
+	// invoiced are closed this way by the buyer. An open order change is cancelled with it, and its
+	// approval request withdrawn.
 	//
 	// POST /v1/purchase-orders/{id}:close
 	ClosePurchaseOrder(ctx context.Context, params ClosePurchaseOrderParams) (ClosePurchaseOrderRes, error)
@@ -249,6 +259,17 @@ type Invoker interface {
 	//
 	// POST /v1/purchase-orders
 	CreatePurchaseOrder(ctx context.Context, request *PurchaseOrderCreate, params CreatePurchaseOrderParams) (CreatePurchaseOrderRes, error)
+	// CreatePurchaseOrderChange invokes createPurchaseOrderChange operation.
+	//
+	// Drafts an order change of a released order: its payment terms, order date, extensions and complete
+	// items as they are to read, checked as an order's are (the supplier, currency, contract and
+	// requisition do not change). An item keeps its account, unit, material and contract item, is never
+	// below what was received (allowing its over-delivery tolerance) and, with receipts, is never removed
+	// (422 `procurement.invalid_change`). Nothing changes until the change is submitted (T47f). Requires
+	// status `released` and no other open change (409 `procurement.change_open`).
+	//
+	// POST /v1/purchase-orders/{id}/changes
+	CreatePurchaseOrderChange(ctx context.Context, request *PurchaseOrderChangeCreate, params CreatePurchaseOrderChangeParams) (CreatePurchaseOrderChangeRes, error)
 	// CreateRecommendation invokes createRecommendation operation.
 	//
 	// Records an agent's recommendation on a business object for people to decide. Agents recommend;
@@ -532,6 +553,12 @@ type Invoker interface {
 	//
 	// GET /v1/purchase-orders/{id}
 	GetPurchaseOrder(ctx context.Context, params GetPurchaseOrderParams) (GetPurchaseOrderRes, error)
+	// GetPurchaseOrderChange invokes getPurchaseOrderChange operation.
+	//
+	// Returns one order change.
+	//
+	// GET /v1/purchase-orders/{id}/changes/{change_id}
+	GetPurchaseOrderChange(ctx context.Context, params GetPurchaseOrderChangeParams) (GetPurchaseOrderChangeRes, error)
 	// GetRecommendation invokes getRecommendation operation.
 	//
 	// Returns one recommendation.
@@ -815,6 +842,13 @@ type Invoker interface {
 	//
 	// GET /v1/principals
 	ListPrincipals(ctx context.Context, params ListPrincipalsParams) (ListPrincipalsRes, error)
+	// ListPurchaseOrderChanges invokes listPurchaseOrderChanges operation.
+	//
+	// The order changes of a released purchase order, newest first: its versions, each with the order as
+	// it was changed. Sortable by: `created_at`.
+	//
+	// GET /v1/purchase-orders/{id}/changes
+	ListPurchaseOrderChanges(ctx context.Context, params ListPurchaseOrderChangesParams) (ListPurchaseOrderChangesRes, error)
 	// ListPurchaseOrders invokes listPurchaseOrders operation.
 	//
 	// Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`.
@@ -906,7 +940,11 @@ type Invoker interface {
 	ParkJournalEntry(ctx context.Context, request *JournalEntryCreate, params ParkJournalEntryParams) (ParkJournalEntryRes, error)
 	// PostGoodsReceipt invokes postGoodsReceipt operation.
 	//
-	// Posts a goods receipt against released purchase order items. Insert-only; corrections are reversals.
+	// Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122,
+	// with `reason`) of goods received on released or closed orders: never more than was received (409
+	// `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the
+	// item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections
+	// are reversals.
 	//
 	// POST /v1/goods-receipts
 	PostGoodsReceipt(ctx context.Context, request *GoodsReceiptCreate, params PostGoodsReceiptParams) (PostGoodsReceiptRes, error)
@@ -1019,7 +1057,13 @@ type Invoker interface {
 	// ReleasePurchaseOrder invokes releasePurchaseOrder operation.
 	//
 	// Releases a draft order to the supplier and consumes the contract, if any. Requires status `draft`;
-	// the supplier must not be blocked.
+	// the supplier must not be blocked. An order without an approved requisition, or whose total exceeds
+	// its requisition's, is released by the release strategy: when `purchasing.order_release_approval`
+	// asks for approval of its total (in its company's currency), it waits in `pending_approval` for a
+	// `purchase_order` approval request (`release_request_id`), raised by the caller, who can never
+	// approve it. Approving it releases the order, checked again (a blocked supplier or a used-up contract
+	// refuses the approval, which stays pending); rejecting or withdrawing it returns the order to
+	// `draft`. A configuration without the tiers is 422 `workflow.no_policy`.
 	//
 	// POST /v1/purchase-orders/{id}:release
 	ReleasePurchaseOrder(ctx context.Context, params ReleasePurchaseOrderParams) (ReleasePurchaseOrderRes, error)
@@ -1029,6 +1073,18 @@ type Invoker interface {
 	//
 	// POST /v1/supplier-invoices/{id}:release
 	ReleaseSupplierInvoice(ctx context.Context, request OptDecisionInput, params ReleaseSupplierInvoiceParams) (ReleaseSupplierInvoiceRes, error)
+	// RenewContract invokes renewContract operation.
+	//
+	// Creates a draft successor of an `active` or `expired` contract (409 `procurement.invalid_status`
+	// otherwise): valid from the day after it ends to `valid_to`, for `target_value`, with its legal
+	// entity, supplier, currency and items (each checked again as a new contract's are), naming it in
+	// `renewal_of_id`. A contract has one live renewal at a time (409 `procurement.contract_renewed`; a
+	// cancelled renewal does not count), and a renewed contract raises no expiry alert. The successor is
+	// changed, released and cancelled as any draft contract; released, its `ContractActivated` names the
+	// contract it renews.
+	//
+	// POST /v1/contracts/{id}:renew
+	RenewContract(ctx context.Context, request *ContractRenew, params RenewContractParams) (RenewContractRes, error)
 	// ReportBankFileStatus invokes reportBankFileStatus operation.
 	//
 	// Applies the bank's status report (pain.002, camt.054) to a transmitted file: `accepted` moves it to
@@ -1057,8 +1113,10 @@ type Invoker interface {
 	RequestBankAccountEnd(ctx context.Context, request *BankAccountEnd, params RequestBankAccountEndParams) (RequestBankAccountEndRes, error)
 	// ReverseGoodsReceipt invokes reverseGoodsReceipt operation.
 	//
-	// Posts a 102 movement that reverses the receipt. Refused (409) if it would make the received quantity
-	// negative. Returns the reversal.
+	// Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make
+	// the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance. A
+	// movement on a closed order is reversed too, as a mistaken receipt or return is undone whenever it is
+	// found. Returns the reversal.
 	//
 	// POST /v1/goods-receipts/{id}:reverse
 	ReverseGoodsReceipt(ctx context.Context, request OptGoodsReceiptReverse, params ReverseGoodsReceiptParams) (ReverseGoodsReceiptRes, error)
@@ -1116,6 +1174,21 @@ type Invoker interface {
 	//
 	// POST /v1/change-requests/{id}:submit
 	SubmitChangeRequest(ctx context.Context, params SubmitChangeRequestParams) (SubmitChangeRequestRes, error)
+	// SubmitPurchaseOrderChange invokes submitPurchaseOrderChange operation.
+	//
+	// Submits an order change in status `draft` (409 `procurement.invalid_status` otherwise) of an order
+	// still `released`, checked again against the order as it reads now (422
+	// `procurement.invalid_change`). A change that does not raise the order's total is applied at once;
+	// one that raises it waits for an `order_change` approval request by amount tier on its new total
+	// (status `pending_approval`), whose approval applies it and whose rejection ends it (`rejected`);
+	// withdrawing the request returns it to `draft`. Applied, the order reads the change's header fields
+	// and items as its next `revision`: items it adds take their price as valuation price (an item added
+	// back keeps the one it was released at), a contract order consumes the difference of its total (409
+	// `procurement.contract_exceeded` when what remains does not cover an increase), and
+	// `PurchaseOrderChanged` is published. Agents may submit; approving is for people.
+	//
+	// POST /v1/purchase-orders/{id}/changes/{change_id}:submit
+	SubmitPurchaseOrderChange(ctx context.Context, params SubmitPurchaseOrderChangeParams) (SubmitPurchaseOrderChangeRes, error)
 	// SubmitRequisition invokes submitRequisition operation.
 	//
 	// Submits a draft for approval and opens an approval request. Requires status `draft`.
@@ -1226,6 +1299,14 @@ type Invoker interface {
 	//
 	// PATCH /v1/purchase-orders/{id}
 	UpdatePurchaseOrder(ctx context.Context, request *PurchaseOrderUpdate, params UpdatePurchaseOrderParams) (UpdatePurchaseOrderRes, error)
+	// UpdatePurchaseOrderChange invokes updatePurchaseOrderChange operation.
+	//
+	// Changes an order change in status `draft` (409 `procurement.invalid_status` otherwise). JSON Merge
+	// Patch (RFC 7396): absent fields are unchanged, `items` replaces the items as a whole. The change is
+	// checked again as a new one is.
+	//
+	// PATCH /v1/purchase-orders/{id}/changes/{change_id}
+	UpdatePurchaseOrderChange(ctx context.Context, request *PurchaseOrderChangeUpdate, params UpdatePurchaseOrderChangeParams) (UpdatePurchaseOrderChangeRes, error)
 	// UpdateRequisition invokes updateRequisition operation.
 	//
 	// Changes a requisition in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged,
@@ -3231,7 +3312,9 @@ func (c *Client) sendCancelParkedJournalEntry(ctx context.Context, request *Reas
 
 // CancelPurchaseOrder invokes cancelPurchaseOrder operation.
 //
-// Cancels an order without receipts or invoices and returns its contract consumption.
+// Cancels an order without receipts or invoices and returns its contract consumption. An order waiting
+// for its release approval is cancelled too, and its request withdrawn; so is an open order change of
+// a released order.
 //
 // POST /v1/purchase-orders/{id}:cancel
 func (c *Client) CancelPurchaseOrder(ctx context.Context, params CancelPurchaseOrderParams) (CancelPurchaseOrderRes, error) {
@@ -3379,6 +3462,183 @@ func (c *Client) sendCancelPurchaseOrder(ctx context.Context, params CancelPurch
 
 	stage = "DecodeResponse"
 	result, err := decodeCancelPurchaseOrderResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CancelPurchaseOrderChange invokes cancelPurchaseOrderChange operation.
+//
+// Cancels an order change in status `draft` for good; the order is unchanged. A change waiting for
+// approval is withdrawn by cancelling its approval request, which returns it to `draft`.
+//
+// POST /v1/purchase-orders/{id}/changes/{change_id}:cancel
+func (c *Client) CancelPurchaseOrderChange(ctx context.Context, params CancelPurchaseOrderChangeParams) (CancelPurchaseOrderChangeRes, error) {
+	res, err := c.sendCancelPurchaseOrderChange(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendCancelPurchaseOrderChange(ctx context.Context, params CancelPurchaseOrderChangeParams) (res CancelPurchaseOrderChangeRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("cancelPurchaseOrderChange"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/purchase-orders/{id}/changes/{change_id}:cancel"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CancelPurchaseOrderChangeOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/purchase-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/changes/"
+	{
+		// Encode "change_id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "change_id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ChangeID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":cancel"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CancelPurchaseOrderChangeOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCancelPurchaseOrderChangeResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -3996,7 +4256,8 @@ func (c *Client) sendCloseFiscalPeriod(ctx context.Context, params CloseFiscalPe
 //
 // Closes a released order: no further goods receipts or invoices are expected and both are refused
 // from then on; the contract consumption stays. Requires status `released`. Orders fully received and
-// invoiced are closed this way by the buyer.
+// invoiced are closed this way by the buyer. An open order change is cancelled with it, and its
+// approval request withdrawn.
 //
 // POST /v1/purchase-orders/{id}:close
 func (c *Client) ClosePurchaseOrder(ctx context.Context, params ClosePurchaseOrderParams) (ClosePurchaseOrderRes, error) {
@@ -5846,6 +6107,160 @@ func (c *Client) sendCreatePurchaseOrder(ctx context.Context, request *PurchaseO
 
 	stage = "DecodeResponse"
 	result, err := decodeCreatePurchaseOrderResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreatePurchaseOrderChange invokes createPurchaseOrderChange operation.
+//
+// Drafts an order change of a released order: its payment terms, order date, extensions and complete
+// items as they are to read, checked as an order's are (the supplier, currency, contract and
+// requisition do not change). An item keeps its account, unit, material and contract item, is never
+// below what was received (allowing its over-delivery tolerance) and, with receipts, is never removed
+// (422 `procurement.invalid_change`). Nothing changes until the change is submitted (T47f). Requires
+// status `released` and no other open change (409 `procurement.change_open`).
+//
+// POST /v1/purchase-orders/{id}/changes
+func (c *Client) CreatePurchaseOrderChange(ctx context.Context, request *PurchaseOrderChangeCreate, params CreatePurchaseOrderChangeParams) (CreatePurchaseOrderChangeRes, error) {
+	res, err := c.sendCreatePurchaseOrderChange(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreatePurchaseOrderChange(ctx context.Context, request *PurchaseOrderChangeCreate, params CreatePurchaseOrderChangeParams) (res CreatePurchaseOrderChangeRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createPurchaseOrderChange"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/purchase-orders/{id}/changes"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreatePurchaseOrderChangeOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/purchase-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/changes"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreatePurchaseOrderChangeRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreatePurchaseOrderChangeOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreatePurchaseOrderChangeResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -11926,6 +12341,156 @@ func (c *Client) sendGetPurchaseOrder(ctx context.Context, params GetPurchaseOrd
 	return result, nil
 }
 
+// GetPurchaseOrderChange invokes getPurchaseOrderChange operation.
+//
+// Returns one order change.
+//
+// GET /v1/purchase-orders/{id}/changes/{change_id}
+func (c *Client) GetPurchaseOrderChange(ctx context.Context, params GetPurchaseOrderChangeParams) (GetPurchaseOrderChangeRes, error) {
+	res, err := c.sendGetPurchaseOrderChange(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetPurchaseOrderChange(ctx context.Context, params GetPurchaseOrderChangeParams) (res GetPurchaseOrderChangeRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getPurchaseOrderChange"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/purchase-orders/{id}/changes/{change_id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetPurchaseOrderChangeOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [4]string
+	pathParts[0] = "/v1/purchase-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/changes/"
+	{
+		// Encode "change_id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "change_id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ChangeID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetPurchaseOrderChangeOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetPurchaseOrderChangeResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetRecommendation invokes getRecommendation operation.
 //
 // Returns one recommendation.
@@ -16850,6 +17415,23 @@ func (c *Client) sendListContracts(ctx context.Context, params ListContractsPara
 		}
 	}
 	{
+		// Encode "expiring_before" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "expiring_before",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.ExpiringBefore.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
 		// Encode "page_size" parameter.
 		cfg := uri.QueryParameterEncodingConfig{
 			Name:    "page_size",
@@ -21138,6 +21720,194 @@ func (c *Client) sendListPrincipals(ctx context.Context, params ListPrincipalsPa
 	return result, nil
 }
 
+// ListPurchaseOrderChanges invokes listPurchaseOrderChanges operation.
+//
+// The order changes of a released purchase order, newest first: its versions, each with the order as
+// it was changed. Sortable by: `created_at`.
+//
+// GET /v1/purchase-orders/{id}/changes
+func (c *Client) ListPurchaseOrderChanges(ctx context.Context, params ListPurchaseOrderChangesParams) (ListPurchaseOrderChangesRes, error) {
+	res, err := c.sendListPurchaseOrderChanges(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListPurchaseOrderChanges(ctx context.Context, params ListPurchaseOrderChangesParams) (res ListPurchaseOrderChangesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listPurchaseOrderChanges"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/purchase-orders/{id}/changes"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListPurchaseOrderChangesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/purchase-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/changes"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListPurchaseOrderChangesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListPurchaseOrderChangesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListPurchaseOrders invokes listPurchaseOrders operation.
 //
 // Purchase orders. Sortable by: `order_date`, `document_number`. Expandable: `supplier`.
@@ -23973,7 +24743,11 @@ func (c *Client) sendParkJournalEntry(ctx context.Context, request *JournalEntry
 
 // PostGoodsReceipt invokes postGoodsReceipt operation.
 //
-// Posts a goods receipt against released purchase order items. Insert-only; corrections are reversals.
+// Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122,
+// with `reason`) of goods received on released or closed orders: never more than was received (409
+// `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the
+// item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections
+// are reversals.
 //
 // POST /v1/goods-receipts
 func (c *Client) PostGoodsReceipt(ctx context.Context, request *GoodsReceiptCreate, params PostGoodsReceiptParams) (PostGoodsReceiptRes, error) {
@@ -25670,7 +26444,13 @@ func (c *Client) sendReleasePaymentRun(ctx context.Context, request OptDecisionI
 // ReleasePurchaseOrder invokes releasePurchaseOrder operation.
 //
 // Releases a draft order to the supplier and consumes the contract, if any. Requires status `draft`;
-// the supplier must not be blocked.
+// the supplier must not be blocked. An order without an approved requisition, or whose total exceeds
+// its requisition's, is released by the release strategy: when `purchasing.order_release_approval`
+// asks for approval of its total (in its company's currency), it waits in `pending_approval` for a
+// `purchase_order` approval request (`release_request_id`), raised by the caller, who can never
+// approve it. Approving it releases the order, checked again (a blocked supplier or a used-up contract
+// refuses the approval, which stays pending); rejecting or withdrawing it returns the order to
+// `draft`. A configuration without the tiers is 422 `workflow.no_policy`.
 //
 // POST /v1/purchase-orders/{id}:release
 func (c *Client) ReleasePurchaseOrder(ctx context.Context, params ReleasePurchaseOrderParams) (ReleasePurchaseOrderRes, error) {
@@ -25978,6 +26758,172 @@ func (c *Client) sendReleaseSupplierInvoice(ctx context.Context, request OptDeci
 
 	stage = "DecodeResponse"
 	result, err := decodeReleaseSupplierInvoiceResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// RenewContract invokes renewContract operation.
+//
+// Creates a draft successor of an `active` or `expired` contract (409 `procurement.invalid_status`
+// otherwise): valid from the day after it ends to `valid_to`, for `target_value`, with its legal
+// entity, supplier, currency and items (each checked again as a new contract's are), naming it in
+// `renewal_of_id`. A contract has one live renewal at a time (409 `procurement.contract_renewed`; a
+// cancelled renewal does not count), and a renewed contract raises no expiry alert. The successor is
+// changed, released and cancelled as any draft contract; released, its `ContractActivated` names the
+// contract it renews.
+//
+// POST /v1/contracts/{id}:renew
+func (c *Client) RenewContract(ctx context.Context, request *ContractRenew, params RenewContractParams) (RenewContractRes, error) {
+	res, err := c.sendRenewContract(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendRenewContract(ctx context.Context, request *ContractRenew, params RenewContractParams) (res RenewContractRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("renewContract"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/contracts/{id}:renew"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RenewContractOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/contracts/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":renew"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeRenewContractRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RenewContractOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRenewContractResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -26483,8 +27429,10 @@ func (c *Client) sendRequestBankAccountEnd(ctx context.Context, request *BankAcc
 
 // ReverseGoodsReceipt invokes reverseGoodsReceipt operation.
 //
-// Posts a 102 movement that reverses the receipt. Refused (409) if it would make the received quantity
-// negative. Returns the reversal.
+// Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make
+// the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance. A
+// movement on a closed order is reversed too, as a mistaken receipt or return is undone whenever it is
+// found. Returns the reversal.
 //
 // POST /v1/goods-receipts/{id}:reverse
 func (c *Client) ReverseGoodsReceipt(ctx context.Context, request OptGoodsReceiptReverse, params ReverseGoodsReceiptParams) (ReverseGoodsReceiptRes, error) {
@@ -27574,6 +28522,191 @@ func (c *Client) sendSubmitChangeRequest(ctx context.Context, params SubmitChang
 
 	stage = "DecodeResponse"
 	result, err := decodeSubmitChangeRequestResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// SubmitPurchaseOrderChange invokes submitPurchaseOrderChange operation.
+//
+// Submits an order change in status `draft` (409 `procurement.invalid_status` otherwise) of an order
+// still `released`, checked again against the order as it reads now (422
+// `procurement.invalid_change`). A change that does not raise the order's total is applied at once;
+// one that raises it waits for an `order_change` approval request by amount tier on its new total
+// (status `pending_approval`), whose approval applies it and whose rejection ends it (`rejected`);
+// withdrawing the request returns it to `draft`. Applied, the order reads the change's header fields
+// and items as its next `revision`: items it adds take their price as valuation price (an item added
+// back keeps the one it was released at), a contract order consumes the difference of its total (409
+// `procurement.contract_exceeded` when what remains does not cover an increase), and
+// `PurchaseOrderChanged` is published. Agents may submit; approving is for people.
+//
+// POST /v1/purchase-orders/{id}/changes/{change_id}:submit
+func (c *Client) SubmitPurchaseOrderChange(ctx context.Context, params SubmitPurchaseOrderChangeParams) (SubmitPurchaseOrderChangeRes, error) {
+	res, err := c.sendSubmitPurchaseOrderChange(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendSubmitPurchaseOrderChange(ctx context.Context, params SubmitPurchaseOrderChangeParams) (res SubmitPurchaseOrderChangeRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("submitPurchaseOrderChange"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/purchase-orders/{id}/changes/{change_id}:submit"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, SubmitPurchaseOrderChangeOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/purchase-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/changes/"
+	{
+		// Encode "change_id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "change_id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ChangeID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":submit"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, SubmitPurchaseOrderChangeOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeSubmitPurchaseOrderChangeResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -29974,6 +31107,186 @@ func (c *Client) sendUpdatePurchaseOrder(ctx context.Context, request *PurchaseO
 
 	stage = "DecodeResponse"
 	result, err := decodeUpdatePurchaseOrderResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UpdatePurchaseOrderChange invokes updatePurchaseOrderChange operation.
+//
+// Changes an order change in status `draft` (409 `procurement.invalid_status` otherwise). JSON Merge
+// Patch (RFC 7396): absent fields are unchanged, `items` replaces the items as a whole. The change is
+// checked again as a new one is.
+//
+// PATCH /v1/purchase-orders/{id}/changes/{change_id}
+func (c *Client) UpdatePurchaseOrderChange(ctx context.Context, request *PurchaseOrderChangeUpdate, params UpdatePurchaseOrderChangeParams) (UpdatePurchaseOrderChangeRes, error) {
+	res, err := c.sendUpdatePurchaseOrderChange(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUpdatePurchaseOrderChange(ctx context.Context, request *PurchaseOrderChangeUpdate, params UpdatePurchaseOrderChangeParams) (res UpdatePurchaseOrderChangeRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("updatePurchaseOrderChange"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.URLTemplateKey.String("/v1/purchase-orders/{id}/changes/{change_id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UpdatePurchaseOrderChangeOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [4]string
+	pathParts[0] = "/v1/purchase-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/changes/"
+	{
+		// Encode "change_id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "change_id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ChangeID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PATCH", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUpdatePurchaseOrderChangeRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UpdatePurchaseOrderChangeOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUpdatePurchaseOrderChangeResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

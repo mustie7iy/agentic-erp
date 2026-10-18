@@ -144,6 +144,19 @@ purchasing:
           approvals: 1
         - role: process_owner
           approvals: 1
+  order_release_approval:
+    - up_to: "1000.00"
+      steps: []
+    - up_to: "5000.00"
+      steps:
+        - role: Z_PURCH_MGR
+          approvals: 1
+    - steps:
+        - role: Z_PURCH_MGR
+          approvals: 1
+        - role: Z_PURCH_HEAD
+          approvals: 1
+  contract_expiry_notice_days: 30
 payments:
   release_role: Z_TREASURY_MGR
   release_approvals: 1
