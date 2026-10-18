@@ -17,7 +17,7 @@ import (
 )
 
 func requestToAPI(r DownPaymentRequest) gen.DownPaymentRequest {
-	return gen.DownPaymentRequest{ID: r.ID, Version: r.Version, CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy, UpdatedAt: r.UpdatedAt,
+	return gen.DownPaymentRequest{ID: r.ID, DocumentNumber: r.DocumentNumber, Version: r.Version, CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy, UpdatedAt: r.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(r.UpdatedBy), LegalEntityID: r.LegalEntityID, SupplierID: r.SupplierID, PurchaseOrderID: apitypes.OptUUID(r.PurchaseOrderID),
 		Amount: apitypes.Money(r.Amount, r.Currency, r.Exponent), TaxCode: apitypes.OptString(r.TaxCode),
 		TaxAmount: apitypes.Money(r.TaxAmount, r.Currency, r.Exponent), DueDate: r.DueDate, Reference: apitypes.OptString(r.Reference),

@@ -5,6 +5,7 @@
 CREATE TABLE payables.down_payment_request (
   tenant_id          uuid NOT NULL,
   id                 uuid NOT NULL,
+  document_number    text NOT NULL,                -- from the down_payment_request number range
   legal_entity_id    uuid NOT NULL,                -- tenancy context
   supplier_id        uuid NOT NULL,                -- partner context
   purchase_order_id  uuid,                         -- procurement context
@@ -22,6 +23,7 @@ CREATE TABLE payables.down_payment_request (
   updated_by         uuid NOT NULL,
   version            integer NOT NULL DEFAULT 1,
   PRIMARY KEY (tenant_id, id),
+  UNIQUE (tenant_id, legal_entity_id, document_number),
   CONSTRAINT down_payment_request_tax CHECK (CASE WHEN tax_code IS NULL THEN tax_amount = 0 ELSE tax_amount >= 0 AND tax_amount < amount END),
   CONSTRAINT down_payment_request_cancel_reason CHECK ((status = 'cancelled') = (cancel_reason IS NOT NULL))
 );
@@ -47,10 +49,10 @@ BEGIN
     RAISE EXCEPTION 'down payment request % cannot go from % to %', OLD.id, OLD.status, NEW.status
       USING ERRCODE = 'check_violation', CONSTRAINT = 'down_payment_request_lifecycle';
   END IF;
-  IF (NEW.legal_entity_id, NEW.supplier_id, NEW.purchase_order_id, NEW.currency, NEW.amount, NEW.tax_code, NEW.tax_amount, NEW.due_date,
+  IF (NEW.document_number, NEW.legal_entity_id, NEW.supplier_id, NEW.purchase_order_id, NEW.currency, NEW.amount, NEW.tax_code, NEW.tax_amount, NEW.due_date,
       NEW.reference, NEW.created_at, NEW.created_by)
      IS DISTINCT FROM
-     (OLD.legal_entity_id, OLD.supplier_id, OLD.purchase_order_id, OLD.currency, OLD.amount, OLD.tax_code, OLD.tax_amount, OLD.due_date,
+     (OLD.document_number, OLD.legal_entity_id, OLD.supplier_id, OLD.purchase_order_id, OLD.currency, OLD.amount, OLD.tax_code, OLD.tax_amount, OLD.due_date,
       OLD.reference, OLD.created_at, OLD.created_by) THEN
     RAISE EXCEPTION 'down payment request % is fixed once requested', OLD.id
       USING ERRCODE = 'check_violation', CONSTRAINT = 'down_payment_request_fixed';
@@ -62,3 +64,9 @@ CREATE TRIGGER down_payment_request_change BEFORE INSERT OR UPDATE ON payables.d
   FOR EACH ROW EXECUTE FUNCTION payables.check_down_payment_request_change();
 
 SELECT platform.secure_table('payables.down_payment_request'::regclass);
+
+-- Requesting a down payment pays a supplier before any invoice backs it,
+-- so it is its own permission (SAP F-47's authorization), apart from
+-- capturing invoices.
+INSERT INTO ref.permission (code, description, is_approval) VALUES
+  ('payables.down_payment.request', 'Request and cancel down payments to suppliers', false);

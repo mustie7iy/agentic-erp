@@ -34,6 +34,7 @@ const (
 // payment run pays it, which posts the special G/L item A.
 type DownPaymentRequest struct {
 	ID              uuid.UUID
+	DocumentNumber  string // from the down_payment_request range of the due date's fiscal year
 	LegalEntityID   uuid.UUID
 	SupplierID      uuid.UUID
 	PurchaseOrderID *uuid.UUID
@@ -64,13 +65,13 @@ type DownPaymentInput struct {
 	Reference       *string
 }
 
-const requestSelect = `SELECT r.id, r.legal_entity_id, r.supplier_id, r.purchase_order_id, r.currency, c.exponent, r.amount, r.tax_code,
+const requestSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.supplier_id, r.purchase_order_id, r.currency, c.exponent, r.amount, r.tax_code,
 		r.tax_amount, r.due_date, r.reference, r.status, r.cancel_reason, r.version, r.created_at, r.created_by, r.updated_at, r.updated_by
 	FROM payables.down_payment_request r JOIN ref.currency c ON c.code = r.currency`
 
 func scanRequest(row pgx.Row) (DownPaymentRequest, error) {
 	var r DownPaymentRequest
-	err := row.Scan(&r.ID, &r.LegalEntityID, &r.SupplierID, &r.PurchaseOrderID, &r.Currency, &r.Exponent, &r.Amount, &r.TaxCode,
+	err := row.Scan(&r.ID, &r.DocumentNumber, &r.LegalEntityID, &r.SupplierID, &r.PurchaseOrderID, &r.Currency, &r.Exponent, &r.Amount, &r.TaxCode,
 		&r.TaxAmount, &r.DueDate, &r.Reference, &r.Status, &r.CancelReason, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy)
 	return r, errs.Wrapf(err, "scan down payment request")
 }
@@ -168,6 +169,19 @@ func (e *Endpoints) requestTax(ctx context.Context, in DownPaymentInput, amount 
 	return money.Round(new(big.Rat).Mul(money.Rat(amount, exp), share), exp)
 }
 
+// requestNumber draws a request's document number from the legal entity's
+// down_payment_request range of the fiscal year its due date falls in.
+func (e *Endpoints) requestNumber(ctx context.Context, in DownPaymentInput) (string, error) {
+	year, err := e.Calendar.FiscalYear(ctx, in.LegalEntityID, in.DueDate)
+	if err != nil {
+		return "", err
+	}
+	return e.Numbers.Next(ctx, in.LegalEntityID, RequestNumbers, year)
+}
+
+// RequestNumbers is the number range object of down payment requests.
+const RequestNumbers = "down_payment_request"
+
 // RequestDownPayment enters an open down payment request and publishes
 // DownPaymentRequested.
 func (e *Endpoints) RequestDownPayment(ctx context.Context, in DownPaymentInput) (DownPaymentRequest, error) {
@@ -179,11 +193,15 @@ func (e *Endpoints) RequestDownPayment(ctx context.Context, in DownPaymentInput)
 	if err != nil {
 		return DownPaymentRequest{}, err
 	}
+	number, err := e.requestNumber(ctx, in)
+	if err != nil {
+		return DownPaymentRequest{}, err
+	}
 	id := uuid.Must(uuid.NewV7())
-	if _, err := tx.Exec(ctx, `INSERT INTO payables.down_payment_request (tenant_id, id, legal_entity_id, supplier_id, purchase_order_id, currency,
-			amount, tax_code, tax_amount, due_date, reference, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)`,
-		p.TenantID, id, in.LegalEntityID, in.SupplierID, in.PurchaseOrderID, in.Amount.Currency, c.amount, in.TaxCode, c.tax, in.DueDate,
+	if _, err := tx.Exec(ctx, `INSERT INTO payables.down_payment_request (tenant_id, id, document_number, legal_entity_id, supplier_id, purchase_order_id,
+			currency, amount, tax_code, tax_amount, due_date, reference, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)`,
+		p.TenantID, id, number, in.LegalEntityID, in.SupplierID, in.PurchaseOrderID, in.Amount.Currency, c.amount, in.TaxCode, c.tax, in.DueDate,
 		in.Reference, p.ID); err != nil {
 		return DownPaymentRequest{}, fmt.Errorf("payables: insert down payment request %s: %w", id, err)
 	}
@@ -191,8 +209,9 @@ func (e *Endpoints) RequestDownPayment(ctx context.Context, in DownPaymentInput)
 	if err != nil {
 		return DownPaymentRequest{}, err
 	}
-	return r, recordRequest(ctx, "payables.down_payment_request.create", r, map[string]any{"amount": r.Amount.Plain(r.Exponent), "currency": r.Currency},
-		requestEvent(r, "down_payment_requested", map[string]any{"purchase_order_id": r.PurchaseOrderID,
+	return r, recordRequest(ctx, "payables.down_payment_request.create", r, map[string]any{"document_number": r.DocumentNumber,
+		"amount": r.Amount.Plain(r.Exponent), "currency": r.Currency},
+		requestEvent(r, "down_payment_requested", map[string]any{"document_number": r.DocumentNumber, "purchase_order_id": r.PurchaseOrderID,
 			"amount": money.EventAmount(r.Amount, r.Currency, r.Exponent), "tax_code": r.TaxCode,
 			"tax_amount": money.EventAmount(r.TaxAmount, r.Currency, r.Exponent), "due_date": r.DueDate.Format(time.DateOnly),
 			"reference": r.Reference, "status": r.Status}))

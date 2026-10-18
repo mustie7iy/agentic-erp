@@ -35,6 +35,9 @@ func TestDownPaymentRequests(t *testing.T) {
 			}
 		})
 	}
+	if got, _ := taxed["document_number"].(string); !strings.HasPrefix(got, "DP") {
+		t.Errorf("document number: got %q, want one from the DP range", got)
+	}
 	if got := taxed["tax_amount"].(map[string]any)["amount"]; got != "190.00" {
 		t.Errorf("tax amount: got %v, want 190.00 (1190.00 × 19/119)", got)
 	}
@@ -117,6 +120,7 @@ func TestDownPaymentRequestRefusals(t *testing.T) {
 		"order of another":     {e.downPayment(e.Supplier, "1.00", "EUR", `, "purchase_order_id": "`+otherPO.String()+`"`), 422, "payables.invalid_purchase_order"},
 		"unknown tax code":     {e.downPayment(e.Supplier, "1.00", "EUR", `, "tax_code": "V7"`), 422, "payables.unknown_tax_code"},
 		"blank reference":      {e.downPayment(e.Supplier, "1.00", "EUR", `, "reference": "  "`), 422, "payables.invalid_reference"},
+		"no number range":      {strings.Replace(e.downPayment(e.Supplier, "1.00", "EUR", ""), "2026-03-15", "2031-03-15", 1), 422, "ledger.no_fiscal_period"},
 		"output tax code":      {e.downPayment(e.Supplier, "1.00", "EUR", `, "tax_code": "A1"`), 422, "payables.unknown_tax_code"},
 	}
 	for name, c := range cases {

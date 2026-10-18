@@ -2641,8 +2641,8 @@ func TestDownPaymentRequests(t *testing.T) {
 	f := newFixture(t)
 	insert := func(r uuid.UUID, amount int, taxCode any, tax int, status string) func(tx pgx.Tx) error {
 		return func(tx pgx.Tx) error {
-			return exec(tx, `INSERT INTO payables.down_payment_request (tenant_id, id, legal_entity_id, supplier_id, currency, amount, tax_code, tax_amount,
-				due_date, status, created_by, updated_by) VALUES ($1, $2, $3, $4, 'USD', $5, $6, $7, '2026-04-02', $8, $9, $9)`,
+			return exec(tx, `INSERT INTO payables.down_payment_request (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, amount,
+				tax_code, tax_amount, due_date, status, created_by, updated_by) VALUES ($1, $2, gen_random_uuid()::text, $3, $4, 'USD', $5, $6, $7, '2026-04-02', $8, $9, $9)`,
 				f.tenant, r, f.entity, f.supplier, amount, taxCode, tax, status, f.actor)
 		}
 	}
@@ -2658,8 +2658,9 @@ func TestDownPaymentRequests(t *testing.T) {
 		{"tax of the whole amount", insert(id(), 100, "V1", 100, "open"), "down_payment_request_tax"},
 		{"cancelled first", insert(id(), 100, nil, 0, "cancelled"), "down_payment_request_lifecycle"},
 		{"blank reference", func(tx pgx.Tx) error {
-			return exec(tx, `INSERT INTO payables.down_payment_request (tenant_id, id, legal_entity_id, supplier_id, currency, amount, due_date, reference,
-				created_by, updated_by) VALUES ($1, $2, $3, $4, 'USD', 100, '2026-04-02', '  ', $5, $5)`, f.tenant, id(), f.entity, f.supplier, f.actor)
+			return exec(tx, `INSERT INTO payables.down_payment_request (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, amount,
+				due_date, reference, created_by, updated_by) VALUES ($1, $2, gen_random_uuid()::text, $3, $4, 'USD', 100, '2026-04-02', '  ', $5, $5)`,
+				f.tenant, id(), f.entity, f.supplier, f.actor)
 		}, "down_payment_request_reference_check"},
 	} {
 		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, c.insert), c.fails) })

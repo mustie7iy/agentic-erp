@@ -12941,6 +12941,10 @@ func (s *DownPaymentRequest) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		e.FieldStart("document_number")
+		e.Str(s.DocumentNumber)
+	}
+	{
 		e.FieldStart("legal_entity_id")
 		json.EncodeUUID(e, s.LegalEntityID)
 	}
@@ -12990,23 +12994,24 @@ func (s *DownPaymentRequest) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfDownPaymentRequest = [16]string{
+var jsonFieldsNameOfDownPaymentRequest = [17]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
 	3:  "created_by",
 	4:  "updated_at",
 	5:  "updated_by",
-	6:  "legal_entity_id",
-	7:  "supplier_id",
-	8:  "purchase_order_id",
-	9:  "amount",
-	10: "tax_code",
-	11: "tax_amount",
-	12: "due_date",
-	13: "reference",
-	14: "status",
-	15: "cancel_reason",
+	6:  "document_number",
+	7:  "legal_entity_id",
+	8:  "supplier_id",
+	9:  "purchase_order_id",
+	10: "amount",
+	11: "tax_code",
+	12: "tax_amount",
+	13: "due_date",
+	14: "reference",
+	15: "status",
+	16: "cancel_reason",
 }
 
 // Decode decodes DownPaymentRequest from json.
@@ -13014,7 +13019,7 @@ func (s *DownPaymentRequest) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode DownPaymentRequest to nil")
 	}
-	var requiredBitSet [2]uint8
+	var requiredBitSet [3]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -13088,8 +13093,20 @@ func (s *DownPaymentRequest) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"updated_by\"")
 			}
-		case "legal_entity_id":
+		case "document_number":
 			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				v, err := d.Str()
+				s.DocumentNumber = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"document_number\"")
+			}
+		case "legal_entity_id":
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.LegalEntityID = v
@@ -13101,7 +13118,7 @@ func (s *DownPaymentRequest) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"legal_entity_id\"")
 			}
 		case "supplier_id":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.SupplierID = v
@@ -13123,7 +13140,7 @@ func (s *DownPaymentRequest) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"purchase_order_id\"")
 			}
 		case "amount":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
 				if err := s.Amount.Decode(d); err != nil {
 					return err
@@ -13143,7 +13160,7 @@ func (s *DownPaymentRequest) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tax_code\"")
 			}
 		case "tax_amount":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				if err := s.TaxAmount.Decode(d); err != nil {
 					return err
@@ -13153,7 +13170,7 @@ func (s *DownPaymentRequest) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tax_amount\"")
 			}
 		case "due_date":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.DueDate = v
@@ -13175,7 +13192,7 @@ func (s *DownPaymentRequest) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"reference\"")
 			}
 		case "status":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				v, err := d.Str()
 				s.Status = string(v)
@@ -13205,9 +13222,10 @@ func (s *DownPaymentRequest) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [2]uint8{
+	for i, mask := range [3]uint8{
 		0b11011111,
-		0b01011010,
+		0b10110101,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

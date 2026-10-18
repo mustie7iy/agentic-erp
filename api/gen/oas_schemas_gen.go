@@ -8017,6 +8017,9 @@ type DownPaymentRequest struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	// Principal that made the last change. Absent on resources whose table does not record it.
 	UpdatedBy OptUUID `json:"updated_by"`
+	// Document number, from the legal entity's `down_payment_request` number range of the fiscal year the
+	// due date falls in.
+	DocumentNumber string `json:"document_number"`
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// Supplier.
@@ -8070,6 +8073,11 @@ func (s *DownPaymentRequest) GetUpdatedAt() time.Time {
 // GetUpdatedBy returns the value of UpdatedBy.
 func (s *DownPaymentRequest) GetUpdatedBy() OptUUID {
 	return s.UpdatedBy
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *DownPaymentRequest) GetDocumentNumber() string {
+	return s.DocumentNumber
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -8150,6 +8158,11 @@ func (s *DownPaymentRequest) SetUpdatedAt(val time.Time) {
 // SetUpdatedBy sets the value of UpdatedBy.
 func (s *DownPaymentRequest) SetUpdatedBy(val OptUUID) {
 	s.UpdatedBy = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *DownPaymentRequest) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
 }
 
 // SetLegalEntityID sets the value of LegalEntityID.

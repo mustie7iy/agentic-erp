@@ -7402,7 +7402,7 @@ paths:
         - payables
       summary: Request a down payment
       description: "Requests a down payment to a supplier (SAP F-47, special G/L F): a payables document, not a ledger posting (ADR-0037). It moves no value until a payment run pays it, which posts the down payment on the legal entity's down payment account. Created `open`. With an input tax code, the tax the amount includes is computed and claimed when it is paid."
-      x-permission: payables.invoice.capture
+      x-permission: payables.down_payment.request
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -7489,7 +7489,7 @@ paths:
         - payables
       summary: Cancel a down payment request
       description: "Cancels an open down payment request (status `cancelled`), which a payment run then no longer pays. Requires status `open`."
-      x-permission: payables.invoice.capture
+      x-permission: payables.down_payment.request
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -17476,6 +17476,7 @@ components:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
           required:
+            - document_number
             - legal_entity_id
             - supplier_id
             - amount
@@ -17483,6 +17484,10 @@ components:
             - due_date
             - status
           properties:
+            document_number:
+              type: string
+              description: "Document number, from the legal entity's `down_payment_request` number range of the fiscal year the due date falls in."
+              readOnly: true
             legal_entity_id:
               type: string
               format: uuid
@@ -17531,6 +17536,7 @@ components:
               readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+          document_number: DP100000
           version: 1
           created_at: "2026-10-05T09:00:00Z"
           created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d90"

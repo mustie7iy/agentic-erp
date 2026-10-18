@@ -1094,7 +1094,7 @@ components:
       examples:
         - name: requested
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000305, source: /erp/eu-1/payables, type: com.example.erp.payables.down_payment_requested.v1, subject: 0192a000-0000-7000-8000-000000000711, time: '2026-10-05T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {down_payment_request_id: 0192a000-0000-7000-8000-000000000711, legal_entity_id: 0192a000-0000-7000-8000-000000000201, supplier_id: 0192a000-0000-7000-8000-000000000301, purchase_order_id: 0192a000-0000-7000-8000-000000000602, amount: {amount: '1190.00', currency: EUR}, tax_code: V1, tax_amount: {amount: '190.00', currency: EUR}, due_date: '2026-10-15', reference: AB-2026-17, status: open}
+          payload: {down_payment_request_id: 0192a000-0000-7000-8000-000000000711, document_number: DP100000, legal_entity_id: 0192a000-0000-7000-8000-000000000201, supplier_id: 0192a000-0000-7000-8000-000000000301, purchase_order_id: 0192a000-0000-7000-8000-000000000602, amount: {amount: '1190.00', currency: EUR}, tax_code: V1, tax_amount: {amount: '190.00', currency: EUR}, due_date: '2026-10-15', reference: AB-2026-17, status: open}
     DownPaymentRequestCancelled:
       name: DownPaymentRequestCancelled
       title: Down payment request cancelled
@@ -2771,9 +2771,10 @@ components:
         status: {type: string, description: 'Open enum; cancelled in v1.'}
     DownPaymentRequestedV1:
       type: object
-      required: [down_payment_request_id, legal_entity_id, supplier_id, amount, tax_amount, due_date, status]
+      required: [down_payment_request_id, document_number, legal_entity_id, supplier_id, amount, tax_amount, due_date, status]
       properties:
         down_payment_request_id: {$ref: '#/components/schemas/Uuid'}
+        document_number: {type: string}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
         supplier_id: {$ref: '#/components/schemas/Uuid'}
         purchase_order_id: {$ref: '#/components/schemas/NullableUuid', description: 'The purchase order the down payment is for.'}
