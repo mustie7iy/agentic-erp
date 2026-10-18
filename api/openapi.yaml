@@ -22,7 +22,7 @@ info:
     - **Resource kinds.** Mutable resources carry `id`, `version` (= ETag), `created_*` and `updated_*`. Insert-only resources (journal entries, goods receipts, clearings, match results, decisions, audit events) carry `id`, `created_at`, `created_by`; corrections are new documents (`:reverse`). Effective-dated grants (role assignments, role permissions, company access, SoD rules, bank accounts) add `valid_from`, `valid_to`, `ended_at`, `ended_by`: they are never updated otherwise and never deleted, only ended (`:end`). Resources without a version have an ETag derived from their representation, so `If-Match` still guards their custom methods.
     - **Long-running work** returns 202 with an `Operation` (ADR-0012).
     - **Approvals.** Approval decisions are made only on approval requests (`:approve`, `:reject`), which require `workflow.request.decide` plus the approval permission of the object type, listed per operation in `x-object-permissions` (object type to permission code). Payment runs are released directly (`payment-runs/{id}:release`) by a person other than the proposer.
-    - **Agents** call the same operations. Operations marked `x-agent: false` (approval decisions, identity administration) are never exposed as agent tools and refuse agent tokens. An agent acts within its autonomy level (`agent_profile.autonomy_level`, ADR-0036): level 0 only reads; level 1 also performs the operations marked `x-autonomy: propose`, which only propose (its sessions, tool-call records and recommendations, change requests, drafts); level 2 performs any write its permissions allow. Above its level an agent is refused with 403 `identity.autonomy_insufficient`. While the tenant's AI is off (`getAiPolicy`: switched off by its administrators or suspended by the platform's operators), every agent request is refused with 403 `agents.ai_disabled`.
+    - **Agents** call the same operations. Operations marked `x-agent: false` (approval decisions, identity administration) are never exposed as agent tools and refuse agent tokens. An agent acts within its autonomy level (`agent_profile.autonomy_level`, ADR-0036): level 0 only reads; level 1 also performs the operations marked `x-autonomy: propose`, which only propose (its sessions, tool-call records and recommendations, change requests, drafts); level 2 performs any write its permissions allow. Operations marked `x-autonomy: read` change nothing though they are not GET (a long-running verification), and every level performs them. Above its level an agent is refused with 403 `identity.autonomy_insufficient`. While the tenant's AI is off (`getAiPolicy`: switched off by its administrators or suspended by the platform's operators), every agent request is refused with 403 `agents.ai_disabled`.
     - **Rate limits.** Every response carries `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`; 429 adds `Retry-After`.
   contact:
     name: Platform API team
@@ -5241,6 +5241,7 @@ paths:
       summary: Create a purchase order
       description: Creates a draft purchase order, optionally from an approved requisition (one live order per requisition).
       x-permission: procurement.order.create
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -5330,6 +5331,7 @@ paths:
       summary: Update a draft purchase order
       description: "Changes a purchase order in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears an optional field, arrays are replaced as a whole."
       x-permission: procurement.order.create
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -6512,6 +6514,7 @@ paths:
       summary: Enter a supplier invoice
       description: "Creates a parked supplier invoice. The same supplier reference for the same supplier is refused with 409 `payables.duplicate_invoice` (normalized: case, spaces and punctuation ignored)."
       x-permission: payables.invoice.capture
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -6840,6 +6843,7 @@ paths:
       summary: Update a parked supplier invoice
       description: "Changes a supplier invoice in status `parked`. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears an optional field, arrays are replaced as a whole. An invoice on a purchase order is matched again after a change before it posts, and the change unlinks an approved exception request (`workflow_request_id`), decided on the invoice as it was."
       x-permission: payables.invoice.capture
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -8224,6 +8228,7 @@ paths:
       summary: Cancel an approval request
       description: "Withdraws a pending request. Only the requester may cancel, with a comment; agents and services may cancel requests they raised (cancelling is not an approval decision). Recorded as a decision."
       x-permission: workflow.request.cancel
+      x-autonomy: propose
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -8344,6 +8349,7 @@ paths:
       summary: Verify the audit chain
       description: Recomputes the tenant's hash chain over a range and compares it with the stored hashes and the write-once anchors.
       x-permission: audit.chain.verify
+      x-autonomy: read
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:

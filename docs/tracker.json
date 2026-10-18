@@ -3663,9 +3663,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Draft-like operations propose (orders, parked invoices, cancelling one's approval request); the audit verification reads",
+        "r": "x-autonomy: propose / read · PO 2026-10-18 · T42g",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Ruling on draft-like operations left at autonomy level 2 (draft orders, parked invoices, payment run proposals, cancelling one's approval request, audit verification)",
-        "r": "ADR-0036 · awaiting PO",
+        "t": "Agents offered only the tools their autonomy level allows",
+        "r": "internal/apitools · T42 follow-up",
         "c": []
        }
       ]

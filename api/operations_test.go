@@ -32,8 +32,9 @@ func TestOperationsFromTheContract(t *testing.T) {
 	// Only proposing writes are x-autonomy: propose; no read is marked,
 	// since every level reads (ADR-0036).
 	for id, want := range map[string]bool{"createRecommendation": true, "createChangeRequest": true, "parkJournalEntry": true,
-		"submitRequisition": true, "cancelRequisition": true,
-		"postSupplierInvoice": false, "releasePurchaseOrder": false, "verifyAuditChain": false} {
+		"submitRequisition": true, "cancelRequisition": true, "createPurchaseOrder": true, "updatePurchaseOrder": true,
+		"createSupplierInvoice": true, "updateSupplierInvoice": true, "cancelApprovalRequest": true,
+		"postSupplierInvoice": false, "releasePurchaseOrder": false, "cancelPurchaseOrder": false, "proposePaymentRun": false, "verifyAuditChain": false} {
 		if got := ops[id].Proposes; got != want {
 			t.Errorf("%s proposes: got %v, want %v", id, got, want)
 		}
@@ -41,6 +42,9 @@ func TestOperationsFromTheContract(t *testing.T) {
 	for id, op := range ops {
 		if op.Proposes && op.Method == "GET" {
 			t.Errorf("%s: a read marked x-autonomy: propose", id)
+		}
+		if op.Reads != (id == "verifyAuditChain") {
+			t.Errorf("%s reads: got %v", id, op.Reads)
 		}
 	}
 }

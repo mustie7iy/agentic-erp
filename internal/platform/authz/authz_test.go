@@ -287,6 +287,7 @@ func TestAutonomyLevels(t *testing.T) {
 		"read":    {ID: "read", Method: "GET", Permission: "a.b.read", AgentAllowed: true},
 		"propose": {ID: "propose", Method: "POST", Permission: "a.b.propose", AgentAllowed: true, Proposes: true},
 		"write":   {ID: "write", Method: "POST", Permission: "a.b.write", AgentAllowed: true},
+		"verify":  {ID: "verify", Method: "POST", Permission: "a.b.read", AgentAllowed: true, Reads: true},
 	}
 	a := authz.New(ops)
 	ten := pgtest.NewTenant(t, "platform.operation.read")
@@ -299,11 +300,11 @@ func TestAutonomyLevels(t *testing.T) {
 		level   int // -1: no profile
 		allowed map[string]bool
 	}{
-		{-1, map[string]bool{"read": true}},
-		{0, map[string]bool{"read": true}},
-		{1, map[string]bool{"read": true, "propose": true}},
-		{2, map[string]bool{"read": true, "propose": true, "write": true}},
-		{3, map[string]bool{"read": true, "propose": true, "write": true}},
+		{-1, map[string]bool{"read": true, "verify": true}},
+		{0, map[string]bool{"read": true, "verify": true}},
+		{1, map[string]bool{"read": true, "verify": true, "propose": true}},
+		{2, map[string]bool{"read": true, "verify": true, "propose": true, "write": true}},
+		{3, map[string]bool{"read": true, "verify": true, "propose": true, "write": true}},
 	} {
 		t.Run(fmt.Sprintf("level %d", c.level), func(t *testing.T) {
 			if c.level < 0 {

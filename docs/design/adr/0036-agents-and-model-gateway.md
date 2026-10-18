@@ -141,13 +141,15 @@ client certificates in production (ADR-0033). Today:
     start at 0 and an administrator raises them. Proposing are the
     agent's own sessions and records, change requests (configuration,
     partner data, bank accounts) and drafts that have no effect until
-    someone else acts (parked journal entries, requisitions, their submit
-    and cancel). Left at level 2, pending a product-owner ruling: draft
-    purchase orders, parked supplier invoices, payment run proposals
-    (which reserve items), cancelling one's approval request, and the
-    audit chain's verification (a long-running read run by POST). An
-    agent is offered every tool its permissions allow; those above its
-    level answer 403.
+    someone else acts (parked journal entries, requisitions with their
+    submit and cancel, draft purchase orders, parked supplier invoices),
+    and cancelling an approval request one raised (PO, 2026-10-18).
+    Payment run proposals reserve items and stay at level 2, as does
+    cancelling a purchase order, which cancels released orders too.
+    `x-autonomy: read` marks an operation that changes nothing though it
+    runs by POST (the audit chain's verification): every level performs
+    it. An agent is offered every tool its permissions allow; those above
+    its level answer 403 (filtering them by level is tracked).
 
 ## Alternatives
 - **A global gateway service:** one place for keys and prices, but tenant
