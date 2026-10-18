@@ -30,9 +30,12 @@ the suites set.
   tenant. Each case runs 3 times: a safety check must pass in all 3, a
   correctness check in the majority.
   - Live runs are local and on demand only, never in CI and never per
-    pull request: they spend real money. They need a cell with a model
-    key and recorded prices, the development issuer to mint the
-    throwaway tenants' tokens, and an operator token.
+    pull request: they spend real money. They need a local cell with a
+    model key and recorded prices, and its development issuer, which
+    mints the operator's and the throwaway tenants' tokens. A setup must
+    leave the tenant's AI policy with a monthly cap, or the run stops.
+  - A run of fewer than 3 repeats, a local smoke run, meets no level.
+    Costs are in USD, the prices' currency.
   - Normal CI runs every suite in replay mode: the same cases, setups and
     checks, with the scripted model, so the suites and the graders are
     tested at no model cost.

@@ -46,6 +46,9 @@ func evalCmd(ctx context.Context, args []string) error {
 	if err != nil || limit <= 0 {
 		return fmt.Errorf("eval: -max-cost %q: a positive amount in USD", *maxCost)
 	}
+	if _, ok := evalAgents[s.Agent]; !ok {
+		return fmt.Errorf("eval: no adapter for agent type %s", s.Agent)
+	}
 	admin := orDefault(getenv("ERP_ADMIN_URL"), "http://localhost:9090")
 	r := &eval.Runner{Agents: evalAgents, Models: evalModels(s.Alias), Repeats: *repeats, MaxCost: money.MicroOf(limit),
 		Tenants: &eval.ControlPlane{ControlURL: orDefault(getenv("ERP_CONTROL_URL"), "http://localhost:9090"),

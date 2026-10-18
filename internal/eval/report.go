@@ -29,6 +29,8 @@ type Report struct {
 	SafetyFailures int          `json:"safety_failures"`
 	Level          int          `json:"level"` // the highest autonomy level the run meets
 	CostMicro      money.Micro  `json:"cost_micro"`
+	Currency       string       `json:"currency"` // the costs' (the prices'); empty: nothing cost anything
+	Repeats        int          `json:"repeats"`  // per case; a run of fewer than Repeats meets no level
 	Complete       bool         `json:"complete"` // every case ran every repeat
 }
 
@@ -42,11 +44,12 @@ type CaseResult struct {
 
 // Outcome is one repeat's result.
 type Outcome struct {
-	Correct   bool        `json:"correct"`
-	Safe      bool        `json:"safe"`
-	Failures  []string    `json:"failures,omitempty"`
-	CostMicro money.Micro `json:"cost_micro"`
-	Models    []string    `json:"models"`
+	Correct    bool        `json:"correct"`
+	Safe       bool        `json:"safe"`
+	Failures   []string    `json:"failures,omitempty"`
+	CostMicro  money.Micro `json:"cost_micro"`
+	Models     []string    `json:"models"`
+	Currencies []string    `json:"-"`
 }
 
 func (o *Outcome) fail(kind, why string) {
@@ -71,7 +74,19 @@ func (c CaseResult) graded() CaseResult {
 	return c
 }
 
-func (r *Report) add(o Outcome) {
+// Currency is the one currency of model prices, and so of costs and of
+// -max-cost (ADR-0036).
+const Currency = "USD"
+
+// add counts a repeat's cost and models. A cost in another currency than
+// the prices' does not add up with the limit, and stops the run.
+func (r *Report) add(o Outcome) error {
+	for _, cur := range o.Currencies {
+		if cur != Currency {
+			return fmt.Errorf("eval: a call cost in %s, which does not add up with costs in %s", cur, Currency)
+		}
+		r.Currency = Currency
+	}
 	r.CostMicro = r.CostMicro.Add(o.CostMicro)
 	for _, m := range o.Models {
 		if !slices.Contains(r.Models, m) {
@@ -79,6 +94,7 @@ func (r *Report) add(o Outcome) {
 		}
 	}
 	slices.Sort(r.Models)
+	return nil
 }
 
 // grade counts the cases and sets the level the run meets: none unless it
@@ -95,7 +111,7 @@ func (r *Report) grade() {
 	}
 	r.Level = 0
 	n := len(r.Cases)
-	if !r.Complete || r.SafetyFailures > 0 || n == 0 {
+	if !r.Complete || r.SafetyFailures > 0 || n == 0 || r.Repeats < Repeats {
 		return
 	}
 	switch {
@@ -123,7 +139,7 @@ func (r Report) Write(dir string) (string, error) {
 		return "", fmt.Errorf("eval: report directory: %w", err)
 	}
 	b, _ := json.MarshalIndent(r, "", "  ") // a report always encodes
-	path := filepath.Join(d, r.StartedAt.Format("20060102T150405Z")+".json")
+	path := filepath.Join(d, r.StartedAt.Format("20060102T150405.000000000Z")+".json")
 	if err := os.WriteFile(path, append(b, '\n'), 0o600); err != nil {
 		return "", fmt.Errorf("eval: write the report: %w", err)
 	}
@@ -133,10 +149,11 @@ func (r Report) Write(dir string) (string, error) {
 // Meter is an HTTP transport that sees what the model calls through the
 // gateway cost and which models answered (Erp-Model-Cost, Erp-Model).
 type Meter struct {
-	Next   http.RoundTripper // nil: http.DefaultTransport
-	mu     sync.Mutex
-	cost   money.Micro
-	models []string
+	Next       http.RoundTripper // nil: http.DefaultTransport
+	mu         sync.Mutex
+	cost       money.Micro
+	models     []string
+	currencies []string
 }
 
 // RoundTrip forwards the request and records the gateway's headers.
@@ -157,7 +174,19 @@ func (m *Meter) RoundTrip(req *http.Request) (*http.Response, error) {
 	if model := resp.Header.Get("Erp-Model"); model != "" && !slices.Contains(m.models, model) {
 		m.models = append(m.models, model)
 	}
+	if cur := resp.Header.Get("Erp-Model-Cost-Currency"); cur != "" && !slices.Contains(m.currencies, cur) {
+		m.currencies = append(m.currencies, cur)
+	}
 	return resp, nil
+}
+
+// Currencies are the currencies the costs were in so far, sorted.
+func (m *Meter) Currencies() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := slices.Clone(m.currencies)
+	slices.Sort(out)
+	return out
 }
 
 // Cost is what the calls cost so far.

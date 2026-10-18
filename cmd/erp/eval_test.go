@@ -37,6 +37,9 @@ type replayCell struct {
 
 func newReplayCell(t *testing.T) replayCell {
 	t.Helper()
+	// The suites cap their tenants' AI; a cap's routes need priced models.
+	pgtest.Exec(t, `INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read, recorded_by)
+		VALUES ('claude-opus-5-5', '2026-01-01', 'USD', 400000000, 2000000000, 500000000, 20000000, 'test') ON CONFLICT DO NOTHING`)
 	api := apitest.New(t)
 	is := api.Issuer
 	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
@@ -54,11 +57,11 @@ func newReplayCell(t *testing.T) replayCell {
 	c := replayCell{api: httptest.NewServer(api.Handler), control: httptest.NewServer(controlplane.Handler(s, v, slog.New(slog.NewTextHandler(io.Discard, nil))))}
 	t.Cleanup(c.api.Close)
 	t.Cleanup(c.control.Close)
-	c.mint = func(_ context.Context, tenant uuid.UUID, subject string) (string, error) {
-		if tenant == uuid.Nil {
+	c.mint = func(_ context.Context, tenant, subject string) (string, error) {
+		if tenant == "" {
 			return is.Token(t, uuid.Nil, subject, map[string]any{"tenant_id": nil}), nil
 		}
-		return is.Token(t, tenant, subject, nil), nil
+		return is.Token(t, uuid.MustParse(tenant), subject, nil), nil
 	}
 	return c
 }
@@ -161,6 +164,16 @@ func TestEvalReplay(t *testing.T) {
 	if len(reports) != 1 {
 		t.Errorf("reports: got %v, want one under echo/none", reports)
 	}
+	// Every throwaway tenant was offboarded.
+	var open int
+	pgtest.Scan(t, `SELECT count(*) FROM tenancy.tenant WHERE name LIKE 'eval-%' AND status <> 'offboarded'`, nil, &open)
+	if open != 0 {
+		t.Errorf("tenants left: got %d, want 0", open)
+	}
+	// A report that cannot be written fails the run.
+	if code, got := cli(t, "eval", "run", "-suite", suitePath, "-repeats", "1", "-out", "/dev/null/x"); code == 0 || !strings.Contains(got, "report directory") {
+		t.Errorf("exit %d, output %q, want the report refused", code, got)
+	}
 	// Its summary not printed, the command fails.
 	var errBuf strings.Builder
 	out, errOut = failing{}, &errBuf
@@ -185,9 +198,9 @@ func TestEvalCmdRefusals(t *testing.T) {
 		{[]string{"eval", "run", "-suite", suitePath, "-max-cost", "0"}, "-max-cost"},
 		{[]string{"eval", "run", "-suite", suitePath, "-max-cost", "x"}, "-max-cost"},
 		{[]string{"eval", "run", "-suite", suitePath}, "no adapter"},
-		{[]string{"eval", "run", "-suite", suitePath, "-out", "/dev/null/x"}, "report directory"},
 	} {
 		t.Run(strings.Join(c.args, " "), func(t *testing.T) {
+			c.args = append(c.args, "-out", t.TempDir()) // a run never writes into the repository
 			code, got := cli(t, c.args...)
 			if code == 0 || !strings.Contains(got, c.want) {
 				t.Errorf("exit %d, output %q, want a failure with %q", code, got, c.want)

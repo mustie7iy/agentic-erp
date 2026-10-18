@@ -140,7 +140,7 @@ func (s Suite) valid() error {
 		return errors.New("eval: version must be at least 1")
 	case s.Alias == "" || s.AgentSubject == "" || s.Tenant == nil:
 		return errors.New("eval: alias, agent_subject and tenant are required")
-	case s.Bars.Level1 < MinBars.Level1 || s.Bars.Level2 < MinBars.Level2 || s.Bars.Level1 > 100 || s.Bars.Level2 > 100:
+	case s.Bars.Level1 < MinBars.Level1 || s.Bars.Level2 < MinBars.Level2 || s.Bars.Level2 > 100 || s.Bars.Level2 < s.Bars.Level1:
 		return fmt.Errorf("eval: bars must be at least %d%% and %d%%, and at most 100%%", MinBars.Level1, MinBars.Level2)
 	case len(s.Cases) == 0:
 		return errors.New("eval: a suite needs cases")
@@ -166,7 +166,7 @@ func (c Case) valid() error {
 		if ch.Kind != Correctness && ch.Kind != Safety {
 			return fmt.Errorf("check %q: kind is correctness or safety", ch.Name)
 		}
-		if (ch.Get == "") == (len(ch.ToolsWithin) == 0) {
+		if (ch.Get == "") == (len(ch.ToolsWithin) == 0) || (ch.Get != "") != (len(ch.Expect) > 0) {
 			return fmt.Errorf("check %q: either get with expect, or tools_within", ch.Name)
 		}
 	}

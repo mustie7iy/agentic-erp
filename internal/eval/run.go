@@ -67,7 +67,8 @@ func (r *Runner) Run(ctx context.Context, s Suite) (Report, error) {
 	if !ok {
 		return Report{}, fmt.Errorf("eval: no adapter for agent type %s", s.Agent)
 	}
-	rep := Report{Agent: s.Agent, SuiteVersion: s.Version, Alias: s.Alias, Bars: s.Bars, StartedAt: clock.Now(r.Now).UTC(), Models: []string{}}
+	rep := Report{Agent: s.Agent, SuiteVersion: s.Version, Alias: s.Alias, Bars: s.Bars, StartedAt: clock.Now(r.Now).UTC(), Models: []string{},
+		Repeats: r.repeats()}
 	var err error
 	for _, c := range s.Cases {
 		cr := CaseResult{Name: c.Name}
@@ -77,7 +78,9 @@ func (r *Runner) Run(ctx context.Context, s Suite) (Report, error) {
 				break
 			}
 			cr.Repeats = append(cr.Repeats, o)
-			rep.add(o)
+			if err = rep.add(o); err != nil {
+				break
+			}
 			if r.MaxCost > 0 && rep.CostMicro > r.MaxCost {
 				err = ErrMaxCost
 				break
@@ -103,16 +106,18 @@ func (r *Runner) repeats() int {
 // once runs one repeat of a case on a tenant of its own. A failure of the
 // harness (the tenant, the setup, the model's meter) stops the run; the
 // agent failing is the case's outcome.
-func (r *Runner) once(ctx context.Context, s Suite, c Case, agent Agent) (Outcome, error) {
+func (r *Runner) once(ctx context.Context, s Suite, c Case, agent Agent) (o Outcome, err error) {
 	ten, err := r.Tenants.New(ctx, s.Tenant)
 	if err != nil {
 		return Outcome{}, err
 	}
-	o, err := r.run(ctx, s, c, ten, agent)
-	if cerr := ten.Close(context.WithoutCancel(ctx)); err == nil && cerr != nil {
-		err = fmt.Errorf("eval: close the tenant: %w", cerr)
-	}
-	return o, err
+	// Deferred, so an adapter that panics still leaves no tenant behind.
+	defer func() {
+		if cerr := ten.Close(context.WithoutCancel(ctx)); err == nil && cerr != nil {
+			err = fmt.Errorf("eval: close the tenant: %w", cerr)
+		}
+	}()
+	return r.run(ctx, s, c, ten, agent)
 }
 
 func (r *Runner) run(ctx context.Context, s Suite, c Case, ten Tenant, agent Agent) (Outcome, error) {
@@ -121,6 +126,9 @@ func (r *Runner) run(ctx context.Context, s Suite, c Case, ten Tenant, agent Age
 		if err := do(ctx, ten.Admin(), call, saved); err != nil {
 			return Outcome{}, fmt.Errorf("eval: case %q: setup %s %s: %w", c.Name, call.Method, call.Path, err)
 		}
+	}
+	if err := capped(ctx, ten.Admin()); err != nil {
+		return Outcome{}, fmt.Errorf("eval: case %q: %w", c.Name, err)
 	}
 	as, err := ten.As(ctx, s.AgentSubject)
 	if err != nil {
@@ -140,12 +148,29 @@ func (r *Runner) run(ctx context.Context, s Suite, c Case, ten Tenant, agent Age
 		o.fail(Correctness, "agent: "+err.Error())
 	}
 	for _, ch := range c.Checks {
-		if err := check(ctx, ten.Admin(), ch, saved); err != nil {
-			o.fail(ch.Kind, ch.Name+": "+err.Error())
+		failed, err := check(ctx, ten.Admin(), ch, saved)
+		if err != nil {
+			return Outcome{}, fmt.Errorf("eval: case %q: check %q: %w", c.Name, ch.Name, err)
+		}
+		if failed != nil {
+			o.fail(ch.Kind, ch.Name+": "+failed.Error())
 		}
 	}
-	o.CostMicro, o.Models = meter.Cost(), meter.Models()
+	o.CostMicro, o.Models, o.Currencies = meter.Cost(), meter.Models(), meter.Currencies()
 	return o, nil
+}
+
+// capped refuses a tenant whose AI policy has no monthly cap: a live run
+// spends only within one, whatever the runner's own limit (ADR-0039).
+func capped(ctx context.Context, admin *apitools.Client) error {
+	doc, err := get(ctx, admin, "/v1/ai-policy")
+	if err != nil {
+		return err
+	}
+	if _, ok := at(doc, "monthly_cap.amount"); !ok {
+		return errors.New("the setup leaves the tenant's AI policy without a monthly cap")
+	}
+	return nil
 }
 
 // do makes one setup call and saves what it names.

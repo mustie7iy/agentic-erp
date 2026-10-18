@@ -11,8 +11,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/google/uuid"
-
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/eval"
 )
@@ -129,8 +127,8 @@ func TestControlPlaneFailures(t *testing.T) {
 		{"no administrator", map[string]any{"region": "eu-west"}, nil, nil, "administrator subject"},
 		{"creation refused", tenantBody, map[string]int{"/control/v1/tenants": 409}, nil, "answered 409"},
 		{"no operator token", tenantBody, map[string]int{"/dev/token": 500}, nil, "operator's token"},
-		{"no administrator token", tenantBody, nil, func(_ context.Context, ten uuid.UUID, _ string) (string, error) {
-			if ten == uuid.Nil {
+		{"no administrator token", tenantBody, nil, func(_ context.Context, ten, _ string) (string, error) {
+			if ten == "" {
 				return "tok-op", nil
 			}
 			return "", errors.New("issuer down")
@@ -179,7 +177,7 @@ func TestControlPlaneFailures(t *testing.T) {
 		if _, err := cp.New(context.Background(), tenantBody); err == nil {
 			t.Error("got no error")
 		}
-		cp.Mint = func(context.Context, uuid.UUID, string) (string, error) { return "t", nil }
+		cp.Mint = func(context.Context, string, string) (string, error) { return "t", nil }
 		if _, err := cp.New(context.Background(), tenantBody); err == nil {
 			t.Error("an unreachable control plane: got no error")
 		}
@@ -187,7 +185,7 @@ func TestControlPlaneFailures(t *testing.T) {
 		if _, err := cp.New(context.Background(), tenantBody); err == nil {
 			t.Error("a bad URL: got no error")
 		}
-		if _, err := eval.DevIssuer("http://bad host", nil)(context.Background(), uuid.Nil, "s"); err == nil {
+		if _, err := eval.DevIssuer("http://bad host", nil)(context.Background(), "", "s"); err == nil {
 			t.Error("a bad issuer URL: got no error")
 		}
 	})

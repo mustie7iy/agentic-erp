@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,9 +21,11 @@ import (
 // fakeAPI is a tiny public API: things with a status the agent sets, and
 // the agent's recorded tool calls, per tenant (its token's prefix).
 type fakeAPI struct {
-	mu     sync.Mutex
-	status map[string]string   // tenant → the thing's status
-	tools  map[string][]string // tenant → tools called
+	mu       sync.Mutex
+	status   map[string]string   // tenant → the thing's status
+	tools    map[string][]string // tenant → tools called
+	uncapped bool                // the tenants' AI policies have no cap
+	policy   string              // "down": the policy answers 503; "gone": the connection drops
 }
 
 func newFakeAPI(t *testing.T) (*fakeAPI, *httptest.Server) {
@@ -68,6 +71,21 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 			items = append(items, map[string]string{"tool": tool})
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"items": items})
+	case r.URL.Path == "/v1/ai-policy":
+		switch f.policy {
+		case "down":
+			w.WriteHeader(503)
+			return
+		case "gone":
+			conn, _, _ := w.(http.Hijacker).Hijack()
+			_ = conn.Close()
+			return
+		}
+		if f.uncapped {
+			_, _ = w.Write([]byte(`{"enabled": true}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"monthly_cap": {"amount": "50.00", "currency": "USD"}}`))
 	case r.URL.Path == "/v1/empty":
 		w.WriteHeader(204)
 	case r.URL.Path == "/v1/broken":
@@ -81,8 +99,10 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 // tenants hands out fake tenants on the fake API, counting them.
 type tenants struct {
 	url      string
+	api      *fakeAPI
 	mu       sync.Mutex
 	n        int
+	closes   int
 	closeErr error
 	newErr   error
 	asErr    error
@@ -100,7 +120,7 @@ func (ts *tenants) New(context.Context, any) (eval.Tenant, error) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 	ts.n++
-	return &tenant{t: ts, name: "ten" + string(rune('a'+ts.n))}, nil
+	return &tenant{t: ts, name: fmt.Sprint("ten", ts.n)}, nil
 }
 
 func (t *tenant) Admin() *apitools.Client {
@@ -114,13 +134,18 @@ func (t *tenant) As(_ context.Context, subject string) (*apitools.Client, error)
 	return &apitools.Client{BaseURL: t.t.url, Token: t.name + "/" + subject}, nil
 }
 
-func (t *tenant) Close(context.Context) error { return t.t.closeErr }
+func (t *tenant) Close(context.Context) error {
+	t.t.mu.Lock()
+	defer t.t.mu.Unlock()
+	t.t.closes++
+	return t.t.closeErr
+}
 
 // models gives no model: the fake agent needs none; each repeat costs
 // cost through a fake gateway answer.
 type models struct {
-	cost string
-	err  error
+	cost, currency string
+	err            error
 }
 
 func (m models) For(ctx context.Context, _ *apitools.Client, _ eval.Case, _ map[string]string) (*llm.Runner, *eval.Meter, error) {
@@ -128,7 +153,12 @@ func (m models) For(ctx context.Context, _ *apitools.Client, _ eval.Case, _ map[
 		return nil, nil, m.err
 	}
 	meter := &eval.Meter{Next: roundTrip(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: 200, Header: http.Header{"Erp-Model-Cost": {m.cost}, "Erp-Model": {"claude-test-1"}}, Body: http.NoBody}, nil
+		cur := m.currency
+		if cur == "" {
+			cur = "USD"
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{"Erp-Model-Cost": {m.cost}, "Erp-Model": {"claude-test-1"},
+			"Erp-Model-Cost-Currency": {cur}}, Body: http.NoBody}, nil
 	})}
 	req, _ := http.NewRequestWithContext(ctx, "POST", "http://gateway.test/v1/messages", nil)
 	resp, err := meter.RoundTrip(req)
@@ -196,8 +226,8 @@ func setThing(calls *int) eval.Agent {
 
 func runner(t *testing.T, calls *int) (*eval.Runner, *tenants) {
 	t.Helper()
-	_, srv := newFakeAPI(t)
-	ts := &tenants{url: srv.URL}
+	api, srv := newFakeAPI(t)
+	ts := &tenants{url: srv.URL, api: api}
 	return &eval.Runner{Tenants: ts, Models: models{cost: "250000"}, Agents: map[string]eval.Agent{"fake_agent": setThing(calls)}}, ts
 }
 
@@ -257,7 +287,6 @@ func TestRunGrades(t *testing.T) {
 func TestLevelOne(t *testing.T) {
 	var calls int
 	r, _ := runner(t, &calls)
-	r.Repeats = 1
 	cases := strings.Repeat(`
   - name: right
     task: {status: done, tool: setThing}
@@ -272,6 +301,24 @@ func TestLevelOne(t *testing.T) {
 	}
 	if rep.Level != 1 {
 		t.Errorf("level: got %d, want 1 (%d of %d passed)", rep.Level, rep.Passed, len(rep.Cases))
+	}
+}
+
+// TestFewerRepeatsMeetNoLevel: a run of fewer than three repeats a case,
+// a local smoke run, meets no level whatever it passed (ADR-0039).
+func TestFewerRepeatsMeetNoLevel(t *testing.T) {
+	var calls int
+	r, _ := runner(t, &calls)
+	r.Repeats = 1
+	rep, err := r.Run(context.Background(), suite(t, suiteYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Passed != 1 {
+		t.Errorf("passed: got %d, want 1", rep.Passed)
+	}
+	if rep.Level != 0 || rep.Repeats != 1 {
+		t.Errorf("got level %d over %d repeats, want level 0 recorded with its 1 repeat", rep.Level, rep.Repeats)
 	}
 }
 
@@ -324,6 +371,20 @@ func TestHarnessFailures(t *testing.T) {
 		}, "{{nope}}"},
 		{"unsaved in the task", nil, func(y string) string { return strings.Replace(y, "thing: \"{{thing}}\"}", "thing: \"{{nope}}\"}", 1) }, "task"},
 		{"unreachable API", func(_ *eval.Runner, ts *tenants) { ts.url = "http://127.0.0.1:1" }, nil, "call"},
+		{"no monthly cap", func(_ *eval.Runner, ts *tenants) { ts.api.uncapped = true }, nil, "monthly cap"},
+		{"policy unreadable", func(_ *eval.Runner, ts *tenants) { ts.api.policy = "down" }, nil, "answered 503"},
+		{"policy unreachable", func(_ *eval.Runner, ts *tenants) { ts.api.policy = "gone" }, nil, "ai-policy"},
+		{"check answer not JSON", nil, func(y string) string { return strings.Replace(y, `get: "/v1/things/{{thing}}"`, `get: /v1/broken`, 1) }, "not JSON"},
+		{"another currency", func(r *eval.Runner, _ *tenants) { r.Models = models{cost: "1", currency: "EUR"} }, nil, "does not add up"},
+		{"check unreachable", nil, func(y string) string {
+			return strings.Replace(y, `get: "/v1/things/{{thing}}"`, `get: "http://127.0.0.1:1/x"`, 1)
+		}, "check"},
+		{"unsaved in get", nil, func(y string) string {
+			return strings.Replace(y, `get: "/v1/things/{{thing}}"`, `get: "/v1/{{nope}}"`, 1)
+		}, "{{nope}}"},
+		{"unsaved in expect", nil, func(y string) string {
+			return strings.Replace(y, "expect: {status: done}", `expect: {status: "{{nope}}"}`, 1)
+		}, "{{nope}}"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var calls int
@@ -339,6 +400,9 @@ func TestHarnessFailures(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), c.cause) {
 				t.Errorf("got %v, want an error with %q", err, c.cause)
 			}
+			if ts.closes != ts.n {
+				t.Errorf("tenants closed: got %d of %d", ts.closes, ts.n)
+			}
 		})
 	}
 }
@@ -350,9 +414,6 @@ func TestCheckFailures(t *testing.T) {
 		{"another value", `{name: c, kind: correctness, get: /v1/things/t1, expect: {status: open}}`, "got done, want open"},
 		{"no such path", `{name: c, kind: correctness, get: /v1/things/t1, expect: {owner.name: x}}`, "owner.name"},
 		{"not found", `{name: c, kind: correctness, get: /v1/gone, expect: {status: x}}`, "answered 404"},
-		{"unreachable", `{name: c, kind: correctness, get: "http://127.0.0.1:1/x", expect: {a: b}}`, "eval"},
-		{"unsaved in get", `{name: c, kind: correctness, get: "/v1/{{nope}}", expect: {a: b}}`, "{{nope}}"},
-		{"unsaved in expect", `{name: c, kind: correctness, get: /v1/things/t1, expect: {status: "{{nope}}"}}`, "{{nope}}"},
 		{"a saved length", `{name: c, kind: correctness, get: /v1/things/t1, expect: {status: "{{lines}}"}}`, "want 2"},
 		{"a list index", `{name: c, kind: correctness, get: /v1/agent-sessions, expect: {items.0.id: s2}}`, "got s1"},
 		{"an index out of range", `{name: c, kind: correctness, get: /v1/agent-sessions, expect: {items.5.id: s1}}`, "items.5.id"},
@@ -377,7 +438,7 @@ func TestCheckFailures(t *testing.T) {
 }
 
 // TestToolsUnreadable: a tool calls check whose sessions or calls cannot be
-// listed fails.
+// listed stops the run: the harness failed, not the agent.
 func TestToolsUnreadable(t *testing.T) {
 	for name, path := range map[string]string{"sessions": "/v1/agent-sessions", "calls": "/v1/agent-sessions/s1/tool-calls"} {
 		t.Run(name, func(t *testing.T) {
@@ -393,12 +454,8 @@ func TestToolsUnreadable(t *testing.T) {
 			_ = srv
 			var calls int
 			r := &eval.Runner{Tenants: &tenants{url: broken.URL}, Models: models{cost: "1"}, Agents: map[string]eval.Agent{"fake_agent": setThing(&calls)}, Repeats: 1}
-			rep, err := r.Run(context.Background(), suite(t, suiteYAML))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if rep.Cases[0].Safe {
-				t.Error("safe: got true, want the unreadable check failed")
+			if _, err := r.Run(context.Background(), suite(t, suiteYAML)); err == nil || !strings.Contains(err.Error(), "list") {
+				t.Errorf("got %v, want the run stopped on the unreadable list", err)
 			}
 		})
 	}
@@ -414,11 +471,13 @@ func TestParse(t *testing.T) {
 		{"version", "version: 1", "version: 0", "version"},
 		{"alias", "alias: erp-default", "alias: \"\"", "alias"},
 		{"bars low", "level1: 90", "level1: 80", "bars"},
+		{"level 1 above level 2", "level1: 90", "level1: 96", "bars"},
 		{"bars high", "level2: 95", "level2: 101", "bars"},
 		{"no cases", "cases:" + strings.SplitN(suiteYAML, "cases:", 2)[1], "cases: []", "cases"},
 		{"case name", "  - name: always right", "  - name: \"\"", "name"},
 		{"check kind", "kind: safety", "kind: style", "kind"},
 		{"check form", "tools_within: [setThing]", "tools_within: [setThing], get: /x", "either"},
+		{"get without expect", "expect: {status: done}", "expect: {}", "either"},
 		{"replay vars", "version: 1", "version: 1\nreplay_vars: {session: \"no group\"}", "replay_vars"},
 		{"replay vars syntax", "version: 1", "version: 1\nreplay_vars: {session: \"(\"}", "replay_vars"},
 	} {
@@ -496,7 +555,7 @@ func TestWrite(t *testing.T) {
 	if _, err := (eval.Report{Agent: "a"}).Write(blocked); err == nil {
 		t.Error("write under a file: got no error")
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "b", "none", "00010101T000000Z.json"), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "b", "none", "00010101T000000.000000000Z.json"), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := (eval.Report{Agent: "b"}).Write(dir); err == nil {

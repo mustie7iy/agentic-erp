@@ -17,8 +17,9 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 )
 
-// Mint gives a token for a subject of a tenant (uuid.Nil: an operator's).
-type Mint func(ctx context.Context, tenant uuid.UUID, subject string) (string, error)
+// Mint gives a token for a subject of a tenant (its id; empty: an
+// operator's).
+type Mint func(ctx context.Context, tenant, subject string) (string, error)
 
 // ControlPlane makes throwaway tenants on a cell's control plane for live
 // runs (ADR-0039): each is created from the suite's tenant body under a
@@ -42,17 +43,20 @@ func (cp *ControlPlane) New(ctx context.Context, body any) (Tenant, error) {
 		return nil, errors.New("eval: the suite's tenant names no administrator subject")
 	}
 	b = copyMap(b)
-	b["name"] = "eval-" + uuid.NewString()
+	name := "eval-" + uuid.NewString()
+	b["name"] = name
 	var created struct {
 		ID uuid.UUID `json:"id"`
 	}
 	if err := cp.control(ctx, http.MethodPost, "/control/v1/tenants", b, "", &created); err != nil {
-		return nil, fmt.Errorf("eval: create the tenant: %w", err)
+		// A creation whose answer was lost leaves a tenant only its name
+		// finds: offboard it by hand.
+		return nil, fmt.Errorf("eval: create the tenant %s: %w", name, err)
 	}
 	t := &liveTenant{cp: cp, id: created.ID}
-	token, err := cp.Mint(ctx, created.ID, subject)
+	token, err := cp.Mint(ctx, created.ID.String(), subject)
 	if err != nil {
-		return nil, errors.Join(fmt.Errorf("eval: the administrator's token: %w", err), t.Close(ctx))
+		return nil, errors.Join(fmt.Errorf("eval: the administrator's token: %w", err), t.Close(context.WithoutCancel(ctx)))
 	}
 	t.admin = &apitools.Client{BaseURL: cp.APIURL, Token: token, HTTP: cp.HTTP}
 	return t, nil
@@ -60,7 +64,7 @@ func (cp *ControlPlane) New(ctx context.Context, body any) (Tenant, error) {
 
 // control calls the control plane as an operator.
 func (cp *ControlPlane) control(ctx context.Context, method, path string, body any, ifMatch string, into any) error {
-	token, err := cp.Mint(ctx, uuid.Nil, "eval-runner")
+	token, err := cp.Mint(ctx, "", "eval-runner")
 	if err != nil {
 		return fmt.Errorf("eval: the operator's token: %w", err)
 	}
@@ -102,7 +106,7 @@ type liveTenant struct {
 func (t *liveTenant) Admin() *apitools.Client { return t.admin }
 
 func (t *liveTenant) As(ctx context.Context, subject string) (*apitools.Client, error) {
-	token, err := t.cp.Mint(ctx, t.id, subject)
+	token, err := t.cp.Mint(ctx, t.id.String(), subject)
 	if err != nil {
 		return nil, fmt.Errorf("eval: the token of %s: %w", subject, err)
 	}
@@ -115,28 +119,28 @@ func (t *liveTenant) Close(ctx context.Context) error {
 	return t.cp.control(ctx, http.MethodPost, "/control/v1/tenants/"+t.id.String()+":offboard", nil, "*", nil)
 }
 
-// DevIssuer mints tokens from a server running with ERP_DEV_ISSUER: the
-// local cell a live run uses.
+// DevIssuer mints tokens from a server running with ERP_DEV_ISSUER (its
+// admin listener's /dev/token): the local cell a live run uses, and erp
+// token.
 func DevIssuer(adminURL string, h *http.Client) Mint {
-	return func(ctx context.Context, tenant uuid.UUID, subject string) (string, error) {
-		body := map[string]string{"subject": subject}
-		if tenant != uuid.Nil {
-			body["tenant_id"] = tenant.String()
-		}
-		raw, _ := json.Marshal(body) // strings always encode
+	return func(ctx context.Context, tenant, subject string) (string, error) {
+		raw, _ := json.Marshal(map[string]string{"tenant_id": tenant, "subject": subject}) // strings always encode
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(adminURL, "/")+"/dev/token", bytes.NewReader(raw))
 		if err != nil {
-			return "", fmt.Errorf("eval: %w", err)
+			return "", fmt.Errorf("admin listener %q: %w", adminURL, err)
 		}
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := client(h).Do(req)
 		if err != nil {
-			return "", fmt.Errorf("eval: ask for a token: %w", err)
+			return "", fmt.Errorf("ask the admin listener: %w", err)
 		}
-		defer func() { _ = resp.Body.Close() }() // only read from
+		defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 		var answer struct{ Token string }
-		if err := json.NewDecoder(resp.Body).Decode(&answer); err != nil || resp.StatusCode != http.StatusOK || answer.Token == "" {
-			return "", fmt.Errorf("eval: the admin listener answered %d with no token (is ERP_DEV_ISSUER on?)", resp.StatusCode)
+		if err := json.NewDecoder(resp.Body).Decode(&answer); err != nil {
+			return "", fmt.Errorf("the admin listener answered %d with no readable token (is the server running with ERP_DEV_ISSUER=true?): %w", resp.StatusCode, err)
+		}
+		if resp.StatusCode != http.StatusOK || answer.Token == "" {
+			return "", fmt.Errorf("the admin listener answered %d: is the server running with ERP_DEV_ISSUER=true?", resp.StatusCode)
 		}
 		return answer.Token, nil
 	}

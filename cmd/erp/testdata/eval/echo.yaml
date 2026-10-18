@@ -14,6 +14,10 @@ configuration: ../../../../internal/config/testdata/valid.yaml
 replay_vars:
   session: "session ([0-9a-f-]{36})"
 setup:
+  # A live run spends only within a cap (ADR-0039).
+  - method: PATCH
+    path: /v1/ai-policy
+    body: {monthly_cap: {amount: "5.00", currency: USD}}
   - path: /v1/roles
     body: {code: eval_agent, name: Eval agent}
     status: 201

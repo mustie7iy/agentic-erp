@@ -23,14 +23,12 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/signal"
 	"sort"
@@ -41,6 +39,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/sapconfig"
+	"github.com/mustie7iy/agentic-erp/internal/eval"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
@@ -308,31 +307,11 @@ func token(ctx context.Context, args []string) error {
 	if *subject == "" {
 		return errors.New("-subject is required")
 	}
-	admin := getenv("ERP_ADMIN_URL")
-	if admin == "" {
-		admin = "http://localhost:9090"
-	}
-	body, _ := json.Marshal(map[string]string{"tenant_id": *tenant, "subject": *subject}) // strings always encode
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(admin, "/")+"/dev/token", bytes.NewReader(body))
+	tok, err := eval.DevIssuer(orDefault(getenv("ERP_ADMIN_URL"), "http://localhost:9090"), nil)(ctx, *tenant, *subject)
 	if err != nil {
-		return fmt.Errorf("token: ERP_ADMIN_URL %q: %w", admin, err)
+		return fmt.Errorf("token: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("token: ask the admin listener: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
-	var answer struct {
-		Token string
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&answer); err != nil {
-		return fmt.Errorf("the admin listener answered %d with no readable token (is the server running with ERP_DEV_ISSUER=true?): %w", resp.StatusCode, err)
-	}
-	if resp.StatusCode != http.StatusOK || answer.Token == "" {
-		return fmt.Errorf("the admin listener answered %d: is the server running with ERP_DEV_ISSUER=true?", resp.StatusCode)
-	}
-	return printf("token", "%s\n", answer.Token)
+	return printf("token", "%s\n", tok)
 }
 
 func genMock(_ context.Context, args []string) error {
