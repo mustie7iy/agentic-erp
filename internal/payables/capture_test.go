@@ -172,11 +172,20 @@ func TestCapture(t *testing.T) {
 	}
 	// The model gateway's own refusals reach the caller as they are: the
 	// tenant's AI off, its budget spent, documents withheld (ADR-0036).
-	for _, code := range []string{"agents.documents_withheld", "agents.ai_disabled", "agents.budget_exhausted"} {
-		t.Run(code, func(t *testing.T) {
-			refused := problem.Unprocessable(code, "The gateway refused.")
+	for _, c := range []struct {
+		refused *problem.Problem
+		want    string
+	}{
+		{problem.Unprocessable("agents.documents_withheld", "Withheld."), "agents.documents_withheld"},
+		{problem.Forbidden("agents.ai_disabled", "Off."), "agents.ai_disabled"},
+		{problem.New(429, "agents.budget_exhausted", "Spent", "Spent."), "agents.budget_exhausted"},
+		{problem.New(502, "agents.model_unreachable", "Unreachable", "Unreachable."), unreadable},
+		{problem.BadRequest("request.invalid_body", "The gateway's own bug."), unreadable},
+	} {
+		code, refused := c.want, c.refused
+		t.Run(refused.Code, func(t *testing.T) {
 			x := extractor{err: fmt.Errorf("capture: extract invoice: %w", &url.Error{Op: "Post", URL: "http://model-gateway.internal", Err: refused})}
-			_, err := run(x, "%PDF-1 "+code)
+			_, err := run(x, "%PDF-1 "+refused.Code)
 			if got := problem.From(err).Code; got != code {
 				t.Errorf("code: got %s, want %s", got, code)
 			}

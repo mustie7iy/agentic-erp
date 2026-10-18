@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 
@@ -17,10 +18,10 @@ type Countries func(ctx context.Context, tx pgx.Tx) ([]string, error)
 // screen redacts the request's text before it leaves the cell, IBANs,
 // card numbers and the tax identifiers of the tenant's countries
 // (ADR-0036), and refuses documents, which cannot be redacted, while the
-// tenant's policy withholds them. Only text is redacted: what the
-// request's prompt, system prompt and tool results say. Tool definitions
-// and the model's own earlier turns' tool input carry no data the model was
-// not already given.
+// tenant's policy withholds them. Every block's text and nested content is
+// redacted, whatever its type, and so is the input of the earlier turns'
+// tool calls, which the client sends back as it likes. Tool definitions are
+// the caller's code, not data, and pass.
 func (g *Gateway) screen(ctx context.Context, tx pgx.Tx, pol Policy, req *request) error {
 	var countries []string
 	if g.Countries != nil {
@@ -76,22 +77,26 @@ func (s *screener) content(raw json.RawMessage, messages bool) json.RawMessage {
 	return out
 }
 
-// block screens one content block in place.
+// block screens one content block in place. A type the gateway does not
+// know is screened all the same: its text, its nested content and its
+// input; fail-closed for data, the provider judges the shape.
 func (s *screener) block(b map[string]json.RawMessage) {
 	var kind string
 	_ = json.Unmarshal(b["type"], &kind) // a block without a string type is the provider's to refuse
-	switch kind {
-	case "text":
-		var text string
-		if json.Unmarshal(b["text"], &text) == nil {
-			b["text"] = s.text(text)
-		}
-	case "tool_result":
-		if c, ok := b["content"]; ok {
-			b["content"] = s.content(c, false)
-		}
-	case "document", "image":
+	if kind == "document" || kind == "image" {
 		s.documents = true
+	}
+	var text string
+	if t, ok := b["text"]; ok && json.Unmarshal(t, &text) == nil {
+		b["text"] = s.text(text)
+	}
+	if c, ok := b["content"]; ok {
+		b["content"] = s.content(c, false)
+	}
+	if in, ok := b["input"]; ok {
+		var n int
+		b["input"], n = redactJSON(s.r, in)
+		s.n += n
 	}
 }
 
@@ -116,7 +121,7 @@ func minimize(ctx context.Context, tx pgx.Tx, countries Countries, input map[str
 	r := redact.For(cs)
 	out := make(map[string]json.RawMessage, len(input))
 	for k, v := range input {
-		out[k] = redactJSON(r, v)
+		out[k], _ = redactJSON(r, v) // the record keeps no count
 	}
 	if summary != nil {
 		s, _ := r.Text(*summary)
@@ -125,28 +130,34 @@ func minimize(ctx context.Context, tx pgx.Tx, countries Countries, input map[str
 	return out, summary, nil
 }
 
-// redactJSON is a JSON value with every string in it redacted.
-func redactJSON(r *redact.Redactor, raw json.RawMessage) json.RawMessage {
+// redactJSON is a JSON value with every string in it redacted, and how
+// many replacements that made. Numbers are kept as they were written
+// (UseNumber): an amount or an id never passes through a float.
+func redactJSON(r *redact.Redactor, raw json.RawMessage) (json.RawMessage, int) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
 	var v any
-	if json.Unmarshal(raw, &v) != nil {
-		return raw // not JSON: the database refuses it as it would have
+	if dec.Decode(&v) != nil {
+		return raw, 0 // not JSON: passed as it is, for whoever reads it next to refuse
 	}
-	out, _ := json.Marshal(redactValue(r, v)) // decoded JSON always encodes
-	return out
+	n := 0
+	out, _ := json.Marshal(redactValue(r, v, &n)) // decoded JSON always encodes
+	return out, n
 }
 
-func redactValue(r *redact.Redactor, v any) any {
+func redactValue(r *redact.Redactor, v any, n *int) any {
 	switch v := v.(type) {
 	case string:
-		out, _ := r.Text(v)
+		out, k := r.Text(v)
+		*n += k
 		return out
 	case []any:
 		for i := range v {
-			v[i] = redactValue(r, v[i])
+			v[i] = redactValue(r, v[i], n)
 		}
 	case map[string]any:
 		for k := range v {
-			v[k] = redactValue(r, v[k])
+			v[k] = redactValue(r, v[k], n)
 		}
 	}
 	return v

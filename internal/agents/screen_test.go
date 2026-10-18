@@ -26,7 +26,8 @@ const redacting = `{"model": "erp-default", "max_tokens": 8,
 		{"role": "user", "content": "Pay DE89 3704 0044 0532 0130 00 for Anna Schmidt <anna@example.com>"},
 		{"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "getCard", "input": {"q": "4111111111111111"}}]},
 		{"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": [{"type": "text", "text": "card 4111 1111 1111 1111"}]},
-			{"type": "tool_result", "tool_use_id": "t2", "content": "EIN 12-3456789"}]}
+			{"type": "tool_result", "tool_use_id": "t2", "content": "EIN 12-3456789"},
+			{"type": "search_result", "source": "s", "title": "t", "content": [{"type": "text", "text": "IBAN NL91 ABNA 0417 1643 00"}]}]}
 	]}`
 
 // TestRedaction: the gateway forwards a call's text with its IBANs, card
@@ -44,18 +45,18 @@ func TestRedaction(t *testing.T) {
 		t.Fatalf("status: got %d %s, want 200", rec.Code, rec.Body)
 	}
 	sent := string(p.sent)
-	for _, gone := range []string{"DE89", "4111 1111", "DE123456789"} {
+	for _, gone := range []string{"DE89", "4111 1111", "4111111111111111", "DE123456789", "NL91"} {
 		if strings.Contains(sent, gone) {
 			t.Errorf("forwarded %q: %s", gone, sent)
 		}
 	}
-	for _, kept := range []string{"[IBAN]", "[CARD]", "[TAX_ID]", "Anna Schmidt", "anna@example.com", "12-3456789", `"q":"4111111111111111"`} {
+	for _, kept := range []string{"[IBAN]", "[CARD]", "[TAX_ID]", "Anna Schmidt", "anna@example.com", "12-3456789", `"q":"[CARD]"`} {
 		if !strings.Contains(sent, kept) {
 			t.Errorf("not forwarded %q: %s", kept, sent)
 		}
 	}
-	if n := count(t, ten, `SELECT redactions FROM agents.model_call WHERE tenant_id = $1`); n != 3 {
-		t.Errorf("redactions: got %d, want 3", n)
+	if n := count(t, ten, `SELECT redactions FROM agents.model_call WHERE tenant_id = $1`); n != 5 {
+		t.Errorf("redactions: got %d, want 5", n)
 	}
 }
 
@@ -121,10 +122,19 @@ func TestToolCallsMinimized(t *testing.T) {
 	_, agent := setup(t)
 	s, _ := agent.Must(201, "POST", "/v1/agent-sessions", `{"purpose": "p", "model": "m"}`, "")
 	c, _ := agent.Must(201, "POST", "/v1/agent-sessions/"+s["id"].(string)+"/tool-calls",
-		`{"tool": "payInvoice", "input": {"iban": "DE89 3704 0044 0532 0130 00", "cards": [{"pan": "4111 1111 1111 1111"}], "n": 5, "ok": true},
+		`{"tool": "payInvoice", "input": {"iban": "DE89 3704 0044 0532 0130 00", "cards": [{"pan": "4111 1111 1111 1111"}], "n": 5, "ok": true,
+			"amount": 12345678901234567890, "price": 1234.50},
 		"result_summary": "paid to DE89370400440532013000"}`, "")
-	if got := fmt.Sprint(c["input"]); got != "map[cards:[map[pan:[CARD]]] iban:[IBAN] n:5 ok:true]" {
+	if got := fmt.Sprint(c["input"]); got != "map[amount:1.2345678901234567e+19 cards:[map[pan:[CARD]]] iban:[IBAN] n:5 ok:true price:1234.5]" {
 		t.Errorf("input: got %s", got)
+	}
+	var amount, price string
+	pgtest.Scan(t, `SELECT input->>'amount', input->>'price' FROM agents.tool_call WHERE session_id = $1`, []any{s["id"]}, &amount, &price)
+	if amount != "12345678901234567890" {
+		t.Errorf("recorded amount: got %s, want every digit", amount)
+	}
+	if price != "1234.50" {
+		t.Errorf("recorded price: got %s, want 1234.50 as written", price)
 	}
 	if c["result_summary"] != "paid to [IBAN]" {
 		t.Errorf("summary: got %v, want paid to [IBAN]", c["result_summary"])

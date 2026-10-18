@@ -101,7 +101,9 @@ client certificates in production (ADR-0033). Today:
   - Only what the request carries leaves the cell: prompts, tool
     definitions, and the tool results the agent sends back. Bank accounts
     and national identifiers reach agents already masked by the API.
-  - Before forwarding, the gateway redacts text blocks deterministically.
+  - Before forwarding, the gateway redacts the request's text
+    deterministically: every block's text and nested content, whatever its
+    type, and the input of earlier tool calls the client sends back.
     It replaces IBANs, payment card numbers (Luhn) and the tax-identifier
     patterns of the tenant's countries with placeholders, and counts the
     replacements.
@@ -109,10 +111,11 @@ client certificates in production (ADR-0033). Today:
     name, the address a draft message goes to).
   - Documents (PDF and image blocks) cannot be redacted. They leave only
     while the policy's `documents_to_models` is on, which it is by
-    default; a tenant that switches it off has capture refuse with 422
-    `agents.documents_withheld`.
-  - Prompt and response content is never stored. The tool calls already
-    recorded (`agents.tool_call`) are minimized by the same redaction.
+    default; while a tenant has it off, the gateway refuses every call
+    carrying one, capture's included, with 422 `agents.documents_withheld`.
+  - Prompt and response content is never stored. Tool calls
+    (`agents.tool_call`) are recorded minimized by the same redaction,
+    from T42e on; rows recorded before are not rewritten.
 - **Audit (ADR-0011, ADR-0026).** Policy changes, kill switch changes,
   budget refusals and threshold crossings are audited, with counts and
   identifiers only and no content or personal data. `model_call` is the

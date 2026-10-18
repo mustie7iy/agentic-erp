@@ -91,9 +91,10 @@ func (e *Endpoints) capture(ctx context.Context, legalEntity uuid.UUID, document
 	}
 	ext, err := e.Extractor.Extract(ctx, document)
 	if err != nil {
-		// The model gateway's refusals reach the caller as they are: the
-		// tenant's AI off, a budget spent, documents withheld (ADR-0036).
-		if refused := (*problem.Problem)(nil); errors.As(err, &refused) {
+		// The model gateway's refusals of the tenant's call reach the caller
+		// as they are: its AI off, a budget spent, documents withheld, its
+		// policy's routing (ADR-0036). The gateway failing stays unreadable.
+		if refused := (*problem.Problem)(nil); errors.As(err, &refused) && refused.Status < 500 && strings.HasPrefix(refused.Code, "agents.") {
 			return operations.Operation{}, refused
 		}
 		return operations.Operation{}, unreadable(err.Error())

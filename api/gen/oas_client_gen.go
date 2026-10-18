@@ -151,10 +151,12 @@ type Invoker interface {
 	//
 	// Extracts a supplier invoice from a document and creates it `parked` with source `capture`.
 	// Extraction can exceed 5 seconds, so this returns an Operation whose `resource` is the new invoice.
-	// The document goes to a model through the cell's model gateway (ADR-0036), whose refusals are
-	// answered as they are: 422 `agents.documents_withheld` while the tenant's AI policy withholds
-	// documents from models, 403 `agents.ai_disabled` while its AI is off, 429 `agents.budget_exhausted`
-	// when its cap is spent.
+	// The document goes to a model through the cell's model gateway (ADR-0036), whose refusals of the
+	// tenant's call are answered as they are: 422 `agents.documents_withheld` while the tenant's AI policy
+	// withholds documents from models, 403 `agents.ai_disabled` while its AI is off, 429
+	// `agents.budget_exhausted` when its cap is spent, 422 `agents.model_not_allowed` or
+	// `agents.model_unpriced` when its policy routes extraction to a model it does not allow or that has
+	// no price. The gateway failing is 422 `payables.unreadable_document`.
 	//
 	// POST /v1/supplier-invoices:capture
 	CaptureSupplierInvoice(ctx context.Context, request *SupplierInvoiceCaptureMultipart, params CaptureSupplierInvoiceParams) (CaptureSupplierInvoiceRes, error)
@@ -3999,10 +4001,12 @@ func (c *Client) sendCancelSupplierInvoice(ctx context.Context, request *ReasonI
 //
 // Extracts a supplier invoice from a document and creates it `parked` with source `capture`.
 // Extraction can exceed 5 seconds, so this returns an Operation whose `resource` is the new invoice.
-// The document goes to a model through the cell's model gateway (ADR-0036), whose refusals are
-// answered as they are: 422 `agents.documents_withheld` while the tenant's AI policy withholds
-// documents from models, 403 `agents.ai_disabled` while its AI is off, 429 `agents.budget_exhausted`
-// when its cap is spent.
+// The document goes to a model through the cell's model gateway (ADR-0036), whose refusals of the
+// tenant's call are answered as they are: 422 `agents.documents_withheld` while the tenant's AI policy
+// withholds documents from models, 403 `agents.ai_disabled` while its AI is off, 429
+// `agents.budget_exhausted` when its cap is spent, 422 `agents.model_not_allowed` or
+// `agents.model_unpriced` when its policy routes extraction to a model it does not allow or that has
+// no price. The gateway failing is 422 `payables.unreadable_document`.
 //
 // POST /v1/supplier-invoices:capture
 func (c *Client) CaptureSupplierInvoice(ctx context.Context, request *SupplierInvoiceCaptureMultipart, params CaptureSupplierInvoiceParams) (CaptureSupplierInvoiceRes, error) {
