@@ -3,6 +3,7 @@ package database_test
 import (
 	"context"
 	"errors"
+	"net/url"
 	"testing"
 	"time"
 
@@ -242,5 +243,41 @@ func TestToday(t *testing.T) {
 	pgtest.CheckErr(t, err, "database: read current date") // the closed transaction's read fails
 	if !got.IsZero() {
 		t.Errorf("closed transaction: got %v, want the zero date", got)
+	}
+}
+
+// TestPassword: Settings.Password is asked for each new connection, in
+// place of the URL's.
+func TestPassword(t *testing.T) {
+	ctx := context.Background()
+	u, err := url.Parse(pgtest.URL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, ok := u.User.Password()
+	if !ok {
+		t.Fatal("the test database's URL names no password: the test proves nothing")
+	}
+	u.User = url.UserPassword(u.User.Username(), "not-the-password")
+	if p, err := database.Open(ctx, u.String(), database.DefaultSettings); err == nil {
+		p.Close()
+		t.Fatal("the test database took a wrong password: the test proves nothing")
+	}
+	asked := 0
+	pool, err := database.Open(ctx, u.String(), database.Settings{Password: func(context.Context) (string, error) {
+		asked++
+		return right, nil
+	}})
+	if err != nil {
+		t.Fatalf("open with the asked password: %v", err)
+	}
+	pool.Close()
+	if asked == 0 {
+		t.Error("the password was not asked for")
+	}
+	boom := errors.New("unreadable")
+	_, err = database.Open(ctx, u.String(), database.Settings{Password: func(context.Context) (string, error) { return "", boom }})
+	if !errors.Is(err, boom) {
+		t.Errorf("open: got %v, want the password's error", err)
 	}
 }

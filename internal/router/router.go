@@ -24,6 +24,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
@@ -37,7 +38,7 @@ type Config struct {
 	Environment     string            // ERP_ENV (required, no default): development or production, as for the cells (internal/platform/config)
 	Issuers         []authn.Issuer    // ERP_OIDC_ISSUERS, the same list the cells trust (optional; tenants' registered providers resolve through the directory)
 	OperatorIssuers []authn.Issuer    // ERP_OPERATOR_ISSUERS, for the global control plane on the admin listener; empty leaves it off
-	PageTokenKey    []byte            // ERP_PAGE_TOKEN_KEY, base64, at least 32 bytes (required with ERP_OPERATOR_ISSUERS)
+	PageTokenKey    []byte            // ERP_PAGE_TOKEN_KEY (or an env: or file: reference to it), base64, at least 32 bytes (required with ERP_OPERATOR_ISSUERS)
 	CacheTTL        time.Duration     // ERP_DIRECTORY_CACHE, how long a lookup is remembered (default 30s)
 	LogLevel        slog.Level        // ERP_LOG_LEVEL (default info)
 	ShutdownTimeout time.Duration     // ERP_SHUTDOWN_TIMEOUT (default 20s)
@@ -47,6 +48,11 @@ type Config struct {
 	Public          *tlsconf.Store    // ERP_ROUTER_PUBLIC_CERT, ERP_ROUTER_PUBLIC_KEY (env: or file:): the public listener's certificate, a public CA's; nil: plaintext (development)
 	TrustDomain     string            // ERP_TRUST_DOMAIN: the cells the router reaches are spiffe://<domain>/<cell>/erp-server (ADR-0033)
 	ProxyFrom       []netip.Prefix    // ERP_ROUTER_PROXY_FROM, CIDRs: the load balancer's subnets, whose connections begin with a PROXY v2 header naming the client (ADR-0035); empty: none
+
+	// ERP_DIRECTORY_PASSWORD (env: or file:): the directory login's
+	// password, read again for each new connection in place of the URL's,
+	// so RDS's rotated master credentials need no restart; nil: the URL's.
+	DirectoryPassword func(context.Context) (string, error)
 }
 
 // LoadConfig reads and validates the configuration.
@@ -69,6 +75,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 			errs = append(errs, err)
 		}
 	}
+	errs = append(errs, c.loadDirectoryPassword(getenv)...)
 	errs = append(errs, c.loadIssuers(getenv)...)
 	var err error
 	if c.CacheTTL, err = time.ParseDuration(get("ERP_DIRECTORY_CACHE", "30s")); err != nil || c.CacheTTL <= 0 {
@@ -85,6 +92,34 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		errs = append(errs, err)
 	}
 	return c, errors.Join(errs...)
+}
+
+// loadDirectoryPassword reads ERP_DIRECTORY_PASSWORD, a reference to the
+// replica's environment or a mounted file: resolved now, so a missing one
+// fails startup, and again for every new connection.
+func (c *Config) loadDirectoryPassword(getenv func(string) string) []error {
+	ref := getenv("ERP_DIRECTORY_PASSWORD")
+	if ref == "" {
+		return nil
+	}
+	scheme, _, _ := strings.Cut(ref, ":")
+	if scheme != secrets.SchemeEnv && scheme != secrets.SchemeFile {
+		return []error{errors.New("ERP_DIRECTORY_PASSWORD must be an env: or file: reference: it is read again for each new connection")}
+	}
+	local := secrets.Local{Getenv: getenv}
+	if _, err := local.Resolve(context.Background(), ref); err != nil {
+		return []error{fmt.Errorf("ERP_DIRECTORY_PASSWORD: %w", err)}
+	}
+	c.DirectoryPassword = func(ctx context.Context) (string, error) { return local.Resolve(ctx, ref) }
+	return nil
+}
+
+// DirectorySettings are the directory pool's: the defaults, with the
+// password asked per connection when one is configured.
+func (c Config) DirectorySettings() database.Settings {
+	s := database.DefaultSettings
+	s.Password = c.DirectoryPassword
+	return s
 }
 
 // proxyFrom parses ERP_ROUTER_PROXY_FROM, a comma-separated list of CIDRs.
@@ -119,8 +154,12 @@ func (c *Config) loadIssuers(getenv func(string) string) []error {
 		if err := json.Unmarshal([]byte(raw), &c.OperatorIssuers); err != nil || len(c.OperatorIssuers) == 0 {
 			errs = append(errs, errors.New(`ERP_OPERATOR_ISSUERS must be a JSON list of {"issuer", "audience"}`))
 		}
-		var err error
-		if c.PageTokenKey, err = base64.StdEncoding.DecodeString(getenv("ERP_PAGE_TOKEN_KEY")); err != nil || len(c.PageTokenKey) < 32 {
+		// The key may be a reference to a mounted file (env: or file:).
+		raw, err := secrets.Value(context.Background(), secrets.Local{Getenv: getenv}, getenv("ERP_PAGE_TOKEN_KEY"))
+		if err == nil {
+			c.PageTokenKey, err = base64.StdEncoding.DecodeString(raw)
+		}
+		if err != nil || len(c.PageTokenKey) < 32 {
 			errs = append(errs, errors.New("ERP_OPERATOR_ISSUERS needs ERP_PAGE_TOKEN_KEY, base64 of at least 32 random bytes, the same on every router"))
 		}
 	}

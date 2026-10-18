@@ -520,3 +520,60 @@ func TestModelCallsMayTakeTheirTime(t *testing.T) {
 		})
 	}
 }
+
+// TestLoadConfigDirectoryPassword: ERP_DIRECTORY_PASSWORD is a reference,
+// resolved at startup and again for each connection, so a rotated
+// password reaches new connections; the page-token key may be one too.
+func TestLoadConfigDirectoryPassword(t *testing.T) {
+	t.Setenv("PGSSLMODE", "") // pgx reads the process's PG* settings, not the injected environment
+	dir := t.TempDir()
+	file := tlstest.WriteFile(t, dir, "password", []byte("first\n"))
+	key := tlstest.WriteFile(t, dir, "page-token-key", []byte(base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))))
+	base := map[string]string{"ERP_DIRECTORY_URL": "postgres://u@dir.example.com/erp", "ERP_ENV": "development"}
+	env := func(set map[string]string) func(string) string {
+		m := maps.Clone(base)
+		maps.Copy(m, set)
+		return func(k string) string { return m[k] }
+	}
+	c, err := router.LoadConfig(env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.DirectoryPassword != nil || c.DirectorySettings().Password != nil {
+		t.Error("no ERP_DIRECTORY_PASSWORD: got a password source, want the URL's")
+	}
+	c, err = router.LoadConfig(env(map[string]string{"ERP_DIRECTORY_PASSWORD": "file:" + file,
+		"ERP_OPERATOR_ISSUERS": `[{"issuer":"https://ops.example.com","audience":"erp-control"}]`, "ERP_PAGE_TOKEN_KEY": "file:" + key}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(c.PageTokenKey); got != 32 {
+		t.Errorf("page-token key from a file: got %d bytes, want 32", got)
+	}
+	settings := c.DirectorySettings()
+	if settings.LockTimeout == 0 || settings.StatementTimeout == 0 {
+		t.Errorf("directory settings: got %+v, want the defaults' timeouts", settings)
+	}
+	for _, want := range []string{"first", "rotated"} {
+		tlstest.WriteFile(t, dir, "password", []byte(want+"\n"))
+		got, err := settings.Password(context.Background())
+		if err != nil || got != want {
+			t.Errorf("password: got %q, %v, want %q", got, err, want)
+		}
+	}
+	for name, bad := range map[string]map[string]string{
+		"a literal":          {"ERP_DIRECTORY_PASSWORD": "hunter2"},
+		"a vault reference":  {"ERP_DIRECTORY_PASSWORD": "vault:erp/directory"},
+		"a missing file":     {"ERP_DIRECTORY_PASSWORD": "file:" + dir + "/none"},
+		"a missing key file": {"ERP_OPERATOR_ISSUERS": `[{"issuer":"https://ops.example.com","audience":"erp-control"}]`, "ERP_PAGE_TOKEN_KEY": "file:" + dir + "/none"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := router.LoadConfig(env(bad))
+			want := "ERP_DIRECTORY_PASSWORD"
+			if _, ok := bad["ERP_PAGE_TOKEN_KEY"]; ok {
+				want = "ERP_PAGE_TOKEN_KEY"
+			}
+			pgtest.WantErr(t, err, want)
+		})
+	}
+}
