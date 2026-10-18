@@ -411,11 +411,10 @@ func SubmitChangeRequest(ctx context.Context, deps Dependencies, id uuid.UUID, i
 	if err := requireStatus(c, "submit", Draft); err != nil {
 		return ChangeRequest{}, err
 	}
-	var baseDoc json.RawMessage
-	if err := tx.QueryRow(ctx, `SELECT document FROM config.config_version WHERE number = $1`, c.BaseVersion).Scan(&baseDoc); err != nil {
-		return ChangeRequest{}, fmt.Errorf("configuration: read base version %d of change request %s: %w", c.BaseVersion, id, err)
+	base, err := assessableVersion(ctx, tx, c.BaseVersion)
+	if err != nil {
+		return ChangeRequest{}, err
 	}
-	base, _ := config.Parse(baseDoc) // activated documents always parse
 	proposed, err := parse(c.Proposed, "proposed")
 	if err != nil {
 		return ChangeRequest{}, err
@@ -542,7 +541,12 @@ func ActivateChangeRequest(ctx context.Context, deps Dependencies, id uuid.UUID,
 		return ChangeRequest{}, problem.Conflict("config.base_version_stale",
 			fmt.Sprintf("The change is based on version %d but version %d is active; propose it again on the active version.", c.BaseVersion, current))
 	}
-	doc, _ := config.Parse(c.Proposed) // validated on submission
+	// Validated on submission, by this binary or a newer one: a key this one
+	// does not know refuses the activation, which would drop it.
+	doc, err := storedProposal(c.Proposed)
+	if err != nil {
+		return ChangeRequest{}, err
+	}
 	v, err := activate(ctx, tx, deps, actor, doc, &current, "change_request", &id)
 	if err != nil {
 		return ChangeRequest{}, err

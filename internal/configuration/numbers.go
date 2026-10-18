@@ -67,6 +67,9 @@ func (Settings) Document(ctx context.Context) (*config.Config, int32, error) {
 	if err != nil {
 		return nil, 0, fmt.Errorf("configuration: read the active configuration: %w", err)
 	}
-	c, _ := config.Parse(doc) // activated documents always parse
+	c, err := activeConfig(ctx, doc)
+	if err != nil {
+		return nil, 0, fmt.Errorf("configuration: read the active configuration %d: %w", n, err)
+	}
 	return c, n, nil
 }

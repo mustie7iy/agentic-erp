@@ -197,18 +197,34 @@ func (w *SimulationWorker) process(ctx context.Context, tx pgx.Tx, actor reqctx.
 	return err
 }
 
+// assessed reads the documents a change request is assessed on.
+func assessed(ctx context.Context, tx pgx.Tx, c ChangeRequest) (*config.Config, *config.Config, error) {
+	base, err := assessableVersion(ctx, tx, c.BaseVersion)
+	if err != nil {
+		return nil, nil, err
+	}
+	proposed, err := storedProposal(c.Proposed)
+	return base, proposed, err
+}
+
 // evidence simulates the change request and, when its tier asks for it,
 // replays the regression suite, recording both, and reports whether all
 // passed with the detail for the audit entry. The simulation and the
 // regression suite are the evidence a tier needs (config.RequiredEvidence).
 // A problem fails the operation and returns no detail: the job is done.
 func (w *SimulationWorker) evidence(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, c ChangeRequest, fail func(*problem.Problem) error) (bool, map[string]any, error) {
-	var baseDoc []byte
-	if err := tx.QueryRow(ctx, `SELECT document FROM config.config_version WHERE number = $1`, c.BaseVersion).Scan(&baseDoc); err != nil {
-		return false, nil, fmt.Errorf("configuration: read base version %d of change request %s: %w", c.BaseVersion, c.ID, err)
+	base, proposed, err := assessed(ctx, tx, c)
+	if err != nil {
+		// A base or proposal this replica cannot read whole fails the
+		// operation, rather than leave it queued behind a retry limit or
+		// block the tenant's queue: the user simulates again, and an
+		// upgraded replica takes it.
+		var p *problem.Problem
+		if errors.As(err, &p) {
+			return false, nil, fail(p)
+		}
+		return false, nil, err
 	}
-	base, _ := config.Parse(baseDoc)        // activated documents always parse
-	proposed, _ := config.Parse(c.Proposed) // validated on submission
 	sim, err := w.Dependencies.Simulator.Simulate(ctx, base, proposed)
 	if err != nil {
 		return false, nil, failOrRetry(err, fail)
