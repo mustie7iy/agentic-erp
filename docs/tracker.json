@@ -553,20 +553,14 @@
         "t": "Payments show the last day their discounts are earned; the exit criterion as one flow through the API",
         "r": "discount_until · TestCashDiscountExitCriterion · T36e",
         "c": []
-       },
-       {
-        "s": "T",
-        "t": "Cash discounts granted to customers (SAP SKT, an expense) need an account determination key of their own",
-        "r": "follow-up of T36",
-        "c": []
-       },
-       {
-        "s": "T",
-        "t": "SAP load of payment terms with discount tiers (T052)",
-        "r": "follow-up of the SAP load",
-        "c": []
        }
       ]
+     },
+     {
+      "s": "T",
+      "t": "Cash discounts granted to customers (SAP SKT, an expense) need an account determination key of their own",
+      "r": "",
+      "c": []
      },
      {
       "s": "P",
