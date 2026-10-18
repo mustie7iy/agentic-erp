@@ -1,4 +1,4 @@
-.PHONY: generate run-server build lint lint-all test test-short db-up test-db coverage fuzz perf load soak resilience demo clean
+.PHONY: generate run-server build lint lint-all test test-short ci-local db-up test-db coverage fuzz perf load soak resilience demo clean
 
 build:
 	go build -o bin/erp ./cmd/erp
@@ -12,13 +12,14 @@ build:
 # and analysing its 650,000 generated lines takes over half an hour.
 GOLANGCI ?= go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0
 LINT_BASE ?= main
+LINT_FLAGS ?=
 LINT_PKGS = $(shell go list -e -f '{{.Dir}}' ./... | grep -vE '/api/gen(/|$$)')
 
 lint:
-	$(GOLANGCI) run --new-from-merge-base=$(LINT_BASE) $(LINT_PKGS)
+	$(GOLANGCI) run $(LINT_FLAGS) --new-from-merge-base=$(LINT_BASE) $(LINT_PKGS)
 
 lint-all:
-	$(GOLANGCI) run $(LINT_PKGS)
+	$(GOLANGCI) run $(LINT_FLAGS) $(LINT_PKGS)
 
 # Everything: functional, end-to-end and non-functional suites, race detector on.
 test:
@@ -28,6 +29,12 @@ test:
 # Fast loop: skips performance budgets.
 test-short:
 	go test -short ./...
+
+# The full gates before a pull request's short GitHub check (06 §6.5):
+# CI's tools at its pinned versions, the shuffled race runs, budgets,
+# coverage and fuzzing. Its report is what scripts/merge-pr.sh requires.
+ci-local:
+	DATABASE_URL="$(DATABASE_URL)" ./scripts/ci-local.sh
 
 # Whole-suite statement coverage of production code, with the CI minimum.
 # Schema tests need PostgreSQL. `make db-up` starts one in Docker on port 55432.

@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# The full gates on this machine, before a pull request's short GitHub check
+# (06 §6.5): everything CI ran on pull requests before the hybrid split, plus
+# the shuffled race runs of 07 §7.7, at the versions CI pins
+# (scripts/ci-tools.sh). Every step runs even after one fails, so one run
+# shows every failure; each step's output is kept in its own log.
+#
+# It writes a report named after the tree it tested to
+# $(git rev-parse --git-common-dir)/ci-local/<tree>.md, shared by every
+# worktree. scripts/merge-pr.sh merges only a pull request whose head tree
+# has a passing report, and posts it there. The tree must be committed and
+# should be rebased on the latest main: the report vouches for exactly this
+# tree, and the breaking-change check compares with main.
+#
+# Needs PostgreSQL (make db-up, max_connections 300) and the Temporal CLI.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+export DATABASE_URL="${DATABASE_URL:-postgres://postgres:dev@localhost:55432/postgres?sslmode=disable}"
+# Kept equal to GITLEAKS_VERSION in .github/workflows/ci.yml.
+GITLEAKS_MODULE=github.com/zricethezav/gitleaks/v8@v8.30.1
+
+if [ -n "$(git status --porcelain)" ]; then
+  echo "ci-local: commit or stash your changes first; the report vouches for a committed tree" >&2
+  exit 2
+fi
+command -v temporal >/dev/null || {
+  echo "ci-local: the Temporal CLI is not on the path; without it the workflow tests skip" >&2
+  exit 2
+}
+head="$(git rev-parse HEAD)"
+tree="$(git rev-parse "HEAD^{tree}")"
+tools="$(./scripts/ci-tools.sh)"
+if [ "$(cat "$tools/.gitleaks.version" 2>/dev/null || true)" != "$GITLEAKS_MODULE" ]; then
+  GOBIN="$tools" go install "$GITLEAKS_MODULE"
+  echo "$GITLEAKS_MODULE" >"$tools/.gitleaks.version"
+fi
+export PATH="$tools:$PATH"
+git fetch -q origin main
+base="$(git merge-base origin/main HEAD)"
+
+logs="$(CDPATH= cd "$(git rev-parse --git-common-dir)" && pwd)/ci-local/$tree"
+rm -rf "$logs" && mkdir -p "$logs"
+results=""
+failed=0
+
+# step runs one gate, its output in its own log, and records the outcome.
+# bash ignores set -e inside an if, so a function it runs must return its
+# failures itself rather than rely on stopping at the first.
+step() {
+  local name="$1" start status
+  shift
+  start=$(date +%s)
+  if "$@" >"$logs/$name.log" 2>&1; then status=ok; else status=FAIL; failed=1; fi
+  printf '%-5s %-11s %5ss\n' "$status" "$name" $(($(date +%s) - start)) | tee -a "$logs/summary"
+  results+="| $name | $status | $(($(date +%s) - start)) s |"$'\n'
+}
+
+breaking() {
+  local spec rc=0
+  for spec in openapi control directory; do
+    if git cat-file -e "origin/main:api/$spec.yaml" 2>/dev/null; then
+      git show "origin/main:api/$spec.yaml" >"$logs/base-$spec.yaml" || return 1
+      oasdiff breaking --fail-on ERR --err-ignore api/breaking-accepted.txt "$logs/base-$spec.yaml" "api/$spec.yaml" || rc=1
+    fi
+  done
+  return "$rc"
+}
+
+step format bash -c 'test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }'
+step vet go vet ./...
+# Another lint on this machine (an editor hook, another worktree) holds
+# golangci-lint's lock: wait for it rather than fail.
+step lint-all make lint-all GOLANGCI=golangci-lint LINT_FLAGS=--allow-serial-runners
+step staticcheck staticcheck ./...
+step govulncheck govulncheck ./...
+step gosec gosec -quiet -exclude=G104,G115,G304,G107 -exclude-dir=api/gen ./...
+step secrets gitleaks git --redact --no-banner --log-opts="--no-merges $base..HEAD" .
+step generate bash -c 'make generate && git diff --exit-code -- api/gen'
+step contract vacuum lint -r api/vacuum-ruleset.yaml -b -q -d api/openapi.yaml api/control.yaml api/directory.yaml
+step breaking breaking
+step schema go test -count=1 ./db
+# Three shuffled runs with the race detector: CI's single race run and the
+# order dependence 07 §7.7 asks for, in one pass.
+step race go test -race -shuffle=on -count=3 ./...
+step budgets bash -c 'go test -count=1 -run Budget ./internal/ledger && go test -count=1 -run Perf ./internal/nfr'
+step coverage ./scripts/coverage.sh
+step fuzz make fuzz FUZZTIME=30s
+step build make build
+
+# A commit, checkout or edit during the run would leave gates having tested
+# something else than the tree the report names.
+if [ -n "$(git status --porcelain)" ] || [ "$(git rev-parse "HEAD^{tree}")" != "$tree" ]; then
+  echo "FAIL  the worktree changed during the run" | tee -a "$logs/summary"
+  results+="| unchanged tree | FAIL | |"$'\n'
+  failed=1
+fi
+verdict=PASS
+[ "$failed" = 0 ] || verdict=FAIL
+report="$logs.md"
+{
+  echo "ci-local $verdict tree $tree"
+  echo
+  echo "Commit $head on $(go env GOOS)/$(go env GOARCH), $(go env GOVERSION), compared with main at $(git rev-parse --short origin/main)."
+  echo
+  echo "| Gate | Result | Time |"
+  echo "|---|---|---|"
+  printf '%s' "$results"
+} >"$report"
+echo "ci-local $verdict tree $tree (report $report, logs $logs)"
+exit "$failed"

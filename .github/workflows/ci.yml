@@ -5,33 +5,31 @@ on:
     branches: [main]
   pull_request:
 
-# A newer push to a pull request makes its running check obsolete: cancel it.
-# Pushes to main are never cancelled, nor queued behind one another.
+# A newer push makes a running check obsolete: on a pull request its
+# previous commit, on main the merges before it, whose changes the newer
+# run's tree contains. Cancel it, so merges in quick succession pay for one
+# full run (06 §6.5).
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
   changes:
-    # Always runs: the secret scan, and whether the suite below has to run
-    # (scripts/ci-changes.sh, 06 §6.5). The suite is skipped for
-    # documentation alone, and on a push to main that brings exactly the tree
-    # the merged pull request's green run tested. A skipped job counts as
-    # passed for a required check.
+    # Always runs: the secret scan, and whether the jobs below have to run
+    # (scripts/ci-changes.sh, 06 §6.5): they are skipped for documentation
+    # alone. A skipped job counts as passed for a required check.
     # No Go and no tool builds here: it gates everything, so it stays a
     # minute long. gitleaks comes as its released binary, checked by hash.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
-      actions: read # the pull request's run and its tested-tree artifact
-      pull-requests: read
+      actions: read # the last green run on main, which a push is compared with
     outputs:
       run: ${{ steps.decide.outputs.run }}
-      code: ${{ steps.decide.outputs.code }}
     env:
       GITLEAKS_VERSION: 8.30.1
       GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
@@ -76,9 +74,14 @@ jobs:
   test:
     needs: changes
     if: needs.changes.outputs.run != 'false'
+    # The hybrid check (06 §6.5): a pull request gets the static checks and
+    # the suite without the race detector, about 15 minutes, after its
+    # author ran the full gates locally (scripts/ci-local.sh, which
+    # scripts/merge-pr.sh requires). A push to main runs the race detector,
+    # the performance budgets and the coverage gate as well, about 35
+    # minutes warm; the first run after a tool change also builds the
+    # pinned tools (about 10 minutes) before the cache has them.
     runs-on: ubuntu-latest
-    # About 35 minutes warm; the first run after a tool change also builds
-    # the pinned tools (about 10 minutes) before the cache has them.
     timeout-minutes: 75
     services:
       postgres:
@@ -158,7 +161,12 @@ jobs:
           done
       - name: Schema tests (migrations and database-enforced rules)
         run: go test -count=1 -v ./db
+      - name: Functional and non-functional tests (without the race detector)
+        # Short mode leaves out the performance budgets, which main runs.
+        if: github.event_name == 'pull_request'
+        run: go test -short -count=1 ./...
       - name: Functional and non-functional tests (race detector)
+        if: github.event_name == 'push'
         # The race build shares nothing with the plain build cache above; drop
         # it first so the runner's disk (72 GB, most of it taken by the image)
         # holds the race build and later the instrumented coverage build.
@@ -167,6 +175,7 @@ jobs:
           df -h / | tail -1
           go test -race -count=1 ./...
       - name: Performance budgets (without the race detector)
+        if: github.event_name == 'push'
         # The runner is about twice as slow as a laptop on these; the scaled
         # budgets still catch a regression (ERP_BUDGET_SCALE, docs/testing.md).
         env:
@@ -175,6 +184,7 @@ jobs:
           go test -count=1 -run Budget -v ./internal/ledger
           go test -count=1 -run Perf -v ./internal/nfr
       - name: Coverage gate
+        if: github.event_name == 'push'
         # The race build above and the instrumented build here share nothing,
         # so the race cache is dropped first; the runner's disk ran out once.
         run: |
@@ -184,30 +194,13 @@ jobs:
           df -h / | tail -1
       - name: Build
         run: make build
-      - name: The tree this run tested
-        # A push to main that brings exactly this tree skips the suite
-        # (scripts/ci-changes.sh). A pull request is tested on its merge
-        # commit, checked out here, so this is the tree to compare.
-        if: github.event_name == 'pull_request'
-        run: |
-          mkdir -p tested-tree
-          git rev-parse "HEAD^{tree}" > tested-tree/tree
-      - name: Save the tested tree
-        if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v6.0.0
-        with:
-          name: tested-tree
-          path: tested-tree/tree
-          retention-days: 14
-          overwrite: true # a re-run of the job saves it again
 
   fuzz:
-    # On main, whenever code changed, even when the suite was skipped for a
-    # tree the pull request already tested: fuzzing finds new inputs each
-    # run. A pull request's tests already run every target's seed corpus,
-    # and the weekly run fuzzes 5 minutes per target.
+    # On main, whenever code changed. A pull request's tests already run
+    # every target's seed corpus, its author fuzzed 30 s per target locally
+    # (scripts/ci-local.sh), and the weekly run fuzzes 5 minutes per target.
     needs: changes
-    if: github.event_name == 'push' && needs.changes.outputs.code != 'false'
+    if: github.event_name == 'push' && needs.changes.outputs.run != 'false'
     # No database: the fuzz targets are parsers (money, config, analytics,
     # bankfile, sap), and a package's database tests skip without one.
     runs-on: ubuntu-latest
