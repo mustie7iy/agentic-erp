@@ -86,6 +86,8 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, _ = w.Write([]byte(`{"monthly_cap": {"amount": "50.00", "currency": "USD"}}`))
+	case r.URL.Path == "/v1/down":
+		w.WriteHeader(502)
 	case r.URL.Path == "/v1/empty":
 		w.WriteHeader(204)
 	case r.URL.Path == "/v1/broken":
@@ -153,12 +155,15 @@ func (m models) For(ctx context.Context, _ *apitools.Client, _ eval.Case, _ map[
 		return nil, nil, m.err
 	}
 	meter := &eval.Meter{Next: roundTrip(func(*http.Request) (*http.Response, error) {
-		cur := m.currency
-		if cur == "" {
-			cur = "USD"
+		h := http.Header{"Erp-Model-Cost": {m.cost}, "Erp-Model": {"claude-test-1"}, "Erp-Model-Cost-Currency": {"USD"}}
+		switch m.currency {
+		case "":
+		case "-":
+			h.Del("Erp-Model-Cost-Currency")
+		default:
+			h.Set("Erp-Model-Cost-Currency", m.currency)
 		}
-		return &http.Response{StatusCode: 200, Header: http.Header{"Erp-Model-Cost": {m.cost}, "Erp-Model": {"claude-test-1"},
-			"Erp-Model-Cost-Currency": {cur}}, Body: http.NoBody}, nil
+		return &http.Response{StatusCode: 200, Header: h, Body: http.NoBody}, nil
 	})}
 	req, _ := http.NewRequestWithContext(ctx, "POST", "http://gateway.test/v1/messages", nil)
 	resp, err := meter.RoundTrip(req)
@@ -371,6 +376,8 @@ func TestHarnessFailures(t *testing.T) {
 		}, "{{nope}}"},
 		{"unsaved in the task", nil, func(y string) string { return strings.Replace(y, "thing: \"{{thing}}\"}", "thing: \"{{nope}}\"}", 1) }, "task"},
 		{"unreachable API", func(_ *eval.Runner, ts *tenants) { ts.url = "http://127.0.0.1:1" }, nil, "call"},
+		{"no currency", func(r *eval.Runner, _ *tenants) { r.Models = models{cost: "1", currency: "-"} }, nil, "no stated currency"},
+		{"check of a server failing", nil, func(y string) string { return strings.Replace(y, `get: "/v1/things/{{thing}}"`, `get: /v1/down`, 1) }, "answered 502"},
 		{"no monthly cap", func(_ *eval.Runner, ts *tenants) { ts.api.uncapped = true }, nil, "monthly cap"},
 		{"policy unreadable", func(_ *eval.Runner, ts *tenants) { ts.api.policy = "down" }, nil, "answered 503"},
 		{"policy unreachable", func(_ *eval.Runner, ts *tenants) { ts.api.policy = "gone" }, nil, "ai-policy"},

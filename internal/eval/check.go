@@ -30,7 +30,10 @@ func check(ctx context.Context, admin *apitools.Client, ch Check, saved map[stri
 	if err != nil {
 		return nil, fmt.Errorf("eval: %w", err)
 	}
-	if !res.OK() {
+	switch {
+	case res.Status >= 500:
+		return nil, fmt.Errorf("GET %s answered %d: %s", path, res.Status, res.Body)
+	case !res.OK():
 		return fmt.Errorf("GET %s answered %d: %s", path, res.Status, res.Body), nil
 	}
 	doc, err := decode(res.Body)

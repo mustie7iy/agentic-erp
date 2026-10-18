@@ -2,6 +2,7 @@ package eval
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -81,13 +82,16 @@ const Currency = "USD"
 // add counts a repeat's cost and models. A cost in another currency than
 // the prices' does not add up with the limit, and stops the run.
 func (r *Report) add(o Outcome) error {
+	r.CostMicro = r.CostMicro.Add(o.CostMicro) // recorded whatever follows: it was spent
 	for _, cur := range o.Currencies {
 		if cur != Currency {
 			return fmt.Errorf("eval: a call cost in %s, which does not add up with costs in %s", cur, Currency)
 		}
 		r.Currency = Currency
 	}
-	r.CostMicro = r.CostMicro.Add(o.CostMicro)
+	if o.CostMicro > 0 && len(o.Currencies) == 0 {
+		return errors.New("eval: the calls cost something in no stated currency")
+	}
 	for _, m := range o.Models {
 		if !slices.Contains(r.Models, m) {
 			r.Models = append(r.Models, m)

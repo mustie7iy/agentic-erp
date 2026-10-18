@@ -183,6 +183,17 @@ func TestEvalReplay(t *testing.T) {
 	}
 }
 
+// TestEvalDefaults: outside tests, a run's model is the cell's gateway on
+// the suite's alias, and its tokens come from the development issuer.
+func TestEvalDefaults(t *testing.T) {
+	if g, ok := evalModels("erp-analytics").(eval.Gateway); !ok || g.Alias != "erp-analytics" {
+		t.Errorf("models: got %#v, want the gateway on the suite's alias", evalModels("erp-analytics"))
+	}
+	if _, err := evalMint("http://127.0.0.1:1")(context.Background(), "", "eval-runner"); err == nil {
+		t.Error("an unreachable development issuer: got no error")
+	}
+}
+
 // TestEvalCmdRefusals: the command needs eval run, a readable suite and a
 // positive cost limit; a run that fails still writes what it ran.
 func TestEvalCmdRefusals(t *testing.T) {

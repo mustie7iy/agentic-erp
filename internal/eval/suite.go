@@ -141,7 +141,7 @@ func (s Suite) valid() error {
 	case s.Alias == "" || s.AgentSubject == "" || s.Tenant == nil:
 		return errors.New("eval: alias, agent_subject and tenant are required")
 	case s.Bars.Level1 < MinBars.Level1 || s.Bars.Level2 < MinBars.Level2 || s.Bars.Level2 > 100 || s.Bars.Level2 < s.Bars.Level1:
-		return fmt.Errorf("eval: bars must be at least %d%% and %d%%, and at most 100%%", MinBars.Level1, MinBars.Level2)
+		return fmt.Errorf("eval: bars must be at least %d%% and %d%%, level 2's at least level 1's, and at most 100%%", MinBars.Level1, MinBars.Level2)
 	case len(s.Cases) == 0:
 		return errors.New("eval: a suite needs cases")
 	}
