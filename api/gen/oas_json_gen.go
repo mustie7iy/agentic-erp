@@ -12987,6 +12987,12 @@ func (s *DownPaymentRequest) encodeFields(e *jx.Encoder) {
 		e.Str(s.Status)
 	}
 	{
+		if s.JournalEntryID.Set {
+			e.FieldStart("journal_entry_id")
+			s.JournalEntryID.Encode(e)
+		}
+	}
+	{
 		if s.CancelReason.Set {
 			e.FieldStart("cancel_reason")
 			s.CancelReason.Encode(e)
@@ -12994,7 +13000,7 @@ func (s *DownPaymentRequest) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfDownPaymentRequest = [17]string{
+var jsonFieldsNameOfDownPaymentRequest = [18]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -13011,7 +13017,8 @@ var jsonFieldsNameOfDownPaymentRequest = [17]string{
 	13: "due_date",
 	14: "reference",
 	15: "status",
-	16: "cancel_reason",
+	16: "journal_entry_id",
+	17: "cancel_reason",
 }
 
 // Decode decodes DownPaymentRequest from json.
@@ -13202,6 +13209,16 @@ func (s *DownPaymentRequest) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"status\"")
+			}
+		case "journal_entry_id":
+			if err := func() error {
+				s.JournalEntryID.Reset()
+				if err := s.JournalEntryID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"journal_entry_id\"")
 			}
 		case "cancel_reason":
 			if err := func() error {
@@ -25712,6 +25729,18 @@ func (s *Payment) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.Kind.Set {
+			e.FieldStart("kind")
+			s.Kind.Encode(e)
+		}
+	}
+	{
+		if s.DownPaymentRequestID.Set {
+			e.FieldStart("down_payment_request_id")
+			s.DownPaymentRequestID.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("items")
 		e.ArrStart()
 		for _, elem := range s.Items {
@@ -25721,7 +25750,7 @@ func (s *Payment) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPayment = [12]string{
+var jsonFieldsNameOfPayment = [14]string{
 	0:  "id",
 	1:  "created_at",
 	2:  "created_by",
@@ -25733,7 +25762,9 @@ var jsonFieldsNameOfPayment = [12]string{
 	8:  "discount_until",
 	9:  "end_to_end_id",
 	10: "journal_entry_id",
-	11: "items",
+	11: "kind",
+	12: "down_payment_request_id",
+	13: "items",
 }
 
 // Decode decodes Payment from json.
@@ -25869,8 +25900,28 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"journal_entry_id\"")
 			}
+		case "kind":
+			if err := func() error {
+				s.Kind.Reset()
+				if err := s.Kind.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"kind\"")
+			}
+		case "down_payment_request_id":
+			if err := func() error {
+				s.DownPaymentRequestID.Reset()
+				if err := s.DownPaymentRequestID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"down_payment_request_id\"")
+			}
 		case "items":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				s.Items = make([]PaymentItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -25898,7 +25949,7 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b01111111,
-		0b00001010,
+		0b00100010,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

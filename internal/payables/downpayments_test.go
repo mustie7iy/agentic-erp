@@ -10,6 +10,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -88,6 +89,8 @@ func TestDownPaymentRequests(t *testing.T) {
 	}
 	e.Problem(409, "payables.invalid_status", "POST", "/v1/down-payment-requests/"+id(taxed)+":cancel", `{"reason": "again"}`, `"2"`)
 	e.Problem(404, "request.not_found", "GET", "/v1/down-payment-requests/"+uuid.NewString(), "", "")
+	pgtest.Exec(t, `DELETE FROM identity.company_access WHERE tenant_id = $1 AND principal_id = $2`, e.Tenant.ID, e.Tenant.Agent.ID)
+	e.As(e.Tenant.Agent).Problem(404, "request.not_found", "GET", "/v1/down-payment-requests/"+id(taxed), "", "")
 	var actions int
 	pgtest.Scan(t, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND object_type = 'payables.down_payment_request'`,
 		[]any{e.Tenant.ID}, &actions)
@@ -174,6 +177,64 @@ func TestDownPaymentDatabaseFailures(t *testing.T) {
 		},
 	}
 	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			if err := call(context.Background()); err == nil {
+				t.Error("outside a unit of work: got nil error, want an error")
+			}
+			apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
+		})
+	}
+}
+
+// TestDownPaymentRequestPorts: what the payments context reads and records
+// through DownPaymentRequests (T46c): the open requests due by a date, one
+// request, and that an entry paid one, which is recorded once; a request
+// paid by another entry, or no longer open, is refused, and a paid request
+// is not cancelled.
+func TestDownPaymentRequestPorts(t *testing.T) {
+	e := setup(t)
+	paid, _ := e.Must(201, "POST", "/v1/down-payment-requests", e.downPayment(e.Supplier, "100.00", "EUR", ""), "")
+	open, _ := e.Must(201, "POST", "/v1/down-payment-requests", e.downPayment(e.Vendor, "50.00", "EUR", ""), "")
+	ports := payables.DownPaymentRequests{}
+	entry := uuid.New()
+	pay := func(ctx context.Context) error { return ports.Paid(ctx, uuid.MustParse(id(paid)), 2026, entry) }
+	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, pay); err != nil {
+		t.Fatalf("paid: %v", err)
+	}
+	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		if err := pay(ctx); err != nil {
+			return fmt.Errorf("paid again by the same entry: %w", err)
+		}
+		pgtest.WantErr(t, ports.Paid(ctx, uuid.MustParse(id(paid)), 2026, uuid.New()), "payables.invalid_status")
+		due, err := ports.Due(ctx, e.DE, "EUR", date("2026-03-31"))
+		if err != nil {
+			return err
+		}
+		if len(due) != 1 || due[0].ID.String() != id(open) {
+			t.Errorf("due: got %v, want only the open request", due)
+		}
+		r, err := ports.Request(ctx, uuid.MustParse(id(paid)))
+		if r.JournalEntryID == nil || *r.JournalEntryID != entry {
+			t.Errorf("paid request's entry: got %v, want %s", r.JournalEntryID, entry)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := e.Must(200, "GET", "/v1/down-payment-requests/"+id(paid), "", "")
+	if got["status"] != "paid" {
+		t.Errorf("status: got %v, want paid", got["status"])
+	}
+	if got["journal_entry_id"] != entry.String() {
+		t.Errorf("journal entry: got %v, want %s", got["journal_entry_id"], entry)
+	}
+	e.Problem(409, "payables.invalid_status", "POST", "/v1/down-payment-requests/"+id(paid)+":cancel", `{"reason": "x"}`, `"2"`)
+	for name, call := range map[string]func(ctx context.Context) error{
+		"due":     func(ctx context.Context) error { _, err := ports.Due(ctx, e.DE, "EUR", date("2026-03-31")); return err },
+		"request": func(ctx context.Context) error { _, err := ports.Request(ctx, uuid.MustParse(id(open))); return err },
+		"paid":    func(ctx context.Context) error { return ports.Paid(ctx, uuid.MustParse(id(open)), 2026, uuid.New()) },
+	} {
 		t.Run(name, func(t *testing.T) {
 			if err := call(context.Background()); err == nil {
 				t.Error("outside a unit of work: got nil error, want an error")

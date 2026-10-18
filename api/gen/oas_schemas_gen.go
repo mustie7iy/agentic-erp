@@ -8038,9 +8038,13 @@ type DownPaymentRequest struct {
 	DueDate time.Time `json:"due_date"`
 	// Reference, such as the supplier's down payment request number.
 	Reference OptString `json:"reference"`
-	// Lifecycle status: `open`, or `cancelled` (`:cancel`). Open enumeration: clients must accept and
-	// preserve values not listed here; values may be added within /v1.
+	// Lifecycle status: `open`, `paid` by a payment run (whose payment posted the down payment on the down
+	// payment account, T46c), or `cancelled` (`:cancel`, refused while a live run pays it). Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
 	Status string `json:"status"`
+	// The journal entry of the payment that paid the request; set with status `paid`.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
 	// Why the request was cancelled; set with status `cancelled`.
 	CancelReason OptString `json:"cancel_reason"`
 }
@@ -8123,6 +8127,11 @@ func (s *DownPaymentRequest) GetReference() OptString {
 // GetStatus returns the value of Status.
 func (s *DownPaymentRequest) GetStatus() string {
 	return s.Status
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *DownPaymentRequest) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
 }
 
 // GetCancelReason returns the value of CancelReason.
@@ -8208,6 +8217,11 @@ func (s *DownPaymentRequest) SetReference(val OptString) {
 // SetStatus sets the value of Status.
 func (s *DownPaymentRequest) SetStatus(val string) {
 	s.Status = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *DownPaymentRequest) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
 }
 
 // SetCancelReason sets the value of CancelReason.
@@ -19162,7 +19176,14 @@ type Payment struct {
 	EndToEndID string `json:"end_to_end_id"`
 	// Payment journal entry, once posted.
 	JournalEntryID OptUUID `json:"journal_entry_id"`
-	// Settled open items.
+	// What the payment pays: `items`, the supplier's open items netted (at most one such payment per
+	// supplier and run), or `down_payment`, one down payment request (ADR-0037), paid whole and never
+	// netted, whose posting puts the down payment on the down payment account. Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	Kind OptString `json:"kind"`
+	// The down payment request a payment of kind `down_payment` pays.
+	DownPaymentRequestID OptUUID `json:"down_payment_request_id"`
+	// Settled open items; none on a down payment's payment.
 	Items []PaymentItem `json:"items"`
 }
 
@@ -19219,6 +19240,16 @@ func (s *Payment) GetEndToEndID() string {
 // GetJournalEntryID returns the value of JournalEntryID.
 func (s *Payment) GetJournalEntryID() OptUUID {
 	return s.JournalEntryID
+}
+
+// GetKind returns the value of Kind.
+func (s *Payment) GetKind() OptString {
+	return s.Kind
+}
+
+// GetDownPaymentRequestID returns the value of DownPaymentRequestID.
+func (s *Payment) GetDownPaymentRequestID() OptUUID {
+	return s.DownPaymentRequestID
 }
 
 // GetItems returns the value of Items.
@@ -19279,6 +19310,16 @@ func (s *Payment) SetEndToEndID(val string) {
 // SetJournalEntryID sets the value of JournalEntryID.
 func (s *Payment) SetJournalEntryID(val OptUUID) {
 	s.JournalEntryID = val
+}
+
+// SetKind sets the value of Kind.
+func (s *Payment) SetKind(val OptString) {
+	s.Kind = val
+}
+
+// SetDownPaymentRequestID sets the value of DownPaymentRequestID.
+func (s *Payment) SetDownPaymentRequestID(val OptUUID) {
+	s.DownPaymentRequestID = val
 }
 
 // SetItems sets the value of Items.

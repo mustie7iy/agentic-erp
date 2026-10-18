@@ -37,8 +37,8 @@ func runOK(r Run) *gen.RejectPaymentRunOKHeaders {
 func paymentToAPI(p Payment, currency string, exp int) gen.Payment {
 	out := gen.Payment{ID: p.ID, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, PaymentRunID: p.RunID, SupplierID: p.SupplierID,
 		BankAccountID: p.BankAccountID, Amount: apitypes.Money(p.Amount, currency, exp), DiscountAmount: gen.NewOptMoney(apitypes.Money(p.Discount, currency, exp)),
-		EndToEndID: p.EndToEndID, JournalEntryID: apitypes.OptUUID(p.JournalEntryID),
-		Items: make([]gen.PaymentItem, len(p.Items))}
+		EndToEndID: p.EndToEndID, JournalEntryID: apitypes.OptUUID(p.JournalEntryID), Kind: gen.NewOptString(p.Kind),
+		DownPaymentRequestID: apitypes.OptUUID(p.RequestID), Items: make([]gen.PaymentItem, len(p.Items))}
 	if p.DiscountUntil != nil {
 		out.DiscountUntil.SetTo(*p.DiscountUntil)
 	}

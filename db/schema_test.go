@@ -2688,3 +2688,60 @@ func TestDownPaymentRequests(t *testing.T) {
 		failsOn(t, asApp(t, f.tenant, update("status = 'open', cancel_reason = NULL")), "down_payment_request_lifecycle")
 	})
 }
+
+// TestDownPaymentPayments: a payment pays a supplier's items, at most one
+// such payment per supplier and run, or one down payment request, named
+// exactly when it is of kind down_payment and paid once per run; a paid
+// request names its entry, and only an open one is paid (T46c, ADR-0037).
+func TestDownPaymentPayments(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	hb, run, request := id(), id(), id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, `INSERT INTO payments.house_bank (tenant_id, id, legal_entity_id, code, name, iban_cipher, iban_last4, bic, currency, gl_account_id, status, created_by, updated_by)
+			VALUES ($1,$2,$3,'MAIN','Main','\x00','5555','BUKBGB22','USD',$4,'active',$5,$5)`, f.tenant, hb, f.entity, f.bank, f.actor); err != nil {
+			return err
+		}
+		if err := exec(tx, `INSERT INTO payments.payment_run (tenant_id, id, document_number, legal_entity_id, house_bank_id, run_date, due_by, currency, total_amount, status, proposed_by, created_by, updated_by)
+			VALUES ($1,$2,'PR1',$3,$4,'2026-07-31','2026-07-31','USD',300,'proposed',$5,$5,$5)`, f.tenant, run, f.entity, hb, f.actor); err != nil {
+			return err
+		}
+		return exec(tx, `INSERT INTO payables.down_payment_request (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, amount, due_date,
+			created_by, updated_by) VALUES ($1, $2, 'DP1', $3, $4, 'USD', 100, '2026-07-31', $5, $5)`, f.tenant, request, f.entity, f.supplier, f.actor)
+	})
+	pay := func(kind string, req any) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.payment (tenant_id, id, payment_run_id, supplier_id, bank_account_id, amount, currency, end_to_end_id, created_by,
+				kind, down_payment_request_id) VALUES ($1, $2, $3, $4, $5, 100, 'USD', left(md5(random()::text), 20), $6, $7, $8)`, f.tenant, id(), run, f.supplier, id(), f.actor, kind, req)
+		}
+	}
+	mustApp(t, f.tenant, pay("items", nil))
+	mustApp(t, f.tenant, pay("down_payment", request))
+	for _, c := range []struct {
+		name   string
+		insert func(tx pgx.Tx) error
+		fails  string
+	}{
+		{"a second items payment", pay("items", nil), "payment_items_once"},
+		{"the request twice", pay("down_payment", request), "payment_request_once"},
+		{"a down payment without its request", pay("down_payment", nil), "payment_down_payment_request"},
+		{"items naming a request", pay("items", id()), "payment_down_payment_request"},
+	} {
+		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, c.insert), c.fails) })
+	}
+	update := func(set string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE payables.down_payment_request SET `+set+`, version = version + 1 WHERE tenant_id = $1 AND id = $2`, f.tenant, request)
+		}
+	}
+	t.Run("paid without its entry", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, update("status = 'paid'")), "down_payment_request_paid")
+	})
+	t.Run("an entry without its year", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, update("status = 'paid', journal_entry_id = gen_random_uuid()")), "down_payment_request_paid")
+	})
+	mustApp(t, f.tenant, update("status = 'paid', journal_entry_year = 2026, journal_entry_id = gen_random_uuid()"))
+	t.Run("cancelled once paid", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, update("status = 'cancelled', cancel_reason = 'x'")), "down_payment_request_lifecycle")
+	})
+}

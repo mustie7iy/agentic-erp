@@ -21,7 +21,7 @@ func requestToAPI(r DownPaymentRequest) gen.DownPaymentRequest {
 		UpdatedBy: gen.NewOptUUID(r.UpdatedBy), LegalEntityID: r.LegalEntityID, SupplierID: r.SupplierID, PurchaseOrderID: apitypes.OptUUID(r.PurchaseOrderID),
 		Amount: apitypes.Money(r.Amount, r.Currency, r.Exponent), TaxCode: apitypes.OptString(r.TaxCode),
 		TaxAmount: apitypes.Money(r.TaxAmount, r.Currency, r.Exponent), DueDate: r.DueDate, Reference: apitypes.OptString(r.Reference),
-		Status: r.Status, CancelReason: apitypes.OptString(r.CancelReason)}
+		Status: r.Status, CancelReason: apitypes.OptString(r.CancelReason), JournalEntryID: apitypes.OptUUID(r.JournalEntryID)}
 }
 
 // CreateDownPaymentRequest implements POST /v1/down-payment-requests.
@@ -47,7 +47,7 @@ func (e *Endpoints) GetDownPaymentRequest(ctx context.Context, params gen.GetDow
 
 // CancelDownPaymentRequest implements POST /v1/down-payment-requests/{id}:cancel.
 func (e *Endpoints) CancelDownPaymentRequest(ctx context.Context, req *gen.ReasonInput, params gen.CancelDownPaymentRequestParams) (gen.CancelDownPaymentRequestRes, error) {
-	r, err := CancelDownPaymentRequest(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
+	r, err := e.CancelRequest(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
 	if err != nil {
 		return nil, err
 	}

@@ -153,6 +153,8 @@ type Opener interface {
 // the transaction ends.
 type Payments interface {
 	RunOf(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16, entryID uuid.UUID) (string, bool, error)
+	// RequestRunOf is the live run that pays a down payment request.
+	RequestRunOf(ctx context.Context, legalEntity, request uuid.UUID) (string, bool, error)
 }
 
 // Endpoints implements the payables part of the generated API.

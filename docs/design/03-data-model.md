@@ -1169,8 +1169,9 @@ an optional released order of the supplier in the same currency, the
 amount to pay (tax included, more than zero), an optional input tax code
 with the tax the amount includes (amount × rate / (100 + rate), rounded
 half away from zero, valid on the due date), the due date and a
-reference. It is created `open` and moves only to `cancelled`, with a
-reason (`:cancel`); what was requested never changes, and an open request
+reference. It is created `open` and moves to `paid` when a released
+payment run's payment posts it (§3.10, naming that `journal_entry_id`) or
+to `cancelled`, with a reason (`:cancel`); what was requested never changes, and an open request
 is not edited (trigger `down_payment_request_change`). Entering and
 cancelling need their own permission, `payables.down_payment.request` (a
 request pays a supplier before any invoice backs it), and are audited and
@@ -1281,6 +1282,30 @@ of a proposed run after it is refused (409 `payments.discount_lapsed`,
 days in UTC): the run is rejected and proposed again, at the discount then
 earned; a release being resumed is not refused, since some of its
 payments may have posted.
+
+Down payment requests (T46c, ADR-0037). A `payment` has a `kind`: `items`,
+the supplier's open items netted, at most one per supplier and run
+(`payment_items_once`), or `down_payment`, one down payment request
+(`down_payment_request_id`, `payment_request_once`), paid whole and never
+netted with the supplier's items, as SAP pays special G/L items
+separately. A proposal pays every open request of the legal entity due by
+the due-by date in the run's currency that no live run pays (a run
+proposing or proposed, or releasing with the payment not posted). A
+supplier that cannot be paid (blocked, no bank account, a bank change) is
+excluded with its requests, which add to its exclusion's amount; one whose
+items are a debit balance still has its requests paid. The release posts a
+request's payment through `ledger.Postings.PayDownPayment`: Dr the down
+payment account as the supplier's special G/L item A, net of tax; Dr input
+tax on the request's tax code; Cr bank, with the payment as its source
+document, so posting it again returns its entry; in the same transaction
+the payment records the entry and the request moves to `paid`, naming it.
+A down payment's payment is never dropped by a release (it has no items to
+fall out of being open), and its bank file remittance is the request's
+number and reference. The payments context reads and records requests
+through a port of its own (`payments.DownPayments`), adapted from
+`payables.DownPaymentRequests` in `internal/app`; a request a live run pays
+is not cancelled (409 `payables.request_in_payment_run`), which asks
+through `payments.Reservations.RequestRunOf` under the proposals lock.
 
 A partial unique index on active `payment_item (tenant_id, item_fiscal_year,
 item_entry_id, item_line_no)` guarantees an open item is in at most one live run; rejecting a run

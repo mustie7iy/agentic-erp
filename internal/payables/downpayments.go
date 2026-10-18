@@ -21,10 +21,10 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 )
 
-// Down payment request statuses (T46b; paid and cleared follow with
-// T46c and T46d).
+// Down payment request statuses (cleared follows with T46d).
 const (
 	RequestOpen      = "open"
+	RequestPaid      = "paid" // by a payment run, whose payment posted the down payment (T46c)
 	RequestCancelled = "cancelled"
 )
 
@@ -47,11 +47,14 @@ type DownPaymentRequest struct {
 	Reference       *string
 	Status          string
 	CancelReason    *string
-	Version         int32
-	CreatedAt       time.Time
-	CreatedBy       uuid.UUID
-	UpdatedAt       time.Time
-	UpdatedBy       uuid.UUID
+	// JournalEntryYear and JournalEntryID are the entry that paid it.
+	JournalEntryYear *int16
+	JournalEntryID   *uuid.UUID
+	Version          int32
+	CreatedAt        time.Time
+	CreatedBy        uuid.UUID
+	UpdatedAt        time.Time
+	UpdatedBy        uuid.UUID
 }
 
 // DownPaymentInput is a down payment request as a client sends it.
@@ -66,13 +69,13 @@ type DownPaymentInput struct {
 }
 
 const requestSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.supplier_id, r.purchase_order_id, r.currency, c.exponent, r.amount, r.tax_code,
-		r.tax_amount, r.due_date, r.reference, r.status, r.cancel_reason, r.version, r.created_at, r.created_by, r.updated_at, r.updated_by
+		r.tax_amount, r.due_date, r.reference, r.status, r.cancel_reason, r.journal_entry_year, r.journal_entry_id, r.version, r.created_at, r.created_by, r.updated_at, r.updated_by
 	FROM payables.down_payment_request r JOIN ref.currency c ON c.code = r.currency`
 
 func scanRequest(row pgx.Row) (DownPaymentRequest, error) {
 	var r DownPaymentRequest
 	err := row.Scan(&r.ID, &r.DocumentNumber, &r.LegalEntityID, &r.SupplierID, &r.PurchaseOrderID, &r.Currency, &r.Exponent, &r.Amount, &r.TaxCode,
-		&r.TaxAmount, &r.DueDate, &r.Reference, &r.Status, &r.CancelReason, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy)
+		&r.TaxAmount, &r.DueDate, &r.Reference, &r.Status, &r.CancelReason, &r.JournalEntryYear, &r.JournalEntryID, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy)
 	return r, errs.Wrapf(err, "scan down payment request")
 }
 
@@ -83,12 +86,22 @@ func getRequest(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (DownPa
 	if err != nil {
 		return DownPaymentRequest{}, err
 	}
+	r, err := loadRequest(ctx, tx, id, lock)
+	if err == nil && !access.Allows(r.LegalEntityID) {
+		return DownPaymentRequest{}, problem.NotFoundOf("down payment request")
+	}
+	return r, err
+}
+
+// loadRequest reads a request without company access, for the payments
+// context's run (DownPaymentRequests); lock takes the row lock.
+func loadRequest(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (DownPaymentRequest, error) {
 	q := requestSelect + ` WHERE r.id = $1`
 	if lock {
 		q += ` FOR UPDATE OF r`
 	}
 	r, err := scanRequest(tx.QueryRow(ctx, q, id))
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !access.Allows(r.LegalEntityID)) {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return DownPaymentRequest{}, problem.NotFoundOf("down payment request")
 	}
 	if err != nil {
@@ -217,9 +230,11 @@ func (e *Endpoints) RequestDownPayment(ctx context.Context, in DownPaymentInput)
 			"reference": r.Reference, "status": r.Status}))
 }
 
-// CancelDownPaymentRequest cancels an open request, which no payment run
-// then pays, and publishes DownPaymentRequestCancelled.
-func CancelDownPaymentRequest(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, reason string) (DownPaymentRequest, error) {
+// CancelRequest cancels an open request, which no payment run
+// then pays, and publishes DownPaymentRequestCancelled. A request a live
+// run pays is not cancelled (409 payables.request_in_payment_run): asking
+// the run holds off the legal entity's proposals until this commits.
+func (e *Endpoints) CancelRequest(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, reason string) (DownPaymentRequest, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return DownPaymentRequest{}, err
@@ -233,6 +248,12 @@ func CancelDownPaymentRequest(ctx context.Context, id uuid.UUID, ifMatch func(in
 	}
 	if r.Status != RequestOpen {
 		return DownPaymentRequest{}, problem.Conflict("payables.invalid_status", "The down payment request is "+r.Status+"; cancel requires status [\"open\"].")
+	}
+	if run, held, err := e.Payments.RequestRunOf(ctx, r.LegalEntityID, id); err != nil || held {
+		if err != nil {
+			return DownPaymentRequest{}, err
+		}
+		return DownPaymentRequest{}, problem.Conflict("payables.request_in_payment_run", "Payment run "+run+" pays the down payment request; reject the run first.")
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payables.down_payment_request SET status = $2, cancel_reason = $3, version = version + 1, updated_by = $4
 		WHERE id = $1 AND status = $5`, id, RequestCancelled, reason, p.ID, RequestOpen); err != nil {

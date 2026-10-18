@@ -7363,6 +7363,7 @@ paths:
             description: "Request status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
             x-extensible-enum:
               - open
+              - paid
               - cancelled
         - name: purchase_order_id
           in: query
@@ -17526,10 +17527,16 @@ components:
               readOnly: true
             status:
               type: string
-              description: "Lifecycle status: `open`, or `cancelled` (`:cancel`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "Lifecycle status: `open`, `paid` by a payment run (whose payment posted the down payment on the down payment account, T46c), or `cancelled` (`:cancel`, refused while a live run pays it). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - open
+                - paid
                 - cancelled
+              readOnly: true
+            journal_entry_id:
+              type: string
+              format: uuid
+              description: The journal entry of the payment that paid the request; set with status `paid`.
               readOnly: true
             cancel_reason:
               type: string
@@ -17981,7 +17988,7 @@ components:
           due_date: "2026-10-09"
           is_active: false
     Payment:
-      description: One payment to one supplier within a run.
+      description: "One payment to one supplier within a run: of its open items, netted, or of one down payment request (T46c)."
       allOf:
         - $ref: "#/components/schemas/InsertOnlyFields"
         - type: object
@@ -18031,11 +18038,23 @@ components:
               format: uuid
               description: Payment journal entry, once posted.
               readOnly: true
+            kind:
+              type: string
+              description: "What the payment pays: `items`, the supplier's open items netted (at most one such payment per supplier and run), or `down_payment`, one down payment request (ADR-0037), paid whole and never netted, whose posting puts the down payment on the down payment account. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - items
+                - down_payment
+              readOnly: true
+            down_payment_request_id:
+              type: string
+              format: uuid
+              description: The down payment request a payment of kind `down_payment` pays.
+              readOnly: true
             items:
               type: array
               items:
                 $ref: "#/components/schemas/PaymentItem"
-              description: Settled open items.
+              description: "Settled open items; none on a down payment's payment."
               readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41"
