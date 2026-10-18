@@ -121,7 +121,9 @@ func replace(s string, re *regexp.Regexp, n *int, with func(m string) (string, i
 // eight groups, and an IBAN may begin inside the groups a match took, or
 // run past its end, so the search cannot stop at a match's end ("AA11 ...
 // 1Y1 0000 AA11 11 A0 7A11 8A11 0000" holds two). Each step moves forward,
-// so one pass leaves no IBAN behind.
+// so one pass leaves no IBAN behind. pos always sits on a non-word
+// character (a space, or the non-word character a match's \b ended on), so
+// searching s[pos:] finds the matches, \b and all, the whole text would.
 func ibans(s string) (string, int) {
 	var out strings.Builder
 	n, pos := 0, 0
@@ -137,7 +139,7 @@ func ibans(s string) (string, int) {
 			n, pos = n+1, start+end
 			continue
 		}
-		next := len(m) // past the first group: the next candidate starts at a later one
+		next := len(m) // past the first group, or the whole word when compact: the next candidate starts later
 		if i := strings.IndexByte(m, ' '); i >= 0 {
 			next = i
 		}
