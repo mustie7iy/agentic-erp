@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/agents"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 // called records a model call of principal at, costing micro.
@@ -131,5 +132,32 @@ func TestAIUsageHeldAtTheMost(t *testing.T) {
 	line := apitest.List(t, got, "principals")[0].(map[string]any)
 	if line["input_tokens"] != float64(math.MaxInt64) {
 		t.Errorf("input tokens: got %v, want the most an int64 holds", line["input_tokens"])
+	}
+}
+
+// TestAIUsageReadsOnlyItsMonth: a month's report reads that month's calls,
+// not the tenant's whole ledger (model_call_by_time).
+func TestAIUsageReadsOnlyItsMonth(t *testing.T) {
+	person, _ := policyAdmin(t)
+	ten := person.Tenant
+	pgtest.Exec(t, `INSERT INTO agents.model_call (tenant_id, id, principal_id, alias, model, status, input_tokens, output_tokens, cost_micro, currency, called_at)
+		SELECT $1, gen_random_uuid(), CASE WHEN g = 0 THEN $2 ELSE gen_random_uuid() END, 'erp-default', 'm', 'succeeded', 1, 1, 1, 'USD', timestamptz '2024-01-01' + g * interval '1 hour'
+		FROM generate_series(1, 2000) g`, ten.ID, ten.Agent.ID)
+	called(t, ten, ten.Agent.ID, "2026-10-05T00:00:00Z", 1, 0)
+	pgtest.Exec(t, `ANALYZE agents.model_call`)
+	h := &agents.Endpoints{}
+	params := gen.GetAiUsageParams{Month: gen.NewOptString("2026-10")}
+	if err := apitest.InRequest(t, ten, person.As, func(ctx context.Context) error {
+		tx, _ := reqctx.TxFrom(ctx) // InRequest always puts its transaction in the context
+		before := pgtest.RowsRead(t, ctx, tx, "agents", "model_call")
+		if _, err := h.GetAiUsage(ctx, params); err != nil {
+			return err
+		}
+		if got := pgtest.RowsRead(t, ctx, tx, "agents", "model_call") - before; got != 1 {
+			t.Errorf("calls read for a month with one: got %d, want 1", got)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
