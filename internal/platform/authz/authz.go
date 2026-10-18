@@ -129,7 +129,9 @@ func withinAutonomy(ctx context.Context, tx pgx.Tx, agent uuid.UUID, op api.Oper
 // RequireWrites refuses an agent below level 2 a part of an operation that
 // does more than propose, though the operation itself proposes (creating
 // an order from a requisition reserves the requisition, ADR-0036); what
-// names the part. People and services are not asked.
+// names the part. People and services are not asked; an agent at level 0
+// never gets this far (its operation is refused first), and level 3 passes
+// as 2.
 func RequireWrites(ctx context.Context, what string) error {
 	tx, ok := reqctx.TxFrom(ctx)
 	p, ok2 := reqctx.PrincipalFrom(ctx)

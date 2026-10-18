@@ -368,16 +368,18 @@ func TestRequireWrites(t *testing.T) {
 		t.Error("outside a request: got no error, want one")
 	}
 	for level, want := range map[int]string{1: "identity.autonomy_insufficient", 2: ""} {
-		pgtest.Exec(t, `UPDATE identity.agent_profile SET autonomy_level = $3, version = version + 1 WHERE tenant_id = $1 AND principal_id = $2`, ten.ID, ten.Agent.ID, level)
-		as(t, ten, ten.Agent, func(ctx context.Context) {
-			err := authz.RequireWrites(ctx, "x")
-			var got string
-			if err != nil {
-				got = problem.From(err).Code
-			}
-			if got != want {
-				t.Errorf("level %d: got %q, want %q", level, got, want)
-			}
+		t.Run(fmt.Sprintf("level %d", level), func(t *testing.T) {
+			pgtest.Exec(t, `UPDATE identity.agent_profile SET autonomy_level = $3, version = version + 1 WHERE tenant_id = $1 AND principal_id = $2`, ten.ID, ten.Agent.ID, level)
+			as(t, ten, ten.Agent, func(ctx context.Context) {
+				err := authz.RequireWrites(ctx, "x")
+				var got string
+				if err != nil {
+					got = problem.From(err).Code
+				}
+				if got != want {
+					t.Errorf("got %q, want %q", got, want)
+				}
+			})
 		})
 	}
 	as(t, ten, ten.Human, func(ctx context.Context) {
