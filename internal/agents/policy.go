@@ -13,6 +13,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
@@ -81,7 +82,7 @@ func scanPolicy(row pgx.Row) (Policy, error) {
 	var p Policy
 	err := row.Scan(&p.Enabled, &p.Suspended, &p.SuspendedReason, &p.MonthlyCap, &p.Routes, &p.AllowedModels, &p.DocumentsToModels,
 		&p.UpdatedAt, &p.UpdatedBy, &p.Version)
-	return p, err
+	return p, errs.Wrapf(err, "scan the AI policy")
 }
 
 // PolicyChange is a merge patch of the policy: nil fields are unchanged.

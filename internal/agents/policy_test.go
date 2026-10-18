@@ -209,7 +209,7 @@ func TestPolicyDatabaseFailures(t *testing.T) {
 	capped := &limit
 	ops := map[string]func(ctx context.Context, tx pgx.Tx) error{
 		"read":  func(ctx context.Context, tx pgx.Tx) error { _, err := agents.ReadPolicy(ctx, tx); return err },
-		"admit": func(ctx context.Context, tx pgx.Tx) error { return agents.Admit(ctx, tx) },
+		"admit": agents.Admit,
 		"update": func(ctx context.Context, tx pgx.Tx) error {
 			_, err := agents.UpdatePolicy(ctx, tx, actor, etag.IfMatch("*"), agents.PolicyChange{Enabled: &off, MonthlyCap: &capped})
 			return err
