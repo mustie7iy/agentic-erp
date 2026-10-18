@@ -16,6 +16,7 @@ make lint                     # structural lint of code changed since main (.gol
 go test -short ./internal/<pkg>/...   # fast loop for one package
 make test                     # vet + whole suite with -race
 make coverage                 # 100% statement coverage gate (CI enforces it)
+make ci-local                 # every gate CI has, locally, before a PR is merged (06 §6.5)
 make generate                 # regenerate api/gen after editing api/openapi.yaml
 ```
 
@@ -94,8 +95,12 @@ hard gate. Follow all of them; the later ones will stop you if you skip the earl
   reports a problem, fix the cause; do not suppress it.
 - A `//nolint:<linter> // <reason>` is allowed only with a specific reason, and the reviewer
   will challenge it.
-- CI additionally runs vet, staticcheck, gosec, govulncheck, gitleaks, contract lint, the
-  breaking-change check, `-race`, the coverage gate, fuzzing and performance budgets.
+- `make ci-local` runs every gate locally at CI's pinned versions: vet, staticcheck, gosec,
+  govulncheck, gitleaks, contract lint, the breaking-change check, `-race` three times
+  shuffled, the coverage gate, fuzzing and performance budgets. GitHub then gives a pull
+  request a short independent check (static checks, the suite without `-race`) and runs
+  the full suite on every push to `main` (06 §6.5). Merge with `scripts/merge-pr.sh <n>`,
+  which requires both.
 
 ### 3. Review before reporting done
 
@@ -117,6 +122,7 @@ changed. For large branches the user may also run `/code-review high` or `/code-
 
 ## Definition of done
 
-`make lint` clean · `go build ./...` · tests pass with `-race` · `make coverage` at 100% ·
+`make lint` clean · `go build ./...` · `make ci-local` passes (tests with `-race`, coverage at 100%) ·
+GitHub's `ci-ok` green ·
 `go-reviewer` has no blocking findings · contract, data model, ADRs and tracker match what was
 built (06-engineering-process §6.8).

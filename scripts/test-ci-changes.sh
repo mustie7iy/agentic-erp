@@ -1,30 +1,26 @@
 #!/usr/bin/env bash
-# Tests scripts/ci-changes.sh on a throwaway repository with a stand-in for
-# gh: when CI's suite runs and when it is skipped. What only GitHub can show
-# (the artifact really saved and found, the skipped job counting as passed)
-# is left to the first runs there.
+# Tests scripts/ci-changes.sh on a throwaway repository: when CI's jobs run
+# and when they are skipped. What only GitHub can show (the skipped job
+# counting as passed) is left to the first runs there.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failed=0
 
-# A stand-in for gh: answers from FAKE_PR_HEAD (the merged pull request's
-# head), FAKE_RUN (its green run) and FAKE_TREE (the tree that run saved).
+# A stand-in for gh: the last green commit on main is FAKE_GREEN, given
+# only to a query for successful pushes to main, so a query that lost one
+# of those filters finds nothing and the push runs.
 mkdir -p "$work/bin"
-cat >"$work/bin/gh" <<'EOF'
+cat >"$work/bin/gh" <<'EOF2'
 #!/usr/bin/env bash
-case "$1 $2" in
-"api repos/"*) echo "${FAKE_PR_HEAD:-}" ;;
-"run list") echo "${FAKE_RUN:-}" ;;
-"run download")
-  [ -n "${FAKE_TREE:-}" ] || exit 1
-  while [ $# -gt 0 ]; do [ "$1" = --dir ] && dir="$2"; shift; done
-  echo "$FAKE_TREE" >"$dir/tree"
-  ;;
-*) exit 2 ;;
-esac
-EOF
+[ "$1 $2" = "run list" ] || exit 2
+args=" $* "
+for want in "--status success" "--branch main" "--event push"; do
+  [[ "$args" == *" $want "* ]] || exit 0
+done
+echo "${FAKE_GREEN:-}"
+EOF2
 chmod +x "$work/bin/gh"
 
 repo="$work/repo"
@@ -47,7 +43,7 @@ base="$(change main.go)"
 expect() {
   local name="$1" want="$2" got
   shift 2
-  got="$(cd "$repo" && env PATH="$work/bin:$PATH" GH=gh GITHUB_REPOSITORY=o/r "$@" "$root/scripts/ci-changes.sh")"
+  got="$(cd "$repo" && env PATH="$work/bin:$PATH" GITHUB_REPOSITORY=o/r "$@" "$root/scripts/ci-changes.sh")"
   if [ "$(sed -n 's/^run=//p' <<<"$got")" != "$want" ]; then
     echo "FAIL $name: got $(tr '\n' ' ' <<<"$got"), want run=$want" >&2
     failed=1
@@ -62,35 +58,10 @@ code="$(change internal/x.go)"
 expect "a pull request changing code" true EVENT=pull_request BASE="$base" HEAD="$code"
 tracker="$(change docs/tracker.json)"
 expect "the tracker is documentation" false EVENT=pull_request BASE="$code" HEAD="$tracker"
-expect "a push without a base (a new branch)" true EVENT=push BASE=0000000000000000000000000000000000000000 HEAD="$code"
-expect "a push of documentation" false EVENT=push BASE="$code" HEAD="$tracker"
-
-merged="$(change cmd/y.go)"
-tree="$(git -C "$repo" rev-parse "${merged}^{tree}")"
-expect "a push whose tree the pull request's green run tested" false \
-  EVENT=push BASE="$tracker" HEAD="$merged" FAKE_PR_HEAD=abc FAKE_RUN=42 FAKE_TREE="$tree"
-expect "a push whose tree differs (main moved since that run)" true \
-  EVENT=push BASE="$tracker" HEAD="$merged" FAKE_PR_HEAD=abc FAKE_RUN=42 FAKE_TREE=0123456789abcdef
-expect "a push with no merged pull request" true EVENT=push BASE="$tracker" HEAD="$merged"
-expect "a push whose pull request has no green run" true EVENT=push BASE="$tracker" HEAD="$merged" FAKE_PR_HEAD=abc
-expect "a push whose run saved no tree" true EVENT=push BASE="$tracker" HEAD="$merged" FAKE_PR_HEAD=abc FAKE_RUN=42
-ci="$(change .github/workflows/ci.yml)"
-citree="$(git -C "$repo" rev-parse "${ci}^{tree}")"
-expect "a push changing CI itself, though its tree was tested" true \
-  EVENT=push BASE="$merged" HEAD="$ci" FAKE_PR_HEAD=abc FAKE_RUN=42 FAKE_TREE="$citree"
-expect "a pull request is never skipped for a tested tree" true \
-  EVENT=pull_request BASE="$tracker" HEAD="$merged" FAKE_PR_HEAD=abc FAKE_RUN=42 FAKE_TREE="$tree"
-
-# code= tells fuzzing on main whether code changed, skipped suite or not.
-code_out() {
-  (cd "$repo" && env PATH="$work/bin:$PATH" GH=gh GITHUB_REPOSITORY=o/r "$@" "$root/scripts/ci-changes.sh") | sed -n 's/^code=//p'
-}
-got="$(code_out EVENT=push BASE="$tracker" HEAD="$merged" FAKE_PR_HEAD=abc FAKE_RUN=42 FAKE_TREE="$tree")"
-if [ "$got" = true ]; then echo "ok   a tested tree still counts as changed code: code=$got"; else
-  echo "FAIL a tested tree still counts as changed code: got code=$got, want true" >&2; failed=1; fi
-got="$(code_out EVENT=push BASE="$code" HEAD="$tracker")"
-if [ "$got" = false ]; then echo "ok   documentation is no code: code=$got"; else
-  echo "FAIL documentation is no code: got code=$got, want false" >&2; failed=1; fi
+expect "a push with no green run on main" true EVENT=push HEAD="$code"
+expect "a push of documentation since the last green commit" false EVENT=push FAKE_GREEN="$code" HEAD="$tracker"
+expect "documentation after code whose run was cancelled" true EVENT=push FAKE_GREEN="$docs" HEAD="$tracker"
+expect "a last green commit that is not an ancestor" true EVENT=push FAKE_GREEN=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef HEAD="$tracker"
 
 # A comparison git cannot make fails the script, so the step fails and the
 # gate (run != 'false') does not skip anything.

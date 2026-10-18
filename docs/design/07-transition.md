@@ -1708,8 +1708,9 @@ done. CLAUDE.md states the conventions; this is the loop that applies them.
    number when its branch is rebased before merge, so numbers stay in merge
    order; `api/gen` is regenerated after a rebase, never merged by hand. The
    full gates run one lane at a time, as the lanes share the test database
-   server. A pull request is merged when CI is green and the reviewer has no
-   blocking finding.
+   server. A pull request is merged with `scripts/merge-pr.sh` when the full
+   local gates passed (`make ci-local`), GitHub's short check is green and
+   the reviewer has no blocking finding (06 §6.5).
 2. **Behaviour and refactoring apart.** A refactoring commit never changes
    behaviour. A bug found on the way is noted and fixed as its own commit with a
    test that fails before the fix; the failing output is copied, not described.
@@ -1736,8 +1737,9 @@ done. CLAUDE.md states the conventions; this is the loop that applies them.
    `go build ./...` · `make lint-all` at 0 issues (no `//nolint` without a linter
    and a specific reason) · `make test` (vet and `-race`) · `make coverage` at 100% ·
    `make fuzz` · `go test -race -shuffle=on -count=3 ./...` · `make generate` leaving
-   no diff · then CI: staticcheck, gosec, govulncheck, gitleaks, contract lint, the
-   breaking-change check and the performance budgets.
+   no diff · staticcheck, gosec, govulncheck, gitleaks, contract lint, the
+   breaking-change check and the performance budgets; `make ci-local` runs them
+   all at CI's pinned versions, then GitHub's short check (06 §6.5).
 9. **Review.** The `go-reviewer` agent reviews the step's diff and is re-run until
    it has no blocking finding. After every few steps, and before a pilot, a fresh
    whole-codebase review scores the eight dimensions; a dimension below 9.5 is

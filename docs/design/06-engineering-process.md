@@ -87,7 +87,7 @@ and change nothing (000042, 000046).
 
 ## 6.5 Continuous integration
 
-Every pull request runs, and must pass:
+Every change passes, before it is merged:
 
 | Step | Tool |
 |---|---|
@@ -95,30 +95,49 @@ Every pull request runs, and must pass:
 | Security | `govulncheck`, secret scanning (`gitleaks`), static analysis (`gosec`, with G104, G115, G304 and G107 excluded by decision: errors ignored on purpose carry a comment, integer conversions are of bounded domain values, paths and URLs come from settings and flags; the generated server excluded; the rest annotated where a finding is a false positive, each with its reason) |
 | Contract lint and breaking-change check | `vacuum` (Go), `oasdiff` (Go) |
 | Schema tests on PostgreSQL 17 | `go test ./db` against a CI service container |
-| Unit, functional and non-functional tests with the race detector | `go test -race ./...` |
+| Unit, functional and non-functional tests with the race detector | `go test -race ./...` (locally three times in random order) |
+| Performance budgets | `-run Budget`, `-run Perf` |
 | Coverage gate | `scripts/coverage.sh`, 100% of production statements |
 | Fuzz targets | Every target's seed corpus with the tests on PRs; `make fuzz` 30 s per target on `main`, 5 minutes weekly |
 | Build and container image | `go build`, image scan |
 
-What runs when, to keep runner time to what proves something:
+The checks are split between the author's machine and GitHub (the hybrid
+check, since 2026-10-18), so runner minutes go to the independent second
+opinion rather than to repeating the slow gates:
 
-- Secret scanning runs on every event. The suite above runs unless
-  `scripts/ci-changes.sh` finds it would prove nothing new: a change to
-  documentation alone (`docs/`, Markdown), or a push to `main` that brings
-  exactly the tree the merged pull request's last green run tested (that
-  run saves the tree as an artifact, kept 14 days). A push that changes CI
-  itself always runs. Whatever the script cannot establish (the pull
-  request not yet listed for the commit, an expired artifact, a failed
-  comparison) runs the suite. A documentation-only push to `main` is judged
-  against the commit before it, which is assumed green.
-- Branch protection requires one check, `ci-ok`: it fails unless the
+- **Locally, before a pull request is merged:** `make ci-local`
+  (`scripts/ci-local.sh`) runs every step of the table at CI's pinned tool
+  versions, with the race suite three times in random order (07 §7.7), on
+  a committed tree rebased on the latest `main`. It records a report named
+  after the tree it tested in the repository's git directory.
+- **On GitHub, for a pull request:** the static checks (format, vet, whole
+  tree lint, staticcheck, govulncheck, gosec, the generated server, the
+  contract lint and the breaking-change check against `main`), the schema
+  tests, the whole suite in short mode without the race detector, and the
+  build: about 15 minutes on a clean Linux runner, which has caught what a
+  laptop did not (timing, disk, platform).
+- **Merging:** `scripts/merge-pr.sh <n>` merges with a merge commit only
+  when `ci-ok` succeeded on the head commit and a passing local report
+  exists for the head's tree, and posts that report on the pull request as
+  the record. It stands in for branch protection, which a private
+  repository on the current plan does not enforce.
+- **On GitHub, for a push to `main`:** everything above but the
+  breaking-change check (a pull request's), plus the race detector, the
+  performance budgets, the coverage gate and fuzzing, on the tree `main`
+  really holds. A newer push cancels a running one, so merges
+  in quick succession pay for one run. A red `main` stops merging until it
+  is fixed forward, and a release is cut only from a green `main`.
+- Secret scanning runs on every event. Everything else is skipped when
+  `scripts/ci-changes.sh` finds that only documentation changed (`docs/`,
+  Markdown) since the base: a pull request's base, or for a push to `main`
+  the last commit whose run there passed, as a cancelled run proves
+  nothing. Whatever it cannot establish runs.
+- `scripts/merge-pr.sh` requires one check, `ci-ok`: it fails unless the
   `changes` job (the secret scan and the skip decision) succeeded and no
   job failed or was cancelled. Jobs skipped on purpose pass; requiring
   them directly would let a failed `changes` skip them into a pass.
-- Fuzzing runs on pushes to `main` whenever code changed, even when the
-  suite was skipped for a tested tree.
-- A newer push to a pull request cancels its running check; the older
-  commit then shows `ci-ok` failed, which is expected.
+- A newer push cancels the running check of the same pull request or of
+  `main`; the older commit then shows `ci-ok` failed, which is expected.
 - The tools run at pinned versions (`scripts/ci-tools.sh`), built once in
   the job that uses them and cached until that file or the Go version
   changes. The `changes` job builds nothing: it gates every other job and
