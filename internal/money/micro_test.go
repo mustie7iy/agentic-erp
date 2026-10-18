@@ -93,10 +93,10 @@ func TestMicroOf(t *testing.T) {
 // at the edge and at the largest amounts.
 func TestMicroReaches(t *testing.T) {
 	for _, c := range []struct {
-		name       string
+		name         string
 		spent, limit money.Micro
-		pct        int64
-		want       bool
+		pct          int64
+		want         bool
 	}{
 		{"just under 80%", 799, 1000, 80, false},
 		{"at 80%", 800, 1000, 80, true},
