@@ -346,6 +346,9 @@ see and events and the audit trail leave out. While either is off, the gateway r
 `agents.ai_disabled`, and the unit of work refuses agents' API requests
 with the same code, so an agent stopped mid-run cannot act on the answers
 it already has. Each change is audited and published as `AiPolicyChanged`.
+An agent acts within its autonomy level: 0 reads, 1 also performs the
+operations marked `x-autonomy: propose`, 2 any write its permissions allow
+(403 `identity.autonomy_insufficient` above it).
 `getAiUsage` reports a month's model calls per principal from the call
 ledger: calls, tokens, redactions and cost, summed exact and rounded once,
 with the month's total against the tenant's cap.

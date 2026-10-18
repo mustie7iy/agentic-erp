@@ -23,8 +23,10 @@ func TestAgentBudget(t *testing.T) {
 	other := uuid.Must(uuid.NewV7())
 	pgtest.Exec(t, `INSERT INTO identity.principal (tenant_id, id, kind, display_name, status, created_by, updated_by) VALUES ($1, $2, 'agent', 'Unbudgeted', 'active', $3, $3)`,
 		ten.ID, other, ten.Human.ID)
-	pgtest.Exec(t, `INSERT INTO identity.agent_profile (tenant_id, principal_id, autonomy_level, model, monthly_budget, budget_currency, description, created_by, updated_by)
-		VALUES ($1, $2, 1, 'erp-default', 5000, 'USD', 'test', $4, $4), ($1, $3, 1, 'erp-default', NULL, NULL, 'test', $4, $4)`, ten.ID, ten.Agent.ID, other, ten.Human.ID)
+	pgtest.Exec(t, `UPDATE identity.agent_profile SET monthly_budget = 5000, budget_currency = 'USD', version = version + 1 WHERE tenant_id = $1 AND principal_id = $2`,
+		ten.ID, ten.Agent.ID)
+	pgtest.Exec(t, `INSERT INTO identity.agent_profile (tenant_id, principal_id, autonomy_level, model, description, created_by, updated_by)
+		VALUES ($1, $2, 1, 'erp-default', 'test', $3, $3)`, ten.ID, other, ten.Human.ID)
 	read := func(t *testing.T, agent uuid.UUID) (money.Minor, string, bool, error) {
 		t.Helper()
 		ctx := context.Background()

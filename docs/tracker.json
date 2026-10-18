@@ -3598,7 +3598,7 @@
       "c": []
      },
      {
-      "s": "P",
+      "s": "D",
       "t": "Model routing, cost per agent, spend caps, kill switch",
       "r": "internal/agents · agents.Gateway (api/model.yaml) · T42",
       "c": [
@@ -3639,9 +3639,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Autonomy levels 0-2 enforced in authorization",
-        "r": "T42g · awaiting PO: which operations each level allows, and the levels of existing agents",
+        "r": "authz withinAutonomy · x-autonomy: propose · 000074 · T42g",
         "c": []
        },
        {
@@ -3677,9 +3677,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "ADR on agents and LLM use: permitted actions, approval points, budgets, audit, data sent to models",
-      "r": "docs/design/adr · T42",
+      "r": "ADR-0036 · T42",
       "c": []
      }
     ]

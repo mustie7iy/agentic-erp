@@ -1958,8 +1958,8 @@ func TestModelGateway(t *testing.T) {
 	env := environment(t, is, "")
 	env["ERP_MODEL_API_KEY"], env["ERP_MODEL_ENDPOINT"] = "sk-cell", model.URL
 	allowed, denied, broke := pgtest.NewTenant(t, "agents.model.invoke"), pgtest.NewTenant(t), pgtest.NewTenant(t, "agents.model.invoke")
-	pgtest.Exec(t, `INSERT INTO identity.agent_profile (tenant_id, principal_id, autonomy_level, model, monthly_budget, budget_currency, description, created_by, updated_by)
-		VALUES ($1, $2, 1, 'erp-default', 0, 'USD', 'no budget left', $3, $3)`, broke.ID, broke.Agent.ID, broke.Human.ID)
+	pgtest.Exec(t, `UPDATE identity.agent_profile SET monthly_budget = 0, budget_currency = 'USD', version = version + 1 WHERE tenant_id = $1 AND principal_id = $2`,
+		broke.ID, broke.Agent.ID)
 	ctx, cancel := context.WithCancel(context.Background())
 	addr := make(chan string, 1)
 	done := make(chan int, 1)

@@ -171,7 +171,7 @@ erDiagram
     date valid_from
     date valid_to }
   agent_profile { uuid principal_id PK
-    smallint autonomy_level "0-3"
+    smallint autonomy_level "0-3, enforced by authz (000074)"
     text model "a model alias (000073)" }
   identity_provider { uuid id PK
     text issuer "OIDC iss"

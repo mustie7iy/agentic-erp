@@ -2525,3 +2525,37 @@ func TestAgentModelAliases(t *testing.T) {
 		})
 	}
 }
+
+// TestExistingAgentsLevelTwo: 000074 raises the agents that exist to
+// autonomy level 2, the writes their permissions were given for; a new
+// profile still starts at 0.
+func TestExistingAgentsLevelTwo(t *testing.T) {
+	conn := emptyDatabase(t)
+	ctx := context.Background()
+	migrateBefore(t, conn, 74)
+	tenant, human, agent, other := id(), id(), id(), id()
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := conn.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	exec("INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, 'Acme', 'eu-west', 'EUR', 'active')", tenant)
+	for _, a := range []uuid.UUID{agent, other} {
+		exec("INSERT INTO identity.principal (tenant_id, id, kind, display_name, status, created_by, updated_by) VALUES ($1,$2,'agent','Agent','active',$3,$3)", tenant, a, human)
+	}
+	exec("INSERT INTO identity.agent_profile (tenant_id, principal_id, model, description, created_by, updated_by) VALUES ($1,$2,'erp-default','d',$3,$3)", tenant, agent, human)
+	if _, err := Migrate(ctx, conn); err != nil {
+		t.Fatal(err)
+	}
+	exec("INSERT INTO identity.agent_profile (tenant_id, principal_id, model, description, created_by, updated_by) VALUES ($1,$2,'erp-default','d',$3,$3)", tenant, other, human)
+	for a, want := range map[uuid.UUID]int{agent: 2, other: 0} {
+		var got int
+		if err := conn.QueryRow(ctx, "SELECT autonomy_level FROM identity.agent_profile WHERE principal_id = $1", a).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("level of %s: got %d, want %d", a, got, want)
+		}
+	}
+}

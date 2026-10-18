@@ -277,3 +277,75 @@ func TestSegregationOfDutiesAtRuntime(t *testing.T) {
 		})
 	}
 }
+
+// TestAutonomyLevels: an agent acts within its autonomy level (ADR-0036):
+// level 0 reads, level 1 also proposes, level 2 writes what its permissions
+// allow; an agent without a profile is at 0. People and services are not
+// asked, and the level is checked before the permission.
+func TestAutonomyLevels(t *testing.T) {
+	ops := map[string]api.Operation{
+		"read":    {ID: "read", Method: "GET", Permission: "a.b.read", AgentAllowed: true},
+		"propose": {ID: "propose", Method: "POST", Permission: "a.b.propose", AgentAllowed: true, Proposes: true},
+		"write":   {ID: "write", Method: "POST", Permission: "a.b.write", AgentAllowed: true},
+	}
+	a := authz.New(ops)
+	ten := pgtest.NewTenant(t, "platform.operation.read")
+	for _, code := range []string{"a.b.read", "a.b.propose", "a.b.write"} {
+		pgtest.Exec(t, `INSERT INTO ref.permission (code, description) VALUES ($1, 'test') ON CONFLICT DO NOTHING`, code)
+		pgtest.Exec(t, `INSERT INTO identity.role_permission (tenant_id, id, role_id, permission_code, valid_from, created_by)
+			SELECT tenant_id, gen_random_uuid(), id, $2, current_date - 1, $3 FROM identity.role WHERE tenant_id = $1`, ten.ID, code, ten.Human.ID)
+	}
+	for _, c := range []struct {
+		level   int // -1: no profile
+		allowed map[string]bool
+	}{
+		{-1, map[string]bool{"read": true}},
+		{0, map[string]bool{"read": true}},
+		{1, map[string]bool{"read": true, "propose": true}},
+		{2, map[string]bool{"read": true, "propose": true, "write": true}},
+		{3, map[string]bool{"read": true, "propose": true, "write": true}},
+	} {
+		t.Run(fmt.Sprintf("level %d", c.level), func(t *testing.T) {
+			if c.level < 0 {
+				pgtest.Exec(t, `DELETE FROM identity.agent_profile WHERE tenant_id = $1 AND principal_id = $2`, ten.ID, ten.Agent.ID)
+			} else {
+				pgtest.Exec(t, `INSERT INTO identity.agent_profile (tenant_id, principal_id, autonomy_level, model, description, created_by, updated_by)
+					VALUES ($1, $2, $3, 'erp-default', 'test', $4, $4)
+					ON CONFLICT (tenant_id, principal_id) DO UPDATE SET autonomy_level = $3, version = agent_profile.version + 1`, ten.ID, ten.Agent.ID, c.level, ten.Human.ID)
+			}
+			as(t, ten, ten.Agent, func(ctx context.Context) {
+				for id := range ops {
+					err := a.Authorize(ctx, id)
+					if c.allowed[id] && err != nil {
+						t.Errorf("%s: got %v, want it allowed", id, err)
+					}
+					if !c.allowed[id] && problem.From(err).Code != "identity.autonomy_insufficient" {
+						t.Errorf("%s: got %v, want identity.autonomy_insufficient", id, err)
+					}
+				}
+			})
+		})
+	}
+	for _, who := range []pgtest.Actor{ten.Human, ten.Service} {
+		as(t, ten, who, func(ctx context.Context) {
+			if err := a.Authorize(ctx, "write"); err != nil {
+				t.Errorf("%s: got %v, want the write allowed", who.Kind, err)
+			}
+		})
+	}
+}
+
+// TestAutonomyUnreadable: an agent whose level cannot be read is refused
+// with the failure, not let through.
+func TestAutonomyUnreadable(t *testing.T) {
+	a := authz.New(map[string]api.Operation{"write": {ID: "write", Method: "POST", Permission: "a.b.c", AgentAllowed: true}})
+	ten := pgtest.NewTenant(t)
+	err := pgtest.Pool(t).InTx(context.Background(), database.Scope{Role: "erp_app", TenantID: ten.ID, ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
+		ctx = reqctx.WithTx(ctx, &pgtest.FailingTx{Tx: tx, FailAt: 1})
+		ctx = reqctx.WithPrincipal(ctx, reqctx.Principal{ID: ten.Agent.ID, Kind: ten.Agent.Kind, TenantID: ten.ID})
+		return a.Authorize(ctx, "write")
+	})
+	if !errors.Is(err, pgtest.ErrInjected) {
+		t.Errorf("got %v, want the injected failure", err)
+	}
+}

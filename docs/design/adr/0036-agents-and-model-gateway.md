@@ -131,7 +131,13 @@ client certificates in production (ADR-0033). Today:
   - **Autonomy levels.** Level 0 reads. Level 1 also recommends. Level 2
     also performs the contract's agent-permitted writes within their
     configured limits, such as auto-post. Level 3 is reserved.
-  - Enforcement of levels 0–2 in authz is a step of its own (T42g).
+  - Authz checks the level on every agent call (T42g, PO 2026-10-18):
+    the contract marks the operations that only propose `x-autonomy:
+    propose` (sessions, tool-call records, recommendations, change
+    requests, drafts); above its level an agent is refused with 403
+    `identity.autonomy_insufficient`. An agent without a profile is at 0.
+    The agents that existed were raised to level 2 (000074); new agents
+    start at 0 and an administrator raises them.
 
 ## Alternatives
 - **A global gateway service:** one place for keys and prices, but tenant

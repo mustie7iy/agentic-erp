@@ -281,3 +281,14 @@ func TestDatabaseFailures(t *testing.T) {
 		})
 	}
 }
+
+// TestAutonomyThroughTheAPI: an agent at level 0 reads but does not start
+// a session; at level 1 it does, since a session only proposes (ADR-0036).
+func TestAutonomyThroughTheAPI(t *testing.T) {
+	person, agent := setup(t)
+	pgtest.Exec(t, `UPDATE identity.agent_profile SET autonomy_level = 0, version = version + 1 WHERE tenant_id = $1 AND principal_id = $2`, person.Tenant.ID, agent.As.ID)
+	agent.Must(200, "GET", "/v1/agent-sessions", "", "")
+	agent.Problem(403, "identity.autonomy_insufficient", "POST", "/v1/agent-sessions", `{"purpose": "p", "model": "m"}`, "")
+	pgtest.Exec(t, `UPDATE identity.agent_profile SET autonomy_level = 1, version = version + 1 WHERE tenant_id = $1 AND principal_id = $2`, person.Tenant.ID, agent.As.ID)
+	agent.Must(201, "POST", "/v1/agent-sessions", `{"purpose": "p", "model": "m"}`, "")
+}
