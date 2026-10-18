@@ -1574,7 +1574,8 @@ type AiUsage struct {
 	Calls int64 `json:"calls"`
 	// What the month's calls cost, in USD, the prices' currency.
 	Cost Money `json:"cost"`
-	// The tenant's monthly cap (getAiPolicy); absent: none.
+	// The tenant's monthly cap as it is now (getAiPolicy), which for a past month may not be the cap that
+	// held then; absent: none.
 	MonthlyCap OptMoney `json:"monthly_cap"`
 	// Usage per principal that called, the most costly first.
 	Principals []AiUsagePrincipal `json:"principals"`

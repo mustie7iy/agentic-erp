@@ -3,7 +3,9 @@ package agents_test
 import (
 	"context"
 	"fmt"
+	"math"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -63,8 +65,18 @@ func TestAIUsage(t *testing.T) {
 		t.Errorf("agent's cost: got %s, want 0.03 USD (2.5 cents)", c)
 	}
 	empty, _ := person.Must(200, "GET", "/v1/ai-usage?month=2025-01", "", "")
-	if len(apitest.List(t, empty, "principals")) != 0 || empty["calls"] != float64(0) {
-		t.Errorf("an empty month: got %v", empty)
+	if n := len(apitest.List(t, empty, "principals")); n != 0 {
+		t.Errorf("an empty month's principals: got %d, want 0", n)
+	}
+	if empty["calls"] != float64(0) {
+		t.Errorf("an empty month's calls: got %v, want 0", empty["calls"])
+	}
+	second := lines[1].(map[string]any)
+	if second["principal_id"] != ten.Human.ID.String() {
+		t.Errorf("second: got %v, want the person whose request called", second["principal_id"])
+	}
+	if c := fmt.Sprint(second["cost"]); c != "map[amount:0.00 currency:USD]" {
+		t.Errorf("person's cost: got %s, want 0.00 USD (0.4 cent)", c)
 	}
 	person.Problem(400, "request.invalid_parameter", "GET", "/v1/ai-usage?month=2026-13", "", "")
 	agent.Problem(403, "identity.agent_not_allowed", "GET", "/v1/ai-usage", "", "")
@@ -73,8 +85,9 @@ func TestAIUsage(t *testing.T) {
 // TestAIUsageDefaultsToThisMonth: without a month, the current one (UTC).
 func TestAIUsageDefaultsToThisMonth(t *testing.T) {
 	person, _ := policyAdmin(t)
-	called(t, person.Tenant, person.Tenant.Agent.ID, "now", 1_000_000, 0)
-	h := &agents.Endpoints{}
+	called(t, person.Tenant, person.Tenant.Agent.ID, "2026-03-31T23:59:59Z", 1_000_000, 0)
+	called(t, person.Tenant, person.Tenant.Agent.ID, "2026-04-01T00:00:00Z", 1_000_000, 0) // the next month
+	h := &agents.Endpoints{Now: func() time.Time { return time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC) }}
 	var res gen.GetAiUsageRes
 	if err := apitest.InRequest(t, person.Tenant, person.As, func(ctx context.Context) (err error) {
 		res, err = h.GetAiUsage(ctx, gen.GetAiUsageParams{})
@@ -101,4 +114,22 @@ func TestAIUsageDatabaseFailures(t *testing.T) {
 		t.Error("outside a unit of work: got no error, want one")
 	}
 	apitest.EveryFailure(t, person.Tenant, person.As, "usage", call)
+}
+
+// TestAIUsageHeldAtTheMost: tokens and costs the provider reported past
+// what an int64 sums to are held at the most, as a call's cost is, never
+// failing the month's report.
+func TestAIUsageHeldAtTheMost(t *testing.T) {
+	person, _ := policyAdmin(t)
+	for range 2 {
+		pgtest.Exec(t, `INSERT INTO agents.model_call (tenant_id, id, principal_id, alias, model, status, input_tokens, output_tokens, cache_write_tokens,
+			cache_read_tokens, cost_micro, currency, called_at)
+			VALUES ($1, gen_random_uuid(), $2, 'erp-default', 'm', 'succeeded', $3, $3, $3, $3, $3, 'USD', '2026-10-05')`,
+			person.Tenant.ID, person.Tenant.Agent.ID, int64(math.MaxInt64))
+	}
+	got, _ := person.Must(200, "GET", "/v1/ai-usage?month=2026-10", "", "")
+	line := apitest.List(t, got, "principals")[0].(map[string]any)
+	if line["input_tokens"] != float64(math.MaxInt64) {
+		t.Errorf("input tokens: got %v, want the most an int64 holds", line["input_tokens"])
+	}
 }

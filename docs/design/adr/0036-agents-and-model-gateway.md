@@ -148,5 +148,5 @@ client certificates in production (ADR-0033). Today:
 - Prices are reference data the platform maintains.
 - Costs are exact per call (`money.Micro`, an amendment to ADR-0005) and
   presented in minor units.
-- Usage reporting (cost per agent per month) reads `model_call` and
-  `agents.spend`.
+- Usage reporting (cost per agent per month, `getAiUsage`) reads
+  `model_call`, the ledger; `agents.spend` is what the budgets hold.

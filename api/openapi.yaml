@@ -10091,7 +10091,7 @@ components:
           description: What the month's calls cost, in USD, the prices' currency.
         monthly_cap:
           $ref: "#/components/schemas/Money"
-          description: "The tenant's monthly cap (getAiPolicy); absent: none."
+          description: "The tenant's monthly cap as it is now (getAiPolicy), which for a past month may not be the cap that held then; absent: none."
         principals:
           type: array
           description: Usage per principal that called, the most costly first.

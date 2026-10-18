@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -66,17 +67,23 @@ func (e *Endpoints) GetAiUsage(ctx context.Context, params gen.GetAiUsageParams)
 // usageIn sums the month's calls per principal, the most costly first. A
 // sum past what an int64 holds is held at that most, as costs are.
 func usageIn(ctx context.Context, tx pgx.Tx, month time.Time) ([]usageLine, error) {
-	rows, _ := tx.Query(ctx, `SELECT principal_id, count(*), sum(input_tokens), sum(output_tokens), sum(cache_write_tokens), sum(cache_read_tokens),
-			sum(redactions), LEAST(sum(cost_micro), 9223372036854775807)::bigint AS cost
+	rows, _ := tx.Query(ctx, `SELECT principal_id, count(*), `+most("input_tokens")+`, `+most("output_tokens")+`, `+most("cache_write_tokens")+`,
+			`+most("cache_read_tokens")+`, sum(redactions), `+most("cost_micro")+` AS cost
 		FROM agents.model_call WHERE called_at >= $1 AND called_at < $2
 		GROUP BY principal_id ORDER BY cost DESC, principal_id`, month, month.AddDate(0, 1, 0))
 	lines, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (usageLine, error) {
 		var l usageLine
 		err := r.Scan(&l.principal, &l.calls, &l.input, &l.output, &l.write, &l.read, &l.redactions, &l.cost)
-		return l, err
+		return l, errs.Wrapf(err, "scan a usage line")
 	})
 	if err != nil {
 		return nil, fmt.Errorf("agents: AI usage in %s: %w", month.Format("2006-01"), err)
 	}
 	return lines, nil
+}
+
+// most is the sum of a bigint column, held at the most an int64 holds: the
+// ledger records what the provider reported, however large.
+func most(column string) string {
+	return `LEAST(sum(` + column + `), 9223372036854775807)::bigint`
 }
