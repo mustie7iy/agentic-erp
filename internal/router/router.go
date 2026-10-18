@@ -24,7 +24,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
-	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
@@ -102,24 +101,11 @@ func (c *Config) loadDirectoryPassword(getenv func(string) string) []error {
 	if ref == "" {
 		return nil
 	}
-	scheme, _, _ := strings.Cut(ref, ":")
-	if scheme != secrets.SchemeEnv && scheme != secrets.SchemeFile {
-		return []error{errors.New("ERP_DIRECTORY_PASSWORD must be an env: or file: reference: it is read again for each new connection")}
+	var err error
+	if c.DirectoryPassword, err = secrets.Rotating(context.Background(), secrets.Local{Getenv: getenv}, ref); err != nil {
+		return []error{fmt.Errorf("ERP_DIRECTORY_PASSWORD (env: or file:): %w", err)}
 	}
-	local := secrets.Local{Getenv: getenv}
-	if _, err := local.Resolve(context.Background(), ref); err != nil {
-		return []error{fmt.Errorf("ERP_DIRECTORY_PASSWORD: %w", err)}
-	}
-	c.DirectoryPassword = func(ctx context.Context) (string, error) { return local.Resolve(ctx, ref) }
 	return nil
-}
-
-// DirectorySettings are the directory pool's: the defaults, with the
-// password asked per connection when one is configured.
-func (c Config) DirectorySettings() database.Settings {
-	s := database.DefaultSettings
-	s.Password = c.DirectoryPassword
-	return s
 }
 
 // proxyFrom parses ERP_ROUTER_PROXY_FROM, a comma-separated list of CIDRs.

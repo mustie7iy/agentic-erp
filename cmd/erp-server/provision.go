@@ -96,7 +96,7 @@ func provision(ctx context.Context, cfg platformconfig.Config, req provisioning.
 	// With a global directory the provider's issuer is claimed there before
 	// the commit, as the control plane does (ADR-0031).
 	if cfg.DirectoryURL != "" {
-		dir, err := directory.Open(ctx, cfg.DirectoryURL)
+		dir, err := directory.OpenWith(ctx, cfg.DirectoryURL, cfg.DirectoryPassword)
 		if err != nil {
 			return provisioning.Result{}, err
 		}

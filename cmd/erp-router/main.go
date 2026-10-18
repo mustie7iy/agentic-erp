@@ -55,7 +55,7 @@ func cli(ctx context.Context, getenv func(string) string, stderr io.Writer, star
 }
 
 func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(api, admin net.Listener)) error {
-	dir, err := directory.OpenWith(ctx, cfg.DirectoryURL, cfg.DirectorySettings())
+	dir, err := directory.OpenWith(ctx, cfg.DirectoryURL, cfg.DirectoryPassword)
 	if err != nil {
 		return err
 	}

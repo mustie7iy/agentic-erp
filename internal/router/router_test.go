@@ -539,7 +539,7 @@ func TestLoadConfigDirectoryPassword(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.DirectoryPassword != nil || c.DirectorySettings().Password != nil {
+	if c.DirectoryPassword != nil {
 		t.Error("no ERP_DIRECTORY_PASSWORD: got a password source, want the URL's")
 	}
 	c, err = router.LoadConfig(env(map[string]string{"ERP_DIRECTORY_PASSWORD": "file:" + file,
@@ -550,19 +550,15 @@ func TestLoadConfigDirectoryPassword(t *testing.T) {
 	if got := len(c.PageTokenKey); got != 32 {
 		t.Errorf("page-token key from a file: got %d bytes, want 32", got)
 	}
-	settings := c.DirectorySettings()
-	if settings.LockTimeout == 0 || settings.StatementTimeout == 0 {
-		t.Errorf("directory settings: got %+v, want the defaults' timeouts", settings)
-	}
 	for _, want := range []string{"first", "rotated"} {
 		tlstest.WriteFile(t, dir, "password", []byte(want+"\n"))
-		got, err := settings.Password(context.Background())
+		got, err := c.DirectoryPassword(context.Background())
 		if err != nil || got != want {
 			t.Errorf("password: got %q, %v, want %q", got, err, want)
 		}
 	}
 	for name, bad := range map[string]map[string]string{
-		"a literal":          {"ERP_DIRECTORY_PASSWORD": "hunter2"},
+		"a value":            {"ERP_DIRECTORY_PASSWORD": "hunter2"},
 		"a vault reference":  {"ERP_DIRECTORY_PASSWORD": "vault:erp/directory"},
 		"a missing file":     {"ERP_DIRECTORY_PASSWORD": "file:" + dir + "/none"},
 		"a missing key file": {"ERP_OPERATOR_ISSUERS": `[{"issuer":"https://ops.example.com","audience":"erp-control"}]`, "ERP_PAGE_TOKEN_KEY": "file:" + dir + "/none"},

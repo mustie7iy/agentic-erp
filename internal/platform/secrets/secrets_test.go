@@ -195,3 +195,32 @@ type failingReader struct{}
 
 func (failingReader) Read([]byte) (int, error) { return 0, errors.New("connection reset") }
 func (failingReader) Close() error             { return nil }
+
+// TestRotating: a rotating secret is resolved at once and again on each
+// call; a value or an unresolvable reference is refused.
+func TestRotating(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "password")
+	write := func(v string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(v+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("first")
+	get, err := secrets.Rotating(ctx, secrets.Local{}, "file:"+path)
+	if err != nil {
+		t.Fatalf("Rotating: %v", err)
+	}
+	for _, want := range []string{"first", "rotated"} {
+		write(want)
+		if got, err := get(ctx); err != nil || got != want {
+			t.Errorf("got %q, %v, want %q", got, err, want)
+		}
+	}
+	_, err = secrets.Rotating(ctx, secrets.Local{}, "hunter2")
+	pgtest.WantErr(t, err, "must be a reference")
+	if _, err := secrets.Rotating(ctx, secrets.Local{}, "file:"+path+".missing"); !errors.Is(err, secrets.ErrNotFound) {
+		t.Errorf("a missing file: got %v, want %v", err, secrets.ErrNotFound)
+	}
+}

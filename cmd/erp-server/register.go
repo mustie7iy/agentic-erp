@@ -80,7 +80,7 @@ func registerProvider(ctx context.Context, cfg platformconfig.Config, tenant uui
 	s := &controlplane.Service{Pool: pool, AppRole: cfg.AppRole, ControlRole: cfg.ControlRole, Production: production,
 		Discover: (&authn.Providers{Production: production}).Probe}
 	if cfg.DirectoryURL != "" {
-		dir, err := directory.Open(ctx, cfg.DirectoryURL)
+		dir, err := directory.OpenWith(ctx, cfg.DirectoryURL, cfg.DirectoryPassword)
 		if err != nil {
 			return controlplane.IdentityProvider{}, err
 		}

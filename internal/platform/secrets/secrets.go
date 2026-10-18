@@ -49,6 +49,20 @@ func Value(ctx context.Context, r Resolver, value string) (string, error) {
 	return r.Resolve(ctx, value)
 }
 
+// Rotating resolves ref now, so that a missing secret fails startup, and
+// returns a function that resolves it again on each call: a credential
+// that rotates (a mounted file External Secrets refreshes, a vault entry)
+// reaches each new use without a restart. ref must be a reference.
+func Rotating(ctx context.Context, r Resolver, ref string) (func(context.Context) (string, error), error) {
+	if !IsRef(ref) {
+		return nil, errors.New("secrets: a rotating secret must be a reference (env:, file: or vault:), not a value")
+	}
+	if _, err := r.Resolve(ctx, ref); err != nil {
+		return nil, err
+	}
+	return func(ctx context.Context) (string, error) { return r.Resolve(ctx, ref) }, nil
+}
+
 // Local resolves env: and file: references on the replica itself.
 type Local struct {
 	Getenv   func(string) string          // nil: os.Getenv

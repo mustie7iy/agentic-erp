@@ -408,6 +408,18 @@ func TestDirectorySettings(t *testing.T) {
 	if c, err := Load(env(m)); err != nil || c.CellAccepting {
 		t.Fatalf("not accepting: %+v %v", c, err)
 	}
+	if c.DirectoryPassword != nil {
+		t.Error("no ERP_DIRECTORY_PASSWORD: got a password source, want the URL's")
+	}
+	// The password, a reference, is resolved again for each connection.
+	m["ERP_DIRECTORY_PASSWORD"], m["ERP_TEST_DIRECTORY_PASSWORD"] = "env:ERP_TEST_DIRECTORY_PASSWORD", "rotating"
+	c = mustLoad(t, m)
+	if got, err := c.DirectoryPassword(context.Background()); err != nil || got != "rotating" {
+		t.Errorf("DirectoryPassword: got %q, %v, want %q", got, err, "rotating")
+	}
+	m["ERP_DIRECTORY_PASSWORD"] = "hunter2"
+	_, err = Load(env(m))
+	pgtest.WantErr(t, err, "ERP_DIRECTORY_PASSWORD")
 }
 
 func TestAmbientAWSCredentials(t *testing.T) {

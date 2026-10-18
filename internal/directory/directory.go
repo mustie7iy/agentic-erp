@@ -126,15 +126,17 @@ func (p *Postgres) inTx(ctx context.Context, scope database.Scope, fn func(conte
 	return p.Pool.InTx(ctx, scope, fn)
 }
 
-// Open connects to the directory database with the default settings and
-// makes sure its table exists.
+// Open connects to the directory database and makes sure its table exists.
 func Open(ctx context.Context, url string) (*Postgres, error) {
-	return OpenWith(ctx, url, database.DefaultSettings)
+	return OpenWith(ctx, url, nil)
 }
 
-// OpenWith is Open with settings of the caller's: the router's asks for
-// a rotating password per connection (database.Settings.Password).
-func OpenWith(ctx context.Context, url string, settings database.Settings) (*Postgres, error) {
+// OpenWith is Open with a password asked for each new connection in
+// place of the URL's, when password is not nil: the directory's RDS-managed
+// master password rotates (database.Settings.Password).
+func OpenWith(ctx context.Context, url string, password func(context.Context) (string, error)) (*Postgres, error) {
+	settings := database.DefaultSettings
+	settings.Password = password
 	pool, err := database.Open(ctx, url, settings)
 	if err != nil {
 		return nil, fmt.Errorf("directory: %w", err)
