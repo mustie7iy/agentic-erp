@@ -16,6 +16,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export DATABASE_URL="${DATABASE_URL:-postgres://postgres:dev@localhost:55432/postgres?sslmode=disable}"
+# The latency budgets at CI's scale (docs/testing.md): this machine runs
+# the lanes' suites beside this one, so it is no quieter than a runner.
+# The budgets at scale 1 are checked in a cell-sized environment (06 §6.5).
+export ERP_BUDGET_SCALE="${ERP_BUDGET_SCALE:-2}"
 # Kept equal to GITLEAKS_VERSION in .github/workflows/ci.yml.
 GITLEAKS_MODULE=github.com/zricethezav/gitleaks/v8@v8.30.1
 
@@ -100,7 +104,7 @@ report="$logs.md"
 {
   echo "ci-local $verdict tree $tree"
   echo
-  echo "Commit $head on $(go env GOOS)/$(go env GOARCH), $(go env GOVERSION), compared with main at $(git rev-parse --short origin/main)."
+  echo "Commit $head on $(go env GOOS)/$(go env GOARCH), $(go env GOVERSION), compared with main at $(git rev-parse --short origin/main), budgets at scale $ERP_BUDGET_SCALE."
   echo
   echo "| Gate | Result | Time |"
   echo "|---|---|---|"
