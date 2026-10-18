@@ -422,7 +422,7 @@
        {
         "s": "D",
         "t": "Special G/L items: down payments on the legal entity's down payment account (indicator A), shown on lines, open items and events, never netted in runs, refused by clearing and settlement",
-        "r": "db/migrations/000061 · account_determination.down_payment · journal_line.special_gl · OpenItems.Payable · ledger.special_gl_item · T46a",
+        "r": "db/migrations/000071 · account_determination.down_payment · journal_line.special_gl · OpenItems.Payable · ledger.special_gl_item · T46a",
         "c": []
        },
        {
@@ -434,7 +434,7 @@
        {
         "s": "D",
         "t": "Down payment requests (F-47): payables documents outside the ledger, with optional input tax; entered, listed, read and cancelled, audited and published",
-        "r": "db/migrations/000062 · payables.down_payment_request · down-payment-requests · DownPaymentRequested · T46b",
+        "r": "db/migrations/000072 · payables.down_payment_request · down-payment-requests · DownPaymentRequested · T46b",
         "c": []
        }
       ]
