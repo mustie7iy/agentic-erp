@@ -3673,6 +3673,12 @@
         "t": "Agents offered only the tools their autonomy level allows",
         "r": "internal/apitools · T42 follow-up",
         "c": []
+       },
+       {
+        "s": "T",
+        "t": "Ruling on T47's order changes (create, update, cancel a purchase order change) and renewContract: propose or level 2",
+        "r": "x-autonomy · awaiting PO · T42g × T47e",
+        "c": []
        }
       ]
      },
