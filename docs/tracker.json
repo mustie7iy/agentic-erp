@@ -6145,10 +6145,17 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Eval suites per agent on the live API",
       "r": "T43",
-      "c": []
+      "c": [
+       {
+        "s": "D",
+        "t": "Harness: suites, three repeats on throwaway tenants, deterministic checks, reports; erp eval run, make eval; replayed in CI",
+        "r": "internal/eval · ADR-0039 · T43a",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",

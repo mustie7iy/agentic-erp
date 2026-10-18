@@ -440,6 +440,37 @@ func TestParse(t *testing.T) {
 	if _, err := eval.Load(filepath.Join(dir, "none.yaml")); err == nil {
 		t.Error("load a missing file: got no error")
 	}
+	write := func(name, content string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	write("config.yaml", "companies: [{code: \"1000\"}]\n")
+	write("bad.yaml", "companies: [\n")
+	withConfig := func(cfg, tenant string) string {
+		y := strings.Replace(suiteYAML, "tenant: {administrator: {subject: eval|admin}}", "tenant: "+tenant+"\nconfiguration: "+cfg, 1)
+		return write("with.yaml", y)
+	}
+	s, err := eval.Load(withConfig("config.yaml", "{administrator: {subject: eval|admin}}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg := s.Tenant.(map[string]any)["configuration"]; cfg == nil {
+		t.Error("configuration: got none, want the file's")
+	}
+	for name, c := range map[string][2]string{
+		"missing": {"none.yaml", "{administrator: {subject: a}}"}, "not YAML": {"bad.yaml", "{administrator: {subject: a}}"},
+		"tenant not an object": {"config.yaml", "acme"},
+	} {
+		if _, err := eval.Load(withConfig(c[0], c[1])); err == nil {
+			t.Errorf("%s: got no error", name)
+		}
+	}
+	if _, err := eval.Load(write("broken.yaml", "version: [")); err == nil {
+		t.Error("a suite not YAML: got no error")
+	}
 }
 
 // TestWrite: a report is written under its agent and the model that

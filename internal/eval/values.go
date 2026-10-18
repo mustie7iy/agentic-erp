@@ -50,6 +50,10 @@ func fill(v any, saved map[string]string) (any, error) {
 	return v, nil
 }
 
+// Fill is fill for replays: a turn's input and text, from the saved values
+// and the replay's own.
+func Fill(v any, saved map[string]string) (any, error) { return fill(v, saved) }
+
 // fillString is fill for a path or a text.
 func fillString(s string, saved map[string]string) (string, error) {
 	v, err := fill(s, saved)

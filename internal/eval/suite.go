@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 
 	"gopkg.in/yaml.v3"
@@ -34,8 +35,11 @@ type Suite struct {
 	AgentSubject string `yaml:"agent_subject"` // the subject the setup gives the agent principal
 	Bars         Bars   `yaml:"bars"`
 	Tenant       any    `yaml:"tenant"` // the throwaway tenant's createTenant body, the administrator's subject included
-	Setup        []Call `yaml:"setup"`  // every case's, before its own
-	Cases        []Case `yaml:"cases"`
+	// Configuration names a configuration-as-code file, relative to the
+	// suite's, that Load puts in the tenant body as its configuration.
+	Configuration string `yaml:"configuration"`
+	Setup         []Call `yaml:"setup"` // every case's, before its own
+	Cases         []Case `yaml:"cases"`
 	// ReplayVars name values a replay reads from the agent's requests to
 	// the model (name → a regular expression whose first group is the
 	// value), for its turns' {{name}}: the session id the agent opened,
@@ -97,7 +101,24 @@ func Load(path string) (Suite, error) {
 	if err != nil {
 		return Suite{}, fmt.Errorf("eval: read suite: %w", err)
 	}
-	return Parse(raw)
+	s, err := Parse(raw)
+	if err != nil || s.Configuration == "" {
+		return s, err
+	}
+	doc, err := os.ReadFile(filepath.Join(filepath.Dir(path), s.Configuration)) // #nosec G304 -- named by the suite
+	if err != nil {
+		return s, fmt.Errorf("eval: read the configuration: %w", err)
+	}
+	var cfg map[string]any
+	if err := yaml.Unmarshal(doc, &cfg); err != nil {
+		return s, fmt.Errorf("eval: parse the configuration: %w", err)
+	}
+	tenant, ok := s.Tenant.(map[string]any)
+	if !ok {
+		return s, errors.New("eval: a suite with a configuration needs a tenant object")
+	}
+	tenant["configuration"] = cfg
+	return s, nil
 }
 
 // Parse reads a suite, refusing unknown fields, and checks it.

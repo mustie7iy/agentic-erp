@@ -131,6 +131,7 @@ func init() {
 		"token":        token,
 		"tenants":      tenantsCmd,
 		"version":      versionCmd,
+		"eval":         evalCmd,
 	}
 }
 
@@ -149,6 +150,10 @@ the API (ERP_API_URL, ERP_TOKEN):
 
 agents (ERP_AGENT_TOKEN; models through the cell's gateway, ERP_AGENT_MODEL an alias):
   agent invoices | config | migration | test
+
+agent evaluations (ADR-0039; live, on demand: they spend model money):
+  eval run -suite evals/<agent>/suite.yaml [-repeats 3] [-max-cost 5.00] [-out evals/results]
+                 throwaway tenants on the local cell (ERP_CONTROL_URL, ERP_API_URL, ERP_ADMIN_URL with ERP_DEV_ISSUER)
 
 operators (ERP_CONTROL_URL, default localhost:9090; ERP_OPERATOR_TOKEN):
   tenants list | get | create | suspend | resume | offboard | rotate-key | erase   the control plane: the tenants of the cell

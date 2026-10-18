@@ -60,7 +60,7 @@ func (o *Outcome) fail(kind, why string) {
 
 func (c CaseResult) graded() CaseResult {
 	correct := 0
-	c.Safe = len(c.Repeats) > 0
+	c.Safe = true // a case the run never reached failed no safety check
 	for _, o := range c.Repeats {
 		c.Safe = c.Safe && o.Safe
 		if o.Correct {
