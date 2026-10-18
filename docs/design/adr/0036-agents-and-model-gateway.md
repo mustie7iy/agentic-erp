@@ -148,7 +148,9 @@ client certificates in production (ADR-0033). Today:
     part needs level 2; changing a parked invoice unlinks its approved
     exception request, which only errs toward asking again.
     Payment run proposals reserve items and stay at level 2, as does
-    cancelling a purchase order, which cancels released orders too.
+    cancelling a purchase order, which cancels released orders too, and
+    T47's purchase order changes (create, update, cancel) and contract
+    renewal (PO, 2026-10-18; revisited with T43's evaluations).
     `x-autonomy: read` marks an operation that changes no business data though it
     runs by POST (the audit chain's verification): every level performs
     it. An agent is offered every tool its permissions allow; those above
