@@ -210,10 +210,15 @@ func (e *Entry) fields() []any {
 	return []any{&e.TenantID, &e.Region, &e.Cell, &e.APIURL, &e.Status, &e.Version, &e.UpdatedAt}
 }
 
-// keptStatus is the status an upsert leaves: read_only and erased stay,
-// offboarded stays unless the tenant is now erased, any other takes the
-// cell's.
-const keptStatus = `CASE WHEN directory.tenant.status IN ('read_only', 'erased') THEN directory.tenant.status
+// keptStatus is the status an upsert leaves: read_only stays; from the
+// entry's own cell, erased stays and offboarded stays unless the tenant is
+// now erased; any other takes the cell's. Another cell's write is the
+// tenant's new home after a move (an export and an import, ADR-0029), whose
+// status is its own; an import back into the same cell clears the status
+// through Reinstate.
+const keptStatus = `CASE WHEN directory.tenant.status = 'read_only' THEN 'read_only'
+	WHEN directory.tenant.cell <> EXCLUDED.cell THEN EXCLUDED.status
+	WHEN directory.tenant.status = 'erased' THEN 'erased'
 	WHEN directory.tenant.status = 'offboarded' AND EXCLUDED.status <> 'erased' THEN 'offboarded' ELSE EXCLUDED.status END`
 
 // Upsert implements Store.
@@ -261,6 +266,26 @@ func (p *Postgres) update(ctx context.Context, tenant uuid.UUID, version int32, 
 		return Entry{}, fmt.Errorf("directory: update: %w", err)
 	}
 	return e, nil
+}
+
+// Reinstate makes the tenant's offboarded or erased entry in the cell
+// active again, for an import that brings the tenant back into it
+// (erp-server import, ADR-0029): the one way past what Upsert keeps. Any
+// other entry is left as it is (read_only during a move; none yet, which
+// the cell's sync writes).
+func (p *Postgres) Reinstate(ctx context.Context, tenant uuid.UUID, cell string) error {
+	err := p.inTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE directory.tenant SET status = 'active', version = version + 1, updated_at = now()
+			WHERE tenant_id = $1 AND cell = $2 AND status IN ('offboarded', 'erased')`, tenant, cell)
+		if err != nil {
+			return fmt.Errorf("write: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("directory: reinstate tenant %s: %w", tenant, err)
+	}
+	return nil
 }
 
 // ErrVersion means the entry changed since it was read (If-Match).

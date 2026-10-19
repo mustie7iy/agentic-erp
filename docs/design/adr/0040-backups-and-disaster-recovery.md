@@ -113,7 +113,18 @@ erased and the cell does not, and erases again those the directory has
 erased: against the export already in the object store, which it records
 as the tenant's (`offboarding.Worker.Adopt`) rather than exporting erased
 data a second time; a tenant with no export there is a problem for the
-operator.
+operator. A tenant the directory has only offboarded is offboarded again
+and starts its grace period over: the worker exports it once more, a
+second locked copy, which the erasure leaves as the first. The directory
+keeps these statuses only against the entry's own cell, so a tenant moved
+to another cell (an export and an import, ADR-0029) takes that cell's
+status; an import back into the same cell reinstates the entry
+(`directory.Postgres.Reinstate`, run by `erp-server import`), the one way
+past what a sync cannot undo. The reconciliation lives in
+`internal/drverify` and uses the control plane (an audited offboarding),
+the directory, the offboarding worker and the audit context's anchor
+format: an operations package beside the contexts, allowed in
+internal/layout.
 
 **Every restore is verified (T41d).** `erp-server dr verify` checks a
 restored cell before it serves, reading only (internal/drverify): the
@@ -285,7 +296,7 @@ RELOAD, RESUME). Only 503s, every retried post once, recovery within 60 s.
   Staging's costs a VPC with one NAT gateway for the restore drill
   (T41e2); its Fargate task runs only during a drill.
 - The directory gains an `erased` status and keeps `offboarded` and
-  `erased` against a cell's sync (T41f); an offboarded tenant can never be
-  made active again through a cell, which the lifecycle already forbids.
+  `erased` against a sync from the entry's own cell (T41f); only an import
+  reinstates such an entry.
 - The pre-pilot confirmation on staging can change the production database
   shape; T41b2 is written so that the replica is one resource to replace.

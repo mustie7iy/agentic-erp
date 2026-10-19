@@ -57,7 +57,7 @@ var allowed = map[string][]string{
 	"delivery/sapconfig":      {"config", "sap"},
 	"delivery/testagent":      {"apitools", "llm"},
 	"directory":               {"tenancy"},
-	"drverify":                {"offboarding", "tenancy"},
+	"drverify":                {"audit", "controlplane", "directory", "offboarding", "tenancy"},
 	"eval":                    {"apitools", "llm"},
 	"globalplane":             {"directory", "offboarding"},
 	"integration":             {"bankfile", "config", "ledger", "operations", "partner", "payables", "procurement", "sap", "tenancy"},

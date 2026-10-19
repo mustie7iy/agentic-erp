@@ -47,8 +47,8 @@ func (w *Worker) Adopt(ctx context.Context, tenant uuid.UUID) (Export, error) {
 	if err := json.Unmarshal(raw, &m); err != nil || m.TenantID != tenant {
 		return Export{}, fmt.Errorf("offboarding: adopt %s: not a manifest of tenant %s", ref, tenant)
 	}
-	now := w.now()
-	ex := Export{Ref: ref, Tables: len(m.Tables), ExportedAt: now, EraseAfter: now}
+	// Exported when the manifest says; due for erasure now.
+	ex := Export{Ref: ref, Tables: len(m.Tables), ExportedAt: m.ExportedAt, EraseAfter: w.now()}
 	for _, t := range m.Tables {
 		ex.Rows += t.Rows
 	}

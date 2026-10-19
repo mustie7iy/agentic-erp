@@ -26,8 +26,11 @@ type tenantChain struct {
 // object store (ADR-0011, ADR-0025): every anchor the database records
 // agrees with its event and has its object, and every object the database
 // does not record (anchored after the restore point) agrees with the event
-// at its seq when the restore kept that event. The objects are locked, so
-// one the database records needs only to exist; the others are read.
+// at its seq when the restore kept that event. The objects are locked
+// (ADR-0016), so one the database records says what the database's row
+// says when it was written: the row is compared with the event, and the
+// object needs only to exist. The objects the database does not record are
+// read.
 func (rc *Reconciler) anchors(ctx context.Context, store blobstore.Eraser, tenant uuid.UUID, rep *Reconciled) error {
 	keys, err := store.List(ctx, blobstore.Key(tenant, blobstore.KindAnchors, ""))
 	if err != nil {

@@ -1016,9 +1016,26 @@ func TestImportCommand(t *testing.T) {
 	if !strings.Contains(stderr.String(), "identity provider") {
 		t.Errorf("refusal: got %s, want the missing identity provider named", stderr.String())
 	}
+	// The directory has the tenant erased, which the cell's sync cannot
+	// undo (ADR-0040); the import brings it back.
+	dirURL := pgtest.EmptyDatabase(t)
+	dir, err := directory.Open(context.Background(), dirURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	if err := dir.Upsert(context.Background(), directory.Entry{TenantID: created.TenantID, Region: "eu-west", Cell: "test", APIURL: "https://test.api.example.com", Status: directory.Erased}); err != nil {
+		t.Fatal(err)
+	}
+	withDirectory := maps.Clone(env)
+	maps.Copy(withDirectory, map[string]string{"ERP_DIRECTORY_URL": dirURL, "ERP_CELL_API_URL": "https://test.api.example.com", "ERP_CELL_REGION": "eu-west",
+		"ERP_CELL_CONTROL_URL": "http://test-admin.internal:9090"})
 	stdout.Reset()
-	if code := cli(context.Background(), []string{"import", "-manifest", ex.Ref}, getenv, &stdout, &stderr, nil); code != 0 || !strings.Contains(stdout.String(), `"identity.principal"`) {
+	if code := cli(context.Background(), []string{"import", "-manifest", ex.Ref}, func(k string) string { return withDirectory[k] }, &stdout, &stderr, nil); code != 0 || !strings.Contains(stdout.String(), `"identity.principal"`) {
 		t.Fatalf("import: %d %s %s", code, stdout.String(), stderr.String())
+	}
+	if e, err := dir.Lookup(context.Background(), created.TenantID); err != nil || e.Status != directory.Active {
+		t.Errorf("directory entry after the import: got %s (%v), want %s", e.Status, err, directory.Active)
 	}
 	var status string
 	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT status FROM tenancy.tenant WHERE id = $1`, created.TenantID).Scan(&status); err != nil {
@@ -1039,6 +1056,10 @@ func TestImportCommand(t *testing.T) {
 		"live tenant": {[]string{"import", "-manifest", ex.Ref}, nil, 1, "not erased"},
 		"no store":    {[]string{"import", "-manifest", ex.Ref}, func(e map[string]string) { delete(e, "ERP_OBJECT_DIR") }, 1, "no object storage"},
 		"db down":     {[]string{"import", "-manifest", ex.Ref}, func(e map[string]string) { e["DATABASE_URL"] = "postgres://nobody@127.0.0.1:1/x?connect_timeout=1" }, 1, "connect"},
+		"directory down": {[]string{"import", "-manifest", ex.Ref}, func(e map[string]string) {
+			maps.Copy(e, withDirectory)
+			e["ERP_DIRECTORY_URL"] = "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"
+		}, 1, "directory"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := map[string]string{}

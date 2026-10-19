@@ -569,6 +569,7 @@ func TestDirectoryStatementFailures(t *testing.T) {
 		},
 		"list cells":   func() error { _, err := dir.ListCells(ctx, "sf-west"); return err },
 		"cell tenants": func() error { _, err := dir.CellTenants(ctx, "sf-1"); return err },
+		"reinstate":    func() error { return dir.Reinstate(ctx, tenant, "sf-1") },
 		"place":        func() error { _, err := dir.Place(ctx, "sf-key-"+uuid.NewString(), "sf-west", ""); return err },
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -641,13 +642,40 @@ func TestErasedAndOffboardedOutliveARestore(t *testing.T) {
 			t.Errorf("%s: got %s (%v), want %s", step.name, e.Status, err, step.want)
 		}
 	}
+	// An import back into the cell reinstates it; read_only (a move) stays.
+	if err := dir.Reinstate(ctx, tenant, "eu-1"); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := dir.Lookup(ctx, tenant); e.Status != directory.Active {
+		t.Errorf("reinstated: got %s, want %s", e.Status, directory.Active)
+	}
+	upsert(tenant, directory.Offboarded)
+	if _, err := dir.SetStatus(ctx, tenant, 0, directory.ReadOnly); err != nil {
+		t.Fatal(err)
+	}
+	if err := dir.Reinstate(ctx, tenant, "eu-1"); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := dir.Lookup(ctx, tenant); e.Status != directory.ReadOnly {
+		t.Errorf("reinstated while moving: got %s, want %s", e.Status, directory.ReadOnly)
+	}
+	// Erased in its old cell, the tenant lives on in the cell it moved to:
+	// that cell's writes are its own.
+	moved := uuid.New()
+	upsert(moved, directory.Erased)
+	if err := dir.Upsert(ctx, directory.Entry{TenantID: moved, Region: "eu-west", Cell: "eu-2", APIURL: "https://eu-2", Status: directory.Active}); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := dir.Lookup(ctx, moved); e.Status != directory.Active || e.Cell != "eu-2" {
+		t.Errorf("moved: got %s in %s, want %s in eu-2", e.Status, e.Cell, directory.Active)
+	}
 	upsert(other, directory.Suspended)
 	entries, err := dir.CellTenants(ctx, "eu-1")
 	if err != nil || len(entries) != 2 {
 		t.Fatalf("cell tenants: got %d (%v), want 2", len(entries), err)
 	}
-	if none, err := dir.CellTenants(ctx, "eu-2"); err != nil || len(none) != 0 {
-		t.Errorf("another cell's tenants: got %d (%v), want none", len(none), err)
+	if there, err := dir.CellTenants(ctx, "eu-2"); err != nil || len(there) != 1 {
+		t.Errorf("the other cell's tenants: got %d (%v), want the moved one", len(there), err)
 	}
 }
 

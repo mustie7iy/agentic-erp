@@ -35,6 +35,10 @@ func TestAdopt(t *testing.T) {
 	if _, err := w.Adopt(ctx, tenant); !errors.Is(err, offboarding.ErrNoExport) {
 		t.Fatalf("adopt before any export: got %v, want ErrNoExport", err)
 	}
+	// An older export of an earlier offboarding, which is not the one.
+	if err := store.Put(ctx, blobstore.Key(tenant, blobstore.KindExports, "1600000000/manifest.json"), []byte(`{"tenant_id":"`+tenant.String()+`"}`), blobstore.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
 	exported, err := w.Export(ctx, tenant)
 	if err != nil {
 		t.Fatal(err)
@@ -46,8 +50,17 @@ func TestAdopt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if adopted.Ref != exported.Ref || adopted.Rows != exported.Rows || !adopted.EraseAfter.Equal(clock) {
-		t.Errorf("adopted: got %+v, want the export %s with %d rows due at %s", adopted, exported.Ref, exported.Rows, clock)
+	if adopted.Ref != exported.Ref {
+		t.Errorf("adopted export: got %s, want the newest, %s", adopted.Ref, exported.Ref)
+	}
+	if adopted.Rows != exported.Rows {
+		t.Errorf("adopted rows: got %d, want %d", adopted.Rows, exported.Rows)
+	}
+	if !adopted.ExportedAt.Equal(exported.ExportedAt) {
+		t.Errorf("adopted exported at: got %s, want the manifest's %s", adopted.ExportedAt, exported.ExportedAt)
+	}
+	if !adopted.EraseAfter.Equal(clock) {
+		t.Errorf("adopted erase after: got %s, want now, %s", adopted.EraseAfter, clock)
 	}
 	if _, err := w.Adopt(ctx, tenant); err == nil {
 		t.Error("adopt twice: got nil, want the conflict of an export already recorded")

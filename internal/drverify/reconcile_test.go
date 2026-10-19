@@ -80,6 +80,19 @@ func (c cell) anchored(t *testing.T, store blobstore.Store, tenant uuid.UUID) {
 	}
 }
 
+// changes counts the cell's audit events and the tenancy events it
+// published: what a write through the control plane or the worker adds.
+func (c cell) changes(t *testing.T) int64 {
+	t.Helper()
+	var n int64
+	if err := c.pool.WithConn(context.Background(), func(conn *pgx.Conn) error {
+		return conn.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM audit.audit_event) + (SELECT count(*) FROM tenancy.outbox)`).Scan(&n)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
 func put(t *testing.T, store blobstore.Store, tenant uuid.UUID, seq int64, body string) {
 	t.Helper()
 	if err := store.Put(context.Background(), blobstore.Key(tenant, blobstore.KindAnchors, audit.ObjectName(seq)), []byte(body), blobstore.PutOptions{}); err != nil {
@@ -225,6 +238,22 @@ func TestReconcileDirectory(t *testing.T) {
 		t.Error("the tenant the directory had erased: got not erased, want erased")
 	}
 
+	t.Run("twice", func(t *testing.T) {
+		before := c.changes(t)
+		again, err := c.reconciler(store, dir, "erp_worker").Reconcile(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(again.Offboarded)+len(again.Erased) != 0 {
+			t.Errorf("second run: got %v offboarded and %v erased, want none", again.Offboarded, again.Erased)
+		}
+		if !slices.Equal(again.Problems, rep.Problems) {
+			t.Errorf("second run's problems: got %q, want %q", again.Problems, rep.Problems)
+		}
+		if after := c.changes(t); after != before {
+			t.Errorf("audit events and events published: got %d, want %d (nothing new)", after, before)
+		}
+	})
 	t.Run("an erasure that fails", func(t *testing.T) {
 		dir := cellDirectory{entries: []directory.Entry{entry(unerasable, directory.Erased)}}
 		rep, err := c.reconciler(store, dir, "nobody").Reconcile(ctx)
