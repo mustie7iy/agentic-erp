@@ -123,7 +123,8 @@ func TestDRCommand(t *testing.T) {
 }
 
 // TestDRDatabaseCAUnwritable: an authority that cannot be written stops
-// the command before it connects, and leaves no directory behind.
+// the command before it connects, and leaves no directory behind. It sets
+// TMPDIR and replaces drWriteCA, so it must not run in parallel.
 func TestDRDatabaseCAUnwritable(t *testing.T) {
 	env := map[string]string{"DATABASE_URL": "postgres://u@db.example/erp", "ERP_DR_DATABASE_CA": "pem"}
 	getenv := func(k string) string { return env[k] }

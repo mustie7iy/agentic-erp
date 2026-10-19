@@ -104,7 +104,11 @@ if name == "aws":
         out = {"tasks": [{"lastStatus": "STOPPED", "stoppedReason": "CannotPullContainerError", "containers": [container]}]}
     elif cmd == ["logs", "get-log-events"]:
         assert a[a.index("--log-stream-name") + 1] == "verify/erp-server/abc123", a
-        out = {"events": [{"message": m} for m in state.get("log", "").splitlines()]}
+        # Two pages, the second ending where it began, as CloudWatch does.
+        lines = state.get("log", "").splitlines()
+        page = 1 if "--next-token" not in a else int(a[a.index("--next-token") + 1])
+        half = (len(lines) + 1) // 2
+        out = {"events": [{"message": m} for m in (lines[:half] if page == 1 else lines[half:] if page == 2 else [])], "nextForwardToken": str(min(page + 1, 3))}
     elif cmd == ["backup", "describe-restore-job"]:
         out = {"Status": os.environ.get("FAKE_RESTORE_JOB", "COMPLETED")}
     print(json.dumps(out))
@@ -195,7 +199,7 @@ case_ aws-dr-copies 0 passed "backup start-restore-job --region eu-central-2 --r
 if ! grep -q 'DBSubnetGroupName": "erp-stg1-dr", "VpcSecurityGroupIds": "\[\\"sg-db\\"\]"' "$work/log" \
     || ! grep -q "ecs run-task --region eu-central-2 --cluster erp-stg1-restore-drill --launch-type FARGATE" "$work/log" \
     || ! grep -q "ecs delete-task-definitions --region eu-central-2 --task-definitions arn:aws:ecs:eu-central-2:1:task-definition/erp-stg1-drill:1" "$work/log" \
-    || ! grep -q "ecs stop-task --region eu-central-2 --cluster erp-stg1-restore-drill --task arn:aws:ecs:" "$work/log" \
+    || grep -q "ecs stop-task" "$work/log" \
     || grep -q "kubectl -n erp create secret" "$work/log"; then
   echo "FAIL aws-dr-copies: restored into the DR VPC, verified by a task there, its definition removed" >&2
   cat "$work/log" >&2

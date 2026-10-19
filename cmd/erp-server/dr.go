@@ -136,6 +136,8 @@ func drDatabaseCA(getenv func(string) string) (func(string) string, func(), erro
 		return nil, nil, fmt.Errorf("ERP_DR_DATABASE_CA: %w", err)
 	}
 	q := u.Query()
+	// The authority given is the one this run trusts: it replaces any
+	// sslrootcert the URL names, which would be a path of another host.
 	q.Set("sslrootcert", path)
 	u.RawQuery = q.Encode()
 	withCA := u.String()

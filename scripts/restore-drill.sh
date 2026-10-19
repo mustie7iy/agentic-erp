@@ -359,13 +359,29 @@ class AWS:
             d = self.json("ecs", "describe-tasks", *ecs, "--cluster", t["cluster"], "--tasks", arn)["tasks"][0]
             return d if d.get("lastStatus") == "STOPPED" else None
         done = until("task %s stopped" % arn, stopped)
-        events = self.json("logs", "get-log-events", *ecs, "--log-group-name", t["log_group"], "--log-stream-name",
-                           "verify/erp-server/" + arn.rsplit("/", 1)[1], "--start-from-head")["events"]
-        out = "\n".join(e["message"] for e in events)
+        self.objects.remove(("task", arn))  # stopped: nothing to stop at the end
+        out = self.task_log(t["log_group"], "verify/erp-server/" + arn.rsplit("/", 1)[1], done["containers"][0].get("exitCode") is not None)
         code = done["containers"][0].get("exitCode")
         if code is None:  # never ran: the image, the secret, the network
             return 1, "%s\n%s" % (out, done.get("stoppedReason", ""))
         return (0 if code == 0 else 1), out
+
+    def task_log(self, group, stream, ran):
+        """The task's log, every page of it; a task that ran is waited for
+        until its lines arrive, which may be a little after it stopped."""
+        def read():
+            lines, token = [], None
+            while True:
+                page = self.json("logs", "get-log-events", "--region", self.region, "--log-group-name", group, "--log-stream-name", stream,
+                                 "--start-from-head", *(["--next-token", token] if token else []))
+                lines += [e["message"] for e in page["events"]]
+                if not page["events"] or page.get("nextForwardToken") in (None, token):
+                    return lines
+                token = page["nextForwardToken"]
+        try:
+            return "\n".join(until("the log of %s" % stream, read) if ran else read())
+        except Step:
+            return ""  # no lines: the exit code still decides, the report reads as missing
 
     def cleanup(self):
         """Removes what the drill made; a removal that fails is reported

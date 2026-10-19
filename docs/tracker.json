@@ -5231,7 +5231,7 @@
        },
        {
         "s": "T",
-        "t": "Pre-pilot: the first restore drills on AWS staging (stg1), point in time and from the copies, recorded in restore.json; until one has passed every production promotion is refused (scripts/promotion-checks.sh). Confirm there: the restore metadata's DBSubnetGroupName and VpcSecurityGroupIds, the managed secret's aws:rds:primaryDBClusterArn tag the task's role is scoped by, and the DR region in the registry's replication regions",
+        "t": "Pre-pilot: the first restore drills on AWS staging (stg1), point in time and from the copies, recorded in restore.json; until one has passed every production promotion is refused (scripts/promotion-checks.sh). Confirm there: the restore metadata's DBSubnetGroupName and VpcSecurityGroupIds, the managed secret's aws:rds:primaryDBClusterArn tag the task's role is scoped by and its KMS key (the execution role decrypts none), and the DR region in the registry's replication regions",
         "r": "ADR-0040 · T41e2",
         "c": []
        }
