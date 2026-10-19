@@ -680,6 +680,15 @@ func (s *server) startRelay(ctx, runCtx context.Context, bus *natsbus.Bus) error
 	}
 	relay := &outbox.Relay{Pool: s.pool, Role: s.cfg.RelayRole, Publisher: bus, Cell: s.cfg.Cell, Log: s.log}
 	s.spawn("relay", func() { relay.Run(runCtx) })
+	// Events offered to webhooks become deliveries (ADR-0041), each in its
+	// tenant's transaction, so the fan-out needs no role beyond the app's.
+	fanout := &integration.Fanout{Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log}
+	consumer, err := bus.Consume(ctx, s.cfg.Cell, integration.FanoutConsumer, integration.WebhookContexts(), fanout.Handle)
+	if err != nil {
+		return err
+	}
+	consumer.Log = s.log
+	s.spawn("webhook fan-out", func() { consumer.Run(runCtx) })
 	return nil
 }
 

@@ -37,6 +37,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/eval"
+	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
@@ -357,6 +358,7 @@ func TestAStartupFailureStopsTheWorkersFirst(t *testing.T) {
 	}{
 		{"bus unreachable", func() string { return "nats://127.0.0.1:1" }, func(*config.Config) {}, "natsbus: connect"},
 		{"streams refused", func() string { return natstest.Plain(t) }, func(*config.Config) {}, "natsbus: stream"},
+		{"consumer refused", func() string { return conflictingConsumer(t) }, func(*config.Config) {}, "natsbus: consumer"},
 		{"api port in use", func() string { return natstest.Server(t) }, func(c *config.Config) { c.HTTPAddr = busy.Addr().String() }, "erp-server: listen on"},
 		{"admin port in use", func() string { return natstest.Server(t) }, func(c *config.Config) { c.AdminAddr = busy.Addr().String() }, "erp-server: admin listen on"},
 	}
@@ -385,6 +387,35 @@ func TestAStartupFailureStopsTheWorkersFirst(t *testing.T) {
 			}
 		})
 	}
+}
+
+// conflictingConsumer is JetStream with the cell's streams and a fan-out
+// consumer whose start the server may not change.
+func conflictingConsumer(t *testing.T) string {
+	t.Helper()
+	url := natstest.Server(t)
+	bus, err := natsbus.Connect(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bus.Close()
+	if err := bus.EnsureStreams(t.Context(), "test"); err != nil {
+		t.Fatal(err)
+	}
+	nc, err := nats.Connect(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nc.Close()
+	js, err := jetstream.New(nc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := js.CreateConsumer(t.Context(), natsbus.StreamName("test", integration.WebhookContexts()[0]),
+		jetstream.ConsumerConfig{Durable: integration.FanoutConsumer, AckPolicy: jetstream.AckExplicitPolicy, DeliverPolicy: jetstream.DeliverAllPolicy}); err != nil {
+		t.Fatal(err)
+	}
+	return url
 }
 
 func TestAListenerFailureStopsTheServer(t *testing.T) {
