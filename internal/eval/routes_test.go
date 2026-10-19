@@ -64,7 +64,10 @@ func TestRoutesCertified(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		raw, _ := os.ReadFile(path)
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
 		return string(raw)
 	}
 	to := map[string]string{"erp-default": "claude-next"}
