@@ -1,0 +1,6 @@
+# Who may approve a production promotion (ADR-0035, T40d4): GitHub logins,
+# one per line. scripts/promotion-approvals.sh refuses a production
+# promotion unless one of them other than its author approved its head, as
+# this file reads on the base branch. With the owner alone listed, no
+# production promotion can merge until a second approver is added here.
+mustie7iy

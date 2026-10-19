@@ -1,0 +1,35 @@
+name: promotion-review
+
+# A review of a production promotion is judged by the promotion workflow's
+# approvals job (ADR-0035, T40d4), which runs as pull_request_target and so
+# not on a review. This re-runs that workflow's run for the reviewed head,
+# so an approval, or its dismissal, is judged again by BASE's checks; it
+# judges nothing itself. A review of any other pull request finds no such
+# run and ends in seconds; only an approval or a dismissal starts it.
+on:
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions: {}
+
+jobs:
+  rerun:
+    if: github.event.review.state == 'approved' || github.event.action == 'dismissed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      actions: write # re-run the promotion workflow's run
+    steps:
+      - name: Judge the promotion again
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          run="$(gh run list -R "$REPO" --workflow promotion.yml --event pull_request_target \
+            --commit "$HEAD_SHA" --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+          if [ -n "$run" ]; then
+            gh run rerun "$run" -R "$REPO"
+          else
+            echo "promotion-review: no promotion run for $HEAD_SHA"
+          fi

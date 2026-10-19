@@ -4947,8 +4947,20 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Production approvers (product owner): a production promotion, a rollback included, merges only with an approval of its head by someone other than its author listed in .github/approvers, read with the read-only token; no CODEOWNERS. With the owner alone listed, production promotion is blocked until a second approver is",
+        "r": ".github/approvers · scripts/promotion-approvals.sh · scripts/test-promotion-approvals.sh · .github/workflows/promotion.yml · .github/workflows/promotion-review.yml · scripts/merge-pr.sh · ADR-0035 · T40d4",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "T40d: the production approvers, the staging rollback drill",
+        "t": "List a second production approver in .github/approvers: until then no production promotion can merge",
+        "r": ".github/approvers · ADR-0035",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "T40d: the staging rollback drill",
         "r": "ADR-0035",
         "c": []
        }

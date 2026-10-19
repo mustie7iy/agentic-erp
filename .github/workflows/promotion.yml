@@ -7,13 +7,18 @@ name: promotion
 #     path dev -> test -> staging -> the production canary -> production,
 #     the staging rollback drill passed before production, or a rollback
 #     to what the cell ran before (offline, a few seconds);
+#   - for a production cell, rollbacks included, scripts/promotion-approvals.sh:
+#     an approval of the head by someone other than the author, listed in
+#     .github/approvers on BASE (product owner, no CODEOWNERS), read with
+#     the workflow's read-only token; a review re-runs this workflow
+#     (promotion-review.yml);
 #   - scripts/verify-image.sh on each pinned image: signed by the release
 #     key, both attestations, provenance naming the release's commit. This
 #     job runs in the `delivery` environment, as the erp-delivery role
 #     (GitHub's OIDC), which may read the images and the key's public half
 #     only.
 # Only these paths run it, and the deploy workflow skips them, so a
-# promotion costs two short jobs. The `delivery` environment sets:
+# promotion costs two short jobs, three for production. The `delivery` environment sets:
 #   variables  ERP_DELIVERY_ROLE_ARN  envs/tooling delivery_role_arn
 #              ERP_COSIGN_KEY         awskms:///<the release key's ARN>
 #              ERP_AWS_REGION         the key's and the registry's region
@@ -43,6 +48,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       images: ${{ steps.check.outputs.images }}
+      production: ${{ steps.check.outputs.production }}
     steps:
       - uses: actions/checkout@v7 # BASE, the default of pull_request_target
         with:
@@ -57,8 +63,29 @@ jobs:
           BASE: origin/${{ github.base_ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          OUT="$RUNNER_TEMP/images" ./scripts/promotion-checks.sh "$BASE" "$HEAD_SHA"
+          OUT="$RUNNER_TEMP/images" CELL_OUT="$RUNNER_TEMP/cell" ./scripts/promotion-checks.sh "$BASE" "$HEAD_SHA"
           if [ -s "$RUNNER_TEMP/images" ]; then echo "images=true" >> "$GITHUB_OUTPUT"; fi
+          if grep -q '^production/' "$RUNNER_TEMP/cell" 2>/dev/null; then echo "production=true" >> "$GITHUB_OUTPUT"; fi
+
+  approvals:
+    needs: checks
+    if: needs.checks.outputs.production == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # the pull request and its reviews
+    steps:
+      - uses: actions/checkout@v7 # BASE: its list and its check judge the approvals
+        with:
+          persist-credentials: false
+      - name: An approver's approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: ./scripts/promotion-approvals.sh "$REPO" "$NUMBER" "$HEAD_SHA"
 
   verify:
     needs: checks

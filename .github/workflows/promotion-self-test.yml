@@ -9,8 +9,13 @@ on:
     paths:
       - scripts/promotion-checks.sh
       - scripts/test-promotion-checks.sh
+      - scripts/promotion-approvals.sh
+      - scripts/test-promotion-approvals.sh
+      - scripts/verify-image.sh
+      - .github/approvers
       - .github/workflows/promotion.yml
       - .github/workflows/promotion-self-test.yml
+      - .github/workflows/promotion-review.yml
 
 concurrency:
   group: promotion-self-test-${{ github.event.pull_request.number }}
@@ -28,4 +33,6 @@ jobs:
         with:
           persist-credentials: false
       - name: The checks' own tests
-        run: ./scripts/test-promotion-checks.sh
+        run: |
+          ./scripts/test-promotion-checks.sh
+          ./scripts/test-promotion-approvals.sh

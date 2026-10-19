@@ -23,15 +23,18 @@
 #     are), so a version re-pinned to another commit needs a drill again.
 # With OUT set it writes "<commit> <image ref>" lines there, which the
 # deploy workflow verifies with scripts/verify-image.sh (signatures,
-# attestations, provenance naming the commit) before the promotion merges.
+# attestations, provenance naming the commit) before the promotion merges;
+# with CELL_OUT set, the promoted cell (<env>/<cell>), whose production
+# promotions, rollbacks among them, need an approver's approval
+# (scripts/promotion-approvals.sh).
 #   scripts/promotion-checks.sh origin/main [HEAD]
 set -euo pipefail
 cd "$(dirname "$0")/.."
 base="${1:?usage: promotion-checks.sh BASE [HEAD]}"
-python3 - "$base" "${2:-HEAD}" "${OUT:-}" <<'PY'
+python3 - "$base" "${2:-HEAD}" "${OUT:-}" "${CELL_OUT:-}" <<'PY'
 import json, re, subprocess, sys
 
-base, head, out = sys.argv[1], sys.argv[2], sys.argv[3]
+base, head, out, cell_out = sys.argv[1:5]
 root = "deploy/environments"
 images = {"server": "erp-server", "router": "erp-router", "pgbouncer": "erp-pgbouncer", "nats": "erp-nats", "temporal": "erp-temporal"}
 
@@ -155,6 +158,9 @@ else:
                  % (version, rel[1], drill_cell, drill_cell, version))
     print("promotion-checks: %s takes %s" % (cell, version))
 
+if cell_out:
+    with open(cell_out, "w") as f:
+        f.write(cell + "\n")
 if out:
     with open(out, "w") as f:
         for name in sorted(images):

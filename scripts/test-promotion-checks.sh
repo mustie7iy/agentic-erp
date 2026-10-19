@@ -108,4 +108,12 @@ if [ "$(grep -c "^$(printf "%040d" 0 | tr 0 3) .*@sha256:$(printf "%064d" 0 | tr
 else
   echo "ok   listed"
 fi
+# The promoted cell, which decides whether an approver must approve.
+OUT="$work/out" CELL_OUT="$work/cell" "$repo/scripts/promotion-checks.sh" main listed >/dev/null
+if [ "$(cat "$work/cell")" != test/test1 ]; then
+  echo "FAIL cell: CELL_OUT names $(cat "$work/cell"), want test/test1" >&2
+  failed=1
+else
+  echo "ok   cell"
+fi
 exit "$failed"

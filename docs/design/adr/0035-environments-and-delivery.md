@@ -414,7 +414,7 @@ promoted by a pull request that pins its image digests per environment:
 dev, test, staging, a production canary cell, then all cells (06 §6.9). A
 promotion merges only after `verify-image.sh` checks the digests against
 the release's commit. Production promotions need a second approver
-(CODEOWNERS). Every release passes a rollback drill in staging before
+(T40d4). Every release passes a rollback drill in staging before
 production: deploy N, deploy N+1, revert to N, smoke tests and readiness
 with N's code on N+1's schema, which expand, migrate, contract (§6.4) makes
 safe. Rollback in production is the same revert, per cell.
@@ -478,6 +478,26 @@ the `promotion` workflow runs the checks and then, in the
 every pinned image against the release's commit. Only promotion paths run
 it and the deploy workflow skips them, so a promotion costs two short
 jobs.
+
+*Approvals (T40d4, product owner).* A promotion of a production cell,
+a rollback included, merges only once someone other than its author
+approved its head commit and is listed in `.github/approvers` as the base
+branch has it; no CODEOWNERS. `scripts/promotion-approvals.sh` reads the
+pull request and its reviews through GitHub's API with the workflow's
+read-only token (`contents: read`, `pull-requests: read`): each
+reviewer's latest approval, change request or dismissal stands, a comment
+changing nothing; an approval counts only for the commit it was given on,
+and a head that moved since the checks ran is refused. It is the
+`approvals` job of the `promotion` workflow, run only for production
+cells; since that workflow runs as `pull_request_target`, which a review
+does not trigger, `promotion-review.yml` re-runs its run for the reviewed
+head on an approval or a dismissal and judges nothing itself.
+`scripts/merge-pr.sh`, which stands in for branch protection, merges a
+pull request changing `deploy/environments/` only once every job of the
+`promotion` workflow passed or was skipped on its head. The list holds the
+product owner alone today, who authors the promotions: until a second
+approver is listed, no production promotion can merge. Changes to the
+list are reviewed as any other change (06 §6.5).
 
 **Bootstrap runbook.** Every root is initialised with
 `-backend-config="bucket=<bucket>" -backend-config="region=<region>" -backend-config="kms_key_id=<state key ARN>"`:
