@@ -681,31 +681,31 @@
      {
       "s": "T",
       "t": "Asset master and classes",
-      "r": "",
+      "r": "T57",
       "c": []
      },
      {
       "s": "T",
       "t": "Acquisitions from AP and settlement",
-      "r": "",
+      "r": "T57",
       "c": []
      },
      {
       "s": "T",
       "t": "Depreciation runs (straight-line, declining balance)",
-      "r": "",
+      "r": "T57",
       "c": []
      },
      {
       "s": "T",
       "t": "Retirements and transfers",
-      "r": "",
+      "r": "T57",
       "c": []
      },
      {
       "s": "T",
       "t": "Asset history sheet",
-      "r": "",
+      "r": "T57",
       "c": []
      }
     ]
@@ -718,25 +718,25 @@
      {
       "s": "T",
       "t": "Bank statement import (camt.053, MT940)",
-      "r": "",
+      "r": "T49",
       "c": []
      },
      {
       "s": "T",
       "t": "Rule-based automatic matching",
-      "r": "",
+      "r": "T49",
       "c": []
      },
      {
       "s": "T",
       "t": "Reconciliation agent for unmatched lines",
-      "r": "",
+      "r": "T49",
       "c": []
      },
      {
       "s": "T",
       "t": "Clearing postings with approval",
-      "r": "",
+      "r": "T49",
       "c": []
      }
     ]
@@ -749,19 +749,19 @@
      {
       "s": "T",
       "t": "Daily cash position",
-      "r": "",
+      "r": "T53",
       "c": []
      },
      {
       "s": "T",
       "t": "Liquidity forecast from open items and orders",
-      "r": "",
+      "r": "T53",
       "c": []
      },
      {
       "s": "T",
       "t": "Forecast agent with variance explanations",
-      "r": "",
+      "r": "T53",
       "c": []
      }
     ]
@@ -774,25 +774,25 @@
      {
       "s": "T",
       "t": "Close calendar and checklist",
-      "r": "",
+      "r": "T64",
       "c": []
      },
      {
       "s": "T",
       "t": "Accrual proposals by agent",
-      "r": "",
+      "r": "T64",
       "c": []
      },
      {
       "s": "T",
       "t": "Variance commentary by agent",
-      "r": "",
+      "r": "T64",
       "c": []
      },
      {
       "s": "T",
       "t": "Period lock after sign-off",
-      "r": "",
+      "r": "T64",
       "c": []
      }
     ]
@@ -805,25 +805,25 @@
      {
       "s": "T",
       "t": "Intercompany matching",
-      "r": "",
+      "r": "T68",
       "c": []
      },
      {
       "s": "T",
       "t": "Eliminations",
-      "r": "",
+      "r": "T68",
       "c": []
      },
      {
       "s": "T",
       "t": "Currency translation",
-      "r": "",
+      "r": "T68",
       "c": []
      },
      {
       "s": "T",
       "t": "Consolidated statements",
-      "r": "",
+      "r": "T68",
       "c": []
      }
     ]
@@ -836,19 +836,19 @@
      {
       "s": "T",
       "t": "Leading and non-leading ledgers",
-      "r": "",
+      "r": "T52",
       "c": []
      },
      {
       "s": "T",
       "t": "Ledger-specific postings",
-      "r": "",
+      "r": "T52",
       "c": []
      },
      {
       "s": "T",
       "t": "Ledger reconciliation",
-      "r": "",
+      "r": "T52",
       "c": []
      }
     ]
@@ -873,7 +873,7 @@
      {
       "s": "T",
       "t": "Document currency separate from company currency",
-      "r": "",
+      "r": "T48",
       "c": []
      },
      {
@@ -885,7 +885,7 @@
      {
       "s": "T",
       "t": "Open-item revaluation run",
-      "r": "",
+      "r": "T48",
       "c": []
      },
      {
@@ -916,19 +916,19 @@
      {
       "s": "T",
       "t": "Tax engine integration (e.g. Avalara, Vertex)",
-      "r": "",
+      "r": "T61",
       "c": []
      },
      {
       "s": "T",
       "t": "Tax returns",
-      "r": "",
+      "r": "T61",
       "c": []
      },
      {
       "s": "P",
       "t": "On foundation: input tax codes applied from the configuration with effective dating",
-      "r": "internal/ledger · ledger.Setup",
+      "r": "internal/ledger · ledger.Setup · T61",
       "c": []
      }
     ]
@@ -941,19 +941,19 @@
      {
       "s": "T",
       "t": "Peppol network connector",
-      "r": "",
+      "r": "T65",
       "c": []
      },
      {
       "s": "T",
       "t": "Country formats (XRechnung, FatturaPA, ...)",
-      "r": "",
+      "r": "T65",
       "c": []
      },
      {
       "s": "T",
       "t": "SAF-T and statutory reports",
-      "r": "",
+      "r": "T65",
       "c": []
      }
     ]
@@ -1047,7 +1047,7 @@
      {
       "s": "T",
       "t": "Treasury system connector",
-      "r": "",
+      "r": "T53",
       "c": []
      }
     ]
@@ -1116,19 +1116,19 @@
      {
       "s": "T",
       "t": "Cost center master and hierarchy",
-      "r": "",
+      "r": "T56",
       "c": []
      },
      {
       "s": "T",
       "t": "Plan vs actual",
-      "r": "",
+      "r": "T56",
       "c": []
      },
      {
       "s": "T",
       "t": "Cost center reports",
-      "r": "",
+      "r": "T56",
       "c": []
      }
     ]
@@ -1141,13 +1141,13 @@
      {
       "s": "T",
       "t": "Profit center derivation",
-      "r": "",
+      "r": "T56",
       "c": []
      },
      {
       "s": "T",
       "t": "Profit center reporting",
-      "r": "",
+      "r": "T56",
       "c": []
      }
     ]
@@ -1160,19 +1160,19 @@
      {
       "s": "T",
       "t": "Order master",
-      "r": "",
+      "r": "T60",
       "c": []
      },
      {
       "s": "T",
       "t": "Order budget",
-      "r": "",
+      "r": "T60",
       "c": []
      },
      {
       "s": "T",
       "t": "Settlement",
-      "r": "",
+      "r": "T60",
       "c": []
      }
     ]
@@ -1185,13 +1185,13 @@
      {
       "s": "T",
       "t": "Assessment and distribution cycles",
-      "r": "",
+      "r": "T60",
       "c": []
      },
      {
       "s": "T",
       "t": "Settlement rules",
-      "r": "",
+      "r": "T60",
       "c": []
      }
     ]
@@ -1205,12 +1205,13 @@
       "s": "T",
       "t": "Profitability segments",
       "r": "",
-      "c": []
+      "c": [],
+      "ph": 3
      },
      {
       "s": "T",
       "t": "Margin reporting",
-      "r": "",
+      "r": "T60",
       "c": []
      }
     ]
@@ -3157,7 +3158,7 @@
      {
       "s": "T",
       "t": "Dashboards in the web workspace",
-      "r": "",
+      "r": "T59",
       "c": []
      },
      {
@@ -3187,14 +3188,29 @@
      },
      {
       "s": "T",
-      "t": "Sales, inventory and HR metrics as those modules land",
+      "t": "Sales metrics as that module lands",
+      "ph": 3,
+      "r": "",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Inventory metrics as that module lands",
+      "ph": 4,
+      "r": "",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "HR metrics as that module lands",
+      "ph": 8,
       "r": "",
       "c": []
      },
      {
       "s": "T",
       "t": "Metric changes through the configuration approval loop",
-      "r": "",
+      "r": "T55",
       "c": []
      }
     ]
@@ -3219,7 +3235,7 @@
      {
       "s": "T",
       "t": "Columnar store (DuckDB over Parquet via CDC)",
-      "r": "",
+      "r": "T55",
       "c": []
      }
     ]
@@ -3232,13 +3248,13 @@
      {
       "s": "T",
       "t": "Follow-up questions in the same analysis",
-      "r": "",
+      "r": "T59",
       "c": []
      },
      {
       "s": "T",
       "t": "Drill-through to documents",
-      "r": "",
+      "r": "T59",
       "c": []
      }
     ]
@@ -3257,13 +3273,13 @@
      {
       "s": "T",
       "t": "Scheduled delivery",
-      "r": "",
+      "r": "T63",
       "c": []
      },
      {
       "s": "T",
       "t": "Sharing with per-viewer access",
-      "r": "",
+      "r": "T63",
       "c": []
      }
     ]
@@ -3282,13 +3298,13 @@
      {
       "s": "T",
       "t": "Excel export",
-      "r": "",
+      "r": "T63",
       "c": []
      },
      {
       "s": "T",
       "t": "PDF export",
-      "r": "",
+      "r": "T63",
       "c": []
      }
     ]
@@ -3339,13 +3355,13 @@
      {
       "s": "T",
       "t": "Event logs from SAP and core document flows",
-      "r": "",
+      "r": "T69",
       "c": []
      },
      {
       "s": "T",
       "t": "Discovery agent process maps",
-      "r": "",
+      "r": "T69",
       "c": []
      }
     ]
@@ -3518,19 +3534,19 @@
      {
       "s": "T",
       "t": "Custom fields",
-      "r": "",
+      "r": "T58",
       "c": []
      },
      {
       "s": "T",
       "t": "Custom rules",
-      "r": "",
+      "r": "T58",
       "c": []
      },
      {
       "s": "T",
       "t": "Go extensions generated by the custom-code agent",
-      "r": "",
+      "r": "T70",
       "c": []
      }
     ]
@@ -3543,13 +3559,13 @@
      {
       "s": "T",
       "t": "Country packs",
-      "r": "",
+      "r": "T62",
       "c": []
      },
      {
       "s": "T",
       "t": "Regulatory agent",
-      "r": "",
+      "r": "T71",
       "c": []
      }
     ]
@@ -4457,7 +4473,7 @@
        {
         "s": "T",
         "t": "Contract reviewed by a consumer",
-        "r": "",
+        "r": "T50",
         "c": []
        }
       ]
@@ -4533,7 +4549,7 @@
      {
       "s": "T",
       "t": "API versioning and deprecation policy",
-      "r": "",
+      "r": "T50",
       "c": []
      },
      {
@@ -4583,13 +4599,13 @@
      {
       "s": "T",
       "t": "Webhooks for business events",
-      "r": "",
+      "r": "T50",
       "c": []
      },
      {
       "s": "T",
       "t": "MCP servers so agents use the same governed APIs",
-      "r": "",
+      "r": "T67",
       "c": []
      }
     ]
@@ -4885,7 +4901,7 @@
        {
         "s": "T",
         "t": "Business metrics per context",
-        "r": "",
+        "r": "T54",
         "c": []
        },
        {
@@ -4905,13 +4921,13 @@
      {
       "s": "T",
       "t": "Dashboards and alerting (Grafana)",
-      "r": "",
+      "r": "T54",
       "c": []
      },
      {
       "s": "T",
       "t": "Agent telemetry: tokens, cost, latency, override rate per agent",
-      "r": "",
+      "r": "T54",
       "c": []
      }
     ]
@@ -5083,25 +5099,25 @@
      {
       "s": "T",
       "t": "SOX control mapping (ITGCs and application controls)",
-      "r": "",
+      "r": "T66",
       "c": []
      },
      {
       "s": "T",
       "t": "GDPR: personal data inventory, blocking and deletion",
-      "r": "",
+      "r": "T66",
       "c": []
      },
      {
       "s": "T",
       "t": "Audit evidence export for external auditors",
-      "r": "",
+      "r": "T66",
       "c": []
      },
      {
       "s": "T",
       "t": "Data retention policies",
-      "r": "",
+      "r": "T66",
       "c": []
      }
     ]
@@ -5494,19 +5510,19 @@
      {
       "s": "T",
       "t": "Usage analysis (ST03N/STAD)",
-      "r": "",
+      "r": "T69",
       "c": []
      },
      {
       "s": "T",
       "t": "Change-log mining (CDHDR/CDPOS)",
-      "r": "",
+      "r": "T69",
       "c": []
      },
      {
       "s": "T",
       "t": "Fit-gap report",
-      "r": "",
+      "r": "T69",
       "c": []
      }
     ]
@@ -5519,19 +5535,19 @@
      {
       "s": "T",
       "t": "Z-object inventory (TADIR, abapGit)",
-      "r": "",
+      "r": "T70",
       "c": []
      },
      {
       "s": "T",
       "t": "Unused-code retirement",
-      "r": "",
+      "r": "T70",
       "c": []
      },
      {
       "s": "T",
       "t": "Mapping to configuration or Go extensions with tests",
-      "r": "",
+      "r": "T70",
       "c": []
      }
     ]
@@ -5544,19 +5560,19 @@
      {
       "s": "T",
       "t": "Roles from actual usage",
-      "r": "",
+      "r": "T67",
       "c": []
      },
      {
       "s": "T",
       "t": "SoD analysis on every role change",
-      "r": "",
+      "r": "T67",
       "c": []
      },
      {
       "s": "T",
       "t": "Access review preparation",
-      "r": "",
+      "r": "T67",
       "c": []
      }
     ]
@@ -5569,13 +5585,13 @@
      {
       "s": "T",
       "t": "Regulatory change monitoring",
-      "r": "",
+      "r": "T71",
       "c": []
      },
      {
       "s": "T",
       "t": "Configuration and report updates",
-      "r": "",
+      "r": "T71",
       "c": []
      }
     ]

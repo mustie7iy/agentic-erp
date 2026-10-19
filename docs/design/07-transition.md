@@ -1648,7 +1648,7 @@ done again only when it runs on the foundation through the API.
 `docs/tracker.json` is the only plan. The refactoring programme
 (`refactor/quality-9.5`, merged on 2026-10-15) is recorded there as one done item;
 its open contract steps and follow-ups moved into the modules they belong to, and
-each planned item carries the step that builds it (T0, T30–T47). Items without a
+each planned item carries the step that builds it (T0, T30–T71). Items without a
 step stay planned until a later step is drafted for them.
 
 ## 7.6 After the transition: completing Phase 1 (T30–T47)
@@ -1687,6 +1687,56 @@ expert. It is a review, not code, and runs alongside T30–T31.
 Lock-contention relief (a large proposal holds most of its tenant's buckets; a
 period close can be starved) is tracked but has no step: it is taken up only if
 real load shows it.
+
+### Phase 2 (T48–T71)
+
+Phase 2 completes finance and controlling for the pilot, adds the platform it
+needs to run at more than one customer, and the analytics and agents that use it.
+The product owner approved the steps on 2026-10-18. They run in four lanes (§7.7):
+F finance-ledger, S subledgers, P platform and operations, A agents and analytics.
+Each tracker item of phase 2 carries the step that builds it.
+
+| Step | Work | Exit criterion |
+|---|---|---|
+| T48 | **Document currency and FX revaluation** | Journal lines carry `amount_tc` and the document currency code beside local and group currency; a revaluation run at a key date posts unrealised gains and losses on open items and reverses them on the 1st of the next period. Lane F |
+| T49 | **Bank statements and reconciliation** | camt.053 and MT940 statements imported idempotently; lines matched by rules from configuration; clearing postings above a threshold need approval; an agent proposes matches for unmatched lines and never posts. Lane S; after T44 |
+| T50 | **API versioning, deprecation and webhooks** | A versioning and deprecation policy enforced by the breaking-change check; signed webhooks for business events delivered through the outbox; the contract reviewed by a consumer (the pilot's integration partner). Lane P |
+| T52 | **Parallel ledgers** | Leading and non-leading ledgers and ledger groups; ledger-specific postings; a reconciliation report between ledgers. Lane F; after T48 |
+| T53 | **Cash position and liquidity forecast** | A daily cash position and a liquidity forecast from open items and orders; an agent explains the variance between forecast and actual; the treasury connector exports position and forecast only (deals are phase 9). Lane S |
+| T54 | **Observability** | Business metrics per context; dashboards and alerts kept as code; telemetry per agent (tokens, cost, latency, outcomes). Lane P |
+| T55 | **Analytical store** | Change data capture to Parquet read by DuckDB, with tests proving tenant isolation; the semantic layer reads the store and falls back to PostgreSQL; metric changes go through the configuration approval loop. Lane A |
+| T56 | **Controlling I: cost and profit centres** | Cost and profit centre master data and hierarchies; nullable cost and profit centre columns on `journal_line` with derivation; plan against actual and the centre reports. Lane F |
+| T57 | **Asset accounting** | A new assets context: asset master and classes, acquisitions from payables, depreciation runs per ledger, retirements and transfers, the asset history sheet. Lane S; after T52, T56 |
+| T58 | **Custom fields and rules** | ADR-0009 accepted; custom fields per tenant through configuration; custom rules written in CEL; no tenant Go code in phase 2. Lane P |
+| T59 | **Dashboards and drill-down** | Dashboards in the web workspace; follow-up questions in the same analysis; drill-through from a figure to its documents. Lane A; after T55 |
+| T60 | **Controlling II: orders, allocation, margin** | Internal orders with budget and settlement; assessment and distribution cycles and settlement rules; margin reporting from the general ledger only (full profitability segments move to phase 3 with sales). Lane F |
+| T61 | **Tax** | Effective-dated input tax codes finished; a tax-engine connector interface with built-in calculation for the pilot countries (the provider is chosen in this step); VAT/GST returns for the pilot countries. Lane S |
+| T62 | **Country packs** | A versioned country-pack format; the first packs for the pilot countries, Canada and the UAE. Lane P |
+| T63 | **Report delivery and export** | Scheduled delivery; sharing with per-viewer access; Excel and PDF export. Lane A |
+| T64 | **Financial close** | A close calendar and checklist; accrual proposals and variance commentary by an agent; sign-off locks the period through T32. Lane F |
+| T65 | **E-invoicing and statutory reports** | UAE e-invoicing through a certified provider or access point; Canada has no e-invoicing mandate, so statutory reports only; the statutory reports of both pilot countries. Lane S |
+| T66 | **Compliance** | SOX control mapping; audit evidence export for external audit; retention policies; a GDPR-style personal data inventory with blocking and deletion (archiving stays in phase 9). Lane P |
+| T67 | **MCP servers and access agent** | MCP servers generated from the contract; an access agent that derives roles from usage, checks SoD on every role change and prepares access reviews. Lane A |
+| T68 | **Group reporting and consolidation** | Intercompany matching, eliminations, currency translation and consolidated statements; full consolidation only. Lane F |
+| T69 | **SAP discovery and process mining** | Event logs from SAP and the core document flows, process maps by the discovery agent, usage and change-log analysis and a fit-gap report. Lane A; needs SAP data access at the pilot (to be confirmed) |
+| T70 | **Custom-code agent** | Z-object inventory, unused-code retirement and mapping to configuration and rules only; an ADR on a WASM sandbox comes before any tenant code. Lane A |
+| T71 | **Regulatory agent** | Monitors regulatory change and proposes configuration and report updates for the country packs. Lanes A and P; after T61, T62, T65 |
+
+T51: folded into T43 (live evaluations); its tracker items carry T43.
+
+**Phase 2 decisions** (product owner, 2026-10-18). The pilot countries are Canada
+and the UAE. The tax engine provider is chosen in T61. Peppol and e-invoicing go
+through a certified provider, not a network connector of our own. Custom rules are
+written in CEL. Group reporting does full consolidation only. Archiving stays in
+phase 9. Agent autonomy thresholds are those set in T43. SAP data access at the
+pilot is still to be confirmed (T69). Sales, inventory and HR metrics move to
+phases 3, 4 and 8, as those modules land; full profitability segments move to
+phase 3.
+
+**After phase 2.** Phases 3–10 follow in this order: sales and receivables (3),
+supply chain (4), manufacturing (5), assets, service and EHS (6), projects (7),
+human capital (8), planning, GRC and archiving (9), and industry packs (10). Each
+is drafted as steps when the one before it is under way.
 
 ## 7.7 How each step is built
 
