@@ -300,8 +300,10 @@ environment's home cell, after the add-ons and `erp-cluster`:
 - A TargetGroupBinding registers the pods by IP in Terraform's target
   group; it manages no security group rule. The pods carry the
   controller's readiness gate, so a rollout's new pod counts only once the
-  load balancer finds it healthy, and a stopping pod keeps serving 20
-  seconds (`preStop` sleep) while its deregistration spreads, then drains.
+  load balancer finds it healthy, and a stopping pod keeps serving 40
+  seconds (`preStop` sleep, longer than the target group's 30-second
+  deregistration) while its deregistration spreads, then drains within
+  the 75-second grace period.
 - The directory's only login is its RDS-managed master user, whose
   password RDS rotates weekly. External Secrets refreshes it every five
   minutes into a mounted file, and the router reads it again for each new
