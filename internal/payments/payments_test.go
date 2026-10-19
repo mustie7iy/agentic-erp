@@ -163,6 +163,16 @@ func work(t *testing.T) int {
 	return n
 }
 
+// workLeftovers has the proposal worker finish, when the test ends, the
+// jobs a test leaves queued on purpose. The worker takes the jobs of every
+// tenant in the package database, so a job left behind would be done by the
+// next test's worker and counted as its own: TestProposer's failing rounds
+// would fail on it, and a test that wants one job done would see two.
+func workLeftovers(t *testing.T) {
+	t.Helper()
+	t.Cleanup(func() { work(t) })
+}
+
 // bankAccount gives the supplier a payments bank account valid from the
 // date to validTo ("" for open-ended), introduced by a change of the kind
 // (create or bank_change).
