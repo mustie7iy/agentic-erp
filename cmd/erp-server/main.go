@@ -100,12 +100,14 @@ func cli(ctx context.Context, args []string, getenv func(string) string, stdout,
 			return importCmd(ctx, args[1:], cfg, stdout, stderr)
 		case "register-provider":
 			return registerProviderCmd(ctx, args[1:], cfg, stdout, stderr)
+		case "disable-connector":
+			return disableConnectorCmd(ctx, args[1:], cfg, stdout, stderr)
 		case "prices":
 			return pricesCmd(ctx, args[1:], cfg, stdout, stderr)
 		case "certify":
 			return certifyCmd(ctx, args[1:], cfg, stdout, stderr)
 		}
-		fmt.Fprintf(stderr, "erp-server: unknown command %q (the server takes no arguments; erp-server provision creates a tenant, erp-server rewrap moves tenant keys onto the current master, erp-server import brings an exported tenant in, erp-server register-provider registers a tenant's identity provider, erp-server migrate applies the pending migrations, erp-server prices load records models' prices, erp-server certify load records an evaluation's certification, erp-server dr verify and reconcile check a restored cell)\n", args[0])
+		fmt.Fprintf(stderr, "erp-server: unknown command %q (the server takes no arguments; erp-server provision creates a tenant, erp-server rewrap moves tenant keys onto the current master, erp-server import brings an exported tenant in, erp-server register-provider registers a tenant's identity provider, erp-server disable-connector disables a tenant's connector, erp-server migrate applies the pending migrations, erp-server prices load records models' prices, erp-server certify load records an evaluation's certification, erp-server dr verify and reconcile check a restored cell)\n", args[0])
 		return 2
 	}
 	if err := run(ctx, cfg, log, started); err != nil {
@@ -309,7 +311,8 @@ func (s *server) requireProviders(ctx context.Context) error {
 // refuseEBICS refuses, in production, to start while a tenant has an active
 // bank_ebics connector: EBICS is refused there until it has been certified
 // with a bank (ADR-0038, T44d), and failing closed keeps a channel the
-// API would refuse from going unnoticed. Disabling it is the remedy.
+// API would refuse from going unnoticed. Disabling it is the remedy, by
+// erp-server disable-connector, which needs no running server.
 func (s *server) refuseEBICS(ctx context.Context) error {
 	if s.cfg.Environment != config.Production {
 		return nil
@@ -331,7 +334,7 @@ func (s *server) refuseEBICS(ctx context.Context) error {
 		named[i] = "tenant " + c.TenantID.String() + " connector " + c.ID.String()
 	}
 	return fmt.Errorf("erp-server: ERP_ENV=production: EBICS is refused until it has been certified with a bank, and these bank_ebics connectors are active: %s; "+
-		"disable them (POST /v1/connectors/{id}:disable) while the previous version still serves, or, with none serving, set their status to disabled in the database, then start again", strings.Join(named, ", "))
+		"disable each with erp-server disable-connector -tenant <id> -connector <id> -by <operator> -reason <text>, which needs no running server, then start again", strings.Join(named, ", "))
 }
 
 // authenticate sets up who the API trusts (the configured issuers and the

@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"io"
 	"testing"
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -44,4 +46,45 @@ func TestProductionImportRefusesEBICS(t *testing.T) {
 	if err := check(); err != nil {
 		t.Errorf("with the connector disabled: got %v, want imported", err)
 	}
+}
+
+// TestDisableConnectorCommand: erp-server disable-connector refuses
+// incomplete arguments, a connector the tenant does not have and one
+// already disabled.
+func TestDisableConnectorCommand(t *testing.T) {
+	env := environment(t, authntest.New(t), "")
+	getenv := func(k string) string { return env[k] }
+	ten := pgtest.NewTenant(t)
+	connector := uuid.New()
+	pgtest.Exec(t, `INSERT INTO integration.connector (tenant_id, id, kind, name, settings, status, created_by, updated_by)
+		VALUES ($1, $2, 'bank_ebics', 'EBICS', '{}', 'disabled', $3, $3)`, ten.ID, connector, ten.Human.ID)
+	full := func(tenant, connector string) []string {
+		return []string{"disable-connector", "-tenant", tenant, "-connector", connector, "-by", "ops", "-reason", "not certified"}
+	}
+	for name, c := range map[string]struct {
+		args []string
+		code int
+	}{
+		"help":             {[]string{"disable-connector", "-h"}, 0},
+		"bad flag":         {[]string{"disable-connector", "-colour", "red"}, 2},
+		"no connector":     {[]string{"disable-connector", "-tenant", ten.ID.String(), "-by", "ops", "-reason", "r"}, 2},
+		"no tenant":        {[]string{"disable-connector", "-connector", connector.String(), "-by", "ops", "-reason", "r"}, 2},
+		"no operator":      {[]string{"disable-connector", "-tenant", ten.ID.String(), "-connector", connector.String(), "-reason", "r"}, 2},
+		"no reason":        {[]string{"disable-connector", "-tenant", ten.ID.String(), "-connector", connector.String(), "-by", "ops"}, 2},
+		"another tenant's": {full(uuid.NewString(), connector.String()), 1},
+		"already disabled": {full(ten.ID.String(), connector.String()), 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if code := cli(context.Background(), c.args, getenv, io.Discard, io.Discard, nil); code != c.code {
+				t.Errorf("exit: got %d, want %d", code, c.code)
+			}
+		})
+	}
+	t.Run("no database", func(t *testing.T) {
+		cfg := load(t, env)
+		cfg.DatabaseURL = "postgres://nobody@127.0.0.1:1/none?connect_timeout=1"
+		if err := disableConnector(context.Background(), cfg, ten.ID, connector, "ops", "r"); err == nil {
+			t.Error("got disabled, want the connection failure")
+		}
+	})
 }

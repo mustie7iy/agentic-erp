@@ -262,12 +262,22 @@ func UpdateConnector(ctx context.Context, id uuid.UUID, ifMatch func(int32) erro
 
 // SetConnectorStatus enables (active) or disables a connector.
 func SetConnectorStatus(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, status, reason string) (Connector, error) {
-	return setConnectorStatus(ctx, id, ifMatch, status, reason, func(Connector) error { return nil })
+	return setConnectorStatus(ctx, id, ifMatch, status, map[string]any{"reason": reason}, func(Connector) error { return nil })
+}
+
+// DisableByOperator disables a connector for an operator acting without the
+// API (erp-server disable-connector), whatever its version: the remedy when
+// a production cell refuses to start for an active bank_ebics connector
+// (ADR-0038), audited with the operator's name and reason like a disable
+// through the API, and published.
+func DisableByOperator(ctx context.Context, id uuid.UUID, operator, reason string) (Connector, error) {
+	return setConnectorStatus(ctx, id, func(int32) error { return nil }, "disabled", map[string]any{"reason": reason, "operator": operator},
+		func(Connector) error { return nil })
 }
 
 // setConnectorStatus sets the status once allow accepts the connector as
-// read, locked.
-func setConnectorStatus(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, status, reason string, allow func(Connector) error) (Connector, error) {
+// read, locked, and audits it with detail.
+func setConnectorStatus(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, status string, detail map[string]any, allow func(Connector) error) (Connector, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Connector{}, err
@@ -294,7 +304,7 @@ func setConnectorStatus(ctx context.Context, id uuid.UUID, ifMatch func(int32) e
 	if status == "disabled" {
 		name, action = "connector_disabled", "integration.connector.disable"
 	}
-	return updated, record(ctx, action, id, map[string]any{"reason": reason}, statusEvent(updated, name, &c.Status))
+	return updated, record(ctx, action, id, detail, statusEvent(updated, name, &c.Status))
 }
 
 func fromSettings(raw map[string]jx.Raw) map[string]any {
@@ -397,7 +407,7 @@ func (e *Endpoints) UpdateConnector(ctx context.Context, req *gen.ConnectorUpdat
 
 // EnableConnector implements POST /v1/connectors/{id}:enable.
 func (e *Endpoints) EnableConnector(ctx context.Context, params gen.EnableConnectorParams) (gen.EnableConnectorRes, error) {
-	c, err := setConnectorStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), "active", "", func(c Connector) error { return e.refuseEBICS(c.Kind) })
+	c, err := setConnectorStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), "active", map[string]any{"reason": ""}, func(c Connector) error { return e.refuseEBICS(c.Kind) })
 	if err != nil {
 		return nil, err
 	}

@@ -142,9 +142,22 @@ and France, by EBICS.
   import refuses a tenant with one, as it refuses one without an identity
   provider. No
   house bank can name one yet: `BankChannels` resolves only `bank_sftp`.
-  The protocol follows in T44d2, key initialisation (INI, HIA, HPB) and its
-  state, and T44d3, upload (BTU) signed with A006 over HTTPS against an
-  in-process stand-in bank), and, in T44e, transmission out of the
+  The protocol, T44d2, key initialisation (INI, HIA, HPB) and its state,
+  and T44d3, upload (BTU) signed with A006 over HTTPS against an in-process
+  stand-in bank, is deferred until a pilot in an EBICS country (product
+  owner, 2026-10-19: the pilots are Canada and the UAE, which do not use
+  EBICS); what is built stays, the settings validated and the kind refused
+  in production. Runbook: a production cell that refuses to start for an
+  active `bank_ebics` connector names each one; with no cell serving the
+  API, the operator disables each with `erp-server disable-connector
+  -tenant <id> -connector <id> -by <operator> -reason <text>`, which needs
+  no running server, as `register-provider` (ADR-0031) is the remedy for a
+  tenant without an identity provider: it disables the connector as
+  `POST /v1/connectors/{id}:disable` does, locked, whatever its version,
+  audited as `integration.connector.disable` with the operator's handle and
+  the reason (a handle, not an email address: the audit trail refuses
+  personal data, ADR-0026), its `connector_disabled` event waiting in the
+  outbox until the cell runs; then the cell is started again), and, in T44e, transmission out of the
   request transaction: the request marks the file to be sent and a
   platform worker job uploads it, as the outbox relays events, so no
   database connection is held during the SFTP upload and the external

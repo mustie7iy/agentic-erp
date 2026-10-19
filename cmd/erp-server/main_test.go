@@ -1766,8 +1766,25 @@ func TestProductionRefusesEBICS(t *testing.T) {
 	if !strings.Contains(logs, connector.String()) {
 		t.Errorf("refusal: got %s, want the connector %s named", logs, connector)
 	}
-	if _, err := conn.Exec(context.Background(), `UPDATE integration.connector SET status = 'disabled', version = version + 1 WHERE id = $1`, connector); err != nil {
-		t.Fatal(err)
+	if !strings.Contains(logs, "erp-server disable-connector") {
+		t.Errorf("refusal: got %s, want the remedy erp-server disable-connector named", logs)
+	}
+	disable := []string{"disable-connector", "-tenant", tenant.String(), "-connector", connector.String(), "-by", "ops-oncall", "-reason", "EBICS not certified"}
+	var stderr bytes.Buffer
+	if code := cli(context.Background(), disable, func(k string) string { return env[k] }, io.Discard, &stderr, nil); code != 0 {
+		t.Fatalf("disable-connector: exit %d %s", code, stderr.String())
+	}
+	var operator, reason string
+	if err := conn.QueryRow(context.Background(), `SELECT detail->>'operator', detail->>'reason' FROM audit.audit_event
+		WHERE tenant_id = $1 AND action = 'integration.connector.disable' AND object_id = $2`, tenant, connector).Scan(&operator, &reason); err != nil {
+		t.Fatalf("the disable audited: %v", err)
+	}
+	if operator != "ops-oncall" || reason != "EBICS not certified" {
+		t.Errorf("audit detail: got operator %q reason %q, want ops-oncall and EBICS not certified", operator, reason)
+	}
+	var events int
+	if err := conn.QueryRow(context.Background(), `SELECT count(*) FROM integration.outbox WHERE tenant_id = $1 AND event_type LIKE '%.connector_disabled.%'`, tenant).Scan(&events); err != nil || events != 1 {
+		t.Errorf("connector_disabled in the outbox: got %d (%v), want 1", events, err)
 	}
 	if code, logs := start(); code != 0 {
 		t.Errorf("the connector disabled: exit %d, want started\n%s", code, logs)

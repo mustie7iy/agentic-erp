@@ -649,19 +649,19 @@
        },
        {
         "s": "D",
-        "t": "EBICS connector, built and refused in production: bank_ebics settings checked; in production the API refuses to create or enable one and the server refuses to start while one is active, until certified with a bank",
-        "r": "integration.BankEBICS · integration.ActiveEBICSConnectors (erp_control, 000101) · integration.ebics_not_certified · erp-server refuseEBICS · T44d",
+        "t": "EBICS connector, built and refused in production: bank_ebics settings checked; in production the API refuses to create or enable one and the server refuses to start while one is active, until certified with a bank; erp-server disable-connector disables one without a running server, audited, the remedy for a cell that refuses to start",
+        "r": "integration.BankEBICS · integration.ActiveEBICSConnectors (erp_control, 000101) · integration.ebics_not_certified · erp-server refuseEBICS · erp-server disable-connector · T44d",
         "c": []
        },
        {
         "s": "T",
-        "t": "EBICS key initialisation: INI (A006) and HIA (X002, E002) sent, the bank's keys (HPB) fetched and pinned against the hashes the bank gave, the subscriber's key state kept per connector",
+        "t": "Deferred until a pilot in an EBICS country (product owner, 2026-10-19; the pilots are Canada and the UAE). EBICS key initialisation: INI (A006) and HIA (X002, E002) sent, the bank's keys (HPB) fetched and pinned against the hashes the bank gave, the subscriber's key state kept per connector",
         "r": "T44d2",
         "c": []
        },
        {
         "s": "T",
-        "t": "EBICS upload: BTU (EBICS 3.0, H005) of a pain.001 signed with A006 and encrypted with E002, over HTTPS, against an in-process stand-in bank; bank_ebics a bank channel behind payments.Connector",
+        "t": "Deferred until a pilot in an EBICS country (product owner, 2026-10-19; the pilots are Canada and the UAE). EBICS upload: BTU (EBICS 3.0, H005) of a pain.001 signed with A006 and encrypted with E002, over HTTPS, against an in-process stand-in bank; bank_ebics a bank channel behind payments.Connector",
         "r": "T44d3",
         "c": []
        },
