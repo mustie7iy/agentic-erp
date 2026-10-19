@@ -137,6 +137,9 @@ func (c *candidate) takeDiscounts(on time.Time) error {
 		if err == nil {
 			c.items[i].Withholding, err = ledger.PaymentWithholding(it.withholding, it.Amount, d)
 		}
+		if err == nil {
+			err = withholdingWithin(it, d, c.items[i].Withholding)
+		}
 		if err != nil {
 			return fmt.Errorf("payments: the discount on item %d/%s/%d: %w", it.FiscalYear, it.EntryID, it.LineNo, err)
 		}
@@ -147,6 +150,23 @@ func (c *candidate) takeDiscounts(on time.Time) error {
 		}
 	}
 	return nil
+}
+
+// withholdingWithin refuses a withholding that, with the discount, takes
+// all of what the item owes, as the payment item's check
+// (payment_item_withholding_within) would. The invoice refuses codes that
+// withhold its whole gross, but the payment rounds its withholding after
+// the discount, so at extreme rates it can still reach the rest (422).
+// The discount is of the item's sign and smaller than it (discountOn), so
+// the difference cannot overflow.
+func withholdingWithin(it Item, discount, withholding money.Minor) error {
+	amount := it.Amount
+	if withholding == 0 || ((withholding > 0) == (amount > 0) && withholding.Abs() < amount.Abs()-discount.Abs()) {
+		return nil
+	}
+	return problem.Unprocessable("payments.withholding_too_large",
+		fmt.Sprintf("Item %d/%s/%d's withholding tax of %d with its cash discount of %d takes all of the %d it owes.", it.FiscalYear, it.EntryID, it.LineNo,
+			withholding, discount, amount))
 }
 
 // deductions are the cash discount the supplier's items take and the
@@ -276,8 +296,9 @@ func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r 
 	return proposed, record(ctx, "payments.payment_run.build", r.ID, map[string]any{"payments": len(pr.payIDs), "exclusions": len(pr.exSuppliers), "items": n},
 		runEvent(proposed, "payment_run_proposed", map[string]any{"house_bank_id": proposed.HouseBankID, "run_date": proposed.RunDate.Format(time.DateOnly),
 			"due_by": proposed.DueBy.Format(time.DateOnly), "total_amount": money.EventAmount(pr.total, proposed.Currency, proposed.Exponent),
-			"discount_amount": money.EventAmount(pr.discount, proposed.Currency, proposed.Exponent),
-			"payment_count":   len(pr.payIDs), "exclusion_count": len(pr.exSuppliers), "proposed_by": proposed.ProposedBy, "operation_id": proposed.OperationID}))
+			"discount_amount":    money.EventAmount(pr.discount, proposed.Currency, proposed.Exponent),
+			"withholding_amount": money.EventAmount(pr.withheld, proposed.Currency, proposed.Exponent),
+			"payment_count":      len(pr.payIDs), "exclusion_count": len(pr.exSuppliers), "proposed_by": proposed.ProposedBy, "operation_id": proposed.OperationID}))
 }
 
 // paymentsFor computes a run's payments and exclusions: of the suppliers'
@@ -374,7 +395,7 @@ type proposal struct {
 	itemAmounts, itemDiscounts, itemWHT   []money.Minor
 	itemDue                               []time.Time
 	untils                                []*time.Time
-	total, discount                       money.Minor
+	total, discount, withheld             money.Minor
 }
 
 // dueDate is when an open item is due: an invoice (a credit on the supplier
@@ -436,6 +457,9 @@ func (pr *proposal) pay(c candidate, bank uuid.UUID, total money.Minor, r Run, e
 	}
 	if pr.total, err = money.Sum(pr.total, total); err == nil {
 		pr.discount, err = money.Sum(pr.discount, discount)
+	}
+	if err == nil {
+		pr.withheld, err = money.Sum(pr.withheld, withholding)
 	}
 	if err != nil {
 		return errTooLarge("the run")

@@ -37,6 +37,7 @@ func (e env) withheld(t *testing.T, run map[string]any) string {
 // rest; a credit memo's withholding nets against the invoice's. Codes
 // deducted at invoice were withheld already. The release posts the
 // withholding to the codes' account, and the bank file pays what is left;
+// the proposal's event carries the run's withholding;
 // posting the payment again posts nothing.
 func TestWithholdingAtPayment(t *testing.T) {
 	e := at(t, "2026-03-12")
@@ -57,6 +58,10 @@ func TestWithholdingAtPayment(t *testing.T) {
 	run = e.release(t, e.run(t, "2026-03-10", "2026-03-20"), "")
 	if got, want := e.withheld(t, run), "57.75 2.70 11.55 [90.00-2.70-14.55 -18.00-0.00--3.00]"; got != want {
 		t.Errorf("payment with a credit memo: got %s, want %s", got, want)
+	}
+	proposed := events(t, e.Tenant, "payment_run_proposed")
+	if got, ok := proposed[len(proposed)-1]["withholding_amount"].(map[string]any); !ok || got["amount"] != "11.55" {
+		t.Errorf("PaymentRunProposed withholding: got %v, want 11.55", got)
 	}
 	pay := e.payments(t, run)[0].(map[string]any)
 	je, _ := e.Must(200, "GET", fmt.Sprintf("/v1/journal-entries/%v", pay["journal_entry_id"]), "", "")
@@ -118,5 +123,32 @@ func TestWithholdingAndDiscountTax(t *testing.T) {
 		e.Account(t, "2000", "400000").String(): "-2.75", e.Account(t, "2000", "140000").String(): "-0.52"}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("payment entry: got %v, want %v", got, want)
+	}
+}
+
+// TestWithholdingBeyondTheItem: a withholding at payment that, rounded
+// after the cash discount, reaches what the item still pays fails the
+// proposal with a problem (payments.withholding_too_large), not with the
+// payment item's check: 99.495% of 1.00 leaves the invoice 0.01, but of the
+// 0.97 left after the 3% discount it rounds to 0.97 and leaves nothing,
+// while another invoice keeps the supplier owed.
+func TestWithholdingBeyondTheItem(t *testing.T) {
+	e := at(t, "2026-03-12")
+	e.discountTerms(t, e.Supplier)
+	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
+	e.Withholding(t, config.WithholdingTaxCode{Code: "W2", Description: "99.495% of gross at payment", RatePercent: "99.495", Base: config.WithholdingGross,
+		Account: "236000", Posting: config.WithholdingAtPayment})
+	e.SupplierWithholding(t, e.Supplier, "W2")
+	e.invoice(t, e.Supplier, "INV-1", "1.00", "2026-03-01")
+	e.invoice(t, e.Supplier, "INV-2", "100.00", "2026-03-01") // the supplier is still owed something
+	op := e.propose(t, "2026-03-10", "2026-03-20")
+	work(t)
+	run, _ := e.Must(200, "GET", op["resource"].(string), "", "")
+	if run["status"] != "failed" {
+		t.Fatalf("run status: got %v, want failed: %s %v", run["status"], e.withheld(t, run), e.exclusions(t, run))
+	}
+	done, _ := e.Must(200, "GET", "/v1/operations/"+id(op), "", "")
+	if got, ok := done["error"].(map[string]any); !ok || got["code"] != "payments.withholding_too_large" {
+		t.Errorf("operation error: got %v, want payments.withholding_too_large", got)
 	}
 }

@@ -151,6 +151,11 @@ type Settlement struct {
 	// transaction currency and in the sign the items are paid in (positive
 	// on an invoice), one per item and smaller than it; nil for none.
 	Discounts []money.Minor
+	// Withholding is what each item withholds, as its payment deducted it
+	// (T46f), in the items' sign; nil when the caller states none. A
+	// recomputed withholding that differs is refused (409
+	// ledger.withholding_changed).
+	Withholding []money.Minor
 	// ReservedFor is the owner whose reservation of the items this
 	// settlement pays (a payment run), or uuid.Nil: items another owner
 	// holds are refused, and the owner's reservations of the settled items

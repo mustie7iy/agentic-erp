@@ -475,9 +475,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Withholding hardening (T46f review): the release checks its recomputed withholding against payment_item.withholding_amount; the payment_item_withholding_within check at extreme rates maps to a problem, not a 500; PaymentRunProposed carries the withholding total",
-        "r": "follow-up of T46f",
+        "s": "D",
+        "t": "Withholding hardening (T46f review): the release checks its recomputed withholding against payment_item.withholding_amount (409 ledger.withholding_changed); a withholding at extreme rates that would take the whole item fails the proposal with 422 payments.withholding_too_large, not the payment_item_withholding_within check's 500; PaymentRunProposed carries the withholding total",
+        "r": "follow-up of T46f · ledger.Settlement.Withholding · payments.withholdingWithin · asyncapi PaymentRunProposedV1.withholding_amount",
         "c": []
        },
        {

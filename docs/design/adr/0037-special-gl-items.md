@@ -74,5 +74,14 @@ general ledger that the payment program can pay.
   after the discount: the base scaled by what the item pays after its
   discount over what it owes (SAP's base reduction by the discount),
   rounded once. A code deducted at invoice is not changed by the discount.
+- The run records what it withholds per item and pays out the rest; the
+  release posts only that: it recomputes the withholding and refuses a
+  payment whose items now withhold another amount (409
+  `ledger.withholding_changed`). A withholding that, rounded after the
+  discount, would take all the item owes fails the proposal (422
+  `payments.withholding_too_large`). `PaymentRunProposed` carries the run's
+  withholding total. Every input of the recomputation is fixed with the
+  item and the payment, so a mismatch is a defect, not a business case:
+  the run stays `releasing` with that payment unposted until it is fixed.
 - None on down payments (requests or their payment), and no withholding
   tax certificates; manual clearing withholds nothing, only payment runs do.

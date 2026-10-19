@@ -1307,7 +1307,10 @@ rounded once, half away from zero, item by item; `payment_item` keeps it
 (`withholding_amount`, of the item's sign, and with the discount less than
 the item, migration 000081), `payment` the total, and the payment's amount
 is what is left; the settlement credits it to the codes' accounts, a line
-per account and code. Down payments withhold nothing, and manual clearing
+per account and code. The release posts only what the run withheld (409
+`ledger.withholding_changed` otherwise), and a withholding that would take
+all the item owes fails the proposal (422 `payments.withholding_too_large`)
+rather than the item's check. Down payments withhold nothing, and manual clearing
 takes no withholding.
 The discount is taken off the gross amount, so its tax
 share corrects the input tax (T36d, SAP's tax adjustment, §17 UStG): each

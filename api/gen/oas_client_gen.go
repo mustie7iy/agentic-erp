@@ -1063,7 +1063,9 @@ type Invoker interface {
 	// selects due open items, applies exclusions (blocks, missing or recently changed bank details) and
 	// reserves the items; the run becomes `proposed`, or `failed`. Runs can exceed 100,000 items, so this
 	// returns an Operation. A run that takes cash discount in a legal entity without a cash discount
-	// account fails with 422 `payments.no_cash_discount_account` (T36d).
+	// account fails with 422 `payments.no_cash_discount_account` (T36d). A withholding tax deducted at
+	// payment that, rounded after the cash discount, would take all an item owes fails it with 422
+	// `payments.withholding_too_large` (T46f).
 	//
 	// POST /v1/payment-runs:propose
 	ProposePaymentRun(ctx context.Context, request *PaymentRunPropose, params ProposePaymentRunParams) (ProposePaymentRunRes, error)
@@ -1122,7 +1124,9 @@ type Invoker interface {
 	// (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). Sets
 	// `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a failed release
 	// operation, which resumes it. 409 `payments.discount_lapsed` when a payment takes a cash discount
-	// whose last day has passed (T36d): reject the run and propose again.
+	// whose last day has passed (T36d): reject the run and propose again. 409 `ledger.withholding_changed`
+	// when an item would withhold another amount than its payment deducted (T46f); the payment is not
+	// posted.
 	//
 	// POST /v1/payment-runs/{id}:release
 	ReleasePaymentRun(ctx context.Context, request OptDecisionInput, params ReleasePaymentRunParams) (ReleasePaymentRunRes, error)
@@ -26526,7 +26530,9 @@ func (c *Client) sendPostSupplierInvoice(ctx context.Context, request OptSupplie
 // selects due open items, applies exclusions (blocks, missing or recently changed bank details) and
 // reserves the items; the run becomes `proposed`, or `failed`. Runs can exceed 100,000 items, so this
 // returns an Operation. A run that takes cash discount in a legal entity without a cash discount
-// account fails with 422 `payments.no_cash_discount_account` (T36d).
+// account fails with 422 `payments.no_cash_discount_account` (T36d). A withholding tax deducted at
+// payment that, rounded after the cash discount, would take all an item owes fails it with 422
+// `payments.withholding_too_large` (T46f).
 //
 // POST /v1/payment-runs:propose
 func (c *Client) ProposePaymentRun(ctx context.Context, request *PaymentRunPropose, params ProposePaymentRunParams) (ProposePaymentRunRes, error) {
@@ -27462,7 +27468,9 @@ func (c *Client) sendReleaseContract(ctx context.Context, params ReleaseContract
 // (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). Sets
 // `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a failed release
 // operation, which resumes it. 409 `payments.discount_lapsed` when a payment takes a cash discount
-// whose last day has passed (T36d): reject the run and propose again.
+// whose last day has passed (T36d): reject the run and propose again. 409 `ledger.withholding_changed`
+// when an item would withhold another amount than its payment deducted (T46f); the payment is not
+// posted.
 //
 // POST /v1/payment-runs/{id}:release
 func (c *Client) ReleasePaymentRun(ctx context.Context, request OptDecisionInput, params ReleasePaymentRunParams) (ReleasePaymentRunRes, error) {

@@ -2891,6 +2891,7 @@ components:
         due_by: {$ref: '#/components/schemas/Date'}
         total_amount: {$ref: '#/components/schemas/Money'}
         discount_amount: {$ref: '#/components/schemas/Money', description: 'The cash discounts the run takes (T36c); total_amount is what it pays after them. Absent from events of releases before discounts were taken.'}
+        withholding_amount: {$ref: '#/components/schemas/SignedMoney', description: 'The withholding taxes the run deducts at payment (T46f), netted over invoices and credit memos; total_amount is what it pays after them and the discounts. Absent from events of releases before withholding was deducted.'}
         payment_count: {type: integer, minimum: 0}
         exclusion_count: {type: integer, minimum: 0}
         proposed_by: {$ref: '#/components/schemas/Uuid'}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
 // Withholding is a withholding tax on a supplier open item (T46f,
@@ -138,13 +139,20 @@ func settlementWithholding(ctx context.Context, tx pgx.Tx, in Settlement, items 
 	for i, it := range items {
 		owed[i] = -it.tc
 	}
-	return paymentWithholding(taxes, owed, in.Discounts)
+	return paymentWithholding(taxes, owed, in.Discounts, in.Withholding)
 }
 
 // paymentWithholding is what a payment withholds from items owing owed,
 // less their discounts (none when nil), by their taxes: per account and
-// code, and in all, in the sign the items are paid in.
-func paymentWithholding(taxes [][]Withholding, owed, discounts []money.Minor) (map[withholdingKey]money.Minor, money.Minor, error) {
+// code, and in all, in the sign the items are paid in. When expected is
+// not nil, it is what the payment deducted from each item: a payment run
+// pays that out in its bank file, so an item that withholds another amount
+// now is refused (409 ledger.withholding_changed), not posted.
+func paymentWithholding(taxes [][]Withholding, owed, discounts, expected []money.Minor) (map[withholdingKey]money.Minor, money.Minor, error) {
+	if expected != nil && len(expected) != len(taxes) {
+		return nil, 0, problem.Unprocessable("ledger.invalid_withholding",
+			fmt.Sprintf("A settlement's withholding taxes are one per item: %d for %d items.", len(expected), len(taxes)))
+	}
 	out := map[withholdingKey]money.Minor{}
 	var total money.Minor
 	for i, ws := range taxes {
@@ -152,23 +160,41 @@ func paymentWithholding(taxes [][]Withholding, owed, discounts []money.Minor) (m
 		if len(discounts) > 0 {
 			discount = discounts[i]
 		}
-		for _, w := range ws {
-			amount, err := w.AtPayment(owed[i], discount)
-			if err != nil {
-				return nil, 0, fmt.Errorf("ledger: withholding tax %s: %w", w.Code, err)
-			}
-			k := withholdingKey{account: w.AccountID, code: w.Code}
-			if out[k], err = money.Sum(out[k], amount); err == nil {
-				total, err = money.Sum(total, amount)
-			}
-			if err != nil {
-				return nil, 0, errTotalTooLarge("withholding taxes")
-			}
+		withheld, err := addWithholding(out, ws, owed[i], discount)
+		if err != nil {
+			return nil, 0, err
+		}
+		if total, err = money.Sum(total, withheld); err != nil {
+			return nil, 0, errTotalTooLarge("withholding taxes")
+		}
+		if expected != nil && withheld != expected[i] {
+			return nil, 0, problem.Conflict("ledger.withholding_changed",
+				fmt.Sprintf("Item %d withholds %d now, not the %d its payment deducted.", i+1, withheld, expected[i]))
 		}
 	}
 	// Items' amounts of opposite signs can cancel: no line then.
 	maps.DeleteFunc(out, func(_ withholdingKey, v money.Minor) bool { return v == 0 })
 	return out, total, nil
+}
+
+// addWithholding adds what an item owing owed less discount withholds by
+// its taxes to their accounts' and codes' totals, and returns it.
+func addWithholding(out map[withholdingKey]money.Minor, ws []Withholding, owed, discount money.Minor) (money.Minor, error) {
+	var withheld money.Minor
+	for _, w := range ws {
+		amount, err := w.AtPayment(owed, discount)
+		if err != nil {
+			return 0, fmt.Errorf("ledger: withholding tax %s: %w", w.Code, err)
+		}
+		k := withholdingKey{account: w.AccountID, code: w.Code}
+		if out[k], err = money.Sum(out[k], amount); err == nil {
+			withheld, err = money.Sum(withheld, amount)
+		}
+		if err != nil {
+			return 0, errTotalTooLarge("withholding taxes")
+		}
+	}
+	return withheld, nil
 }
 
 // withholdingLines credit what a settlement withholds to each code's
