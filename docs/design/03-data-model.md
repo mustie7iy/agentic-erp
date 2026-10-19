@@ -755,8 +755,8 @@ supplier's down payments.
 
 Foreign-currency revaluation (T48, ADR-0042, migration 000091). The
 document currency is the entry's `currency_tc`; lines carry no currency of
-their own. `company_account.revalue_foreign_currency` flags a balance-sheet
-account that reconciles no partner whose balance per currency is revalued
+their own. `company_account.revalue_foreign_currency` flags an asset or
+liability that reconciles no partner whose balance per currency is revalued
 (`company_account_revalue_foreign_currency`; the flag stays while an
 active valuation names it). `fx_valuation` holds the legal entity's one
 valuation rate type (default `average`); `fx_valuation_account`, per legal
@@ -768,8 +768,8 @@ from `companies[].fx_valuation`, deactivated when removed.
 `revaluation_run` is one run of a legal entity and ledger at a key date:
 its rate type, status `posted` then `cancelled`, and its valuation entry
 (dated the key date) and reversal entry (the next day), both or neither,
-of its legal entity and ledger (`revaluation_run_entries`,
-`revaluation_run_entry_dates`), fixed once posted
+of its legal entity and ledger and no other run's (`revaluation_run_entries`,
+`revaluation_run_entry_dates`, `revaluation_run_valuation_entry`, `revaluation_run_reversal_entry`), fixed once posted
 (`revaluation_run_lifecycle`, `revaluation_run_fixed`); one posted run per
 key date (`revaluation_run_posted`). `revaluation_item`, insert-only, is
 what a run valued: an open item (a journal line, with its partner) or a

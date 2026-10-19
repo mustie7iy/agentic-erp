@@ -60,6 +60,15 @@ func TestRevaluedAccounts(t *testing.T) {
 	need(t)
 	f := newFixture(t)
 	revenue, loss, adjustment := f.fxAccounts(t)
+	equity := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, `INSERT INTO ledger.gl_account (tenant_id, id, chart_id, number, name, account_type, reconciliation_kind, status, created_by, updated_by)
+			VALUES ($1,$2,$3,'300000','Equity','equity','none','active',$4,$4)`, f.tenant, equity, f.chart, f.actor); err != nil {
+			return err
+		}
+		return exec(tx, "INSERT INTO ledger.company_account (tenant_id, legal_entity_id, account_id, created_by, updated_by) VALUES ($1,$2,$3,$4,$4)",
+			f.tenant, f.entity, equity, f.actor)
+	})
 	mustApp(t, f.tenant, f.flag(f.bank, true))
 	mustApp(t, f.tenant, f.valuation(f.bank, nil, revenue, loss, true))
 	mustApp(t, f.tenant, f.valuation(f.ap, &adjustment, revenue, loss, true))
@@ -74,6 +83,7 @@ func TestRevaluedAccounts(t *testing.T) {
 	}{
 		{"a flagged reconciliation account", f.flag(f.ap, true), "company_account_revalue_foreign_currency"},
 		{"a flagged expense", f.flag(f.expense, true), "company_account_revalue_foreign_currency"},
+		{"a flagged equity account", f.flag(equity, true), "company_account_revalue_foreign_currency"},
 		{"unflagged while valued", f.flag(f.bank, false), "company_account_revalue_foreign_currency_valued"},
 		{"an account neither reconciling nor flagged", f.valuation(f.tax, nil, revenue, loss, true), "fx_valuation_account_revalued"},
 		{"a reconciliation account without adjustment", f.valuation(f.ap, nil, revenue, loss, true), "fx_valuation_account_adjustment"},
@@ -182,6 +192,13 @@ func TestRevaluationRuns(t *testing.T) {
 	t.Run("cancelled once, then rerun", func(t *testing.T) {
 		mustApp(t, f.tenant, update("status = 'cancelled'"))
 		failsOn(t, asApp(t, f.tenant, update("status = 'posted'")), "revaluation_run_lifecycle")
+		failsOn(t, asApp(t, f.tenant, insert("2026-03-31", &valuation, &reversal)), "revaluation_run_valuation_entry")
+		var again uuid.UUID
+		mustApp(t, f.tenant, func(tx pgx.Tx) (err error) {
+			again, err = f.entry(tx, 3, "2026-03-31", line{account: f.bank, amount: 10}, line{account: f.expense, amount: -10})
+			return err
+		})
+		failsOn(t, asApp(t, f.tenant, insert("2026-03-31", &again, &reversal)), "revaluation_run_reversal_entry")
 		mustApp(t, f.tenant, insert("2026-03-31", nil, nil))
 	})
 }

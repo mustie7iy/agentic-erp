@@ -28,9 +28,9 @@ posting.
   `TestGRIRForeignCurrency`).
 - **What is revalued.** Open items on supplier and customer reconciliation
   accounts, and the balance per currency of G/L accounts flagged
-  `revalue_foreign_currency` (`ledger.company_account`; balance-sheet
-  accounts that reconcile no partner, such as a foreign-currency bank
-  account). Special G/L items (down payments, ADR-0037) and the GR/IR
+  `revalue_foreign_currency` (`ledger.company_account`; assets and
+  liabilities that reconcile no partner, such as a foreign-currency bank
+  account; equity is non-monetary, IAS 21.16, and not revalued). Special G/L items (down payments, ADR-0037) and the GR/IR
   account are not revalued: down payments are advances, non-monetary under
   IAS 21.16, and GR/IR is valued with its order items.
 - **Rates.** One valuation rate type per legal entity

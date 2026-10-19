@@ -50,6 +50,9 @@ func TestFXValuation(t *testing.T) {
 		path   string
 	}{
 		{"another rate type", func(c *Config) { c.Companies[0].FXValuation.RateType = "spot" }, fx + ".rate_type"},
+		{"a flagged equity account", func(c *Config) {
+			c.Companies[0].Account("300000").RevalueForeignCurrency = true
+		}, "companies[1000].chart_of_accounts[300000].revalue_foreign_currency"},
 		{"a flagged expense", func(c *Config) {
 			c.Companies[0].Account("610000").RevalueForeignCurrency = true
 		}, "companies[1000].chart_of_accounts[610000].revalue_foreign_currency"},
@@ -97,6 +100,7 @@ func TestFXValuationDiff(t *testing.T) {
 	base, changed := withFXValuation(t), withFXValuation(t)
 	changed.Companies[0].FXValuation.Accounts = changed.Companies[0].FXValuation.Accounts[1:]
 	changed.Companies[0].FXValuation.Accounts[0].UnrealisedLoss = "520000"
+	changed.Companies[0].ChartOfAccounts[0].RevalueForeignCurrency = false
 	changes, err := Diff(base, changed)
 	if err != nil {
 		t.Fatalf("diff: %v", err)
@@ -105,7 +109,8 @@ func TestFXValuationDiff(t *testing.T) {
 	for _, ch := range changes {
 		tiers[ch.Path] = ch.Tier
 	}
-	for _, path := range []string{"companies[1000].fx_valuation.accounts[100000]", "companies[1000].fx_valuation.accounts[211000].unrealised_loss"} {
+	for _, path := range []string{"companies[1000].fx_valuation.accounts[100000]", "companies[1000].fx_valuation.accounts[211000].unrealised_loss",
+		"companies[1000].chart_of_accounts[100000].revalue_foreign_currency"} {
 		if got, ok := tiers[path]; !ok || got != TierPostingRelated {
 			t.Errorf("change %s: got %v (%v), want %v; all %v", path, got, ok, TierPostingRelated, tiers)
 		}

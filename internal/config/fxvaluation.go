@@ -10,8 +10,8 @@ import (
 var rateTypes = []string{"average", "bank_buying", "bank_selling", "planning"}
 
 // fxValuation checks the company's foreign-currency valuation (ADR-0042):
-// a known rate type; flagged accounts on the balance sheet that reconcile
-// no supplier and are not the GR/IR account, each with a valuation; and
+// a known rate type; flagged accounts that are assets or liabilities
+// (equity is non-monetary, IAS 21.16), reconcile no supplier and are not the GR/IR account, each with a valuation; and
 // one valuation per account, of a vendor reconciliation account other than
 // the down payment account (special G/L items are not revalued) or of a
 // flagged account, with a balance-sheet adjustment account exactly for a
@@ -36,8 +36,8 @@ func (v *validator) fxValuation(p string, co *Company) {
 		}
 		ap := fmt.Sprintf("%s.chart_of_accounts[%s].revalue_foreign_currency", p, a.Number)
 		switch {
-		case !a.Type.balanceSheet() || a.VendorReconciliation || a.Number == co.AccountDetermination.GRIR:
-			v.err(ap, "only a balance-sheet account that reconciles no supplier and is not the GR/IR account is revalued as a balance")
+		case (a.Type != Asset && a.Type != Liability) || a.VendorReconciliation || a.Number == co.AccountDetermination.GRIR:
+			v.err(ap, "only an asset or liability that reconciles no supplier and is not the GR/IR account is revalued as a balance")
 		case !valued[a.Number]:
 			v.err(ap, "account %s is revalued: add it to fx_valuation.accounts with its unrealised gain and loss", a.Number)
 		}

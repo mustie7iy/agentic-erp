@@ -61,6 +61,8 @@ var tierRules = []struct {
 	{rx(`^companies\[\*\]$`), TierStructural},
 	{rx(`^companies\[\*\]\.(code|currency|fiscal_year_start_month)$`), TierStructural},
 	{rx(`^companies\[\*\]\.chart_of_accounts\[\*\]\.name$`), TierCosmetic},
+	// Flagging an account for revaluation changes what runs post (ADR-0042).
+	{rx(`^companies\[\*\]\.chart_of_accounts\[\*\]\.revalue_foreign_currency$`), TierPostingRelated},
 	{rx(`^companies\[\*\]\.chart_of_accounts`), TierStructural},
 	{rx(`^companies\[\*\]\.(name|country)$`), TierCosmetic},
 	{rx(`^companies\[\*\]\.tax_codes\[\*\]\.description$`), TierCosmetic},

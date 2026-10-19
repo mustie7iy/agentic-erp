@@ -4,8 +4,8 @@
 -- they valued. Expand only: new tables and a column with a default.
 
 -- G/L accounts other than reconciliation accounts that are revalued (SAP
--- SKB1 "open item / balance in foreign currency" valuation): balance-sheet
--- accounts that reconcile no partner, valued by balance per currency.
+-- SKB1 "open item / balance in foreign currency" valuation): assets and
+-- liabilities that reconcile no partner, valued by balance per currency.
 ALTER TABLE ledger.company_account ADD COLUMN revalue_foreign_currency boolean NOT NULL DEFAULT false;
 
 -- The rate type a legal entity values at (one per entity, ADR-0042).
@@ -94,15 +94,16 @@ CREATE TRIGGER fx_valuation_account_check BEFORE INSERT OR UPDATE ON ledger.fx_v
   FOR EACH ROW EXECUTE FUNCTION ledger.check_fx_valuation_account();
 SELECT platform.secure_table('ledger.fx_valuation_account'::regclass);
 
--- A flagged account is a balance-sheet account that reconciles no partner
--- (reconciliation accounts are revalued through their items); its flag
+-- A flagged account is an asset or liability that reconciles no partner
+-- (reconciliation accounts are revalued through their items; equity is
+-- non-monetary, IAS 21.16, and kept at historical rates); its flag
 -- stays while an active valuation names it.
 CREATE FUNCTION ledger.check_revalue_foreign_currency() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
   IF NEW.revalue_foreign_currency AND NOT EXISTS (SELECT FROM ledger.gl_account g WHERE g.tenant_id = NEW.tenant_id AND g.id = NEW.account_id
-      AND g.is_balance_sheet AND g.reconciliation_kind = 'none') THEN
-    RAISE EXCEPTION 'account % is revalued in foreign currency only as a balance-sheet account that reconciles no partner', NEW.account_id
+      AND g.account_type IN ('asset', 'liability') AND g.reconciliation_kind = 'none') THEN
+    RAISE EXCEPTION 'account % is revalued in foreign currency only as an asset or liability that reconciles no partner', NEW.account_id
       USING ERRCODE = 'check_violation', CONSTRAINT = 'company_account_revalue_foreign_currency';
   END IF;
   IF TG_OP = 'UPDATE' AND OLD.revalue_foreign_currency AND NOT NEW.revalue_foreign_currency AND EXISTS (SELECT FROM ledger.fx_valuation_account v
@@ -145,6 +146,9 @@ CREATE TABLE ledger.revaluation_run (
   CONSTRAINT revaluation_run_entries CHECK (num_nulls(valuation_entry_year, valuation_entry_id, reversal_entry_year, reversal_entry_id) IN (0, 4))
 );
 CREATE UNIQUE INDEX revaluation_run_posted ON ledger.revaluation_run (tenant_id, legal_entity_id, ledger_id, key_date) WHERE status = 'posted';
+-- An entry is one run's: a rerun after a cancellation posts its own.
+CREATE UNIQUE INDEX revaluation_run_valuation_entry ON ledger.revaluation_run (tenant_id, valuation_entry_year, valuation_entry_id) WHERE valuation_entry_id IS NOT NULL;
+CREATE UNIQUE INDEX revaluation_run_reversal_entry ON ledger.revaluation_run (tenant_id, reversal_entry_year, reversal_entry_id) WHERE reversal_entry_id IS NOT NULL;
 CREATE TRIGGER revaluation_run_touch BEFORE UPDATE ON ledger.revaluation_run FOR EACH ROW EXECUTE FUNCTION platform.touch();
 
 -- A run is posted first, may be cancelled once, and never changes what it
