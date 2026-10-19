@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -276,5 +277,41 @@ func TestEvalCmdRefusals(t *testing.T) {
 				t.Errorf("exit %d, output %q, want a failure with %q", code, got, c.want)
 			}
 		})
+	}
+}
+
+// TestAdapterFailures: an adapter whose API cannot be reached fails its
+// case; one invoice it could not review fails it too; a document the suite
+// names but does not have, or a capture that never reached the API.
+func TestAdapterFailures(t *testing.T) {
+	gone := &apitools.Client{BaseURL: "http://127.0.0.1:1", Token: "t"}
+	if err := apExceptions(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}}); err == nil {
+		t.Error("ap_exceptions without its API: got no error")
+	}
+	held := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/supplier-invoices":
+			_, _ = w.Write([]byte(`{"items": [{"id": "0192a000-0000-7000-8000-000000000701", "document_number": "1900000001"}]}`))
+		case "/v1/recommendations":
+			_, _ = w.Write([]byte(`{"items": []}`))
+		default:
+			w.WriteHeader(503)
+			_, _ = w.Write([]byte(`{"code": "platform.unavailable"}`))
+		}
+	}))
+	t.Cleanup(held.Close)
+	err := apExceptions(context.Background(), eval.Env{Agent: &apitools.Client{BaseURL: held.URL, Token: "t"}, LLM: &llm.Runner{}})
+	if err == nil || !strings.Contains(err.Error(), "1900000001") {
+		t.Errorf("an invoice not reviewed: got %v, want its number in the error", err)
+	}
+	dir := t.TempDir()
+	if err := captureEval(context.Background(), eval.Env{Agent: gone, Dir: dir, Task: map[string]any{"document": "none.pdf"}}); err == nil {
+		t.Error("a missing document: got no error")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.pdf"), []byte("%PDF"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := captureEval(context.Background(), eval.Env{Agent: gone, Dir: dir, Task: map[string]any{"document": "a.pdf"}}); err == nil {
+		t.Error("a capture that never reached the API: got no error")
 	}
 }
