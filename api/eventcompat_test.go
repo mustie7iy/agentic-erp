@@ -53,6 +53,7 @@ func TestEventChanges(t *testing.T) {
 		{"field removed", "        note: {type: [string, 'null']}\n", "", []string{typ + ".note: field removed"}},
 		{"type changed", "qty: {type: integer}", "qty: {type: string}", []string{typ + ".lines[].qty: type changed from integer to string"}},
 		{"newly required", "required: [thing_id]", "required: [thing_id, note]", []string{typ + ".note: field newly required"}},
+		{"no longer required", "required: [thing_id]", "required: []", []string{typ + ".thing_id: field no longer required"}},
 		{"ref retyped", "Uuid: {type: string, format: uuid}", "Uuid: {type: integer}", []string{typ + ".thing_id: type changed from string to integer"}},
 		{"items removed", "          items:\n            type: object\n            properties:\n              qty: {type: integer}\n", "", []string{typ + ".lines[]: schema removed"}},
 		{"variant removed", "            - {type: integer}\n", "", []string{typ + ".party.oneOf[1]: schema removed"}},
@@ -78,9 +79,11 @@ func TestEventChanges(t *testing.T) {
 
 func TestEventChangesRefusesUnreadableDocuments(t *testing.T) {
 	base := readFixture(t, "testdata/events/base.yaml")
+	const typ = "com.example.erp.things.thing_done.v1"
 	for _, c := range []struct{ name, base, head string }{
 		{"base not yaml", "components: [", base},
 		{"head not yaml", base, "components: ["},
+		{"duplicate type", base, strings.Replace(base, "    Untyped:\n", "    Again:\n      headers: {allOf: [{properties: {type: {const: "+typ+"}}}]}\n    Untyped:\n", 1)},
 		{"unresolved ref", base, strings.Replace(base, "#/components/schemas/Uuid'", "#/components/schemas/Missing'", 1)},
 		{"external ref", base, strings.Replace(base, "#/components/schemas/Uuid'", "other.yaml#/Uuid'", 1)},
 	} {

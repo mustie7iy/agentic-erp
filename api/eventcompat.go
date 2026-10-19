@@ -42,6 +42,8 @@ const maxDepth = 32
 // type only additions are allowed, so a removed event type, a removed
 // field, a changed type or a newly required field needs a .vN+1 published
 // alongside (ADR-0041). Messages are matched by their CloudEvents type.
+// Only types, properties, required, items and the alternatives are
+// compared: formats, enums, consts and headers are left to review.
 func EventChanges(base, head []byte) ([]string, error) {
 	b, err := parseEvents(base)
 	if err != nil {
@@ -77,7 +79,11 @@ func parseEvents(src []byte) (events, error) {
 	}
 	out := events{payloads: map[string]*schema{}, schemas: doc.Components.Schemas}
 	for name, m := range doc.Components.Messages {
-		out.payloads[eventType(name, m.Headers)] = m.Payload
+		typ := eventType(name, m.Headers)
+		if _, dup := out.payloads[typ]; dup {
+			return events{}, fmt.Errorf("two messages publish %s", typ)
+		}
+		out.payloads[typ] = m.Payload
 	}
 	return out, nil
 }
@@ -127,17 +133,29 @@ func (c *comparison) compare(path string, b, h *schema, depth int) {
 		}
 		c.compare(path+"."+name, p, next, depth+1)
 	}
-	for _, name := range h.Required {
-		if !slices.Contains(b.Required, name) {
-			c.add(path+"."+name, "field newly required")
-		}
-	}
+	c.required(path, b.Required, h.Required)
 	if b.Items != nil {
 		c.compare(path+"[]", b.Items, h.Items, depth+1)
 	}
 	c.variants(path+".oneOf", b.OneOf, h.OneOf, depth)
 	c.variants(path+".anyOf", b.AnyOf, h.AnyOf, depth)
 	c.variants(path+".allOf", b.AllOf, h.AllOf, depth)
+}
+
+// required adds a field that is no longer required, which a reader relies
+// on finding, and one newly required, which a producer of the version may
+// not send.
+func (c *comparison) required(path string, b, h []string) {
+	for _, name := range b {
+		if !slices.Contains(h, name) {
+			c.add(path+"."+name, "field no longer required")
+		}
+	}
+	for _, name := range h {
+		if !slices.Contains(b, name) {
+			c.add(path+"."+name, "field newly required")
+		}
+	}
 }
 
 // variants compares the alternatives of oneOf, anyOf or allOf by position.
