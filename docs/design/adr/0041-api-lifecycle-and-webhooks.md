@@ -127,8 +127,25 @@ event version breaks someone else's system.
   Changes are audited without the URL's path or query (only its host) and
   publish no event: nothing in the platform reacts to them. Reads are GETs
   and so already allowed at every autonomy level; no `x-autonomy` mark is
-  needed. Pausing and resuming a subscription wait for the dispatcher
-  (T50e).
+  needed. Pausing and resuming a subscription wait for the delivery
+  (T50f).
+- **Fan-out (T50e):** a durable JetStream consumer (`webhook-fanout`,
+  shared by replicas) reads the streams of the contexts offering
+  `x-webhook` events, starting at the events published after it was first
+  created. For each offered event it takes the tenant from the subject,
+  refuses (logs and acknowledges) an event whose subject names another
+  tenant than its `tenantid`, arrives on another context's stream than its
+  type's or is malformed, and in that tenant's
+  transaction (the app role, no role of its own) inserts one pending
+  delivery per active subscription naming the type or its context, the
+  subscriptions read `FOR SHARE`. `UNIQUE (tenant_id, subscription_id,
+  event_id)` is the inbox: an event read again adds nothing. The body is
+  rendered once, the CloudEvents structured JSON of every `ce-*`
+  attribute the bus carries (as the AsyncAPI contract documents them) and
+  the data. Creating a delivery is not audited and publishes nothing: it
+  is the platform's own bookkeeping of an event already recorded, as the
+  outbox is; the delivery attempts are what T50f records. A failed
+  database write leaves the event to be read again after 5 seconds.
 - **Consumer review (T50h)** of the contract waits until the product owner
   names the pilot partner.
 
@@ -152,5 +169,5 @@ event version breaks someone else's system.
   appear without code.
 - Breaking `/v1` after the partner integrates needs a beta operation or a
   `/v2`; breaking an event needs a `.vN+1` and both published for a year.
-- The egress package came with T50b, `x-webhook` with T50c and the
-  subscription API with T50d.
+- The egress package came with T50b, `x-webhook` with T50c, the
+  subscription API with T50d and the fan-out with T50e.

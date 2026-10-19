@@ -4793,9 +4793,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Fan-out: a durable JetStream consumer turns each x-webhook event into one pending delivery per active subscription naming it, in the event's tenant; the unique key is the inbox",
+        "r": "internal/integration/fanout.go · internal/platform/natsbus · T50e",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Dispatcher, retries and operations",
-        "r": "T50e–g",
+        "t": "Delivery, retries, pause/resume and operations",
+        "r": "T50f–g",
         "c": []
        }
       ]
