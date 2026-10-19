@@ -122,7 +122,9 @@ func lockSubscription(ctx context.Context, tx pgx.Tx, id uuid.UUID) (subscriptio
 
 // afterAttempt keeps the subscription's failing_since: a delivery clears
 // it, the first failure sets it, and a failure FailingLimit after it, or a
-// 410 Gone, disables a subscription that is active or paused.
+// 410 Gone, disables a subscription that is active or paused. The pause
+// clears it and a paused subscription claims nothing, so only a delivery in
+// flight at the pause can set it, and the resume clears it again.
 // failing_since is the dispatcher's bookkeeping: changing it leaves the
 // version (the ETag) and updated_by alone, which only the tenant's changes
 // and disabling move.

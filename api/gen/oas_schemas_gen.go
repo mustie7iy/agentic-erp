@@ -29920,7 +29920,8 @@ type WebhookSubscription struct {
 	// Why the dispatcher disabled it; present only when `disabled`. Open enumeration: clients must accept
 	// and preserve values not listed here; values may be added within /v1.
 	DisabledReason OptString `json:"disabled_reason"`
-	// First failed delivery since the last success; absent while deliveries succeed.
+	// First failed delivery since the last success or the last `:pause` or `:resume`; absent while
+	// deliveries succeed.
 	FailingSince OptDateTime `json:"failing_since"`
 	// Until when the previous secret also signs, after a rotation; absent otherwise.
 	PreviousSecretExpiresAt OptDateTime `json:"previous_secret_expires_at"`

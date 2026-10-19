@@ -293,3 +293,43 @@ func TestWebhookPingNotDropped(t *testing.T) {
 		t.Errorf("ping: got %s, want delivered", row.status)
 	}
 }
+
+// TestWebhookEndpointsClock: replay bounds since and ping stamps its event
+// by the injected clock, not the wall clock.
+func TestWebhookEndpointsClock(t *testing.T) {
+	c := webhookClient(t)
+	created, _ := createHook(c, `"ledger.*"`)
+	sub := uuid.MustParse(created["id"].(string))
+	at := time.Now().Add(-10 * 24 * time.Hour).UTC().Truncate(time.Microsecond)
+	h := endpoints("")
+	h.Now = func() time.Time { return at }
+	for name, tc := range map[string]struct {
+		since time.Time
+		ok    bool
+	}{
+		"the retention's start": {at.Add(-integration.DeliveryRetention), true},
+		"before the retention":  {at.Add(-integration.DeliveryRetention - time.Second), false},
+		"now":                   {at, true},
+		"after now":             {at.Add(time.Second), false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := apitest.InRequest(t, c.Tenant, c.Tenant.Human, func(ctx context.Context) error {
+				_, err := h.Replay(ctx, sub, func(int32) error { return nil }, tc.since)
+				return err
+			})
+			if got := err == nil; got != tc.ok {
+				t.Errorf("accepted: got %v (%v), want %v", got, err, tc.ok)
+			}
+		})
+	}
+	var ping integration.Delivery
+	if err := apitest.InRequest(t, c.Tenant, c.Tenant.Human, func(ctx context.Context) (err error) {
+		ping, err = h.Ping(ctx, sub, func(int32) error { return nil })
+		return err
+	}); err != nil {
+		t.Fatalf("ping: %v", err)
+	}
+	if !ping.OccurredAt.Equal(at) {
+		t.Errorf("ping occurred at: got %v, want %v", ping.OccurredAt, at)
+	}
+}

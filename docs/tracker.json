@@ -4800,7 +4800,7 @@
        },
        {
         "s": "D",
-        "t": "Delivery: due deliveries claimed per tenant (10 in flight, 50/s per subscription), signed and sent through egress, retried 30 s to 12 h for 3 days then dead lettered, in event order per resource; webhook-id is the event id; 410 or 5 days failing disables and drops pending; pause holds, resume releases or re-enables",
+        "t": "Delivery: due deliveries claimed per tenant (10 in flight, 50/s per subscription), signed and sent through egress, retried 30 s to 12 h for 3 days then dead lettered, in event order per resource; webhook-id is the event id; 410 or 5 days failing disables and drops pending; pause holds and stops the failing clock (failing_since cleared), resume releases or re-enables",
         "r": "internal/integration/dispatch.go · db/migrations/000092 · T50f",
         "c": []
        },

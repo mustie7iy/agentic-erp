@@ -123,12 +123,13 @@ type Endpoints struct {
 	Postings      Postings
 	Reports       Reports
 	Secrets       Secrets
-	Keys          Sealer          // seals webhook secrets with the tenant's key
-	Resolver      egress.Resolver // resolves webhook hosts when a URL is written
-	ExtractDir    string          // sap_file connectors read extracts below it; empty: they cannot be used
-	HTTP          *http.Client    // for sap_odata connectors; nil: the reader's default
-	Workflows     bool            // runs leave the request and run as workflows (ADR-0012); false: they complete within it
-	RefuseEBICS   bool            // production: bank_ebics connectors cannot be created or enabled (ADR-0038, T44d)
+	Keys          Sealer           // seals webhook secrets with the tenant's key
+	Resolver      egress.Resolver  // resolves webhook hosts when a URL is written
+	ExtractDir    string           // sap_file connectors read extracts below it; empty: they cannot be used
+	HTTP          *http.Client     // for sap_odata connectors; nil: the reader's default
+	Now           func() time.Time // the clock replay and ping read, the dispatcher's where both are wired; nil: the wall clock
+	Workflows     bool             // runs leave the request and run as workflows (ADR-0012); false: they complete within it
+	RefuseEBICS   bool             // production: bank_ebics connectors cannot be created or enabled (ADR-0038, T44d)
 }
 
 // record publishes the events and adds the audit entry of a change; the

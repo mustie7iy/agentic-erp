@@ -330,7 +330,8 @@ func (e *Endpoints) RotateSecret(ctx context.Context, id uuid.UUID, ifMatch func
 // PauseSubscription holds an active subscription's deliveries: the fan-out
 // keeps recording them and none is sent until it is resumed, when they go
 // out in order (those past the retention are gone). Pausing is how a
-// tenant stops deliveries; disabled is the dispatcher's.
+// tenant stops deliveries; disabled is the dispatcher's. It stops the
+// failing clock: failing_since is cleared.
 func (e *Endpoints) PauseSubscription(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (Subscription, error) {
 	return e.moveSubscription(ctx, id, ifMatch, []string{"active"}, "paused", "pause",
 		problem.Conflict("integration.webhook_not_active", "Only an active webhook subscription can be paused."))
@@ -347,7 +348,10 @@ func (e *Endpoints) ResumeSubscription(ctx context.Context, id uuid.UUID, ifMatc
 
 // moveSubscription moves a subscription from one of the statuses to
 // another, audited as verb; refused is the answer when it is in another
-// status. Leaving disabled clears its reason and failing_since.
+// status. Both moves clear failing_since and the reason: time paused or
+// disabled must not count toward FailingLimit, so the count starts again
+// from the first failure after the resume (a delivery in flight when the
+// pause came may still set it, which the resume clears).
 func (e *Endpoints) moveSubscription(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, from []string, to, verb string, refused error) (Subscription, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -361,7 +365,7 @@ func (e *Endpoints) moveSubscription(ctx context.Context, id uuid.UUID, ifMatch 
 		return Subscription{}, refused
 	}
 	updated, err := scanSubscription(tx.QueryRow(ctx, `UPDATE integration.webhook_subscription SET status = $2, disabled_reason = NULL,
-		failing_since = CASE WHEN status = 'disabled' THEN NULL ELSE failing_since END, version = version + 1, updated_by = $3
+		failing_since = NULL, version = version + 1, updated_by = $3
 		WHERE id = $1 RETURNING `+subscriptionColumns, id, to, p.ID))
 	if err != nil {
 		return Subscription{}, fmt.Errorf("integration: %s webhook subscription %s: %w", verb, id, err)

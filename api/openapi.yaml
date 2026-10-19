@@ -9253,7 +9253,7 @@ paths:
       tags:
         - integration
       summary: Pause a webhook subscription
-      description: "Holds the deliveries of an active subscription (how a tenant stops deliveries): events keep being recorded for it but none is sent until `:resume`, which sends them in order. A delivery held past the 30-day retention is dropped. Requires status `active` (409 `integration.webhook_not_active`)."
+      description: "Holds the deliveries of an active subscription (how a tenant stops deliveries): events keep being recorded for it but none is sent until `:resume`, which sends them in order. A delivery held past the 30-day retention is dropped. Pausing stops the failure clock: `failing_since` is cleared, so time paused does not count toward the 5 days, which start again at the first failure after `:resume`. Requires status `active` (409 `integration.webhook_not_active`)."
       x-permission: integration.webhook.manage
       x-agent: false
       parameters:
@@ -19497,7 +19497,7 @@ components:
             failing_since:
               type: string
               format: date-time
-              description: First failed delivery since the last success; absent while deliveries succeed.
+              description: First failed delivery since the last success or the last `:pause` or `:resume`; absent while deliveries succeed.
               readOnly: true
             previous_secret_expires_at:
               type: string
