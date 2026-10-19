@@ -58,6 +58,10 @@ type Posting struct {
 	// Terms are the payment terms of the entry's supplier open items, kept
 	// with them (ledger.open_item_terms, T36b); nil for none.
 	Terms *ItemTerms
+	// Withholding are the withholding taxes of the entry's supplier open
+	// item (T46f), kept with it (ledger.open_item_withholding): what was
+	// withheld at invoice is among Lines already, on the code's account.
+	Withholding []Withholding
 }
 
 // ItemTerms are the payment terms an open item was posted with, as SAP
@@ -197,7 +201,16 @@ func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	return posted, keepTerms(ctx, tx, posted, in.Terms)
+	return posted, keepItemData(ctx, tx, posted, in)
+}
+
+// keepItemData keeps the payment terms and withholding taxes of a posted
+// entry's supplier open item.
+func keepItemData(ctx context.Context, tx pgx.Tx, entry Entry, in Posting) error {
+	if err := keepTerms(ctx, tx, entry, in.Terms); err != nil {
+		return err
+	}
+	return keepWithholding(ctx, tx, entry, in.Withholding)
 }
 
 // Reverse posts the reversal of an entry, on the given date or the

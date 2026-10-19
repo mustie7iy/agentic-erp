@@ -392,7 +392,7 @@ func (p Postings) postGRIR(ctx context.Context, in Posting) (Entry, error) {
 	if err := project(ctx, tx, posted); err != nil {
 		return Entry{}, err
 	}
-	if err := keepTerms(ctx, tx, posted, in.Terms); err != nil {
+	if err := keepItemData(ctx, tx, posted, in); err != nil {
 		return Entry{}, err
 	}
 	return posted, audit.Add(ctx, audit.Entry{Action: "ledger.journal_entry.post", ObjectType: "ledger.journal_entry", ObjectID: posted.ID,

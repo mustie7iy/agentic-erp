@@ -64,7 +64,7 @@ func (pr *proposal) payRequests(requests []DownPayment, invalid map[uuid.UUID]bo
 			return errTooLarge("the run")
 		}
 		pr.total = total
-		pr.payment(d.SupplierID, *payee.BankAccountID, d.Amount, 0, KindDownPayment, &request, r, entityCode)
+		pr.payment(d.SupplierID, *payee.BankAccountID, [3]money.Minor{d.Amount, 0, 0}, KindDownPayment, &request, r, entityCode)
 	}
 	return nil
 }

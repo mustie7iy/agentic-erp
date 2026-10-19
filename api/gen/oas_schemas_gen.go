@@ -19222,12 +19222,16 @@ type Payment struct {
 	SupplierID uuid.UUID `json:"supplier_id"`
 	// Supplier bank account valid on the run date.
 	BankAccountID uuid.UUID `json:"bank_account_id"`
-	// Amount paid, after the cash discounts taken on the items; positive. The bank file pays it.
+	// Amount paid, after the cash discounts taken on the items and the withholding tax deducted from them;
+	// positive. The bank file pays it.
 	Amount Money `json:"amount"`
 	// The cash discounts taken on the payment's items (T36c), their total, posted to the cash discount
 	// account when the payment posts; negative when the discounts credit memos give back exceed those of
 	// the invoices.
 	DiscountAmount OptMoney `json:"discount_amount"`
+	// The withholding tax deducted from the payment's items (T46f), their total, posted to the withholding
+	// tax codes' accounts when the payment posts; 0.00 when none.
+	WithholdingAmount OptMoney `json:"withholding_amount"`
 	// The last day the payment's cash discounts are earned (T36d): a release of the run after it is
 	// refused with 409 `payments.discount_lapsed`. Absent when the payment takes no discount.
 	DiscountUntil OptDate `json:"discount_until"`
@@ -19284,6 +19288,11 @@ func (s *Payment) GetAmount() Money {
 // GetDiscountAmount returns the value of DiscountAmount.
 func (s *Payment) GetDiscountAmount() OptMoney {
 	return s.DiscountAmount
+}
+
+// GetWithholdingAmount returns the value of WithholdingAmount.
+func (s *Payment) GetWithholdingAmount() OptMoney {
+	return s.WithholdingAmount
 }
 
 // GetDiscountUntil returns the value of DiscountUntil.
@@ -19354,6 +19363,11 @@ func (s *Payment) SetAmount(val Money) {
 // SetDiscountAmount sets the value of DiscountAmount.
 func (s *Payment) SetDiscountAmount(val OptMoney) {
 	s.DiscountAmount = val
+}
+
+// SetWithholdingAmount sets the value of WithholdingAmount.
+func (s *Payment) SetWithholdingAmount(val OptMoney) {
+	s.WithholdingAmount = val
 }
 
 // SetDiscountUntil sets the value of DiscountUntil.
@@ -19551,8 +19565,13 @@ type PaymentItem struct {
 	// The item's open amount the payment settles, before the discount; negative on a credit memo.
 	Amount Money `json:"amount"`
 	// The cash discount taken on the item (T36c), by the payment terms it was posted with on the run date;
-	// of the item's sign, 0.00 when none. What the item pays is amount less discount_amount.
+	// of the item's sign, 0.00 when none. What the item pays is amount less discount_amount less
+	// withholding_amount.
 	DiscountAmount OptMoney `json:"discount_amount"`
+	// The withholding tax the run deducts from the item (T46f, ADR-0037), by the supplier's codes deducted
+	// at payment that the item posted with: each code's rate of its base less the discount's share of it;
+	// of the item's sign, 0.00 when none. It is posted to the codes' accounts when the payment posts.
+	WithholdingAmount OptMoney `json:"withholding_amount"`
 	// Due date of the item.
 	DueDate time.Time `json:"due_date"`
 	// False once the run is rejected or failed (the item is free again).
@@ -19582,6 +19601,11 @@ func (s *PaymentItem) GetAmount() Money {
 // GetDiscountAmount returns the value of DiscountAmount.
 func (s *PaymentItem) GetDiscountAmount() OptMoney {
 	return s.DiscountAmount
+}
+
+// GetWithholdingAmount returns the value of WithholdingAmount.
+func (s *PaymentItem) GetWithholdingAmount() OptMoney {
+	return s.WithholdingAmount
 }
 
 // GetDueDate returns the value of DueDate.
@@ -19617,6 +19641,11 @@ func (s *PaymentItem) SetAmount(val Money) {
 // SetDiscountAmount sets the value of DiscountAmount.
 func (s *PaymentItem) SetDiscountAmount(val OptMoney) {
 	s.DiscountAmount = val
+}
+
+// SetWithholdingAmount sets the value of WithholdingAmount.
+func (s *PaymentItem) SetWithholdingAmount(val OptMoney) {
+	s.WithholdingAmount = val
 }
 
 // SetDueDate sets the value of DueDate.

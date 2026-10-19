@@ -469,9 +469,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Withholding tax computed by the supplier's codes and posted at invoice or at payment as each code says: at invoice the posting credits it to the code's account and owes the supplier the rest; at payment the run deducts it, on the base after the cash discount, and the release posts it (none on down payments)",
+        "r": "db/migrations/000081-000082 · ledger.open_item_withholding · ledger.Withholding · payment[_item].withholding_amount · T46f",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Withholding tax computed by the supplier's codes and posted at invoice or at payment as each code says (none on down payments)",
-        "r": "T46f",
+        "t": "Withholding hardening (T46f review): the release checks its recomputed withholding against payment_item.withholding_amount; the payment_item_withholding_within check at extreme rates maps to a problem, not a 500; PaymentRunProposed carries the withholding total",
+        "r": "follow-up of T46f",
         "c": []
        },
        {

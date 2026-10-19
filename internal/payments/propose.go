@@ -118,19 +118,25 @@ func errTooLarge(what string) error {
 }
 
 // total is what is owed the supplier after the cash discounts its items
-// take: positive when it is to be paid.
+// take and the withholding taxes deducted from them: positive when it is
+// to be paid.
 func (c candidate) total() (money.Minor, error) {
-	amounts := make([]money.Minor, 0, 2*len(c.items))
+	amounts := make([]money.Minor, 0, 3*len(c.items))
 	for _, it := range c.items {
-		amounts = append(amounts, it.Amount, -it.Discount)
+		amounts = append(amounts, it.Amount, -it.Discount, -it.Withholding)
 	}
 	return money.Sum(amounts...)
 }
 
-// takeDiscounts sets the cash discount each item takes on the date.
+// takeDiscounts sets the cash discount each item takes on the date, and
+// the withholding tax deducted from what it pays after it (T46f), as the
+// ledger posts it (ledger.PaymentWithholding).
 func (c *candidate) takeDiscounts(on time.Time) error {
 	for i, it := range c.items {
 		d, err := discountOn(it.terms, it.Amount, on)
+		if err == nil {
+			c.items[i].Withholding, err = ledger.PaymentWithholding(it.withholding, it.Amount, d)
+		}
 		if err != nil {
 			return fmt.Errorf("payments: the discount on item %d/%s/%d: %w", it.FiscalYear, it.EntryID, it.LineNo, err)
 		}
@@ -143,13 +149,17 @@ func (c *candidate) takeDiscounts(on time.Time) error {
 	return nil
 }
 
-// discount is the cash discount the supplier's items take.
-func (c candidate) discount() (money.Minor, error) {
-	amounts := make([]money.Minor, len(c.items))
+// deductions are the cash discount the supplier's items take and the
+// withholding tax deducted from them.
+func (c candidate) deductions() (discount, withholding money.Minor, err error) {
+	discounts, taxes := make([]money.Minor, len(c.items)), make([]money.Minor, len(c.items))
 	for i, it := range c.items {
-		amounts[i] = it.Discount
+		discounts[i], taxes[i] = it.Discount, it.Withholding
 	}
-	return money.Sum(amounts...)
+	if discount, err = money.Sum(discounts...); err == nil {
+		withholding, err = money.Sum(taxes...)
+	}
+	return discount, withholding, err
 }
 
 // exclusion is why a supplier cannot be paid on the run date, or "".
@@ -211,7 +221,7 @@ func (e *Endpoints) candidates(ctx context.Context, tx pgx.Tx, r Run, requests [
 		}
 		c := &out[len(out)-1]
 		c.items = append(c.items, Item{FiscalYear: it.FiscalYear, EntryID: it.EntryID, LineNo: it.LineNo, Amount: -it.Amount,
-			DueDate: partner.Date{Time: due}, Active: true, terms: it.Terms})
+			DueDate: partner.Date{Time: due}, Active: true, terms: it.Terms, withholding: it.Withholding})
 	}
 	return out, payees, nil
 }
@@ -355,12 +365,13 @@ type proposal struct {
 	exRequests                            []*uuid.UUID // the request an exclusion leaves out, or nil for the supplier's items
 	kinds                                 []string
 	requests                              []*uuid.UUID // the down payment request a payment pays, or nil
-	amounts, discounts, exAmounts         []money.Minor
+	amounts, discounts, withholding       []money.Minor
+	exAmounts                             []money.Minor
 	e2e, exReasons                        []string
 	itemPays, itemEntries                 []uuid.UUID
 	itemYears                             []int16
 	itemLines                             []int32
-	itemAmounts, itemDiscounts            []money.Minor
+	itemAmounts, itemDiscounts, itemWHT   []money.Minor
 	itemDue                               []time.Time
 	untils                                []*time.Time
 	total, discount                       money.Minor
@@ -419,7 +430,7 @@ func propose(cands []candidate, payees map[uuid.UUID]partner.Payee, r Run, entit
 
 // pay adds the payment of a candidate supplier's items to the proposal.
 func (pr *proposal) pay(c candidate, bank uuid.UUID, total money.Minor, r Run, entityCode string) error {
-	discount, err := c.discount()
+	discount, withholding, err := c.deductions()
 	if err != nil {
 		return errTooLarge("supplier " + c.supplier.String())
 	}
@@ -429,7 +440,7 @@ func (pr *proposal) pay(c candidate, bank uuid.UUID, total money.Minor, r Run, e
 	if err != nil {
 		return errTooLarge("the run")
 	}
-	id := pr.payment(c.supplier, bank, total, discount, KindItems, nil, r, entityCode)
+	id := pr.payment(c.supplier, bank, [3]money.Minor{total, discount, withholding}, KindItems, nil, r, entityCode)
 	var until *time.Time
 	for _, it := range c.items {
 		if it.until != nil && (until == nil || it.until.Before(*until)) {
@@ -437,16 +448,19 @@ func (pr *proposal) pay(c candidate, bank uuid.UUID, total money.Minor, r Run, e
 		}
 		pr.itemPays, pr.itemYears, pr.itemEntries, pr.itemLines = append(pr.itemPays, id), append(pr.itemYears, it.FiscalYear), append(pr.itemEntries, it.EntryID), append(pr.itemLines, it.LineNo)
 		pr.itemAmounts, pr.itemDiscounts, pr.itemDue = append(pr.itemAmounts, it.Amount), append(pr.itemDiscounts, it.Discount), append(pr.itemDue, it.DueDate.Time)
+		pr.itemWHT = append(pr.itemWHT, it.Withholding)
 	}
 	pr.untils[len(pr.untils)-1] = until
 	return nil
 }
 
-// payment adds a payment to the proposal and returns its id.
-func (pr *proposal) payment(supplier, bank uuid.UUID, amount, discount money.Minor, kind string, request *uuid.UUID, r Run, entityCode string) uuid.UUID {
+// payment adds a payment to the proposal, of its amount, discount and
+// withholding, and returns its id.
+func (pr *proposal) payment(supplier, bank uuid.UUID, amounts [3]money.Minor, kind string, request *uuid.UUID, r Run, entityCode string) uuid.UUID {
 	id := uuid.Must(uuid.NewV7())
-	pr.payIDs, pr.suppliers, pr.banks, pr.amounts = append(pr.payIDs, id), append(pr.suppliers, supplier), append(pr.banks, bank), append(pr.amounts, amount)
-	pr.discounts, pr.e2e = append(pr.discounts, discount), append(pr.e2e, fmt.Sprintf("%s-%s-%06d", entityCode, r.DocumentNumber, len(pr.payIDs)))
+	pr.payIDs, pr.suppliers, pr.banks, pr.amounts = append(pr.payIDs, id), append(pr.suppliers, supplier), append(pr.banks, bank), append(pr.amounts, amounts[0])
+	pr.discounts, pr.withholding = append(pr.discounts, amounts[1]), append(pr.withholding, amounts[2])
+	pr.e2e = append(pr.e2e, fmt.Sprintf("%s-%s-%06d", entityCode, r.DocumentNumber, len(pr.payIDs)))
 	pr.kinds, pr.requests, pr.untils = append(pr.kinds, kind), append(pr.requests, request), append(pr.untils, nil)
 	return id
 }
@@ -469,18 +483,19 @@ func owner(r Run) ledger.Owner {
 // insert stores the proposal's payments, items and exclusions.
 func (pr *proposal) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment (tenant_id, id, payment_run_id, supplier_id, bank_account_id, amount, discount_amount,
-			discount_until, currency, end_to_end_id, created_by, kind, down_payment_request_id)
-		SELECT $1, i, $2, s, b, a, d, u, $3, x, $4, k, q
-		FROM unnest($5::uuid[], $6::uuid[], $7::uuid[], $8::bigint[], $9::bigint[], $10::date[], $11::text[], $12::text[], $13::uuid[])
-			AS t(i, s, b, a, d, u, x, k, q)`,
-		p.TenantID, r.ID, r.Currency, p.ID, pr.payIDs, pr.suppliers, pr.banks, pr.amounts, pr.discounts, pr.untils, pr.e2e, pr.kinds, pr.requests); err != nil {
+			discount_until, currency, end_to_end_id, created_by, kind, down_payment_request_id, withholding_amount)
+		SELECT $1, i, $2, s, b, a, d, u, $3, x, $4, k, q, w
+		FROM unnest($5::uuid[], $6::uuid[], $7::uuid[], $8::bigint[], $9::bigint[], $10::date[], $11::text[], $12::text[], $13::uuid[], $14::bigint[])
+			AS t(i, s, b, a, d, u, x, k, q, w)`,
+		p.TenantID, r.ID, r.Currency, p.ID, pr.payIDs, pr.suppliers, pr.banks, pr.amounts, pr.discounts, pr.untils, pr.e2e, pr.kinds, pr.requests,
+		pr.withholding); err != nil {
 		return fmt.Errorf("payments: insert the payments of run %s: %w", r.ID, err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment_item (tenant_id, payment_id, item_fiscal_year, item_entry_id, item_line_no, amount,
-			discount_amount, due_date)
-		SELECT $1, p, y, je, n, a, c, d FROM unnest($2::uuid[], $3::smallint[], $4::uuid[], $5::int[], $6::bigint[], $7::bigint[], $8::date[])
-			AS t(p, y, je, n, a, c, d)`,
-		p.TenantID, pr.itemPays, pr.itemYears, pr.itemEntries, pr.itemLines, pr.itemAmounts, pr.itemDiscounts, pr.itemDue); err != nil {
+			discount_amount, due_date, withholding_amount)
+		SELECT $1, p, y, je, n, a, c, d, w FROM unnest($2::uuid[], $3::smallint[], $4::uuid[], $5::int[], $6::bigint[], $7::bigint[], $8::date[], $9::bigint[])
+			AS t(p, y, je, n, a, c, d, w)`,
+		p.TenantID, pr.itemPays, pr.itemYears, pr.itemEntries, pr.itemLines, pr.itemAmounts, pr.itemDiscounts, pr.itemDue, pr.itemWHT); err != nil {
 		return fmt.Errorf("payments: insert the payment items of run %s: %w", r.ID, err)
 	}
 	// A supplier's items are excluded in payment_exclusion, a request left

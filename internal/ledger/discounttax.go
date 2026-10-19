@@ -48,14 +48,20 @@ func discountTax(ctx context.Context, tx pgx.Tx, items []item, discounts []money
 	}
 	paid, taxes := map[entryKey]money.Minor{}, map[entryKey]map[taxKey]money.Minor{}
 	// One row per entry with its supplier total (no tax code), then one per
-	// tax line account and code: a line on its tax code's account.
+	// tax line account and code: a line on its tax code's account. What the
+	// entry withheld at invoice (T46f) counts as owed the supplier: the
+	// discount's tax share is of the gross, not of what is left after it.
 	rows, _ := tx.Query(ctx, `SELECT l.fiscal_year, l.journal_entry_id, l.account_id, coalesce(l.tax_code, ''), (sum(l.amount_tc))::bigint,
 			a.reconciliation_kind = 'supplier' AND l.special_gl IS NULL
 		FROM ledger.journal_line l JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id
 		WHERE (l.fiscal_year, l.journal_entry_id) IN (SELECT * FROM unnest($1::smallint[], $2::uuid[]))
 			AND ((a.reconciliation_kind = 'supplier' AND l.special_gl IS NULL) OR (l.tax_code IS NOT NULL AND EXISTS (SELECT FROM ledger.tax_code t WHERE t.tenant_id = l.tenant_id
 				AND t.legal_entity_id = l.legal_entity_id AND t.code = l.tax_code AND t.account_id = l.account_id)))
-		GROUP BY 1, 2, 3, 4, 6`, years, entries)
+		GROUP BY 1, 2, 3, 4, 6
+		UNION ALL
+		SELECT w.fiscal_year, w.journal_entry_id, w.account_id, '', (-sum(w.amount))::bigint, true FROM ledger.open_item_withholding w
+		WHERE (w.fiscal_year, w.journal_entry_id) IN (SELECT * FROM unnest($1::smallint[], $2::uuid[])) AND w.posting = 'invoice'
+		GROUP BY 1, 2, 3`, years, entries)
 	var k entryKey
 	var key taxKey
 	var sum money.Minor

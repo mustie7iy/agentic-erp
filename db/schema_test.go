@@ -2822,3 +2822,99 @@ func TestWithholdingTaxCodes(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, c.insert), c.fails) })
 	}
 }
+
+// TestOpenItemWithholding: an open item keeps its withholding taxes
+// (T46f), one row per code: the amount withheld at invoice, of the base's
+// sign and less than it, and none for a code deducted at payment; the rows
+// are fixed. A payment item's withholding is of its sign and leaves it
+// paying something after its discount, fixed like the rest of the item.
+func TestOpenItemWithholding(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	var je uuid.UUID
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		var err error
+		je, err = f.entry(tx, 4, "2026-04-02", line{account: f.expense, amount: 500}, line{account: f.ap, amount: -500, partner: &f.supplier})
+		return err
+	})
+	row := func(code, posting string, base int, amount *int, lineNo int) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO ledger.open_item_withholding (tenant_id, fiscal_year, journal_entry_id, line_no, code, posting, rate_pct, base_amount,
+				amount, account_id) VALUES ($1, 2026, $2, $3, $4, $5, 10, $6, $7, $8)`, f.tenant, je, lineNo, code, posting, base, amount, f.ap)
+		}
+	}
+	n := func(v int) *int { return &v }
+	for _, c := range []struct {
+		name, code, posting string
+		base                int
+		amount              *int
+		line                int
+		fails               string
+	}{
+		{"at invoice", "W1", "invoice", 500, n(50), 2, ""},
+		{"at payment", "W2", "payment", 500, nil, 2, ""},
+		{"a credit memo's at invoice", "W3", "invoice", -500, n(-50), 2, ""},
+		{"at invoice without an amount", "W4", "invoice", 500, nil, 2, "open_item_withholding_amount"},
+		{"at payment with an amount", "W4", "payment", 500, n(50), 2, "open_item_withholding_amount"},
+		{"of the other sign", "W4", "invoice", 500, n(-50), 2, "open_item_withholding_amount"},
+		{"the whole base", "W4", "invoice", 500, n(500), 2, "open_item_withholding_amount"},
+		{"another moment", "W4", "clearing", 500, nil, 2, "open_item_withholding_posting_check"},
+		{"of no line", "W4", "payment", 500, nil, 9, "open_item_withholding_line_fkey"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := asApp(t, f.tenant, row(c.code, c.posting, c.base, c.amount, c.line))
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("insert: got %v, want success", err)
+				}
+				return
+			}
+			failsOn(t, err, c.fails)
+		})
+	}
+	t.Run("fixed", func(t *testing.T) {
+		_, err := testDB.Exec(context.Background(), "UPDATE ledger.open_item_withholding SET base_amount = 1 WHERE tenant_id = $1", f.tenant)
+		failsWith(t, err, "insert-only")
+	})
+	hb, run, pay := id(), id(), id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, `INSERT INTO payments.house_bank (tenant_id, id, legal_entity_id, code, name, iban_cipher, iban_last4, bic, currency, gl_account_id, status, created_by, updated_by)
+			VALUES ($1,$2,$3,'MAIN','Main','\x00','5555','BUKBGB22','USD',$4,'active',$5,$5)`, f.tenant, hb, f.entity, f.bank, f.actor); err != nil {
+			return err
+		}
+		if err := exec(tx, `INSERT INTO payments.payment_run (tenant_id, id, document_number, legal_entity_id, house_bank_id, run_date, due_by, currency, total_amount, status, proposed_by, created_by, updated_by)
+			VALUES ($1,$2,'PR1',$3,$4,'2026-07-31','2026-07-31','USD',250,'proposed',$5,$5,$5)`, f.tenant, run, f.entity, hb, f.actor); err != nil {
+			return err
+		}
+		return exec(tx, `INSERT INTO payments.payment (tenant_id, id, payment_run_id, supplier_id, bank_account_id, amount, withholding_amount, currency, end_to_end_id, created_by)
+			VALUES ($1,$2,$3,$4,$5,250,50,'USD','E2E-1',$6)`, f.tenant, pay, run, f.supplier, id(), f.actor)
+	})
+	for _, c := range []struct {
+		name                          string
+		amount, discount, withholding int
+		fails                         string
+	}{
+		{"an invoice's withholding", 300, 6, 45, ""},
+		{"a credit memo's withholding", -50, 0, -7, ""},
+		{"of the other sign", 300, 0, -45, "payment_item_withholding_within"},
+		{"with the discount, the whole amount", 300, 100, 200, "payment_item_withholding_within"},
+	} {
+		t.Run("payment item: "+c.name, func(t *testing.T) {
+			err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+				return exec(tx, `INSERT INTO payments.payment_item (tenant_id, payment_id, item_fiscal_year, item_entry_id, item_line_no, amount, discount_amount,
+					withholding_amount, due_date) VALUES ($1, $2, 2026, $3, 2, $4, $5, $6, '2026-07-31')`, f.tenant, pay, id(), c.amount, c.discount, c.withholding)
+			})
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("insert: got %v, want success", err)
+				}
+				return
+			}
+			failsOn(t, err, c.fails)
+		})
+	}
+	t.Run("payment item: a withholding changed", func(t *testing.T) {
+		_, err := testDB.Exec(context.Background(), "UPDATE payments.payment_item SET withholding_amount = 1 WHERE tenant_id = $1 AND withholding_amount = 45", f.tenant)
+		failsWith(t, err, "only be deactivated")
+	})
+}

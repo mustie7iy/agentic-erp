@@ -37,7 +37,7 @@ func runOK(r Run) *gen.RejectPaymentRunOKHeaders {
 func paymentToAPI(p Payment, currency string, exp int) gen.Payment {
 	out := gen.Payment{ID: p.ID, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, PaymentRunID: p.RunID, SupplierID: p.SupplierID,
 		BankAccountID: p.BankAccountID, Amount: apitypes.Money(p.Amount, currency, exp), DiscountAmount: gen.NewOptMoney(apitypes.Money(p.Discount, currency, exp)),
-		EndToEndID: p.EndToEndID, JournalEntryID: apitypes.OptUUID(p.JournalEntryID), Kind: gen.NewOptString(p.Kind),
+		WithholdingAmount: gen.NewOptMoney(apitypes.Money(p.Withholding, currency, exp)), EndToEndID: p.EndToEndID, JournalEntryID: apitypes.OptUUID(p.JournalEntryID), Kind: gen.NewOptString(p.Kind),
 		DownPaymentRequestID: apitypes.OptUUID(p.RequestID), Items: make([]gen.PaymentItem, len(p.Items))}
 	if p.DiscountUntil != nil {
 		out.DiscountUntil.SetTo(*p.DiscountUntil)
@@ -45,7 +45,7 @@ func paymentToAPI(p Payment, currency string, exp int) gen.Payment {
 	for i, it := range p.Items {
 		out.Items[i] = gen.PaymentItem{FiscalYear: int32(it.FiscalYear), JournalEntryID: it.EntryID, LineNo: it.LineNo,
 			Amount: apitypes.Money(it.Amount, currency, exp), DiscountAmount: gen.NewOptMoney(apitypes.Money(it.Discount, currency, exp)),
-			DueDate: it.DueDate.Time, IsActive: it.Active}
+			WithholdingAmount: gen.NewOptMoney(apitypes.Money(it.Withholding, currency, exp)), DueDate: it.DueDate.Time, IsActive: it.Active}
 	}
 	return out
 }

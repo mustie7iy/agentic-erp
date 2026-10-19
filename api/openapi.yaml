@@ -18069,7 +18069,11 @@ components:
           readOnly: true
         discount_amount:
           $ref: "#/components/schemas/Money"
-          description: "The cash discount taken on the item (T36c), by the payment terms it was posted with on the run date; of the item's sign, 0.00 when none. What the item pays is amount less discount_amount."
+          description: "The cash discount taken on the item (T36c), by the payment terms it was posted with on the run date; of the item's sign, 0.00 when none. What the item pays is amount less discount_amount less withholding_amount."
+          readOnly: true
+        withholding_amount:
+          $ref: "#/components/schemas/Money"
+          description: "The withholding tax the run deducts from the item (T46f, ADR-0037), by the supplier's codes deducted at payment that the item posted with: each code's rate of its base less the discount's share of it; of the item's sign, 0.00 when none. It is posted to the codes' accounts when the payment posts."
           readOnly: true
         due_date:
           type: string
@@ -18119,11 +18123,15 @@ components:
               readOnly: true
             amount:
               $ref: "#/components/schemas/Money"
-              description: "Amount paid, after the cash discounts taken on the items; positive. The bank file pays it."
+              description: "Amount paid, after the cash discounts taken on the items and the withholding tax deducted from them; positive. The bank file pays it."
               readOnly: true
             discount_amount:
               $ref: "#/components/schemas/Money"
               description: "The cash discounts taken on the payment's items (T36c), their total, posted to the cash discount account when the payment posts; negative when the discounts credit memos give back exceed those of the invoices."
+              readOnly: true
+            withholding_amount:
+              $ref: "#/components/schemas/Money"
+              description: "The withholding tax deducted from the payment's items (T46f), their total, posted to the withholding tax codes' accounts when the payment posts; 0.00 when none."
               readOnly: true
             discount_until:
               type: string

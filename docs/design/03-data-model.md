@@ -726,6 +726,17 @@ supplier open item are refused). The payable items and `GET
 day (`payment_terms`); an item posted without them (before T36, manual,
 migrated) has none and is due by its supplier's current terms.
 
+It keeps its supplier's withholding taxes too (`open_item_withholding`,
+migration 000081, T46f, ADR-0037; SAP WITH_ITEM), one row per code of the
+supplier in the legal entity when it posted: the code, its rate and
+account then, the base (the invoice's net or gross, in the sign the item
+is paid in) and, for a code deducted at invoice, the amount withheld (of
+the base's sign and less than it; none for a code deducted at payment),
+insert-only. An invoice posts what its codes deducted at invoice withhold
+to their accounts and owes the supplier the rest; what all its codes
+withhold is less than its gross (`payables.withholding_exceeds_invoice`).
+The payable items carry the codes deducted at payment.
+
 Special G/L items (T46, ADR-0037). `journal_line.special_gl` marks a
 supplier line as a special G/L item; `A` (down payment) is the only
 indicator. A line carries `A` exactly when it is on the legal entity's
@@ -1289,7 +1300,16 @@ At release the settlement credits the bank with what is paid and the
 discounts to the legal entity's `cash_discount` account, both at the
 posting date's rates, so the items clear at their original amounts and
 what is left in local and group currency is the exchange difference
-(`ledger.Settle`). The discount is taken off the gross amount, so its tax
+(`ledger.Settle`). A run withholds the taxes deducted at payment (T46f,
+ADR-0037): each code's rate of its base less the discount's share of it
+(the base times what the item pays after its discount over what it owes),
+rounded once, half away from zero, item by item; `payment_item` keeps it
+(`withholding_amount`, of the item's sign, and with the discount less than
+the item, migration 000081), `payment` the total, and the payment's amount
+is what is left; the settlement credits it to the codes' accounts, a line
+per account and code. Down payments withhold nothing, and manual clearing
+takes no withholding.
+The discount is taken off the gross amount, so its tax
 share corrects the input tax (T36d, SAP's tax adjustment, §17 UStG): each
 item's discount is split by its entry's tax lines (a line with a tax code
 on that code's account) in proportion to the gross the entry owes the
