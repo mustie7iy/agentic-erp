@@ -292,11 +292,14 @@ func TestWebhookDispatchRetries(t *testing.T) {
 		t.Errorf("version after failures: got %d, want %d (failing_since is bookkeeping)", v, before)
 	}
 	x.clock.set(start.Add(integration.FailingLimit))
-	x.event(x.c, uuid.New())
+	last := x.event(x.c, uuid.New())
 	x.round(1)
 	status, reason, _ := x.subscription(id)
 	if status != "disabled" || reason == nil || *reason != "failing" {
 		t.Errorf("after five days failing: got %s (%v), want disabled as failing", status, reason)
+	}
+	if row := x.delivery(last); row.status != "dropped" {
+		t.Errorf("the delivery retried as it was disabled: got %s, want dropped", row.status)
 	}
 	var audited int
 	pgtest.Scan(t, `SELECT count(*) FROM audit.audit_event WHERE object_id = $1 AND action = 'integration.webhook_subscription.disable'`, []any{id}, &audited)
@@ -577,6 +580,11 @@ func (f *faults) begin(pool *database.Pool) database.BeginFunc {
 func TestWebhookDispatchDatabaseFailures(t *testing.T) {
 	for name, status := range map[string]int{"delivered after failing": 204, "failing": 500, "gone": 410} {
 		t.Run(name, func(t *testing.T) {
+			// One tenant and endpoint for every fault: each run starts
+			// from a fresh delivery and an active subscription.
+			x := newDispatch(t)
+			id, _ := x.hook(x.c, `"ledger.*"`)
+			x.rec.answerWith("*", status)
 			for _, kind := range []string{"begin", "statement", "commit"} {
 				// The first transaction only reads: its commit is never
 				// reached, so commits are tried up to the third.
@@ -590,7 +598,7 @@ func TestWebhookDispatchDatabaseFailures(t *testing.T) {
 					default:
 						f.commitAt = n
 					}
-					if !failOnce(t, status, f) && (kind != "commit" || n >= 3) {
+					if !x.failOnce(id, status, f) && (kind != "commit" || n >= 3) {
 						break
 					}
 				}
@@ -601,17 +609,21 @@ func TestWebhookDispatchDatabaseFailures(t *testing.T) {
 
 // failOnce runs a round under the faults and reports whether one hit; when
 // one did, the next round sends the delivery and records it.
-func failOnce(t *testing.T, status int, f *faults) bool {
+func (x *dispatch) failOnce(id string, status int, f *faults) bool {
+	t := x.t
 	t.Helper()
-	x := newDispatch(t)
-	id, _ := x.hook(x.c, `"ledger.*"`)
+	pgtest.Exec(t, `DELETE FROM integration.webhook_delivery`)
+	failing := "NULL"
 	if status == 204 {
-		pgtest.Exec(t, `UPDATE integration.webhook_subscription SET failing_since = now(), version = version + 1 WHERE id = $1`, id)
+		failing = "now()"
 	}
-	x.rec.answerWith("*", status)
+	pgtest.Exec(t, `UPDATE integration.webhook_subscription SET status = 'active', disabled_reason = NULL, failing_since = `+failing+`,
+		version = version + 1 WHERE id = $1`, id)
+	x.clock.set(x.clock.now().Add(3 * time.Minute)) // past any lease, with the rate refilled
 	d := x.event(x.c, uuid.New())
 	x.d.Begin = f.begin(pgtest.Pool(t))
 	_, _, err := x.d.RunOnce(context.Background())
+	x.d.Begin = nil
 	if err == nil {
 		if row := x.delivery(d); row.attempts != 1 {
 			t.Fatalf("%+v: no fault hit, delivery attempted %d times, want 1", f, row.attempts)
@@ -621,7 +633,6 @@ func failOnce(t *testing.T, status int, f *faults) bool {
 	if !errors.Is(err, pgtest.ErrInjected) {
 		t.Fatalf("%+v: got %v, want the injected failure", f, err)
 	}
-	x.d.Begin = nil
 	x.clock.set(x.clock.now().Add(3 * time.Minute)) // past a lease the failed round took
 	x.round(1)
 	if row := x.delivery(d); row.attempts != 1 {
