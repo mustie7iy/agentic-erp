@@ -44,3 +44,13 @@ func TestContextValues(t *testing.T) {
 		t.Errorf("InfoFrom(ctx).Operation = %q, want %q", got, "getOperation")
 	}
 }
+
+func TestReadOnly(t *testing.T) {
+	ctx := context.Background()
+	if ReadOnly(ctx) {
+		t.Error("ReadOnly outside a request: got true, want false")
+	}
+	if !ReadOnly(WithReadOnly(ctx)) {
+		t.Error("ReadOnly after WithReadOnly: got false, want true")
+	}
+}

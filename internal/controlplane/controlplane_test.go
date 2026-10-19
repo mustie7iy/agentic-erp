@@ -594,6 +594,9 @@ func (s *lifecycle) erasure(t *testing.T) {
 		t.Errorf("erasure: erased at: got none, want a time")
 	}
 	p.problem(409, "tenancy.invalid_transition", "ops|alice", "POST", tenants+"/"+id+":erase", "", "If-Match", `"6"`)
+	if got := s.recorded.entries[uuid.MustParse(id)].Status; got != directory.Erased {
+		t.Errorf("directory entry after the erasure: got %s, want %s", got, directory.Erased)
+	}
 	var n int
 	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT count(*) FROM identity.principal WHERE tenant_id = $1`, uuid.MustParse(id)).Scan(&n); err != nil {
 		t.Fatalf("count principals: %v", err)

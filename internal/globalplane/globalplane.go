@@ -46,9 +46,9 @@ func (s *Service) client() *http.Client {
 
 // List returns one page of the directory's tenants.
 func (s *Service) List(ctx context.Context, f directory.Filter, page pagination.Request) ([]directory.Entry, string, error) {
-	if f.Status != "" && !slices.Contains([]string{directory.Active, directory.Suspended, directory.Offboarded, directory.ReadOnly}, f.Status) {
+	if f.Status != "" && !slices.Contains([]string{directory.Active, directory.Suspended, directory.Offboarded, directory.ReadOnly, directory.Erased}, f.Status) {
 		return nil, "", problem.BadRequest("request.invalid_parameter", "Parameter status is invalid.",
-			problem.FieldError{Field: "status", Code: "invalid", Message: "one of active, suspended, offboarded, read_only"})
+			problem.FieldError{Field: "status", Code: "invalid", Message: "one of active, suspended, offboarded, read_only, erased"})
 	}
 	ks, err := s.Pages.Keyset(directory.Sort, "listDirectoryTenants|"+f.Region+"|"+f.Cell+"|"+f.Status, page)
 	if err != nil {

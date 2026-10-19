@@ -57,21 +57,37 @@ func background(s *Stack, d time.Duration) (*Stats, func()) {
 // every retried key posted once, and the audit chain is intact.
 func TestResilienceDatabaseConnectionLoss(t *testing.T) {
 	s := Start(t, Options{Users: 8, Events: true})
-	ctx := context.Background()
 	st, stop := background(s, loadCap)
 	running(t, st)
 	killed := time.Now()
 	pgtest.Exec(t, `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()`)
-	// Recovery: the time until a request succeeds again.
+	recovered := awaitRecovery(t, s, 20*time.Second)
+	afterOutage(t, s, st, stop, "a connection loss", killed, recovered, 10*time.Second)
+}
+
+// awaitRecovery polls until a request succeeds again and returns when.
+func awaitRecovery(t *testing.T, s *Stack, within time.Duration) time.Time {
+	t.Helper()
 	var recovered time.Time
 	var last Result
-	pgtest.Eventually(t, 20*time.Second, func() bool {
-		last = s.Call(ctx, Req{Method: "GET", Path: "/v1/journal-entries?legal_entity_id=" + s.Env.DE.String() + "&fiscal_year=2026&page_size=1", As: s.Env.Tenant.Human})
+	pgtest.Eventually(t, within, func() bool {
+		last = s.Call(context.Background(), Req{Method: "GET", Path: "/v1/journal-entries?legal_entity_id=" + s.Env.DE.String() + "&fiscal_year=2026&page_size=1", As: s.Env.Tenant.Human})
 		if last.OK() {
 			recovered = time.Now()
 		}
 		return last.OK()
 	}, "not recovered: %v", &last)
+	return recovered
+}
+
+// afterOutage checks a database outage the load ran across, once requests
+// succeed again: recovery within limit of when it began, no failure
+// other than a retryable 503 and none a second after recovery, every
+// failed post retried with its key posted once, and the events and the
+// audit chain consistent.
+func afterOutage(t *testing.T, s *Stack, st *Stats, stop func(), what string, began, recovered time.Time, limit time.Duration) {
+	t.Helper()
+	rto := recovered.Sub(began)
 	// The load goes on after recovery, so that the check below that no
 	// request fails more than a second after it has requests to judge. This
 	// asserts an absence over a window, so it does wait on the clock: the
@@ -82,17 +98,30 @@ func TestResilienceDatabaseConnectionLoss(t *testing.T) {
 		return st.Count("post") >= posted+20 && time.Since(recovered) > 2*time.Second
 	}, "the load did not resume after recovery: %v", st)
 	stop()
-	st.Report(t, "load across a connection loss")
-	t.Logf("recovered %v after the connections were killed", recovered.Sub(killed).Round(time.Millisecond))
-	if rto := recovered.Sub(killed); rto > 10*time.Second {
-		t.Errorf("recovery took %v", rto)
+	st.Report(t, "load across "+what)
+	t.Logf("recovered %v after %s", rto.Round(time.Millisecond), what)
+	if rto > limit {
+		t.Errorf("recovery took %v, want at most %v", rto, limit)
 	}
 	if last := st.LastFailure(); last.After(recovered.Add(time.Second)) {
 		t.Errorf("requests still failed %v after recovery: %v", last.Sub(recovered), st.Errors())
 	}
+	onlyRetryable(t, s, st)
+	retryFailedPosts(t, s)
+	if err := s.Drain(30 * time.Second); err != nil {
+		t.Error(err)
+	}
+	if err := s.Consistent(context.Background()); err != nil {
+		t.Error(err)
+	}
+}
+
+// onlyRetryable fails the test on any failure but a 503 the client retries.
+func onlyRetryable(t *testing.T, s *Stack, st *Stats) {
+	t.Helper()
 	for k, n := range st.Failures() {
-		if k[len(k)-3:] == "500" || k[len(k)-3:] == "502" {
-			t.Errorf("%s: %d (a lost connection must be a 503 the client retries)", k, n)
+		if strings.HasSuffix(k, "500") || strings.HasSuffix(k, "502") {
+			t.Errorf("%s: %d (a database outage must be a 503 the client retries)", k, n)
 			for _, line := range strings.Split(s.Env.API.Logs(), "\n") {
 				if strings.Contains(line, "request failed") {
 					t.Log(line)
@@ -100,25 +129,24 @@ func TestResilienceDatabaseConnectionLoss(t *testing.T) {
 			}
 		}
 	}
-	// Clients retry failed posts with the same key: each is posted once.
+}
+
+// retryFailedPosts retries every post that failed with its key, as clients
+// do: each is posted once.
+func retryFailedPosts(t *testing.T, s *Stack) {
+	t.Helper()
 	retried := 0
 	for _, p := range s.Posted() {
 		if p.Status == http.StatusCreated {
 			continue
 		}
 		retried++
-		if res := s.Call(ctx, Req{Method: "POST", Path: "/v1/journal-entries", Body: s.Entry(20, p.Key), As: s.Users[0].Actor, Key: p.Key}); !res.OK() &&
+		if res := s.Call(context.Background(), Req{Method: "POST", Path: "/v1/journal-entries", Body: s.Entry(20, p.Key), As: s.Users[0].Actor, Key: p.Key}); !res.OK() &&
 			res.Status != http.StatusUnprocessableEntity { // the key belongs to another principal: refused, never posted twice
 			t.Errorf("retry of %s: %d %v %s", p.Key, res.Status, res.Err, res.Body)
 		}
 	}
 	t.Logf("%d posts failed during the outage and were retried", retried)
-	if err := s.Drain(30 * time.Second); err != nil {
-		t.Error(err)
-	}
-	if err := s.Consistent(ctx); err != nil {
-		t.Error(err)
-	}
 }
 
 // ledgerEvents counts the tenant's ledger events in the stream.

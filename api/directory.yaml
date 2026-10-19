@@ -61,7 +61,7 @@ paths:
         - name: status
           in: query
           required: false
-          description: "Only tenants in this status: `active`, `suspended`, `offboarded` or `read_only`."
+          description: "Only tenants in this status: `active`, `suspended`, `offboarded`, `read_only` or `erased`."
           schema:
             type: string
             maxLength: 20
@@ -429,7 +429,7 @@ components:
           example: "https://eu-1.api.example.com"
         status:
           type: string
-          description: "`active`, `suspended` or `offboarded` as in the cell, or `read_only` while the tenant moves (open enumeration)."
+          description: "`active`, `suspended` or `offboarded` as in the cell, `erased` once the cell erased an offboarded tenant's data, or `read_only` while the tenant moves (open enumeration). An offboarded or erased entry stays so whatever a cell restored to an earlier point reports (ADR-0040)."
           readOnly: true
           example: active
         version:

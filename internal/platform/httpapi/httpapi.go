@@ -167,7 +167,11 @@ func authorize(a *authz.Authorizer) middleware.Middleware {
 // errorHandler writes every error from the generated server as a problem.
 func errorHandler(log *slog.Logger) ogenerrors.ErrorHandler {
 	return func(ctx context.Context, w http.ResponseWriter, r *http.Request, err error) {
-		p := toProblem(err)
+		from := problem.From
+		if reqctx.ReadOnly(ctx) {
+			from = problem.FromReadOnly
+		}
+		p := toProblem(err, from)
 		if p.Status >= 500 {
 			log.ErrorContext(ctx, "request failed", "error", err, "trace_id", reqctx.TraceID(ctx))
 		}
@@ -175,7 +179,9 @@ func errorHandler(log *slog.Logger) ogenerrors.ErrorHandler {
 	}
 }
 
-func toProblem(err error) *problem.Problem {
+// toProblem translates the generated server's own errors and hands the
+// rest to from, the translation for the request's transaction.
+func toProblem(err error, from func(error) *problem.Problem) *problem.Problem {
 	var (
 		p     *problem.Problem
 		sec   *ogenerrors.SecurityError
@@ -199,7 +205,7 @@ func toProblem(err error) *problem.Problem {
 	case errors.As(err, &body):
 		return problem.BadRequest("request.invalid_body", "The request body does not match the contract.").WithCause(err)
 	}
-	return problem.From(err)
+	return from(err)
 }
 
 // missing reports whether a parameter error means the parameter was absent.

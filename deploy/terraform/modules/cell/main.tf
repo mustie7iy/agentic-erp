@@ -133,6 +133,28 @@ variable "database_iops" {
   default     = 12000
 }
 
+variable "backup_retention_days" {
+  description = "Days of point-in-time recovery: 35 in production, 14 elsewhere (ADR-0040)."
+  type        = number
+  default     = 14
+  validation {
+    # RDS keeps at most 35 days; fewer than 14 is below every environment's.
+    condition     = var.backup_retention_days >= 14 && var.backup_retention_days <= 35
+    error_message = "between 14 and 35 days"
+  }
+}
+
+variable "dr_region" {
+  description = "The disaster-recovery region the database's backups are copied to and the bucket replicates to (ADR-0040): staging and production. null (dev and test): none."
+  type        = string
+  default     = null
+  validation {
+    # The copies are of the Multi-AZ DB cluster (AWS Backup), the production shape's database.
+    condition     = var.dr_region == null || var.zone_redundant
+    error_message = "a disaster-recovery region needs the production shape (zone_redundant)"
+  }
+}
+
 variable "log_retention_days" {
   description = "How long the cluster's and the database's logs are kept."
   type        = number

@@ -193,4 +193,5 @@ and changes no API contract.
 | Load test (posting, list, approval, trial balance) | p95/p99 targets at the largest-tenant peak in one cell | Before each phase goes live, then weekly |
 | Soak test (24 h at sustained load) | No leaks, stable latency, projector keeps up | Before each release |
 | Resilience tests (primary failover, NATS node loss, worker kill) | RPO/RTO targets; operations resume | Quarterly and before go-live |
+| Restore and region failover drills (ADR-0040) | A restore verified within RPO/RTO; recorded in `staging/stg1/drills/restore.json` | Every 90 days at least; production promotions wait on it |
 | Tenant move rehearsal | §5.4 procedure works with verified counts and hash chain | Before the first shared cell exceeds 50% of its cap |

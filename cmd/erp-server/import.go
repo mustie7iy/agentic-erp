@@ -8,6 +8,10 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
 	platformconfig "github.com/mustie7iy/agentic-erp/internal/platform/config"
@@ -57,8 +61,31 @@ func importTenant(ctx context.Context, cfg platformconfig.Config, manifest strin
 	}
 	defer pool.Close()
 	im := &offboarding.Importer{Pool: pool, Store: store, AppRole: cfg.AppRole}
+	var checks []func(context.Context, pgx.Tx, uuid.UUID) error
 	if cfg.Environment == platformconfig.Production {
-		im.Check = identity.RequireActiveProvider // a production cell refuses to start with such a tenant
+		checks = append(checks, identity.RequireActiveProvider) // a production cell refuses to start with such a tenant
+	}
+	if cfg.DirectoryURL != "" {
+		dir, err := directory.OpenWith(ctx, cfg.DirectoryURL, cfg.DirectoryPassword)
+		if err != nil {
+			return offboarding.Imported{}, err
+		}
+		defer dir.Close()
+		// The directory keeps an offboarded or erased tenant so against the
+		// cell's sync (ADR-0040); the import brings it back. Before the
+		// commit: should the import then fail, the cell's next sync writes
+		// the erased tenant back, which an active entry does not keep.
+		checks = append(checks, func(ctx context.Context, _ pgx.Tx, tenant uuid.UUID) error {
+			return dir.Reinstate(ctx, tenant, cfg.Cell)
+		})
+	}
+	im.Check = func(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) error {
+		for _, check := range checks {
+			if err := check(ctx, tx, tenant); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	return im.Import(ctx, manifest)
 }

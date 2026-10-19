@@ -1,10 +1,13 @@
 // Package blobstoretest is a test double of an S3-compatible service: an
 // in-memory bucket over HTTP that checks Signature Version 4, honours
-// If-None-Match: * and records object-lock headers, so the write-once store
+// If-None-Match: * and records object-lock headers (refusing a locked write
+// without a checksum, as S3 does), so the write-once store
 // of ADR-0016 can be tested without a service (06-engineering-process §6.6).
 package blobstoretest
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -36,6 +39,7 @@ type Object struct {
 	LockMode    string
 	Encryption  string // the x-amz-server-side-encryption header, "" without
 	KeyID       string // the x-amz-server-side-encryption-aws-kms-key-id header
+	Checksum    string // the x-amz-checksum-sha256 header, "" without
 }
 
 // Server is the running double.
@@ -151,13 +155,17 @@ func (s *Server) object(w http.ResponseWriter, r *http.Request, key string, body
 		w.Header().Set("Content-Length", strconv.Itoa(len(o.Content)))
 		w.WriteHeader(http.StatusOK)
 	case http.MethodPut:
+		if code, msg := integrity(r, body); code != "" {
+			s.answer(w, http.StatusBadRequest, code, msg)
+			return
+		}
 		if _, exists := s.Objects[key]; exists && r.Header.Get("If-None-Match") == "*" {
 			s.answer(w, http.StatusPreconditionFailed, "PreconditionFailed", "At least one of the pre-conditions you specified did not hold.")
 			return
 		}
 		s.Objects[key] = Object{Content: body, ContentType: r.Header.Get("Content-Type"), RetainUntil: r.Header.Get("x-amz-object-lock-retain-until-date"),
 			LockMode: r.Header.Get("x-amz-object-lock-mode"), Encryption: r.Header.Get("x-amz-server-side-encryption"),
-			KeyID: r.Header.Get("x-amz-server-side-encryption-aws-kms-key-id")}
+			KeyID: r.Header.Get("x-amz-server-side-encryption-aws-kms-key-id"), Checksum: r.Header.Get("x-amz-checksum-sha256")}
 		w.WriteHeader(http.StatusOK)
 	case http.MethodGet:
 		o, exists := s.Objects[key]
@@ -172,6 +180,20 @@ func (s *Server) object(w http.ResponseWriter, r *http.Request, key string, body
 	default:
 		s.answer(w, http.StatusMethodNotAllowed, "MethodNotAllowed", "The specified method is not allowed against this resource.")
 	}
+}
+
+// integrity checks a PUT's checksum as S3 does: a write with object-lock
+// headers must carry Content-MD5 or an x-amz-checksum-* header, and a
+// SHA-256 checksum that is sent must match the body.
+func integrity(r *http.Request, body []byte) (code, msg string) {
+	sum := r.Header.Get("x-amz-checksum-sha256")
+	if r.Header.Get("x-amz-object-lock-mode") != "" && sum == "" && r.Header.Get("Content-MD5") == "" {
+		return "InvalidRequest", "Content-MD5 OR x-amz-checksum- HTTP header is required for Put Object requests with Object Lock parameters"
+	}
+	if want := sha256.Sum256(body); sum != "" && sum != base64.StdEncoding.EncodeToString(want[:]) {
+		return "BadDigest", "The SHA256 you specified did not match the calculated checksum."
+	}
+	return "", ""
 }
 
 // authentic recomputes the signature of the request with the server's

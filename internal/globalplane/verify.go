@@ -107,71 +107,9 @@ func (s *Service) fingerprint(ctx context.Context, cell directory.Cell, tenant u
 	return nil, problem.New(http.StatusBadGateway, "platform.cell_refused", "Cell refused", fmt.Sprintf("Cell %s answered %d to the fingerprint request.", cell.Name, status))
 }
 
-// differences names what differs between two sides: a missing tenant, a
-// table's rows, the audit chain head.
+// differences names what differs between two sides (offboarding.Differences).
 func differences(a, b Side) []string {
-	out := []string{}
-	switch {
-	case a.Fingerprint == nil && b.Fingerprint == nil:
-		return []string{"neither " + a.Cell + " nor " + b.Cell + " has the tenant"}
-	case a.Fingerprint == nil:
-		return []string{a.Cell + " has no tenant with this id"}
-	case b.Fingerprint == nil:
-		return []string{b.Cell + " has no tenant with this id"}
-	}
-	rows := map[string][2]*int64{}
-	var names []string
-	for _, t := range a.Fingerprint.Tables {
-		n := t.Rows
-		rows[t.Name] = [2]*int64{&n, nil}
-		names = append(names, t.Name)
-	}
-	for _, t := range b.Fingerprint.Tables {
-		n := t.Rows
-		r, seen := rows[t.Name]
-		if !seen {
-			names = append(names, t.Name)
-		}
-		r[1] = &n
-		rows[t.Name] = r
-	}
-	for _, name := range names {
-		r := rows[name]
-		switch {
-		case r[0] == nil:
-			out = append(out, fmt.Sprintf("%s: no table in %s, %d rows in %s", name, a.Cell, *r[1], b.Cell))
-		case r[1] == nil:
-			out = append(out, fmt.Sprintf("%s: %d rows in %s, no table in %s", name, *r[0], a.Cell, b.Cell))
-		case *r[0] != *r[1]:
-			out = append(out, fmt.Sprintf("%s: %d rows in %s, %d in %s", name, *r[0], a.Cell, *r[1], b.Cell))
-		}
-	}
-	if h := headDifference(a, b); h != "" {
-		out = append(out, h)
-	}
-	return out
-}
-
-func headDifference(a, b Side) string {
-	x, y := a.Fingerprint.ChainHead, b.Fingerprint.ChainHead
-	switch {
-	case x == nil && y == nil:
-		return ""
-	case x == nil:
-		return fmt.Sprintf("audit chain head: none in %s, seq %d in %s", a.Cell, y.Seq, b.Cell)
-	case y == nil:
-		return fmt.Sprintf("audit chain head: seq %d in %s, none in %s", x.Seq, a.Cell, b.Cell)
-	case x.Seq != y.Seq || x.Hash != y.Hash:
-		return fmt.Sprintf("audit chain head: seq %d (%s) in %s, seq %d (%s) in %s", x.Seq, short(x.Hash), a.Cell, y.Seq, short(y.Hash), b.Cell)
-	}
-	return ""
-}
-
-func short(hash string) string {
-	if len(hash) > 12 {
-		return hash[:12] + "…"
-	}
-	return hash
+	return offboarding.Differences(a.Cell, a.Fingerprint, b.Cell, b.Fingerprint)
 }
 
 // call sends one request to a cell's control plane and reads its answer

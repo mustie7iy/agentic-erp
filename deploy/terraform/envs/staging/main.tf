@@ -65,6 +65,16 @@ variable "ca_country" {
   type        = string
 }
 
+variable "dr_region" {
+  description = "The disaster-recovery region the cell's backups are copied to and its bucket replicates to (ADR-0040)."
+  type        = string
+}
+
+variable "dr_availability_zones" {
+  description = "Three availability zones of dr_region, for the restore drill's VPC there (ADR-0040)."
+  type        = list(string)
+}
+
 module "environment" {
   source = "../../modules/environment"
   providers = {
@@ -82,6 +92,12 @@ module "environment" {
   root_certificate   = var.root_certificate
   ca_organization    = var.ca_organization
   ca_country         = var.ca_country
+  dr_region          = var.dr_region
+  # The dr-copies drill restores into, and verifies from, a VPC of the DR
+  # region (T41e2).
+  restore_drill_dr      = true
+  dr_cidr               = "10.49.0.0/16"
+  dr_availability_zones = var.dr_availability_zones
 }
 
 output "cell" {

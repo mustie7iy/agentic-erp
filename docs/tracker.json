@@ -194,7 +194,7 @@
        {
         "s": "T",
         "t": "Point-in-time recovery",
-        "r": "T41",
+        "r": "ADR-0040 · T41b (35 days in production) · T41d (restore verified)",
         "c": []
        }
       ]
@@ -5158,21 +5158,89 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Backups and point-in-time recovery",
-      "r": "T41",
-      "c": []
-     },
-     {
-      "s": "T",
-      "t": "Disaster recovery plan with RPO/RTO targets and drills",
-      "r": "T41",
-      "c": []
+      "r": "ADR-0040 · T41",
+      "c": [
+       {
+        "s": "D",
+        "t": "Backups and disaster recovery decided: retention, cross-region copies, a pilot-light DR region, JetStream rebuilt from the outboxes (published rows kept), Temporal restored with the cell, whole-cell recovery and per-tenant restore by export and import; the runbook",
+        "r": "ADR-0040 · T41a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Point-in-time recovery 35 days in production, 14 elsewhere; backups copied to the DR region for 7 days; the bucket's noncurrent versions kept 35 days and replicated, with a KMS key in the DR region",
+        "r": "deploy/terraform/modules/cell (dr.tf) · AWS Backup hourly to a DR vault, S3 replication with delete markers, object lock; tftest, conftest (backup vaults and replicas need a KMS key) · T41b",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Restore verified: migration version, audit hash chains, balanced journal entries and trial balances (bigint sums), fingerprints (ADR-0030) against the old database's where it is kept, the drill's markers (audit events: the one before the restore point present with the tenant's fingerprint, the one after absent)",
+        "r": "erp-server dr mark|verify · internal/drverify · T41d",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Restore reconciled before it serves: audit chains against their anchors in the object store (ADR-0025), every tenant the directory places in the cell present; the directory records erased and keeps offboarded and erased against a cell's sync, and the reconciliation offboards and erases those tenants again (the erasure against the export already in the store)",
+        "r": "erp-server dr reconcile · internal/drverify (reconcile.go, anchors.go) · directory.StatusOf, Upsert · offboarding.Worker.Adopt · T41f",
+        "c": []
+       }
+      ]
      },
      {
       "s": "P",
+      "t": "Disaster recovery plan with RPO/RTO targets and drills",
+      "r": "ADR-0040 · T41",
+      "c": [
+       {
+        "s": "D",
+        "t": "Production cells: a cross-region read replica (lag alarm at 60 s) and a pilot-light DR region (VPC and endpoints, EKS control plane without nodes, the field key replicated, the secrets replicated)",
+        "r": "deploy/terraform/modules/cell/pilot_light.tf · T41b2 · to confirm on AWS staging before the pilot: a Multi-AZ DB cluster's cross-region replica and backups (else a Multi-AZ DB instance)",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The pilot light made runnable: a DR node group at zero the runbook scales up, the workload roles trusting the DR cluster's OIDC provider, their permissions on the DR bucket and keys, Argo CD synced there on failover; confirmed on staging that replicate_source_db takes the cluster's ARN (the API's SourceDBClusterIdentifier), the cluster's engine version pinned so the replica is upgraded first, the master credentials after promotion (RDS-managed in the home region)",
+        "r": "T41b3",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Restore drills (point in time, and from the DR-region copies) recorded append-only in deploy/environments/staging/stg1/drills/restore.json (scripts/promotion-checks.sh accepts it beside the release drills); a production promotion refused when the last passed restore drill on AWS is older than 90 days (rollbacks exempt, PO 2026-10-19); the drill in Docker on demand (weekly.yml dr, make restore-drill)",
+        "r": "scripts/restore-drill.sh, test-restore-drill.sh · T41e",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The region failover rehearsed on the production pilot cell before it takes live traffic (a pre-pilot gate), then yearly in a maintenance window (PO, 2026-10-19)",
+        "r": "ADR-0040 · T41g",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Before T41b is applied to a cell holding objects: a one-off S3 Batch Replication job for the existing objects; the plan checked to create the field key as a multi-Region key from the start",
+        "r": "ADR-0040 · T41h (pre-apply)",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "The dr-copies drill restores into a VPC of the DR region and verifies there with a Fargate task of the server image (erp-server dr verify, the master password from the side cluster's RDS-managed secret, the authorities as ERP_DR_DATABASE_CA), its task definition registered for the run and removed after it; no peering (PO, 2026-10-19); tested with stand-in CLIs",
+        "r": "deploy/terraform/modules/cell/drill.tf (restore_drill_dr: staging) · scripts/restore-drill.sh, test-restore-drill.sh · ADR-0040 · T41e2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Pre-pilot: the first restore drills on AWS staging (stg1), point in time and from the copies, recorded in restore.json; until one has passed every production promotion is refused (scripts/promotion-checks.sh). Confirm there: the restore metadata's DBSubnetGroupName and VpcSecurityGroupIds, the managed secret's aws:rds:primaryDBClusterArn tag the task's role is scoped by and its KMS key (the execution role decrypts none), and the DR region in the registry's replication regions",
+        "r": "ADR-0040 · T41e2",
+        "c": []
+       }
+      ]
+     },
+     {
+      "s": "D",
       "t": "High availability (replicas, failover)",
-      "r": "connection loss under load answered as retryable 503 and recovered in ~50 ms (TestResilienceDatabaseConnectionLoss); real failover drills to come · T41",
+      "r": "connection loss under load answered as retryable 503 and recovered in ~50 ms (TestResilienceDatabaseConnectionLoss) · T41c: a former writer's read-only error (25006) answered as retryable 503 (a 500 in a read-only transaction), and a replica promoted behind PgBouncer under load, recovered in ~15 s (TestResilienceDatabaseFailover, make failover, weekly)",
       "c": []
      },
      {

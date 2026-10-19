@@ -29,6 +29,15 @@ mock_provider "aws" {
   mock_resource "aws_iam_role" {
     defaults = { arn = "arn:aws:iam::222222222222:role/mock" }
   }
+  mock_data "aws_servicequotas_service_quota" {
+    defaults = { quota_code = "L-0000TEST", value = 100 }
+  }
+  mock_resource "aws_backup_vault" {
+    defaults = { arn = "arn:aws:backup:eu-west-1:222222222222:backup-vault:erp-dev1-dr" }
+  }
+  mock_resource "aws_rds_cluster" {
+    defaults = { arn = "arn:aws:rds:eu-central-1:222222222222:cluster:erp-dev1" }
+  }
   mock_resource "aws_s3_bucket" {
     defaults = { arn = "arn:aws:s3:::erp-dev1-objects-x" }
   }
@@ -72,7 +81,7 @@ run "the_database_requires_tls_1_3_and_survives_a_zone" {
     error_message = "a Multi-AZ DB cluster of PostgreSQL 17"
   }
   assert {
-    condition     = aws_rds_cluster.cell[0].storage_encrypted && aws_rds_cluster.cell[0].deletion_protection && aws_rds_cluster.cell[0].backup_retention_period >= 14
+    condition     = aws_rds_cluster.cell[0].storage_encrypted && aws_rds_cluster.cell[0].deletion_protection && aws_rds_cluster.cell[0].backup_retention_period == 14
     error_message = "encrypted, protected from deletion, two weeks of point-in-time recovery"
   }
   assert {
@@ -349,4 +358,248 @@ run "another_cell_reads_its_own_secrets_alone" {
     condition     = length(jsondecode(aws_iam_role_policy.workload["external_secrets"].policy).Statement[1].Resource) == 1
     error_message = "a cell given no global secrets decrypts with its data key alone"
   }
+}
+
+run "a_cell_without_a_dr_region_keeps_two_weeks_and_its_versions_35_days" {
+  command = apply
+
+  assert {
+    condition     = aws_rds_cluster.cell[0].backup_retention_period == 14
+    error_message = "14 days of point-in-time recovery outside production (ADR-0040)"
+  }
+  assert {
+    condition     = aws_s3_bucket_lifecycle_configuration.objects.rule[0].noncurrent_version_expiration[0].noncurrent_days == 35 && aws_s3_bucket_lifecycle_configuration.objects.rule[0].status == "Enabled"
+    error_message = "the bucket keeps noncurrent versions as long as the longest point-in-time recovery"
+  }
+  assert {
+    condition     = aws_s3_bucket_object_lock_configuration.objects.object_lock_enabled == "Enabled" && length(aws_s3_bucket_object_lock_configuration.objects.rule) == 0
+    error_message = "object lock enabled for compliance-mode retention, with no default retention"
+  }
+  assert {
+    condition     = length(aws_kms_key.dr) == 0 && length(aws_backup_plan.cell) == 0 && length(aws_s3_bucket.replica) == 0 && length(aws_s3_bucket_replication_configuration.objects) == 0
+    error_message = "a cell without a DR region creates nothing there"
+  }
+}
+
+run "a_production_cell_copies_its_backups_and_objects_to_the_dr_region" {
+  command = apply
+  # Its own state: the runs after it plan a cell without a DR region.
+  state_key = "dr"
+  variables {
+    backup_retention_days = 35
+    dr_region             = "eu-west-1"
+  }
+
+  assert {
+    condition     = aws_rds_cluster.cell[0].backup_retention_period == 35
+    error_message = "35 days of point-in-time recovery in production (ADR-0040)"
+  }
+  assert {
+    condition     = aws_kms_key.dr["dr"].region == "eu-west-1" && aws_kms_key.dr["dr"].enable_key_rotation
+    error_message = "a rotating key of the DR region"
+  }
+  assert {
+    condition     = aws_backup_vault.dr["dr"].region == "eu-west-1" && aws_backup_vault.dr["dr"].kms_key_arn == aws_kms_key.dr["dr"].arn
+    error_message = "the copies are in the DR region, encrypted with its key"
+  }
+  assert {
+    condition     = one(aws_backup_plan.cell["dr"].rule).schedule == "cron(0 * * * ? *)"
+    error_message = "the database is snapshotted every hour"
+  }
+  assert {
+    condition     = one(one(aws_backup_plan.cell["dr"].rule).copy_action).destination_vault_arn == aws_backup_vault.dr["dr"].arn && one(one(one(aws_backup_plan.cell["dr"].rule).copy_action).lifecycle).delete_after == 7
+    error_message = "every snapshot is copied to the DR vault and kept there 7 days"
+  }
+  assert {
+    condition     = aws_servicequotas_service_quota.cluster_snapshots["dr"].region == "eu-west-1" && aws_servicequotas_service_quota.cluster_snapshots["dr"].value >= 24 * 7 && aws_servicequotas_service_quota.cluster_snapshots["home"].value >= 24
+    error_message = "the snapshot quota holds a week of hourly copies in the DR region (the default, 100, does not)"
+  }
+  assert {
+    condition     = length(setintersection(toset(jsondecode(aws_iam_role_policy.workload["server"].policy).Statement[0].Action), toset(["s3:PutObjectRetention", "s3:GetObjectRetention"]))) == 2
+    error_message = "the server sets the compliance retention of audit anchors and exports (ADR-0016, ADR-0021)"
+  }
+  assert {
+    condition     = aws_backup_selection.database["dr"].iam_role_arn == aws_iam_role.backup["dr"].arn
+    error_message = "the plan runs as the backup role"
+  }
+  assert {
+    condition     = tolist(aws_backup_selection.database["dr"].resources) == tolist([aws_rds_cluster.cell[0].arn])
+    error_message = "the plan backs up the cell's database cluster"
+  }
+  assert {
+    condition     = aws_s3_bucket.replica["dr"].region == "eu-west-1" && aws_s3_bucket.replica["dr"].object_lock_enabled
+    error_message = "the replica bucket is in the DR region with object lock, which replicating locked objects needs"
+  }
+  assert {
+    condition     = one(one(aws_s3_bucket_server_side_encryption_configuration.replica["dr"].rule).apply_server_side_encryption_by_default).kms_master_key_id == aws_kms_key.dr["dr"].arn
+    error_message = "the replica is encrypted with the DR region's key"
+  }
+  assert {
+    condition     = aws_s3_bucket_lifecycle_configuration.replica["dr"].rule[0].noncurrent_version_expiration[0].noncurrent_days == 35
+    error_message = "the replica keeps noncurrent versions as long as the bucket"
+  }
+  assert {
+    condition     = one(aws_s3_bucket_replication_configuration.objects["dr"].rule).delete_marker_replication[0].status == "Enabled"
+    error_message = "deletions replicate as delete markers, so they are noncurrent versions in both"
+  }
+  assert {
+    condition     = one(one(one(aws_s3_bucket_replication_configuration.objects["dr"].rule).destination).encryption_configuration).replica_kms_key_id == aws_kms_key.dr["dr"].arn && one(aws_s3_bucket_replication_configuration.objects["dr"].rule).destination[0].bucket == aws_s3_bucket.replica["dr"].arn
+    error_message = "objects replicate to the replica, encrypted with the DR region's key"
+  }
+}
+
+run "more_than_35_days_of_recovery_is_refused" {
+  command = plan
+  variables {
+    backup_retention_days = 36
+  }
+  expect_failures = [var.backup_retention_days]
+}
+
+run "a_dr_region_for_the_single_instance_shape_is_refused" {
+  command   = plan
+  state_key = "single"
+  variables {
+    zone_redundant = false
+    dr_region      = "eu-west-1"
+  }
+  expect_failures = [var.dr_region]
+}
+
+run "a_production_cell_keeps_a_pilot_light_in_the_dr_region" {
+  command   = apply
+  state_key = "pilot"
+  variables {
+    backup_retention_days     = 35
+    dr_region                 = "eu-west-1"
+    pilot_light               = true
+    dr_cidr                   = "10.65.0.0/16"
+    dr_availability_zones     = ["eu-west-1a", "eu-west-1b", "eu-west-1c"]
+    replica_lag_alarm_actions = ["arn:aws:sns:eu-west-1:222222222222:erp-oncall"]
+  }
+
+  assert {
+    condition     = aws_db_instance.dr["dr"].region == "eu-west-1" && aws_db_instance.dr["dr"].replicate_source_db == aws_rds_cluster.cell[0].arn
+    error_message = "a cross-region read replica of the cell's database"
+  }
+  assert {
+    condition     = aws_db_instance.dr["dr"].storage_encrypted && aws_db_instance.dr["dr"].kms_key_id == aws_kms_key.dr["dr"].arn && aws_db_instance.dr["dr"].deletion_protection
+    error_message = "the replica is encrypted with the DR key and protected from deletion"
+  }
+  assert {
+    condition     = { for p in aws_db_parameter_group.dr["dr"].parameter : p.name => p.value }["ssl_min_protocol_version"] == "TLSv1.3"
+    error_message = "the replica requires TLS 1.3 as the primary does"
+  }
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.replica_lag["dr"].alarm_actions == toset(["arn:aws:sns:eu-west-1:222222222222:erp-oncall"]) && aws_cloudwatch_metric_alarm.replica_lag["dr"].metric_name == "ReplicaLag" && aws_cloudwatch_metric_alarm.replica_lag["dr"].threshold == 60 && aws_cloudwatch_metric_alarm.replica_lag["dr"].region == "eu-west-1"
+    error_message = "an alarm when the replica is more than the RPO (60 s) behind"
+  }
+  assert {
+    condition     = aws_eks_cluster.dr["dr"].region == "eu-west-1" && one(one(aws_eks_cluster.dr["dr"].encryption_config).provider).key_arn == aws_kms_key.dr_cluster["dr"].arn && !aws_eks_cluster.dr["dr"].vpc_config[0].endpoint_public_access
+    error_message = "a private EKS control plane in the DR region, its secrets encrypted with the DR cluster key"
+  }
+  assert {
+    condition     = length(aws_eks_access_entry.dr_admin) == 1
+    error_message = "the administrators reach the DR cluster"
+  }
+  assert {
+    condition     = aws_kms_key.fields.multi_region && aws_kms_replica_key.fields["dr"].primary_key_arn == aws_kms_key.fields.arn && aws_kms_replica_key.fields["dr"].region == "eu-west-1"
+    error_message = "the field key is replicated, so tenant keys wrapped at home unwrap in the DR region"
+  }
+  assert {
+    condition     = alltrue([for s in aws_secretsmanager_secret.cell : one(s.replica).region == "eu-west-1"])
+    error_message = "the secrets are replicated to the DR region"
+  }
+}
+
+run "a_cell_without_a_pilot_light_has_none" {
+  command   = plan
+  state_key = "dr"
+  variables {
+    backup_retention_days = 35
+    dr_region             = "eu-west-1"
+  }
+
+  assert {
+    condition     = length(aws_db_instance.dr) == 0 && length(aws_eks_cluster.dr) == 0 && length(module.dr_network) == 0 && length(aws_ecs_cluster.drill) == 0 && output.restore_drill == null && !aws_kms_key.fields.multi_region && length(aws_kms_replica_key.fields) == 0 && alltrue([for s in aws_secretsmanager_secret.cell : length(s.replica) == 0])
+    error_message = "staging has the backup copies only"
+  }
+}
+
+run "a_pilot_light_without_a_dr_region_is_refused" {
+  command   = plan
+  state_key = "refused"
+  variables {
+    pilot_light = true
+  }
+  expect_failures = [var.pilot_light]
+}
+
+run "a_pilot_light_without_its_network_is_refused" {
+  command   = plan
+  state_key = "refused"
+  variables {
+    pilot_light = true
+    dr_region   = "eu-west-1"
+  }
+  expect_failures = [var.dr_cidr, var.dr_availability_zones, var.replica_lag_alarm_actions]
+}
+
+run "staging_verifies_its_copies_from_a_task_in_the_dr_region" {
+  command   = apply
+  state_key = "drill"
+  variables {
+    dr_region             = "eu-west-1"
+    restore_drill_dr      = true
+    dr_cidr               = "10.49.0.0/16"
+    dr_availability_zones = ["eu-west-1a", "eu-west-1b", "eu-west-1c"]
+  }
+
+  assert {
+    condition     = length(module.dr_network) == 1 && aws_db_subnet_group.dr["dr"].region == "eu-west-1" && aws_security_group.dr_database["dr"].region == "eu-west-1"
+    error_message = "the copies are restored into a VPC of the DR region"
+  }
+  assert {
+    condition     = length(aws_db_instance.dr) == 0 && length(aws_eks_cluster.dr) == 0 && !aws_kms_key.fields.multi_region
+    error_message = "the drill's side is no pilot light: no replica, no control plane"
+  }
+  assert {
+    condition     = aws_ecs_cluster.drill["dr"].region == "eu-west-1" && aws_cloudwatch_log_group.drill["dr"].kms_key_id == aws_kms_key.dr["dr"].arn
+    error_message = "the verification runs on a Fargate cluster of the DR region and logs encrypted with the DR key"
+  }
+  assert {
+    condition     = contains([for s in jsondecode(aws_kms_key.dr["dr"].policy).Statement : s.Sid if can(s.Sid)], "CloudWatchLogs")
+    error_message = "CloudWatch Logs may use the DR key for the drill's log group"
+  }
+  assert {
+    condition     = toset([for e in aws_security_group.drill["dr"].egress : e.from_port]) == toset([5432, 443]) && length(aws_security_group.drill["dr"].ingress) == 0
+    error_message = "the task reaches the database and HTTPS only, and nothing reaches it"
+  }
+  assert {
+    condition     = endswith(jsondecode(aws_iam_role_policy.drill["dr"].policy).Statement[0].Condition.StringLike["secretsmanager:ResourceTag/aws:rds:primaryDBClusterArn"], ":cluster:${aws_rds_cluster.cell[0].cluster_identifier}-drill-*")
+    error_message = "the task reads the master secrets of the drill's side clusters only"
+  }
+  assert {
+    condition     = output.restore_drill.cluster == aws_ecs_cluster.drill["dr"].name && output.restore_drill.db_subnet_group == aws_db_subnet_group.dr["dr"].name && output.restore_drill.vault == aws_backup_vault.dr["dr"].name
+    error_message = "the drill's settings are an output for scripts/restore-drill.sh"
+  }
+}
+
+run "a_drill_side_without_a_dr_region_is_refused" {
+  command   = plan
+  state_key = "refused"
+  variables {
+    restore_drill_dr = true
+  }
+  expect_failures = [var.restore_drill_dr]
+}
+
+run "a_drill_side_without_its_network_is_refused" {
+  command   = plan
+  state_key = "refused"
+  variables {
+    restore_drill_dr = true
+    dr_region        = "eu-west-1"
+  }
+  expect_failures = [var.dr_cidr, var.dr_availability_zones]
 }

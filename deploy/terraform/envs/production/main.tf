@@ -66,23 +66,44 @@ variable "ca_country" {
   type        = string
 }
 
+variable "dr_region" {
+  description = "The disaster-recovery region the cell's backups are copied to and its bucket replicates to (ADR-0040)."
+  type        = string
+}
+
+variable "dr_availability_zones" {
+  description = "Three availability zones of dr_region, for prod1's pilot light."
+  type        = list(string)
+}
+
+variable "replica_lag_alarm_actions" {
+  description = "SNS topics of dr_region (the on-call's) prod1's replica-lag alarm notifies."
+  type        = list(string)
+}
+
 module "environment" {
   source = "../../modules/environment"
   providers = {
     aws         = aws
     aws.tooling = aws.tooling
   }
-  environment        = "production"
-  cell               = "prod1"
-  cidr               = "10.64.0.0/16"
-  availability_zones = var.availability_zones
-  admin_role_arns    = var.admin_role_arns
-  public_api_cidrs   = var.public_api_cidrs
-  tooling_account_id = var.tooling_account_id
-  root_ca_arn        = var.root_ca_arn
-  root_certificate   = var.root_certificate
-  ca_organization    = var.ca_organization
-  ca_country         = var.ca_country
+  environment               = "production"
+  cell                      = "prod1"
+  cidr                      = "10.64.0.0/16"
+  availability_zones        = var.availability_zones
+  admin_role_arns           = var.admin_role_arns
+  public_api_cidrs          = var.public_api_cidrs
+  tooling_account_id        = var.tooling_account_id
+  root_ca_arn               = var.root_ca_arn
+  root_certificate          = var.root_certificate
+  ca_organization           = var.ca_organization
+  ca_country                = var.ca_country
+  dr_region                 = var.dr_region
+  backup_retention_days     = 35
+  pilot_light               = true
+  dr_cidr                   = "10.65.0.0/16"
+  dr_availability_zones     = var.dr_availability_zones
+  replica_lag_alarm_actions = var.replica_lag_alarm_actions
 }
 
 output "cell" {

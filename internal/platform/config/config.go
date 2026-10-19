@@ -248,9 +248,17 @@ func Load(getenv func(string) string) (Config, error) {
 	return c, errors.Join(l.errs...)
 }
 
+// Default database roles of the application and the control plane.
+const (
+	defaultAppRole     = "erp_app"
+	defaultControlRole = "erp_control"
+)
+
 // LoadSchema reads what preparing the schema needs and nothing else: the
 // database (DATABASE_URL, which may be a secret reference), ERP_ENV,
-// ERP_LOG_LEVEL and ERP_DB_MAX_CONNS. erp-server migrate runs with it as a
+// ERP_LOG_LEVEL and ERP_DB_MAX_CONNS, and the application and control
+// roles (ERP_DB_APP_ROLE, ERP_DB_CONTROL_ROLE) that erp-server dr reads a
+// restored database as (ADR-0040). erp-server migrate runs with it as a
 // Helm hook Job (ADR-0035), before the release's other resources exist and
 // without the keys, issuers and stores a server needs. ERP_MIGRATE_ON_START
 // is not read: the Job migrates whatever it says, and the pods keep it
@@ -270,6 +278,7 @@ func LoadSchema(getenv func(string) string) (Config, error) {
 	if err := CheckEnvironment(c.Environment); err != nil {
 		l.errs = append(l.errs, err)
 	}
+	c.AppRole, c.ControlRole = l.get("ERP_DB_APP_ROLE", defaultAppRole), l.get("ERP_DB_CONTROL_ROLE", defaultControlRole)
 	l.logLevel(&c)
 	l.dbMaxConns(&c)
 	return c, errors.Join(l.errs...)
@@ -332,11 +341,11 @@ func (l *loader) basics() Config {
 		HTTPAddr:      get("ERP_HTTP_ADDR", ":8080"),
 		AdminAddr:     get("ERP_ADMIN_ADDR", ":9090"),
 		DatabaseURL:   getenv("DATABASE_URL"),
-		AppRole:       get("ERP_DB_APP_ROLE", "erp_app"),
+		AppRole:       get("ERP_DB_APP_ROLE", defaultAppRole),
 		RelayRole:     get("ERP_DB_RELAY_ROLE", "erp_relay"),
 		ProjectorRole: get("ERP_DB_PROJECTOR_ROLE", "erp_projector"),
 		WorkerRole:    get("ERP_DB_WORKER_ROLE", "erp_worker"),
-		ControlRole:   get("ERP_DB_CONTROL_ROLE", "erp_control"),
+		ControlRole:   get("ERP_DB_CONTROL_ROLE", defaultControlRole),
 		Cell:          get("ERP_CELL", "local"),
 		NATSURL:       getenv("ERP_NATS_URL"),
 		OTLPEndpoint:  getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),

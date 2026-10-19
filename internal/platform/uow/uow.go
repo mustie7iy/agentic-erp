@@ -84,7 +84,13 @@ func unsafe(method string) bool {
 func (m *Middleware) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := m.serve(w, r, next); err != nil {
-			p := problem.From(err)
+			// A safe method's transaction is read-only, as errorHandler
+			// translates its errors (ADR-0040).
+			from := problem.From
+			if !unsafe(r.Method) {
+				from = problem.FromReadOnly
+			}
+			p := from(err)
 			if p.Status >= 500 {
 				m.Log.ErrorContext(r.Context(), "request failed", "error", err)
 			}
@@ -165,6 +171,9 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 	}
 
 	ctx = reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), principal)
+	if req == nil {
+		ctx = reqctx.WithReadOnly(ctx)
+	}
 	ctx, buf := audit.WithBuffer(ctx)
 	rec := &recorder{header: http.Header{}, status: http.StatusOK}
 	next.ServeHTTP(rec, r.WithContext(ctx))

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	ht "github.com/ogen-go/ogen/http"
 	"github.com/ogen-go/ogen/ogenerrors"
 	"github.com/ogen-go/ogen/validate"
@@ -23,6 +24,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
 )
 
@@ -68,7 +70,7 @@ func TestErrorMapping(t *testing.T) {
 	cases[&ogenerrors.DecodeParamError{Name: "id", In: "path", Err: validate.ErrFieldRequired}] = "request.invalid_parameter"
 	for err, code := range cases {
 		t.Run(fmt.Sprintf("%T=%s", err, code), func(t *testing.T) {
-			if p := toProblem(err); p.Code != code {
+			if p := toProblem(err, problem.From); p.Code != code {
 				t.Errorf("%T %v: got %s, want %s", err, err, p.Code, code)
 			}
 		})
@@ -81,6 +83,24 @@ func TestErrorMapping(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "boom") {
 		t.Errorf("error handler log: got %s, want it to mention boom", logs.String())
+	}
+	// A former writer's 25006 is a failover in a read-write transaction and
+	// a bug in a read-only one (ADR-0040).
+	readOnly := &pgconn.PgError{Code: "25006"}
+	for name, c := range map[string]struct {
+		ctx    context.Context
+		status int
+	}{
+		"read-write": {context.Background(), 503},
+		"read-only":  {reqctx.WithReadOnly(context.Background()), 500},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			errorHandler(slog.New(slog.DiscardHandler))(c.ctx, rec, httptest.NewRequest("GET", "/x", nil), readOnly)
+			if rec.Code != c.status {
+				t.Errorf("25006 in a %s transaction: got %d, want %d", name, rec.Code, c.status)
+			}
+		})
 	}
 	if _, err := (security{}).HandleOidc(context.Background(), "", gen.Oidc{}); err == nil {
 		t.Fatal("request without a principal accepted")

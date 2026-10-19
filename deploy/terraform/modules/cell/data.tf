@@ -32,6 +32,33 @@ resource "aws_s3_bucket_versioning" "objects" {
   }
 }
 
+# Audit anchors and offboarding exports are written with a compliance-mode
+# retention (ADR-0016, ADR-0021), which S3 accepts only in a bucket with
+# object lock enabled; enabling it sets no default retention, so every
+# other object stays as it was.
+resource "aws_s3_bucket_object_lock_configuration" "objects" {
+  bucket              = aws_s3_bucket.objects.id
+  object_lock_enabled = "Enabled"
+  depends_on          = [aws_s3_bucket_versioning.objects]
+}
+
+# A restored database may point at objects overwritten or deleted since:
+# their noncurrent versions are kept as long as the longest point-in-time
+# recovery (35 days, ADR-0040). Locked versions stay until their retention
+# ends whatever this says.
+resource "aws_s3_bucket_lifecycle_configuration" "objects" {
+  bucket = aws_s3_bucket.objects.id
+  rule {
+    id     = "noncurrent-versions"
+    status = "Enabled"
+    filter {}
+    noncurrent_version_expiration {
+      noncurrent_days = local.noncurrent_version_days
+    }
+  }
+  depends_on = [aws_s3_bucket_versioning.objects]
+}
+
 resource "aws_s3_bucket_server_side_encryption_configuration" "objects" {
   bucket = aws_s3_bucket.objects.id
   rule {
@@ -79,4 +106,12 @@ resource "aws_secretsmanager_secret" "cell" {
   name                    = "erp/${var.name}/${each.key}"
   kms_key_id              = aws_kms_key.data.arn
   recovery_window_in_days = 30
+  # A pilot light's cluster reads the same secrets in the DR region.
+  dynamic "replica" {
+    for_each = local.pilot
+    content {
+      region     = var.dr_region
+      kms_key_id = aws_kms_key.dr[replica.key].arn
+    }
+  }
 }

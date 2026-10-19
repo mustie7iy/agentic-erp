@@ -146,6 +146,11 @@ func TestS3(t *testing.T) {
 	if locked.LockMode != "COMPLIANCE" || locked.RetainUntil != "2036-01-01T00:00:00Z" {
 		t.Fatalf("lock: %+v", locked)
 	}
+	// The locked write carried the body's SHA-256, which S3 requires with
+	// Object Lock (the double refuses a locked write without one).
+	if want := "tB6VxD84jVYbFGMm2E46a54xxO8yq5fAR3TDGq2jJGo="; locked.Checksum != want {
+		t.Fatalf("checksum: got %q, want %q", locked.Checksum, want)
+	}
 	// Service failures are reported with the service's code, or its status.
 	srv.Fail = http.StatusInternalServerError
 	pgtest.CheckErr(t, s.Put(ctx, "tenants/t/x", nil, blobstore.PutOptions{}), "InternalError")

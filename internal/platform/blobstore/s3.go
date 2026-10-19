@@ -3,6 +3,9 @@ package blobstore
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -20,7 +23,8 @@ import (
 // (https://endpoint/bucket/key), signed with Signature Version 4. Put sends
 // If-None-Match: * so the service refuses an existing key (ErrExists), and
 // the object-lock headers when RetainUntil is set; the bucket must have
-// Object Lock enabled for those to be honoured.
+// Object Lock enabled for those to be honoured. Every Put carries
+// x-amz-checksum-sha256, without which S3 refuses a write to such a bucket.
 type S3 struct {
 	Endpoint  string // https://s3.eu-west-1.amazonaws.com or http://localhost:9000
 	Bucket    string
@@ -92,11 +96,18 @@ func (s S3) do(ctx context.Context, method, key string, body []byte, headers map
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+	// One hash serves twice: hex as the signed payload hash, base64 as a
+	// PUT's x-amz-checksum-sha256, which S3 requires of a write to an
+	// Object Lock bucket (T41b) and checks against the body it received.
+	sum := sha256.Sum256(body)
+	if method == http.MethodPut {
+		req.Header.Set("x-amz-checksum-sha256", base64.StdEncoding.EncodeToString(sum[:]))
+	}
 	creds, err := s.creds(ctx)
 	if err != nil {
 		return nil, err
 	}
-	sigv4.SignWith(req, creds, s.Region, "s3", sigv4.PayloadHash(body), s.now())
+	sigv4.SignWith(req, creds, s.Region, "s3", hex.EncodeToString(sum[:]), s.now())
 	resp, err := s.client().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("blobstore: %s %s: %w", method, key, err)

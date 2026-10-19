@@ -26,13 +26,30 @@ import (
 
 // Statuses of a directory entry. The cell's statuses pass through; ReadOnly
 // is set in the directory alone, while a tenant moves between cells (05
-// §5.4): the router lets reads through and refuses writes.
+// §5.4): the router lets reads through and refuses writes. Erased is an
+// offboarded tenant whose data the cell erased (ADR-0021). The directory
+// is the record outside the cell (ADR-0040): once offboarded or erased, an
+// entry stays so whatever a cell restored to an earlier point says.
 const (
 	Active     = "active"
 	Suspended  = "suspended"
 	Offboarded = "offboarded"
 	ReadOnly   = "read_only"
+	Erased     = "erased"
 )
+
+// StatusOf is the directory status of a cell's tenant: a tenant still
+// provisioning is routable (its first requests are its administrator's),
+// an erased one is Erased.
+func StatusOf(t tenancy.Lifecycle) string {
+	switch {
+	case t.ErasedAt != nil:
+		return Erased
+	case t.Status == "provisioning":
+		return Active
+	}
+	return t.Status
+}
 
 // Entry maps a tenant to its cell.
 type Entry struct {
@@ -68,7 +85,9 @@ type Store interface {
 	// Lookup finds a tenant's entry; ErrUnknown when there is none.
 	Lookup(ctx context.Context, tenant uuid.UUID) (Entry, error)
 	// Upsert records a tenant's entry. A read_only status already in the
-	// directory is kept, since only an operator sets and clears it.
+	// directory is kept, since only an operator sets and clears it; so are
+	// offboarded (but for erased) and erased, which no restore of a cell
+	// takes back (ADR-0040).
 	Upsert(ctx context.Context, e Entry) error
 }
 
@@ -84,11 +103,19 @@ CREATE TABLE IF NOT EXISTS directory.tenant (
   region     text NOT NULL,
   cell       text NOT NULL,
   api_url    text NOT NULL,
-  status     text NOT NULL CHECK (status IN ('active', 'suspended', 'offboarded', 'read_only')),
+  status     text NOT NULL CONSTRAINT tenant_status_check CHECK (status IN ('active', 'suspended', 'offboarded', 'read_only', 'erased')),
   version    integer NOT NULL DEFAULT 1,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE directory.tenant ADD COLUMN IF NOT EXISTS version integer NOT NULL DEFAULT 1;
+DO $$ BEGIN
+  -- A directory made before erased (ADR-0040) gains it, once.
+  IF NOT EXISTS (SELECT FROM pg_constraint WHERE conrelid = 'directory.tenant'::regclass AND conname = 'tenant_status_check'
+                 AND pg_get_constraintdef(oid) LIKE '%erased%') THEN
+    ALTER TABLE directory.tenant DROP CONSTRAINT IF EXISTS tenant_status_check;
+    ALTER TABLE directory.tenant ADD CONSTRAINT tenant_status_check CHECK (status IN ('active', 'suspended', 'offboarded', 'read_only', 'erased'));
+  END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS directory.cell (
   name        text PRIMARY KEY,
   region      text NOT NULL,
@@ -183,15 +210,25 @@ func (e *Entry) fields() []any {
 	return []any{&e.TenantID, &e.Region, &e.Cell, &e.APIURL, &e.Status, &e.Version, &e.UpdatedAt}
 }
 
+// keptStatus is the status an upsert leaves: read_only stays; from the
+// entry's own cell, erased stays and offboarded stays unless the tenant is
+// now erased; any other takes the cell's. Another cell's write is the
+// tenant's new home after a move (an export and an import, ADR-0029), whose
+// status is its own; an import back into the same cell clears the status
+// through Reinstate.
+const keptStatus = `CASE WHEN directory.tenant.status = 'read_only' THEN 'read_only'
+	WHEN directory.tenant.cell <> EXCLUDED.cell THEN EXCLUDED.status
+	WHEN directory.tenant.status = 'erased' THEN 'erased'
+	WHEN directory.tenant.status = 'offboarded' AND EXCLUDED.status <> 'erased' THEN 'offboarded' ELSE EXCLUDED.status END`
+
 // Upsert implements Store.
 func (p *Postgres) Upsert(ctx context.Context, e Entry) error {
 	err := p.inTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `INSERT INTO directory.tenant (tenant_id, region, cell, api_url, status) VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (tenant_id) DO UPDATE SET region = EXCLUDED.region, cell = EXCLUDED.cell, api_url = EXCLUDED.api_url,
-			status = CASE WHEN directory.tenant.status = 'read_only' THEN 'read_only' ELSE EXCLUDED.status END,
-			version = directory.tenant.version + 1, updated_at = now()
+			status = `+keptStatus+`, version = directory.tenant.version + 1, updated_at = now()
 			WHERE (directory.tenant.region, directory.tenant.cell, directory.tenant.api_url) IS DISTINCT FROM (EXCLUDED.region, EXCLUDED.cell, EXCLUDED.api_url)
-			   OR (directory.tenant.status <> 'read_only' AND directory.tenant.status <> EXCLUDED.status)`,
+			   OR directory.tenant.status <> `+keptStatus,
 			e.TenantID, e.Region, e.Cell, e.APIURL, e.Status)
 		if err != nil {
 			return fmt.Errorf("write tenant %s: %w", e.TenantID, err)
@@ -229,6 +266,26 @@ func (p *Postgres) update(ctx context.Context, tenant uuid.UUID, version int32, 
 		return Entry{}, fmt.Errorf("directory: update: %w", err)
 	}
 	return e, nil
+}
+
+// Reinstate makes the tenant's offboarded or erased entry in the cell
+// active again, for an import that brings the tenant back into it
+// (erp-server import, ADR-0029): the one way past what Upsert keeps. Any
+// other entry is left as it is (read_only during a move; none yet, which
+// the cell's sync writes).
+func (p *Postgres) Reinstate(ctx context.Context, tenant uuid.UUID, cell string) error {
+	err := p.inTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE directory.tenant SET status = 'active', version = version + 1, updated_at = now()
+			WHERE tenant_id = $1 AND cell = $2 AND status IN ('offboarded', 'erased')`, tenant, cell)
+		if err != nil {
+			return fmt.Errorf("write: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("directory: reinstate tenant %s: %w", tenant, err)
+	}
+	return nil
 }
 
 // ErrVersion means the entry changed since it was read (If-Match).
@@ -291,6 +348,28 @@ var Sort = pagination.Sort{Default: "updated_at", DefaultDesc: true, Fields: []p
 	{Name: "updated_at", Column: "updated_at", Type: "timestamptz"},
 	{Name: "cell", Column: "cell", Type: "text"},
 }}
+
+// CellTenants returns every entry the directory places in the cell, in
+// tenant order: what a restored cell is checked against (ADR-0040).
+func (p *Postgres) CellTenants(ctx context.Context, cell string) ([]Entry, error) {
+	var entries []Entry
+	err := p.inTx(ctx, database.Scope{ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
+		rows, _ := tx.Query(ctx, `SELECT `+entryColumns+` FROM directory.tenant WHERE cell = $1 ORDER BY tenant_id`, cell)
+		var err error
+		entries, err = pgx.CollectRows(rows, func(r pgx.CollectableRow) (Entry, error) {
+			var e Entry
+			return e, r.Scan(e.fields()...)
+		})
+		if err != nil {
+			return fmt.Errorf("read tenants of cell %s: %w", cell, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("directory: %w", err)
+	}
+	return entries, nil
+}
 
 // ListTenants returns one page of entries.
 func (p *Postgres) ListTenants(ctx context.Context, f Filter, ks *pagination.Keyset) ([]Entry, string, error) {
@@ -517,11 +596,7 @@ func (s *Sync) RunOnce(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("directory: read tenants of cell %s: %w", s.Cell, err)
 	}
 	for _, t := range tenants {
-		status := t.Status
-		if status == "provisioning" {
-			status = Active // routable: the tenant's first requests are its administrator's
-		}
-		if err := s.Directory.Upsert(ctx, Entry{TenantID: t.ID, Region: t.Region, Cell: s.Cell, APIURL: s.APIURL, Status: status}); err != nil {
+		if err := s.Directory.Upsert(ctx, Entry{TenantID: t.ID, Region: t.Region, Cell: s.Cell, APIURL: s.APIURL, Status: StatusOf(t.Lifecycle)}); err != nil {
 			return 0, err
 		}
 	}

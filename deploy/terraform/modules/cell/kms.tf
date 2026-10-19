@@ -98,7 +98,10 @@ resource "aws_kms_alias" "cluster" {
 }
 
 resource "aws_kms_key" "fields" {
-  description             = "${local.prefix}: field encryption master (ADR-0019)"
+  description = "${local.prefix}: field encryption master (ADR-0019)"
+  # A pilot light replicates it to the DR region (ADR-0040), which only a
+  # multi-Region key can be; set when the key is made.
+  multi_region            = var.pilot_light
   enable_key_rotation     = true
   deletion_window_in_days = 30
   policy = jsonencode({

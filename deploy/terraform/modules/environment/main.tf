@@ -81,6 +81,48 @@ variable "zone_redundant" {
   default     = true
 }
 
+variable "backup_retention_days" {
+  description = "Days of the cell's point-in-time recovery: 35 in production, 14 elsewhere (ADR-0040)."
+  type        = number
+  default     = 14
+}
+
+variable "dr_region" {
+  description = "The cell's disaster-recovery region (ADR-0040): staging and production; null in dev and test."
+  type        = string
+  default     = null
+}
+
+variable "pilot_light" {
+  description = "Keep the home cell's pilot light in dr_region (production, ADR-0040)."
+  type        = bool
+  default     = false
+}
+
+variable "restore_drill_dr" {
+  description = "Run the dr-copies restore drill's verification in dr_region (staging's drill cell, ADR-0040)."
+  type        = bool
+  default     = false
+}
+
+variable "dr_cidr" {
+  description = "The DR VPC's /16 in dr_region (the pilot light's, or the restore drill's)."
+  type        = string
+  default     = null
+}
+
+variable "dr_availability_zones" {
+  description = "Three availability zones of dr_region, for the pilot light or the restore drill."
+  type        = list(string)
+  default     = []
+}
+
+variable "replica_lag_alarm_actions" {
+  description = "SNS topics of dr_region the pilot light's replica-lag alarm notifies."
+  type        = list(string)
+  default     = []
+}
+
 variable "node_scaling" {
   description = "The home cell's node count bounds."
   type = object({
@@ -125,6 +167,13 @@ module "cell" {
   public_api_cidrs          = var.public_api_cidrs
   node_scaling              = var.node_scaling
   zone_redundant            = var.zone_redundant
+  backup_retention_days     = var.backup_retention_days
+  dr_region                 = var.dr_region
+  pilot_light               = var.pilot_light
+  restore_drill_dr          = var.restore_drill_dr
+  dr_cidr                   = var.dr_cidr
+  dr_availability_zones     = var.dr_availability_zones
+  replica_lag_alarm_actions = var.replica_lag_alarm_actions
   # The home cell: the router runs on its cluster (the erp-global chart).
   global_secrets = module.global.external_secrets
 }
@@ -158,6 +207,7 @@ output "cell" {
     cluster_kms_key_arn        = module.cell.cluster_kms_key_arn
     workload_role_arns         = module.cell.workload_role_arns
     aws_endpoints              = module.cell.aws_endpoints
+    restore_drill              = module.cell.restore_drill
   }
 }
 
