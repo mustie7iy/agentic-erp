@@ -35,7 +35,13 @@ info:
     - On NATS the event is sent in binary content mode: every attribute is
       a message header named `ce-<attribute>` and the payload is the JSON
       body. External subscribers receive the same events, in structured
-      mode, through signed webhooks.
+      mode, through signed webhooks (ADR-0041): only messages marked
+      `x-webhook: true` can be subscribed. Events carrying bank or personal
+      data are not marked: the identity context (principals, roles,
+      access), partner bank accounts and partner master data (a partner
+      may be a person); nor are events that are not business facts for a
+      tenant's systems (agents, platform operations and audit, the
+      tenant's own lifecycle).
 
     ## Payloads
 
@@ -497,6 +503,7 @@ components:
     # ---------------------------------------------------------------- tenancy
     LegalEntityCreated:
       name: LegalEntityCreated
+      x-webhook: true
       title: Legal entity created
       summary: A legal entity (company code) was created.
       description: Emitted when a legal entity row is inserted in `tenancy.legal_entity`. Subject is the legal entity id.
@@ -554,6 +561,7 @@ components:
     # ---------------------------------------------------------- configuration
     ChangeRequestSubmitted:
       name: ChangeRequestSubmitted
+      x-webhook: true
       title: Change request submitted
       summary: A configuration change request was submitted for evidence and approval.
       description: Emitted by `change-requests/{id}:submit` when the change request moves from `draft` to `validating`. `ChangeRequestValidated` follows when validation finishes. Subject is the change request id.
@@ -570,6 +578,7 @@ components:
           payload: {change_request_id: 0192a000-0000-7000-8000-000000000a01, number: CR-2026-0042, title: Raise price tolerance to 3%, author_id: 0192a000-0000-7000-8000-000000000101, base_version: 41, tier: 2, status: validating, item_count: 1, workflow_request_id: null}
     ChangeRequestApproved:
       name: ChangeRequestApproved
+      x-webhook: true
       title: Change request approved
       summary: A configuration change request was approved and can be activated.
       description: Emitted when the change request moves to `approved` after its approval request completed with outcome `approved`. Activation is a separate step (`:activate`). Subject is the change request id.
@@ -586,6 +595,7 @@ components:
           payload: {change_request_id: 0192a000-0000-7000-8000-000000000a01, number: CR-2026-0042, tier: 2, base_version: 41, workflow_request_id: 0192a000-0000-7000-8000-000000000901, status: approved}
     ConfigurationActivated:
       name: ConfigurationActivated
+      x-webhook: true
       title: Configuration activated
       summary: A new configuration version became the tenant's active version.
       description: |
@@ -626,6 +636,7 @@ components:
           payload: {partner_id: 0192a000-0000-7000-8000-000000000301, number: BP-100231, kind: organization, name: Acme Industrial Supplies Ltd, country_code: GB, roles: [supplier], status: pending, partner_change_id: 0192a000-0000-7000-8000-000000000304}
     SupplierApproved:
       name: SupplierApproved
+      x-webhook: true
       title: Supplier approved
       summary: A new supplier's create change was approved and applied; the supplier is active.
       description: Emitted when a `create` partner change for a partner with the supplier role is applied after approval and the partner becomes `active`. Procurement and payables may use the supplier from this point. Subject is the business partner id.
@@ -667,6 +678,7 @@ components:
           payload: {partner_id: 0192a000-0000-7000-8000-000000000301, bank_account_id: 0192a000-0000-7000-8000-000000000302, purpose: payments, account_scheme: iban, account_last4: '4471', bic: NWBKGB2L, bank_country_code: GB, valid_from: '2026-10-06', valid_to: null, ended_bank_account_id: 0192a000-0000-7000-8000-000000000303, ended_valid_to: '2026-10-06', partner_change_id: 0192a000-0000-7000-8000-000000000305}
     PartnerBlocked:
       name: PartnerBlocked
+      x-webhook: true
       title: Partner blocked
       summary: A business partner was blocked, entirely or for posting or payment in one legal entity.
       description: Emitted when a `block` partner change is applied, either setting the partner's status to `blocked` (scope `all`) or setting `is_posting_blocked` / `is_payment_blocked` on its supplier data for one legal entity. Subject is the business partner id.
@@ -685,6 +697,7 @@ components:
     # ----------------------------------------------------------------- ledger
     JournalEntryPosted:
       name: JournalEntryPosted
+      x-webhook: true
       title: Journal entry posted
       summary: A balanced journal entry was posted to the ledger.
       description: |
@@ -727,6 +740,7 @@ components:
               - {line_no: 3, account_id: 0192a000-0000-7000-8000-000000000403, tax_code: V1, amount_tc: {amount: '80.00', currency: EUR}, amount_lc: {amount: '80.00', currency: EUR}, amount_gc: {amount: '86.40', currency: USD}}
     JournalEntryReversed:
       name: JournalEntryReversed
+      x-webhook: true
       title: Journal entry reversed
       summary: A posted journal entry was reversed by a new reversal entry.
       description: Emitted by `journal-entries/{id}:reverse` (and by reversals posted for other contexts, e.g. a reversed supplier invoice) once the reversal entry is posted and recorded in `ledger.reversal`. The reversal entry also publishes its own `JournalEntryPosted`; when the original has open-item lines, the reversal clears them against its own and an `ItemsCleared` follows, whose `clearing_entry_id` is the reversal entry. Subject is the id of the original (reversed) entry.
@@ -743,6 +757,7 @@ components:
           payload: {journal_entry_id: 0192a000-0000-7000-8000-000000000501, fiscal_year: 2026, legal_entity_id: 0192a000-0000-7000-8000-000000000201, document_number: '5100000123', reversal_entry_id: 0192a000-0000-7000-8000-000000000502, reversal_fiscal_year: 2026, reversal_document_number: '5100000140', reversal_posting_date: '2026-10-09'}
     ItemsCleared:
       name: ItemsCleared
+      x-webhook: true
       title: Open items cleared
       summary: Open items on a reconciliation account were settled by a clearing.
       description: Emitted when a `ledger.clearing` with its clearing items is inserted (payment posting, manual clearing, or a reversal clearing the reversed pair). The cleared lines stop being open items; cleared is not paid. A reversal's clearing follows its `JournalEntryReversed` and has the reversal entry as `clearing_entry_id`. Subject is the clearing id.
@@ -767,6 +782,7 @@ components:
               - {fiscal_year: 2026, journal_entry_id: 0192a000-0000-7000-8000-000000000504, line_no: 1, account_id: 0192a000-0000-7000-8000-000000000402, partner_id: 0192a000-0000-7000-8000-000000000301, amount_tc: {amount: '1080.00', currency: EUR}}
     PeriodOpened:
       name: PeriodOpened
+      x-webhook: true
       title: Posting period opened
       summary: A fiscal period was opened for posting in a legal entity and ledger.
       description: |
@@ -785,6 +801,7 @@ components:
           payload: {period_id: 0192a000-0000-7000-8000-000000000204, legal_entity_id: 0192a000-0000-7000-8000-000000000201, ledger_id: 0192a000-0000-7000-8000-000000000202, calendar_id: 0192a000-0000-7000-8000-000000000203, fiscal_year: 2026, period: 10, start_date: '2026-10-01', end_date: '2026-10-31', status: open, previous_status: null}
     PeriodClosed:
       name: PeriodClosed
+      x-webhook: true
       title: Posting period closed
       summary: A fiscal period was closed for posting.
       description: |
@@ -805,6 +822,7 @@ components:
           payload: {period_id: 0192a000-0000-7000-8000-000000000205, legal_entity_id: 0192a000-0000-7000-8000-000000000201, ledger_id: 0192a000-0000-7000-8000-000000000202, calendar_id: 0192a000-0000-7000-8000-000000000203, fiscal_year: 2026, period: 9, start_date: '2026-09-01', end_date: '2026-09-30', status: closed, previous_status: open}
     PeriodLocked:
       name: PeriodLocked
+      x-webhook: true
       title: Posting period locked
       summary: A closed fiscal period was locked for good.
       description: |
@@ -828,6 +846,7 @@ components:
 
     PeriodUnlocked:
       name: PeriodUnlocked
+      x-webhook: true
       title: Posting period unlocked
       summary: A locked fiscal period returned to closed on an approved unlock request.
       description: |
@@ -849,6 +868,7 @@ components:
           payload: {period_id: 0192a000-0000-7000-8000-000000000205, legal_entity_id: 0192a000-0000-7000-8000-000000000201, ledger_id: 0192a000-0000-7000-8000-000000000202, calendar_id: 0192a000-0000-7000-8000-000000000203, fiscal_year: 2026, period: 9, start_date: '2026-09-01', end_date: '2026-09-30', status: closed, previous_status: locked}
     ParkedJournalEntryChanged:
       name: ParkedJournalEntryChanged
+      x-webhook: true
       title: Parked journal entry changed
       summary: A manual journal entry was parked, or its status changed before or as it was posted.
       description: |
@@ -875,6 +895,7 @@ components:
     # ------------------------------------------------------------ procurement
     RequisitionSubmitted:
       name: RequisitionSubmitted
+      x-webhook: true
       title: Requisition submitted
       summary: A purchase requisition was submitted for approval.
       description: Emitted by `requisitions/{id}:submit` when the requisition moves from `draft` to `pending_approval`. Workflow opens an approval request from it. Subject is the requisition id.
@@ -891,6 +912,7 @@ components:
           payload: {requisition_id: 0192a000-0000-7000-8000-000000000601, document_number: PR-10000412, legal_entity_id: 0192a000-0000-7000-8000-000000000201, requester_id: 0192a000-0000-7000-8000-000000000101, supplier_id: 0192a000-0000-7000-8000-000000000301, contract_id: null, needed_by: '2026-10-31', estimated_total: {amount: '1000.00', currency: EUR}, item_count: 1, status: pending_approval}
     PurchaseOrderReleased:
       name: PurchaseOrderReleased
+      x-webhook: true
       title: Purchase order released
       summary: A purchase order was released to the supplier.
       description: Emitted when the order moves to `released`, by `purchase-orders/{id}:release` or, for an order waiting for its release approval, by `approval-requests/{id}:approve` in the deciding transaction. Integration sends the order output; payables can match invoices against it from then on. Subject is the purchase order id.
@@ -919,6 +941,7 @@ components:
               - {item_no: 1, quantity: {value: '2', unit: EA}, unit_price: {amount: '500.00', currency: EUR}, price_unit: 1, account_id: 0192a000-0000-7000-8000-000000000404, tax_code: V1}
     PurchaseOrderChanged:
       name: PurchaseOrderChanged
+      x-webhook: true
       title: Purchase order changed
       summary: An order change was applied to a released purchase order, making its next revision.
       description: Emitted when an order change is applied, by `purchase-orders/{id}/changes/{change_id}:submit` for a change that does not raise the order's total or needs no approval, or by `approval-requests/{id}:approve` in the deciding transaction. The payload is the order as it reads after the change, with the totals before and after; integration sends the changed order output, and payables matches invoices against the changed prices from then on (GR/IR stays valued at each item's valuation price). Subject is the purchase order id.
@@ -949,6 +972,7 @@ components:
               - {item_no: 1, quantity: {value: '2', unit: EA}, unit_price: {amount: '480.00', currency: EUR}, price_unit: 1, account_id: 0192a000-0000-7000-8000-000000000404, tax_code: V1}
     GoodsReceived:
       name: GoodsReceived
+      x-webhook: true
       title: Goods received
       summary: A goods receipt (movement type 101) was posted against purchase order items.
       description: Emitted when a goods movement of type `101` is inserted. Payables re-evaluates the three-way match of invoices on the affected orders. Subject is the goods receipt (goods movement) id.
@@ -965,6 +989,7 @@ components:
           payload: {goods_receipt_id: 0192a000-0000-7000-8000-000000000603, document_number: '5000000877', legal_entity_id: 0192a000-0000-7000-8000-000000000201, plant_id: 0192a000-0000-7000-8000-000000000606, movement_type: '101', document_date: '2026-10-04', posting_date: '2026-10-04', reference: DN-88812, items: [{item_no: 1, purchase_order_id: 0192a000-0000-7000-8000-000000000602, po_item_no: 1, quantity: {value: '2', unit: EA}}]}
     GoodsReturned:
       name: GoodsReturned
+      x-webhook: true
       title: Goods returned to the supplier
       summary: Goods received on purchase order items were returned to the supplier (movement type 122).
       description: Emitted when a goods movement of type `122` is inserted. Its items' quantities are negative, and the received quantity of each order item falls by them; on orders valued gr_ir the return posts Dr GR/IR / Cr the order item's account at its valuation price, leaving an invoiced item's GR/IR position for a credit memo to clear. Subject is the goods movement id.
@@ -981,6 +1006,7 @@ components:
           payload: {goods_receipt_id: 0192a000-0000-7000-8000-000000000604, document_number: '5000000878', legal_entity_id: 0192a000-0000-7000-8000-000000000201, plant_id: null, movement_type: '122', document_date: '2026-10-06', posting_date: '2026-10-06', reference: null, reason: Damaged in transit, journal_entry_id: null, journal_entry_year: null, items: [{item_no: 1, purchase_order_id: 0192a000-0000-7000-8000-000000000602, po_item_no: 1, quantity: {value: '-1', unit: EA}}]}
     GoodsReceiptReversed:
       name: GoodsReceiptReversed
+      x-webhook: true
       title: Goods receipt reversed
       summary: A goods receipt was reversed by a movement of type 102, or a return by a 123.
       description: Emitted by `goods-receipts/{id}:reverse` when the reversing movement is inserted, a `102` reversing a receipt or a `123` reversing a return. Quantities are as stored, the original's negated (negative for a 102, positive for a 123). Subject is the id of the original (reversed) goods movement.
@@ -999,6 +1025,7 @@ components:
     # --------------------------------------------------------------- payables
     SupplierInvoiceCaptured:
       name: SupplierInvoiceCaptured
+      x-webhook: true
       title: Supplier invoice captured
       summary: A supplier invoice was captured and parked, or held.
       description: "Emitted by `supplier-invoices:capture` (or manual, EDI or migration entry) when the invoice row is inserted: in status `parked`, or `on_hold` when the capture's confidence was below the threshold, in which case `SupplierInvoiceHeld` follows in the same transaction with the reason. Subject is the supplier invoice id."
@@ -1015,6 +1042,7 @@ components:
           payload: {supplier_invoice_id: 0192a000-0000-7000-8000-000000000701, document_number: '1900000456', legal_entity_id: 0192a000-0000-7000-8000-000000000201, supplier_id: 0192a000-0000-7000-8000-000000000301, supplier_reference: INV-2026-0981, invoice_date: '2026-10-05', gross_amount: {amount: '1080.00', currency: EUR}, tax_amount: {amount: '80.00', currency: EUR}, purchase_order_id: 0192a000-0000-7000-8000-000000000602, source: capture, capture_sha256: 2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae, status: parked}
     SupplierInvoiceMatched:
       name: SupplierInvoiceMatched
+      x-webhook: true
       title: Supplier invoice matched
       summary: A three-way match evaluation was recorded for a supplier invoice.
       description: Emitted by `supplier-invoices/{id}:match` each time a `payables.match_result` is inserted, clean or not. A non-clean result is usually followed by `InvoiceHeld`. Subject is the match result id; `supplier_invoice_id` links it to the invoice.
@@ -1031,6 +1059,7 @@ components:
           payload: {match_result_id: 0192a000-0000-7000-8000-000000000702, supplier_invoice_id: 0192a000-0000-7000-8000-000000000701, evaluated_at: '2026-10-06T07:46:00Z', is_clean: false, config_version: 42, invoice_version: 4, issues: [{code: price_variance, item_no: 1, po_item_no: 1, detail: Invoiced 540.00 per EA against 500.00 ordered (tolerance 3%)}]}
     InvoiceHeld:
       name: InvoiceHeld
+      x-webhook: true
       title: Invoice held
       summary: A supplier invoice was put on hold.
       description: Emitted when the invoice moves to `on_hold`, manually (`:hold`) or because the match found issues. A `invoice_exception` approval request may be opened to decide it. Subject is the supplier invoice id.
@@ -1047,6 +1076,7 @@ components:
           payload: {supplier_invoice_id: 0192a000-0000-7000-8000-000000000701, supplier_id: 0192a000-0000-7000-8000-000000000301, legal_entity_id: 0192a000-0000-7000-8000-000000000201, hold_reason: Price variance on item 1 above tolerance, status: on_hold, workflow_request_id: null}
     SupplierInvoicePosted:
       name: SupplierInvoicePosted
+      x-webhook: true
       title: Supplier invoice posted
       summary: A supplier invoice was posted and its journal entry created.
       description: Emitted by `supplier-invoices/{id}:post` in the same transaction as the ledger's `JournalEntryPosted` for the invoice. The open item on the supplier's reconciliation account becomes payable. Subject is the supplier invoice id.
@@ -1063,6 +1093,7 @@ components:
           payload: {supplier_invoice_id: 0192a000-0000-7000-8000-000000000701, document_number: '1900000456', legal_entity_id: 0192a000-0000-7000-8000-000000000201, supplier_id: 0192a000-0000-7000-8000-000000000301, supplier_reference: INV-2026-0981, invoice_date: '2026-10-05', posting_date: '2026-10-08', gross_amount: {amount: '1080.00', currency: EUR}, tax_amount: {amount: '80.00', currency: EUR}, purchase_order_id: 0192a000-0000-7000-8000-000000000602, journal_entry_id: 0192a000-0000-7000-8000-000000000501, journal_entry_year: 2026, status: posted}
     SupplierInvoiceCancelled:
       name: SupplierInvoiceCancelled
+      x-webhook: true
       title: Supplier invoice cancelled
       summary: An unposted supplier invoice was cancelled.
       description: |
@@ -1084,6 +1115,7 @@ components:
           payload: {supplier_invoice_id: 0192a000-0000-7000-8000-000000000703, supplier_id: 0192a000-0000-7000-8000-000000000301, legal_entity_id: 0192a000-0000-7000-8000-000000000201, previous_status: on_hold, status: cancelled}
     DownPaymentRequested:
       name: DownPaymentRequested
+      x-webhook: true
       title: Down payment requested
       summary: A down payment to a supplier was requested.
       description: |
@@ -1103,6 +1135,7 @@ components:
           payload: {down_payment_request_id: 0192a000-0000-7000-8000-000000000711, document_number: DP100000, legal_entity_id: 0192a000-0000-7000-8000-000000000201, supplier_id: 0192a000-0000-7000-8000-000000000301, purchase_order_id: 0192a000-0000-7000-8000-000000000602, amount: {amount: '1190.00', currency: EUR}, tax_code: V1, tax_amount: {amount: '190.00', currency: EUR}, due_date: '2026-10-15', reference: AB-2026-17, status: open}
     DownPaymentRequestCancelled:
       name: DownPaymentRequestCancelled
+      x-webhook: true
       title: Down payment request cancelled
       summary: An open down payment request was cancelled.
       description: |
@@ -1122,6 +1155,7 @@ components:
           payload: {down_payment_request_id: 0192a000-0000-7000-8000-000000000711, legal_entity_id: 0192a000-0000-7000-8000-000000000201, supplier_id: 0192a000-0000-7000-8000-000000000301, previous_status: open, status: cancelled}
     DownPaymentRequestPaid:
       name: DownPaymentRequestPaid
+      x-webhook: true
       title: Down payment request paid
       summary: A payment run paid a down payment request.
       description: |
@@ -1142,6 +1176,7 @@ components:
           payload: {down_payment_request_id: 0192a000-0000-7000-8000-000000000711, document_number: DP100000, legal_entity_id: 0192a000-0000-7000-8000-000000000201, supplier_id: 0192a000-0000-7000-8000-000000000301, journal_entry_id: 0192a000-0000-7000-8000-000000000503, journal_entry_year: 2026, amount: {amount: '1190.00', currency: EUR}, status: paid}
     DownPaymentsCleared:
       name: DownPaymentsCleared
+      x-webhook: true
       title: Down payments cleared
       summary: Down payments were cleared against a supplier's final invoice.
       description: |
@@ -1163,6 +1198,7 @@ components:
           payload: {supplier_invoice_id: 0192a000-0000-7000-8000-000000000701, supplier_id: 0192a000-0000-7000-8000-000000000301, legal_entity_id: 0192a000-0000-7000-8000-000000000201, clearing_entry_id: 0192a000-0000-7000-8000-000000000502, clearing_entry_year: 2026, down_payment_request_ids: [0192a000-0000-7000-8000-000000000711], amount: {amount: '1190.00', currency: EUR}}
     SupplierInvoiceReversed:
       name: SupplierInvoiceReversed
+      x-webhook: true
       title: Supplier invoice reversed
       summary: A posted supplier invoice was cancelled by posting a reversal entry.
       description: |
@@ -1187,6 +1223,7 @@ components:
     # --------------------------------------------------------------- payments
     PaymentRunProposed:
       name: PaymentRunProposed
+      x-webhook: true
       title: Payment run proposed
       summary: A payment proposal was computed and awaits release.
       description: Emitted when `payment-runs:propose` finishes building the proposal (payments, items and exclusions) and the run moves from `proposing` to `proposed`. A proposal that fails moves to `failed` and only its operation's `OperationCompleted` is published. Large runs execute as an operation, which also publishes `OperationCompleted`. Subject is the payment run id.
@@ -1203,6 +1240,7 @@ components:
           payload: {payment_run_id: 0192a000-0000-7000-8000-000000000801, document_number: PR-2026-0042, legal_entity_id: 0192a000-0000-7000-8000-000000000201, house_bank_id: 0192a000-0000-7000-8000-000000000802, run_date: '2026-10-20', due_by: '2026-10-27', total_amount: {amount: '184220.50', currency: EUR}, payment_count: 57, exclusion_count: 3, proposed_by: 0192a000-0000-7000-8000-000000000101, operation_id: 0192a000-0000-7000-8000-000000000805, status: proposed}
     PaymentRunReleased:
       name: PaymentRunReleased
+      x-webhook: true
       title: Payment run released
       summary: A payment run was released for payment.
       description: |
@@ -1224,6 +1262,7 @@ components:
           payload: {payment_run_id: 0192a000-0000-7000-8000-000000000801, document_number: PR-2026-0042, legal_entity_id: 0192a000-0000-7000-8000-000000000201, house_bank_id: 0192a000-0000-7000-8000-000000000802, run_date: '2026-10-20', total_amount: {amount: '184220.50', currency: EUR}, payment_count: 57, workflow_request_id: 0192a000-0000-7000-8000-000000000901, released_at: '2026-10-19T11:00:00Z', status: released}
     PaymentRunRejected:
       name: PaymentRunRejected
+      x-webhook: true
       title: Payment run rejected
       summary: A proposed payment run was rejected; its items are free again.
       description: Emitted by `payment-runs/{id}:reject` (by a person other than the proposer) when the run moves to `rejected` and its payment items are deactivated, so the open items can be proposed again. Subject is the payment run id.
@@ -1240,6 +1279,7 @@ components:
           payload: {payment_run_id: 0192a000-0000-7000-8000-000000000801, document_number: PR-2026-0042, legal_entity_id: 0192a000-0000-7000-8000-000000000201, workflow_request_id: 0192a000-0000-7000-8000-000000000901, released_item_count: 212, status: rejected}
     PaymentExcluded:
       name: PaymentExcluded
+      x-webhook: true
       title: Payment dropped from a releasing run
       summary: A payment of a releasing run could never post and was dropped; its items are free again.
       description: Emitted by the release of a payment run when a payment it has not posted yet settles an item that was reversed, or is no longer open, since the proposal. The supplier is excluded with `reason_code` (`item_reversed` or `item_not_open`), the payment's items are deactivated, the run's total no longer counts it, and the release goes on with the other payments. Subject is the payment run id.
@@ -1256,6 +1296,7 @@ components:
           payload: {payment_run_id: 0192a000-0000-7000-8000-000000000801, document_number: PR-2026-0042, legal_entity_id: 0192a000-0000-7000-8000-000000000201, payment_id: 0192a000-0000-7000-8000-000000000806, supplier_id: 0192a000-0000-7000-8000-000000000301, reason_code: item_reversed, amount: {amount: '40.00', currency: EUR}, released_item_count: 1, status: releasing}
     BankFileTransmitted:
       name: BankFileTransmitted
+      x-webhook: true
       title: Bank file transmitted
       summary: A payment file was transmitted to the bank.
       description: Emitted by the bank file transmitter, which sends the files `bank-files/{id}:transmit` asked for (T44e), when the connector confirms transmission, or the house bank had already taken a file with the same content hash (`duplicate`, T44c), and the bank file moves to `transmitted`. Subject is the bank file id.
@@ -1290,6 +1331,7 @@ components:
     # --------------------------------------------------------------- workflow
     ApprovalRequested:
       name: ApprovalRequested
+      x-webhook: true
       title: Approval requested
       summary: An approval request was opened for a business object.
       description: Emitted when an `approval_request` is inserted in status `pending` with its steps resolved from the applicable policy. Notification and inbox read models use it. Subject is the approval request id.
@@ -1306,6 +1348,7 @@ components:
           payload: {approval_request_id: 0192a000-0000-7000-8000-000000000901, object_type: requisition, object_id: 0192a000-0000-7000-8000-000000000801, title: Requisition 1000004711 (laptops), requester_id: 0192a000-0000-7000-8000-000000000101, amount: {amount: '184220.50', currency: EUR}, policy_id: 0192a000-0000-7000-8000-000000000902, steps: [{step_no: 1, role_id: 0192a000-0000-7000-8000-000000000903, required: 1}]}
     ApprovalEscalated:
       name: ApprovalEscalated
+      x-webhook: true
       title: Approval escalated
       summary: A pending approval request got no decision within its deadline.
       description: "Emitted by the request's deadline workflow (ADR-0012) when the request is still pending after the escalation period (`ERP_APPROVAL_ESCALATE_AFTER`); repeated each period up to a limit. Notification and inbox read models use it to remind the step's role and their managers. The actor is a service. Subject is the approval request id."
@@ -1322,6 +1365,7 @@ components:
           payload: {approval_request_id: 0192a000-0000-7000-8000-000000000901, object_type: requisition, object_id: 0192a000-0000-7000-8000-000000000801, current_step: 1, escalations: 1, pending_since: '2026-10-19T06:00:01Z'}
     ApprovalCompleted:
       name: ApprovalCompleted
+      x-webhook: true
       title: Approval completed
       summary: An approval request reached a final outcome (approved, rejected or cancelled).
       description: |
@@ -1349,6 +1393,7 @@ components:
     # ------------------------------------------------------------ integration
     MigrationRunCompleted:
       name: MigrationRunCompleted
+      x-webhook: true
       title: Migration run completed
       summary: A migration run (or rehearsal) finished, reconciled or failed.
       description: Emitted when a migration run reaches a final status, `reconciled` or `failed` (`loaded`, data loaded but not yet reconciled, is intermediate and publishes nothing). Its operation also publishes `OperationCompleted`. Subject is the migration run id.
@@ -1419,6 +1464,7 @@ components:
     # ------------------------------------------------ further state changes
     LegalEntityActivated:
       name: LegalEntityActivated
+      x-webhook: true
       title: Legal entity activated
       summary: "A new legal entity became usable for postings and documents."
       description: "Emitted by `legal-entities/{id}:activate` when the legal entity's status goes from `inactive` to `active`. Subject is the legal entity id."
@@ -1435,6 +1481,7 @@ components:
           payload: {"legal_entity_id": "0192a000-0000-7000-8000-000000000201", "code": "DE01", "previous_status": "inactive", "status": "active"}
     LegalEntityBlocked:
       name: LegalEntityBlocked
+      x-webhook: true
       title: Legal entity blocked
       summary: "A legal entity was blocked; it accepts no new documents."
       description: "Emitted by `legal-entities/{id}:block` when the legal entity's status becomes `blocked`. Contexts refuse new documents and postings for it. Subject is the legal entity id."
@@ -1451,6 +1498,7 @@ components:
           payload: {"legal_entity_id": "0192a000-0000-7000-8000-000000000201", "code": "DE01", "previous_status": "active", "status": "blocked"}
     LegalEntityUnblocked:
       name: LegalEntityUnblocked
+      x-webhook: true
       title: Legal entity unblocked
       summary: "A blocked legal entity was activated again."
       description: "Emitted by `legal-entities/{id}:unblock` when the legal entity's status goes from `blocked` back to `active`. Subject is the legal entity id."
@@ -1467,6 +1515,7 @@ components:
           payload: {"legal_entity_id": "0192a000-0000-7000-8000-000000000201", "code": "DE01", "previous_status": "blocked", "status": "active"}
     OrgUnitCreated:
       name: OrgUnitCreated
+      x-webhook: true
       title: Org unit created
       summary: "An organizational unit (purchasing org, plant, storage location, sales org) was created."
       description: "Emitted when a `tenancy.org_unit` row is inserted. Subject is the org unit id."
@@ -1483,6 +1532,7 @@ components:
           payload: {"org_unit_id": "0192a000-0000-7000-8000-000000000605", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "kind": "purchasing_org", "code": "PO_DE", "name": "Purchasing Germany", "parent_id": null, "status": "active"}
     OrgUnitBlocked:
       name: OrgUnitBlocked
+      x-webhook: true
       title: Org unit blocked
       summary: "An org unit was blocked; it accepts no new documents."
       description: "Emitted by `org-units/{id}:block` when the org unit's status becomes `blocked`. Subject is the org unit id."
@@ -1499,6 +1549,7 @@ components:
           payload: {"org_unit_id": "0192a000-0000-7000-8000-000000000605", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "kind": "purchasing_org", "code": "PO_DE", "previous_status": "active", "status": "blocked"}
     OrgUnitActivated:
       name: OrgUnitActivated
+      x-webhook: true
       title: Org unit activated
       summary: "A new org unit became usable."
       description: "Emitted by `org-units/{id}:activate` when the org unit's status goes from `inactive` to `active`. Subject is the org unit id."
@@ -1515,6 +1566,7 @@ components:
           payload: {"org_unit_id": "0192a000-0000-7000-8000-000000000605", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "kind": "purchasing_org", "code": "PO_DE", "previous_status": "inactive", "status": "active"}
     OrgUnitUnblocked:
       name: OrgUnitUnblocked
+      x-webhook: true
       title: Org unit unblocked
       summary: "A blocked org unit was activated again."
       description: "Emitted by `org-units/{id}:unblock` when the org unit's status goes from `blocked` back to `active`. Subject is the org unit id."
@@ -1563,6 +1615,7 @@ components:
           payload: {"sod_rule_id": "0192a000-0000-7000-8000-000000000906", "change": "created", "permission_a": "payments.run.propose", "permission_b": "payments.run.release", "description": "Proposer of a payment run may not release it", "valid_from": "2026-10-01", "valid_to": null, "ended_at": null}
     ChangeRequestValidated:
       name: ChangeRequestValidated
+      x-webhook: true
       title: Change request validated
       summary: "Validation of a submitted change request finished."
       description: "Emitted when validation of a change request in `validating` finishes and it moves to `invalid`, `awaiting_evidence` (simulation or regression evidence still needed) or `pending_approval`. Subject is the change request id."
@@ -1579,6 +1632,7 @@ components:
           payload: {"change_request_id": "0192a000-0000-7000-8000-000000000a01", "number": "CR-2026-0042", "tier": 2, "outcome": "pending_approval", "status": "pending_approval", "workflow_request_id": "0192a000-0000-7000-8000-000000000901"}
     ChangeRequestRejected:
       name: ChangeRequestRejected
+      x-webhook: true
       title: Change request rejected
       summary: "A change request's approval was rejected."
       description: "Emitted when the change request moves from `pending_approval` to `rejected` because its approval request completed with outcome `rejected` (the reason is the rejecting decision's comment, in `ApprovalCompleted`). Subject is the change request id."
@@ -1595,6 +1649,7 @@ components:
           payload: {"change_request_id": "0192a000-0000-7000-8000-000000000a01", "number": "CR-2026-0042", "workflow_request_id": "0192a000-0000-7000-8000-000000000901", "previous_status": "pending_approval", "status": "rejected"}
     ChangeRequestWithdrawn:
       name: ChangeRequestWithdrawn
+      x-webhook: true
       title: Change request withdrawn
       summary: "The author withdrew a change request before it was activated."
       description: "Emitted when the author withdraws a change request that is not yet active or rejected (from `draft`, `validating`, `invalid`, `awaiting_evidence`, `pending_approval` or `approved`); a pending approval request is cancelled with it. Subject is the change request id."
@@ -1611,6 +1666,7 @@ components:
           payload: {"change_request_id": "0192a000-0000-7000-8000-000000000a01", "number": "CR-2026-0042", "previous_status": "awaiting_evidence", "status": "withdrawn"}
     PartnerUnblocked:
       name: PartnerUnblocked
+      x-webhook: true
       title: Partner unblocked
       summary: "A partner block was lifted, entirely or for posting or payment in one legal entity."
       description: "Emitted when an `unblock` partner change is applied, either setting the partner's status back to `active` (scope `all`) or clearing `is_posting_blocked` / `is_payment_blocked` on its supplier data for one legal entity. Subject is the business partner id."
@@ -1627,6 +1683,7 @@ components:
           payload: {"partner_id": "0192a000-0000-7000-8000-000000000301", "scope": "payment", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "partner_change_id": "0192a000-0000-7000-8000-000000000307", "reason": "Bank account verified with supplier by phone"}
     RequisitionCancelled:
       name: RequisitionCancelled
+      x-webhook: true
       title: Requisition cancelled
       summary: "A requisition was cancelled before it was ordered."
       description: "Emitted when a requisition moves to `cancelled` (from `draft`, `pending_approval` or `approved`); a pending approval request is cancelled with it. Subject is the requisition id."
@@ -1643,6 +1700,7 @@ components:
           payload: {"requisition_id": "0192a000-0000-7000-8000-000000000601", "document_number": "PR-10000412", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "requester_id": "0192a000-0000-7000-8000-000000000101", "previous_status": "pending_approval", "status": "cancelled", "workflow_request_id": "0192a000-0000-7000-8000-000000000901"}
     PurchaseOrderCancelled:
       name: PurchaseOrderCancelled
+      x-webhook: true
       title: Purchase order cancelled
       summary: "A purchase order was cancelled."
       description: "Emitted by `purchase-orders/{id}:cancel` when the order moves to `cancelled` (only while nothing has been received or invoiced against it). A contract-based order also writes a negative contract release of `released_value`. Subject is the purchase order id."
@@ -1659,6 +1717,7 @@ components:
           payload: {"purchase_order_id": "0192a000-0000-7000-8000-000000000602", "document_number": "4500001234", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "requisition_id": "0192a000-0000-7000-8000-000000000601", "contract_id": null, "released_value": null, "previous_status": "released", "status": "cancelled"}
     ContractActivated:
       name: ContractActivated
+      x-webhook: true
       title: Contract activated
       summary: "A purchasing contract became active and can be released against."
       description: "Emitted when a contract moves from `draft` to `active`. Purchase orders may reference it from then on, up to `target_value` within its validity. Subject is the contract id."
@@ -1675,6 +1734,7 @@ components:
           payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "valid_from": "2026-10-01", "valid_to": "2027-09-30", "target_value": {"amount": "250000.00", "currency": "EUR"}, "renewal_of_id": null, "previous_status": "draft", "status": "active"}
     ContractTerminated:
       name: ContractTerminated
+      x-webhook: true
       title: Contract terminated
       summary: "An active contract was terminated before the end of its validity."
       description: "Emitted when an active contract moves to `terminated`; no further orders may be released against it. (Reaching `valid_to` moves it to `expired`.) Subject is the contract id."
@@ -1691,6 +1751,7 @@ components:
           payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "consumed_value": {"amount": "41000.00", "currency": "EUR"}, "previous_status": "active", "status": "terminated"}
     ContractCancelled:
       name: ContractCancelled
+      x-webhook: true
       title: Contract cancelled
       summary: "A draft contract was cancelled before it became active."
       description: "Emitted when a contract moves from `draft` to `cancelled`; it was never released against. Subject is the contract id."
@@ -1707,6 +1768,7 @@ components:
           payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "previous_status": "draft", "status": "cancelled"}
     PaymentRunFailed:
       name: PaymentRunFailed
+      x-webhook: true
       title: Payment run failed
       summary: "A payment run failed; its items are free again."
       description: "Emitted when a run moves to `failed` (the proposal could not be built, or a released run could not be executed); its payment items are deactivated so the open items can be proposed again. The error is on the run's operation (`OperationCompleted` with status `failed`). Subject is the payment run id."
@@ -1723,6 +1785,7 @@ components:
           payload: {"payment_run_id": "0192a000-0000-7000-8000-000000000801", "document_number": "PR-2026-0042", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "operation_id": "0192a000-0000-7000-8000-000000000805", "released_item_count": 0, "previous_status": "proposing", "status": "failed"}
     ConnectorEnabled:
       name: ConnectorEnabled
+      x-webhook: true
       title: Connector enabled
       summary: "A connector became active."
       description: "Emitted when a connector is created in status `active` (`previous_status` null) or moves from `disabled` to `active`. Subject is the connector id."
@@ -1739,6 +1802,7 @@ components:
           payload: {"connector_id": "0192a000-0000-7000-8000-000000000b02", "kind": "bank_ebics", "name": "Deutsche Bank EBICS", "previous_status": "disabled", "status": "active"}
     ConnectorDisabled:
       name: ConnectorDisabled
+      x-webhook: true
       title: Connector disabled
       summary: "A connector was disabled; nothing is sent or received through it."
       description: "Emitted when a connector moves from `active` to `disabled`; queued outbound messages stay queued. Subject is the connector id."
@@ -1755,6 +1819,7 @@ components:
           payload: {"connector_id": "0192a000-0000-7000-8000-000000000b02", "kind": "bank_ebics", "name": "Deutsche Bank EBICS", "previous_status": "active", "status": "disabled"}
     ExchangeRateMaintained:
       name: ExchangeRateMaintained
+      x-webhook: true
       title: Exchange rate maintained
       summary: "An exchange rate was entered for a rate type, currency pair and date."
       description: "Emitted when an `ledger.exchange_rate` row is inserted (rates are insert-only). Subject is the exchange rate id."
@@ -2013,6 +2078,7 @@ components:
           payload: {"principal_id": "0192a000-0000-7000-8000-000000000107", "previous_issuer": "erp-dev", "external_issuer": "https://login.acme.example/"}
     PartnerChangeRejected:
       name: PartnerChangeRejected
+      x-webhook: true
       title: Partner change rejected
       summary: "A governed partner change was rejected and will not be applied."
       description: "Emitted when a partner change moves from `pending` to `rejected` because its approval request completed with outcome `rejected` (the reason is the decision's comment, in `ApprovalCompleted`). A rejected `create` leaves the partner in `pending`. Subject is the partner change id."
@@ -2029,6 +2095,7 @@ components:
           payload: {"partner_change_id": "0192a000-0000-7000-8000-000000000308", "number": "PC-2026-0311", "kind": "bank_change", "partner_id": "0192a000-0000-7000-8000-000000000301", "workflow_request_id": "0192a000-0000-7000-8000-000000000901", "previous_status": "pending", "status": "rejected"}
     PartnerChangeCancelled:
       name: PartnerChangeCancelled
+      x-webhook: true
       title: Partner change cancelled
       summary: "A pending partner change was withdrawn by its requester."
       description: "Emitted when a partner change moves from `pending` to `cancelled`; its approval request is cancelled with it. Subject is the partner change id."
@@ -2061,6 +2128,7 @@ components:
           payload: {"partner_id": "0192a000-0000-7000-8000-000000000301", "partner_change_id": "0192a000-0000-7000-8000-000000000309", "changed_fields": ["name", "address.remit_to"], "name": "Acme Industrial Supplies Limited"}
     RequisitionApproved:
       name: RequisitionApproved
+      x-webhook: true
       title: Requisition approved
       summary: "A requisition was approved and can be ordered."
       description: "Emitted when a requisition moves from `pending_approval` to `approved` because its approval request completed with outcome `approved`. Subject is the requisition id."
@@ -2077,6 +2145,7 @@ components:
           payload: {"requisition_id": "0192a000-0000-7000-8000-000000000601", "document_number": "PR-10000412", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "workflow_request_id": "0192a000-0000-7000-8000-000000000901", "previous_status": "pending_approval", "status": "approved"}
     RequisitionRejected:
       name: RequisitionRejected
+      x-webhook: true
       title: Requisition rejected
       summary: "A requisition's approval was rejected."
       description: "Emitted when a requisition moves from `pending_approval` to `rejected` because its approval request completed with outcome `rejected` (the reason is the decision's comment, in `ApprovalCompleted`). Subject is the requisition id."
@@ -2093,6 +2162,7 @@ components:
           payload: {"requisition_id": "0192a000-0000-7000-8000-000000000601", "document_number": "PR-10000412", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "workflow_request_id": "0192a000-0000-7000-8000-000000000901", "previous_status": "pending_approval", "status": "rejected"}
     RequisitionOrdered:
       name: RequisitionOrdered
+      x-webhook: true
       title: Requisition ordered
       summary: "A purchase order was created from an approved requisition."
       description: "Emitted when an approved requisition moves to `ordered` because a purchase order referencing it was created (at most one live order per requisition). Subject is the requisition id."
@@ -2109,6 +2179,7 @@ components:
           payload: {"requisition_id": "0192a000-0000-7000-8000-000000000601", "document_number": "PR-10000412", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "purchase_order_id": "0192a000-0000-7000-8000-000000000602", "previous_status": "approved", "status": "ordered"}
     PurchaseOrderClosed:
       name: PurchaseOrderClosed
+      x-webhook: true
       title: Purchase order closed
       summary: "A released purchase order was closed; no further receipts or invoices are expected."
       description: "Emitted when a purchase order moves from `released` to `closed` (fully received and invoiced, or closed manually). Subject is the purchase order id."
@@ -2125,6 +2196,7 @@ components:
           payload: {"purchase_order_id": "0192a000-0000-7000-8000-000000000602", "document_number": "4500001234", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "previous_status": "released", "status": "closed"}
     ContractExpired:
       name: ContractExpired
+      x-webhook: true
       title: Contract expired
       summary: "An active contract reached the end of its validity."
       description: "Emitted when an active contract moves to `expired` after `valid_to` has passed (by a scheduled job, so the actor is a service). Subject is the contract id."
@@ -2141,6 +2213,7 @@ components:
           payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "valid_to": "2027-09-30", "consumed_value": {"amount": "212400.00", "currency": "EUR"}, "previous_status": "active", "status": "expired"}
     ContractExpiring:
       name: ContractExpiring
+      x-webhook: true
       title: Contract expiring
       summary: "An active contract without a renewal ends within the notice period."
       description: "Emitted once per contract (its `expiry_alerted_on` is set once), by a scheduled job, so the actor is a service, when an active contract that no live renewal continues ends within `purchasing.contract_expiry_notice_days`. An alert only: buyers renew it by `contracts/{id}:renew` or let it expire. Subject is the contract id."
@@ -2157,6 +2230,7 @@ components:
           payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "valid_to": "2027-09-30", "days_left": 30, "consumed_value": {"amount": "212400.00", "currency": "EUR"}, "target_value": {"amount": "250000.00", "currency": "EUR"}}
     InvoiceHoldReleased:
       name: InvoiceHoldReleased
+      x-webhook: true
       title: Invoice hold released
       summary: "A held supplier invoice was released back to parked."
       description: "Emitted by `supplier-invoices/{id}:release` (or when its `invoice_exception` approval completes with outcome `approved`) when the invoice moves from `on_hold` to `parked` and `hold_reason` is cleared. Posting may follow. Subject is the supplier invoice id."
@@ -2173,6 +2247,7 @@ components:
           payload: {"supplier_invoice_id": "0192a000-0000-7000-8000-000000000701", "supplier_id": "0192a000-0000-7000-8000-000000000301", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "workflow_request_id": "0192a000-0000-7000-8000-000000000901", "previous_status": "on_hold", "status": "parked"}
     SupplierInvoiceRejected:
       name: SupplierInvoiceRejected
+      x-webhook: true
       title: Supplier invoice rejected
       summary: "An unposted supplier invoice was rejected after review."
       description: "Emitted when an unposted invoice moves to `rejected`, typically because its `invoice_exception` approval completed with outcome `rejected` (the reason is the decision's comment, in `ApprovalCompleted`). No ledger impact; the supplier reference is free for a corrected invoice. Subject is the supplier invoice id."
@@ -2189,6 +2264,7 @@ components:
           payload: {"supplier_invoice_id": "0192a000-0000-7000-8000-000000000701", "supplier_id": "0192a000-0000-7000-8000-000000000301", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "workflow_request_id": "0192a000-0000-7000-8000-000000000901", "previous_status": "on_hold", "status": "rejected"}
     BankFileCreated:
       name: BankFileCreated
+      x-webhook: true
       title: Bank file created
       summary: "A payment file was generated for a released payment run."
       description: "Emitted when a `payments.bank_file` row is inserted in status `created` (the file is in object storage, referenced by key and hash). Transmission follows as `BankFileTransmitted`. Subject is the bank file id."
@@ -2205,6 +2281,7 @@ components:
           payload: {"bank_file_id": "0192a000-0000-7000-8000-000000000803", "payment_run_id": "0192a000-0000-7000-8000-000000000801", "format": "pain.001.001.09", "sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9", "status": "created"}
     BankFileAcknowledged:
       name: BankFileAcknowledged
+      x-webhook: true
       title: Bank file acknowledged
       summary: "The bank accepted a transmitted payment file."
       description: "Emitted when the bank's status report accepts the file and it moves from `transmitted` to `acknowledged`. Subject is the bank file id."
@@ -2221,6 +2298,7 @@ components:
           payload: {"bank_file_id": "0192a000-0000-7000-8000-000000000803", "payment_run_id": "0192a000-0000-7000-8000-000000000801", "previous_status": "transmitted", "status": "acknowledged"}
     BankFileRejected:
       name: BankFileRejected
+      x-webhook: true
       title: Bank file rejected
       summary: "The bank rejected a transmitted payment file."
       description: "Emitted when the bank's status report rejects the file and it moves from `transmitted` to `rejected`. Treasury must correct and re-create the file; the bank's report is on the integration message. Subject is the bank file id."
