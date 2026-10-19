@@ -1153,7 +1153,7 @@ type Invoker interface {
 	// Queues the delivery again, whatever its status: `pending` with no attempts, sent in its resource's
 	// event order under its original `webhook-id`. Refused for a deleted subscription (409
 	// `integration.webhook_deleted`) and a disabled one (409 `integration.webhook_disabled`; resume it
-	// first).
+	// first), pings included: `:ping` sends a new one.
 	//
 	// POST /v1/webhook-subscriptions/{id}/deliveries/{delivery_id}:redeliver
 	RedeliverWebhookDelivery(ctx context.Context, params RedeliverWebhookDeliveryParams) (RedeliverWebhookDeliveryRes, error)
@@ -28410,7 +28410,7 @@ func (c *Client) sendRecordAgentToolCall(ctx context.Context, request *AgentTool
 // Queues the delivery again, whatever its status: `pending` with no attempts, sent in its resource's
 // event order under its original `webhook-id`. Refused for a deleted subscription (409
 // `integration.webhook_deleted`) and a disabled one (409 `integration.webhook_disabled`; resume it
-// first).
+// first), pings included: `:ping` sends a new one.
 //
 // POST /v1/webhook-subscriptions/{id}/deliveries/{delivery_id}:redeliver
 func (c *Client) RedeliverWebhookDelivery(ctx context.Context, params RedeliverWebhookDeliveryParams) (RedeliverWebhookDeliveryRes, error) {

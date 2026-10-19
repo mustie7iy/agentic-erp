@@ -20427,67 +20427,6 @@ func (s *PaymentRunPropose) SetDueBy(val time.Time) {
 	s.DueBy = val
 }
 
-// PingWebhookSubscriptionOKHeaders wraps WebhookDelivery with response headers.
-type PingWebhookSubscriptionOKHeaders struct {
-	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           WebhookDelivery
-}
-
-// GetIdempotentReplayed returns the value of IdempotentReplayed.
-func (s *PingWebhookSubscriptionOKHeaders) GetIdempotentReplayed() OptBool {
-	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *PingWebhookSubscriptionOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *PingWebhookSubscriptionOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *PingWebhookSubscriptionOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *PingWebhookSubscriptionOKHeaders) GetResponse() WebhookDelivery {
-	return s.Response
-}
-
-// SetIdempotentReplayed sets the value of IdempotentReplayed.
-func (s *PingWebhookSubscriptionOKHeaders) SetIdempotentReplayed(val OptBool) {
-	s.IdempotentReplayed = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *PingWebhookSubscriptionOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *PingWebhookSubscriptionOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *PingWebhookSubscriptionOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *PingWebhookSubscriptionOKHeaders) SetResponse(val WebhookDelivery) {
-	s.Response = val
-}
-
-func (*PingWebhookSubscriptionOKHeaders) pingWebhookSubscriptionRes() {}
-
 // PreconditionFailedHeaders wraps Problem with response headers.
 type PreconditionFailedHeaders struct {
 	RateLimitLimit     OptInt32
@@ -23256,6 +23195,7 @@ func (s *RedeliverWebhookDeliveryOKHeaders) SetResponse(val WebhookDelivery) {
 	s.Response = val
 }
 
+func (*RedeliverWebhookDeliveryOKHeaders) pingWebhookSubscriptionRes()  {}
 func (*RedeliverWebhookDeliveryOKHeaders) redeliverWebhookDeliveryRes() {}
 
 // One case of a regression suite: a supplier invoice and the decision it got when the suite was

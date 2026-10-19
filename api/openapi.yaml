@@ -9422,6 +9422,8 @@ paths:
         "200":
           description: The ping's delivery, pending.
           headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
             RateLimit-Limit:
@@ -9479,7 +9481,7 @@ paths:
         - name: since
           in: query
           required: false
-          description: Only deliveries created at or after this instant.
+          description: "Only deliveries recorded (`created_at`) at or after this instant; `:replay`'s `since` is the events' time instead."
           schema:
             type: string
             format: date-time
@@ -9553,7 +9555,7 @@ paths:
       tags:
         - integration
       summary: Redeliver a webhook delivery
-      description: "Queues the delivery again, whatever its status: `pending` with no attempts, sent in its resource's event order under its original `webhook-id`. Refused for a deleted subscription (409 `integration.webhook_deleted`) and a disabled one (409 `integration.webhook_disabled`; resume it first)."
+      description: "Queues the delivery again, whatever its status: `pending` with no attempts, sent in its resource's event order under its original `webhook-id`. Refused for a deleted subscription (409 `integration.webhook_deleted`) and a disabled one (409 `integration.webhook_disabled`; resume it first), pings included: `:ping` sends a new one."
       x-permission: integration.webhook.manage
       x-agent: false
       parameters:
