@@ -414,7 +414,8 @@ promoted by a pull request that pins its image digests per environment:
 dev, test, staging, a production canary cell, then all cells (06 §6.9). A
 promotion merges only after `verify-image.sh` checks the digests against
 the release's commit. Production promotions need a second approver
-(T40d4). Every release passes a rollback drill in staging before
+(T40d4), except a rollback to a known-good release (product owner,
+2026-10-19). Every release passes a rollback drill in staging before
 production: deploy N, deploy N+1, revert to N, smoke tests and readiness
 with N's code on N+1's schema, which expand, migrate, contract (§6.4) makes
 safe. Rollback in production is the same revert, per cell.
@@ -475,7 +476,9 @@ lists the runs of its drill (release, commit, the release rolled back to,
 result, the run) and the last for the release's commit passed; the record
 is appended to by a pull request of its own and never rewritten, so a
 failed run stays on it; a version re-pinned to another commit is drilled
-again. A
+again. Each run added must name a release and commit the drill cell's
+`release.json` pinned on the base branch, and a release it ran to roll
+back to, so a record names what was drilled. A
 promotion changes that one file in the whole repository, and the checks
 that judge it are the base branch's: the workflow runs as
 `pull_request_target` and reads the pull request's commit as data, so a
@@ -488,8 +491,8 @@ every pinned image against the release's commit. Only promotion paths run
 it and the deploy workflow skips them, so a promotion costs two short
 jobs.
 
-*Approvals (T40d4, product owner).* A promotion of a production cell,
-a rollback included, a change to a production cell's `cell.json`, and a
+*Approvals (T40d4, product owner).* A promotion of a production cell, a
+change to a production cell's `cell.json`, and a
 change to `path.json` (which orders every later promotion) merge only once someone other than its author
 approved its head commit and is listed in `.github/approvers` as the base
 branch has it; no CODEOWNERS. `scripts/promotion-approvals.sh` reads the
@@ -515,6 +518,15 @@ the list itself needs no approval, only the review any change has
 `pull_request_target` jobs on the pull request's head (which
 `promotion-review.yml` and `merge-pr.sh` read) is confirmed on the first
 promotion pull request; if it does not, both fail closed.
+Two exceptions (product owner, 2026-10-19), both still checked and kept
+in the history: a production rollback to a known-good release, one the
+cell ran before and whose drill's last run for that commit passed, needs
+no second approver, so a bad release can be reverted at once
+(`promotion-checks.sh` says so in its log and leaves `APPROVAL_OUT`
+empty); a rollback to a release without that record still needs one. A
+pull request that only appends to a drill's record needs none either: the
+record is append-only and each run is checked against the release and
+commit the drill cell ran.
 
 *The rollback drill (T40d5).* `scripts/rollback-drill.sh` drills the
 release the drill cell runs (N+1) against the one it ran before (N) on the
@@ -528,15 +540,21 @@ restores the root's automated sync, whose self-heal brings everything back
 to the branch, and appends the run, passed or failed, to the record.
 Production's rollback reverts `release.json` alone, rendering the
 branch's charts with N's images, while the drill's revert syncs N's
-commit; so the drill refuses to run when `erp-cell` or `erp-global`
-changed since N was pinned, and such a release cannot reach production
-until a drill of a later pair can run.
+commit; so by default the drill refuses to run when `erp-cell` or
+`erp-global` changed since N was pinned. `DRILL_CHARTS=current` (product
+owner, 2026-10-19) drills such a release at once: every step syncs the
+branch's commit with the step's `release.json` set as the Application's
+`valuesObject`, which Argo CD gives precedence over the value files, so N
+is deployed on the current charts, then N+1, then N again: the rollback
+production does, proven across the chart change. The root's self-heal
+removes those values when the drill ends.
 `test-rollback-drill.sh` runs it against a stand-in kubectl (no cluster;
 the `promotion-self-test` workflow). Runbook, in staging's account with
 access to `stg1`'s cluster, once N+1 is on `staging/stg1`:
 1. `git fetch origin && git checkout origin/main`;
 2. `SMOKE=<the smoke tests' command> scripts/rollback-drill.sh <https URL of where the drill's log is kept>`,
-   keeping its output there;
+   keeping its output there (with `DRILL_CHARTS=current` when it refuses
+   because the charts changed);
 3. commit the record it wrote, `deploy/environments/staging/stg1/drills/<N+1>.json`,
    on a branch of its own and merge it by pull request; a failed run is
    recorded too, and a later run appends.

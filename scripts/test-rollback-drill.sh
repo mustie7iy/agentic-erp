@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Tests rollback-drill.sh (ADR-0035, T40d5) without a cluster: a stand-in
 # kubectl keeps the cell's Applications and deployments in a file, syncs
-# an Application to a revision by deploying the images that revision's
-# release.json pins, and fails where a case tells it to. Each case runs
+# an Application to a revision by deploying the images its values or else
+# that revision's release.json pin, and fails where a case tells it to. Each case runs
 # the drill on a throwaway repository and checks its result, its record,
 # the order of its syncs and that the root's automated sync is restored.
 set -euo pipefail
@@ -47,8 +47,10 @@ elif verb == "patch":
         phase = "Failed" if os.environ.get("FAIL_SYNC") == "%s@%d" % (a[4], state["n"]) else "Succeeded"
         app["status"] = {"operationState": {"phase": phase, "startedAt": str(state["n"]), "message": "boom",
                                             "operation": {"sync": {"revision": rev}}}, "health": {"status": "Healthy"}}
-        rel = json.loads(subprocess.run(["git", "show", rev + ":deploy/environments/staging/stg1/release.json"],
-                                        capture_output=True, text=True, check=True).stdout)
+        # The Application's values take precedence over the revision's release.json.
+        rel = app["spec"].get("source", {}).get("helm", {}).get("valuesObject") or \
+            json.loads(subprocess.run(["git", "show", rev + ":deploy/environments/staging/stg1/release.json"],
+                                      capture_output=True, text=True, check=True).stdout)
         image, deployment = {"erp-cell": ("server", "erp-server"), "erp-global": ("router", "erp-router")}[a[4]]
         i = rel["images"][image]
         ref = "%s@%s" % (i["repository"], i["digest"])
@@ -112,6 +114,9 @@ CHECK
       why="the root's automated sync was not restored last"
     fi
   fi
+  if [ -z "$why" ] && [ -n "${REVS:-}" ] && [ "$(grep -o '"revision": "[0-9a-f]*"' "$work/log" | cut -d'"' -f4 | sort -u | wc -l | tr -d ' ')" != "$REVS" ]; then
+    why="it synced $(grep -o '"revision": "[0-9a-f]*"' "$work/log" | sort -u | wc -l | tr -d ' ') revisions, want $REVS"
+  fi
   if [ -z "$why" ] && [ -n "${SYNCS:-}" ] && [ "$(grep -o '"revision": "[0-9a-f]*"' "$work/log" | wc -l | tr -d ' ')" != "$SYNCS" ]; then
     why="it synced $(grep -c '"revision"' "$work/log") times, want $SYNCS"
   fi
@@ -139,5 +144,12 @@ fi
 ONE_RELEASE=1 case_ nothing-to-roll-back-to refused "nothing to roll back to"
 PRE='mkdir -p deploy/helm/erp-cell && echo x >deploy/helm/erp-cell/Chart.yaml && git add . && git commit -q -m chart' \
   case_ charts-changed refused "the charts changed"
+# Across the chart change: every step on the branch's commit, N's images by values.
+PRE='mkdir -p deploy/helm/erp-cell && echo x >deploy/helm/erp-cell/Chart.yaml && git add . && git commit -q -m chart' \
+  DRILL_CHARTS=current SYNCS=3 REVS=1 case_ current-charts passed "revert to N: v1.0.0 at .* (the current charts)"
+PRE='mkdir -p deploy/helm/erp-cell && echo x >deploy/helm/erp-cell/Chart.yaml && git add . && git commit -q -m chart' \
+  DRILL_CHARTS=current SYNCS=6 case_ current-charts-home passed "" home
+DRILL_CHARTS=current STALE_IMAGE=3 case_ current-charts-stale-image failed "revert to N: erp-server runs"
+DRILL_CHARTS=both case_ unknown-mode refused "neither n nor current"
 RUN=http://ci.example/1 case_ not-https refused "not an https"
 exit "$failed"

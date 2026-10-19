@@ -51,6 +51,14 @@ put deploy/environments/staging/stg1/drills/v1.1.0.json "[$(run_ v1.1.0 2 v1.0.0
 # repinned: v1.1.0 re-pinned to another commit up to staging, its drill that of the first.
 git -C "$repo" checkout -q -b repinned main
 for cell in dev/dev1 test/test1 staging/stg1; do put "$(env_file $cell)" "$(release v1.1.0 5)" "v1.1.0 again to $cell"; done
+# stg12: v1.2.0 promoted up to staging, not yet drilled.
+git -C "$repo" checkout -q -b stg12 main
+for cell in test/test1 staging/stg1; do put "$(env_file $cell)" "$(release v1.2.0 3)" "v1.2.0 to $cell"; done
+# prodrun: the canary ran v1.0.0, then v1.1.0; prodgood: v1.0.0's drill passed too.
+git -C "$repo" checkout -q -b prodrun main
+put "$(env_file production/prod1)" "$(release v1.1.0 2)" "v1.1.0 to production/prod1"
+git -C "$repo" checkout -q -b prodgood prodrun
+put deploy/environments/staging/stg1/drills/v1.0.0.json "$(drill v1.0.0 1 v1.0.0 passed)" "v1.0.0's drill"
 git -C "$repo" checkout -q main
 
 # case NAME WANT GREP STEPS: STEPS (shell) on a branch off BASE (main by
@@ -83,8 +91,12 @@ case_ bad-path refused "path.json must" 'put deploy/environments/path.json "{\"p
 case_ cells-follow-the-canary refused "may take only the release production/prod1 runs" 'put "$(env_file production/prod2)" "$(release v1.1.0 2)" p'
 case_ rollback ok "rolls back" 'put "$(env_file staging/stg1)" "$(release v1.0.0 1)" p'
 case_ two-cells refused "one cell" 'put "$(env_file test/test1)" "$(release v1.2.0 3)" p && put "$(env_file staging/stg1)" "$(release v1.0.0 1)" q'
-case_ release-and-drill refused "one cell" 'put "$(env_file test/test1)" "$(release v1.2.0 3)" p && put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.2.0 3 v1.1.0 passed)" q'
-case_ drill-record ok "records a drill" 'put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.2.0 3 v1.1.0 failed)" p'
+BASE=stg12 case_ release-and-drill refused "one cell" 'put "$(env_file dev/dev1)" "$(release v1.3.0 4)" p && put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.2.0 3 v1.1.0 passed)" q'
+BASE=stg12 case_ drill-record ok "records a drill" 'put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.2.0 3 v1.1.0 failed)" p'
+case_ drill-not-run-there refused "never ran" 'put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.2.0 3 v1.1.0 passed)" p'
+case_ drill-of-another-commit refused "never ran" 'put deploy/environments/staging/stg1/drills/v1.1.0.json "[$(run_ v1.1.0 2 v1.0.0 passed), $(run_ v1.1.0 5 v1.0.0 passed)]" p'
+BASE=stg12 case_ drill-back-to-what-it-never-ran refused "never ran" 'put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.2.0 3 v0.9.0 passed)" p'
+BASE=prodgood case_ known-good-rollback ok "no approver needed" 'put "$(env_file production/prod1)" "$(release v1.0.0 1)" p'
 case_ drill-again ok "records a drill" 'put deploy/environments/staging/stg1/drills/v1.1.0.json "[$(run_ v1.1.0 2 v1.0.0 passed), $(run_ v1.1.0 2 v1.0.0 failed)]" p'
 case_ drill-rewritten refused "append-only" 'put deploy/environments/staging/stg1/drills/v1.1.0.json "$(drill v1.1.0 2 v1.0.0 failed)" p'
 case_ drill-unchanged-runs refused "append-only" 'put deploy/environments/staging/stg1/drills/v1.1.0.json "[$(run_ v1.1.0 2 v1.0.0 passed) ]" p'
@@ -118,15 +130,20 @@ if [ "$(grep -c "^$(printf "%040d" 0 | tr 0 3) .*@sha256:$(printf "%064d" 0 | tr
 else
   echo "ok   listed"
 fi
-# Whether an approver must approve: production's releases and values, and the path.
+# Whether an approver must approve: production's releases and values, and
+# the path; not a known-good production rollback, nor a drill's record.
+# Each pull request passes the checks, off BASE (main by default).
 approval() {
-  local name="$1" want="$2"
-  git -C "$repo" checkout -q -B "$name" main
+  local name="$1" want="$2" base="${BASE:-main}"
+  git -C "$repo" checkout -q -B "$name" "$base"
   (cd "$repo" && eval "$3")
   git -C "$repo" checkout -q main
   : >"$work/approval"
-  APPROVAL_OUT="$work/approval" "$repo/scripts/promotion-checks.sh" main "$name" >/dev/null 2>&1 || true
-  if [ "$(cat "$work/approval")" != "$want" ]; then
+  if ! APPROVAL_OUT="$work/approval" "$repo/scripts/promotion-checks.sh" "$base" "$name" >"$work/log" 2>&1; then
+    echo "FAIL approval-$name: the checks refused it" >&2
+    cat "$work/log" >&2
+    failed=1
+  elif [ "$(cat "$work/approval")" != "$want" ]; then
     echo "FAIL approval-$name: APPROVAL_OUT says '$(cat "$work/approval")', want '$want'" >&2
     failed=1
   else
@@ -138,4 +155,8 @@ approval canary production 'put "$(env_file production/prod1)" "$(release v1.1.0
 approval prod-values production 'put deploy/environments/production/prod1/cell.json "{\"environment\": \"production\", \"cell\": \"prod1\"}" p'
 approval dev-values "" 'put deploy/environments/dev/dev1/cell.json "{\"environment\": \"dev\", \"cell\": \"dev1\"}" p'
 approval path production 'put deploy/environments/path.json "{\"path\": [\"dev/dev1\", \"staging/stg1\"], \"drill\": \"staging/stg1\"}" p'
+BASE=prodgood approval known-good-rollback "" 'put "$(env_file production/prod1)" "$(release v1.0.0 1)" p'
+BASE=prodrun approval undrilled-rollback production 'put "$(env_file production/prod1)" "$(release v1.0.0 1)" p'
+BASE=prodgood approval known-good-elsewhere production 'put "$(env_file production/prod2)" "$(release v1.1.0 2)" p'
+BASE=stg12 approval drill-record "" 'put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.2.0 3 v1.1.0 passed)" p'
 exit "$failed"

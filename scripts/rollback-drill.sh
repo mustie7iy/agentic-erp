@@ -16,6 +16,11 @@
 # whatever the outcome, which brings every Application back to the branch.
 # It refuses a drill whose charts changed since N was pinned: production's
 # rollback renders the branch's charts with N's images, the drill's N's.
+# DRILL_CHARTS=current (product owner) drills such a release at once:
+# every step syncs the branch's commit, its charts, with the step's
+# release.json set as the Application's values, which take precedence over
+# its value files: N on the current charts, N+1, and N again, the very
+# rollback production does across the chart change.
 # It appends the result, passed or failed, to
 # <drill cell>/drills/<N+1>.json for the release's commit, which a pull
 # request of its own then merges (promotion-checks.sh keeps records
@@ -24,7 +29,8 @@
 #   scripts/rollback-drill.sh https://<where the drill's log is kept>
 # KUBECTL names kubectl, BRANCH the branch Argo CD runs (origin/main),
 # DRILL_TIMEOUT a step's limit in seconds (5400, Argo CD's sync limit),
-# DRILL_POLL the seconds between looks (10).
+# DRILL_POLL the seconds between looks (10), DRILL_CHARTS "n" (the
+# default, N's commit and charts) or "current".
 set -euo pipefail
 cd "$(dirname "$0")/.."
 python3 - "${1:?usage: rollback-drill.sh RUN_URL}" <<'PY'
@@ -35,6 +41,7 @@ kubectl = os.environ.get("KUBECTL", "kubectl")
 branch = os.environ.get("BRANCH", "origin/main")
 timeout = int(os.environ.get("DRILL_TIMEOUT", "5400"))
 poll = float(os.environ.get("DRILL_POLL", "10"))
+mode = os.environ.get("DRILL_CHARTS", "n")
 argocd = "argocd"
 root = "deploy/environments"
 
@@ -55,6 +62,8 @@ class Step(Exception):
 
 if not run_url.startswith("https://"):
     fail("RUN_URL %r is not an https:// address of the drill's log" % run_url)
+if mode not in ("n", "current"):
+    fail("DRILL_CHARTS %r is neither n nor current" % mode)
 cell = json.load(open(root + "/path.json"))["drill"]
 path = "%s/%s/release.json" % (root, cell)
 revs = git("log", "--format=%H", branch, "--", path).split()
@@ -71,9 +80,10 @@ old = release_at(old_rev)
 # with N's images. The drill's revert syncs N's commit, N's charts, so it
 # drills that rollback only where the charts are the same.
 charts = ["deploy/helm/erp-cell", "deploy/helm/erp-global"]
-if git("diff", "--name-only", old_rev, branch, "--", *charts).strip():
-    fail("the charts changed since %s pinned %s: reverting to its commit would not drill the rollback production does"
-         % (old_rev[:12], old["release"]["version"]))
+if mode == "n" and git("diff", "--name-only", old_rev, branch, "--", *charts).strip():
+    fail("the charts changed since %s pinned %s: reverting to its commit would not drill the rollback production does;"
+         " DRILL_CHARTS=current drills it on the current charts" % (old_rev[:12], old["release"]["version"]))
+head = git("rev-parse", branch).strip()
 
 def application(name):
     r = kube("-n", argocd, "get", "application", name, "-o", "json", check=False)
@@ -119,10 +129,16 @@ def synced(name, rev, before):
     return done
 
 def step(label, rev, rel):
+    """Deploys rel: its commit rev, or with DRILL_CHARTS=current the
+    branch's commit with rel as the Application's values."""
     version = rel["release"]["version"]
-    print("rollback-drill: %s: %s at %s" % (label, version, rev))
+    if mode == "current":
+        rev = head
+    print("rollback-drill: %s: %s at %s (%s charts)" % (label, version, rev, "the current" if mode == "current" else "its"))
     for name, namespace, deployment, image in apps:
         before = started(name)
+        if mode == "current":
+            patch(name, {"spec": {"source": {"helm": {"valuesObject": {"release": rel["release"], "images": rel["images"]}}}}})
         patch(name, {"operation": {"initiatedBy": {"username": "rollback-drill"}, "sync": {"revision": rev}}})
         wait("%s %s" % (label, name), synced(name, rev, before))
         d = json.loads(kube("-n", namespace, "get", "deployment", deployment, "-o", "json").stdout)
@@ -138,7 +154,8 @@ def step(label, rev, rel):
             raise Step("%s: the smoke tests failed (%s exited %d)" % (label, smoke, r.returncode))
 
 # Paused from the root down: the root would sync the others back to the
-# branch; restored from the root, whose self-heal restores the others.
+# branch; restored from the root, whose self-heal restores the others,
+# their values included.
 result = "failed"
 try:
     for name in ["erp-delivery"] + [a[0] for a in apps]:

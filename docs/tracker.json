@@ -4948,7 +4948,7 @@
        },
        {
         "s": "D",
-        "t": "Production approvers (product owner): a production promotion, a rollback included, merges only with an approval of its head by someone other than its author listed in .github/approvers, read with the read-only token; no CODEOWNERS. With the owner alone listed, production promotion is blocked until a second approver is",
+        "t": "Production approvers (product owner): a production promotion merges only with an approval of its head by someone other than its author listed in .github/approvers, read with the read-only token; no CODEOWNERS. With the owner alone listed, production promotion is blocked until a second approver is. Product owner, 2026-10-19: a rollback to a known-good release (the cell ran it, its drill passed for its commit) and a pull request appending to a drill's record (checked against the release and commit the drill cell ran) need no approver",
         "r": ".github/approvers · scripts/promotion-approvals.sh · scripts/test-promotion-approvals.sh · .github/workflows/promotion.yml · .github/workflows/promotion-review.yml · scripts/merge-pr.sh · ADR-0035 · T40d4",
         "c": []
        },
@@ -4960,7 +4960,7 @@
        },
        {
         "s": "D",
-        "t": "The staging rollback drill: deploy N, N+1, revert to N on the drill cell's Argo CD, health, images and smoke tests after each step, an append-only record of every run for the release's commit; tested against a stand-in kubectl",
+        "t": "The staging rollback drill: deploy N, N+1, revert to N on the drill cell's Argo CD, health, images and smoke tests after each step, an append-only record of every run for the release's commit; tested against a stand-in kubectl. It refuses to run across a change of the erp-cell or erp-global charts since N; DRILL_CHARTS=current (product owner, 2026-10-19) drills it at once, N, N+1 and N again on the branch's charts with each release as the Applications' values",
         "r": "scripts/rollback-drill.sh · scripts/test-rollback-drill.sh · scripts/promotion-checks.sh · ADR-0035 · T40d5",
         "c": []
        },

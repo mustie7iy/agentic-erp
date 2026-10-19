@@ -26,14 +26,17 @@
 #     the last for that commit passed. Records are appended to by pull
 #     requests of their own, as path.json changes are, never rewritten, so
 #     a failed run stays failed; a version re-pinned to another commit
-#     needs a drill again.
+#     needs a drill again. A run added names a release and commit, and a
+#     release rolled back to, that the drill cell ran at BASE;
 # With OUT set it writes "<commit> <image ref>" lines there, which the
 # deploy workflow verifies with scripts/verify-image.sh (signatures,
 # attestations, provenance naming the commit) before the promotion merges;
 # with APPROVAL_OUT set, "production" there when the pull request needs an
 # approver's approval (scripts/promotion-approvals.sh): it changes a
-# production cell's release (a rollback too) or values, or path.json,
-# which orders every later promotion.
+# production cell's release or values, or path.json, which orders every
+# later promotion. Product owner: a production rollback to a known-good
+# release, one the cell ran before whose drill passed for its commit,
+# needs none; nor does a drill's record (appended to, checked above).
 #   scripts/promotion-checks.sh origin/main [HEAD]
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -88,6 +91,25 @@ def release(path, doc):
     # The registry differs by region (ECR replicas); the release does not.
     return (rel["version"], rel["commit"], tuple(sorted(digests.items())))
 
+def ran_at_drill(version, commit=None):
+    """Whether the drill cell's release.json named version (at commit,
+    when given) at BASE or before: what a drill's record may name."""
+    p = "%s/%s/release.json" % (root, drill_cell)
+    for rev in git("log", "--format=%H", base, "--", p).split():
+        text = at(rev, p)
+        d = load(text, p) if text is not None else {}
+        r = d.get("release") if isinstance(d, dict) else None
+        if isinstance(r, dict) and r.get("version") == version and commit in (None, r.get("commit")):
+            return True
+    return False
+
+def drilled(version, commit):
+    """Whether the last drill at BASE of version at commit passed."""
+    record = at(base, "%s/%s/drills/%s.json" % (root, drill_cell, version))
+    runs = load(record, "drill") if record is not None else []
+    mine = [d for d in runs if isinstance(runs, list) and isinstance(d, dict) and d.get("release") == version and d.get("commit") == commit]
+    return bool(mine) and mine[-1].get("result") == "passed"
+
 def ran_before(path, rel):
     """Whether the cell ran rel before BASE's: a rollback."""
     for rev in git("log", "--format=%H", base, "--", path).split()[1:]:
@@ -141,12 +163,20 @@ for p in drills:
                 or not re.fullmatch(r"[0-9a-f]{40}", str(d["commit"])) or d["result"] not in ("passed", "failed") \
                 or not re.fullmatch(r"v\d+\.\d+\.\d+", str(d["rolled_back_to"])) or not str(d["run"]).startswith("https://"):
             fail('%s: each run must be {"release": "%s", "commit": "<full commit>", "rolled_back_to": "vX.Y.Z", "result": "passed" or "failed", "run": "https://..."}' % (p, name))
+        if not ran_at_drill(d["release"], d["commit"]) or not ran_at_drill(d["rolled_back_to"]):
+            fail("%s: %s never ran %s at %s, or %s: a record names what the drill ran" % (p, drill_cell, name, d["commit"], d["rolled_back_to"]))
         print("promotion-checks: %s records a drill of %s: %s" % (drill_cell, name, d["result"]))
-if approval_out:
-    with open(approval_out, "w") as f:
-        if root + "/path.json" in changed or any(p.startswith(root + "/production/") for p in releases + cells):
-            f.write("production\n")
+production = root + "/path.json" in changed or any(p.startswith(root + "/production/") for p in releases + cells)
+
+def approval(known_good):
+    """Writes whether an approver must approve: see the header."""
+    if approval_out:
+        with open(approval_out, "w") as f:
+            if production and not known_good:
+                f.write("production\n")
+
 if not releases:
+    approval(False)
     print("promotion-checks: no release changes")
     sys.exit()
 if len(releases) != 1 or len(releases) != len(everything):
@@ -157,9 +187,13 @@ text = at(head, target) or fail("%s is removed: a cell's release is replaced, ne
 doc = load(text, target)
 rel = release(target, doc)
 version = rel[0]
+known_good = False
 
 if ran_before(target, rel):
     print("promotion-checks: %s rolls back to %s, which it ran before" % (cell, version))
+    known_good = drilled(version, rel[1])
+    if production and known_good:
+        print("promotion-checks: %s's drill passed for %s: a known-good rollback, no approver needed" % (version, rel[1]))
 else:
     env = cell.split("/")[0]
     if cell in path:
@@ -172,14 +206,11 @@ else:
         prev = at(base, "%s/%s/release.json" % (root, before))
         if prev is None or release(before, load(prev, before)) != rel:
             fail("%s may take only the release %s runs, not %s" % (cell, before, version))
-    if env == "production":
-        record = at(base, "%s/%s/drills/%s.json" % (root, drill_cell, version))
-        runs = load(record, "drill") if record is not None else []
-        mine = [d for d in runs if isinstance(runs, list) and isinstance(d, dict) and d.get("release") == version and d.get("commit") == rel[1]]
-        if not mine or mine[-1].get("result") != "passed":
-            fail("%s (%s) reaches production only after its rollback drill in %s passed for that commit (%s/drills/%s.json)"
-                 % (version, rel[1], drill_cell, drill_cell, version))
+    if env == "production" and not drilled(version, rel[1]):
+        fail("%s (%s) reaches production only after its rollback drill in %s passed for that commit (%s/drills/%s.json)"
+             % (version, rel[1], drill_cell, drill_cell, version))
     print("promotion-checks: %s takes %s" % (cell, version))
+approval(known_good)
 
 if out:
     with open(out, "w") as f:
