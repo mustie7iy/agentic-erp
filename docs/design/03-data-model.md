@@ -1298,6 +1298,11 @@ insert-only, unique per house bank and hash; T44c, 000099), in a
 transaction of its own committed right after the upload: a file whose hash
 its bank already took counts as sent and is not uploaded again, so a
 transmission whose own commit was lost is never sent twice.
+EBICS connectors (`integration.connector` of kind `bank_ebics`) are refused
+in production until EBICS is certified with a bank (T44d): the control role
+`erp_control` reads every tenant's connectors' kind and status, never their
+settings or secret reference (000100), and a production cell refuses to
+start while one is active; disabling it is the remedy.
 
 A company's payment methods (`payments.payment_method`, SAP T042Z) rank,
 per currency, the house banks that pay with them, first preferred

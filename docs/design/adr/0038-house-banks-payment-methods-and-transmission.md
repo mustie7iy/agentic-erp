@@ -132,7 +132,19 @@ and France, by EBICS.
   the retry uploads it again and the bank refuses the repeated message id,
   as before T44c. The file row is locked `FOR NO KEY UPDATE`, so the
   record's foreign key check does not wait for the request holding it),
-  EBICS refused in production (T44d), and, in T44e, transmission out of the
+  EBICS refused in production (T44d: the `bank_ebics` connector's settings,
+  checked on submission: the bank's `url`, https only, and the EBICS 3.0
+  `host_id`, `partner_id` and `user_id`, the subscriber's keys by
+  `secret_ref`; in production the API refuses to create or enable one
+  (`integration.ebics_not_certified`), and the server refuses to start while
+  any tenant has an active one, read as `erp_control`, 000100, so a
+  connector from before or a change by hand fails closed; a production
+  import refuses a tenant with one, as it refuses one without an identity
+  provider. No
+  house bank can name one yet: `BankChannels` resolves only `bank_sftp`.
+  The protocol follows in T44d2, key initialisation (INI, HIA, HPB) and its
+  state, and T44d3, upload (BTU) signed with A006 over HTTPS against an
+  in-process stand-in bank), and, in T44e, transmission out of the
   request transaction: the request marks the file to be sent and a
   platform worker job uploads it, as the outbox relays events, so no
   database connection is held during the SFTP upload and the external

@@ -13,6 +13,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
+	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
 	platformconfig "github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
@@ -63,7 +64,7 @@ func importTenant(ctx context.Context, cfg platformconfig.Config, manifest strin
 	im := &offboarding.Importer{Pool: pool, Store: store, AppRole: cfg.AppRole}
 	var checks []func(context.Context, pgx.Tx, uuid.UUID) error
 	if cfg.Environment == platformconfig.Production {
-		checks = append(checks, identity.RequireActiveProvider) // a production cell refuses to start with such a tenant
+		checks = append(checks, productionImport) // a production cell refuses to start with such a tenant
 	}
 	if cfg.DirectoryURL != "" {
 		dir, err := directory.OpenWith(ctx, cfg.DirectoryURL, cfg.DirectoryPassword)
@@ -88,4 +89,14 @@ func importTenant(ctx context.Context, cfg platformconfig.Config, manifest strin
 		return nil
 	}
 	return im.Import(ctx, manifest)
+}
+
+// productionImport refuses, in production, a tenant without an active
+// identity provider (ADR-0031) or with an active bank_ebics connector
+// (ADR-0038, T44d): a production cell refuses to start with either.
+func productionImport(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) error {
+	if err := identity.RequireActiveProvider(ctx, tx, tenant); err != nil {
+		return err
+	}
+	return integration.RefuseActiveEBICS(ctx, tx, tenant)
 }

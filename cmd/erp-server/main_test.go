@@ -1723,6 +1723,80 @@ func TestRequireProvidersFailures(t *testing.T) {
 	}
 }
 
+// TestProductionRefusesEBICS: in production the server refuses to start
+// while a tenant has an active bank_ebics connector, naming it, and starts
+// once it is disabled (ADR-0038, T44d).
+func TestProductionRefusesEBICS(t *testing.T) {
+	is := authntest.New(t)
+	env := environment(t, is, "")
+	env["DATABASE_URL"] = pgtest.EmptyDatabase(t)
+	_, _ = production(t, env) // the bucket and authority go unused: the start is what is tested
+	start := func() (int, string) {
+		ctx, cancel := context.WithCancel(context.Background())
+		var logs pgtest.SyncBuffer
+		code := cli(ctx, nil, func(k string) string { return env[k] }, io.Discard, &logs, func(net.Listener, net.Listener) { cancel() })
+		cancel()
+		return code, logs.String()
+	}
+	if code, logs := start(); code != 0 { // migrates the empty cell
+		t.Fatalf("an empty cell: exit %d\n%s", code, logs)
+	}
+	conn, err := pgx.Connect(context.Background(), env["DATABASE_URL"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(context.Background()) }() // the test is over
+	tenant, connector := uuid.New(), uuid.New()
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO tenancy.tenant (id, name, region, group_currency, status) VALUES ($1, 'Bank', 'eu-west', 'EUR', 'active')`, []any{tenant}},
+		{`INSERT INTO identity.identity_provider (tenant_id, id, issuer, audience, created_by, updated_by) VALUES ($1, gen_random_uuid(), 'https://bank.example.com', 'erp', $1, $1)`, []any{tenant}},
+		{`INSERT INTO integration.connector (tenant_id, id, kind, name, settings, status, created_by, updated_by) VALUES ($1, $2, 'bank_ebics', 'EBICS', '{}', 'active', $1, $1)`, []any{tenant, connector}},
+	} {
+		if _, err := conn.Exec(context.Background(), q.sql, q.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	code, logs := start()
+	if code == 0 {
+		t.Fatalf("an active bank_ebics connector: exit 0, want a refusal\n%s", logs)
+	}
+	if !strings.Contains(logs, connector.String()) {
+		t.Errorf("refusal: got %s, want the connector %s named", logs, connector)
+	}
+	if _, err := conn.Exec(context.Background(), `UPDATE integration.connector SET status = 'disabled', version = version + 1 WHERE id = $1`, connector); err != nil {
+		t.Fatal(err)
+	}
+	if code, logs := start(); code != 0 {
+		t.Errorf("the connector disabled: exit %d, want started\n%s", code, logs)
+	}
+}
+
+// TestRefuseEBICSFailures: the production check's read failing stops the
+// start.
+func TestRefuseEBICSFailures(t *testing.T) {
+	env := environment(t, authntest.New(t), "")
+	_, _ = production(t, env) // the bucket and authority go unused: the start is what is tested
+	cfg := load(t, env)
+	pool := pgtest.Pool(t)
+	for name, begin := range map[string]database.BeginFunc{
+		"no transaction": func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") },
+		"connectors": func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, s)
+			return &pgtest.FailingTx{Tx: tx, FailAt: 1}, err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := &server{cfg: cfg, pool: pool, beginCheck: begin}
+			if err := s.refuseEBICS(context.Background()); err == nil {
+				t.Error("got started, want the failure")
+			}
+		})
+	}
+}
+
 // TestRegisterProviderCommand: erp-server register-provider registers a
 // tenant's identity provider without the server, as the control plane
 // does (audited, published): the remedy a production cell names when it

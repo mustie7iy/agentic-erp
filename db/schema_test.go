@@ -1954,7 +1954,9 @@ func TestAuthPolicy(t *testing.T) {
 
 // TestControlRoleReadsTheRegistry: the cell resolves a token's tenant
 // before it knows the tenant, as the control role across tenants; it reads
-// what decides the tenant and the policy, not who changed them.
+// what decides the tenant and the policy, not who changed them. It reads
+// connectors' kind and status, to refuse EBICS in production (000100,
+// T44d), never their settings or secret references.
 func TestControlRoleReadsTheRegistry(t *testing.T) {
 	need(t)
 	f := newFixture(t)
@@ -1979,6 +1981,9 @@ func TestControlRoleReadsTheRegistry(t *testing.T) {
 		{"who registered", "SELECT created_by FROM identity.identity_provider", "permission denied"},
 		{"who changed the policy", "SELECT updated_by FROM identity.auth_policy", "permission denied"},
 		{"principals' email", "SELECT email FROM identity.principal", "permission denied"},
+		{"connectors' kind and status", "SELECT tenant_id, id, kind, status FROM integration.connector", ""},
+		{"connectors' settings", "SELECT settings FROM integration.connector", "permission denied"},
+		{"connectors' secret references", "SELECT secret_ref FROM integration.connector", "permission denied"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			err := asControl(c.sql)

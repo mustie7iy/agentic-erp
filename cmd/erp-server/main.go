@@ -35,6 +35,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/controlplane"
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
+	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
@@ -187,6 +188,9 @@ func (s *server) prepare(ctx context.Context) error {
 	if err := s.requireProviders(ctx); err != nil {
 		return err
 	}
+	if err := s.refuseEBICS(ctx); err != nil {
+		return err
+	}
 	return s.authenticate(ctx)
 }
 
@@ -300,6 +304,34 @@ func (s *server) requireProviders(ctx context.Context) error {
 			"register one with erp-server register-provider -tenant <id> -issuer <url> -audience <aud>, which needs no running server, then start again", strings.Join(without, ", "))
 	}
 	return nil
+}
+
+// refuseEBICS refuses, in production, to start while a tenant has an active
+// bank_ebics connector: EBICS is refused there until it has been certified
+// with a bank (ADR-0038, T44d), and failing closed keeps a channel the
+// API would refuse from going unnoticed. Disabling it is the remedy.
+func (s *server) refuseEBICS(ctx context.Context) error {
+	if s.cfg.Environment != config.Production {
+		return nil
+	}
+	tx, err := database.BeginOr(ctx, s.pool, s.beginCheck, database.Scope{Role: s.cfg.ControlRole, ReadOnly: true})
+	if err != nil {
+		return fmt.Errorf("erp-server: check EBICS connectors: %w", err)
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	cs, err := integration.ActiveEBICSConnectors(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if len(cs) == 0 {
+		return nil
+	}
+	named := make([]string, len(cs))
+	for i, c := range cs {
+		named[i] = "tenant " + c.TenantID.String() + " connector " + c.ID.String()
+	}
+	return fmt.Errorf("erp-server: ERP_ENV=production: EBICS is refused until it has been certified with a bank, and these bank_ebics connectors are active: %s; "+
+		"disable them (POST /v1/connectors/{id}:disable) while the previous version still serves, or, with none serving, set their status to disabled in the database, then start again", strings.Join(named, ", "))
 }
 
 // authenticate sets up who the API trusts (the configured issuers and the
@@ -506,6 +538,7 @@ func (s *server) newAPI() error {
 		Limits: ratelimit.New(cfg.TenantQuota, cfg.PrincipalQuota), RequestTimeout: cfg.RequestTimeout,
 		Metrics: s.metrics, Tracer: s.tp, Meter: otel.GetMeterProvider(), Now: time.Now,
 		RequireBoundAgents: cfg.Environment == config.Production, EvalCell: cfg.EvalCell,
+		RefuseEBICS: cfg.Environment == config.Production,
 	}
 	if s.gateway != nil {
 		s.apiCfg.Model = s.gateway

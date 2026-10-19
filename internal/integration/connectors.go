@@ -43,7 +43,7 @@ const (
 // BankSFTP is the kind of a house bank's SFTP channel (ADR-0038).
 const BankSFTP = "bank_sftp"
 
-var kinds = []string{SAPOData, SAPFile, BankSFTP, "bank_ebics", "edi_as2", "email", "tax_engine", "ticketing"}
+var kinds = []string{SAPOData, SAPFile, BankSFTP, BankEBICS, "edi_as2", "email", "tax_engine", "ticketing"}
 
 // Connector is a row of integration.connector.
 type Connector struct {
@@ -106,6 +106,8 @@ func checkSettings(kind string, settings map[string]any) error {
 		return checkODataSettings(settings)
 	case BankSFTP:
 		return checkSFTPSettings(settings)
+	case BankEBICS:
+		return checkEBICSSettings(settings)
 	}
 	return nil
 }
@@ -260,6 +262,12 @@ func UpdateConnector(ctx context.Context, id uuid.UUID, ifMatch func(int32) erro
 
 // SetConnectorStatus enables (active) or disables a connector.
 func SetConnectorStatus(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, status, reason string) (Connector, error) {
+	return setConnectorStatus(ctx, id, ifMatch, status, reason, func(Connector) error { return nil })
+}
+
+// setConnectorStatus sets the status once allow accepts the connector as
+// read, locked.
+func setConnectorStatus(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, status, reason string, allow func(Connector) error) (Connector, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Connector{}, err
@@ -273,6 +281,9 @@ func SetConnectorStatus(ctx context.Context, id uuid.UUID, ifMatch func(int32) e
 	}
 	if c.Status == status {
 		return Connector{}, problem.Conflict("integration.invalid_status", "The connector is already "+status+".")
+	}
+	if err := allow(c); err != nil {
+		return Connector{}, err
 	}
 	updated, err := scanConnector(tx.QueryRow(ctx, `UPDATE integration.connector SET status = $2, version = version + 1, updated_by = $3
 		WHERE id = $1 RETURNING `+connectorColumns, id, status, p.ID))
@@ -314,6 +325,9 @@ func (e *Endpoints) CreateConnector(ctx context.Context, req *gen.ConnectorCreat
 	in := NewConnector{Kind: req.Kind, Name: req.Name, Settings: fromSettings(req.Settings)}
 	if s, ok := req.SecretRef.Get(); ok {
 		in.SecretRef = &s
+	}
+	if err := e.refuseEBICS(in.Kind); err != nil {
+		return nil, err
 	}
 	c, err := CreateConnector(ctx, in)
 	if err != nil {
@@ -383,7 +397,7 @@ func (e *Endpoints) UpdateConnector(ctx context.Context, req *gen.ConnectorUpdat
 
 // EnableConnector implements POST /v1/connectors/{id}:enable.
 func (e *Endpoints) EnableConnector(ctx context.Context, params gen.EnableConnectorParams) (gen.EnableConnectorRes, error) {
-	c, err := SetConnectorStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), "active", "")
+	c, err := setConnectorStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), "active", "", func(c Connector) error { return e.refuseEBICS(c.Kind) })
 	if err != nil {
 		return nil, err
 	}

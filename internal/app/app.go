@@ -109,6 +109,9 @@ type Config struct {
 	// RequireBoundAgents accepts agents' tokens only bound to their client
 	// certificates (production, ADR-0033).
 	RequireBoundAgents bool
+	// RefuseEBICS refuses bank_ebics connectors until EBICS is certified
+	// with a bank (production, ADR-0038).
+	RefuseEBICS bool
 	// Model is the model gateway (agents.Gateway, ADR-0036); nil answers 503.
 	Model http.Handler
 	// EvalCell lifts the bound of agents' autonomy by their type's
@@ -203,7 +206,7 @@ func Integration(cfg Config) *integration.Endpoints {
 	return &integration.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Settings: configuration.Settings{},
 		Partners: partner.Migration{Ports: partners}, Suppliers: partner.Suppliers{}, Orders: procurementEndpoints(cfg), OrderValues: procurement.Orders{},
 		Invoices: payablesEndpoints(cfg, uploads(cfg)), InvoiceCounts: payables.Invoices{}, Postings: postings(), Reports: ledger.Reports{},
-		Secrets: resolver(cfg.Secrets), ExtractDir: cfg.ExtractDir, Workflows: cfg.Workflows != nil}
+		Secrets: resolver(cfg.Secrets), ExtractDir: cfg.ExtractDir, Workflows: cfg.Workflows != nil, RefuseEBICS: cfg.RefuseEBICS}
 }
 
 // procurementEndpoints is the procurement context as the API wires it.
