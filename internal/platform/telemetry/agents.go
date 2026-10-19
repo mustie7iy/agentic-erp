@@ -25,7 +25,8 @@ const (
 )
 
 // TokenKinds are the kind label's values: the token kinds a call is
-// billed for.
+// billed for, in ModelCalled's order of Input, Output, CacheRead and
+// CacheWrite, which labels the counts by position.
 var TokenKinds = []string{"input", "output", "cache_read", "cache_write"}
 
 // Decisions are the decision label's values.
