@@ -28,6 +28,7 @@ func endpoints() *partner.Endpoints {
 // unit of work and with each of its database statements failing in turn.
 func TestDatabaseFailures(t *testing.T) {
 	e := setup(t)
+	e.withholdingCodes(t)
 	u := func(m map[string]any) uuid.UUID { return uuid.MustParse(id(m)) }
 	bankOf := func(p map[string]any) uuid.UUID {
 		page, _ := e.Must(200, "GET", "/v1/business-partners/"+id(p)+"/bank-accounts", "", "")
@@ -59,7 +60,7 @@ func TestDatabaseFailures(t *testing.T) {
 	when := e.day.AddDate(0, 0, 3)
 	newPartner := &gen.BusinessPartnerCreate{Kind: "organization", Name: "N", CountryCode: "DE", Roles: []string{"supplier"}, Reason: "r",
 		LegalName: gen.NewOptString("N GmbH"), Language: gen.NewOptString("de"),
-		SupplierCompanies: []gen.SupplierCompanyInput{{LegalEntityID: e.le, ReconciliationAccountID: e.recon, PaymentTermCode: "NT30"}},
+		SupplierCompanies: []gen.SupplierCompanyInput{{LegalEntityID: e.le, ReconciliationAccountID: e.recon, PaymentTermCode: "NT30", WithholdingTaxCodes: []string{"W1"}}},
 		Addresses: []gen.Address{{Purpose: "legal", Line1: "L", City: "C", CountryCode: "DE", ValidFrom: e.day, ValidTo: gen.NewOptDate(when),
 			Line2: gen.NewOptString("2"), PostalCode: gen.NewOptString("1"), Region: gen.NewOptString("BE")}},
 		TaxIdentifiers: []gen.TaxIdentifierInput{{Scheme: "EU_VAT", Value: "DE123456789"}},

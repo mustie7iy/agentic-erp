@@ -12,6 +12,9 @@
 // (document type KR). On an order valued through GR/IR (T33), whose goods
 // receipts post Cr GR/IR, an item on an order item debits GR/IR at the
 // order price instead, with the price difference on its own line.
+//
+// Down payment requests (ADR-0037) are payables documents outside the
+// ledger: a payment run pays them, which posts the special G/L item.
 package payables
 
 import (
@@ -108,6 +111,7 @@ type Postings interface {
 	Post(ctx context.Context, in ledger.Posting) (ledger.Entry, error)
 	Reverse(ctx context.Context, entryID uuid.UUID, postingDate *time.Time, headerText *string) (ledger.Entry, error)
 	IsCleared(ctx context.Context, fiscalYear int16, entryID uuid.UUID) (bool, error)
+	ClearDownPayments(ctx context.Context, in ledger.DownPaymentClearing) (ledger.Entry, error)
 }
 
 // Accounts is what payables asks the ledger about accounts and tax codes.
@@ -115,6 +119,7 @@ type Accounts interface {
 	Determination(ctx context.Context, legalEntity uuid.UUID, key string) (uuid.UUID, bool, error)
 	IsPostable(ctx context.Context, legalEntity, account uuid.UUID) (bool, error)
 	TaxCode(ctx context.Context, legalEntity uuid.UUID, code string, date time.Time) (ledger.TaxCode, bool, error)
+	WithholdingTaxCode(ctx context.Context, legalEntity uuid.UUID, code string) (ledger.WithholdingTaxCode, bool, error)
 }
 
 // Numbers issues document numbers (configuration context).
@@ -150,6 +155,8 @@ type Opener interface {
 // the transaction ends.
 type Payments interface {
 	RunOf(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16, entryID uuid.UUID) (string, bool, error)
+	// RequestRunOf is the live run that pays a down payment request.
+	RequestRunOf(ctx context.Context, legalEntity, request uuid.UUID) (string, bool, error)
 }
 
 // Endpoints implements the payables part of the generated API.
@@ -343,7 +350,7 @@ func (e *Endpoints) validate(ctx context.Context, tx pgx.Tx, in Input) (checked,
 		return checked{}, err
 	}
 	c := checked{currency: in.Gross.Currency, purchaseOrder: in.PurchaseOrderID}
-	exp, err := currencyExponent(ctx, tx, c.currency)
+	exp, err := currencyExponent(ctx, tx, c.currency, "gross_amount.currency")
 	if err != nil {
 		return checked{}, err
 	}
@@ -414,11 +421,12 @@ func notNegative(gross, tax money.Minor) error {
 	return nil
 }
 
-// currencyExponent reads the minor-unit digits of the invoice currency.
-func currencyExponent(ctx context.Context, tx pgx.Tx, code string) (int, error) {
-	exp, err := currency.Exponent(ctx, tx, code, invalid("payables.unknown_currency", "gross_amount.currency", "The currency is not known."))
+// currencyExponent reads the minor-unit digits of a document's currency;
+// field names it in the refusal of an unknown one.
+func currencyExponent(ctx context.Context, tx pgx.Tx, code, field string) (int, error) {
+	exp, err := currency.Exponent(ctx, tx, code, invalid("payables.unknown_currency", field, "The currency is not known."))
 	if err != nil {
-		return 0, fmt.Errorf("payables: invoice: %w", err)
+		return 0, fmt.Errorf("payables: currency %s: %w", code, err)
 	}
 	return exp, nil
 }

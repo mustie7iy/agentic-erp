@@ -37,15 +37,15 @@ func runOK(r Run) *gen.RejectPaymentRunOKHeaders {
 func paymentToAPI(p Payment, currency string, exp int) gen.Payment {
 	out := gen.Payment{ID: p.ID, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, PaymentRunID: p.RunID, SupplierID: p.SupplierID,
 		BankAccountID: p.BankAccountID, Amount: apitypes.Money(p.Amount, currency, exp), DiscountAmount: gen.NewOptMoney(apitypes.Money(p.Discount, currency, exp)),
-		EndToEndID: p.EndToEndID, JournalEntryID: apitypes.OptUUID(p.JournalEntryID),
-		Items: make([]gen.PaymentItem, len(p.Items))}
+		WithholdingAmount: gen.NewOptMoney(apitypes.Money(p.Withholding, currency, exp)), EndToEndID: p.EndToEndID, JournalEntryID: apitypes.OptUUID(p.JournalEntryID), Kind: gen.NewOptString(p.Kind),
+		DownPaymentRequestID: apitypes.OptUUID(p.RequestID), Items: make([]gen.PaymentItem, len(p.Items))}
 	if p.DiscountUntil != nil {
 		out.DiscountUntil.SetTo(*p.DiscountUntil)
 	}
 	for i, it := range p.Items {
 		out.Items[i] = gen.PaymentItem{FiscalYear: int32(it.FiscalYear), JournalEntryID: it.EntryID, LineNo: it.LineNo,
 			Amount: apitypes.Money(it.Amount, currency, exp), DiscountAmount: gen.NewOptMoney(apitypes.Money(it.Discount, currency, exp)),
-			DueDate: it.DueDate.Time, IsActive: it.Active}
+			WithholdingAmount: gen.NewOptMoney(apitypes.Money(it.Withholding, currency, exp)), DueDate: it.DueDate.Time, IsActive: it.Active}
 	}
 	return out
 }
@@ -175,19 +175,25 @@ func (e *Endpoints) ListPaymentExclusions(ctx context.Context, params gen.ListPa
 	if err != nil {
 		return nil, err
 	}
-	q, args := ks.SQL(`SELECT id, reason_code, amount FROM (SELECT supplier_id AS id, reason_code, amount FROM payments.payment_exclusion
-		WHERE payment_run_id = $1) x WHERE true`, []any{r.ID})
+	// The suppliers' items, keyed by supplier as before, and the requests
+	// left out (T46c), keyed by request.
+	q, args := ks.SQL(`SELECT id, supplier_id, request_id, reason_code, amount FROM (
+		SELECT supplier_id AS id, supplier_id, NULL::uuid AS request_id, reason_code, amount FROM payments.payment_exclusion WHERE payment_run_id = $1
+		UNION ALL
+		SELECT down_payment_request_id, supplier_id, down_payment_request_id, reason_code, amount FROM payments.request_exclusion WHERE payment_run_id = $1) x
+		WHERE true`, []any{r.ID})
 	rows, _ := tx.Query(ctx, q, args...)
 	exs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Exclusion, error) {
 		var x Exclusion
-		return x, errs.Wrapf(row.Scan(&x.SupplierID, &x.Reason, &x.Amount), "scan exclusion")
+		return x, errs.Wrapf(row.Scan(&x.ID, &x.SupplierID, &x.RequestID, &x.Reason, &x.Amount), "scan exclusion")
 	})
 	if err != nil {
 		return nil, fmt.Errorf("payments: list exclusions of run %s: %w", r.ID, err)
 	}
-	items, next := apitypes.PageOf(ks, exs, idKey(func(x Exclusion) uuid.UUID { return x.SupplierID }),
+	items, next := apitypes.PageOf(ks, exs, idKey(func(x Exclusion) uuid.UUID { return x.ID }),
 		func(x Exclusion) gen.PaymentExclusion {
-			return gen.PaymentExclusion{SupplierID: x.SupplierID, ReasonCode: x.Reason, Amount: apitypes.Money(x.Amount, r.Currency, r.Exponent)}
+			return gen.PaymentExclusion{SupplierID: x.SupplierID, DownPaymentRequestID: apitypes.OptUUID(x.RequestID), ReasonCode: x.Reason,
+				Amount: apitypes.Money(x.Amount, r.Currency, r.Exponent)}
 		})
 	return &gen.PaymentExclusionPageHeaders{Response: gen.PaymentExclusionPage{Items: items, NextPageToken: next}}, nil
 }

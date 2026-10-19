@@ -415,16 +415,78 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Down payments",
       "r": "T46",
-      "c": []
+      "c": [
+       {
+        "s": "D",
+        "t": "Special G/L items: down payments on the legal entity's down payment account (indicator A), shown on lines, open items and events, never netted in runs, refused by clearing and settlement",
+        "r": "db/migrations/000078 · account_determination.down_payment · journal_line.special_gl · OpenItems.Payable · ledger.special_gl_item · T46a",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "SAP load of open down payments (BSIK with UMSKZ A) on the down payment account with the indicator; the migration reconciliation's open payables then decide whether they count",
+        "r": "internal/integration load · Reports.OpenPayables · follow-up of the SAP load",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Down payment requests (F-47): payables documents outside the ledger, numbered from their own range, with optional input tax and their own permission; entered, listed, read and cancelled, audited and published",
+        "r": "db/migrations/000079 · payables.down_payment_request · down-payment-requests · payables.down_payment.request · DownPaymentRequested · T46b",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Payment runs pay due down payment requests (F-48/F110), each a payment of its own, never netted; the release posts the down payment as special G/L item A with its input tax, and the request is paid; a request in a live run is not cancelled",
+        "r": "db/migrations/000080 · payment.kind · ledger.Postings.PayDownPayment · payments.DownPayments · T46c",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "DownPaymentRequestPaid published when a run pays a request; a request whose tax code ended is left out of the run (tax_code_invalid)",
+        "r": "asyncapi DownPaymentRequestPaid · payment_exclusion tax_code_invalid · T46c",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Down payments cleared against the final invoice (F-54), whole: a transfer clears them, reverses their input tax and debits payables under the invoice's terms; the invoice is not reversed while it stands",
+        "r": "db/migrations/000081 · supplier-invoices/{id}:clearDownPayments · ledger.Postings.ClearDownPayments · DownPaymentsCleared · T46d",
+        "c": []
+       }
+      ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Withholding tax",
       "r": "T46",
-      "c": []
+      "c": [
+       {
+        "s": "D",
+        "t": "Withholding tax codes per company (rate, base net or gross, at invoice or payment, payable account) and suppliers' codes per company, checked against them; a code a supplier has is not removed",
+        "r": "db/migrations/000087 · companies[].withholding_tax_codes · ledger.withholding_tax_code · partner.supplier_withholding · T46e",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Withholding tax computed by the supplier's codes and posted at invoice or at payment as each code says: at invoice the posting credits it to the code's account and owes the supplier the rest; at payment the run deducts it, on the base after the cash discount, and the release posts it (none on down payments)",
+        "r": "db/migrations/000088-000089 · ledger.open_item_withholding · ledger.Withholding · payment[_item].withholding_amount · T46f",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Withholding hardening (T46f review): the release checks its recomputed withholding against payment_item.withholding_amount (409 ledger.withholding_changed); a withholding at extreme rates that would take the whole item fails the proposal with 422 payments.withholding_too_large, not the payment_item_withholding_within check's 500; PaymentRunProposed carries the withholding total",
+        "r": "follow-up of T46f · ledger.Settlement.Withholding · payments.withholdingWithin · asyncapi PaymentRunProposedV1.withholding_amount",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "SAP load of withholding tax codes (T059P/T059Z) and suppliers' codes (LFBW)",
+        "r": "follow-up of the SAP load",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",
@@ -3694,6 +3756,12 @@
         "s": "D",
         "t": "T47's order changes and renewContract stay at autonomy level 2",
         "r": "PO 2026-10-18 · revisit with T43",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Down payment requests propose (createDownPaymentRequest, cancelDownPaymentRequest: a request pays nothing by itself); clearSupplierInvoiceDownPayments stays at autonomy level 2 (it posts journal entries)",
+        "r": "x-autonomy: propose · ADR-0036 · PO 2026-10-19 · T46",
         "c": []
        }
       ]

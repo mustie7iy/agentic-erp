@@ -33,6 +33,7 @@ func HasErrors(fs []Finding) bool {
 
 var (
 	currencyRe = regexp.MustCompile(`^[A-Z]{3}$`)
+	wthCodeRe  = regexp.MustCompile(`^[A-Z0-9]{1,4}$`)
 	countryRe  = regexp.MustCompile(`^[A-Z]{2}$`)
 	bicRe      = regexp.MustCompile(`^[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$`)
 	accountRe  = regexp.MustCompile(`^[0-9A-Za-z]{1,10}$`)
@@ -159,6 +160,7 @@ func (v *validator) company(p string, co *Company) {
 	v.chartOfAccounts(p, co)
 	v.accountDetermination(p, co)
 	v.taxCodes(p, co)
+	v.withholdingTaxCodes(p, co)
 	if co.InvoiceTolerance.PricePercent < 0 || co.InvoiceTolerance.PricePercent > 100 {
 		v.err(p+".invoice_tolerance.price_percent", "must be 0-100")
 	}
@@ -202,8 +204,9 @@ func (v *validator) chartOfAccounts(p string, co *Company) {
 		}
 		if a.VendorReconciliation {
 			recon++
-			if a.Type != Liability {
-				v.err(ap, "a vendor reconciliation account must be a liability")
+			downPayment := a.Number == co.AccountDetermination.DownPayment && a.Type == Asset // advances to suppliers (ADR-0037)
+			if a.Type != Liability && !downPayment {
+				v.err(ap, "a vendor reconciliation account must be a liability, or the company's down payment account, an asset")
 			}
 		}
 	}
@@ -218,9 +221,10 @@ func (v *validator) chartOfAccounts(p string, co *Company) {
 // accountDetermination checks that each determined account is in the chart
 // with the type its use needs, a vendor reconciliation account where the
 // use is one and no other account; the FX accounts are optional, the
-// GR/IR account comes with a price difference account, and the cash
-// discount account is a revenue (SAP SKE, cash discount received; its
-// presence is required by the payment terms, paymentTerms).
+// GR/IR account comes with a price difference account, the cash discount
+// account is a revenue (SAP SKE, cash discount received; its presence is
+// required by the payment terms, paymentTerms), and the down payment
+// account is an asset vendor reconciliation account (ADR-0037).
 func (v *validator) accountDetermination(p string, co *Company) {
 	ad := co.AccountDetermination
 	check := func(field, number string, want AccountType, recon bool) {
@@ -255,6 +259,9 @@ func (v *validator) accountDetermination(p string, co *Company) {
 	}
 	if ad.CashDiscount != "" {
 		check("cash_discount", ad.CashDiscount, Revenue, false)
+	}
+	if ad.DownPayment != "" {
+		check("down_payment", ad.DownPayment, Asset, true)
 	}
 }
 
@@ -319,6 +326,34 @@ func (v *validator) taxCodes(p string, co *Company) {
 	}
 	if len(co.TaxCodes) == 0 {
 		v.warn(p+".tax_codes", "no tax codes; captured invoices cannot be checked for tax rate")
+	}
+}
+
+// withholdingTaxCodes checks the company's withholding tax codes (T46e):
+// unique codes of 1-4 upper-case letters or digits, a rate above 0 and
+// below 100% with up to three decimals, a base of net (the default) or
+// gross, deducted at invoice or at payment, to a liability account of the
+// chart that reconciles no supplier: the withholding tax payable.
+func (v *validator) withholdingTaxCodes(p string, co *Company) {
+	codes := map[string]bool{}
+	for _, w := range co.WithholdingTaxCodes {
+		wp := fmt.Sprintf("%s.withholding_tax_codes[%s]", p, w.Code)
+		if !wthCodeRe.MatchString(w.Code) || codes[w.Code] {
+			v.err(wp, "a withholding tax code is 1-4 upper-case letters or digits, unique in the company")
+		}
+		codes[w.Code] = true
+		if r, ok := v.amount(wp+".rate_percent", w.RatePercent, 3); ok && (r == 0 || r >= 100_000) {
+			v.err(wp+".rate_percent", "a rate above 0 and below 100%%")
+		}
+		if b := w.BaseOrNet(); b != WithholdingNet && b != WithholdingGross {
+			v.err(wp+".base", "net or gross")
+		}
+		if w.Posting != WithholdingAtInvoice && w.Posting != WithholdingAtPayment {
+			v.err(wp+".posting", "invoice or payment")
+		}
+		if a := co.Account(w.Account); a == nil || a.Type != Liability || a.VendorReconciliation {
+			v.err(wp+".account", "account %s: the withholding tax payable is a liability of the chart that reconciles no supplier", w.Account)
+		}
 	}
 }
 

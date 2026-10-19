@@ -118,6 +118,25 @@ func TestValidationRules(t *testing.T) {
 		{"discount without a cash discount account", discounts(Discount{Days: 10, Percent: "2"}), "companies[1000].account_determination.cash_discount"},
 		{"cash discount unknown", func(c *Config) { c.Companies[0].AccountDetermination.CashDiscount = "999999" }, "companies[1000].account_determination.cash_discount"},
 		{"cash discount wrong type", func(c *Config) { c.Companies[0].AccountDetermination.CashDiscount = "140000" }, "companies[1000].account_determination.cash_discount"},
+		{"down payment account unknown", func(c *Config) { c.Companies[0].AccountDetermination.DownPayment = "159000" }, "companies[1000].account_determination.down_payment"},
+		{"down payment account not reconciliation", func(c *Config) { c.Companies[0].AccountDetermination.DownPayment = "100000" }, "companies[1000].account_determination.down_payment"},
+		{"down payment account a liability", func(c *Config) { c.Companies[0].AccountDetermination.DownPayment = "211000" }, "companies[1000].account_determination.down_payment"},
+		{"asset reconciliation account not for down payments", func(c *Config) {
+			c.Companies[0].ChartOfAccounts = append(c.Companies[0].ChartOfAccounts, Account{Number: "159000", Name: "Advances", Type: Asset, VendorReconciliation: true})
+		}, "companies[1000].chart_of_accounts[159000]"},
+		{"withholding code", wht(func(w *WithholdingTaxCode) { w.Code = "w-1" }), "companies[1000].withholding_tax_codes[w-1]"},
+		{"withholding code twice", func(c *Config) {
+			wht(func(*WithholdingTaxCode) {})(c)
+			c.Companies[0].WithholdingTaxCodes = append(c.Companies[0].WithholdingTaxCodes, c.Companies[0].WithholdingTaxCodes[0])
+		}, "companies[1000].withholding_tax_codes[W1]"},
+		{"withholding rate zero", wht(func(w *WithholdingTaxCode) { w.RatePercent = "0" }), "companies[1000].withholding_tax_codes[W1].rate_percent"},
+		{"withholding rate 100", wht(func(w *WithholdingTaxCode) { w.RatePercent = "100" }), "companies[1000].withholding_tax_codes[W1].rate_percent"},
+		{"withholding rate decimals", wht(func(w *WithholdingTaxCode) { w.RatePercent = "1.2345" }), "companies[1000].withholding_tax_codes[W1].rate_percent"},
+		{"withholding base", wht(func(w *WithholdingTaxCode) { w.Base = "tax" }), "companies[1000].withholding_tax_codes[W1].base"},
+		{"withholding posting", wht(func(w *WithholdingTaxCode) { w.Posting = "" }), "companies[1000].withholding_tax_codes[W1].posting"},
+		{"withholding account unknown", wht(func(w *WithholdingTaxCode) { w.Account = "999999" }), "companies[1000].withholding_tax_codes[W1].account"},
+		{"withholding account reconciles", wht(func(w *WithholdingTaxCode) { w.Account = "211000" }), "companies[1000].withholding_tax_codes[W1].account"},
+		{"withholding account an expense", wht(func(w *WithholdingTaxCode) { w.Account = "520000" }), "companies[1000].withholding_tax_codes[W1].account"},
 		{"tiers empty", func(c *Config) { c.Purchasing.RequisitionApproval = nil }, "purchasing.requisition_approval"},
 		{"order tiers empty", func(c *Config) { c.Purchasing.OrderReleaseApproval = nil }, "purchasing.order_release_approval"},
 		{"order last tier capped", func(c *Config) { c.Purchasing.OrderReleaseApproval[2].UpTo = "1000000.00" }, "purchasing.order_release_approval[2].up_to"},
@@ -185,6 +204,67 @@ func TestDiscountTiersValid(t *testing.T) {
 	}
 	if changes[0].Tier != TierPostingRelated {
 		t.Errorf("change tier: got %v, want %v", changes[0].Tier, TierPostingRelated)
+	}
+}
+
+// wht gives company 1000 withholding tax code W1, 10% of net at invoice
+// on a new liability account 236000, changed by mod.
+func wht(mod func(*WithholdingTaxCode)) func(c *Config) {
+	return func(c *Config) {
+		co := &c.Companies[0]
+		co.ChartOfAccounts = append(co.ChartOfAccounts, Account{Number: "236000", Name: "Withholding tax payable", Type: Liability})
+		w := WithholdingTaxCode{Code: "W1", Description: "Withholding 10%", RatePercent: "10", Account: "236000", Posting: WithholdingAtInvoice}
+		mod(&w)
+		co.WithholdingTaxCodes = append(co.WithholdingTaxCodes, w)
+	}
+}
+
+// TestWithholdingTaxCodesValid: a withholding tax code of net (the
+// default) or gross, at invoice or at payment, on a liability that
+// reconciles no supplier, is valid, and a change to one is posting-related
+// (T46e); its description is cosmetic.
+func TestWithholdingTaxCodesValid(t *testing.T) {
+	c := fixture(t)
+	wht(func(*WithholdingTaxCode) {})(c)
+	c.Companies[0].WithholdingTaxCodes = append(c.Companies[0].WithholdingTaxCodes, WithholdingTaxCode{Code: "W2", Description: "15% of gross at payment",
+		RatePercent: "15.125", Base: WithholdingGross, Account: "236000", Posting: WithholdingAtPayment})
+	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
+		t.Fatalf("withholding tax codes: got %v, want no errors", fs)
+	}
+	if got := c.Companies[0].WithholdingTaxCodes[0].BaseOrNet(); got != WithholdingNet {
+		t.Errorf("default base: got %s, want net", got)
+	}
+	changed := fixture(t)
+	wht(func(w *WithholdingTaxCode) { w.RatePercent = "12"; w.Description = "Withholding 12%" })(changed)
+	base := fixture(t)
+	wht(func(*WithholdingTaxCode) {})(base)
+	changes, err := Diff(base, changed)
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	tiers := map[string]Tier{}
+	for _, ch := range changes {
+		tiers[ch.Path] = ch.Tier
+	}
+	for path, want := range map[string]Tier{"companies[1000].withholding_tax_codes[W1].rate_percent": TierPostingRelated,
+		"companies[1000].withholding_tax_codes[W1].description": TierCosmetic} {
+		if got, ok := tiers[path]; !ok || got != want {
+			t.Errorf("change %s: got %v (%v), want %v", path, got, ok, want)
+		}
+	}
+}
+
+// TestDownPaymentAccountValid: a company's down payment account (SAP's
+// alternative reconciliation account for special G/L A, ADR-0037) is an
+// asset that is a vendor reconciliation account, the one asset that may
+// be.
+func TestDownPaymentAccountValid(t *testing.T) {
+	c := fixture(t)
+	co := &c.Companies[0]
+	co.ChartOfAccounts = append(co.ChartOfAccounts, Account{Number: "159000", Name: "Down payments made", Type: Asset, VendorReconciliation: true})
+	co.AccountDetermination.DownPayment = "159000"
+	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
+		t.Fatalf("down payment account: got %v, want no errors", fs)
 	}
 }
 

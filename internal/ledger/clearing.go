@@ -93,7 +93,8 @@ type item struct {
 	tc, lc, gc                       money.Minor
 	currency, currencyLC, currencyGC string
 	rateTCLC, rateLCGC               string
-	reservedBy                       *Owner // the owner holding the item (item_reservation), or nil
+	reservedBy                       *Owner  // the owner holding the item (item_reservation), or nil
+	special                          *string // the special G/L indicator (ADR-0037), or nil
 }
 
 // createClearing clears open items against each other. The items must be
@@ -231,10 +232,11 @@ func requireClearable(i int, it, first item, legalEntity uuid.UUID) error {
 // checkItem checks item i, the check every use of open items shares
 // (clearing, settlement, migrated clearing, reservation): a line on a
 // reconciliation account of the legal entity (nil: of any), then not
-// reversed, then not cleared, then not reserved by an owner other than
-// heldBy (uuid.Nil: by none). The order names the first reason a caller can
-// act on: a reversed item is cleared too (clearReversal), and the refusal
-// says why. fields go with the not-an-open-item refusal.
+// reversed, then not cleared, then not a special G/L item, then not
+// reserved by an owner other than heldBy (uuid.Nil: by none). The order
+// names the first reason a caller can act on: a reversed item is cleared
+// too (clearReversal), and the refusal says why. fields go with the
+// not-an-open-item refusal.
 func checkItem(i int, it item, legalEntity *uuid.UUID, heldBy uuid.UUID, fields ...problem.FieldError) error {
 	switch {
 	case !it.found || !it.recon || (legalEntity != nil && it.legalEntity != *legalEntity):
@@ -247,6 +249,12 @@ func checkItem(i int, it item, legalEntity *uuid.UUID, heldBy uuid.UUID, fields 
 		return reversedItem(i)
 	case !it.open:
 		return problem.Conflict("ledger.item_already_cleared", "Item "+fmt.Sprint(i+1)+" is already cleared.")
+	case it.special != nil:
+		// A special G/L item (a down payment) leaves its account only by
+		// clearing against the supplier's invoice or by a reversal
+		// (ADR-0037), never netted; T46d's clearing will be the exception.
+		return problem.Conflict("ledger.special_gl_item", "Item "+fmt.Sprint(i+1)+
+			" is a special G/L item ("+*it.special+"); it is cleared against the supplier's invoice, not settled or cleared directly.")
 	case it.reservedBy != nil && it.reservedBy.ID != heldBy:
 		return reservedItem(i, *it.reservedBy)
 	}
@@ -286,7 +294,7 @@ func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
 			coalesce(l.amount_tc, 0), coalesce(l.amount_lc, 0), coalesce(l.amount_gc, 0), coalesce(e.currency_tc, ''),
 			coalesce(e.currency_lc, ''), coalesce(e.currency_gc, ''), coalesce(e.rate_tc_lc::text, ''), coalesce(e.rate_lc_gc::text, ''),
 			`+reversedLine+`,
-			ir.owner_id, coalesce(ir.owner_context, ''), coalesce(ir.owner_reference, '')
+			ir.owner_id, coalesce(ir.owner_context, ''), coalesce(ir.owner_reference, ''), l.special_gl
 		FROM unnest($1::smallint[], $2::uuid[], $3::int[]) WITH ORDINALITY AS x(y, je, n, ord)
 		LEFT JOIN ledger.journal_line l ON l.fiscal_year = x.y AND l.journal_entry_id = x.je AND l.line_no = x.n
 		LEFT JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
@@ -303,7 +311,7 @@ func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
 	var ownerID *uuid.UUID
 	if _, err := pgx.ForEachRow(rows, []any{&ord, &it.found, &it.open, &it.recon, &it.legalEntity, &it.ledger, &it.account, &it.partner,
 		&it.tc, &it.lc, &it.gc, &it.currency, &it.currencyLC, &it.currencyGC, &it.rateTCLC, &it.rateLCGC, &it.reversed,
-		&ownerID, &owner.Context, &owner.Reference}, func() error {
+		&ownerID, &owner.Context, &owner.Reference, &it.special}, func() error {
 		it.ref, it.reservedBy = refs[ord-1], nil
 		if ownerID != nil {
 			holder := owner

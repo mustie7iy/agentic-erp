@@ -22,7 +22,7 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 var rates = ledger.Rates{LegalEntities: tenancy.Directory{}}
 
 var perms = []string{"payables.invoice.read", "payables.invoice.capture", "payables.invoice.post", "payables.invoice.hold",
-	"payables.invoice.review", "ledger.entry.read", "ledger.entry.post", "ledger.clearing.post"}
+	"payables.invoice.review", "payables.down_payment.request", "ledger.entry.read", "ledger.entry.post", "ledger.clearing.post"}
 
 type env struct {
 	fixture.Env

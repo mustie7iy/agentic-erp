@@ -24,13 +24,13 @@ func TestSettlementDiscountsOutOfRange(t *testing.T) {
 		"a payment beyond an amount":           {[]money.Minor{1, 1, -8_999_999_999_999_999_999}, -9_000_000_000_000_000_000},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, _, err := settlementDiscount(Settlement{Discounts: c.discounts}, items, c.tc)
+			_, _, err := settlementDiscount(Settlement{Discounts: c.discounts}, items, c.tc, 0)
 			if p := problem.From(err); p == nil || p.Code != "ledger.amount_too_large" {
 				t.Errorf("got %v, want ledger.amount_too_large", err)
 			}
 		})
 	}
-	_, _, err := settlementDiscount(Settlement{Discounts: []money.Minor{math.MinInt64}}, []item{{tc: 5}}, 5)
+	_, _, err := settlementDiscount(Settlement{Discounts: []money.Minor{math.MinInt64}}, []item{{tc: 5}}, 5, 0)
 	if p := problem.From(err); p == nil || p.Code != "ledger.invalid_discount" {
 		t.Errorf("a discount of the smallest amount: got %v, want ledger.invalid_discount", err)
 	}

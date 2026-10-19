@@ -284,7 +284,8 @@ func (g grirPosting) lines(ctx context.Context, tx pgx.Tx) ([]Line, error) {
 	}
 	lines := make([]Line, 0, len(g.in.Lines)+2*len(g.in.GRIR)+2)
 	for _, l := range g.in.Lines {
-		lines = append(lines, Line{AccountID: l.AccountID, TC: l.Amount, PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text})
+		lines = append(lines, Line{AccountID: l.AccountID, TC: l.Amount, PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text,
+			SpecialGL: l.SpecialGL})
 	}
 	kept := make([]bool, len(lines))
 	moved, keep, err := g.itemLines(pos, keys)
@@ -391,7 +392,7 @@ func (p Postings) postGRIR(ctx context.Context, in Posting) (Entry, error) {
 	if err := project(ctx, tx, posted); err != nil {
 		return Entry{}, err
 	}
-	if err := keepTerms(ctx, tx, posted, in.Terms); err != nil {
+	if err := keepItemData(ctx, tx, posted, in); err != nil {
 		return Entry{}, err
 	}
 	return posted, audit.Add(ctx, audit.Entry{Action: "ledger.journal_entry.post", ObjectType: "ledger.journal_entry", ObjectID: posted.ID,

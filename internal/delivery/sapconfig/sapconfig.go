@@ -83,7 +83,7 @@ func (n Note) String() string { return n.Path + ": " + n.Message }
 // extract, besides one journal range per SAP document type it holds.
 var documentTypes = map[string]string{"journal_sa": "", "journal_ab": "", "journal_kr": "", "journal_we": "", "journal_kg": "", "journal_zp": "", "journal_ob": "",
 	"requisition": "PR", "purchase_order": "PO", "contract": "CT", "goods_receipt": "GR", "supplier_invoice": "SI", "payment_run": "PY",
-	"partner_change": ""}
+	"partner_change": "", "down_payment_request": "DP"}
 
 // Generate builds a draft configuration; validate it before proposing it.
 func Generate(e *sap.Extract, opts Options) (*config.Config, []Note) {

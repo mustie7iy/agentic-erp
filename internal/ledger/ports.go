@@ -37,6 +37,7 @@ type PostingLine struct {
 	TaxCode        *string
 	Quantity, Unit *string
 	Text           *string
+	SpecialGL      *string // A for a down payment on the down payment account (ADR-0037)
 }
 
 // Posting is an entry another context posts for one of its documents.
@@ -57,6 +58,10 @@ type Posting struct {
 	// Terms are the payment terms of the entry's supplier open items, kept
 	// with them (ledger.open_item_terms, T36b); nil for none.
 	Terms *ItemTerms
+	// Withholding are the withholding taxes of the entry's supplier open
+	// item (T46f), kept with it (ledger.open_item_withholding): what was
+	// withheld at invoice is among Lines already, on the code's account.
+	Withholding []Withholding
 }
 
 // ItemTerms are the payment terms an open item was posted with, as SAP
@@ -117,7 +122,8 @@ func (s storedTerms) terms() *ItemTerms {
 }
 
 // keepTerms keeps the terms with the entry's supplier open items: each
-// line on a supplier reconciliation account. Terms for an entry without
+// line on a supplier reconciliation account but special G/L items, which
+// no run pays (ADR-0037). Terms for an entry without
 // one are refused, rather than kept for nothing.
 func keepTerms(ctx context.Context, tx pgx.Tx, entry Entry, terms *ItemTerms) error {
 	if terms == nil {
@@ -135,7 +141,7 @@ func keepTerms(ctx context.Context, tx pgx.Tx, entry Entry, terms *ItemTerms) er
 			net_days, discount_days, discount_pct, discount2_days, discount2_pct)
 		SELECT l.tenant_id, l.fiscal_year, l.journal_entry_id, l.line_no, $3, $4, $5, $6, $7::numeric, $8, $9::numeric
 		FROM ledger.journal_line l JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id AND a.reconciliation_kind = 'supplier'
-		WHERE l.fiscal_year = $1 AND l.journal_entry_id = $2`,
+		WHERE l.fiscal_year = $1 AND l.journal_entry_id = $2 AND l.special_gl IS NULL`,
 		entry.FiscalYear, entry.ID, terms.PaymentTermCode, terms.BaselineDate, terms.NetDays, days[0], pct[0], days[1], pct[1])
 	if err != nil {
 		return fmt.Errorf("ledger: keep the terms of entry %s: %w", entry.ID, err)
@@ -189,13 +195,22 @@ func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
 		SourceDocumentID: &in.SourceDocumentID, Lines: make([]NewLine, len(in.Lines))}
 	for i, l := range in.Lines {
 		entry.Lines[i] = NewLine{AccountID: l.AccountID, Amount: l.Amount.Plain(exps[in.Currency]), Currency: in.Currency,
-			PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text}
+			PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text, SpecialGL: l.SpecialGL}
 	}
 	posted, err := p.endpoints().postJournalEntry(ctx, entry)
 	if err != nil {
 		return Entry{}, err
 	}
-	return posted, keepTerms(ctx, tx, posted, in.Terms)
+	return posted, keepItemData(ctx, tx, posted, in)
+}
+
+// keepItemData keeps the payment terms and withholding taxes of a posted
+// entry's supplier open item.
+func keepItemData(ctx context.Context, tx pgx.Tx, entry Entry, in Posting) error {
+	if err := keepTerms(ctx, tx, entry, in.Terms); err != nil {
+		return err
+	}
+	return keepWithholding(ctx, tx, entry, in.Withholding)
 }
 
 // Reverse posts the reversal of an entry, on the given date or the
@@ -314,4 +329,40 @@ func (c Calendar) FiscalYear(ctx context.Context, legalEntity uuid.UUID, date ti
 		return year, fmt.Errorf("ledger: fiscal year of %s on %s: %w", legalEntity, date.Format(time.DateOnly), err)
 	}
 	return year, nil
+}
+
+// WithholdingTaxCode is a legal entity's active withholding tax code
+// (T46e): a rate of the invoice's net or gross, deducted when the invoice
+// posts or when it is paid, owed on the account.
+type WithholdingTaxCode struct {
+	Code      string
+	RatePct   string // decimal, e.g. "15.000"
+	Base      string // config.WithholdingNet or config.WithholdingGross
+	AccountID uuid.UUID
+	Posting   string // config.WithholdingAtInvoice or config.WithholdingAtPayment
+}
+
+// WithholdingTaxCode returns the legal entity's active withholding tax code.
+func (Accounts) WithholdingTaxCode(ctx context.Context, legalEntity uuid.UUID, code string) (WithholdingTaxCode, bool, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return WithholdingTaxCode{}, false, err
+	}
+	w := WithholdingTaxCode{Code: code}
+	err = tx.QueryRow(ctx, `SELECT rate_pct::text, base, account_id, posting FROM ledger.withholding_tax_code
+		WHERE legal_entity_id = $1 AND code = $2 AND is_active`, legalEntity, code).Scan(&w.RatePct, &w.Base, &w.AccountID, &w.Posting)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return WithholdingTaxCode{}, false, nil
+	}
+	if err != nil {
+		return WithholdingTaxCode{}, false, fmt.Errorf("ledger: withholding tax code %s in %s: %w", code, legalEntity, err)
+	}
+	return w, true, nil
+}
+
+// IsWithholdingTaxCode reports whether the code is an active withholding
+// tax code of the legal entity (the partner context's check, T46e).
+func (a Accounts) IsWithholdingTaxCode(ctx context.Context, legalEntity uuid.UUID, code string) (bool, error) {
+	_, ok, err := a.WithholdingTaxCode(ctx, legalEntity, code)
+	return ok, err
 }

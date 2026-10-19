@@ -245,6 +245,10 @@ channels:
       SupplierInvoiceReversed: {$ref: '#/components/messages/SupplierInvoiceReversed'}
       InvoiceHoldReleased: {$ref: '#/components/messages/InvoiceHoldReleased'}
       SupplierInvoiceRejected: {$ref: '#/components/messages/SupplierInvoiceRejected'}
+      DownPaymentRequested: {$ref: '#/components/messages/DownPaymentRequested'}
+      DownPaymentRequestCancelled: {$ref: '#/components/messages/DownPaymentRequestCancelled'}
+      DownPaymentsCleared: {$ref: '#/components/messages/DownPaymentsCleared'}
+      DownPaymentRequestPaid: {$ref: '#/components/messages/DownPaymentRequestPaid'}
   payments:
     address: 'erp.{cell}.payments.{tenant}.{event}'
     title: Payment events
@@ -413,6 +417,10 @@ operations:
       - $ref: '#/channels/payables/messages/SupplierInvoiceReversed'
       - $ref: '#/channels/payables/messages/InvoiceHoldReleased'
       - $ref: '#/channels/payables/messages/SupplierInvoiceRejected'
+      - $ref: '#/channels/payables/messages/DownPaymentRequested'
+      - $ref: '#/channels/payables/messages/DownPaymentRequestCancelled'
+      - $ref: '#/channels/payables/messages/DownPaymentsCleared'
+      - $ref: '#/channels/payables/messages/DownPaymentRequestPaid'
   publishPaymentsEvents:
     action: send
     title: Payments publishes
@@ -1072,6 +1080,85 @@ components:
         - name: cancelled
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000018, source: /erp/eu-1/payables, type: com.example.erp.payables.supplier_invoice_cancelled.v1, subject: 0192a000-0000-7000-8000-000000000703, time: '2026-10-07T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {supplier_invoice_id: 0192a000-0000-7000-8000-000000000703, supplier_id: 0192a000-0000-7000-8000-000000000301, legal_entity_id: 0192a000-0000-7000-8000-000000000201, previous_status: on_hold, status: cancelled}
+    DownPaymentRequested:
+      name: DownPaymentRequested
+      title: Down payment requested
+      summary: A down payment to a supplier was requested.
+      description: |
+        Emitted by `POST /v1/down-payment-requests` (SAP F-47, special G/L
+        F; ADR-0037). The request is a payables document with no ledger
+        impact until a payment run pays it. Subject is the request id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payables.down_payment_requested.v1}
+      payload: {$ref: '#/components/schemas/DownPaymentRequestedV1'}
+      examples:
+        - name: requested
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000305, source: /erp/eu-1/payables, type: com.example.erp.payables.down_payment_requested.v1, subject: 0192a000-0000-7000-8000-000000000711, time: '2026-10-05T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {down_payment_request_id: 0192a000-0000-7000-8000-000000000711, document_number: DP100000, legal_entity_id: 0192a000-0000-7000-8000-000000000201, supplier_id: 0192a000-0000-7000-8000-000000000301, purchase_order_id: 0192a000-0000-7000-8000-000000000602, amount: {amount: '1190.00', currency: EUR}, tax_code: V1, tax_amount: {amount: '190.00', currency: EUR}, due_date: '2026-10-15', reference: AB-2026-17, status: open}
+    DownPaymentRequestCancelled:
+      name: DownPaymentRequestCancelled
+      title: Down payment request cancelled
+      summary: An open down payment request was cancelled.
+      description: |
+        Emitted by `down-payment-requests/{id}:cancel` when an open request
+        moves to `cancelled`; no payment run pays it any more. There is no
+        ledger impact. Subject is the request id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payables.down_payment_request_cancelled.v1}
+      payload: {$ref: '#/components/schemas/DownPaymentRequestCancelledV1'}
+      examples:
+        - name: cancelled
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000306, source: /erp/eu-1/payables, type: com.example.erp.payables.down_payment_request_cancelled.v1, subject: 0192a000-0000-7000-8000-000000000711, time: '2026-10-06T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {down_payment_request_id: 0192a000-0000-7000-8000-000000000711, legal_entity_id: 0192a000-0000-7000-8000-000000000201, supplier_id: 0192a000-0000-7000-8000-000000000301, previous_status: open, status: cancelled}
+    DownPaymentRequestPaid:
+      name: DownPaymentRequestPaid
+      title: Down payment request paid
+      summary: A payment run paid a down payment request.
+      description: |
+        Emitted when a released payment run's payment of a down payment
+        request posts (T46c, ADR-0037): the down payment is on the down
+        payment account as the supplier's special G/L item A, and the
+        request is paid by that journal entry. Subject is the request id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payables.down_payment_request_paid.v1}
+      payload: {$ref: '#/components/schemas/DownPaymentRequestPaidV1'}
+      examples:
+        - name: paid
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000308, source: /erp/eu-1/payables, type: com.example.erp.payables.down_payment_request_paid.v1, subject: 0192a000-0000-7000-8000-000000000711, time: '2026-10-16T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
+          payload: {down_payment_request_id: 0192a000-0000-7000-8000-000000000711, document_number: DP100000, legal_entity_id: 0192a000-0000-7000-8000-000000000201, supplier_id: 0192a000-0000-7000-8000-000000000301, journal_entry_id: 0192a000-0000-7000-8000-000000000503, journal_entry_year: 2026, amount: {amount: '1190.00', currency: EUR}, status: paid}
+    DownPaymentsCleared:
+      name: DownPaymentsCleared
+      title: Down payments cleared
+      summary: Down payments were cleared against a supplier's final invoice.
+      description: |
+        Emitted by `supplier-invoices/{id}:clearDownPayments` (SAP F-54;
+        ADR-0037) when the transfer entry posts: the down payments leave
+        the down payment account, their input tax is reversed, and a
+        payables debit with the invoice's terms nets against it in the next
+        run. The requests are cleared. Subject is the supplier invoice id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payables.down_payments_cleared.v1}
+      payload: {$ref: '#/components/schemas/DownPaymentsClearedV1'}
+      examples:
+        - name: cleared
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000307, source: /erp/eu-1/payables, type: com.example.erp.payables.down_payments_cleared.v1, subject: 0192a000-0000-7000-8000-000000000701, time: '2026-10-20T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {supplier_invoice_id: 0192a000-0000-7000-8000-000000000701, supplier_id: 0192a000-0000-7000-8000-000000000301, legal_entity_id: 0192a000-0000-7000-8000-000000000201, clearing_entry_id: 0192a000-0000-7000-8000-000000000502, clearing_entry_year: 2026, down_payment_request_ids: [0192a000-0000-7000-8000-000000000711], amount: {amount: '1190.00', currency: EUR}}
     SupplierInvoiceReversed:
       name: SupplierInvoiceReversed
       title: Supplier invoice reversed
@@ -2439,6 +2526,7 @@ components:
               quantity: {$ref: '#/components/schemas/Quantity'}
               purchase_order_id: {$ref: '#/components/schemas/NullableUuid', description: 'Purchase order whose item a GR/IR line belongs to.'}
               po_item_no: {type: [integer, 'null'], minimum: 1, description: 'Item of the purchase order, set with purchase_order_id.'}
+              special_gl: {type: string, description: 'Special G/L indicator of a supplier line (ADR-0037), open enum: A, a down payment. Absent on ordinary lines.'}
     JournalEntryReversedV1:
       type: object
       required: [journal_entry_id, fiscal_year, legal_entity_id, document_number, reversal_entry_id, reversal_fiscal_year, reversal_document_number, reversal_posting_date]
@@ -2726,6 +2814,53 @@ components:
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
         previous_status: {type: string, description: 'Open enum: parked, on_hold.'}
         status: {type: string, description: 'Open enum; cancelled in v1.'}
+    DownPaymentRequestedV1:
+      type: object
+      required: [down_payment_request_id, document_number, legal_entity_id, supplier_id, amount, tax_amount, due_date, status]
+      properties:
+        down_payment_request_id: {$ref: '#/components/schemas/Uuid'}
+        document_number: {type: string}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        supplier_id: {$ref: '#/components/schemas/Uuid'}
+        purchase_order_id: {$ref: '#/components/schemas/NullableUuid', description: 'The purchase order the down payment is for.'}
+        amount: {$ref: '#/components/schemas/Money', description: 'What is paid, tax included.'}
+        tax_code: {type: [string, 'null'], description: 'Input tax code; the payment claims the tax.'}
+        tax_amount: {$ref: '#/components/schemas/Money', description: 'The input tax the amount includes; 0 without a tax code.'}
+        due_date: {$ref: '#/components/schemas/Date'}
+        reference: {type: [string, 'null']}
+        status: {type: string, description: 'Open enum; open in v1.'}
+    DownPaymentRequestCancelledV1:
+      type: object
+      required: [down_payment_request_id, legal_entity_id, supplier_id, previous_status, status]
+      properties:
+        down_payment_request_id: {$ref: '#/components/schemas/Uuid'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        supplier_id: {$ref: '#/components/schemas/Uuid'}
+        previous_status: {type: string, description: 'Open enum: open.'}
+        status: {type: string, description: 'Open enum; cancelled in v1.'}
+    DownPaymentRequestPaidV1:
+      type: object
+      required: [down_payment_request_id, document_number, legal_entity_id, supplier_id, journal_entry_id, journal_entry_year, amount, status]
+      properties:
+        down_payment_request_id: {$ref: '#/components/schemas/Uuid'}
+        document_number: {type: string}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        supplier_id: {$ref: '#/components/schemas/Uuid'}
+        journal_entry_id: {$ref: '#/components/schemas/Uuid'}
+        journal_entry_year: {type: integer}
+        amount: {$ref: '#/components/schemas/Money', description: 'What was paid, tax included.'}
+        status: {type: string, description: 'Open enum; paid in v1.'}
+    DownPaymentsClearedV1:
+      type: object
+      required: [supplier_invoice_id, supplier_id, legal_entity_id, clearing_entry_id, clearing_entry_year, down_payment_request_ids, amount]
+      properties:
+        supplier_invoice_id: {$ref: '#/components/schemas/Uuid'}
+        supplier_id: {$ref: '#/components/schemas/Uuid'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        clearing_entry_id: {$ref: '#/components/schemas/Uuid'}
+        clearing_entry_year: {type: integer}
+        down_payment_request_ids: {type: array, items: {$ref: '#/components/schemas/Uuid'}}
+        amount: {$ref: '#/components/schemas/Money', description: 'The down payments cleared, tax included: the payables debit.'}
     SupplierInvoiceReversedV1:
       type: object
       required: [supplier_invoice_id, document_number, supplier_id, legal_entity_id, gross_amount, journal_entry_id, journal_entry_year, reversal_entry_id, reversal_entry_year, reversal_posting_date, status]
@@ -2756,6 +2891,7 @@ components:
         due_by: {$ref: '#/components/schemas/Date'}
         total_amount: {$ref: '#/components/schemas/Money'}
         discount_amount: {$ref: '#/components/schemas/Money', description: 'The cash discounts the run takes (T36c); total_amount is what it pays after them. Absent from events of releases before discounts were taken.'}
+        withholding_amount: {$ref: '#/components/schemas/SignedMoney', description: 'The withholding taxes the run deducts at payment (T46f), netted over invoices and credit memos; total_amount is what it pays after them and the discounts. Absent from events of releases before withholding was deducted.'}
         payment_count: {type: integer, minimum: 0}
         exclusion_count: {type: integer, minimum: 0}
         proposed_by: {$ref: '#/components/schemas/Uuid'}

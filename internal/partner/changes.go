@@ -39,6 +39,9 @@ type SupplierCompanyInput struct {
 	LegalEntityID           uuid.UUID `json:"legal_entity_id"`
 	ReconciliationAccountID uuid.UUID `json:"reconciliation_account_id"`
 	PaymentTermCode         string    `json:"payment_term_code"`
+	// WithholdingTaxCodes are the withholding taxes deducted from the
+	// supplier in the legal entity (SAP LFBW; T46e), codes of its company.
+	WithholdingTaxCodes []string `json:"withholding_tax_codes,omitempty"`
 }
 
 // AddressInput is an address to add.
@@ -204,6 +207,37 @@ func checkCompanies(ctx context.Context, tx pgx.Tx, ports Ports, supplier bool, 
 		if !term {
 			return invalid("partner.unknown_payment_term", f+".payment_term_code", "payment terms from the configuration")
 		}
+		if err := checkWithholding(ctx, tx, ports, f, s); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkWithholding requires a supplier's withholding tax codes to be
+// active codes of the legal entity's company (T46e), each once, under the
+// withholding lock, so a configuration taking a code away waits for the
+// change and then sees it pending (WithholdingCodes).
+func checkWithholding(ctx context.Context, tx pgx.Tx, ports Ports, f string, s SupplierCompanyInput) error {
+	if len(s.WithholdingTaxCodes) > 0 {
+		if err := lockWithholding(ctx, tx); err != nil {
+			return err
+		}
+	}
+	seen := map[string]bool{}
+	for j, code := range s.WithholdingTaxCodes {
+		field := fmt.Sprintf("%s.withholding_tax_codes[%d]", f, j)
+		if seen[code] {
+			return invalid("partner.duplicate_withholding_tax_code", field, "each withholding tax code once")
+		}
+		seen[code] = true
+		ok, err := ports.Accounts.IsWithholdingTaxCode(ctx, s.LegalEntityID, code)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return invalid("partner.unknown_withholding_tax_code", field, "a withholding tax code of the company's configuration")
+		}
 	}
 	return nil
 }
@@ -367,6 +401,41 @@ func putCompanies(ctx context.Context, tx pgx.Tx, p reqctx.Principal, partnerID 
 		p.TenantID, partnerID, p.ID, les, accounts, terms)
 	if err != nil {
 		return fmt.Errorf("partner: put supplier companies of business partner %s: %w", partnerID, err)
+	}
+	return putWithholding(ctx, tx, p, partnerID, in)
+}
+
+// putWithholding makes the supplier's withholding tax codes in each legal
+// entity of in the given ones: codes no longer given are deactivated,
+// never deleted, and given ones inserted or reactivated (T46e).
+func putWithholding(ctx context.Context, tx pgx.Tx, p reqctx.Principal, partnerID uuid.UUID, in []SupplierCompanyInput) error {
+	var les []uuid.UUID
+	var pairsLE []uuid.UUID
+	var codes []string
+	for _, s := range in {
+		les = append(les, s.LegalEntityID)
+		for _, c := range s.WithholdingTaxCodes {
+			pairsLE, codes = append(pairsLE, s.LegalEntityID), append(codes, c)
+		}
+	}
+	// Giving codes waits for a configuration taking codes away, which then
+	// sees them (WithholdingCodes); taking them off needs no lock.
+	if len(codes) > 0 {
+		if err := lockWithholding(ctx, tx); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `UPDATE partner.supplier_withholding w SET is_active = false, version = version + 1, updated_by = $4
+		WHERE w.partner_id = $1 AND w.legal_entity_id = ANY($2) AND w.is_active
+			AND NOT EXISTS (SELECT FROM unnest($3::uuid[], $5::text[]) AS x(le, code) WHERE x.le = w.legal_entity_id AND x.code = w.code)`,
+		partnerID, les, pairsLE, p.ID, codes); err != nil {
+		return fmt.Errorf("partner: take withholding tax codes off business partner %s: %w", partnerID, err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO partner.supplier_withholding AS w (tenant_id, partner_id, legal_entity_id, code, created_by, updated_by)
+		SELECT $1, $2, le, code, $3, $3 FROM unnest($4::uuid[], $5::text[]) AS x(le, code)
+		ON CONFLICT (tenant_id, partner_id, legal_entity_id, code) DO UPDATE SET is_active = true, version = w.version + 1, updated_by = $3
+		WHERE NOT w.is_active`, p.TenantID, partnerID, p.ID, pairsLE, codes); err != nil {
+		return fmt.Errorf("partner: put withholding tax codes of business partner %s: %w", partnerID, err)
 	}
 	return nil
 }

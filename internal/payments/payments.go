@@ -2,7 +2,9 @@
 // banks from the configuration document, payment runs (SAP F110) proposed
 // as an operation and released or rejected by a person other than the
 // proposer, payments posted to the ledger that clear the items they pay,
-// and ISO 20022 bank files transmitted through a connector.
+// and ISO 20022 bank files transmitted through a connector. A run also
+// pays due down payment requests (ADR-0037), each a payment of its own,
+// whose release posts the down payment as a special G/L item (T46c).
 //
 // payment-runs:propose creates the run in status proposing with its
 // operation; the Proposer worker builds it as the principal that proposed
@@ -99,6 +101,7 @@ type OpenItems interface {
 // reverse them by hand while the run is about to pay them.
 type Postings interface {
 	Settle(ctx context.Context, in ledger.Settlement) (ledger.Entry, error)
+	PayDownPayment(ctx context.Context, in ledger.DownPaymentPayment) (ledger.Entry, error)
 	Reserve(ctx context.Context, owner ledger.Owner, items []ledger.ItemRef) error
 	Release(ctx context.Context, owner uuid.UUID, items []ledger.ItemRef) error
 }
@@ -145,13 +148,37 @@ type Endpoints struct {
 	Connector     Connector           // transmits bank files; nil: transmission answers 503
 	Objects       blobstore.Store     // keeps bank files as written at release; nil: files are rendered again when needed
 	Accounts      Accounts            // the cash discount account a run with discounts posts to
+	DownPayments  DownPayments        // the down payment requests runs pay (T46c)
 	Now           func() time.Time    // the release's day; nil: time.Now
+}
+
+// DownPayments is what payments reads and records about down payment
+// requests (payables context, through the adapter in internal/app, so
+// neither context imports the other): the open requests due by a date,
+// one request, and that a released run's payment paid it.
+type DownPayments interface {
+	Due(ctx context.Context, legalEntity uuid.UUID, currency string, by time.Time) ([]DownPayment, error)
+	Request(ctx context.Context, id uuid.UUID) (DownPayment, error)
+	Paid(ctx context.Context, id uuid.UUID, fiscalYear int16, entryID uuid.UUID) error
+}
+
+// DownPayment is a down payment request as a run pays it: Amount, tax
+// included, in the request's currency.
+type DownPayment struct {
+	ID, SupplierID uuid.UUID
+	DocumentNumber string
+	Reference      *string
+	Amount         money.Minor
+	TaxCode        *string
+	Tax            money.Minor
+	DueDate        time.Time
 }
 
 // Accounts is what payments reads about account determination (ledger
 // context).
 type Accounts interface {
 	Determination(ctx context.Context, legalEntity uuid.UUID, key string) (uuid.UUID, bool, error)
+	TaxCode(ctx context.Context, legalEntity uuid.UUID, code string, date time.Time) (ledger.TaxCode, bool, error)
 }
 
 // Run is a row of payments.payment_run. Amounts are minor units of
@@ -237,11 +264,15 @@ type Item struct {
 	Amount     money.Minor `json:"amount"` // paid: what the item owes, so a credit memo is negative
 	// Discount is the cash discount taken on the item (T36c), of its sign:
 	// the item pays Amount less Discount.
-	Discount money.Minor       `json:"discount_amount"`
-	DueDate  partner.Date      `json:"due_date"`
-	Active   bool              `json:"is_active"`
-	terms    *ledger.ItemTerms // the terms it was posted with, while proposing
-	until    *time.Time        // the last day of the tier its discount is taken in, while proposing
+	Discount money.Minor `json:"discount_amount"`
+	// Withholding is the withholding tax deducted from the item (T46f), of
+	// its sign: the item pays Amount less Discount less Withholding.
+	Withholding money.Minor          `json:"withholding_amount"`
+	DueDate     partner.Date         `json:"due_date"`
+	Active      bool                 `json:"is_active"`
+	terms       *ledger.ItemTerms    // the terms it was posted with, while proposing
+	withholding []ledger.Withholding // its withholding taxes deducted at payment, while proposing
+	until       *time.Time           // the last day of the tier its discount is taken in, while proposing
 }
 
 // Payment is a row of payments.payment with its items.
@@ -250,8 +281,9 @@ type Payment struct {
 	RunID            uuid.UUID
 	SupplierID       uuid.UUID
 	BankAccountID    uuid.UUID
-	Amount           money.Minor // paid, after the items' discounts
+	Amount           money.Minor // paid, after the items' discounts and withholding
 	Discount         money.Minor // the items' cash discounts
+	Withholding      money.Minor // the withholding taxes deducted from the items (T46f)
 	DiscountUntil    *time.Time  // the last day they are earned, or nil
 	EndToEndID       string
 	JournalEntryYear *int16
@@ -259,30 +291,45 @@ type Payment struct {
 	Items            []Item
 	CreatedAt        time.Time
 	CreatedBy        uuid.UUID
-	Excluded         bool // dropped by the release (dropPayment): the supplier is excluded with the reason
+	Excluded         bool       // dropped by the release (dropPayment): the supplier is excluded with the reason
+	Kind             string     // KindItems or KindDownPayment (T46c)
+	RequestID        *uuid.UUID // the down payment request a KindDownPayment payment pays
 }
 
-// dropped says whether payment p was dropped by its run's release: its
-// supplier has an exclusion, which a payment of the run otherwise never
-// has (a proposal pays or excludes each supplier). It relies on one payment
-// per supplier and run, which UNIQUE (tenant_id, payment_run_id,
-// supplier_id) on payments.payment holds (000008).
-const dropped = `EXISTS (SELECT FROM payments.payment_exclusion x WHERE x.tenant_id = p.tenant_id AND x.payment_run_id = p.payment_run_id
-		AND x.supplier_id = p.supplier_id)`
+// Payment kinds: a supplier's open items, netted, or one down payment
+// request (T46c, ADR-0037), paid whole and never netted. The SQL here
+// names them as literals too ('items', 'down_payment'), the values of
+// payments.payment.kind's check (000080).
+const (
+	KindItems       = "items"
+	KindDownPayment = "down_payment"
+)
 
-const paymentSelect = `SELECT p.id, p.payment_run_id, p.supplier_id, p.bank_account_id, p.amount, p.discount_amount, p.discount_until, p.end_to_end_id, p.journal_entry_year,
+// dropped says whether payment p was dropped by its run's release: a
+// payment of open items whose supplier has an exclusion, which such a
+// payment otherwise never has (a proposal pays or excludes each supplier's
+// items). It relies on one items payment per supplier and run, which the
+// unique index payment_items_once holds (000083). A down payment's payment
+// is never dropped: the release drops payments whose items are no longer
+// open, and it has none; it is paid even when the supplier's items are
+// excluded for a debit balance (payRequests). A request left out has its
+// exclusion in payments.request_exclusion, which leaves the items paid.
+const dropped = `(p.kind = 'items' AND EXISTS (SELECT FROM payments.payment_exclusion x WHERE x.tenant_id = p.tenant_id
+		AND x.payment_run_id = p.payment_run_id AND x.supplier_id = p.supplier_id))`
+
+const paymentSelect = `SELECT p.id, p.payment_run_id, p.supplier_id, p.bank_account_id, p.amount, p.discount_amount, p.withholding_amount, p.discount_until, p.end_to_end_id, p.journal_entry_year,
 		p.journal_entry_id, (SELECT json_agg(json_build_object('fiscal_year', i.item_fiscal_year, 'journal_entry_id', i.item_entry_id,
-			'line_no', i.item_line_no, 'amount', i.amount, 'discount_amount', i.discount_amount, 'due_date', i.due_date,
+			'line_no', i.item_line_no, 'amount', i.amount, 'discount_amount', i.discount_amount, 'withholding_amount', i.withholding_amount, 'due_date', i.due_date,
 			'is_active', i.is_active)
 			ORDER BY i.item_fiscal_year, i.item_entry_id, i.item_line_no)
 		 FROM payments.payment_item i WHERE i.tenant_id = p.tenant_id AND i.payment_id = p.id), p.created_at, p.created_by,
-		` + dropped + ` AS is_dropped
+		` + dropped + ` AS is_dropped, p.kind, p.down_payment_request_id
 	FROM payments.payment p`
 
 func scanPayment(row pgx.Row) (Payment, error) {
 	var p Payment
-	err := row.Scan(&p.ID, &p.RunID, &p.SupplierID, &p.BankAccountID, &p.Amount, &p.Discount, &p.DiscountUntil, &p.EndToEndID, &p.JournalEntryYear, &p.JournalEntryID,
-		&p.Items, &p.CreatedAt, &p.CreatedBy, &p.Excluded)
+	err := row.Scan(&p.ID, &p.RunID, &p.SupplierID, &p.BankAccountID, &p.Amount, &p.Discount, &p.Withholding, &p.DiscountUntil, &p.EndToEndID, &p.JournalEntryYear, &p.JournalEntryID,
+		&p.Items, &p.CreatedAt, &p.CreatedBy, &p.Excluded, &p.Kind, &p.RequestID)
 	return p, errs.Wrapf(err, "scan payment")
 }
 
@@ -299,7 +346,9 @@ func paymentsOf(ctx context.Context, tx pgx.Tx, run uuid.UUID) ([]Payment, error
 
 // Exclusion is a supplier left out of a run.
 type Exclusion struct {
+	ID         uuid.UUID // the supplier, or the request of a request's exclusion: the listing's key
 	SupplierID uuid.UUID
+	RequestID  *uuid.UUID // the down payment request left out, or nil for the supplier's items
 	Reason     string
 	Amount     money.Minor
 }
@@ -414,13 +463,44 @@ func (Reservations) RunOf(ctx context.Context, legalEntity uuid.UUID, fiscalYear
 		JOIN payments.payment p ON p.tenant_id = i.tenant_id AND p.id = i.payment_id
 		JOIN payments.payment_run r ON r.tenant_id = p.tenant_id AND r.id = p.payment_run_id
 		WHERE i.item_fiscal_year = $1 AND i.item_entry_id = $2 AND i.is_active
-			AND (r.status IN ('proposing', 'proposed') OR (r.status = 'releasing' AND p.journal_entry_id IS NULL)) LIMIT 1`,
+			AND `+liveRun+` LIMIT 1`,
 		fiscalYear, entryID).Scan(&number)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
 	}
 	if err != nil {
 		return number, false, fmt.Errorf("payments: find the run holding entry %d/%s: %w", fiscalYear, entryID, err)
+	}
+	return number, true, nil
+}
+
+// liveRun is when run r holding payment p still holds what p pays: the
+// run is proposing or proposed, or releasing with p not posted yet (a
+// release under way, or stopped with some payments posted, to be resumed).
+const liveRun = `(r.status IN ('proposing', 'proposed') OR (r.status = 'releasing' AND p.journal_entry_id IS NULL))`
+
+// RequestRunOf returns the document number of the live run that pays the
+// legal entity's down payment request (liveRun). It takes the legal
+// entity's proposals lock first, held until the caller's transaction ends,
+// so a proposal under way is waited for and none chooses the request until
+// the caller (cancelling it) commits.
+func (Reservations) RequestRunOf(ctx context.Context, legalEntity, request uuid.UUID) (string, bool, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	if err := lockProposals(ctx, tx, legalEntity); err != nil {
+		return "", false, err
+	}
+	var number string
+	err = tx.QueryRow(ctx, `SELECT r.document_number FROM payments.payment p
+		JOIN payments.payment_run r ON r.tenant_id = p.tenant_id AND r.id = p.payment_run_id
+		WHERE p.kind = 'down_payment' AND p.down_payment_request_id = $1 AND `+liveRun+` LIMIT 1`, request).Scan(&number)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return number, false, fmt.Errorf("payments: find the run paying down payment request %s: %w", request, err)
 	}
 	return number, true, nil
 }

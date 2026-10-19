@@ -146,6 +146,12 @@ func (e *Endpoints) PostPayment(ctx context.Context, r Run, pay uuid.UUID) (post
 	if p.JournalEntryID != nil || p.Excluded {
 		return false, nil
 	}
+	if p.Kind == KindDownPayment {
+		if err := e.postDownPayment(ctx, tx, r, p); err != nil {
+			return false, err
+		}
+		return true, report(ctx, tx, r)
+	}
 	items := itemRefs(p)
 	unpayable, err := e.OpenItems.Unpayable(ctx, items)
 	if err != nil {
@@ -163,7 +169,7 @@ func (e *Endpoints) PostPayment(ctx context.Context, r Run, pay uuid.UUID) (post
 	text := "Payment run " + r.DocumentNumber
 	entry, err := e.Postings.Settle(ctx, ledger.Settlement{LegalEntityID: r.LegalEntityID, DocumentType: DocumentType, PostingDate: r.RunDate,
 		Currency: r.Currency, BankAccountID: hb.GLAccountID, Reference: &p.EndToEndID, HeaderText: &text, SourceContext: "payments",
-		SourceDocumentID: p.ID, Items: items, Discounts: discounts(p), ReservedFor: r.ID})
+		SourceDocumentID: p.ID, Items: items, Discounts: discounts(p), Withholding: withholding(p), ReservedFor: r.ID})
 	if err != nil {
 		return false, err
 	}
@@ -182,6 +188,16 @@ func report(ctx context.Context, tx pgx.Tx, r Run) error {
 		return fmt.Errorf("payments: count the posted payments of run %s: %w", r.ID, err)
 	}
 	return operations.Report(ctx, *r.ReleaseOpID, done, total)
+}
+
+// withholding is the withholding tax a payment deducts from its items, in
+// their order (itemRefs).
+func withholding(p Payment) []money.Minor {
+	out := make([]money.Minor, len(p.Items))
+	for i, it := range p.Items {
+		out[i] = it.Withholding
+	}
+	return out
 }
 
 // discounts are the cash discounts a payment takes on its items, in their
@@ -384,6 +400,9 @@ func (e *Endpoints) recheck(ctx context.Context, r Run, pays []Payment) error {
 		}
 	}
 	if err := e.recheckDiscounts(r, pays); err != nil {
+		return err
+	}
+	if err := e.recheckRequests(ctx, r, pays); err != nil {
 		return err
 	}
 	return e.recheckItems(ctx, r, pays)
@@ -651,19 +670,32 @@ func (e *Endpoints) render(ctx context.Context, tenant uuid.UUID, r Run, hb hous
 	b := bankfile.Batch{MessageID: le.Code + "-" + r.DocumentNumber, InitiatorName: le.Name, DebtorName: le.Name, DebtorIBAN: iban, DebtorBIC: hb.BIC,
 		Currency: r.Currency, Decimals: r.Exponent, ExecutionDate: r.RunDate.Format(time.DateOnly), Created: created}
 	for _, pay := range pays {
-		var remittance []string
-		for _, it := range pay.Items {
-			remittance = append(remittance, refs[it.EntryID])
+		remittance, err := e.remittance(ctx, pay, refs)
+		if err != nil {
+			return nil, err
 		}
 		d := details[pay.BankAccountID]
 		b.Payments = append(b.Payments, bankfile.Payment{EndToEndID: pay.EndToEndID, CreditorName: d.Holder, CreditorAccount: d.Account,
-			Amount: pay.Amount, Remittance: strings.Join(remittance, " ")})
+			Amount: pay.Amount, Remittance: remittance})
 	}
 	content, err := bankfile.Pain001(b)
 	if err != nil {
 		return nil, problem.Unprocessable("payments.bank_file_invalid", "The bank file cannot be written: "+err.Error()+".")
 	}
 	return content, nil
+}
+
+// remittance is a payment's remittance text: the references of the
+// entries its items are on, or a down payment's request (T46c).
+func (e *Endpoints) remittance(ctx context.Context, pay Payment, refs map[uuid.UUID]string) (string, error) {
+	if pay.Kind == KindDownPayment {
+		return e.requestRemittance(ctx, pay)
+	}
+	var remittance []string
+	for _, it := range pay.Items {
+		remittance = append(remittance, refs[it.EntryID])
+	}
+	return strings.Join(remittance, " "), nil
 }
 
 // fileOf is the bank file's content: read from object storage when it was

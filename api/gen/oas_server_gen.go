@@ -81,6 +81,13 @@ type Handler interface {
 	//
 	// POST /v1/contracts/{id}:cancel
 	CancelContract(ctx context.Context, params CancelContractParams) (CancelContractRes, error)
+	// CancelDownPaymentRequest implements cancelDownPaymentRequest operation.
+	//
+	// Cancels an open down payment request (status `cancelled`), which a payment run then no longer pays.
+	// Requires status `open`.
+	//
+	// POST /v1/down-payment-requests/{id}:cancel
+	CancelDownPaymentRequest(ctx context.Context, req *ReasonInput, params CancelDownPaymentRequestParams) (CancelDownPaymentRequestRes, error)
 	// CancelOperation implements cancelOperation operation.
 	//
 	// Requests cancellation where the operation supports it (409 otherwise). Work already committed stays
@@ -139,6 +146,20 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices:capture
 	CaptureSupplierInvoice(ctx context.Context, req *SupplierInvoiceCaptureMultipart, params CaptureSupplierInvoiceParams) (CaptureSupplierInvoiceRes, error)
+	// ClearSupplierInvoiceDownPayments implements clearSupplierInvoiceDownPayments operation.
+	//
+	// Clears paid down payment requests of the invoice's supplier against the posted invoice (SAP F-54;
+	// ADR-0037), whole: their total with what was cleared against it before is at most the invoice's gross
+	// amount (422 `payables.down_payments_exceed_invoice`), and a request naming a purchase order clears
+	// only against an invoice of that order. A transfer entry (document type AB) credits the down payment
+	// account, clearing each down payment, reverses the input tax its payment claimed, and debits the
+	// supplier's payables account with their total, an open item with the invoice's payment terms that the
+	// next run nets against the invoice, so a cash discount is taken on what remains to pay. The requests
+	// move to `cleared`; the invoice is not reversed while they stand. Requires status `posted` and kind
+	// `invoice`.
+	//
+	// POST /v1/supplier-invoices/{id}:clearDownPayments
+	ClearSupplierInvoiceDownPayments(ctx context.Context, req *DownPaymentClearingInput, params ClearSupplierInvoiceDownPaymentsParams) (ClearSupplierInvoiceDownPaymentsRes, error)
 	// CloseFiscalPeriod implements closeFiscalPeriod operation.
 	//
 	// Closes the period for postings. Requires status `open`.
@@ -194,6 +215,15 @@ type Handler interface {
 	//
 	// POST /v1/contracts
 	CreateContract(ctx context.Context, req *ContractCreate, params CreateContractParams) (CreateContractRes, error)
+	// CreateDownPaymentRequest implements createDownPaymentRequest operation.
+	//
+	// Requests a down payment to a supplier (SAP F-47, special G/L F): a payables document, not a ledger
+	// posting (ADR-0037). It moves no value until a payment run pays it, which posts the down payment on
+	// the legal entity's down payment account. Created `open`. With an input tax code, the tax the amount
+	// includes is computed and claimed when it is paid.
+	//
+	// POST /v1/down-payment-requests
+	CreateDownPaymentRequest(ctx context.Context, req *DownPaymentRequestCreate, params CreateDownPaymentRequestParams) (CreateDownPaymentRequestRes, error)
 	// CreateExchangeRate implements createExchangeRate operation.
 	//
 	// Records a rate. Rates are insert-only; recording the same rate type, currency pair and `valid_from`
@@ -468,6 +498,12 @@ type Handler interface {
 	//
 	// GET /v1/contracts/{id}
 	GetContract(ctx context.Context, params GetContractParams) (GetContractRes, error)
+	// GetDownPaymentRequest implements getDownPaymentRequest operation.
+	//
+	// Returns one down payment request.
+	//
+	// GET /v1/down-payment-requests/{id}
+	GetDownPaymentRequest(ctx context.Context, params GetDownPaymentRequestParams) (GetDownPaymentRequestRes, error)
 	// GetExchangeRate implements getExchangeRate operation.
 	//
 	// Returns one exchange rate.
@@ -731,6 +767,12 @@ type Handler interface {
 	//
 	// GET /v1/contracts
 	ListContracts(ctx context.Context, params ListContractsParams) (ListContractsRes, error)
+	// ListDownPaymentRequests implements listDownPaymentRequests operation.
+	//
+	// Down payment requests (SAP F-47, ADR-0037). Sortable by: `due_date`.
+	//
+	// GET /v1/down-payment-requests
+	ListDownPaymentRequests(ctx context.Context, params ListDownPaymentRequestsParams) (ListDownPaymentRequestsRes, error)
 	// ListExchangeRates implements listExchangeRates operation.
 	//
 	// Exchange rates by type and currency pair. Sortable by: `valid_from`.
@@ -1000,7 +1042,9 @@ type Handler interface {
 	// selects due open items, applies exclusions (blocks, missing or recently changed bank details) and
 	// reserves the items; the run becomes `proposed`, or `failed`. Runs can exceed 100,000 items, so this
 	// returns an Operation. A run that takes cash discount in a legal entity without a cash discount
-	// account fails with 422 `payments.no_cash_discount_account` (T36d).
+	// account fails with 422 `payments.no_cash_discount_account` (T36d). A withholding tax deducted at
+	// payment that, rounded after the cash discount, would take all an item owes fails it with 422
+	// `payments.withholding_too_large` (T46f).
 	//
 	// POST /v1/payment-runs:propose
 	ProposePaymentRun(ctx context.Context, req *PaymentRunPropose, params ProposePaymentRunParams) (ProposePaymentRunRes, error)
@@ -1059,7 +1103,9 @@ type Handler interface {
 	// (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). Sets
 	// `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a failed release
 	// operation, which resumes it. 409 `payments.discount_lapsed` when a payment takes a cash discount
-	// whose last day has passed (T36d): reject the run and propose again.
+	// whose last day has passed (T36d): reject the run and propose again. 409 `ledger.withholding_changed`
+	// when an item would withhold another amount than its payment deducted (T46f); the payment is not
+	// posted.
 	//
 	// POST /v1/payment-runs/{id}:release
 	ReleasePaymentRun(ctx context.Context, req OptDecisionInput, params ReleasePaymentRunParams) (ReleasePaymentRunRes, error)

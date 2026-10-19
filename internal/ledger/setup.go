@@ -33,7 +33,11 @@ import (
 //   - tax codes (input tax, decided in T4) are valid from the start of the
 //     company's first fiscal year; a changed rate or account ends the
 //     current one and starts the new one on the activation day, and a
-//     removed code ends on that day.
+//     removed code ends on that day;
+//   - withholding tax codes (T46e) are kept per legal entity, changed in
+//     place (what an invoice withheld is kept with its entry, T46f) and
+//     deactivated when removed, which the partner context refuses while a
+//     supplier has the code (partner.WithholdingCodes).
 type Setup struct {
 	LegalEntities LegalEntities
 }
@@ -175,6 +179,11 @@ func checkActivated(base, proposed *config.Config, out *findings) {
 		if was := old.AccountDetermination.GRIR; was != "" && co.AccountDetermination.GRIR != was {
 			out.add(p+".account_determination.gr_ir", "the GR/IR account cannot change once activated")
 		}
+		// Down payments are lines on the activated account, and their
+		// reversals and clearings post to it (ADR-0037).
+		if was := old.AccountDetermination.DownPayment; was != "" && co.AccountDetermination.DownPayment != was {
+			out.add(p+".account_determination.down_payment", "the down payment account cannot change once activated")
+		}
 		for _, was := range old.ChartOfAccounts {
 			a := co.Account(was.Number)
 			switch {
@@ -234,13 +243,46 @@ func (s Setup) applyCompany(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 		ON CONFLICT (tenant_id, legal_entity_id, key) DO UPDATE SET account_id = EXCLUDED.account_id, version = d.version + 1, updated_by = $4
 		WHERE d.account_id <> EXCLUDED.account_id`,
 		p.TenantID, le.ID, chart, p.ID, []string{"ap_reconciliation", "input_tax", "bank", "fx_gain", "fx_loss", "gr_ir", "price_difference",
-			"cash_discount"}, []string{ad.APReconciliation, ad.InputTax, ad.Bank, ad.FXGain, ad.FXLoss, ad.GRIR, ad.PriceDifference, ad.CashDiscount}); err != nil {
+			"cash_discount", "down_payment"}, []string{ad.APReconciliation, ad.InputTax, ad.Bank, ad.FXGain, ad.FXLoss, ad.GRIR, ad.PriceDifference,
+			ad.CashDiscount, ad.DownPayment}); err != nil {
 		return fmt.Errorf("ledger: apply company %s: account determination: %w", co.Code, err)
 	}
 	if err := s.calendar(ctx, tx, p, le.FiscalCalendarID, le.ID, co, doc); err != nil {
 		return err
 	}
-	return taxCodes(ctx, tx, p, le.ID, le.FiscalCalendarID, chart, co)
+	if err := taxCodes(ctx, tx, p, le.ID, le.FiscalCalendarID, chart, co); err != nil {
+		return err
+	}
+	return withholdingTaxCodes(ctx, tx, p, le.ID, chart, co)
+}
+
+// withholdingTaxCodes makes the legal entity's withholding tax codes the
+// company's (T46e): new ones inserted, changed ones updated, and those the
+// document no longer has deactivated, never deleted (the partner context
+// refuses removing a code a supplier has, partner.WithholdingCodes).
+func withholdingTaxCodes(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, chart uuid.UUID, co config.Company) error {
+	n := len(co.WithholdingTaxCodes)
+	codes, descriptions, rates, bases, numbers, postings := make([]string, n), make([]string, n), make([]string, n), make([]string, n), make([]string, n), make([]string, n)
+	for i, w := range co.WithholdingTaxCodes {
+		codes[i], descriptions[i], rates[i], bases[i], numbers[i], postings[i] = w.Code, w.Description, w.RatePercent, w.BaseOrNet(), w.Account, w.Posting
+	}
+	if _, err := tx.Exec(ctx, `UPDATE ledger.withholding_tax_code SET is_active = false, version = version + 1, updated_by = $3
+		WHERE legal_entity_id = $1 AND is_active AND code <> ALL($2)`, le, codes, p.ID); err != nil {
+		return fmt.Errorf("ledger: deactivate withholding tax codes of %s: %w", le, err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO ledger.withholding_tax_code AS w (tenant_id, legal_entity_id, code, description, rate_pct, base, account_id, posting,
+			created_by, updated_by)
+		SELECT $1, $2, d.code, d.description, d.rate::numeric, d.base, g.id, d.posting, $3, $3
+		FROM unnest($4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[]) AS d(code, description, rate, base, number, posting)
+		JOIN ledger.gl_account g ON g.chart_id = $10 AND g.number = d.number
+		ON CONFLICT (tenant_id, legal_entity_id, code) DO UPDATE SET description = EXCLUDED.description, rate_pct = EXCLUDED.rate_pct, base = EXCLUDED.base,
+			account_id = EXCLUDED.account_id, posting = EXCLUDED.posting, is_active = true, version = w.version + 1, updated_by = $3
+		WHERE (w.description, w.rate_pct, w.base, w.account_id, w.posting, w.is_active)
+			IS DISTINCT FROM (EXCLUDED.description, EXCLUDED.rate_pct, EXCLUDED.base, EXCLUDED.account_id, EXCLUDED.posting, true)`,
+		p.TenantID, le, p.ID, codes, descriptions, rates, bases, numbers, postings, chart); err != nil {
+		return fmt.Errorf("ledger: withholding tax codes of %s: %w", le, err)
+	}
+	return nil
 }
 
 // applyAccounts makes the chart's accounts those of the document,
@@ -392,7 +434,10 @@ func fiscalYear(y, m int) []period {
 type Accounts struct{}
 
 // IsReconciliationAccount reports whether the account is an active
-// reconciliation account of the kind with settings in the legal entity.
+// reconciliation account of the kind with settings in the legal entity. The
+// down payment account is not one: it is an alternative reconciliation
+// account that takes only special G/L items (ADR-0037), never a partner's
+// own, whose invoices it would refuse.
 func (Accounts) IsReconciliationAccount(ctx context.Context, legalEntity, account uuid.UUID, kind string) (bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -401,7 +446,9 @@ func (Accounts) IsReconciliationAccount(ctx context.Context, legalEntity, accoun
 	var ok bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM ledger.gl_account a
 		JOIN ledger.company_account ca ON ca.tenant_id = a.tenant_id AND ca.account_id = a.id AND ca.legal_entity_id = $1
-		WHERE a.id = $2 AND a.reconciliation_kind = $3 AND a.status = 'active')`, legalEntity, account, kind).Scan(&ok)
+		WHERE a.id = $2 AND a.reconciliation_kind = $3 AND a.status = 'active'
+			AND NOT EXISTS (SELECT FROM ledger.account_determination d WHERE d.tenant_id = a.tenant_id AND d.legal_entity_id = $1
+				AND d.key = 'down_payment' AND d.account_id = a.id))`, legalEntity, account, kind).Scan(&ok)
 	if err != nil {
 		return ok, fmt.Errorf("ledger: is account %s a %s reconciliation account in %s: %w", account, kind, legalEntity, err)
 	}

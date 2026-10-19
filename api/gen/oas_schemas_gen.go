@@ -2610,192 +2610,197 @@ func (s *BadRequestHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
-func (*BadRequestHeaders) activateChangeRequestRes()      {}
-func (*BadRequestHeaders) activateLegalEntityRes()        {}
-func (*BadRequestHeaders) activateOrgUnitRes()            {}
-func (*BadRequestHeaders) approveApprovalRequestRes()     {}
-func (*BadRequestHeaders) blockBusinessPartnerRes()       {}
-func (*BadRequestHeaders) blockLegalEntityRes()           {}
-func (*BadRequestHeaders) blockOrgUnitRes()               {}
-func (*BadRequestHeaders) blockPrincipalRes()             {}
-func (*BadRequestHeaders) cancelApprovalRequestRes()      {}
-func (*BadRequestHeaders) cancelContractRes()             {}
-func (*BadRequestHeaders) cancelOperationRes()            {}
-func (*BadRequestHeaders) cancelParkedJournalEntryRes()   {}
-func (*BadRequestHeaders) cancelPurchaseOrderChangeRes()  {}
-func (*BadRequestHeaders) cancelPurchaseOrderRes()        {}
-func (*BadRequestHeaders) cancelRequisitionRes()          {}
-func (*BadRequestHeaders) cancelSupplierInvoiceRes()      {}
-func (*BadRequestHeaders) captureSupplierInvoiceRes()     {}
-func (*BadRequestHeaders) closeFiscalPeriodRes()          {}
-func (*BadRequestHeaders) closePurchaseOrderRes()         {}
-func (*BadRequestHeaders) createBusinessPartnerRes()      {}
-func (*BadRequestHeaders) createChangeRequestRes()        {}
-func (*BadRequestHeaders) createClearingRes()             {}
-func (*BadRequestHeaders) createCompanyAccessRes()        {}
-func (*BadRequestHeaders) createConnectorRes()            {}
-func (*BadRequestHeaders) createContractRes()             {}
-func (*BadRequestHeaders) createExchangeRateRes()         {}
-func (*BadRequestHeaders) createLegalEntityRes()          {}
-func (*BadRequestHeaders) createMigrationRunRes()         {}
-func (*BadRequestHeaders) createOrgUnitRes()              {}
-func (*BadRequestHeaders) createPartnerChangeRes()        {}
-func (*BadRequestHeaders) createPrincipalRes()            {}
-func (*BadRequestHeaders) createPurchaseOrderChangeRes()  {}
-func (*BadRequestHeaders) createPurchaseOrderRes()        {}
-func (*BadRequestHeaders) createRecommendationRes()       {}
-func (*BadRequestHeaders) createRegressionSuiteRes()      {}
-func (*BadRequestHeaders) createRequisitionRes()          {}
-func (*BadRequestHeaders) createRoleAssignmentRes()       {}
-func (*BadRequestHeaders) createRoleRes()                 {}
-func (*BadRequestHeaders) createSodRuleRes()              {}
-func (*BadRequestHeaders) createSupplierInvoiceRes()      {}
-func (*BadRequestHeaders) createUploadRes()               {}
-func (*BadRequestHeaders) decideRecommendationRes()       {}
-func (*BadRequestHeaders) disableConnectorRes()           {}
-func (*BadRequestHeaders) enableConnectorRes()            {}
-func (*BadRequestHeaders) endAgentSessionRes()            {}
-func (*BadRequestHeaders) endCompanyAccessRes()           {}
-func (*BadRequestHeaders) endRoleAssignmentRes()          {}
-func (*BadRequestHeaders) endRolePermissionRes()          {}
-func (*BadRequestHeaders) endSodRuleRes()                 {}
-func (*BadRequestHeaders) getAccountRes()                 {}
-func (*BadRequestHeaders) getAgentSessionRes()            {}
-func (*BadRequestHeaders) getAiPolicyRes()                {}
-func (*BadRequestHeaders) getAiUsageRes()                 {}
-func (*BadRequestHeaders) getApprovalRequestRes()         {}
-func (*BadRequestHeaders) getBankAccountRes()             {}
-func (*BadRequestHeaders) getBankFileContentRes()         {}
-func (*BadRequestHeaders) getBankFileRes()                {}
-func (*BadRequestHeaders) getBusinessPartnerRes()         {}
-func (*BadRequestHeaders) getChangeRequestRes()           {}
-func (*BadRequestHeaders) getClearingRes()                {}
-func (*BadRequestHeaders) getCompanyAccessRes()           {}
-func (*BadRequestHeaders) getConfigVersionRes()           {}
-func (*BadRequestHeaders) getConnectorRes()               {}
-func (*BadRequestHeaders) getContractRes()                {}
-func (*BadRequestHeaders) getExchangeRateRes()            {}
-func (*BadRequestHeaders) getFiscalPeriodRes()            {}
-func (*BadRequestHeaders) getGoodsReceiptRes()            {}
-func (*BadRequestHeaders) getJournalEntryRes()            {}
-func (*BadRequestHeaders) getLegalEntityRes()             {}
-func (*BadRequestHeaders) getMatchResultRes()             {}
-func (*BadRequestHeaders) getMigrationRunRes()            {}
-func (*BadRequestHeaders) getNumberRangeRes()             {}
-func (*BadRequestHeaders) getOperationRes()               {}
-func (*BadRequestHeaders) getOrgUnitRes()                 {}
-func (*BadRequestHeaders) getParkedJournalEntryRes()      {}
-func (*BadRequestHeaders) getPartnerChangeRes()           {}
-func (*BadRequestHeaders) getPaymentRunRes()              {}
-func (*BadRequestHeaders) getPrincipalRes()               {}
-func (*BadRequestHeaders) getPurchaseOrderChangeRes()     {}
-func (*BadRequestHeaders) getPurchaseOrderRes()           {}
-func (*BadRequestHeaders) getRecommendationRes()          {}
-func (*BadRequestHeaders) getRegressionSuiteRes()         {}
-func (*BadRequestHeaders) getRequisitionRes()             {}
-func (*BadRequestHeaders) getRoleAssignmentRes()          {}
-func (*BadRequestHeaders) getRolePermissionRes()          {}
-func (*BadRequestHeaders) getRoleRes()                    {}
-func (*BadRequestHeaders) getSodRuleRes()                 {}
-func (*BadRequestHeaders) getSupplierInvoiceDocumentRes() {}
-func (*BadRequestHeaders) getSupplierInvoiceRes()         {}
-func (*BadRequestHeaders) getUploadRes()                  {}
-func (*BadRequestHeaders) grantRolePermissionRes()        {}
-func (*BadRequestHeaders) holdSupplierInvoiceRes()        {}
-func (*BadRequestHeaders) listAccountsRes()               {}
-func (*BadRequestHeaders) listAgentSessionsRes()          {}
-func (*BadRequestHeaders) listAgentToolCallsRes()         {}
-func (*BadRequestHeaders) listApprovalRequestsRes()       {}
-func (*BadRequestHeaders) listAuditEventsRes()            {}
-func (*BadRequestHeaders) listBalancesRes()               {}
-func (*BadRequestHeaders) listBankAccountsRes()           {}
-func (*BadRequestHeaders) listBankFilesRes()              {}
-func (*BadRequestHeaders) listBusinessPartnersRes()       {}
-func (*BadRequestHeaders) listChangeRequestsRes()         {}
-func (*BadRequestHeaders) listClearingsRes()              {}
-func (*BadRequestHeaders) listCompanyAccessRes()          {}
-func (*BadRequestHeaders) listConfigVersionsRes()         {}
-func (*BadRequestHeaders) listConnectorsRes()             {}
-func (*BadRequestHeaders) listContractsRes()              {}
-func (*BadRequestHeaders) listExchangeRatesRes()          {}
-func (*BadRequestHeaders) listFiscalPeriodsRes()          {}
-func (*BadRequestHeaders) listGoodsReceiptsRes()          {}
-func (*BadRequestHeaders) listGrIrBalancesRes()           {}
-func (*BadRequestHeaders) listJournalEntriesRes()         {}
-func (*BadRequestHeaders) listLegalEntitiesRes()          {}
-func (*BadRequestHeaders) listMatchResultsRes()           {}
-func (*BadRequestHeaders) listMigrationRunsRes()          {}
-func (*BadRequestHeaders) listNumberRangesRes()           {}
-func (*BadRequestHeaders) listOpenItemsRes()              {}
-func (*BadRequestHeaders) listOperationsRes()             {}
-func (*BadRequestHeaders) listOrgUnitsRes()               {}
-func (*BadRequestHeaders) listParkedJournalEntriesRes()   {}
-func (*BadRequestHeaders) listPartnerChangesRes()         {}
-func (*BadRequestHeaders) listPaymentExclusionsRes()      {}
-func (*BadRequestHeaders) listPaymentRunsRes()            {}
-func (*BadRequestHeaders) listPaymentsRes()               {}
-func (*BadRequestHeaders) listPrincipalsRes()             {}
-func (*BadRequestHeaders) listPurchaseOrderChangesRes()   {}
-func (*BadRequestHeaders) listPurchaseOrdersRes()         {}
-func (*BadRequestHeaders) listRecommendationsRes()        {}
-func (*BadRequestHeaders) listRegressionSuitesRes()       {}
-func (*BadRequestHeaders) listRequisitionsRes()           {}
-func (*BadRequestHeaders) listRoleAssignmentsRes()        {}
-func (*BadRequestHeaders) listRolePermissionsRes()        {}
-func (*BadRequestHeaders) listRolesRes()                  {}
-func (*BadRequestHeaders) listSodRulesRes()               {}
-func (*BadRequestHeaders) listSupplierInvoicesRes()       {}
-func (*BadRequestHeaders) lockFiscalPeriodRes()           {}
-func (*BadRequestHeaders) matchSupplierInvoiceRes()       {}
-func (*BadRequestHeaders) openFiscalPeriodRes()           {}
-func (*BadRequestHeaders) parkJournalEntryRes()           {}
-func (*BadRequestHeaders) postGoodsReceiptRes()           {}
-func (*BadRequestHeaders) postJournalEntryRes()           {}
-func (*BadRequestHeaders) postParkedJournalEntryRes()     {}
-func (*BadRequestHeaders) postSupplierInvoiceRes()        {}
-func (*BadRequestHeaders) proposePaymentRunRes()          {}
-func (*BadRequestHeaders) reconcileMigrationRunRes()      {}
-func (*BadRequestHeaders) recordAgentToolCallRes()        {}
-func (*BadRequestHeaders) rejectApprovalRequestRes()      {}
-func (*BadRequestHeaders) rejectPaymentRunRes()           {}
-func (*BadRequestHeaders) releaseContractRes()            {}
-func (*BadRequestHeaders) releasePaymentRunRes()          {}
-func (*BadRequestHeaders) releasePurchaseOrderRes()       {}
-func (*BadRequestHeaders) releaseSupplierInvoiceRes()     {}
-func (*BadRequestHeaders) renewContractRes()              {}
-func (*BadRequestHeaders) reportBankFileStatusRes()       {}
-func (*BadRequestHeaders) requestBankAccountChangeRes()   {}
-func (*BadRequestHeaders) requestBankAccountEndRes()      {}
-func (*BadRequestHeaders) reverseGoodsReceiptRes()        {}
-func (*BadRequestHeaders) reverseJournalEntryRes()        {}
-func (*BadRequestHeaders) reverseSupplierInvoiceRes()     {}
-func (*BadRequestHeaders) simulateChangeRequestRes()      {}
-func (*BadRequestHeaders) startAgentSessionRes()          {}
-func (*BadRequestHeaders) startMigrationRunRes()          {}
-func (*BadRequestHeaders) submitChangeRequestRes()        {}
-func (*BadRequestHeaders) submitPurchaseOrderChangeRes()  {}
-func (*BadRequestHeaders) submitRequisitionRes()          {}
-func (*BadRequestHeaders) terminateContractRes()          {}
-func (*BadRequestHeaders) transmitBankFileRes()           {}
-func (*BadRequestHeaders) unblockBusinessPartnerRes()     {}
-func (*BadRequestHeaders) unblockLegalEntityRes()         {}
-func (*BadRequestHeaders) unblockOrgUnitRes()             {}
-func (*BadRequestHeaders) unlockFiscalPeriodRes()         {}
-func (*BadRequestHeaders) updateAiPolicyRes()             {}
-func (*BadRequestHeaders) updateChangeRequestRes()        {}
-func (*BadRequestHeaders) updateConnectorRes()            {}
-func (*BadRequestHeaders) updateContractRes()             {}
-func (*BadRequestHeaders) updateLegalEntityRes()          {}
-func (*BadRequestHeaders) updateOrgUnitRes()              {}
-func (*BadRequestHeaders) updateParkedJournalEntryRes()   {}
-func (*BadRequestHeaders) updatePrincipalRes()            {}
-func (*BadRequestHeaders) updatePurchaseOrderChangeRes()  {}
-func (*BadRequestHeaders) updatePurchaseOrderRes()        {}
-func (*BadRequestHeaders) updateRequisitionRes()          {}
-func (*BadRequestHeaders) updateRoleRes()                 {}
-func (*BadRequestHeaders) updateSupplierInvoiceRes()      {}
-func (*BadRequestHeaders) verifyAuditChainRes()           {}
-func (*BadRequestHeaders) withdrawChangeRequestRes()      {}
+func (*BadRequestHeaders) activateChangeRequestRes()            {}
+func (*BadRequestHeaders) activateLegalEntityRes()              {}
+func (*BadRequestHeaders) activateOrgUnitRes()                  {}
+func (*BadRequestHeaders) approveApprovalRequestRes()           {}
+func (*BadRequestHeaders) blockBusinessPartnerRes()             {}
+func (*BadRequestHeaders) blockLegalEntityRes()                 {}
+func (*BadRequestHeaders) blockOrgUnitRes()                     {}
+func (*BadRequestHeaders) blockPrincipalRes()                   {}
+func (*BadRequestHeaders) cancelApprovalRequestRes()            {}
+func (*BadRequestHeaders) cancelContractRes()                   {}
+func (*BadRequestHeaders) cancelDownPaymentRequestRes()         {}
+func (*BadRequestHeaders) cancelOperationRes()                  {}
+func (*BadRequestHeaders) cancelParkedJournalEntryRes()         {}
+func (*BadRequestHeaders) cancelPurchaseOrderChangeRes()        {}
+func (*BadRequestHeaders) cancelPurchaseOrderRes()              {}
+func (*BadRequestHeaders) cancelRequisitionRes()                {}
+func (*BadRequestHeaders) cancelSupplierInvoiceRes()            {}
+func (*BadRequestHeaders) captureSupplierInvoiceRes()           {}
+func (*BadRequestHeaders) clearSupplierInvoiceDownPaymentsRes() {}
+func (*BadRequestHeaders) closeFiscalPeriodRes()                {}
+func (*BadRequestHeaders) closePurchaseOrderRes()               {}
+func (*BadRequestHeaders) createBusinessPartnerRes()            {}
+func (*BadRequestHeaders) createChangeRequestRes()              {}
+func (*BadRequestHeaders) createClearingRes()                   {}
+func (*BadRequestHeaders) createCompanyAccessRes()              {}
+func (*BadRequestHeaders) createConnectorRes()                  {}
+func (*BadRequestHeaders) createContractRes()                   {}
+func (*BadRequestHeaders) createDownPaymentRequestRes()         {}
+func (*BadRequestHeaders) createExchangeRateRes()               {}
+func (*BadRequestHeaders) createLegalEntityRes()                {}
+func (*BadRequestHeaders) createMigrationRunRes()               {}
+func (*BadRequestHeaders) createOrgUnitRes()                    {}
+func (*BadRequestHeaders) createPartnerChangeRes()              {}
+func (*BadRequestHeaders) createPrincipalRes()                  {}
+func (*BadRequestHeaders) createPurchaseOrderChangeRes()        {}
+func (*BadRequestHeaders) createPurchaseOrderRes()              {}
+func (*BadRequestHeaders) createRecommendationRes()             {}
+func (*BadRequestHeaders) createRegressionSuiteRes()            {}
+func (*BadRequestHeaders) createRequisitionRes()                {}
+func (*BadRequestHeaders) createRoleAssignmentRes()             {}
+func (*BadRequestHeaders) createRoleRes()                       {}
+func (*BadRequestHeaders) createSodRuleRes()                    {}
+func (*BadRequestHeaders) createSupplierInvoiceRes()            {}
+func (*BadRequestHeaders) createUploadRes()                     {}
+func (*BadRequestHeaders) decideRecommendationRes()             {}
+func (*BadRequestHeaders) disableConnectorRes()                 {}
+func (*BadRequestHeaders) enableConnectorRes()                  {}
+func (*BadRequestHeaders) endAgentSessionRes()                  {}
+func (*BadRequestHeaders) endCompanyAccessRes()                 {}
+func (*BadRequestHeaders) endRoleAssignmentRes()                {}
+func (*BadRequestHeaders) endRolePermissionRes()                {}
+func (*BadRequestHeaders) endSodRuleRes()                       {}
+func (*BadRequestHeaders) getAccountRes()                       {}
+func (*BadRequestHeaders) getAgentSessionRes()                  {}
+func (*BadRequestHeaders) getAiPolicyRes()                      {}
+func (*BadRequestHeaders) getAiUsageRes()                       {}
+func (*BadRequestHeaders) getApprovalRequestRes()               {}
+func (*BadRequestHeaders) getBankAccountRes()                   {}
+func (*BadRequestHeaders) getBankFileContentRes()               {}
+func (*BadRequestHeaders) getBankFileRes()                      {}
+func (*BadRequestHeaders) getBusinessPartnerRes()               {}
+func (*BadRequestHeaders) getChangeRequestRes()                 {}
+func (*BadRequestHeaders) getClearingRes()                      {}
+func (*BadRequestHeaders) getCompanyAccessRes()                 {}
+func (*BadRequestHeaders) getConfigVersionRes()                 {}
+func (*BadRequestHeaders) getConnectorRes()                     {}
+func (*BadRequestHeaders) getContractRes()                      {}
+func (*BadRequestHeaders) getDownPaymentRequestRes()            {}
+func (*BadRequestHeaders) getExchangeRateRes()                  {}
+func (*BadRequestHeaders) getFiscalPeriodRes()                  {}
+func (*BadRequestHeaders) getGoodsReceiptRes()                  {}
+func (*BadRequestHeaders) getJournalEntryRes()                  {}
+func (*BadRequestHeaders) getLegalEntityRes()                   {}
+func (*BadRequestHeaders) getMatchResultRes()                   {}
+func (*BadRequestHeaders) getMigrationRunRes()                  {}
+func (*BadRequestHeaders) getNumberRangeRes()                   {}
+func (*BadRequestHeaders) getOperationRes()                     {}
+func (*BadRequestHeaders) getOrgUnitRes()                       {}
+func (*BadRequestHeaders) getParkedJournalEntryRes()            {}
+func (*BadRequestHeaders) getPartnerChangeRes()                 {}
+func (*BadRequestHeaders) getPaymentRunRes()                    {}
+func (*BadRequestHeaders) getPrincipalRes()                     {}
+func (*BadRequestHeaders) getPurchaseOrderChangeRes()           {}
+func (*BadRequestHeaders) getPurchaseOrderRes()                 {}
+func (*BadRequestHeaders) getRecommendationRes()                {}
+func (*BadRequestHeaders) getRegressionSuiteRes()               {}
+func (*BadRequestHeaders) getRequisitionRes()                   {}
+func (*BadRequestHeaders) getRoleAssignmentRes()                {}
+func (*BadRequestHeaders) getRolePermissionRes()                {}
+func (*BadRequestHeaders) getRoleRes()                          {}
+func (*BadRequestHeaders) getSodRuleRes()                       {}
+func (*BadRequestHeaders) getSupplierInvoiceDocumentRes()       {}
+func (*BadRequestHeaders) getSupplierInvoiceRes()               {}
+func (*BadRequestHeaders) getUploadRes()                        {}
+func (*BadRequestHeaders) grantRolePermissionRes()              {}
+func (*BadRequestHeaders) holdSupplierInvoiceRes()              {}
+func (*BadRequestHeaders) listAccountsRes()                     {}
+func (*BadRequestHeaders) listAgentSessionsRes()                {}
+func (*BadRequestHeaders) listAgentToolCallsRes()               {}
+func (*BadRequestHeaders) listApprovalRequestsRes()             {}
+func (*BadRequestHeaders) listAuditEventsRes()                  {}
+func (*BadRequestHeaders) listBalancesRes()                     {}
+func (*BadRequestHeaders) listBankAccountsRes()                 {}
+func (*BadRequestHeaders) listBankFilesRes()                    {}
+func (*BadRequestHeaders) listBusinessPartnersRes()             {}
+func (*BadRequestHeaders) listChangeRequestsRes()               {}
+func (*BadRequestHeaders) listClearingsRes()                    {}
+func (*BadRequestHeaders) listCompanyAccessRes()                {}
+func (*BadRequestHeaders) listConfigVersionsRes()               {}
+func (*BadRequestHeaders) listConnectorsRes()                   {}
+func (*BadRequestHeaders) listContractsRes()                    {}
+func (*BadRequestHeaders) listDownPaymentRequestsRes()          {}
+func (*BadRequestHeaders) listExchangeRatesRes()                {}
+func (*BadRequestHeaders) listFiscalPeriodsRes()                {}
+func (*BadRequestHeaders) listGoodsReceiptsRes()                {}
+func (*BadRequestHeaders) listGrIrBalancesRes()                 {}
+func (*BadRequestHeaders) listJournalEntriesRes()               {}
+func (*BadRequestHeaders) listLegalEntitiesRes()                {}
+func (*BadRequestHeaders) listMatchResultsRes()                 {}
+func (*BadRequestHeaders) listMigrationRunsRes()                {}
+func (*BadRequestHeaders) listNumberRangesRes()                 {}
+func (*BadRequestHeaders) listOpenItemsRes()                    {}
+func (*BadRequestHeaders) listOperationsRes()                   {}
+func (*BadRequestHeaders) listOrgUnitsRes()                     {}
+func (*BadRequestHeaders) listParkedJournalEntriesRes()         {}
+func (*BadRequestHeaders) listPartnerChangesRes()               {}
+func (*BadRequestHeaders) listPaymentExclusionsRes()            {}
+func (*BadRequestHeaders) listPaymentRunsRes()                  {}
+func (*BadRequestHeaders) listPaymentsRes()                     {}
+func (*BadRequestHeaders) listPrincipalsRes()                   {}
+func (*BadRequestHeaders) listPurchaseOrderChangesRes()         {}
+func (*BadRequestHeaders) listPurchaseOrdersRes()               {}
+func (*BadRequestHeaders) listRecommendationsRes()              {}
+func (*BadRequestHeaders) listRegressionSuitesRes()             {}
+func (*BadRequestHeaders) listRequisitionsRes()                 {}
+func (*BadRequestHeaders) listRoleAssignmentsRes()              {}
+func (*BadRequestHeaders) listRolePermissionsRes()              {}
+func (*BadRequestHeaders) listRolesRes()                        {}
+func (*BadRequestHeaders) listSodRulesRes()                     {}
+func (*BadRequestHeaders) listSupplierInvoicesRes()             {}
+func (*BadRequestHeaders) lockFiscalPeriodRes()                 {}
+func (*BadRequestHeaders) matchSupplierInvoiceRes()             {}
+func (*BadRequestHeaders) openFiscalPeriodRes()                 {}
+func (*BadRequestHeaders) parkJournalEntryRes()                 {}
+func (*BadRequestHeaders) postGoodsReceiptRes()                 {}
+func (*BadRequestHeaders) postJournalEntryRes()                 {}
+func (*BadRequestHeaders) postParkedJournalEntryRes()           {}
+func (*BadRequestHeaders) postSupplierInvoiceRes()              {}
+func (*BadRequestHeaders) proposePaymentRunRes()                {}
+func (*BadRequestHeaders) reconcileMigrationRunRes()            {}
+func (*BadRequestHeaders) recordAgentToolCallRes()              {}
+func (*BadRequestHeaders) rejectApprovalRequestRes()            {}
+func (*BadRequestHeaders) rejectPaymentRunRes()                 {}
+func (*BadRequestHeaders) releaseContractRes()                  {}
+func (*BadRequestHeaders) releasePaymentRunRes()                {}
+func (*BadRequestHeaders) releasePurchaseOrderRes()             {}
+func (*BadRequestHeaders) releaseSupplierInvoiceRes()           {}
+func (*BadRequestHeaders) renewContractRes()                    {}
+func (*BadRequestHeaders) reportBankFileStatusRes()             {}
+func (*BadRequestHeaders) requestBankAccountChangeRes()         {}
+func (*BadRequestHeaders) requestBankAccountEndRes()            {}
+func (*BadRequestHeaders) reverseGoodsReceiptRes()              {}
+func (*BadRequestHeaders) reverseJournalEntryRes()              {}
+func (*BadRequestHeaders) reverseSupplierInvoiceRes()           {}
+func (*BadRequestHeaders) simulateChangeRequestRes()            {}
+func (*BadRequestHeaders) startAgentSessionRes()                {}
+func (*BadRequestHeaders) startMigrationRunRes()                {}
+func (*BadRequestHeaders) submitChangeRequestRes()              {}
+func (*BadRequestHeaders) submitPurchaseOrderChangeRes()        {}
+func (*BadRequestHeaders) submitRequisitionRes()                {}
+func (*BadRequestHeaders) terminateContractRes()                {}
+func (*BadRequestHeaders) transmitBankFileRes()                 {}
+func (*BadRequestHeaders) unblockBusinessPartnerRes()           {}
+func (*BadRequestHeaders) unblockLegalEntityRes()               {}
+func (*BadRequestHeaders) unblockOrgUnitRes()                   {}
+func (*BadRequestHeaders) unlockFiscalPeriodRes()               {}
+func (*BadRequestHeaders) updateAiPolicyRes()                   {}
+func (*BadRequestHeaders) updateChangeRequestRes()              {}
+func (*BadRequestHeaders) updateConnectorRes()                  {}
+func (*BadRequestHeaders) updateContractRes()                   {}
+func (*BadRequestHeaders) updateLegalEntityRes()                {}
+func (*BadRequestHeaders) updateOrgUnitRes()                    {}
+func (*BadRequestHeaders) updateParkedJournalEntryRes()         {}
+func (*BadRequestHeaders) updatePrincipalRes()                  {}
+func (*BadRequestHeaders) updatePurchaseOrderChangeRes()        {}
+func (*BadRequestHeaders) updatePurchaseOrderRes()              {}
+func (*BadRequestHeaders) updateRequisitionRes()                {}
+func (*BadRequestHeaders) updateRoleRes()                       {}
+func (*BadRequestHeaders) updateSupplierInvoiceRes()            {}
+func (*BadRequestHeaders) verifyAuditChainRes()                 {}
+func (*BadRequestHeaders) withdrawChangeRequestRes()            {}
 
 // Period totals per account and transaction currency, maintained by a projector from posted entries.
 // Ref: #/components/schemas/Balance
@@ -4574,6 +4579,78 @@ func (s *BusinessPartnerPageHeaders) SetResponse(val BusinessPartnerPage) {
 }
 
 func (*BusinessPartnerPageHeaders) listBusinessPartnersRes() {}
+
+// CancelDownPaymentRequestOKHeaders wraps DownPaymentRequest with response headers.
+type CancelDownPaymentRequestOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           DownPaymentRequest
+}
+
+// GetETag returns the value of ETag.
+func (s *CancelDownPaymentRequestOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CancelDownPaymentRequestOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *CancelDownPaymentRequestOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *CancelDownPaymentRequestOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *CancelDownPaymentRequestOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *CancelDownPaymentRequestOKHeaders) GetResponse() DownPaymentRequest {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CancelDownPaymentRequestOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CancelDownPaymentRequestOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *CancelDownPaymentRequestOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *CancelDownPaymentRequestOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *CancelDownPaymentRequestOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CancelDownPaymentRequestOKHeaders) SetResponse(val DownPaymentRequest) {
+	s.Response = val
+}
+
+func (*CancelDownPaymentRequestOKHeaders) cancelDownPaymentRequestRes() {}
 
 // CancelOperationOKHeaders wraps Operation with response headers.
 type CancelOperationOKHeaders struct {
@@ -6440,108 +6517,111 @@ func (s *ConflictHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
-func (*ConflictHeaders) activateChangeRequestRes()     {}
-func (*ConflictHeaders) activateLegalEntityRes()       {}
-func (*ConflictHeaders) activateOrgUnitRes()           {}
-func (*ConflictHeaders) approveApprovalRequestRes()    {}
-func (*ConflictHeaders) blockBusinessPartnerRes()      {}
-func (*ConflictHeaders) blockLegalEntityRes()          {}
-func (*ConflictHeaders) blockOrgUnitRes()              {}
-func (*ConflictHeaders) blockPrincipalRes()            {}
-func (*ConflictHeaders) cancelApprovalRequestRes()     {}
-func (*ConflictHeaders) cancelContractRes()            {}
-func (*ConflictHeaders) cancelOperationRes()           {}
-func (*ConflictHeaders) cancelParkedJournalEntryRes()  {}
-func (*ConflictHeaders) cancelPurchaseOrderChangeRes() {}
-func (*ConflictHeaders) cancelPurchaseOrderRes()       {}
-func (*ConflictHeaders) cancelRequisitionRes()         {}
-func (*ConflictHeaders) cancelSupplierInvoiceRes()     {}
-func (*ConflictHeaders) captureSupplierInvoiceRes()    {}
-func (*ConflictHeaders) closeFiscalPeriodRes()         {}
-func (*ConflictHeaders) closePurchaseOrderRes()        {}
-func (*ConflictHeaders) createBusinessPartnerRes()     {}
-func (*ConflictHeaders) createChangeRequestRes()       {}
-func (*ConflictHeaders) createClearingRes()            {}
-func (*ConflictHeaders) createCompanyAccessRes()       {}
-func (*ConflictHeaders) createConnectorRes()           {}
-func (*ConflictHeaders) createContractRes()            {}
-func (*ConflictHeaders) createExchangeRateRes()        {}
-func (*ConflictHeaders) createLegalEntityRes()         {}
-func (*ConflictHeaders) createMigrationRunRes()        {}
-func (*ConflictHeaders) createOrgUnitRes()             {}
-func (*ConflictHeaders) createPartnerChangeRes()       {}
-func (*ConflictHeaders) createPrincipalRes()           {}
-func (*ConflictHeaders) createPurchaseOrderChangeRes() {}
-func (*ConflictHeaders) createPurchaseOrderRes()       {}
-func (*ConflictHeaders) createRecommendationRes()      {}
-func (*ConflictHeaders) createRequisitionRes()         {}
-func (*ConflictHeaders) createRoleAssignmentRes()      {}
-func (*ConflictHeaders) createRoleRes()                {}
-func (*ConflictHeaders) createSodRuleRes()             {}
-func (*ConflictHeaders) createSupplierInvoiceRes()     {}
-func (*ConflictHeaders) createUploadRes()              {}
-func (*ConflictHeaders) decideRecommendationRes()      {}
-func (*ConflictHeaders) disableConnectorRes()          {}
-func (*ConflictHeaders) enableConnectorRes()           {}
-func (*ConflictHeaders) endAgentSessionRes()           {}
-func (*ConflictHeaders) endCompanyAccessRes()          {}
-func (*ConflictHeaders) endRoleAssignmentRes()         {}
-func (*ConflictHeaders) endRolePermissionRes()         {}
-func (*ConflictHeaders) endSodRuleRes()                {}
-func (*ConflictHeaders) getBankFileContentRes()        {}
-func (*ConflictHeaders) grantRolePermissionRes()       {}
-func (*ConflictHeaders) holdSupplierInvoiceRes()       {}
-func (*ConflictHeaders) lockFiscalPeriodRes()          {}
-func (*ConflictHeaders) matchSupplierInvoiceRes()      {}
-func (*ConflictHeaders) openFiscalPeriodRes()          {}
-func (*ConflictHeaders) parkJournalEntryRes()          {}
-func (*ConflictHeaders) postGoodsReceiptRes()          {}
-func (*ConflictHeaders) postJournalEntryRes()          {}
-func (*ConflictHeaders) postParkedJournalEntryRes()    {}
-func (*ConflictHeaders) postSupplierInvoiceRes()       {}
-func (*ConflictHeaders) proposePaymentRunRes()         {}
-func (*ConflictHeaders) reconcileMigrationRunRes()     {}
-func (*ConflictHeaders) recordAgentToolCallRes()       {}
-func (*ConflictHeaders) rejectApprovalRequestRes()     {}
-func (*ConflictHeaders) rejectPaymentRunRes()          {}
-func (*ConflictHeaders) releaseContractRes()           {}
-func (*ConflictHeaders) releasePaymentRunRes()         {}
-func (*ConflictHeaders) releasePurchaseOrderRes()      {}
-func (*ConflictHeaders) releaseSupplierInvoiceRes()    {}
-func (*ConflictHeaders) renewContractRes()             {}
-func (*ConflictHeaders) reportBankFileStatusRes()      {}
-func (*ConflictHeaders) requestBankAccountChangeRes()  {}
-func (*ConflictHeaders) requestBankAccountEndRes()     {}
-func (*ConflictHeaders) reverseGoodsReceiptRes()       {}
-func (*ConflictHeaders) reverseJournalEntryRes()       {}
-func (*ConflictHeaders) reverseSupplierInvoiceRes()    {}
-func (*ConflictHeaders) simulateChangeRequestRes()     {}
-func (*ConflictHeaders) startAgentSessionRes()         {}
-func (*ConflictHeaders) startMigrationRunRes()         {}
-func (*ConflictHeaders) submitChangeRequestRes()       {}
-func (*ConflictHeaders) submitPurchaseOrderChangeRes() {}
-func (*ConflictHeaders) submitRequisitionRes()         {}
-func (*ConflictHeaders) terminateContractRes()         {}
-func (*ConflictHeaders) transmitBankFileRes()          {}
-func (*ConflictHeaders) unblockBusinessPartnerRes()    {}
-func (*ConflictHeaders) unblockLegalEntityRes()        {}
-func (*ConflictHeaders) unblockOrgUnitRes()            {}
-func (*ConflictHeaders) unlockFiscalPeriodRes()        {}
-func (*ConflictHeaders) updateAiPolicyRes()            {}
-func (*ConflictHeaders) updateChangeRequestRes()       {}
-func (*ConflictHeaders) updateConnectorRes()           {}
-func (*ConflictHeaders) updateContractRes()            {}
-func (*ConflictHeaders) updateLegalEntityRes()         {}
-func (*ConflictHeaders) updateOrgUnitRes()             {}
-func (*ConflictHeaders) updateParkedJournalEntryRes()  {}
-func (*ConflictHeaders) updatePrincipalRes()           {}
-func (*ConflictHeaders) updatePurchaseOrderChangeRes() {}
-func (*ConflictHeaders) updatePurchaseOrderRes()       {}
-func (*ConflictHeaders) updateRequisitionRes()         {}
-func (*ConflictHeaders) updateRoleRes()                {}
-func (*ConflictHeaders) updateSupplierInvoiceRes()     {}
-func (*ConflictHeaders) verifyAuditChainRes()          {}
-func (*ConflictHeaders) withdrawChangeRequestRes()     {}
+func (*ConflictHeaders) activateChangeRequestRes()            {}
+func (*ConflictHeaders) activateLegalEntityRes()              {}
+func (*ConflictHeaders) activateOrgUnitRes()                  {}
+func (*ConflictHeaders) approveApprovalRequestRes()           {}
+func (*ConflictHeaders) blockBusinessPartnerRes()             {}
+func (*ConflictHeaders) blockLegalEntityRes()                 {}
+func (*ConflictHeaders) blockOrgUnitRes()                     {}
+func (*ConflictHeaders) blockPrincipalRes()                   {}
+func (*ConflictHeaders) cancelApprovalRequestRes()            {}
+func (*ConflictHeaders) cancelContractRes()                   {}
+func (*ConflictHeaders) cancelDownPaymentRequestRes()         {}
+func (*ConflictHeaders) cancelOperationRes()                  {}
+func (*ConflictHeaders) cancelParkedJournalEntryRes()         {}
+func (*ConflictHeaders) cancelPurchaseOrderChangeRes()        {}
+func (*ConflictHeaders) cancelPurchaseOrderRes()              {}
+func (*ConflictHeaders) cancelRequisitionRes()                {}
+func (*ConflictHeaders) cancelSupplierInvoiceRes()            {}
+func (*ConflictHeaders) captureSupplierInvoiceRes()           {}
+func (*ConflictHeaders) clearSupplierInvoiceDownPaymentsRes() {}
+func (*ConflictHeaders) closeFiscalPeriodRes()                {}
+func (*ConflictHeaders) closePurchaseOrderRes()               {}
+func (*ConflictHeaders) createBusinessPartnerRes()            {}
+func (*ConflictHeaders) createChangeRequestRes()              {}
+func (*ConflictHeaders) createClearingRes()                   {}
+func (*ConflictHeaders) createCompanyAccessRes()              {}
+func (*ConflictHeaders) createConnectorRes()                  {}
+func (*ConflictHeaders) createContractRes()                   {}
+func (*ConflictHeaders) createDownPaymentRequestRes()         {}
+func (*ConflictHeaders) createExchangeRateRes()               {}
+func (*ConflictHeaders) createLegalEntityRes()                {}
+func (*ConflictHeaders) createMigrationRunRes()               {}
+func (*ConflictHeaders) createOrgUnitRes()                    {}
+func (*ConflictHeaders) createPartnerChangeRes()              {}
+func (*ConflictHeaders) createPrincipalRes()                  {}
+func (*ConflictHeaders) createPurchaseOrderChangeRes()        {}
+func (*ConflictHeaders) createPurchaseOrderRes()              {}
+func (*ConflictHeaders) createRecommendationRes()             {}
+func (*ConflictHeaders) createRequisitionRes()                {}
+func (*ConflictHeaders) createRoleAssignmentRes()             {}
+func (*ConflictHeaders) createRoleRes()                       {}
+func (*ConflictHeaders) createSodRuleRes()                    {}
+func (*ConflictHeaders) createSupplierInvoiceRes()            {}
+func (*ConflictHeaders) createUploadRes()                     {}
+func (*ConflictHeaders) decideRecommendationRes()             {}
+func (*ConflictHeaders) disableConnectorRes()                 {}
+func (*ConflictHeaders) enableConnectorRes()                  {}
+func (*ConflictHeaders) endAgentSessionRes()                  {}
+func (*ConflictHeaders) endCompanyAccessRes()                 {}
+func (*ConflictHeaders) endRoleAssignmentRes()                {}
+func (*ConflictHeaders) endRolePermissionRes()                {}
+func (*ConflictHeaders) endSodRuleRes()                       {}
+func (*ConflictHeaders) getBankFileContentRes()               {}
+func (*ConflictHeaders) grantRolePermissionRes()              {}
+func (*ConflictHeaders) holdSupplierInvoiceRes()              {}
+func (*ConflictHeaders) lockFiscalPeriodRes()                 {}
+func (*ConflictHeaders) matchSupplierInvoiceRes()             {}
+func (*ConflictHeaders) openFiscalPeriodRes()                 {}
+func (*ConflictHeaders) parkJournalEntryRes()                 {}
+func (*ConflictHeaders) postGoodsReceiptRes()                 {}
+func (*ConflictHeaders) postJournalEntryRes()                 {}
+func (*ConflictHeaders) postParkedJournalEntryRes()           {}
+func (*ConflictHeaders) postSupplierInvoiceRes()              {}
+func (*ConflictHeaders) proposePaymentRunRes()                {}
+func (*ConflictHeaders) reconcileMigrationRunRes()            {}
+func (*ConflictHeaders) recordAgentToolCallRes()              {}
+func (*ConflictHeaders) rejectApprovalRequestRes()            {}
+func (*ConflictHeaders) rejectPaymentRunRes()                 {}
+func (*ConflictHeaders) releaseContractRes()                  {}
+func (*ConflictHeaders) releasePaymentRunRes()                {}
+func (*ConflictHeaders) releasePurchaseOrderRes()             {}
+func (*ConflictHeaders) releaseSupplierInvoiceRes()           {}
+func (*ConflictHeaders) renewContractRes()                    {}
+func (*ConflictHeaders) reportBankFileStatusRes()             {}
+func (*ConflictHeaders) requestBankAccountChangeRes()         {}
+func (*ConflictHeaders) requestBankAccountEndRes()            {}
+func (*ConflictHeaders) reverseGoodsReceiptRes()              {}
+func (*ConflictHeaders) reverseJournalEntryRes()              {}
+func (*ConflictHeaders) reverseSupplierInvoiceRes()           {}
+func (*ConflictHeaders) simulateChangeRequestRes()            {}
+func (*ConflictHeaders) startAgentSessionRes()                {}
+func (*ConflictHeaders) startMigrationRunRes()                {}
+func (*ConflictHeaders) submitChangeRequestRes()              {}
+func (*ConflictHeaders) submitPurchaseOrderChangeRes()        {}
+func (*ConflictHeaders) submitRequisitionRes()                {}
+func (*ConflictHeaders) terminateContractRes()                {}
+func (*ConflictHeaders) transmitBankFileRes()                 {}
+func (*ConflictHeaders) unblockBusinessPartnerRes()           {}
+func (*ConflictHeaders) unblockLegalEntityRes()               {}
+func (*ConflictHeaders) unblockOrgUnitRes()                   {}
+func (*ConflictHeaders) unlockFiscalPeriodRes()               {}
+func (*ConflictHeaders) updateAiPolicyRes()                   {}
+func (*ConflictHeaders) updateChangeRequestRes()              {}
+func (*ConflictHeaders) updateConnectorRes()                  {}
+func (*ConflictHeaders) updateContractRes()                   {}
+func (*ConflictHeaders) updateLegalEntityRes()                {}
+func (*ConflictHeaders) updateOrgUnitRes()                    {}
+func (*ConflictHeaders) updateParkedJournalEntryRes()         {}
+func (*ConflictHeaders) updatePrincipalRes()                  {}
+func (*ConflictHeaders) updatePurchaseOrderChangeRes()        {}
+func (*ConflictHeaders) updatePurchaseOrderRes()              {}
+func (*ConflictHeaders) updateRequisitionRes()                {}
+func (*ConflictHeaders) updateRoleRes()                       {}
+func (*ConflictHeaders) updateSupplierInvoiceRes()            {}
+func (*ConflictHeaders) verifyAuditChainRes()                 {}
+func (*ConflictHeaders) withdrawChangeRequestRes()            {}
 
 // Merged schema.
 // Ref: #/components/schemas/Connector
@@ -7924,6 +8004,540 @@ func (s *DecisionInput) SetComment(val OptString) {
 	s.Comment = val
 }
 
+// The down payments to clear against the invoice.
+// Ref: #/components/schemas/DownPaymentClearingInput
+type DownPaymentClearingInput struct {
+	// Posting date of the transfer entry.
+	PostingDate time.Time `json:"posting_date"`
+	// The down payments: the special G/L items A of paid down payment requests of the invoice's supplier
+	// (a request's payment entry, the line on the down payment account).
+	Items []ClearingItemRef `json:"items"`
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *DownPaymentClearingInput) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetItems returns the value of Items.
+func (s *DownPaymentClearingInput) GetItems() []ClearingItemRef {
+	return s.Items
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *DownPaymentClearingInput) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetItems sets the value of Items.
+func (s *DownPaymentClearingInput) SetItems(val []ClearingItemRef) {
+	s.Items = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/DownPaymentRequest
+type DownPaymentRequest struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// Document number, from the legal entity's `down_payment_request` number range of the fiscal year the
+	// due date falls in.
+	DocumentNumber string `json:"document_number"`
+	// Legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Supplier.
+	SupplierID uuid.UUID `json:"supplier_id"`
+	// The purchase order the down payment is for: a released order of this supplier and legal entity in
+	// the request's currency.
+	PurchaseOrderID OptUUID `json:"purchase_order_id"`
+	// What is paid, tax included.
+	Amount Money `json:"amount"`
+	// Input tax code of the legal entity; the payment claims the tax the amount includes.
+	TaxCode OptString `json:"tax_code"`
+	// The input tax the amount includes, amount × rate / (100 + rate) rounded half away from zero; 0
+	// without a tax code.
+	TaxAmount Money `json:"tax_amount"`
+	// When the down payment is due; a payment run pays it from then.
+	DueDate time.Time `json:"due_date"`
+	// Reference, such as the supplier's down payment request number.
+	Reference OptString `json:"reference"`
+	// Lifecycle status: `open`, `paid` by a payment run (whose payment posted the down payment on the down
+	// payment account, T46c), `cleared` against the supplier's final invoice
+	// (`supplier-invoices/{id}:clearDownPayments`, T46d), or `cancelled` (`:cancel`, refused while a live
+	// run pays it). Open enumeration: clients must accept and preserve values not listed here; values may
+	// be added within /v1.
+	Status string `json:"status"`
+	// The journal entry of the payment that paid the request; set from status `paid` on.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The supplier invoice the down payment was cleared against; set with status `cleared`.
+	ClearedInvoiceID OptUUID `json:"cleared_invoice_id"`
+	// The transfer entry that cleared the down payment; set with status `cleared`.
+	ClearingEntryID OptUUID `json:"clearing_entry_id"`
+	// Why the request was cancelled; set with status `cancelled`.
+	CancelReason OptString `json:"cancel_reason"`
+}
+
+// GetID returns the value of ID.
+func (s *DownPaymentRequest) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *DownPaymentRequest) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *DownPaymentRequest) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *DownPaymentRequest) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *DownPaymentRequest) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *DownPaymentRequest) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *DownPaymentRequest) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *DownPaymentRequest) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetSupplierID returns the value of SupplierID.
+func (s *DownPaymentRequest) GetSupplierID() uuid.UUID {
+	return s.SupplierID
+}
+
+// GetPurchaseOrderID returns the value of PurchaseOrderID.
+func (s *DownPaymentRequest) GetPurchaseOrderID() OptUUID {
+	return s.PurchaseOrderID
+}
+
+// GetAmount returns the value of Amount.
+func (s *DownPaymentRequest) GetAmount() Money {
+	return s.Amount
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *DownPaymentRequest) GetTaxCode() OptString {
+	return s.TaxCode
+}
+
+// GetTaxAmount returns the value of TaxAmount.
+func (s *DownPaymentRequest) GetTaxAmount() Money {
+	return s.TaxAmount
+}
+
+// GetDueDate returns the value of DueDate.
+func (s *DownPaymentRequest) GetDueDate() time.Time {
+	return s.DueDate
+}
+
+// GetReference returns the value of Reference.
+func (s *DownPaymentRequest) GetReference() OptString {
+	return s.Reference
+}
+
+// GetStatus returns the value of Status.
+func (s *DownPaymentRequest) GetStatus() string {
+	return s.Status
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *DownPaymentRequest) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetClearedInvoiceID returns the value of ClearedInvoiceID.
+func (s *DownPaymentRequest) GetClearedInvoiceID() OptUUID {
+	return s.ClearedInvoiceID
+}
+
+// GetClearingEntryID returns the value of ClearingEntryID.
+func (s *DownPaymentRequest) GetClearingEntryID() OptUUID {
+	return s.ClearingEntryID
+}
+
+// GetCancelReason returns the value of CancelReason.
+func (s *DownPaymentRequest) GetCancelReason() OptString {
+	return s.CancelReason
+}
+
+// SetID sets the value of ID.
+func (s *DownPaymentRequest) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *DownPaymentRequest) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *DownPaymentRequest) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *DownPaymentRequest) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *DownPaymentRequest) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *DownPaymentRequest) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *DownPaymentRequest) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *DownPaymentRequest) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetSupplierID sets the value of SupplierID.
+func (s *DownPaymentRequest) SetSupplierID(val uuid.UUID) {
+	s.SupplierID = val
+}
+
+// SetPurchaseOrderID sets the value of PurchaseOrderID.
+func (s *DownPaymentRequest) SetPurchaseOrderID(val OptUUID) {
+	s.PurchaseOrderID = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *DownPaymentRequest) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *DownPaymentRequest) SetTaxCode(val OptString) {
+	s.TaxCode = val
+}
+
+// SetTaxAmount sets the value of TaxAmount.
+func (s *DownPaymentRequest) SetTaxAmount(val Money) {
+	s.TaxAmount = val
+}
+
+// SetDueDate sets the value of DueDate.
+func (s *DownPaymentRequest) SetDueDate(val time.Time) {
+	s.DueDate = val
+}
+
+// SetReference sets the value of Reference.
+func (s *DownPaymentRequest) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetStatus sets the value of Status.
+func (s *DownPaymentRequest) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *DownPaymentRequest) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetClearedInvoiceID sets the value of ClearedInvoiceID.
+func (s *DownPaymentRequest) SetClearedInvoiceID(val OptUUID) {
+	s.ClearedInvoiceID = val
+}
+
+// SetClearingEntryID sets the value of ClearingEntryID.
+func (s *DownPaymentRequest) SetClearingEntryID(val OptUUID) {
+	s.ClearingEntryID = val
+}
+
+// SetCancelReason sets the value of CancelReason.
+func (s *DownPaymentRequest) SetCancelReason(val OptString) {
+	s.CancelReason = val
+}
+
+// Request a down payment. It is created `open`.
+// Ref: #/components/schemas/DownPaymentRequestCreate
+type DownPaymentRequestCreate struct {
+	// Legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Supplier.
+	SupplierID uuid.UUID `json:"supplier_id"`
+	// The purchase order the down payment is for: a released order of this supplier and legal entity in
+	// the amount's currency.
+	PurchaseOrderID OptUUID `json:"purchase_order_id"`
+	// What is paid, tax included; more than zero.
+	Amount Money `json:"amount"`
+	// An input tax code of the legal entity valid on the due date.
+	TaxCode OptString `json:"tax_code"`
+	// When the down payment is due.
+	DueDate time.Time `json:"due_date"`
+	// Reference, such as the supplier's down payment request number.
+	Reference OptString `json:"reference"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *DownPaymentRequestCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetSupplierID returns the value of SupplierID.
+func (s *DownPaymentRequestCreate) GetSupplierID() uuid.UUID {
+	return s.SupplierID
+}
+
+// GetPurchaseOrderID returns the value of PurchaseOrderID.
+func (s *DownPaymentRequestCreate) GetPurchaseOrderID() OptUUID {
+	return s.PurchaseOrderID
+}
+
+// GetAmount returns the value of Amount.
+func (s *DownPaymentRequestCreate) GetAmount() Money {
+	return s.Amount
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *DownPaymentRequestCreate) GetTaxCode() OptString {
+	return s.TaxCode
+}
+
+// GetDueDate returns the value of DueDate.
+func (s *DownPaymentRequestCreate) GetDueDate() time.Time {
+	return s.DueDate
+}
+
+// GetReference returns the value of Reference.
+func (s *DownPaymentRequestCreate) GetReference() OptString {
+	return s.Reference
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *DownPaymentRequestCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetSupplierID sets the value of SupplierID.
+func (s *DownPaymentRequestCreate) SetSupplierID(val uuid.UUID) {
+	s.SupplierID = val
+}
+
+// SetPurchaseOrderID sets the value of PurchaseOrderID.
+func (s *DownPaymentRequestCreate) SetPurchaseOrderID(val OptUUID) {
+	s.PurchaseOrderID = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *DownPaymentRequestCreate) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *DownPaymentRequestCreate) SetTaxCode(val OptString) {
+	s.TaxCode = val
+}
+
+// SetDueDate sets the value of DueDate.
+func (s *DownPaymentRequestCreate) SetDueDate(val time.Time) {
+	s.DueDate = val
+}
+
+// SetReference sets the value of Reference.
+func (s *DownPaymentRequestCreate) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// DownPaymentRequestHeaders wraps DownPaymentRequest with response headers.
+type DownPaymentRequestHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           DownPaymentRequest
+}
+
+// GetETag returns the value of ETag.
+func (s *DownPaymentRequestHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *DownPaymentRequestHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *DownPaymentRequestHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *DownPaymentRequestHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *DownPaymentRequestHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *DownPaymentRequestHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *DownPaymentRequestHeaders) GetResponse() DownPaymentRequest {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *DownPaymentRequestHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *DownPaymentRequestHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *DownPaymentRequestHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *DownPaymentRequestHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *DownPaymentRequestHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *DownPaymentRequestHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *DownPaymentRequestHeaders) SetResponse(val DownPaymentRequest) {
+	s.Response = val
+}
+
+func (*DownPaymentRequestHeaders) createDownPaymentRequestRes() {}
+
+// One page of down payment requests.
+// Ref: #/components/schemas/DownPaymentRequestPage
+type DownPaymentRequestPage struct {
+	// The down payment requests on this page.
+	Items []DownPaymentRequest `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *DownPaymentRequestPage) GetItems() []DownPaymentRequest {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *DownPaymentRequestPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *DownPaymentRequestPage) SetItems(val []DownPaymentRequest) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *DownPaymentRequestPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// DownPaymentRequestPageHeaders wraps DownPaymentRequestPage with response headers.
+type DownPaymentRequestPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           DownPaymentRequestPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *DownPaymentRequestPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *DownPaymentRequestPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *DownPaymentRequestPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *DownPaymentRequestPageHeaders) GetResponse() DownPaymentRequestPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *DownPaymentRequestPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *DownPaymentRequestPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *DownPaymentRequestPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *DownPaymentRequestPageHeaders) SetResponse(val DownPaymentRequestPage) {
+	s.Response = val
+}
+
+func (*DownPaymentRequestPageHeaders) listDownPaymentRequestsRes() {}
+
 // EndAgentSessionOKHeaders wraps AgentSession with response headers.
 type EndAgentSessionOKHeaders struct {
 	ETag               OptString
@@ -9208,192 +9822,197 @@ func (s *ForbiddenHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
-func (*ForbiddenHeaders) activateChangeRequestRes()      {}
-func (*ForbiddenHeaders) activateLegalEntityRes()        {}
-func (*ForbiddenHeaders) activateOrgUnitRes()            {}
-func (*ForbiddenHeaders) approveApprovalRequestRes()     {}
-func (*ForbiddenHeaders) blockBusinessPartnerRes()       {}
-func (*ForbiddenHeaders) blockLegalEntityRes()           {}
-func (*ForbiddenHeaders) blockOrgUnitRes()               {}
-func (*ForbiddenHeaders) blockPrincipalRes()             {}
-func (*ForbiddenHeaders) cancelApprovalRequestRes()      {}
-func (*ForbiddenHeaders) cancelContractRes()             {}
-func (*ForbiddenHeaders) cancelOperationRes()            {}
-func (*ForbiddenHeaders) cancelParkedJournalEntryRes()   {}
-func (*ForbiddenHeaders) cancelPurchaseOrderChangeRes()  {}
-func (*ForbiddenHeaders) cancelPurchaseOrderRes()        {}
-func (*ForbiddenHeaders) cancelRequisitionRes()          {}
-func (*ForbiddenHeaders) cancelSupplierInvoiceRes()      {}
-func (*ForbiddenHeaders) captureSupplierInvoiceRes()     {}
-func (*ForbiddenHeaders) closeFiscalPeriodRes()          {}
-func (*ForbiddenHeaders) closePurchaseOrderRes()         {}
-func (*ForbiddenHeaders) createBusinessPartnerRes()      {}
-func (*ForbiddenHeaders) createChangeRequestRes()        {}
-func (*ForbiddenHeaders) createClearingRes()             {}
-func (*ForbiddenHeaders) createCompanyAccessRes()        {}
-func (*ForbiddenHeaders) createConnectorRes()            {}
-func (*ForbiddenHeaders) createContractRes()             {}
-func (*ForbiddenHeaders) createExchangeRateRes()         {}
-func (*ForbiddenHeaders) createLegalEntityRes()          {}
-func (*ForbiddenHeaders) createMigrationRunRes()         {}
-func (*ForbiddenHeaders) createOrgUnitRes()              {}
-func (*ForbiddenHeaders) createPartnerChangeRes()        {}
-func (*ForbiddenHeaders) createPrincipalRes()            {}
-func (*ForbiddenHeaders) createPurchaseOrderChangeRes()  {}
-func (*ForbiddenHeaders) createPurchaseOrderRes()        {}
-func (*ForbiddenHeaders) createRecommendationRes()       {}
-func (*ForbiddenHeaders) createRegressionSuiteRes()      {}
-func (*ForbiddenHeaders) createRequisitionRes()          {}
-func (*ForbiddenHeaders) createRoleAssignmentRes()       {}
-func (*ForbiddenHeaders) createRoleRes()                 {}
-func (*ForbiddenHeaders) createSodRuleRes()              {}
-func (*ForbiddenHeaders) createSupplierInvoiceRes()      {}
-func (*ForbiddenHeaders) createUploadRes()               {}
-func (*ForbiddenHeaders) decideRecommendationRes()       {}
-func (*ForbiddenHeaders) disableConnectorRes()           {}
-func (*ForbiddenHeaders) enableConnectorRes()            {}
-func (*ForbiddenHeaders) endAgentSessionRes()            {}
-func (*ForbiddenHeaders) endCompanyAccessRes()           {}
-func (*ForbiddenHeaders) endRoleAssignmentRes()          {}
-func (*ForbiddenHeaders) endRolePermissionRes()          {}
-func (*ForbiddenHeaders) endSodRuleRes()                 {}
-func (*ForbiddenHeaders) getAccountRes()                 {}
-func (*ForbiddenHeaders) getAgentSessionRes()            {}
-func (*ForbiddenHeaders) getAiPolicyRes()                {}
-func (*ForbiddenHeaders) getAiUsageRes()                 {}
-func (*ForbiddenHeaders) getApprovalRequestRes()         {}
-func (*ForbiddenHeaders) getBankAccountRes()             {}
-func (*ForbiddenHeaders) getBankFileContentRes()         {}
-func (*ForbiddenHeaders) getBankFileRes()                {}
-func (*ForbiddenHeaders) getBusinessPartnerRes()         {}
-func (*ForbiddenHeaders) getChangeRequestRes()           {}
-func (*ForbiddenHeaders) getClearingRes()                {}
-func (*ForbiddenHeaders) getCompanyAccessRes()           {}
-func (*ForbiddenHeaders) getConfigVersionRes()           {}
-func (*ForbiddenHeaders) getConnectorRes()               {}
-func (*ForbiddenHeaders) getContractRes()                {}
-func (*ForbiddenHeaders) getExchangeRateRes()            {}
-func (*ForbiddenHeaders) getFiscalPeriodRes()            {}
-func (*ForbiddenHeaders) getGoodsReceiptRes()            {}
-func (*ForbiddenHeaders) getJournalEntryRes()            {}
-func (*ForbiddenHeaders) getLegalEntityRes()             {}
-func (*ForbiddenHeaders) getMatchResultRes()             {}
-func (*ForbiddenHeaders) getMigrationRunRes()            {}
-func (*ForbiddenHeaders) getNumberRangeRes()             {}
-func (*ForbiddenHeaders) getOperationRes()               {}
-func (*ForbiddenHeaders) getOrgUnitRes()                 {}
-func (*ForbiddenHeaders) getParkedJournalEntryRes()      {}
-func (*ForbiddenHeaders) getPartnerChangeRes()           {}
-func (*ForbiddenHeaders) getPaymentRunRes()              {}
-func (*ForbiddenHeaders) getPrincipalRes()               {}
-func (*ForbiddenHeaders) getPurchaseOrderChangeRes()     {}
-func (*ForbiddenHeaders) getPurchaseOrderRes()           {}
-func (*ForbiddenHeaders) getRecommendationRes()          {}
-func (*ForbiddenHeaders) getRegressionSuiteRes()         {}
-func (*ForbiddenHeaders) getRequisitionRes()             {}
-func (*ForbiddenHeaders) getRoleAssignmentRes()          {}
-func (*ForbiddenHeaders) getRolePermissionRes()          {}
-func (*ForbiddenHeaders) getRoleRes()                    {}
-func (*ForbiddenHeaders) getSodRuleRes()                 {}
-func (*ForbiddenHeaders) getSupplierInvoiceDocumentRes() {}
-func (*ForbiddenHeaders) getSupplierInvoiceRes()         {}
-func (*ForbiddenHeaders) getUploadRes()                  {}
-func (*ForbiddenHeaders) grantRolePermissionRes()        {}
-func (*ForbiddenHeaders) holdSupplierInvoiceRes()        {}
-func (*ForbiddenHeaders) listAccountsRes()               {}
-func (*ForbiddenHeaders) listAgentSessionsRes()          {}
-func (*ForbiddenHeaders) listAgentToolCallsRes()         {}
-func (*ForbiddenHeaders) listApprovalRequestsRes()       {}
-func (*ForbiddenHeaders) listAuditEventsRes()            {}
-func (*ForbiddenHeaders) listBalancesRes()               {}
-func (*ForbiddenHeaders) listBankAccountsRes()           {}
-func (*ForbiddenHeaders) listBankFilesRes()              {}
-func (*ForbiddenHeaders) listBusinessPartnersRes()       {}
-func (*ForbiddenHeaders) listChangeRequestsRes()         {}
-func (*ForbiddenHeaders) listClearingsRes()              {}
-func (*ForbiddenHeaders) listCompanyAccessRes()          {}
-func (*ForbiddenHeaders) listConfigVersionsRes()         {}
-func (*ForbiddenHeaders) listConnectorsRes()             {}
-func (*ForbiddenHeaders) listContractsRes()              {}
-func (*ForbiddenHeaders) listExchangeRatesRes()          {}
-func (*ForbiddenHeaders) listFiscalPeriodsRes()          {}
-func (*ForbiddenHeaders) listGoodsReceiptsRes()          {}
-func (*ForbiddenHeaders) listGrIrBalancesRes()           {}
-func (*ForbiddenHeaders) listJournalEntriesRes()         {}
-func (*ForbiddenHeaders) listLegalEntitiesRes()          {}
-func (*ForbiddenHeaders) listMatchResultsRes()           {}
-func (*ForbiddenHeaders) listMigrationRunsRes()          {}
-func (*ForbiddenHeaders) listNumberRangesRes()           {}
-func (*ForbiddenHeaders) listOpenItemsRes()              {}
-func (*ForbiddenHeaders) listOperationsRes()             {}
-func (*ForbiddenHeaders) listOrgUnitsRes()               {}
-func (*ForbiddenHeaders) listParkedJournalEntriesRes()   {}
-func (*ForbiddenHeaders) listPartnerChangesRes()         {}
-func (*ForbiddenHeaders) listPaymentExclusionsRes()      {}
-func (*ForbiddenHeaders) listPaymentRunsRes()            {}
-func (*ForbiddenHeaders) listPaymentsRes()               {}
-func (*ForbiddenHeaders) listPrincipalsRes()             {}
-func (*ForbiddenHeaders) listPurchaseOrderChangesRes()   {}
-func (*ForbiddenHeaders) listPurchaseOrdersRes()         {}
-func (*ForbiddenHeaders) listRecommendationsRes()        {}
-func (*ForbiddenHeaders) listRegressionSuitesRes()       {}
-func (*ForbiddenHeaders) listRequisitionsRes()           {}
-func (*ForbiddenHeaders) listRoleAssignmentsRes()        {}
-func (*ForbiddenHeaders) listRolePermissionsRes()        {}
-func (*ForbiddenHeaders) listRolesRes()                  {}
-func (*ForbiddenHeaders) listSodRulesRes()               {}
-func (*ForbiddenHeaders) listSupplierInvoicesRes()       {}
-func (*ForbiddenHeaders) lockFiscalPeriodRes()           {}
-func (*ForbiddenHeaders) matchSupplierInvoiceRes()       {}
-func (*ForbiddenHeaders) openFiscalPeriodRes()           {}
-func (*ForbiddenHeaders) parkJournalEntryRes()           {}
-func (*ForbiddenHeaders) postGoodsReceiptRes()           {}
-func (*ForbiddenHeaders) postJournalEntryRes()           {}
-func (*ForbiddenHeaders) postParkedJournalEntryRes()     {}
-func (*ForbiddenHeaders) postSupplierInvoiceRes()        {}
-func (*ForbiddenHeaders) proposePaymentRunRes()          {}
-func (*ForbiddenHeaders) reconcileMigrationRunRes()      {}
-func (*ForbiddenHeaders) recordAgentToolCallRes()        {}
-func (*ForbiddenHeaders) rejectApprovalRequestRes()      {}
-func (*ForbiddenHeaders) rejectPaymentRunRes()           {}
-func (*ForbiddenHeaders) releaseContractRes()            {}
-func (*ForbiddenHeaders) releasePaymentRunRes()          {}
-func (*ForbiddenHeaders) releasePurchaseOrderRes()       {}
-func (*ForbiddenHeaders) releaseSupplierInvoiceRes()     {}
-func (*ForbiddenHeaders) renewContractRes()              {}
-func (*ForbiddenHeaders) reportBankFileStatusRes()       {}
-func (*ForbiddenHeaders) requestBankAccountChangeRes()   {}
-func (*ForbiddenHeaders) requestBankAccountEndRes()      {}
-func (*ForbiddenHeaders) reverseGoodsReceiptRes()        {}
-func (*ForbiddenHeaders) reverseJournalEntryRes()        {}
-func (*ForbiddenHeaders) reverseSupplierInvoiceRes()     {}
-func (*ForbiddenHeaders) simulateChangeRequestRes()      {}
-func (*ForbiddenHeaders) startAgentSessionRes()          {}
-func (*ForbiddenHeaders) startMigrationRunRes()          {}
-func (*ForbiddenHeaders) submitChangeRequestRes()        {}
-func (*ForbiddenHeaders) submitPurchaseOrderChangeRes()  {}
-func (*ForbiddenHeaders) submitRequisitionRes()          {}
-func (*ForbiddenHeaders) terminateContractRes()          {}
-func (*ForbiddenHeaders) transmitBankFileRes()           {}
-func (*ForbiddenHeaders) unblockBusinessPartnerRes()     {}
-func (*ForbiddenHeaders) unblockLegalEntityRes()         {}
-func (*ForbiddenHeaders) unblockOrgUnitRes()             {}
-func (*ForbiddenHeaders) unlockFiscalPeriodRes()         {}
-func (*ForbiddenHeaders) updateAiPolicyRes()             {}
-func (*ForbiddenHeaders) updateChangeRequestRes()        {}
-func (*ForbiddenHeaders) updateConnectorRes()            {}
-func (*ForbiddenHeaders) updateContractRes()             {}
-func (*ForbiddenHeaders) updateLegalEntityRes()          {}
-func (*ForbiddenHeaders) updateOrgUnitRes()              {}
-func (*ForbiddenHeaders) updateParkedJournalEntryRes()   {}
-func (*ForbiddenHeaders) updatePrincipalRes()            {}
-func (*ForbiddenHeaders) updatePurchaseOrderChangeRes()  {}
-func (*ForbiddenHeaders) updatePurchaseOrderRes()        {}
-func (*ForbiddenHeaders) updateRequisitionRes()          {}
-func (*ForbiddenHeaders) updateRoleRes()                 {}
-func (*ForbiddenHeaders) updateSupplierInvoiceRes()      {}
-func (*ForbiddenHeaders) verifyAuditChainRes()           {}
-func (*ForbiddenHeaders) withdrawChangeRequestRes()      {}
+func (*ForbiddenHeaders) activateChangeRequestRes()            {}
+func (*ForbiddenHeaders) activateLegalEntityRes()              {}
+func (*ForbiddenHeaders) activateOrgUnitRes()                  {}
+func (*ForbiddenHeaders) approveApprovalRequestRes()           {}
+func (*ForbiddenHeaders) blockBusinessPartnerRes()             {}
+func (*ForbiddenHeaders) blockLegalEntityRes()                 {}
+func (*ForbiddenHeaders) blockOrgUnitRes()                     {}
+func (*ForbiddenHeaders) blockPrincipalRes()                   {}
+func (*ForbiddenHeaders) cancelApprovalRequestRes()            {}
+func (*ForbiddenHeaders) cancelContractRes()                   {}
+func (*ForbiddenHeaders) cancelDownPaymentRequestRes()         {}
+func (*ForbiddenHeaders) cancelOperationRes()                  {}
+func (*ForbiddenHeaders) cancelParkedJournalEntryRes()         {}
+func (*ForbiddenHeaders) cancelPurchaseOrderChangeRes()        {}
+func (*ForbiddenHeaders) cancelPurchaseOrderRes()              {}
+func (*ForbiddenHeaders) cancelRequisitionRes()                {}
+func (*ForbiddenHeaders) cancelSupplierInvoiceRes()            {}
+func (*ForbiddenHeaders) captureSupplierInvoiceRes()           {}
+func (*ForbiddenHeaders) clearSupplierInvoiceDownPaymentsRes() {}
+func (*ForbiddenHeaders) closeFiscalPeriodRes()                {}
+func (*ForbiddenHeaders) closePurchaseOrderRes()               {}
+func (*ForbiddenHeaders) createBusinessPartnerRes()            {}
+func (*ForbiddenHeaders) createChangeRequestRes()              {}
+func (*ForbiddenHeaders) createClearingRes()                   {}
+func (*ForbiddenHeaders) createCompanyAccessRes()              {}
+func (*ForbiddenHeaders) createConnectorRes()                  {}
+func (*ForbiddenHeaders) createContractRes()                   {}
+func (*ForbiddenHeaders) createDownPaymentRequestRes()         {}
+func (*ForbiddenHeaders) createExchangeRateRes()               {}
+func (*ForbiddenHeaders) createLegalEntityRes()                {}
+func (*ForbiddenHeaders) createMigrationRunRes()               {}
+func (*ForbiddenHeaders) createOrgUnitRes()                    {}
+func (*ForbiddenHeaders) createPartnerChangeRes()              {}
+func (*ForbiddenHeaders) createPrincipalRes()                  {}
+func (*ForbiddenHeaders) createPurchaseOrderChangeRes()        {}
+func (*ForbiddenHeaders) createPurchaseOrderRes()              {}
+func (*ForbiddenHeaders) createRecommendationRes()             {}
+func (*ForbiddenHeaders) createRegressionSuiteRes()            {}
+func (*ForbiddenHeaders) createRequisitionRes()                {}
+func (*ForbiddenHeaders) createRoleAssignmentRes()             {}
+func (*ForbiddenHeaders) createRoleRes()                       {}
+func (*ForbiddenHeaders) createSodRuleRes()                    {}
+func (*ForbiddenHeaders) createSupplierInvoiceRes()            {}
+func (*ForbiddenHeaders) createUploadRes()                     {}
+func (*ForbiddenHeaders) decideRecommendationRes()             {}
+func (*ForbiddenHeaders) disableConnectorRes()                 {}
+func (*ForbiddenHeaders) enableConnectorRes()                  {}
+func (*ForbiddenHeaders) endAgentSessionRes()                  {}
+func (*ForbiddenHeaders) endCompanyAccessRes()                 {}
+func (*ForbiddenHeaders) endRoleAssignmentRes()                {}
+func (*ForbiddenHeaders) endRolePermissionRes()                {}
+func (*ForbiddenHeaders) endSodRuleRes()                       {}
+func (*ForbiddenHeaders) getAccountRes()                       {}
+func (*ForbiddenHeaders) getAgentSessionRes()                  {}
+func (*ForbiddenHeaders) getAiPolicyRes()                      {}
+func (*ForbiddenHeaders) getAiUsageRes()                       {}
+func (*ForbiddenHeaders) getApprovalRequestRes()               {}
+func (*ForbiddenHeaders) getBankAccountRes()                   {}
+func (*ForbiddenHeaders) getBankFileContentRes()               {}
+func (*ForbiddenHeaders) getBankFileRes()                      {}
+func (*ForbiddenHeaders) getBusinessPartnerRes()               {}
+func (*ForbiddenHeaders) getChangeRequestRes()                 {}
+func (*ForbiddenHeaders) getClearingRes()                      {}
+func (*ForbiddenHeaders) getCompanyAccessRes()                 {}
+func (*ForbiddenHeaders) getConfigVersionRes()                 {}
+func (*ForbiddenHeaders) getConnectorRes()                     {}
+func (*ForbiddenHeaders) getContractRes()                      {}
+func (*ForbiddenHeaders) getDownPaymentRequestRes()            {}
+func (*ForbiddenHeaders) getExchangeRateRes()                  {}
+func (*ForbiddenHeaders) getFiscalPeriodRes()                  {}
+func (*ForbiddenHeaders) getGoodsReceiptRes()                  {}
+func (*ForbiddenHeaders) getJournalEntryRes()                  {}
+func (*ForbiddenHeaders) getLegalEntityRes()                   {}
+func (*ForbiddenHeaders) getMatchResultRes()                   {}
+func (*ForbiddenHeaders) getMigrationRunRes()                  {}
+func (*ForbiddenHeaders) getNumberRangeRes()                   {}
+func (*ForbiddenHeaders) getOperationRes()                     {}
+func (*ForbiddenHeaders) getOrgUnitRes()                       {}
+func (*ForbiddenHeaders) getParkedJournalEntryRes()            {}
+func (*ForbiddenHeaders) getPartnerChangeRes()                 {}
+func (*ForbiddenHeaders) getPaymentRunRes()                    {}
+func (*ForbiddenHeaders) getPrincipalRes()                     {}
+func (*ForbiddenHeaders) getPurchaseOrderChangeRes()           {}
+func (*ForbiddenHeaders) getPurchaseOrderRes()                 {}
+func (*ForbiddenHeaders) getRecommendationRes()                {}
+func (*ForbiddenHeaders) getRegressionSuiteRes()               {}
+func (*ForbiddenHeaders) getRequisitionRes()                   {}
+func (*ForbiddenHeaders) getRoleAssignmentRes()                {}
+func (*ForbiddenHeaders) getRolePermissionRes()                {}
+func (*ForbiddenHeaders) getRoleRes()                          {}
+func (*ForbiddenHeaders) getSodRuleRes()                       {}
+func (*ForbiddenHeaders) getSupplierInvoiceDocumentRes()       {}
+func (*ForbiddenHeaders) getSupplierInvoiceRes()               {}
+func (*ForbiddenHeaders) getUploadRes()                        {}
+func (*ForbiddenHeaders) grantRolePermissionRes()              {}
+func (*ForbiddenHeaders) holdSupplierInvoiceRes()              {}
+func (*ForbiddenHeaders) listAccountsRes()                     {}
+func (*ForbiddenHeaders) listAgentSessionsRes()                {}
+func (*ForbiddenHeaders) listAgentToolCallsRes()               {}
+func (*ForbiddenHeaders) listApprovalRequestsRes()             {}
+func (*ForbiddenHeaders) listAuditEventsRes()                  {}
+func (*ForbiddenHeaders) listBalancesRes()                     {}
+func (*ForbiddenHeaders) listBankAccountsRes()                 {}
+func (*ForbiddenHeaders) listBankFilesRes()                    {}
+func (*ForbiddenHeaders) listBusinessPartnersRes()             {}
+func (*ForbiddenHeaders) listChangeRequestsRes()               {}
+func (*ForbiddenHeaders) listClearingsRes()                    {}
+func (*ForbiddenHeaders) listCompanyAccessRes()                {}
+func (*ForbiddenHeaders) listConfigVersionsRes()               {}
+func (*ForbiddenHeaders) listConnectorsRes()                   {}
+func (*ForbiddenHeaders) listContractsRes()                    {}
+func (*ForbiddenHeaders) listDownPaymentRequestsRes()          {}
+func (*ForbiddenHeaders) listExchangeRatesRes()                {}
+func (*ForbiddenHeaders) listFiscalPeriodsRes()                {}
+func (*ForbiddenHeaders) listGoodsReceiptsRes()                {}
+func (*ForbiddenHeaders) listGrIrBalancesRes()                 {}
+func (*ForbiddenHeaders) listJournalEntriesRes()               {}
+func (*ForbiddenHeaders) listLegalEntitiesRes()                {}
+func (*ForbiddenHeaders) listMatchResultsRes()                 {}
+func (*ForbiddenHeaders) listMigrationRunsRes()                {}
+func (*ForbiddenHeaders) listNumberRangesRes()                 {}
+func (*ForbiddenHeaders) listOpenItemsRes()                    {}
+func (*ForbiddenHeaders) listOperationsRes()                   {}
+func (*ForbiddenHeaders) listOrgUnitsRes()                     {}
+func (*ForbiddenHeaders) listParkedJournalEntriesRes()         {}
+func (*ForbiddenHeaders) listPartnerChangesRes()               {}
+func (*ForbiddenHeaders) listPaymentExclusionsRes()            {}
+func (*ForbiddenHeaders) listPaymentRunsRes()                  {}
+func (*ForbiddenHeaders) listPaymentsRes()                     {}
+func (*ForbiddenHeaders) listPrincipalsRes()                   {}
+func (*ForbiddenHeaders) listPurchaseOrderChangesRes()         {}
+func (*ForbiddenHeaders) listPurchaseOrdersRes()               {}
+func (*ForbiddenHeaders) listRecommendationsRes()              {}
+func (*ForbiddenHeaders) listRegressionSuitesRes()             {}
+func (*ForbiddenHeaders) listRequisitionsRes()                 {}
+func (*ForbiddenHeaders) listRoleAssignmentsRes()              {}
+func (*ForbiddenHeaders) listRolePermissionsRes()              {}
+func (*ForbiddenHeaders) listRolesRes()                        {}
+func (*ForbiddenHeaders) listSodRulesRes()                     {}
+func (*ForbiddenHeaders) listSupplierInvoicesRes()             {}
+func (*ForbiddenHeaders) lockFiscalPeriodRes()                 {}
+func (*ForbiddenHeaders) matchSupplierInvoiceRes()             {}
+func (*ForbiddenHeaders) openFiscalPeriodRes()                 {}
+func (*ForbiddenHeaders) parkJournalEntryRes()                 {}
+func (*ForbiddenHeaders) postGoodsReceiptRes()                 {}
+func (*ForbiddenHeaders) postJournalEntryRes()                 {}
+func (*ForbiddenHeaders) postParkedJournalEntryRes()           {}
+func (*ForbiddenHeaders) postSupplierInvoiceRes()              {}
+func (*ForbiddenHeaders) proposePaymentRunRes()                {}
+func (*ForbiddenHeaders) reconcileMigrationRunRes()            {}
+func (*ForbiddenHeaders) recordAgentToolCallRes()              {}
+func (*ForbiddenHeaders) rejectApprovalRequestRes()            {}
+func (*ForbiddenHeaders) rejectPaymentRunRes()                 {}
+func (*ForbiddenHeaders) releaseContractRes()                  {}
+func (*ForbiddenHeaders) releasePaymentRunRes()                {}
+func (*ForbiddenHeaders) releasePurchaseOrderRes()             {}
+func (*ForbiddenHeaders) releaseSupplierInvoiceRes()           {}
+func (*ForbiddenHeaders) renewContractRes()                    {}
+func (*ForbiddenHeaders) reportBankFileStatusRes()             {}
+func (*ForbiddenHeaders) requestBankAccountChangeRes()         {}
+func (*ForbiddenHeaders) requestBankAccountEndRes()            {}
+func (*ForbiddenHeaders) reverseGoodsReceiptRes()              {}
+func (*ForbiddenHeaders) reverseJournalEntryRes()              {}
+func (*ForbiddenHeaders) reverseSupplierInvoiceRes()           {}
+func (*ForbiddenHeaders) simulateChangeRequestRes()            {}
+func (*ForbiddenHeaders) startAgentSessionRes()                {}
+func (*ForbiddenHeaders) startMigrationRunRes()                {}
+func (*ForbiddenHeaders) submitChangeRequestRes()              {}
+func (*ForbiddenHeaders) submitPurchaseOrderChangeRes()        {}
+func (*ForbiddenHeaders) submitRequisitionRes()                {}
+func (*ForbiddenHeaders) terminateContractRes()                {}
+func (*ForbiddenHeaders) transmitBankFileRes()                 {}
+func (*ForbiddenHeaders) unblockBusinessPartnerRes()           {}
+func (*ForbiddenHeaders) unblockLegalEntityRes()               {}
+func (*ForbiddenHeaders) unblockOrgUnitRes()                   {}
+func (*ForbiddenHeaders) unlockFiscalPeriodRes()               {}
+func (*ForbiddenHeaders) updateAiPolicyRes()                   {}
+func (*ForbiddenHeaders) updateChangeRequestRes()              {}
+func (*ForbiddenHeaders) updateConnectorRes()                  {}
+func (*ForbiddenHeaders) updateContractRes()                   {}
+func (*ForbiddenHeaders) updateLegalEntityRes()                {}
+func (*ForbiddenHeaders) updateOrgUnitRes()                    {}
+func (*ForbiddenHeaders) updateParkedJournalEntryRes()         {}
+func (*ForbiddenHeaders) updatePrincipalRes()                  {}
+func (*ForbiddenHeaders) updatePurchaseOrderChangeRes()        {}
+func (*ForbiddenHeaders) updatePurchaseOrderRes()              {}
+func (*ForbiddenHeaders) updateRequisitionRes()                {}
+func (*ForbiddenHeaders) updateRoleRes()                       {}
+func (*ForbiddenHeaders) updateSupplierInvoiceRes()            {}
+func (*ForbiddenHeaders) verifyAuditChainRes()                 {}
+func (*ForbiddenHeaders) withdrawChangeRequestRes()            {}
 
 // GetAgentSessionOKHeaders wraps AgentSession with response headers.
 type GetAgentSessionOKHeaders struct {
@@ -9886,6 +10505,67 @@ func (s *GetContractOKHeaders) SetResponse(val Contract) {
 }
 
 func (*GetContractOKHeaders) getContractRes() {}
+
+// GetDownPaymentRequestOKHeaders wraps DownPaymentRequest with response headers.
+type GetDownPaymentRequestOKHeaders struct {
+	ETag               OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           DownPaymentRequest
+}
+
+// GetETag returns the value of ETag.
+func (s *GetDownPaymentRequestOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *GetDownPaymentRequestOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *GetDownPaymentRequestOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *GetDownPaymentRequestOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *GetDownPaymentRequestOKHeaders) GetResponse() DownPaymentRequest {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetDownPaymentRequestOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *GetDownPaymentRequestOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *GetDownPaymentRequestOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *GetDownPaymentRequestOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetDownPaymentRequestOKHeaders) SetResponse(val DownPaymentRequest) {
+	s.Response = val
+}
+
+func (*GetDownPaymentRequestOKHeaders) getDownPaymentRequestRes() {}
 
 // GetExchangeRateOKHeaders wraps ExchangeRate with response headers.
 type GetExchangeRateOKHeaders struct {
@@ -12707,6 +13387,10 @@ type JournalLine struct {
 	PurchaseOrderID OptUUID `json:"purchase_order_id"`
 	// Item of the purchase order, set with `purchase_order_id`.
 	PoItemNo OptInt32 `json:"po_item_no"`
+	// Special G/L indicator of a supplier line (ADR-0037): `A`, a down payment, on the legal entity's down
+	// payment account. Absent on ordinary lines. Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
+	SpecialGl OptString `json:"special_gl"`
 	// Line text.
 	LineText OptString `json:"line_text"`
 }
@@ -12759,6 +13443,11 @@ func (s *JournalLine) GetPurchaseOrderID() OptUUID {
 // GetPoItemNo returns the value of PoItemNo.
 func (s *JournalLine) GetPoItemNo() OptInt32 {
 	return s.PoItemNo
+}
+
+// GetSpecialGl returns the value of SpecialGl.
+func (s *JournalLine) GetSpecialGl() OptString {
+	return s.SpecialGl
 }
 
 // GetLineText returns the value of LineText.
@@ -12814,6 +13503,11 @@ func (s *JournalLine) SetPurchaseOrderID(val OptUUID) {
 // SetPoItemNo sets the value of PoItemNo.
 func (s *JournalLine) SetPoItemNo(val OptInt32) {
 	s.PoItemNo = val
+}
+
+// SetSpecialGl sets the value of SpecialGl.
+func (s *JournalLine) SetSpecialGl(val OptString) {
+	s.SpecialGl = val
 }
 
 // SetLineText sets the value of LineText.
@@ -14390,125 +15084,128 @@ func (s *NotFoundHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
-func (*NotFoundHeaders) activateChangeRequestRes()      {}
-func (*NotFoundHeaders) activateLegalEntityRes()        {}
-func (*NotFoundHeaders) activateOrgUnitRes()            {}
-func (*NotFoundHeaders) approveApprovalRequestRes()     {}
-func (*NotFoundHeaders) blockBusinessPartnerRes()       {}
-func (*NotFoundHeaders) blockLegalEntityRes()           {}
-func (*NotFoundHeaders) blockOrgUnitRes()               {}
-func (*NotFoundHeaders) blockPrincipalRes()             {}
-func (*NotFoundHeaders) cancelApprovalRequestRes()      {}
-func (*NotFoundHeaders) cancelContractRes()             {}
-func (*NotFoundHeaders) cancelOperationRes()            {}
-func (*NotFoundHeaders) cancelParkedJournalEntryRes()   {}
-func (*NotFoundHeaders) cancelPurchaseOrderChangeRes()  {}
-func (*NotFoundHeaders) cancelPurchaseOrderRes()        {}
-func (*NotFoundHeaders) cancelRequisitionRes()          {}
-func (*NotFoundHeaders) cancelSupplierInvoiceRes()      {}
-func (*NotFoundHeaders) closeFiscalPeriodRes()          {}
-func (*NotFoundHeaders) closePurchaseOrderRes()         {}
-func (*NotFoundHeaders) createPurchaseOrderChangeRes()  {}
-func (*NotFoundHeaders) decideRecommendationRes()       {}
-func (*NotFoundHeaders) disableConnectorRes()           {}
-func (*NotFoundHeaders) enableConnectorRes()            {}
-func (*NotFoundHeaders) endAgentSessionRes()            {}
-func (*NotFoundHeaders) endCompanyAccessRes()           {}
-func (*NotFoundHeaders) endRoleAssignmentRes()          {}
-func (*NotFoundHeaders) endRolePermissionRes()          {}
-func (*NotFoundHeaders) endSodRuleRes()                 {}
-func (*NotFoundHeaders) getAccountRes()                 {}
-func (*NotFoundHeaders) getAgentSessionRes()            {}
-func (*NotFoundHeaders) getApprovalRequestRes()         {}
-func (*NotFoundHeaders) getBankAccountRes()             {}
-func (*NotFoundHeaders) getBankFileContentRes()         {}
-func (*NotFoundHeaders) getBankFileRes()                {}
-func (*NotFoundHeaders) getBusinessPartnerRes()         {}
-func (*NotFoundHeaders) getChangeRequestRes()           {}
-func (*NotFoundHeaders) getClearingRes()                {}
-func (*NotFoundHeaders) getCompanyAccessRes()           {}
-func (*NotFoundHeaders) getConfigVersionRes()           {}
-func (*NotFoundHeaders) getConnectorRes()               {}
-func (*NotFoundHeaders) getContractRes()                {}
-func (*NotFoundHeaders) getExchangeRateRes()            {}
-func (*NotFoundHeaders) getFiscalPeriodRes()            {}
-func (*NotFoundHeaders) getGoodsReceiptRes()            {}
-func (*NotFoundHeaders) getJournalEntryRes()            {}
-func (*NotFoundHeaders) getLegalEntityRes()             {}
-func (*NotFoundHeaders) getMatchResultRes()             {}
-func (*NotFoundHeaders) getMigrationRunRes()            {}
-func (*NotFoundHeaders) getNumberRangeRes()             {}
-func (*NotFoundHeaders) getOperationRes()               {}
-func (*NotFoundHeaders) getOrgUnitRes()                 {}
-func (*NotFoundHeaders) getParkedJournalEntryRes()      {}
-func (*NotFoundHeaders) getPartnerChangeRes()           {}
-func (*NotFoundHeaders) getPaymentRunRes()              {}
-func (*NotFoundHeaders) getPrincipalRes()               {}
-func (*NotFoundHeaders) getPurchaseOrderChangeRes()     {}
-func (*NotFoundHeaders) getPurchaseOrderRes()           {}
-func (*NotFoundHeaders) getRecommendationRes()          {}
-func (*NotFoundHeaders) getRegressionSuiteRes()         {}
-func (*NotFoundHeaders) getRequisitionRes()             {}
-func (*NotFoundHeaders) getRoleAssignmentRes()          {}
-func (*NotFoundHeaders) getRolePermissionRes()          {}
-func (*NotFoundHeaders) getRoleRes()                    {}
-func (*NotFoundHeaders) getSodRuleRes()                 {}
-func (*NotFoundHeaders) getSupplierInvoiceDocumentRes() {}
-func (*NotFoundHeaders) getSupplierInvoiceRes()         {}
-func (*NotFoundHeaders) getUploadRes()                  {}
-func (*NotFoundHeaders) grantRolePermissionRes()        {}
-func (*NotFoundHeaders) holdSupplierInvoiceRes()        {}
-func (*NotFoundHeaders) listAgentToolCallsRes()         {}
-func (*NotFoundHeaders) listBankAccountsRes()           {}
-func (*NotFoundHeaders) listMatchResultsRes()           {}
-func (*NotFoundHeaders) listPaymentExclusionsRes()      {}
-func (*NotFoundHeaders) listPaymentsRes()               {}
-func (*NotFoundHeaders) listPurchaseOrderChangesRes()   {}
-func (*NotFoundHeaders) listRolePermissionsRes()        {}
-func (*NotFoundHeaders) lockFiscalPeriodRes()           {}
-func (*NotFoundHeaders) matchSupplierInvoiceRes()       {}
-func (*NotFoundHeaders) openFiscalPeriodRes()           {}
-func (*NotFoundHeaders) postParkedJournalEntryRes()     {}
-func (*NotFoundHeaders) postSupplierInvoiceRes()        {}
-func (*NotFoundHeaders) reconcileMigrationRunRes()      {}
-func (*NotFoundHeaders) recordAgentToolCallRes()        {}
-func (*NotFoundHeaders) rejectApprovalRequestRes()      {}
-func (*NotFoundHeaders) rejectPaymentRunRes()           {}
-func (*NotFoundHeaders) releaseContractRes()            {}
-func (*NotFoundHeaders) releasePaymentRunRes()          {}
-func (*NotFoundHeaders) releasePurchaseOrderRes()       {}
-func (*NotFoundHeaders) releaseSupplierInvoiceRes()     {}
-func (*NotFoundHeaders) renewContractRes()              {}
-func (*NotFoundHeaders) reportBankFileStatusRes()       {}
-func (*NotFoundHeaders) requestBankAccountChangeRes()   {}
-func (*NotFoundHeaders) requestBankAccountEndRes()      {}
-func (*NotFoundHeaders) reverseGoodsReceiptRes()        {}
-func (*NotFoundHeaders) reverseJournalEntryRes()        {}
-func (*NotFoundHeaders) reverseSupplierInvoiceRes()     {}
-func (*NotFoundHeaders) simulateChangeRequestRes()      {}
-func (*NotFoundHeaders) startMigrationRunRes()          {}
-func (*NotFoundHeaders) submitChangeRequestRes()        {}
-func (*NotFoundHeaders) submitPurchaseOrderChangeRes()  {}
-func (*NotFoundHeaders) submitRequisitionRes()          {}
-func (*NotFoundHeaders) terminateContractRes()          {}
-func (*NotFoundHeaders) transmitBankFileRes()           {}
-func (*NotFoundHeaders) unblockBusinessPartnerRes()     {}
-func (*NotFoundHeaders) unblockLegalEntityRes()         {}
-func (*NotFoundHeaders) unblockOrgUnitRes()             {}
-func (*NotFoundHeaders) unlockFiscalPeriodRes()         {}
-func (*NotFoundHeaders) updateChangeRequestRes()        {}
-func (*NotFoundHeaders) updateConnectorRes()            {}
-func (*NotFoundHeaders) updateContractRes()             {}
-func (*NotFoundHeaders) updateLegalEntityRes()          {}
-func (*NotFoundHeaders) updateOrgUnitRes()              {}
-func (*NotFoundHeaders) updateParkedJournalEntryRes()   {}
-func (*NotFoundHeaders) updatePrincipalRes()            {}
-func (*NotFoundHeaders) updatePurchaseOrderChangeRes()  {}
-func (*NotFoundHeaders) updatePurchaseOrderRes()        {}
-func (*NotFoundHeaders) updateRequisitionRes()          {}
-func (*NotFoundHeaders) updateRoleRes()                 {}
-func (*NotFoundHeaders) updateSupplierInvoiceRes()      {}
-func (*NotFoundHeaders) withdrawChangeRequestRes()      {}
+func (*NotFoundHeaders) activateChangeRequestRes()            {}
+func (*NotFoundHeaders) activateLegalEntityRes()              {}
+func (*NotFoundHeaders) activateOrgUnitRes()                  {}
+func (*NotFoundHeaders) approveApprovalRequestRes()           {}
+func (*NotFoundHeaders) blockBusinessPartnerRes()             {}
+func (*NotFoundHeaders) blockLegalEntityRes()                 {}
+func (*NotFoundHeaders) blockOrgUnitRes()                     {}
+func (*NotFoundHeaders) blockPrincipalRes()                   {}
+func (*NotFoundHeaders) cancelApprovalRequestRes()            {}
+func (*NotFoundHeaders) cancelContractRes()                   {}
+func (*NotFoundHeaders) cancelDownPaymentRequestRes()         {}
+func (*NotFoundHeaders) cancelOperationRes()                  {}
+func (*NotFoundHeaders) cancelParkedJournalEntryRes()         {}
+func (*NotFoundHeaders) cancelPurchaseOrderChangeRes()        {}
+func (*NotFoundHeaders) cancelPurchaseOrderRes()              {}
+func (*NotFoundHeaders) cancelRequisitionRes()                {}
+func (*NotFoundHeaders) cancelSupplierInvoiceRes()            {}
+func (*NotFoundHeaders) clearSupplierInvoiceDownPaymentsRes() {}
+func (*NotFoundHeaders) closeFiscalPeriodRes()                {}
+func (*NotFoundHeaders) closePurchaseOrderRes()               {}
+func (*NotFoundHeaders) createPurchaseOrderChangeRes()        {}
+func (*NotFoundHeaders) decideRecommendationRes()             {}
+func (*NotFoundHeaders) disableConnectorRes()                 {}
+func (*NotFoundHeaders) enableConnectorRes()                  {}
+func (*NotFoundHeaders) endAgentSessionRes()                  {}
+func (*NotFoundHeaders) endCompanyAccessRes()                 {}
+func (*NotFoundHeaders) endRoleAssignmentRes()                {}
+func (*NotFoundHeaders) endRolePermissionRes()                {}
+func (*NotFoundHeaders) endSodRuleRes()                       {}
+func (*NotFoundHeaders) getAccountRes()                       {}
+func (*NotFoundHeaders) getAgentSessionRes()                  {}
+func (*NotFoundHeaders) getApprovalRequestRes()               {}
+func (*NotFoundHeaders) getBankAccountRes()                   {}
+func (*NotFoundHeaders) getBankFileContentRes()               {}
+func (*NotFoundHeaders) getBankFileRes()                      {}
+func (*NotFoundHeaders) getBusinessPartnerRes()               {}
+func (*NotFoundHeaders) getChangeRequestRes()                 {}
+func (*NotFoundHeaders) getClearingRes()                      {}
+func (*NotFoundHeaders) getCompanyAccessRes()                 {}
+func (*NotFoundHeaders) getConfigVersionRes()                 {}
+func (*NotFoundHeaders) getConnectorRes()                     {}
+func (*NotFoundHeaders) getContractRes()                      {}
+func (*NotFoundHeaders) getDownPaymentRequestRes()            {}
+func (*NotFoundHeaders) getExchangeRateRes()                  {}
+func (*NotFoundHeaders) getFiscalPeriodRes()                  {}
+func (*NotFoundHeaders) getGoodsReceiptRes()                  {}
+func (*NotFoundHeaders) getJournalEntryRes()                  {}
+func (*NotFoundHeaders) getLegalEntityRes()                   {}
+func (*NotFoundHeaders) getMatchResultRes()                   {}
+func (*NotFoundHeaders) getMigrationRunRes()                  {}
+func (*NotFoundHeaders) getNumberRangeRes()                   {}
+func (*NotFoundHeaders) getOperationRes()                     {}
+func (*NotFoundHeaders) getOrgUnitRes()                       {}
+func (*NotFoundHeaders) getParkedJournalEntryRes()            {}
+func (*NotFoundHeaders) getPartnerChangeRes()                 {}
+func (*NotFoundHeaders) getPaymentRunRes()                    {}
+func (*NotFoundHeaders) getPrincipalRes()                     {}
+func (*NotFoundHeaders) getPurchaseOrderChangeRes()           {}
+func (*NotFoundHeaders) getPurchaseOrderRes()                 {}
+func (*NotFoundHeaders) getRecommendationRes()                {}
+func (*NotFoundHeaders) getRegressionSuiteRes()               {}
+func (*NotFoundHeaders) getRequisitionRes()                   {}
+func (*NotFoundHeaders) getRoleAssignmentRes()                {}
+func (*NotFoundHeaders) getRolePermissionRes()                {}
+func (*NotFoundHeaders) getRoleRes()                          {}
+func (*NotFoundHeaders) getSodRuleRes()                       {}
+func (*NotFoundHeaders) getSupplierInvoiceDocumentRes()       {}
+func (*NotFoundHeaders) getSupplierInvoiceRes()               {}
+func (*NotFoundHeaders) getUploadRes()                        {}
+func (*NotFoundHeaders) grantRolePermissionRes()              {}
+func (*NotFoundHeaders) holdSupplierInvoiceRes()              {}
+func (*NotFoundHeaders) listAgentToolCallsRes()               {}
+func (*NotFoundHeaders) listBankAccountsRes()                 {}
+func (*NotFoundHeaders) listMatchResultsRes()                 {}
+func (*NotFoundHeaders) listPaymentExclusionsRes()            {}
+func (*NotFoundHeaders) listPaymentsRes()                     {}
+func (*NotFoundHeaders) listPurchaseOrderChangesRes()         {}
+func (*NotFoundHeaders) listRolePermissionsRes()              {}
+func (*NotFoundHeaders) lockFiscalPeriodRes()                 {}
+func (*NotFoundHeaders) matchSupplierInvoiceRes()             {}
+func (*NotFoundHeaders) openFiscalPeriodRes()                 {}
+func (*NotFoundHeaders) postParkedJournalEntryRes()           {}
+func (*NotFoundHeaders) postSupplierInvoiceRes()              {}
+func (*NotFoundHeaders) reconcileMigrationRunRes()            {}
+func (*NotFoundHeaders) recordAgentToolCallRes()              {}
+func (*NotFoundHeaders) rejectApprovalRequestRes()            {}
+func (*NotFoundHeaders) rejectPaymentRunRes()                 {}
+func (*NotFoundHeaders) releaseContractRes()                  {}
+func (*NotFoundHeaders) releasePaymentRunRes()                {}
+func (*NotFoundHeaders) releasePurchaseOrderRes()             {}
+func (*NotFoundHeaders) releaseSupplierInvoiceRes()           {}
+func (*NotFoundHeaders) renewContractRes()                    {}
+func (*NotFoundHeaders) reportBankFileStatusRes()             {}
+func (*NotFoundHeaders) requestBankAccountChangeRes()         {}
+func (*NotFoundHeaders) requestBankAccountEndRes()            {}
+func (*NotFoundHeaders) reverseGoodsReceiptRes()              {}
+func (*NotFoundHeaders) reverseJournalEntryRes()              {}
+func (*NotFoundHeaders) reverseSupplierInvoiceRes()           {}
+func (*NotFoundHeaders) simulateChangeRequestRes()            {}
+func (*NotFoundHeaders) startMigrationRunRes()                {}
+func (*NotFoundHeaders) submitChangeRequestRes()              {}
+func (*NotFoundHeaders) submitPurchaseOrderChangeRes()        {}
+func (*NotFoundHeaders) submitRequisitionRes()                {}
+func (*NotFoundHeaders) terminateContractRes()                {}
+func (*NotFoundHeaders) transmitBankFileRes()                 {}
+func (*NotFoundHeaders) unblockBusinessPartnerRes()           {}
+func (*NotFoundHeaders) unblockLegalEntityRes()               {}
+func (*NotFoundHeaders) unblockOrgUnitRes()                   {}
+func (*NotFoundHeaders) unlockFiscalPeriodRes()               {}
+func (*NotFoundHeaders) updateChangeRequestRes()              {}
+func (*NotFoundHeaders) updateConnectorRes()                  {}
+func (*NotFoundHeaders) updateContractRes()                   {}
+func (*NotFoundHeaders) updateLegalEntityRes()                {}
+func (*NotFoundHeaders) updateOrgUnitRes()                    {}
+func (*NotFoundHeaders) updateParkedJournalEntryRes()         {}
+func (*NotFoundHeaders) updatePrincipalRes()                  {}
+func (*NotFoundHeaders) updatePurchaseOrderChangeRes()        {}
+func (*NotFoundHeaders) updatePurchaseOrderRes()              {}
+func (*NotFoundHeaders) updateRequisitionRes()                {}
+func (*NotFoundHeaders) updateRoleRes()                       {}
+func (*NotFoundHeaders) updateSupplierInvoiceRes()            {}
+func (*NotFoundHeaders) withdrawChangeRequestRes()            {}
 
 // Merged schema.
 // Ref: #/components/schemas/NumberRange
@@ -14890,6 +15587,10 @@ type OpenItem struct {
 	// The payment terms the item was posted with, on a supplier item posted from T36 on; absent on others,
 	// which are due by their supplier's current terms.
 	PaymentTerms OptItemPaymentTerms `json:"payment_terms"`
+	// Special G/L indicator (ADR-0037): `A`, a down payment, kept on the down payment account and never
+	// netted in a payment run. Absent on ordinary items. Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	SpecialGl OptString `json:"special_gl"`
 }
 
 // GetFiscalYear returns the value of FiscalYear.
@@ -14952,6 +15653,11 @@ func (s *OpenItem) GetPaymentTerms() OptItemPaymentTerms {
 	return s.PaymentTerms
 }
 
+// GetSpecialGl returns the value of SpecialGl.
+func (s *OpenItem) GetSpecialGl() OptString {
+	return s.SpecialGl
+}
+
 // SetFiscalYear sets the value of FiscalYear.
 func (s *OpenItem) SetFiscalYear(val int32) {
 	s.FiscalYear = val
@@ -15010,6 +15716,11 @@ func (s *OpenItem) SetReference(val OptString) {
 // SetPaymentTerms sets the value of PaymentTerms.
 func (s *OpenItem) SetPaymentTerms(val OptItemPaymentTerms) {
 	s.PaymentTerms = val
+}
+
+// SetSpecialGl sets the value of SpecialGl.
+func (s *OpenItem) SetSpecialGl(val OptString) {
+	s.SpecialGl = val
 }
 
 // One page of open items.
@@ -18511,12 +19222,16 @@ type Payment struct {
 	SupplierID uuid.UUID `json:"supplier_id"`
 	// Supplier bank account valid on the run date.
 	BankAccountID uuid.UUID `json:"bank_account_id"`
-	// Amount paid, after the cash discounts taken on the items; positive. The bank file pays it.
+	// Amount paid, after the cash discounts taken on the items and the withholding tax deducted from them;
+	// positive. The bank file pays it.
 	Amount Money `json:"amount"`
 	// The cash discounts taken on the payment's items (T36c), their total, posted to the cash discount
 	// account when the payment posts; negative when the discounts credit memos give back exceed those of
 	// the invoices.
 	DiscountAmount OptMoney `json:"discount_amount"`
+	// The withholding tax deducted from the payment's items (T46f), their total, posted to the withholding
+	// tax codes' accounts when the payment posts; 0.00 when none.
+	WithholdingAmount OptMoney `json:"withholding_amount"`
 	// The last day the payment's cash discounts are earned (T36d): a release of the run after it is
 	// refused with 409 `payments.discount_lapsed`. Absent when the payment takes no discount.
 	DiscountUntil OptDate `json:"discount_until"`
@@ -18524,7 +19239,14 @@ type Payment struct {
 	EndToEndID string `json:"end_to_end_id"`
 	// Payment journal entry, once posted.
 	JournalEntryID OptUUID `json:"journal_entry_id"`
-	// Settled open items.
+	// What the payment pays: `items`, the supplier's open items netted (at most one such payment per
+	// supplier and run), or `down_payment`, one down payment request (ADR-0037), paid whole and never
+	// netted, whose posting puts the down payment on the down payment account. Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	Kind OptString `json:"kind"`
+	// The down payment request a payment of kind `down_payment` pays.
+	DownPaymentRequestID OptUUID `json:"down_payment_request_id"`
+	// Settled open items; none on a down payment's payment.
 	Items []PaymentItem `json:"items"`
 }
 
@@ -18568,6 +19290,11 @@ func (s *Payment) GetDiscountAmount() OptMoney {
 	return s.DiscountAmount
 }
 
+// GetWithholdingAmount returns the value of WithholdingAmount.
+func (s *Payment) GetWithholdingAmount() OptMoney {
+	return s.WithholdingAmount
+}
+
 // GetDiscountUntil returns the value of DiscountUntil.
 func (s *Payment) GetDiscountUntil() OptDate {
 	return s.DiscountUntil
@@ -18581,6 +19308,16 @@ func (s *Payment) GetEndToEndID() string {
 // GetJournalEntryID returns the value of JournalEntryID.
 func (s *Payment) GetJournalEntryID() OptUUID {
 	return s.JournalEntryID
+}
+
+// GetKind returns the value of Kind.
+func (s *Payment) GetKind() OptString {
+	return s.Kind
+}
+
+// GetDownPaymentRequestID returns the value of DownPaymentRequestID.
+func (s *Payment) GetDownPaymentRequestID() OptUUID {
+	return s.DownPaymentRequestID
 }
 
 // GetItems returns the value of Items.
@@ -18628,6 +19365,11 @@ func (s *Payment) SetDiscountAmount(val OptMoney) {
 	s.DiscountAmount = val
 }
 
+// SetWithholdingAmount sets the value of WithholdingAmount.
+func (s *Payment) SetWithholdingAmount(val OptMoney) {
+	s.WithholdingAmount = val
+}
+
 // SetDiscountUntil sets the value of DiscountUntil.
 func (s *Payment) SetDiscountUntil(val OptDate) {
 	s.DiscountUntil = val
@@ -18643,6 +19385,16 @@ func (s *Payment) SetJournalEntryID(val OptUUID) {
 	s.JournalEntryID = val
 }
 
+// SetKind sets the value of Kind.
+func (s *Payment) SetKind(val OptString) {
+	s.Kind = val
+}
+
+// SetDownPaymentRequestID sets the value of DownPaymentRequestID.
+func (s *Payment) SetDownPaymentRequestID(val OptUUID) {
+	s.DownPaymentRequestID = val
+}
+
 // SetItems sets the value of Items.
 func (s *Payment) SetItems(val []PaymentItem) {
 	s.Items = val
@@ -18656,7 +19408,15 @@ type PaymentExclusion struct {
 	// Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed
 	// here; values may be added within /v1. A release also excludes, with `item_reversed` or
 	// `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid.
+	// `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run
+	// date (T46c); a request's exclusion names it (`down_payment_request_id`), and the supplier's items
+	// may still be paid.
 	ReasonCode string `json:"reason_code"`
+	// The down payment request left out, when the exclusion is a request's (T46c): a run lists one
+	// exclusion per supplier for its items and one per request left out, so a supplier may appear more
+	// than once, not necessarily next to each other (the listing is ordered by supplier for items and by
+	// request for requests).
+	DownPaymentRequestID OptUUID `json:"down_payment_request_id"`
 	// Amount that would otherwise have been paid.
 	Amount Money `json:"amount"`
 }
@@ -18669,6 +19429,11 @@ func (s *PaymentExclusion) GetSupplierID() uuid.UUID {
 // GetReasonCode returns the value of ReasonCode.
 func (s *PaymentExclusion) GetReasonCode() string {
 	return s.ReasonCode
+}
+
+// GetDownPaymentRequestID returns the value of DownPaymentRequestID.
+func (s *PaymentExclusion) GetDownPaymentRequestID() OptUUID {
+	return s.DownPaymentRequestID
 }
 
 // GetAmount returns the value of Amount.
@@ -18684,6 +19449,11 @@ func (s *PaymentExclusion) SetSupplierID(val uuid.UUID) {
 // SetReasonCode sets the value of ReasonCode.
 func (s *PaymentExclusion) SetReasonCode(val string) {
 	s.ReasonCode = val
+}
+
+// SetDownPaymentRequestID sets the value of DownPaymentRequestID.
+func (s *PaymentExclusion) SetDownPaymentRequestID(val OptUUID) {
+	s.DownPaymentRequestID = val
 }
 
 // SetAmount sets the value of Amount.
@@ -18795,8 +19565,13 @@ type PaymentItem struct {
 	// The item's open amount the payment settles, before the discount; negative on a credit memo.
 	Amount Money `json:"amount"`
 	// The cash discount taken on the item (T36c), by the payment terms it was posted with on the run date;
-	// of the item's sign, 0.00 when none. What the item pays is amount less discount_amount.
+	// of the item's sign, 0.00 when none. What the item pays is amount less discount_amount less
+	// withholding_amount.
 	DiscountAmount OptMoney `json:"discount_amount"`
+	// The withholding tax the run deducts from the item (T46f, ADR-0037), by the supplier's codes deducted
+	// at payment that the item posted with: each code's rate of its base less the discount's share of it;
+	// of the item's sign, 0.00 when none. It is posted to the codes' accounts when the payment posts.
+	WithholdingAmount OptMoney `json:"withholding_amount"`
 	// Due date of the item.
 	DueDate time.Time `json:"due_date"`
 	// False once the run is rejected or failed (the item is free again).
@@ -18826,6 +19601,11 @@ func (s *PaymentItem) GetAmount() Money {
 // GetDiscountAmount returns the value of DiscountAmount.
 func (s *PaymentItem) GetDiscountAmount() OptMoney {
 	return s.DiscountAmount
+}
+
+// GetWithholdingAmount returns the value of WithholdingAmount.
+func (s *PaymentItem) GetWithholdingAmount() OptMoney {
+	return s.WithholdingAmount
 }
 
 // GetDueDate returns the value of DueDate.
@@ -18861,6 +19641,11 @@ func (s *PaymentItem) SetAmount(val Money) {
 // SetDiscountAmount sets the value of DiscountAmount.
 func (s *PaymentItem) SetDiscountAmount(val OptMoney) {
 	s.DiscountAmount = val
+}
+
+// SetWithholdingAmount sets the value of WithholdingAmount.
+func (s *PaymentItem) SetWithholdingAmount(val OptMoney) {
+	s.WithholdingAmount = val
 }
 
 // SetDueDate sets the value of DueDate.
@@ -19442,76 +20227,78 @@ func (s *PreconditionFailedHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
-func (*PreconditionFailedHeaders) activateChangeRequestRes()     {}
-func (*PreconditionFailedHeaders) activateLegalEntityRes()       {}
-func (*PreconditionFailedHeaders) activateOrgUnitRes()           {}
-func (*PreconditionFailedHeaders) approveApprovalRequestRes()    {}
-func (*PreconditionFailedHeaders) blockBusinessPartnerRes()      {}
-func (*PreconditionFailedHeaders) blockLegalEntityRes()          {}
-func (*PreconditionFailedHeaders) blockOrgUnitRes()              {}
-func (*PreconditionFailedHeaders) blockPrincipalRes()            {}
-func (*PreconditionFailedHeaders) cancelApprovalRequestRes()     {}
-func (*PreconditionFailedHeaders) cancelContractRes()            {}
-func (*PreconditionFailedHeaders) cancelOperationRes()           {}
-func (*PreconditionFailedHeaders) cancelParkedJournalEntryRes()  {}
-func (*PreconditionFailedHeaders) cancelPurchaseOrderChangeRes() {}
-func (*PreconditionFailedHeaders) cancelPurchaseOrderRes()       {}
-func (*PreconditionFailedHeaders) cancelRequisitionRes()         {}
-func (*PreconditionFailedHeaders) cancelSupplierInvoiceRes()     {}
-func (*PreconditionFailedHeaders) closeFiscalPeriodRes()         {}
-func (*PreconditionFailedHeaders) closePurchaseOrderRes()        {}
-func (*PreconditionFailedHeaders) decideRecommendationRes()      {}
-func (*PreconditionFailedHeaders) disableConnectorRes()          {}
-func (*PreconditionFailedHeaders) enableConnectorRes()           {}
-func (*PreconditionFailedHeaders) endAgentSessionRes()           {}
-func (*PreconditionFailedHeaders) endCompanyAccessRes()          {}
-func (*PreconditionFailedHeaders) endRoleAssignmentRes()         {}
-func (*PreconditionFailedHeaders) endRolePermissionRes()         {}
-func (*PreconditionFailedHeaders) endSodRuleRes()                {}
-func (*PreconditionFailedHeaders) holdSupplierInvoiceRes()       {}
-func (*PreconditionFailedHeaders) lockFiscalPeriodRes()          {}
-func (*PreconditionFailedHeaders) matchSupplierInvoiceRes()      {}
-func (*PreconditionFailedHeaders) openFiscalPeriodRes()          {}
-func (*PreconditionFailedHeaders) postParkedJournalEntryRes()    {}
-func (*PreconditionFailedHeaders) postSupplierInvoiceRes()       {}
-func (*PreconditionFailedHeaders) reconcileMigrationRunRes()     {}
-func (*PreconditionFailedHeaders) rejectApprovalRequestRes()     {}
-func (*PreconditionFailedHeaders) rejectPaymentRunRes()          {}
-func (*PreconditionFailedHeaders) releaseContractRes()           {}
-func (*PreconditionFailedHeaders) releasePaymentRunRes()         {}
-func (*PreconditionFailedHeaders) releasePurchaseOrderRes()      {}
-func (*PreconditionFailedHeaders) releaseSupplierInvoiceRes()    {}
-func (*PreconditionFailedHeaders) renewContractRes()             {}
-func (*PreconditionFailedHeaders) reportBankFileStatusRes()      {}
-func (*PreconditionFailedHeaders) requestBankAccountEndRes()     {}
-func (*PreconditionFailedHeaders) reverseGoodsReceiptRes()       {}
-func (*PreconditionFailedHeaders) reverseJournalEntryRes()       {}
-func (*PreconditionFailedHeaders) reverseSupplierInvoiceRes()    {}
-func (*PreconditionFailedHeaders) simulateChangeRequestRes()     {}
-func (*PreconditionFailedHeaders) startMigrationRunRes()         {}
-func (*PreconditionFailedHeaders) submitChangeRequestRes()       {}
-func (*PreconditionFailedHeaders) submitPurchaseOrderChangeRes() {}
-func (*PreconditionFailedHeaders) submitRequisitionRes()         {}
-func (*PreconditionFailedHeaders) terminateContractRes()         {}
-func (*PreconditionFailedHeaders) transmitBankFileRes()          {}
-func (*PreconditionFailedHeaders) unblockBusinessPartnerRes()    {}
-func (*PreconditionFailedHeaders) unblockLegalEntityRes()        {}
-func (*PreconditionFailedHeaders) unblockOrgUnitRes()            {}
-func (*PreconditionFailedHeaders) unlockFiscalPeriodRes()        {}
-func (*PreconditionFailedHeaders) updateAiPolicyRes()            {}
-func (*PreconditionFailedHeaders) updateChangeRequestRes()       {}
-func (*PreconditionFailedHeaders) updateConnectorRes()           {}
-func (*PreconditionFailedHeaders) updateContractRes()            {}
-func (*PreconditionFailedHeaders) updateLegalEntityRes()         {}
-func (*PreconditionFailedHeaders) updateOrgUnitRes()             {}
-func (*PreconditionFailedHeaders) updateParkedJournalEntryRes()  {}
-func (*PreconditionFailedHeaders) updatePrincipalRes()           {}
-func (*PreconditionFailedHeaders) updatePurchaseOrderChangeRes() {}
-func (*PreconditionFailedHeaders) updatePurchaseOrderRes()       {}
-func (*PreconditionFailedHeaders) updateRequisitionRes()         {}
-func (*PreconditionFailedHeaders) updateRoleRes()                {}
-func (*PreconditionFailedHeaders) updateSupplierInvoiceRes()     {}
-func (*PreconditionFailedHeaders) withdrawChangeRequestRes()     {}
+func (*PreconditionFailedHeaders) activateChangeRequestRes()            {}
+func (*PreconditionFailedHeaders) activateLegalEntityRes()              {}
+func (*PreconditionFailedHeaders) activateOrgUnitRes()                  {}
+func (*PreconditionFailedHeaders) approveApprovalRequestRes()           {}
+func (*PreconditionFailedHeaders) blockBusinessPartnerRes()             {}
+func (*PreconditionFailedHeaders) blockLegalEntityRes()                 {}
+func (*PreconditionFailedHeaders) blockOrgUnitRes()                     {}
+func (*PreconditionFailedHeaders) blockPrincipalRes()                   {}
+func (*PreconditionFailedHeaders) cancelApprovalRequestRes()            {}
+func (*PreconditionFailedHeaders) cancelContractRes()                   {}
+func (*PreconditionFailedHeaders) cancelDownPaymentRequestRes()         {}
+func (*PreconditionFailedHeaders) cancelOperationRes()                  {}
+func (*PreconditionFailedHeaders) cancelParkedJournalEntryRes()         {}
+func (*PreconditionFailedHeaders) cancelPurchaseOrderChangeRes()        {}
+func (*PreconditionFailedHeaders) cancelPurchaseOrderRes()              {}
+func (*PreconditionFailedHeaders) cancelRequisitionRes()                {}
+func (*PreconditionFailedHeaders) cancelSupplierInvoiceRes()            {}
+func (*PreconditionFailedHeaders) clearSupplierInvoiceDownPaymentsRes() {}
+func (*PreconditionFailedHeaders) closeFiscalPeriodRes()                {}
+func (*PreconditionFailedHeaders) closePurchaseOrderRes()               {}
+func (*PreconditionFailedHeaders) decideRecommendationRes()             {}
+func (*PreconditionFailedHeaders) disableConnectorRes()                 {}
+func (*PreconditionFailedHeaders) enableConnectorRes()                  {}
+func (*PreconditionFailedHeaders) endAgentSessionRes()                  {}
+func (*PreconditionFailedHeaders) endCompanyAccessRes()                 {}
+func (*PreconditionFailedHeaders) endRoleAssignmentRes()                {}
+func (*PreconditionFailedHeaders) endRolePermissionRes()                {}
+func (*PreconditionFailedHeaders) endSodRuleRes()                       {}
+func (*PreconditionFailedHeaders) holdSupplierInvoiceRes()              {}
+func (*PreconditionFailedHeaders) lockFiscalPeriodRes()                 {}
+func (*PreconditionFailedHeaders) matchSupplierInvoiceRes()             {}
+func (*PreconditionFailedHeaders) openFiscalPeriodRes()                 {}
+func (*PreconditionFailedHeaders) postParkedJournalEntryRes()           {}
+func (*PreconditionFailedHeaders) postSupplierInvoiceRes()              {}
+func (*PreconditionFailedHeaders) reconcileMigrationRunRes()            {}
+func (*PreconditionFailedHeaders) rejectApprovalRequestRes()            {}
+func (*PreconditionFailedHeaders) rejectPaymentRunRes()                 {}
+func (*PreconditionFailedHeaders) releaseContractRes()                  {}
+func (*PreconditionFailedHeaders) releasePaymentRunRes()                {}
+func (*PreconditionFailedHeaders) releasePurchaseOrderRes()             {}
+func (*PreconditionFailedHeaders) releaseSupplierInvoiceRes()           {}
+func (*PreconditionFailedHeaders) renewContractRes()                    {}
+func (*PreconditionFailedHeaders) reportBankFileStatusRes()             {}
+func (*PreconditionFailedHeaders) requestBankAccountEndRes()            {}
+func (*PreconditionFailedHeaders) reverseGoodsReceiptRes()              {}
+func (*PreconditionFailedHeaders) reverseJournalEntryRes()              {}
+func (*PreconditionFailedHeaders) reverseSupplierInvoiceRes()           {}
+func (*PreconditionFailedHeaders) simulateChangeRequestRes()            {}
+func (*PreconditionFailedHeaders) startMigrationRunRes()                {}
+func (*PreconditionFailedHeaders) submitChangeRequestRes()              {}
+func (*PreconditionFailedHeaders) submitPurchaseOrderChangeRes()        {}
+func (*PreconditionFailedHeaders) submitRequisitionRes()                {}
+func (*PreconditionFailedHeaders) terminateContractRes()                {}
+func (*PreconditionFailedHeaders) transmitBankFileRes()                 {}
+func (*PreconditionFailedHeaders) unblockBusinessPartnerRes()           {}
+func (*PreconditionFailedHeaders) unblockLegalEntityRes()               {}
+func (*PreconditionFailedHeaders) unblockOrgUnitRes()                   {}
+func (*PreconditionFailedHeaders) unlockFiscalPeriodRes()               {}
+func (*PreconditionFailedHeaders) updateAiPolicyRes()                   {}
+func (*PreconditionFailedHeaders) updateChangeRequestRes()              {}
+func (*PreconditionFailedHeaders) updateConnectorRes()                  {}
+func (*PreconditionFailedHeaders) updateContractRes()                   {}
+func (*PreconditionFailedHeaders) updateLegalEntityRes()                {}
+func (*PreconditionFailedHeaders) updateOrgUnitRes()                    {}
+func (*PreconditionFailedHeaders) updateParkedJournalEntryRes()         {}
+func (*PreconditionFailedHeaders) updatePrincipalRes()                  {}
+func (*PreconditionFailedHeaders) updatePurchaseOrderChangeRes()        {}
+func (*PreconditionFailedHeaders) updatePurchaseOrderRes()              {}
+func (*PreconditionFailedHeaders) updateRequisitionRes()                {}
+func (*PreconditionFailedHeaders) updateRoleRes()                       {}
+func (*PreconditionFailedHeaders) updateSupplierInvoiceRes()            {}
+func (*PreconditionFailedHeaders) withdrawChangeRequestRes()            {}
 
 // PreconditionRequiredHeaders wraps Problem with response headers.
 type PreconditionRequiredHeaders struct {
@@ -19561,108 +20348,110 @@ func (s *PreconditionRequiredHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
-func (*PreconditionRequiredHeaders) activateChangeRequestRes()     {}
-func (*PreconditionRequiredHeaders) activateLegalEntityRes()       {}
-func (*PreconditionRequiredHeaders) activateOrgUnitRes()           {}
-func (*PreconditionRequiredHeaders) approveApprovalRequestRes()    {}
-func (*PreconditionRequiredHeaders) blockBusinessPartnerRes()      {}
-func (*PreconditionRequiredHeaders) blockLegalEntityRes()          {}
-func (*PreconditionRequiredHeaders) blockOrgUnitRes()              {}
-func (*PreconditionRequiredHeaders) blockPrincipalRes()            {}
-func (*PreconditionRequiredHeaders) cancelApprovalRequestRes()     {}
-func (*PreconditionRequiredHeaders) cancelContractRes()            {}
-func (*PreconditionRequiredHeaders) cancelOperationRes()           {}
-func (*PreconditionRequiredHeaders) cancelParkedJournalEntryRes()  {}
-func (*PreconditionRequiredHeaders) cancelPurchaseOrderChangeRes() {}
-func (*PreconditionRequiredHeaders) cancelPurchaseOrderRes()       {}
-func (*PreconditionRequiredHeaders) cancelRequisitionRes()         {}
-func (*PreconditionRequiredHeaders) cancelSupplierInvoiceRes()     {}
-func (*PreconditionRequiredHeaders) captureSupplierInvoiceRes()    {}
-func (*PreconditionRequiredHeaders) closeFiscalPeriodRes()         {}
-func (*PreconditionRequiredHeaders) closePurchaseOrderRes()        {}
-func (*PreconditionRequiredHeaders) createBusinessPartnerRes()     {}
-func (*PreconditionRequiredHeaders) createChangeRequestRes()       {}
-func (*PreconditionRequiredHeaders) createClearingRes()            {}
-func (*PreconditionRequiredHeaders) createCompanyAccessRes()       {}
-func (*PreconditionRequiredHeaders) createConnectorRes()           {}
-func (*PreconditionRequiredHeaders) createContractRes()            {}
-func (*PreconditionRequiredHeaders) createExchangeRateRes()        {}
-func (*PreconditionRequiredHeaders) createLegalEntityRes()         {}
-func (*PreconditionRequiredHeaders) createMigrationRunRes()        {}
-func (*PreconditionRequiredHeaders) createOrgUnitRes()             {}
-func (*PreconditionRequiredHeaders) createPartnerChangeRes()       {}
-func (*PreconditionRequiredHeaders) createPrincipalRes()           {}
-func (*PreconditionRequiredHeaders) createPurchaseOrderChangeRes() {}
-func (*PreconditionRequiredHeaders) createPurchaseOrderRes()       {}
-func (*PreconditionRequiredHeaders) createRecommendationRes()      {}
-func (*PreconditionRequiredHeaders) createRegressionSuiteRes()     {}
-func (*PreconditionRequiredHeaders) createRequisitionRes()         {}
-func (*PreconditionRequiredHeaders) createRoleAssignmentRes()      {}
-func (*PreconditionRequiredHeaders) createRoleRes()                {}
-func (*PreconditionRequiredHeaders) createSodRuleRes()             {}
-func (*PreconditionRequiredHeaders) createSupplierInvoiceRes()     {}
-func (*PreconditionRequiredHeaders) createUploadRes()              {}
-func (*PreconditionRequiredHeaders) decideRecommendationRes()      {}
-func (*PreconditionRequiredHeaders) disableConnectorRes()          {}
-func (*PreconditionRequiredHeaders) enableConnectorRes()           {}
-func (*PreconditionRequiredHeaders) endAgentSessionRes()           {}
-func (*PreconditionRequiredHeaders) endCompanyAccessRes()          {}
-func (*PreconditionRequiredHeaders) endRoleAssignmentRes()         {}
-func (*PreconditionRequiredHeaders) endRolePermissionRes()         {}
-func (*PreconditionRequiredHeaders) endSodRuleRes()                {}
-func (*PreconditionRequiredHeaders) grantRolePermissionRes()       {}
-func (*PreconditionRequiredHeaders) holdSupplierInvoiceRes()       {}
-func (*PreconditionRequiredHeaders) lockFiscalPeriodRes()          {}
-func (*PreconditionRequiredHeaders) matchSupplierInvoiceRes()      {}
-func (*PreconditionRequiredHeaders) openFiscalPeriodRes()          {}
-func (*PreconditionRequiredHeaders) parkJournalEntryRes()          {}
-func (*PreconditionRequiredHeaders) postGoodsReceiptRes()          {}
-func (*PreconditionRequiredHeaders) postJournalEntryRes()          {}
-func (*PreconditionRequiredHeaders) postParkedJournalEntryRes()    {}
-func (*PreconditionRequiredHeaders) postSupplierInvoiceRes()       {}
-func (*PreconditionRequiredHeaders) proposePaymentRunRes()         {}
-func (*PreconditionRequiredHeaders) reconcileMigrationRunRes()     {}
-func (*PreconditionRequiredHeaders) recordAgentToolCallRes()       {}
-func (*PreconditionRequiredHeaders) rejectApprovalRequestRes()     {}
-func (*PreconditionRequiredHeaders) rejectPaymentRunRes()          {}
-func (*PreconditionRequiredHeaders) releaseContractRes()           {}
-func (*PreconditionRequiredHeaders) releasePaymentRunRes()         {}
-func (*PreconditionRequiredHeaders) releasePurchaseOrderRes()      {}
-func (*PreconditionRequiredHeaders) releaseSupplierInvoiceRes()    {}
-func (*PreconditionRequiredHeaders) renewContractRes()             {}
-func (*PreconditionRequiredHeaders) reportBankFileStatusRes()      {}
-func (*PreconditionRequiredHeaders) requestBankAccountChangeRes()  {}
-func (*PreconditionRequiredHeaders) requestBankAccountEndRes()     {}
-func (*PreconditionRequiredHeaders) reverseGoodsReceiptRes()       {}
-func (*PreconditionRequiredHeaders) reverseJournalEntryRes()       {}
-func (*PreconditionRequiredHeaders) reverseSupplierInvoiceRes()    {}
-func (*PreconditionRequiredHeaders) simulateChangeRequestRes()     {}
-func (*PreconditionRequiredHeaders) startAgentSessionRes()         {}
-func (*PreconditionRequiredHeaders) startMigrationRunRes()         {}
-func (*PreconditionRequiredHeaders) submitChangeRequestRes()       {}
-func (*PreconditionRequiredHeaders) submitPurchaseOrderChangeRes() {}
-func (*PreconditionRequiredHeaders) submitRequisitionRes()         {}
-func (*PreconditionRequiredHeaders) terminateContractRes()         {}
-func (*PreconditionRequiredHeaders) transmitBankFileRes()          {}
-func (*PreconditionRequiredHeaders) unblockBusinessPartnerRes()    {}
-func (*PreconditionRequiredHeaders) unblockLegalEntityRes()        {}
-func (*PreconditionRequiredHeaders) unblockOrgUnitRes()            {}
-func (*PreconditionRequiredHeaders) unlockFiscalPeriodRes()        {}
-func (*PreconditionRequiredHeaders) updateAiPolicyRes()            {}
-func (*PreconditionRequiredHeaders) updateChangeRequestRes()       {}
-func (*PreconditionRequiredHeaders) updateConnectorRes()           {}
-func (*PreconditionRequiredHeaders) updateContractRes()            {}
-func (*PreconditionRequiredHeaders) updateLegalEntityRes()         {}
-func (*PreconditionRequiredHeaders) updateOrgUnitRes()             {}
-func (*PreconditionRequiredHeaders) updateParkedJournalEntryRes()  {}
-func (*PreconditionRequiredHeaders) updatePrincipalRes()           {}
-func (*PreconditionRequiredHeaders) updatePurchaseOrderChangeRes() {}
-func (*PreconditionRequiredHeaders) updatePurchaseOrderRes()       {}
-func (*PreconditionRequiredHeaders) updateRequisitionRes()         {}
-func (*PreconditionRequiredHeaders) updateRoleRes()                {}
-func (*PreconditionRequiredHeaders) updateSupplierInvoiceRes()     {}
-func (*PreconditionRequiredHeaders) verifyAuditChainRes()          {}
-func (*PreconditionRequiredHeaders) withdrawChangeRequestRes()     {}
+func (*PreconditionRequiredHeaders) activateChangeRequestRes()            {}
+func (*PreconditionRequiredHeaders) activateLegalEntityRes()              {}
+func (*PreconditionRequiredHeaders) activateOrgUnitRes()                  {}
+func (*PreconditionRequiredHeaders) approveApprovalRequestRes()           {}
+func (*PreconditionRequiredHeaders) blockBusinessPartnerRes()             {}
+func (*PreconditionRequiredHeaders) blockLegalEntityRes()                 {}
+func (*PreconditionRequiredHeaders) blockOrgUnitRes()                     {}
+func (*PreconditionRequiredHeaders) blockPrincipalRes()                   {}
+func (*PreconditionRequiredHeaders) cancelApprovalRequestRes()            {}
+func (*PreconditionRequiredHeaders) cancelContractRes()                   {}
+func (*PreconditionRequiredHeaders) cancelDownPaymentRequestRes()         {}
+func (*PreconditionRequiredHeaders) cancelOperationRes()                  {}
+func (*PreconditionRequiredHeaders) cancelParkedJournalEntryRes()         {}
+func (*PreconditionRequiredHeaders) cancelPurchaseOrderChangeRes()        {}
+func (*PreconditionRequiredHeaders) cancelPurchaseOrderRes()              {}
+func (*PreconditionRequiredHeaders) cancelRequisitionRes()                {}
+func (*PreconditionRequiredHeaders) cancelSupplierInvoiceRes()            {}
+func (*PreconditionRequiredHeaders) captureSupplierInvoiceRes()           {}
+func (*PreconditionRequiredHeaders) clearSupplierInvoiceDownPaymentsRes() {}
+func (*PreconditionRequiredHeaders) closeFiscalPeriodRes()                {}
+func (*PreconditionRequiredHeaders) closePurchaseOrderRes()               {}
+func (*PreconditionRequiredHeaders) createBusinessPartnerRes()            {}
+func (*PreconditionRequiredHeaders) createChangeRequestRes()              {}
+func (*PreconditionRequiredHeaders) createClearingRes()                   {}
+func (*PreconditionRequiredHeaders) createCompanyAccessRes()              {}
+func (*PreconditionRequiredHeaders) createConnectorRes()                  {}
+func (*PreconditionRequiredHeaders) createContractRes()                   {}
+func (*PreconditionRequiredHeaders) createExchangeRateRes()               {}
+func (*PreconditionRequiredHeaders) createLegalEntityRes()                {}
+func (*PreconditionRequiredHeaders) createMigrationRunRes()               {}
+func (*PreconditionRequiredHeaders) createOrgUnitRes()                    {}
+func (*PreconditionRequiredHeaders) createPartnerChangeRes()              {}
+func (*PreconditionRequiredHeaders) createPrincipalRes()                  {}
+func (*PreconditionRequiredHeaders) createPurchaseOrderChangeRes()        {}
+func (*PreconditionRequiredHeaders) createPurchaseOrderRes()              {}
+func (*PreconditionRequiredHeaders) createRecommendationRes()             {}
+func (*PreconditionRequiredHeaders) createRegressionSuiteRes()            {}
+func (*PreconditionRequiredHeaders) createRequisitionRes()                {}
+func (*PreconditionRequiredHeaders) createRoleAssignmentRes()             {}
+func (*PreconditionRequiredHeaders) createRoleRes()                       {}
+func (*PreconditionRequiredHeaders) createSodRuleRes()                    {}
+func (*PreconditionRequiredHeaders) createSupplierInvoiceRes()            {}
+func (*PreconditionRequiredHeaders) createUploadRes()                     {}
+func (*PreconditionRequiredHeaders) decideRecommendationRes()             {}
+func (*PreconditionRequiredHeaders) disableConnectorRes()                 {}
+func (*PreconditionRequiredHeaders) enableConnectorRes()                  {}
+func (*PreconditionRequiredHeaders) endAgentSessionRes()                  {}
+func (*PreconditionRequiredHeaders) endCompanyAccessRes()                 {}
+func (*PreconditionRequiredHeaders) endRoleAssignmentRes()                {}
+func (*PreconditionRequiredHeaders) endRolePermissionRes()                {}
+func (*PreconditionRequiredHeaders) endSodRuleRes()                       {}
+func (*PreconditionRequiredHeaders) grantRolePermissionRes()              {}
+func (*PreconditionRequiredHeaders) holdSupplierInvoiceRes()              {}
+func (*PreconditionRequiredHeaders) lockFiscalPeriodRes()                 {}
+func (*PreconditionRequiredHeaders) matchSupplierInvoiceRes()             {}
+func (*PreconditionRequiredHeaders) openFiscalPeriodRes()                 {}
+func (*PreconditionRequiredHeaders) parkJournalEntryRes()                 {}
+func (*PreconditionRequiredHeaders) postGoodsReceiptRes()                 {}
+func (*PreconditionRequiredHeaders) postJournalEntryRes()                 {}
+func (*PreconditionRequiredHeaders) postParkedJournalEntryRes()           {}
+func (*PreconditionRequiredHeaders) postSupplierInvoiceRes()              {}
+func (*PreconditionRequiredHeaders) proposePaymentRunRes()                {}
+func (*PreconditionRequiredHeaders) reconcileMigrationRunRes()            {}
+func (*PreconditionRequiredHeaders) recordAgentToolCallRes()              {}
+func (*PreconditionRequiredHeaders) rejectApprovalRequestRes()            {}
+func (*PreconditionRequiredHeaders) rejectPaymentRunRes()                 {}
+func (*PreconditionRequiredHeaders) releaseContractRes()                  {}
+func (*PreconditionRequiredHeaders) releasePaymentRunRes()                {}
+func (*PreconditionRequiredHeaders) releasePurchaseOrderRes()             {}
+func (*PreconditionRequiredHeaders) releaseSupplierInvoiceRes()           {}
+func (*PreconditionRequiredHeaders) renewContractRes()                    {}
+func (*PreconditionRequiredHeaders) reportBankFileStatusRes()             {}
+func (*PreconditionRequiredHeaders) requestBankAccountChangeRes()         {}
+func (*PreconditionRequiredHeaders) requestBankAccountEndRes()            {}
+func (*PreconditionRequiredHeaders) reverseGoodsReceiptRes()              {}
+func (*PreconditionRequiredHeaders) reverseJournalEntryRes()              {}
+func (*PreconditionRequiredHeaders) reverseSupplierInvoiceRes()           {}
+func (*PreconditionRequiredHeaders) simulateChangeRequestRes()            {}
+func (*PreconditionRequiredHeaders) startAgentSessionRes()                {}
+func (*PreconditionRequiredHeaders) startMigrationRunRes()                {}
+func (*PreconditionRequiredHeaders) submitChangeRequestRes()              {}
+func (*PreconditionRequiredHeaders) submitPurchaseOrderChangeRes()        {}
+func (*PreconditionRequiredHeaders) submitRequisitionRes()                {}
+func (*PreconditionRequiredHeaders) terminateContractRes()                {}
+func (*PreconditionRequiredHeaders) transmitBankFileRes()                 {}
+func (*PreconditionRequiredHeaders) unblockBusinessPartnerRes()           {}
+func (*PreconditionRequiredHeaders) unblockLegalEntityRes()               {}
+func (*PreconditionRequiredHeaders) unblockOrgUnitRes()                   {}
+func (*PreconditionRequiredHeaders) unlockFiscalPeriodRes()               {}
+func (*PreconditionRequiredHeaders) updateAiPolicyRes()                   {}
+func (*PreconditionRequiredHeaders) updateChangeRequestRes()              {}
+func (*PreconditionRequiredHeaders) updateConnectorRes()                  {}
+func (*PreconditionRequiredHeaders) updateContractRes()                   {}
+func (*PreconditionRequiredHeaders) updateLegalEntityRes()                {}
+func (*PreconditionRequiredHeaders) updateOrgUnitRes()                    {}
+func (*PreconditionRequiredHeaders) updateParkedJournalEntryRes()         {}
+func (*PreconditionRequiredHeaders) updatePrincipalRes()                  {}
+func (*PreconditionRequiredHeaders) updatePurchaseOrderChangeRes()        {}
+func (*PreconditionRequiredHeaders) updatePurchaseOrderRes()              {}
+func (*PreconditionRequiredHeaders) updateRequisitionRes()                {}
+func (*PreconditionRequiredHeaders) updateRoleRes()                       {}
+func (*PreconditionRequiredHeaders) updateSupplierInvoiceRes()            {}
+func (*PreconditionRequiredHeaders) verifyAuditChainRes()                 {}
+func (*PreconditionRequiredHeaders) withdrawChangeRequestRes()            {}
 
 // Merged schema.
 // Ref: #/components/schemas/Principal
@@ -24668,109 +25457,112 @@ func (s *ServiceUnavailableHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
-func (*ServiceUnavailableHeaders) activateChangeRequestRes()      {}
-func (*ServiceUnavailableHeaders) activateLegalEntityRes()        {}
-func (*ServiceUnavailableHeaders) activateOrgUnitRes()            {}
-func (*ServiceUnavailableHeaders) approveApprovalRequestRes()     {}
-func (*ServiceUnavailableHeaders) blockBusinessPartnerRes()       {}
-func (*ServiceUnavailableHeaders) blockLegalEntityRes()           {}
-func (*ServiceUnavailableHeaders) blockOrgUnitRes()               {}
-func (*ServiceUnavailableHeaders) blockPrincipalRes()             {}
-func (*ServiceUnavailableHeaders) cancelApprovalRequestRes()      {}
-func (*ServiceUnavailableHeaders) cancelContractRes()             {}
-func (*ServiceUnavailableHeaders) cancelOperationRes()            {}
-func (*ServiceUnavailableHeaders) cancelParkedJournalEntryRes()   {}
-func (*ServiceUnavailableHeaders) cancelPurchaseOrderChangeRes()  {}
-func (*ServiceUnavailableHeaders) cancelPurchaseOrderRes()        {}
-func (*ServiceUnavailableHeaders) cancelRequisitionRes()          {}
-func (*ServiceUnavailableHeaders) cancelSupplierInvoiceRes()      {}
-func (*ServiceUnavailableHeaders) captureSupplierInvoiceRes()     {}
-func (*ServiceUnavailableHeaders) closeFiscalPeriodRes()          {}
-func (*ServiceUnavailableHeaders) closePurchaseOrderRes()         {}
-func (*ServiceUnavailableHeaders) createBusinessPartnerRes()      {}
-func (*ServiceUnavailableHeaders) createChangeRequestRes()        {}
-func (*ServiceUnavailableHeaders) createClearingRes()             {}
-func (*ServiceUnavailableHeaders) createCompanyAccessRes()        {}
-func (*ServiceUnavailableHeaders) createConnectorRes()            {}
-func (*ServiceUnavailableHeaders) createContractRes()             {}
-func (*ServiceUnavailableHeaders) createExchangeRateRes()         {}
-func (*ServiceUnavailableHeaders) createLegalEntityRes()          {}
-func (*ServiceUnavailableHeaders) createMigrationRunRes()         {}
-func (*ServiceUnavailableHeaders) createOrgUnitRes()              {}
-func (*ServiceUnavailableHeaders) createPartnerChangeRes()        {}
-func (*ServiceUnavailableHeaders) createPrincipalRes()            {}
-func (*ServiceUnavailableHeaders) createPurchaseOrderChangeRes()  {}
-func (*ServiceUnavailableHeaders) createPurchaseOrderRes()        {}
-func (*ServiceUnavailableHeaders) createRecommendationRes()       {}
-func (*ServiceUnavailableHeaders) createRegressionSuiteRes()      {}
-func (*ServiceUnavailableHeaders) createRequisitionRes()          {}
-func (*ServiceUnavailableHeaders) createRoleAssignmentRes()       {}
-func (*ServiceUnavailableHeaders) createRoleRes()                 {}
-func (*ServiceUnavailableHeaders) createSodRuleRes()              {}
-func (*ServiceUnavailableHeaders) createSupplierInvoiceRes()      {}
-func (*ServiceUnavailableHeaders) createUploadRes()               {}
-func (*ServiceUnavailableHeaders) decideRecommendationRes()       {}
-func (*ServiceUnavailableHeaders) disableConnectorRes()           {}
-func (*ServiceUnavailableHeaders) enableConnectorRes()            {}
-func (*ServiceUnavailableHeaders) endAgentSessionRes()            {}
-func (*ServiceUnavailableHeaders) endCompanyAccessRes()           {}
-func (*ServiceUnavailableHeaders) endRoleAssignmentRes()          {}
-func (*ServiceUnavailableHeaders) endRolePermissionRes()          {}
-func (*ServiceUnavailableHeaders) endSodRuleRes()                 {}
-func (*ServiceUnavailableHeaders) getSupplierInvoiceDocumentRes() {}
-func (*ServiceUnavailableHeaders) grantRolePermissionRes()        {}
-func (*ServiceUnavailableHeaders) holdSupplierInvoiceRes()        {}
-func (*ServiceUnavailableHeaders) lockFiscalPeriodRes()           {}
-func (*ServiceUnavailableHeaders) matchSupplierInvoiceRes()       {}
-func (*ServiceUnavailableHeaders) openFiscalPeriodRes()           {}
-func (*ServiceUnavailableHeaders) parkJournalEntryRes()           {}
-func (*ServiceUnavailableHeaders) postGoodsReceiptRes()           {}
-func (*ServiceUnavailableHeaders) postJournalEntryRes()           {}
-func (*ServiceUnavailableHeaders) postParkedJournalEntryRes()     {}
-func (*ServiceUnavailableHeaders) postSupplierInvoiceRes()        {}
-func (*ServiceUnavailableHeaders) proposePaymentRunRes()          {}
-func (*ServiceUnavailableHeaders) reconcileMigrationRunRes()      {}
-func (*ServiceUnavailableHeaders) recordAgentToolCallRes()        {}
-func (*ServiceUnavailableHeaders) rejectApprovalRequestRes()      {}
-func (*ServiceUnavailableHeaders) rejectPaymentRunRes()           {}
-func (*ServiceUnavailableHeaders) releaseContractRes()            {}
-func (*ServiceUnavailableHeaders) releasePaymentRunRes()          {}
-func (*ServiceUnavailableHeaders) releasePurchaseOrderRes()       {}
-func (*ServiceUnavailableHeaders) releaseSupplierInvoiceRes()     {}
-func (*ServiceUnavailableHeaders) renewContractRes()              {}
-func (*ServiceUnavailableHeaders) reportBankFileStatusRes()       {}
-func (*ServiceUnavailableHeaders) requestBankAccountChangeRes()   {}
-func (*ServiceUnavailableHeaders) requestBankAccountEndRes()      {}
-func (*ServiceUnavailableHeaders) reverseGoodsReceiptRes()        {}
-func (*ServiceUnavailableHeaders) reverseJournalEntryRes()        {}
-func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()     {}
-func (*ServiceUnavailableHeaders) simulateChangeRequestRes()      {}
-func (*ServiceUnavailableHeaders) startAgentSessionRes()          {}
-func (*ServiceUnavailableHeaders) startMigrationRunRes()          {}
-func (*ServiceUnavailableHeaders) submitChangeRequestRes()        {}
-func (*ServiceUnavailableHeaders) submitPurchaseOrderChangeRes()  {}
-func (*ServiceUnavailableHeaders) submitRequisitionRes()          {}
-func (*ServiceUnavailableHeaders) terminateContractRes()          {}
-func (*ServiceUnavailableHeaders) transmitBankFileRes()           {}
-func (*ServiceUnavailableHeaders) unblockBusinessPartnerRes()     {}
-func (*ServiceUnavailableHeaders) unblockLegalEntityRes()         {}
-func (*ServiceUnavailableHeaders) unblockOrgUnitRes()             {}
-func (*ServiceUnavailableHeaders) unlockFiscalPeriodRes()         {}
-func (*ServiceUnavailableHeaders) updateAiPolicyRes()             {}
-func (*ServiceUnavailableHeaders) updateChangeRequestRes()        {}
-func (*ServiceUnavailableHeaders) updateConnectorRes()            {}
-func (*ServiceUnavailableHeaders) updateContractRes()             {}
-func (*ServiceUnavailableHeaders) updateLegalEntityRes()          {}
-func (*ServiceUnavailableHeaders) updateOrgUnitRes()              {}
-func (*ServiceUnavailableHeaders) updateParkedJournalEntryRes()   {}
-func (*ServiceUnavailableHeaders) updatePrincipalRes()            {}
-func (*ServiceUnavailableHeaders) updatePurchaseOrderChangeRes()  {}
-func (*ServiceUnavailableHeaders) updatePurchaseOrderRes()        {}
-func (*ServiceUnavailableHeaders) updateRequisitionRes()          {}
-func (*ServiceUnavailableHeaders) updateRoleRes()                 {}
-func (*ServiceUnavailableHeaders) updateSupplierInvoiceRes()      {}
-func (*ServiceUnavailableHeaders) verifyAuditChainRes()           {}
-func (*ServiceUnavailableHeaders) withdrawChangeRequestRes()      {}
+func (*ServiceUnavailableHeaders) activateChangeRequestRes()            {}
+func (*ServiceUnavailableHeaders) activateLegalEntityRes()              {}
+func (*ServiceUnavailableHeaders) activateOrgUnitRes()                  {}
+func (*ServiceUnavailableHeaders) approveApprovalRequestRes()           {}
+func (*ServiceUnavailableHeaders) blockBusinessPartnerRes()             {}
+func (*ServiceUnavailableHeaders) blockLegalEntityRes()                 {}
+func (*ServiceUnavailableHeaders) blockOrgUnitRes()                     {}
+func (*ServiceUnavailableHeaders) blockPrincipalRes()                   {}
+func (*ServiceUnavailableHeaders) cancelApprovalRequestRes()            {}
+func (*ServiceUnavailableHeaders) cancelContractRes()                   {}
+func (*ServiceUnavailableHeaders) cancelDownPaymentRequestRes()         {}
+func (*ServiceUnavailableHeaders) cancelOperationRes()                  {}
+func (*ServiceUnavailableHeaders) cancelParkedJournalEntryRes()         {}
+func (*ServiceUnavailableHeaders) cancelPurchaseOrderChangeRes()        {}
+func (*ServiceUnavailableHeaders) cancelPurchaseOrderRes()              {}
+func (*ServiceUnavailableHeaders) cancelRequisitionRes()                {}
+func (*ServiceUnavailableHeaders) cancelSupplierInvoiceRes()            {}
+func (*ServiceUnavailableHeaders) captureSupplierInvoiceRes()           {}
+func (*ServiceUnavailableHeaders) clearSupplierInvoiceDownPaymentsRes() {}
+func (*ServiceUnavailableHeaders) closeFiscalPeriodRes()                {}
+func (*ServiceUnavailableHeaders) closePurchaseOrderRes()               {}
+func (*ServiceUnavailableHeaders) createBusinessPartnerRes()            {}
+func (*ServiceUnavailableHeaders) createChangeRequestRes()              {}
+func (*ServiceUnavailableHeaders) createClearingRes()                   {}
+func (*ServiceUnavailableHeaders) createCompanyAccessRes()              {}
+func (*ServiceUnavailableHeaders) createConnectorRes()                  {}
+func (*ServiceUnavailableHeaders) createContractRes()                   {}
+func (*ServiceUnavailableHeaders) createDownPaymentRequestRes()         {}
+func (*ServiceUnavailableHeaders) createExchangeRateRes()               {}
+func (*ServiceUnavailableHeaders) createLegalEntityRes()                {}
+func (*ServiceUnavailableHeaders) createMigrationRunRes()               {}
+func (*ServiceUnavailableHeaders) createOrgUnitRes()                    {}
+func (*ServiceUnavailableHeaders) createPartnerChangeRes()              {}
+func (*ServiceUnavailableHeaders) createPrincipalRes()                  {}
+func (*ServiceUnavailableHeaders) createPurchaseOrderChangeRes()        {}
+func (*ServiceUnavailableHeaders) createPurchaseOrderRes()              {}
+func (*ServiceUnavailableHeaders) createRecommendationRes()             {}
+func (*ServiceUnavailableHeaders) createRegressionSuiteRes()            {}
+func (*ServiceUnavailableHeaders) createRequisitionRes()                {}
+func (*ServiceUnavailableHeaders) createRoleAssignmentRes()             {}
+func (*ServiceUnavailableHeaders) createRoleRes()                       {}
+func (*ServiceUnavailableHeaders) createSodRuleRes()                    {}
+func (*ServiceUnavailableHeaders) createSupplierInvoiceRes()            {}
+func (*ServiceUnavailableHeaders) createUploadRes()                     {}
+func (*ServiceUnavailableHeaders) decideRecommendationRes()             {}
+func (*ServiceUnavailableHeaders) disableConnectorRes()                 {}
+func (*ServiceUnavailableHeaders) enableConnectorRes()                  {}
+func (*ServiceUnavailableHeaders) endAgentSessionRes()                  {}
+func (*ServiceUnavailableHeaders) endCompanyAccessRes()                 {}
+func (*ServiceUnavailableHeaders) endRoleAssignmentRes()                {}
+func (*ServiceUnavailableHeaders) endRolePermissionRes()                {}
+func (*ServiceUnavailableHeaders) endSodRuleRes()                       {}
+func (*ServiceUnavailableHeaders) getSupplierInvoiceDocumentRes()       {}
+func (*ServiceUnavailableHeaders) grantRolePermissionRes()              {}
+func (*ServiceUnavailableHeaders) holdSupplierInvoiceRes()              {}
+func (*ServiceUnavailableHeaders) lockFiscalPeriodRes()                 {}
+func (*ServiceUnavailableHeaders) matchSupplierInvoiceRes()             {}
+func (*ServiceUnavailableHeaders) openFiscalPeriodRes()                 {}
+func (*ServiceUnavailableHeaders) parkJournalEntryRes()                 {}
+func (*ServiceUnavailableHeaders) postGoodsReceiptRes()                 {}
+func (*ServiceUnavailableHeaders) postJournalEntryRes()                 {}
+func (*ServiceUnavailableHeaders) postParkedJournalEntryRes()           {}
+func (*ServiceUnavailableHeaders) postSupplierInvoiceRes()              {}
+func (*ServiceUnavailableHeaders) proposePaymentRunRes()                {}
+func (*ServiceUnavailableHeaders) reconcileMigrationRunRes()            {}
+func (*ServiceUnavailableHeaders) recordAgentToolCallRes()              {}
+func (*ServiceUnavailableHeaders) rejectApprovalRequestRes()            {}
+func (*ServiceUnavailableHeaders) rejectPaymentRunRes()                 {}
+func (*ServiceUnavailableHeaders) releaseContractRes()                  {}
+func (*ServiceUnavailableHeaders) releasePaymentRunRes()                {}
+func (*ServiceUnavailableHeaders) releasePurchaseOrderRes()             {}
+func (*ServiceUnavailableHeaders) releaseSupplierInvoiceRes()           {}
+func (*ServiceUnavailableHeaders) renewContractRes()                    {}
+func (*ServiceUnavailableHeaders) reportBankFileStatusRes()             {}
+func (*ServiceUnavailableHeaders) requestBankAccountChangeRes()         {}
+func (*ServiceUnavailableHeaders) requestBankAccountEndRes()            {}
+func (*ServiceUnavailableHeaders) reverseGoodsReceiptRes()              {}
+func (*ServiceUnavailableHeaders) reverseJournalEntryRes()              {}
+func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()           {}
+func (*ServiceUnavailableHeaders) simulateChangeRequestRes()            {}
+func (*ServiceUnavailableHeaders) startAgentSessionRes()                {}
+func (*ServiceUnavailableHeaders) startMigrationRunRes()                {}
+func (*ServiceUnavailableHeaders) submitChangeRequestRes()              {}
+func (*ServiceUnavailableHeaders) submitPurchaseOrderChangeRes()        {}
+func (*ServiceUnavailableHeaders) submitRequisitionRes()                {}
+func (*ServiceUnavailableHeaders) terminateContractRes()                {}
+func (*ServiceUnavailableHeaders) transmitBankFileRes()                 {}
+func (*ServiceUnavailableHeaders) unblockBusinessPartnerRes()           {}
+func (*ServiceUnavailableHeaders) unblockLegalEntityRes()               {}
+func (*ServiceUnavailableHeaders) unblockOrgUnitRes()                   {}
+func (*ServiceUnavailableHeaders) unlockFiscalPeriodRes()               {}
+func (*ServiceUnavailableHeaders) updateAiPolicyRes()                   {}
+func (*ServiceUnavailableHeaders) updateChangeRequestRes()              {}
+func (*ServiceUnavailableHeaders) updateConnectorRes()                  {}
+func (*ServiceUnavailableHeaders) updateContractRes()                   {}
+func (*ServiceUnavailableHeaders) updateLegalEntityRes()                {}
+func (*ServiceUnavailableHeaders) updateOrgUnitRes()                    {}
+func (*ServiceUnavailableHeaders) updateParkedJournalEntryRes()         {}
+func (*ServiceUnavailableHeaders) updatePrincipalRes()                  {}
+func (*ServiceUnavailableHeaders) updatePurchaseOrderChangeRes()        {}
+func (*ServiceUnavailableHeaders) updatePurchaseOrderRes()              {}
+func (*ServiceUnavailableHeaders) updateRequisitionRes()                {}
+func (*ServiceUnavailableHeaders) updateRoleRes()                       {}
+func (*ServiceUnavailableHeaders) updateSupplierInvoiceRes()            {}
+func (*ServiceUnavailableHeaders) verifyAuditChainRes()                 {}
+func (*ServiceUnavailableHeaders) withdrawChangeRequestRes()            {}
 
 // Merged schema.
 // Ref: #/components/schemas/SodRule
@@ -25151,6 +25943,9 @@ type SupplierCompany struct {
 	IsPostingBlocked bool `json:"is_posting_blocked"`
 	// Payments to this supplier are blocked in this legal entity.
 	IsPaymentBlocked bool `json:"is_payment_blocked"`
+	// The withholding taxes deducted from the supplier in this legal entity (SAP LFBW; T46e): codes of the
+	// company's `withholding_tax_codes` in the configuration.
+	WithholdingTaxCodes []string `json:"withholding_tax_codes"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -25178,6 +25973,11 @@ func (s *SupplierCompany) GetIsPaymentBlocked() bool {
 	return s.IsPaymentBlocked
 }
 
+// GetWithholdingTaxCodes returns the value of WithholdingTaxCodes.
+func (s *SupplierCompany) GetWithholdingTaxCodes() []string {
+	return s.WithholdingTaxCodes
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *SupplierCompany) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -25203,6 +26003,11 @@ func (s *SupplierCompany) SetIsPaymentBlocked(val bool) {
 	s.IsPaymentBlocked = val
 }
 
+// SetWithholdingTaxCodes sets the value of WithholdingTaxCodes.
+func (s *SupplierCompany) SetWithholdingTaxCodes(val []string) {
+	s.WithholdingTaxCodes = val
+}
+
 // Company-specific supplier data to set up.
 // Ref: #/components/schemas/SupplierCompanyInput
 type SupplierCompanyInput struct {
@@ -25212,6 +26017,10 @@ type SupplierCompanyInput struct {
 	ReconciliationAccountID uuid.UUID `json:"reconciliation_account_id"`
 	// Payment terms.
 	PaymentTermCode string `json:"payment_term_code"`
+	// The withholding taxes to deduct from the supplier in this legal entity (T46e): active codes of the
+	// company's configuration, each once. The list replaces the supplier's codes in the legal entity:
+	// leaving it out takes every code off the supplier there, as the other company data is replaced too.
+	WithholdingTaxCodes []string `json:"withholding_tax_codes"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -25229,6 +26038,11 @@ func (s *SupplierCompanyInput) GetPaymentTermCode() string {
 	return s.PaymentTermCode
 }
 
+// GetWithholdingTaxCodes returns the value of WithholdingTaxCodes.
+func (s *SupplierCompanyInput) GetWithholdingTaxCodes() []string {
+	return s.WithholdingTaxCodes
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *SupplierCompanyInput) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -25242,6 +26056,11 @@ func (s *SupplierCompanyInput) SetReconciliationAccountID(val uuid.UUID) {
 // SetPaymentTermCode sets the value of PaymentTermCode.
 func (s *SupplierCompanyInput) SetPaymentTermCode(val string) {
 	s.PaymentTermCode = val
+}
+
+// SetWithholdingTaxCodes sets the value of WithholdingTaxCodes.
+func (s *SupplierCompanyInput) SetWithholdingTaxCodes(val []string) {
+	s.WithholdingTaxCodes = val
 }
 
 // Merged schema.
@@ -26350,192 +27169,197 @@ func (s *TooManyRequestsHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
-func (*TooManyRequestsHeaders) activateChangeRequestRes()      {}
-func (*TooManyRequestsHeaders) activateLegalEntityRes()        {}
-func (*TooManyRequestsHeaders) activateOrgUnitRes()            {}
-func (*TooManyRequestsHeaders) approveApprovalRequestRes()     {}
-func (*TooManyRequestsHeaders) blockBusinessPartnerRes()       {}
-func (*TooManyRequestsHeaders) blockLegalEntityRes()           {}
-func (*TooManyRequestsHeaders) blockOrgUnitRes()               {}
-func (*TooManyRequestsHeaders) blockPrincipalRes()             {}
-func (*TooManyRequestsHeaders) cancelApprovalRequestRes()      {}
-func (*TooManyRequestsHeaders) cancelContractRes()             {}
-func (*TooManyRequestsHeaders) cancelOperationRes()            {}
-func (*TooManyRequestsHeaders) cancelParkedJournalEntryRes()   {}
-func (*TooManyRequestsHeaders) cancelPurchaseOrderChangeRes()  {}
-func (*TooManyRequestsHeaders) cancelPurchaseOrderRes()        {}
-func (*TooManyRequestsHeaders) cancelRequisitionRes()          {}
-func (*TooManyRequestsHeaders) cancelSupplierInvoiceRes()      {}
-func (*TooManyRequestsHeaders) captureSupplierInvoiceRes()     {}
-func (*TooManyRequestsHeaders) closeFiscalPeriodRes()          {}
-func (*TooManyRequestsHeaders) closePurchaseOrderRes()         {}
-func (*TooManyRequestsHeaders) createBusinessPartnerRes()      {}
-func (*TooManyRequestsHeaders) createChangeRequestRes()        {}
-func (*TooManyRequestsHeaders) createClearingRes()             {}
-func (*TooManyRequestsHeaders) createCompanyAccessRes()        {}
-func (*TooManyRequestsHeaders) createConnectorRes()            {}
-func (*TooManyRequestsHeaders) createContractRes()             {}
-func (*TooManyRequestsHeaders) createExchangeRateRes()         {}
-func (*TooManyRequestsHeaders) createLegalEntityRes()          {}
-func (*TooManyRequestsHeaders) createMigrationRunRes()         {}
-func (*TooManyRequestsHeaders) createOrgUnitRes()              {}
-func (*TooManyRequestsHeaders) createPartnerChangeRes()        {}
-func (*TooManyRequestsHeaders) createPrincipalRes()            {}
-func (*TooManyRequestsHeaders) createPurchaseOrderChangeRes()  {}
-func (*TooManyRequestsHeaders) createPurchaseOrderRes()        {}
-func (*TooManyRequestsHeaders) createRecommendationRes()       {}
-func (*TooManyRequestsHeaders) createRegressionSuiteRes()      {}
-func (*TooManyRequestsHeaders) createRequisitionRes()          {}
-func (*TooManyRequestsHeaders) createRoleAssignmentRes()       {}
-func (*TooManyRequestsHeaders) createRoleRes()                 {}
-func (*TooManyRequestsHeaders) createSodRuleRes()              {}
-func (*TooManyRequestsHeaders) createSupplierInvoiceRes()      {}
-func (*TooManyRequestsHeaders) createUploadRes()               {}
-func (*TooManyRequestsHeaders) decideRecommendationRes()       {}
-func (*TooManyRequestsHeaders) disableConnectorRes()           {}
-func (*TooManyRequestsHeaders) enableConnectorRes()            {}
-func (*TooManyRequestsHeaders) endAgentSessionRes()            {}
-func (*TooManyRequestsHeaders) endCompanyAccessRes()           {}
-func (*TooManyRequestsHeaders) endRoleAssignmentRes()          {}
-func (*TooManyRequestsHeaders) endRolePermissionRes()          {}
-func (*TooManyRequestsHeaders) endSodRuleRes()                 {}
-func (*TooManyRequestsHeaders) getAccountRes()                 {}
-func (*TooManyRequestsHeaders) getAgentSessionRes()            {}
-func (*TooManyRequestsHeaders) getAiPolicyRes()                {}
-func (*TooManyRequestsHeaders) getAiUsageRes()                 {}
-func (*TooManyRequestsHeaders) getApprovalRequestRes()         {}
-func (*TooManyRequestsHeaders) getBankAccountRes()             {}
-func (*TooManyRequestsHeaders) getBankFileContentRes()         {}
-func (*TooManyRequestsHeaders) getBankFileRes()                {}
-func (*TooManyRequestsHeaders) getBusinessPartnerRes()         {}
-func (*TooManyRequestsHeaders) getChangeRequestRes()           {}
-func (*TooManyRequestsHeaders) getClearingRes()                {}
-func (*TooManyRequestsHeaders) getCompanyAccessRes()           {}
-func (*TooManyRequestsHeaders) getConfigVersionRes()           {}
-func (*TooManyRequestsHeaders) getConnectorRes()               {}
-func (*TooManyRequestsHeaders) getContractRes()                {}
-func (*TooManyRequestsHeaders) getExchangeRateRes()            {}
-func (*TooManyRequestsHeaders) getFiscalPeriodRes()            {}
-func (*TooManyRequestsHeaders) getGoodsReceiptRes()            {}
-func (*TooManyRequestsHeaders) getJournalEntryRes()            {}
-func (*TooManyRequestsHeaders) getLegalEntityRes()             {}
-func (*TooManyRequestsHeaders) getMatchResultRes()             {}
-func (*TooManyRequestsHeaders) getMigrationRunRes()            {}
-func (*TooManyRequestsHeaders) getNumberRangeRes()             {}
-func (*TooManyRequestsHeaders) getOperationRes()               {}
-func (*TooManyRequestsHeaders) getOrgUnitRes()                 {}
-func (*TooManyRequestsHeaders) getParkedJournalEntryRes()      {}
-func (*TooManyRequestsHeaders) getPartnerChangeRes()           {}
-func (*TooManyRequestsHeaders) getPaymentRunRes()              {}
-func (*TooManyRequestsHeaders) getPrincipalRes()               {}
-func (*TooManyRequestsHeaders) getPurchaseOrderChangeRes()     {}
-func (*TooManyRequestsHeaders) getPurchaseOrderRes()           {}
-func (*TooManyRequestsHeaders) getRecommendationRes()          {}
-func (*TooManyRequestsHeaders) getRegressionSuiteRes()         {}
-func (*TooManyRequestsHeaders) getRequisitionRes()             {}
-func (*TooManyRequestsHeaders) getRoleAssignmentRes()          {}
-func (*TooManyRequestsHeaders) getRolePermissionRes()          {}
-func (*TooManyRequestsHeaders) getRoleRes()                    {}
-func (*TooManyRequestsHeaders) getSodRuleRes()                 {}
-func (*TooManyRequestsHeaders) getSupplierInvoiceDocumentRes() {}
-func (*TooManyRequestsHeaders) getSupplierInvoiceRes()         {}
-func (*TooManyRequestsHeaders) getUploadRes()                  {}
-func (*TooManyRequestsHeaders) grantRolePermissionRes()        {}
-func (*TooManyRequestsHeaders) holdSupplierInvoiceRes()        {}
-func (*TooManyRequestsHeaders) listAccountsRes()               {}
-func (*TooManyRequestsHeaders) listAgentSessionsRes()          {}
-func (*TooManyRequestsHeaders) listAgentToolCallsRes()         {}
-func (*TooManyRequestsHeaders) listApprovalRequestsRes()       {}
-func (*TooManyRequestsHeaders) listAuditEventsRes()            {}
-func (*TooManyRequestsHeaders) listBalancesRes()               {}
-func (*TooManyRequestsHeaders) listBankAccountsRes()           {}
-func (*TooManyRequestsHeaders) listBankFilesRes()              {}
-func (*TooManyRequestsHeaders) listBusinessPartnersRes()       {}
-func (*TooManyRequestsHeaders) listChangeRequestsRes()         {}
-func (*TooManyRequestsHeaders) listClearingsRes()              {}
-func (*TooManyRequestsHeaders) listCompanyAccessRes()          {}
-func (*TooManyRequestsHeaders) listConfigVersionsRes()         {}
-func (*TooManyRequestsHeaders) listConnectorsRes()             {}
-func (*TooManyRequestsHeaders) listContractsRes()              {}
-func (*TooManyRequestsHeaders) listExchangeRatesRes()          {}
-func (*TooManyRequestsHeaders) listFiscalPeriodsRes()          {}
-func (*TooManyRequestsHeaders) listGoodsReceiptsRes()          {}
-func (*TooManyRequestsHeaders) listGrIrBalancesRes()           {}
-func (*TooManyRequestsHeaders) listJournalEntriesRes()         {}
-func (*TooManyRequestsHeaders) listLegalEntitiesRes()          {}
-func (*TooManyRequestsHeaders) listMatchResultsRes()           {}
-func (*TooManyRequestsHeaders) listMigrationRunsRes()          {}
-func (*TooManyRequestsHeaders) listNumberRangesRes()           {}
-func (*TooManyRequestsHeaders) listOpenItemsRes()              {}
-func (*TooManyRequestsHeaders) listOperationsRes()             {}
-func (*TooManyRequestsHeaders) listOrgUnitsRes()               {}
-func (*TooManyRequestsHeaders) listParkedJournalEntriesRes()   {}
-func (*TooManyRequestsHeaders) listPartnerChangesRes()         {}
-func (*TooManyRequestsHeaders) listPaymentExclusionsRes()      {}
-func (*TooManyRequestsHeaders) listPaymentRunsRes()            {}
-func (*TooManyRequestsHeaders) listPaymentsRes()               {}
-func (*TooManyRequestsHeaders) listPrincipalsRes()             {}
-func (*TooManyRequestsHeaders) listPurchaseOrderChangesRes()   {}
-func (*TooManyRequestsHeaders) listPurchaseOrdersRes()         {}
-func (*TooManyRequestsHeaders) listRecommendationsRes()        {}
-func (*TooManyRequestsHeaders) listRegressionSuitesRes()       {}
-func (*TooManyRequestsHeaders) listRequisitionsRes()           {}
-func (*TooManyRequestsHeaders) listRoleAssignmentsRes()        {}
-func (*TooManyRequestsHeaders) listRolePermissionsRes()        {}
-func (*TooManyRequestsHeaders) listRolesRes()                  {}
-func (*TooManyRequestsHeaders) listSodRulesRes()               {}
-func (*TooManyRequestsHeaders) listSupplierInvoicesRes()       {}
-func (*TooManyRequestsHeaders) lockFiscalPeriodRes()           {}
-func (*TooManyRequestsHeaders) matchSupplierInvoiceRes()       {}
-func (*TooManyRequestsHeaders) openFiscalPeriodRes()           {}
-func (*TooManyRequestsHeaders) parkJournalEntryRes()           {}
-func (*TooManyRequestsHeaders) postGoodsReceiptRes()           {}
-func (*TooManyRequestsHeaders) postJournalEntryRes()           {}
-func (*TooManyRequestsHeaders) postParkedJournalEntryRes()     {}
-func (*TooManyRequestsHeaders) postSupplierInvoiceRes()        {}
-func (*TooManyRequestsHeaders) proposePaymentRunRes()          {}
-func (*TooManyRequestsHeaders) reconcileMigrationRunRes()      {}
-func (*TooManyRequestsHeaders) recordAgentToolCallRes()        {}
-func (*TooManyRequestsHeaders) rejectApprovalRequestRes()      {}
-func (*TooManyRequestsHeaders) rejectPaymentRunRes()           {}
-func (*TooManyRequestsHeaders) releaseContractRes()            {}
-func (*TooManyRequestsHeaders) releasePaymentRunRes()          {}
-func (*TooManyRequestsHeaders) releasePurchaseOrderRes()       {}
-func (*TooManyRequestsHeaders) releaseSupplierInvoiceRes()     {}
-func (*TooManyRequestsHeaders) renewContractRes()              {}
-func (*TooManyRequestsHeaders) reportBankFileStatusRes()       {}
-func (*TooManyRequestsHeaders) requestBankAccountChangeRes()   {}
-func (*TooManyRequestsHeaders) requestBankAccountEndRes()      {}
-func (*TooManyRequestsHeaders) reverseGoodsReceiptRes()        {}
-func (*TooManyRequestsHeaders) reverseJournalEntryRes()        {}
-func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()     {}
-func (*TooManyRequestsHeaders) simulateChangeRequestRes()      {}
-func (*TooManyRequestsHeaders) startAgentSessionRes()          {}
-func (*TooManyRequestsHeaders) startMigrationRunRes()          {}
-func (*TooManyRequestsHeaders) submitChangeRequestRes()        {}
-func (*TooManyRequestsHeaders) submitPurchaseOrderChangeRes()  {}
-func (*TooManyRequestsHeaders) submitRequisitionRes()          {}
-func (*TooManyRequestsHeaders) terminateContractRes()          {}
-func (*TooManyRequestsHeaders) transmitBankFileRes()           {}
-func (*TooManyRequestsHeaders) unblockBusinessPartnerRes()     {}
-func (*TooManyRequestsHeaders) unblockLegalEntityRes()         {}
-func (*TooManyRequestsHeaders) unblockOrgUnitRes()             {}
-func (*TooManyRequestsHeaders) unlockFiscalPeriodRes()         {}
-func (*TooManyRequestsHeaders) updateAiPolicyRes()             {}
-func (*TooManyRequestsHeaders) updateChangeRequestRes()        {}
-func (*TooManyRequestsHeaders) updateConnectorRes()            {}
-func (*TooManyRequestsHeaders) updateContractRes()             {}
-func (*TooManyRequestsHeaders) updateLegalEntityRes()          {}
-func (*TooManyRequestsHeaders) updateOrgUnitRes()              {}
-func (*TooManyRequestsHeaders) updateParkedJournalEntryRes()   {}
-func (*TooManyRequestsHeaders) updatePrincipalRes()            {}
-func (*TooManyRequestsHeaders) updatePurchaseOrderChangeRes()  {}
-func (*TooManyRequestsHeaders) updatePurchaseOrderRes()        {}
-func (*TooManyRequestsHeaders) updateRequisitionRes()          {}
-func (*TooManyRequestsHeaders) updateRoleRes()                 {}
-func (*TooManyRequestsHeaders) updateSupplierInvoiceRes()      {}
-func (*TooManyRequestsHeaders) verifyAuditChainRes()           {}
-func (*TooManyRequestsHeaders) withdrawChangeRequestRes()      {}
+func (*TooManyRequestsHeaders) activateChangeRequestRes()            {}
+func (*TooManyRequestsHeaders) activateLegalEntityRes()              {}
+func (*TooManyRequestsHeaders) activateOrgUnitRes()                  {}
+func (*TooManyRequestsHeaders) approveApprovalRequestRes()           {}
+func (*TooManyRequestsHeaders) blockBusinessPartnerRes()             {}
+func (*TooManyRequestsHeaders) blockLegalEntityRes()                 {}
+func (*TooManyRequestsHeaders) blockOrgUnitRes()                     {}
+func (*TooManyRequestsHeaders) blockPrincipalRes()                   {}
+func (*TooManyRequestsHeaders) cancelApprovalRequestRes()            {}
+func (*TooManyRequestsHeaders) cancelContractRes()                   {}
+func (*TooManyRequestsHeaders) cancelDownPaymentRequestRes()         {}
+func (*TooManyRequestsHeaders) cancelOperationRes()                  {}
+func (*TooManyRequestsHeaders) cancelParkedJournalEntryRes()         {}
+func (*TooManyRequestsHeaders) cancelPurchaseOrderChangeRes()        {}
+func (*TooManyRequestsHeaders) cancelPurchaseOrderRes()              {}
+func (*TooManyRequestsHeaders) cancelRequisitionRes()                {}
+func (*TooManyRequestsHeaders) cancelSupplierInvoiceRes()            {}
+func (*TooManyRequestsHeaders) captureSupplierInvoiceRes()           {}
+func (*TooManyRequestsHeaders) clearSupplierInvoiceDownPaymentsRes() {}
+func (*TooManyRequestsHeaders) closeFiscalPeriodRes()                {}
+func (*TooManyRequestsHeaders) closePurchaseOrderRes()               {}
+func (*TooManyRequestsHeaders) createBusinessPartnerRes()            {}
+func (*TooManyRequestsHeaders) createChangeRequestRes()              {}
+func (*TooManyRequestsHeaders) createClearingRes()                   {}
+func (*TooManyRequestsHeaders) createCompanyAccessRes()              {}
+func (*TooManyRequestsHeaders) createConnectorRes()                  {}
+func (*TooManyRequestsHeaders) createContractRes()                   {}
+func (*TooManyRequestsHeaders) createDownPaymentRequestRes()         {}
+func (*TooManyRequestsHeaders) createExchangeRateRes()               {}
+func (*TooManyRequestsHeaders) createLegalEntityRes()                {}
+func (*TooManyRequestsHeaders) createMigrationRunRes()               {}
+func (*TooManyRequestsHeaders) createOrgUnitRes()                    {}
+func (*TooManyRequestsHeaders) createPartnerChangeRes()              {}
+func (*TooManyRequestsHeaders) createPrincipalRes()                  {}
+func (*TooManyRequestsHeaders) createPurchaseOrderChangeRes()        {}
+func (*TooManyRequestsHeaders) createPurchaseOrderRes()              {}
+func (*TooManyRequestsHeaders) createRecommendationRes()             {}
+func (*TooManyRequestsHeaders) createRegressionSuiteRes()            {}
+func (*TooManyRequestsHeaders) createRequisitionRes()                {}
+func (*TooManyRequestsHeaders) createRoleAssignmentRes()             {}
+func (*TooManyRequestsHeaders) createRoleRes()                       {}
+func (*TooManyRequestsHeaders) createSodRuleRes()                    {}
+func (*TooManyRequestsHeaders) createSupplierInvoiceRes()            {}
+func (*TooManyRequestsHeaders) createUploadRes()                     {}
+func (*TooManyRequestsHeaders) decideRecommendationRes()             {}
+func (*TooManyRequestsHeaders) disableConnectorRes()                 {}
+func (*TooManyRequestsHeaders) enableConnectorRes()                  {}
+func (*TooManyRequestsHeaders) endAgentSessionRes()                  {}
+func (*TooManyRequestsHeaders) endCompanyAccessRes()                 {}
+func (*TooManyRequestsHeaders) endRoleAssignmentRes()                {}
+func (*TooManyRequestsHeaders) endRolePermissionRes()                {}
+func (*TooManyRequestsHeaders) endSodRuleRes()                       {}
+func (*TooManyRequestsHeaders) getAccountRes()                       {}
+func (*TooManyRequestsHeaders) getAgentSessionRes()                  {}
+func (*TooManyRequestsHeaders) getAiPolicyRes()                      {}
+func (*TooManyRequestsHeaders) getAiUsageRes()                       {}
+func (*TooManyRequestsHeaders) getApprovalRequestRes()               {}
+func (*TooManyRequestsHeaders) getBankAccountRes()                   {}
+func (*TooManyRequestsHeaders) getBankFileContentRes()               {}
+func (*TooManyRequestsHeaders) getBankFileRes()                      {}
+func (*TooManyRequestsHeaders) getBusinessPartnerRes()               {}
+func (*TooManyRequestsHeaders) getChangeRequestRes()                 {}
+func (*TooManyRequestsHeaders) getClearingRes()                      {}
+func (*TooManyRequestsHeaders) getCompanyAccessRes()                 {}
+func (*TooManyRequestsHeaders) getConfigVersionRes()                 {}
+func (*TooManyRequestsHeaders) getConnectorRes()                     {}
+func (*TooManyRequestsHeaders) getContractRes()                      {}
+func (*TooManyRequestsHeaders) getDownPaymentRequestRes()            {}
+func (*TooManyRequestsHeaders) getExchangeRateRes()                  {}
+func (*TooManyRequestsHeaders) getFiscalPeriodRes()                  {}
+func (*TooManyRequestsHeaders) getGoodsReceiptRes()                  {}
+func (*TooManyRequestsHeaders) getJournalEntryRes()                  {}
+func (*TooManyRequestsHeaders) getLegalEntityRes()                   {}
+func (*TooManyRequestsHeaders) getMatchResultRes()                   {}
+func (*TooManyRequestsHeaders) getMigrationRunRes()                  {}
+func (*TooManyRequestsHeaders) getNumberRangeRes()                   {}
+func (*TooManyRequestsHeaders) getOperationRes()                     {}
+func (*TooManyRequestsHeaders) getOrgUnitRes()                       {}
+func (*TooManyRequestsHeaders) getParkedJournalEntryRes()            {}
+func (*TooManyRequestsHeaders) getPartnerChangeRes()                 {}
+func (*TooManyRequestsHeaders) getPaymentRunRes()                    {}
+func (*TooManyRequestsHeaders) getPrincipalRes()                     {}
+func (*TooManyRequestsHeaders) getPurchaseOrderChangeRes()           {}
+func (*TooManyRequestsHeaders) getPurchaseOrderRes()                 {}
+func (*TooManyRequestsHeaders) getRecommendationRes()                {}
+func (*TooManyRequestsHeaders) getRegressionSuiteRes()               {}
+func (*TooManyRequestsHeaders) getRequisitionRes()                   {}
+func (*TooManyRequestsHeaders) getRoleAssignmentRes()                {}
+func (*TooManyRequestsHeaders) getRolePermissionRes()                {}
+func (*TooManyRequestsHeaders) getRoleRes()                          {}
+func (*TooManyRequestsHeaders) getSodRuleRes()                       {}
+func (*TooManyRequestsHeaders) getSupplierInvoiceDocumentRes()       {}
+func (*TooManyRequestsHeaders) getSupplierInvoiceRes()               {}
+func (*TooManyRequestsHeaders) getUploadRes()                        {}
+func (*TooManyRequestsHeaders) grantRolePermissionRes()              {}
+func (*TooManyRequestsHeaders) holdSupplierInvoiceRes()              {}
+func (*TooManyRequestsHeaders) listAccountsRes()                     {}
+func (*TooManyRequestsHeaders) listAgentSessionsRes()                {}
+func (*TooManyRequestsHeaders) listAgentToolCallsRes()               {}
+func (*TooManyRequestsHeaders) listApprovalRequestsRes()             {}
+func (*TooManyRequestsHeaders) listAuditEventsRes()                  {}
+func (*TooManyRequestsHeaders) listBalancesRes()                     {}
+func (*TooManyRequestsHeaders) listBankAccountsRes()                 {}
+func (*TooManyRequestsHeaders) listBankFilesRes()                    {}
+func (*TooManyRequestsHeaders) listBusinessPartnersRes()             {}
+func (*TooManyRequestsHeaders) listChangeRequestsRes()               {}
+func (*TooManyRequestsHeaders) listClearingsRes()                    {}
+func (*TooManyRequestsHeaders) listCompanyAccessRes()                {}
+func (*TooManyRequestsHeaders) listConfigVersionsRes()               {}
+func (*TooManyRequestsHeaders) listConnectorsRes()                   {}
+func (*TooManyRequestsHeaders) listContractsRes()                    {}
+func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()          {}
+func (*TooManyRequestsHeaders) listExchangeRatesRes()                {}
+func (*TooManyRequestsHeaders) listFiscalPeriodsRes()                {}
+func (*TooManyRequestsHeaders) listGoodsReceiptsRes()                {}
+func (*TooManyRequestsHeaders) listGrIrBalancesRes()                 {}
+func (*TooManyRequestsHeaders) listJournalEntriesRes()               {}
+func (*TooManyRequestsHeaders) listLegalEntitiesRes()                {}
+func (*TooManyRequestsHeaders) listMatchResultsRes()                 {}
+func (*TooManyRequestsHeaders) listMigrationRunsRes()                {}
+func (*TooManyRequestsHeaders) listNumberRangesRes()                 {}
+func (*TooManyRequestsHeaders) listOpenItemsRes()                    {}
+func (*TooManyRequestsHeaders) listOperationsRes()                   {}
+func (*TooManyRequestsHeaders) listOrgUnitsRes()                     {}
+func (*TooManyRequestsHeaders) listParkedJournalEntriesRes()         {}
+func (*TooManyRequestsHeaders) listPartnerChangesRes()               {}
+func (*TooManyRequestsHeaders) listPaymentExclusionsRes()            {}
+func (*TooManyRequestsHeaders) listPaymentRunsRes()                  {}
+func (*TooManyRequestsHeaders) listPaymentsRes()                     {}
+func (*TooManyRequestsHeaders) listPrincipalsRes()                   {}
+func (*TooManyRequestsHeaders) listPurchaseOrderChangesRes()         {}
+func (*TooManyRequestsHeaders) listPurchaseOrdersRes()               {}
+func (*TooManyRequestsHeaders) listRecommendationsRes()              {}
+func (*TooManyRequestsHeaders) listRegressionSuitesRes()             {}
+func (*TooManyRequestsHeaders) listRequisitionsRes()                 {}
+func (*TooManyRequestsHeaders) listRoleAssignmentsRes()              {}
+func (*TooManyRequestsHeaders) listRolePermissionsRes()              {}
+func (*TooManyRequestsHeaders) listRolesRes()                        {}
+func (*TooManyRequestsHeaders) listSodRulesRes()                     {}
+func (*TooManyRequestsHeaders) listSupplierInvoicesRes()             {}
+func (*TooManyRequestsHeaders) lockFiscalPeriodRes()                 {}
+func (*TooManyRequestsHeaders) matchSupplierInvoiceRes()             {}
+func (*TooManyRequestsHeaders) openFiscalPeriodRes()                 {}
+func (*TooManyRequestsHeaders) parkJournalEntryRes()                 {}
+func (*TooManyRequestsHeaders) postGoodsReceiptRes()                 {}
+func (*TooManyRequestsHeaders) postJournalEntryRes()                 {}
+func (*TooManyRequestsHeaders) postParkedJournalEntryRes()           {}
+func (*TooManyRequestsHeaders) postSupplierInvoiceRes()              {}
+func (*TooManyRequestsHeaders) proposePaymentRunRes()                {}
+func (*TooManyRequestsHeaders) reconcileMigrationRunRes()            {}
+func (*TooManyRequestsHeaders) recordAgentToolCallRes()              {}
+func (*TooManyRequestsHeaders) rejectApprovalRequestRes()            {}
+func (*TooManyRequestsHeaders) rejectPaymentRunRes()                 {}
+func (*TooManyRequestsHeaders) releaseContractRes()                  {}
+func (*TooManyRequestsHeaders) releasePaymentRunRes()                {}
+func (*TooManyRequestsHeaders) releasePurchaseOrderRes()             {}
+func (*TooManyRequestsHeaders) releaseSupplierInvoiceRes()           {}
+func (*TooManyRequestsHeaders) renewContractRes()                    {}
+func (*TooManyRequestsHeaders) reportBankFileStatusRes()             {}
+func (*TooManyRequestsHeaders) requestBankAccountChangeRes()         {}
+func (*TooManyRequestsHeaders) requestBankAccountEndRes()            {}
+func (*TooManyRequestsHeaders) reverseGoodsReceiptRes()              {}
+func (*TooManyRequestsHeaders) reverseJournalEntryRes()              {}
+func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()           {}
+func (*TooManyRequestsHeaders) simulateChangeRequestRes()            {}
+func (*TooManyRequestsHeaders) startAgentSessionRes()                {}
+func (*TooManyRequestsHeaders) startMigrationRunRes()                {}
+func (*TooManyRequestsHeaders) submitChangeRequestRes()              {}
+func (*TooManyRequestsHeaders) submitPurchaseOrderChangeRes()        {}
+func (*TooManyRequestsHeaders) submitRequisitionRes()                {}
+func (*TooManyRequestsHeaders) terminateContractRes()                {}
+func (*TooManyRequestsHeaders) transmitBankFileRes()                 {}
+func (*TooManyRequestsHeaders) unblockBusinessPartnerRes()           {}
+func (*TooManyRequestsHeaders) unblockLegalEntityRes()               {}
+func (*TooManyRequestsHeaders) unblockOrgUnitRes()                   {}
+func (*TooManyRequestsHeaders) unlockFiscalPeriodRes()               {}
+func (*TooManyRequestsHeaders) updateAiPolicyRes()                   {}
+func (*TooManyRequestsHeaders) updateChangeRequestRes()              {}
+func (*TooManyRequestsHeaders) updateConnectorRes()                  {}
+func (*TooManyRequestsHeaders) updateContractRes()                   {}
+func (*TooManyRequestsHeaders) updateLegalEntityRes()                {}
+func (*TooManyRequestsHeaders) updateOrgUnitRes()                    {}
+func (*TooManyRequestsHeaders) updateParkedJournalEntryRes()         {}
+func (*TooManyRequestsHeaders) updatePrincipalRes()                  {}
+func (*TooManyRequestsHeaders) updatePurchaseOrderChangeRes()        {}
+func (*TooManyRequestsHeaders) updatePurchaseOrderRes()              {}
+func (*TooManyRequestsHeaders) updateRequisitionRes()                {}
+func (*TooManyRequestsHeaders) updateRoleRes()                       {}
+func (*TooManyRequestsHeaders) updateSupplierInvoiceRes()            {}
+func (*TooManyRequestsHeaders) verifyAuditChainRes()                 {}
+func (*TooManyRequestsHeaders) withdrawChangeRequestRes()            {}
 
 // UnauthorizedHeaders wraps Problem with response headers.
 type UnauthorizedHeaders struct {
@@ -26596,192 +27420,197 @@ func (s *UnauthorizedHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
-func (*UnauthorizedHeaders) activateChangeRequestRes()      {}
-func (*UnauthorizedHeaders) activateLegalEntityRes()        {}
-func (*UnauthorizedHeaders) activateOrgUnitRes()            {}
-func (*UnauthorizedHeaders) approveApprovalRequestRes()     {}
-func (*UnauthorizedHeaders) blockBusinessPartnerRes()       {}
-func (*UnauthorizedHeaders) blockLegalEntityRes()           {}
-func (*UnauthorizedHeaders) blockOrgUnitRes()               {}
-func (*UnauthorizedHeaders) blockPrincipalRes()             {}
-func (*UnauthorizedHeaders) cancelApprovalRequestRes()      {}
-func (*UnauthorizedHeaders) cancelContractRes()             {}
-func (*UnauthorizedHeaders) cancelOperationRes()            {}
-func (*UnauthorizedHeaders) cancelParkedJournalEntryRes()   {}
-func (*UnauthorizedHeaders) cancelPurchaseOrderChangeRes()  {}
-func (*UnauthorizedHeaders) cancelPurchaseOrderRes()        {}
-func (*UnauthorizedHeaders) cancelRequisitionRes()          {}
-func (*UnauthorizedHeaders) cancelSupplierInvoiceRes()      {}
-func (*UnauthorizedHeaders) captureSupplierInvoiceRes()     {}
-func (*UnauthorizedHeaders) closeFiscalPeriodRes()          {}
-func (*UnauthorizedHeaders) closePurchaseOrderRes()         {}
-func (*UnauthorizedHeaders) createBusinessPartnerRes()      {}
-func (*UnauthorizedHeaders) createChangeRequestRes()        {}
-func (*UnauthorizedHeaders) createClearingRes()             {}
-func (*UnauthorizedHeaders) createCompanyAccessRes()        {}
-func (*UnauthorizedHeaders) createConnectorRes()            {}
-func (*UnauthorizedHeaders) createContractRes()             {}
-func (*UnauthorizedHeaders) createExchangeRateRes()         {}
-func (*UnauthorizedHeaders) createLegalEntityRes()          {}
-func (*UnauthorizedHeaders) createMigrationRunRes()         {}
-func (*UnauthorizedHeaders) createOrgUnitRes()              {}
-func (*UnauthorizedHeaders) createPartnerChangeRes()        {}
-func (*UnauthorizedHeaders) createPrincipalRes()            {}
-func (*UnauthorizedHeaders) createPurchaseOrderChangeRes()  {}
-func (*UnauthorizedHeaders) createPurchaseOrderRes()        {}
-func (*UnauthorizedHeaders) createRecommendationRes()       {}
-func (*UnauthorizedHeaders) createRegressionSuiteRes()      {}
-func (*UnauthorizedHeaders) createRequisitionRes()          {}
-func (*UnauthorizedHeaders) createRoleAssignmentRes()       {}
-func (*UnauthorizedHeaders) createRoleRes()                 {}
-func (*UnauthorizedHeaders) createSodRuleRes()              {}
-func (*UnauthorizedHeaders) createSupplierInvoiceRes()      {}
-func (*UnauthorizedHeaders) createUploadRes()               {}
-func (*UnauthorizedHeaders) decideRecommendationRes()       {}
-func (*UnauthorizedHeaders) disableConnectorRes()           {}
-func (*UnauthorizedHeaders) enableConnectorRes()            {}
-func (*UnauthorizedHeaders) endAgentSessionRes()            {}
-func (*UnauthorizedHeaders) endCompanyAccessRes()           {}
-func (*UnauthorizedHeaders) endRoleAssignmentRes()          {}
-func (*UnauthorizedHeaders) endRolePermissionRes()          {}
-func (*UnauthorizedHeaders) endSodRuleRes()                 {}
-func (*UnauthorizedHeaders) getAccountRes()                 {}
-func (*UnauthorizedHeaders) getAgentSessionRes()            {}
-func (*UnauthorizedHeaders) getAiPolicyRes()                {}
-func (*UnauthorizedHeaders) getAiUsageRes()                 {}
-func (*UnauthorizedHeaders) getApprovalRequestRes()         {}
-func (*UnauthorizedHeaders) getBankAccountRes()             {}
-func (*UnauthorizedHeaders) getBankFileContentRes()         {}
-func (*UnauthorizedHeaders) getBankFileRes()                {}
-func (*UnauthorizedHeaders) getBusinessPartnerRes()         {}
-func (*UnauthorizedHeaders) getChangeRequestRes()           {}
-func (*UnauthorizedHeaders) getClearingRes()                {}
-func (*UnauthorizedHeaders) getCompanyAccessRes()           {}
-func (*UnauthorizedHeaders) getConfigVersionRes()           {}
-func (*UnauthorizedHeaders) getConnectorRes()               {}
-func (*UnauthorizedHeaders) getContractRes()                {}
-func (*UnauthorizedHeaders) getExchangeRateRes()            {}
-func (*UnauthorizedHeaders) getFiscalPeriodRes()            {}
-func (*UnauthorizedHeaders) getGoodsReceiptRes()            {}
-func (*UnauthorizedHeaders) getJournalEntryRes()            {}
-func (*UnauthorizedHeaders) getLegalEntityRes()             {}
-func (*UnauthorizedHeaders) getMatchResultRes()             {}
-func (*UnauthorizedHeaders) getMigrationRunRes()            {}
-func (*UnauthorizedHeaders) getNumberRangeRes()             {}
-func (*UnauthorizedHeaders) getOperationRes()               {}
-func (*UnauthorizedHeaders) getOrgUnitRes()                 {}
-func (*UnauthorizedHeaders) getParkedJournalEntryRes()      {}
-func (*UnauthorizedHeaders) getPartnerChangeRes()           {}
-func (*UnauthorizedHeaders) getPaymentRunRes()              {}
-func (*UnauthorizedHeaders) getPrincipalRes()               {}
-func (*UnauthorizedHeaders) getPurchaseOrderChangeRes()     {}
-func (*UnauthorizedHeaders) getPurchaseOrderRes()           {}
-func (*UnauthorizedHeaders) getRecommendationRes()          {}
-func (*UnauthorizedHeaders) getRegressionSuiteRes()         {}
-func (*UnauthorizedHeaders) getRequisitionRes()             {}
-func (*UnauthorizedHeaders) getRoleAssignmentRes()          {}
-func (*UnauthorizedHeaders) getRolePermissionRes()          {}
-func (*UnauthorizedHeaders) getRoleRes()                    {}
-func (*UnauthorizedHeaders) getSodRuleRes()                 {}
-func (*UnauthorizedHeaders) getSupplierInvoiceDocumentRes() {}
-func (*UnauthorizedHeaders) getSupplierInvoiceRes()         {}
-func (*UnauthorizedHeaders) getUploadRes()                  {}
-func (*UnauthorizedHeaders) grantRolePermissionRes()        {}
-func (*UnauthorizedHeaders) holdSupplierInvoiceRes()        {}
-func (*UnauthorizedHeaders) listAccountsRes()               {}
-func (*UnauthorizedHeaders) listAgentSessionsRes()          {}
-func (*UnauthorizedHeaders) listAgentToolCallsRes()         {}
-func (*UnauthorizedHeaders) listApprovalRequestsRes()       {}
-func (*UnauthorizedHeaders) listAuditEventsRes()            {}
-func (*UnauthorizedHeaders) listBalancesRes()               {}
-func (*UnauthorizedHeaders) listBankAccountsRes()           {}
-func (*UnauthorizedHeaders) listBankFilesRes()              {}
-func (*UnauthorizedHeaders) listBusinessPartnersRes()       {}
-func (*UnauthorizedHeaders) listChangeRequestsRes()         {}
-func (*UnauthorizedHeaders) listClearingsRes()              {}
-func (*UnauthorizedHeaders) listCompanyAccessRes()          {}
-func (*UnauthorizedHeaders) listConfigVersionsRes()         {}
-func (*UnauthorizedHeaders) listConnectorsRes()             {}
-func (*UnauthorizedHeaders) listContractsRes()              {}
-func (*UnauthorizedHeaders) listExchangeRatesRes()          {}
-func (*UnauthorizedHeaders) listFiscalPeriodsRes()          {}
-func (*UnauthorizedHeaders) listGoodsReceiptsRes()          {}
-func (*UnauthorizedHeaders) listGrIrBalancesRes()           {}
-func (*UnauthorizedHeaders) listJournalEntriesRes()         {}
-func (*UnauthorizedHeaders) listLegalEntitiesRes()          {}
-func (*UnauthorizedHeaders) listMatchResultsRes()           {}
-func (*UnauthorizedHeaders) listMigrationRunsRes()          {}
-func (*UnauthorizedHeaders) listNumberRangesRes()           {}
-func (*UnauthorizedHeaders) listOpenItemsRes()              {}
-func (*UnauthorizedHeaders) listOperationsRes()             {}
-func (*UnauthorizedHeaders) listOrgUnitsRes()               {}
-func (*UnauthorizedHeaders) listParkedJournalEntriesRes()   {}
-func (*UnauthorizedHeaders) listPartnerChangesRes()         {}
-func (*UnauthorizedHeaders) listPaymentExclusionsRes()      {}
-func (*UnauthorizedHeaders) listPaymentRunsRes()            {}
-func (*UnauthorizedHeaders) listPaymentsRes()               {}
-func (*UnauthorizedHeaders) listPrincipalsRes()             {}
-func (*UnauthorizedHeaders) listPurchaseOrderChangesRes()   {}
-func (*UnauthorizedHeaders) listPurchaseOrdersRes()         {}
-func (*UnauthorizedHeaders) listRecommendationsRes()        {}
-func (*UnauthorizedHeaders) listRegressionSuitesRes()       {}
-func (*UnauthorizedHeaders) listRequisitionsRes()           {}
-func (*UnauthorizedHeaders) listRoleAssignmentsRes()        {}
-func (*UnauthorizedHeaders) listRolePermissionsRes()        {}
-func (*UnauthorizedHeaders) listRolesRes()                  {}
-func (*UnauthorizedHeaders) listSodRulesRes()               {}
-func (*UnauthorizedHeaders) listSupplierInvoicesRes()       {}
-func (*UnauthorizedHeaders) lockFiscalPeriodRes()           {}
-func (*UnauthorizedHeaders) matchSupplierInvoiceRes()       {}
-func (*UnauthorizedHeaders) openFiscalPeriodRes()           {}
-func (*UnauthorizedHeaders) parkJournalEntryRes()           {}
-func (*UnauthorizedHeaders) postGoodsReceiptRes()           {}
-func (*UnauthorizedHeaders) postJournalEntryRes()           {}
-func (*UnauthorizedHeaders) postParkedJournalEntryRes()     {}
-func (*UnauthorizedHeaders) postSupplierInvoiceRes()        {}
-func (*UnauthorizedHeaders) proposePaymentRunRes()          {}
-func (*UnauthorizedHeaders) reconcileMigrationRunRes()      {}
-func (*UnauthorizedHeaders) recordAgentToolCallRes()        {}
-func (*UnauthorizedHeaders) rejectApprovalRequestRes()      {}
-func (*UnauthorizedHeaders) rejectPaymentRunRes()           {}
-func (*UnauthorizedHeaders) releaseContractRes()            {}
-func (*UnauthorizedHeaders) releasePaymentRunRes()          {}
-func (*UnauthorizedHeaders) releasePurchaseOrderRes()       {}
-func (*UnauthorizedHeaders) releaseSupplierInvoiceRes()     {}
-func (*UnauthorizedHeaders) renewContractRes()              {}
-func (*UnauthorizedHeaders) reportBankFileStatusRes()       {}
-func (*UnauthorizedHeaders) requestBankAccountChangeRes()   {}
-func (*UnauthorizedHeaders) requestBankAccountEndRes()      {}
-func (*UnauthorizedHeaders) reverseGoodsReceiptRes()        {}
-func (*UnauthorizedHeaders) reverseJournalEntryRes()        {}
-func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()     {}
-func (*UnauthorizedHeaders) simulateChangeRequestRes()      {}
-func (*UnauthorizedHeaders) startAgentSessionRes()          {}
-func (*UnauthorizedHeaders) startMigrationRunRes()          {}
-func (*UnauthorizedHeaders) submitChangeRequestRes()        {}
-func (*UnauthorizedHeaders) submitPurchaseOrderChangeRes()  {}
-func (*UnauthorizedHeaders) submitRequisitionRes()          {}
-func (*UnauthorizedHeaders) terminateContractRes()          {}
-func (*UnauthorizedHeaders) transmitBankFileRes()           {}
-func (*UnauthorizedHeaders) unblockBusinessPartnerRes()     {}
-func (*UnauthorizedHeaders) unblockLegalEntityRes()         {}
-func (*UnauthorizedHeaders) unblockOrgUnitRes()             {}
-func (*UnauthorizedHeaders) unlockFiscalPeriodRes()         {}
-func (*UnauthorizedHeaders) updateAiPolicyRes()             {}
-func (*UnauthorizedHeaders) updateChangeRequestRes()        {}
-func (*UnauthorizedHeaders) updateConnectorRes()            {}
-func (*UnauthorizedHeaders) updateContractRes()             {}
-func (*UnauthorizedHeaders) updateLegalEntityRes()          {}
-func (*UnauthorizedHeaders) updateOrgUnitRes()              {}
-func (*UnauthorizedHeaders) updateParkedJournalEntryRes()   {}
-func (*UnauthorizedHeaders) updatePrincipalRes()            {}
-func (*UnauthorizedHeaders) updatePurchaseOrderChangeRes()  {}
-func (*UnauthorizedHeaders) updatePurchaseOrderRes()        {}
-func (*UnauthorizedHeaders) updateRequisitionRes()          {}
-func (*UnauthorizedHeaders) updateRoleRes()                 {}
-func (*UnauthorizedHeaders) updateSupplierInvoiceRes()      {}
-func (*UnauthorizedHeaders) verifyAuditChainRes()           {}
-func (*UnauthorizedHeaders) withdrawChangeRequestRes()      {}
+func (*UnauthorizedHeaders) activateChangeRequestRes()            {}
+func (*UnauthorizedHeaders) activateLegalEntityRes()              {}
+func (*UnauthorizedHeaders) activateOrgUnitRes()                  {}
+func (*UnauthorizedHeaders) approveApprovalRequestRes()           {}
+func (*UnauthorizedHeaders) blockBusinessPartnerRes()             {}
+func (*UnauthorizedHeaders) blockLegalEntityRes()                 {}
+func (*UnauthorizedHeaders) blockOrgUnitRes()                     {}
+func (*UnauthorizedHeaders) blockPrincipalRes()                   {}
+func (*UnauthorizedHeaders) cancelApprovalRequestRes()            {}
+func (*UnauthorizedHeaders) cancelContractRes()                   {}
+func (*UnauthorizedHeaders) cancelDownPaymentRequestRes()         {}
+func (*UnauthorizedHeaders) cancelOperationRes()                  {}
+func (*UnauthorizedHeaders) cancelParkedJournalEntryRes()         {}
+func (*UnauthorizedHeaders) cancelPurchaseOrderChangeRes()        {}
+func (*UnauthorizedHeaders) cancelPurchaseOrderRes()              {}
+func (*UnauthorizedHeaders) cancelRequisitionRes()                {}
+func (*UnauthorizedHeaders) cancelSupplierInvoiceRes()            {}
+func (*UnauthorizedHeaders) captureSupplierInvoiceRes()           {}
+func (*UnauthorizedHeaders) clearSupplierInvoiceDownPaymentsRes() {}
+func (*UnauthorizedHeaders) closeFiscalPeriodRes()                {}
+func (*UnauthorizedHeaders) closePurchaseOrderRes()               {}
+func (*UnauthorizedHeaders) createBusinessPartnerRes()            {}
+func (*UnauthorizedHeaders) createChangeRequestRes()              {}
+func (*UnauthorizedHeaders) createClearingRes()                   {}
+func (*UnauthorizedHeaders) createCompanyAccessRes()              {}
+func (*UnauthorizedHeaders) createConnectorRes()                  {}
+func (*UnauthorizedHeaders) createContractRes()                   {}
+func (*UnauthorizedHeaders) createDownPaymentRequestRes()         {}
+func (*UnauthorizedHeaders) createExchangeRateRes()               {}
+func (*UnauthorizedHeaders) createLegalEntityRes()                {}
+func (*UnauthorizedHeaders) createMigrationRunRes()               {}
+func (*UnauthorizedHeaders) createOrgUnitRes()                    {}
+func (*UnauthorizedHeaders) createPartnerChangeRes()              {}
+func (*UnauthorizedHeaders) createPrincipalRes()                  {}
+func (*UnauthorizedHeaders) createPurchaseOrderChangeRes()        {}
+func (*UnauthorizedHeaders) createPurchaseOrderRes()              {}
+func (*UnauthorizedHeaders) createRecommendationRes()             {}
+func (*UnauthorizedHeaders) createRegressionSuiteRes()            {}
+func (*UnauthorizedHeaders) createRequisitionRes()                {}
+func (*UnauthorizedHeaders) createRoleAssignmentRes()             {}
+func (*UnauthorizedHeaders) createRoleRes()                       {}
+func (*UnauthorizedHeaders) createSodRuleRes()                    {}
+func (*UnauthorizedHeaders) createSupplierInvoiceRes()            {}
+func (*UnauthorizedHeaders) createUploadRes()                     {}
+func (*UnauthorizedHeaders) decideRecommendationRes()             {}
+func (*UnauthorizedHeaders) disableConnectorRes()                 {}
+func (*UnauthorizedHeaders) enableConnectorRes()                  {}
+func (*UnauthorizedHeaders) endAgentSessionRes()                  {}
+func (*UnauthorizedHeaders) endCompanyAccessRes()                 {}
+func (*UnauthorizedHeaders) endRoleAssignmentRes()                {}
+func (*UnauthorizedHeaders) endRolePermissionRes()                {}
+func (*UnauthorizedHeaders) endSodRuleRes()                       {}
+func (*UnauthorizedHeaders) getAccountRes()                       {}
+func (*UnauthorizedHeaders) getAgentSessionRes()                  {}
+func (*UnauthorizedHeaders) getAiPolicyRes()                      {}
+func (*UnauthorizedHeaders) getAiUsageRes()                       {}
+func (*UnauthorizedHeaders) getApprovalRequestRes()               {}
+func (*UnauthorizedHeaders) getBankAccountRes()                   {}
+func (*UnauthorizedHeaders) getBankFileContentRes()               {}
+func (*UnauthorizedHeaders) getBankFileRes()                      {}
+func (*UnauthorizedHeaders) getBusinessPartnerRes()               {}
+func (*UnauthorizedHeaders) getChangeRequestRes()                 {}
+func (*UnauthorizedHeaders) getClearingRes()                      {}
+func (*UnauthorizedHeaders) getCompanyAccessRes()                 {}
+func (*UnauthorizedHeaders) getConfigVersionRes()                 {}
+func (*UnauthorizedHeaders) getConnectorRes()                     {}
+func (*UnauthorizedHeaders) getContractRes()                      {}
+func (*UnauthorizedHeaders) getDownPaymentRequestRes()            {}
+func (*UnauthorizedHeaders) getExchangeRateRes()                  {}
+func (*UnauthorizedHeaders) getFiscalPeriodRes()                  {}
+func (*UnauthorizedHeaders) getGoodsReceiptRes()                  {}
+func (*UnauthorizedHeaders) getJournalEntryRes()                  {}
+func (*UnauthorizedHeaders) getLegalEntityRes()                   {}
+func (*UnauthorizedHeaders) getMatchResultRes()                   {}
+func (*UnauthorizedHeaders) getMigrationRunRes()                  {}
+func (*UnauthorizedHeaders) getNumberRangeRes()                   {}
+func (*UnauthorizedHeaders) getOperationRes()                     {}
+func (*UnauthorizedHeaders) getOrgUnitRes()                       {}
+func (*UnauthorizedHeaders) getParkedJournalEntryRes()            {}
+func (*UnauthorizedHeaders) getPartnerChangeRes()                 {}
+func (*UnauthorizedHeaders) getPaymentRunRes()                    {}
+func (*UnauthorizedHeaders) getPrincipalRes()                     {}
+func (*UnauthorizedHeaders) getPurchaseOrderChangeRes()           {}
+func (*UnauthorizedHeaders) getPurchaseOrderRes()                 {}
+func (*UnauthorizedHeaders) getRecommendationRes()                {}
+func (*UnauthorizedHeaders) getRegressionSuiteRes()               {}
+func (*UnauthorizedHeaders) getRequisitionRes()                   {}
+func (*UnauthorizedHeaders) getRoleAssignmentRes()                {}
+func (*UnauthorizedHeaders) getRolePermissionRes()                {}
+func (*UnauthorizedHeaders) getRoleRes()                          {}
+func (*UnauthorizedHeaders) getSodRuleRes()                       {}
+func (*UnauthorizedHeaders) getSupplierInvoiceDocumentRes()       {}
+func (*UnauthorizedHeaders) getSupplierInvoiceRes()               {}
+func (*UnauthorizedHeaders) getUploadRes()                        {}
+func (*UnauthorizedHeaders) grantRolePermissionRes()              {}
+func (*UnauthorizedHeaders) holdSupplierInvoiceRes()              {}
+func (*UnauthorizedHeaders) listAccountsRes()                     {}
+func (*UnauthorizedHeaders) listAgentSessionsRes()                {}
+func (*UnauthorizedHeaders) listAgentToolCallsRes()               {}
+func (*UnauthorizedHeaders) listApprovalRequestsRes()             {}
+func (*UnauthorizedHeaders) listAuditEventsRes()                  {}
+func (*UnauthorizedHeaders) listBalancesRes()                     {}
+func (*UnauthorizedHeaders) listBankAccountsRes()                 {}
+func (*UnauthorizedHeaders) listBankFilesRes()                    {}
+func (*UnauthorizedHeaders) listBusinessPartnersRes()             {}
+func (*UnauthorizedHeaders) listChangeRequestsRes()               {}
+func (*UnauthorizedHeaders) listClearingsRes()                    {}
+func (*UnauthorizedHeaders) listCompanyAccessRes()                {}
+func (*UnauthorizedHeaders) listConfigVersionsRes()               {}
+func (*UnauthorizedHeaders) listConnectorsRes()                   {}
+func (*UnauthorizedHeaders) listContractsRes()                    {}
+func (*UnauthorizedHeaders) listDownPaymentRequestsRes()          {}
+func (*UnauthorizedHeaders) listExchangeRatesRes()                {}
+func (*UnauthorizedHeaders) listFiscalPeriodsRes()                {}
+func (*UnauthorizedHeaders) listGoodsReceiptsRes()                {}
+func (*UnauthorizedHeaders) listGrIrBalancesRes()                 {}
+func (*UnauthorizedHeaders) listJournalEntriesRes()               {}
+func (*UnauthorizedHeaders) listLegalEntitiesRes()                {}
+func (*UnauthorizedHeaders) listMatchResultsRes()                 {}
+func (*UnauthorizedHeaders) listMigrationRunsRes()                {}
+func (*UnauthorizedHeaders) listNumberRangesRes()                 {}
+func (*UnauthorizedHeaders) listOpenItemsRes()                    {}
+func (*UnauthorizedHeaders) listOperationsRes()                   {}
+func (*UnauthorizedHeaders) listOrgUnitsRes()                     {}
+func (*UnauthorizedHeaders) listParkedJournalEntriesRes()         {}
+func (*UnauthorizedHeaders) listPartnerChangesRes()               {}
+func (*UnauthorizedHeaders) listPaymentExclusionsRes()            {}
+func (*UnauthorizedHeaders) listPaymentRunsRes()                  {}
+func (*UnauthorizedHeaders) listPaymentsRes()                     {}
+func (*UnauthorizedHeaders) listPrincipalsRes()                   {}
+func (*UnauthorizedHeaders) listPurchaseOrderChangesRes()         {}
+func (*UnauthorizedHeaders) listPurchaseOrdersRes()               {}
+func (*UnauthorizedHeaders) listRecommendationsRes()              {}
+func (*UnauthorizedHeaders) listRegressionSuitesRes()             {}
+func (*UnauthorizedHeaders) listRequisitionsRes()                 {}
+func (*UnauthorizedHeaders) listRoleAssignmentsRes()              {}
+func (*UnauthorizedHeaders) listRolePermissionsRes()              {}
+func (*UnauthorizedHeaders) listRolesRes()                        {}
+func (*UnauthorizedHeaders) listSodRulesRes()                     {}
+func (*UnauthorizedHeaders) listSupplierInvoicesRes()             {}
+func (*UnauthorizedHeaders) lockFiscalPeriodRes()                 {}
+func (*UnauthorizedHeaders) matchSupplierInvoiceRes()             {}
+func (*UnauthorizedHeaders) openFiscalPeriodRes()                 {}
+func (*UnauthorizedHeaders) parkJournalEntryRes()                 {}
+func (*UnauthorizedHeaders) postGoodsReceiptRes()                 {}
+func (*UnauthorizedHeaders) postJournalEntryRes()                 {}
+func (*UnauthorizedHeaders) postParkedJournalEntryRes()           {}
+func (*UnauthorizedHeaders) postSupplierInvoiceRes()              {}
+func (*UnauthorizedHeaders) proposePaymentRunRes()                {}
+func (*UnauthorizedHeaders) reconcileMigrationRunRes()            {}
+func (*UnauthorizedHeaders) recordAgentToolCallRes()              {}
+func (*UnauthorizedHeaders) rejectApprovalRequestRes()            {}
+func (*UnauthorizedHeaders) rejectPaymentRunRes()                 {}
+func (*UnauthorizedHeaders) releaseContractRes()                  {}
+func (*UnauthorizedHeaders) releasePaymentRunRes()                {}
+func (*UnauthorizedHeaders) releasePurchaseOrderRes()             {}
+func (*UnauthorizedHeaders) releaseSupplierInvoiceRes()           {}
+func (*UnauthorizedHeaders) renewContractRes()                    {}
+func (*UnauthorizedHeaders) reportBankFileStatusRes()             {}
+func (*UnauthorizedHeaders) requestBankAccountChangeRes()         {}
+func (*UnauthorizedHeaders) requestBankAccountEndRes()            {}
+func (*UnauthorizedHeaders) reverseGoodsReceiptRes()              {}
+func (*UnauthorizedHeaders) reverseJournalEntryRes()              {}
+func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()           {}
+func (*UnauthorizedHeaders) simulateChangeRequestRes()            {}
+func (*UnauthorizedHeaders) startAgentSessionRes()                {}
+func (*UnauthorizedHeaders) startMigrationRunRes()                {}
+func (*UnauthorizedHeaders) submitChangeRequestRes()              {}
+func (*UnauthorizedHeaders) submitPurchaseOrderChangeRes()        {}
+func (*UnauthorizedHeaders) submitRequisitionRes()                {}
+func (*UnauthorizedHeaders) terminateContractRes()                {}
+func (*UnauthorizedHeaders) transmitBankFileRes()                 {}
+func (*UnauthorizedHeaders) unblockBusinessPartnerRes()           {}
+func (*UnauthorizedHeaders) unblockLegalEntityRes()               {}
+func (*UnauthorizedHeaders) unblockOrgUnitRes()                   {}
+func (*UnauthorizedHeaders) unlockFiscalPeriodRes()               {}
+func (*UnauthorizedHeaders) updateAiPolicyRes()                   {}
+func (*UnauthorizedHeaders) updateChangeRequestRes()              {}
+func (*UnauthorizedHeaders) updateConnectorRes()                  {}
+func (*UnauthorizedHeaders) updateContractRes()                   {}
+func (*UnauthorizedHeaders) updateLegalEntityRes()                {}
+func (*UnauthorizedHeaders) updateOrgUnitRes()                    {}
+func (*UnauthorizedHeaders) updateParkedJournalEntryRes()         {}
+func (*UnauthorizedHeaders) updatePrincipalRes()                  {}
+func (*UnauthorizedHeaders) updatePurchaseOrderChangeRes()        {}
+func (*UnauthorizedHeaders) updatePurchaseOrderRes()              {}
+func (*UnauthorizedHeaders) updateRequisitionRes()                {}
+func (*UnauthorizedHeaders) updateRoleRes()                       {}
+func (*UnauthorizedHeaders) updateSupplierInvoiceRes()            {}
+func (*UnauthorizedHeaders) verifyAuditChainRes()                 {}
+func (*UnauthorizedHeaders) withdrawChangeRequestRes()            {}
 
 // UnprocessableHeaders wraps Problem with response headers.
 type UnprocessableHeaders struct {
@@ -26831,108 +27660,111 @@ func (s *UnprocessableHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
-func (*UnprocessableHeaders) activateChangeRequestRes()     {}
-func (*UnprocessableHeaders) activateLegalEntityRes()       {}
-func (*UnprocessableHeaders) activateOrgUnitRes()           {}
-func (*UnprocessableHeaders) approveApprovalRequestRes()    {}
-func (*UnprocessableHeaders) blockBusinessPartnerRes()      {}
-func (*UnprocessableHeaders) blockLegalEntityRes()          {}
-func (*UnprocessableHeaders) blockOrgUnitRes()              {}
-func (*UnprocessableHeaders) blockPrincipalRes()            {}
-func (*UnprocessableHeaders) cancelApprovalRequestRes()     {}
-func (*UnprocessableHeaders) cancelContractRes()            {}
-func (*UnprocessableHeaders) cancelOperationRes()           {}
-func (*UnprocessableHeaders) cancelParkedJournalEntryRes()  {}
-func (*UnprocessableHeaders) cancelPurchaseOrderChangeRes() {}
-func (*UnprocessableHeaders) cancelPurchaseOrderRes()       {}
-func (*UnprocessableHeaders) cancelRequisitionRes()         {}
-func (*UnprocessableHeaders) cancelSupplierInvoiceRes()     {}
-func (*UnprocessableHeaders) captureSupplierInvoiceRes()    {}
-func (*UnprocessableHeaders) closeFiscalPeriodRes()         {}
-func (*UnprocessableHeaders) closePurchaseOrderRes()        {}
-func (*UnprocessableHeaders) createBusinessPartnerRes()     {}
-func (*UnprocessableHeaders) createChangeRequestRes()       {}
-func (*UnprocessableHeaders) createClearingRes()            {}
-func (*UnprocessableHeaders) createCompanyAccessRes()       {}
-func (*UnprocessableHeaders) createConnectorRes()           {}
-func (*UnprocessableHeaders) createContractRes()            {}
-func (*UnprocessableHeaders) createExchangeRateRes()        {}
-func (*UnprocessableHeaders) createLegalEntityRes()         {}
-func (*UnprocessableHeaders) createMigrationRunRes()        {}
-func (*UnprocessableHeaders) createOrgUnitRes()             {}
-func (*UnprocessableHeaders) createPartnerChangeRes()       {}
-func (*UnprocessableHeaders) createPrincipalRes()           {}
-func (*UnprocessableHeaders) createPurchaseOrderChangeRes() {}
-func (*UnprocessableHeaders) createPurchaseOrderRes()       {}
-func (*UnprocessableHeaders) createRecommendationRes()      {}
-func (*UnprocessableHeaders) createRegressionSuiteRes()     {}
-func (*UnprocessableHeaders) createRequisitionRes()         {}
-func (*UnprocessableHeaders) createRoleAssignmentRes()      {}
-func (*UnprocessableHeaders) createRoleRes()                {}
-func (*UnprocessableHeaders) createSodRuleRes()             {}
-func (*UnprocessableHeaders) createSupplierInvoiceRes()     {}
-func (*UnprocessableHeaders) createUploadRes()              {}
-func (*UnprocessableHeaders) decideRecommendationRes()      {}
-func (*UnprocessableHeaders) disableConnectorRes()          {}
-func (*UnprocessableHeaders) enableConnectorRes()           {}
-func (*UnprocessableHeaders) endAgentSessionRes()           {}
-func (*UnprocessableHeaders) endCompanyAccessRes()          {}
-func (*UnprocessableHeaders) endRoleAssignmentRes()         {}
-func (*UnprocessableHeaders) endRolePermissionRes()         {}
-func (*UnprocessableHeaders) endSodRuleRes()                {}
-func (*UnprocessableHeaders) grantRolePermissionRes()       {}
-func (*UnprocessableHeaders) holdSupplierInvoiceRes()       {}
-func (*UnprocessableHeaders) lockFiscalPeriodRes()          {}
-func (*UnprocessableHeaders) matchSupplierInvoiceRes()      {}
-func (*UnprocessableHeaders) openFiscalPeriodRes()          {}
-func (*UnprocessableHeaders) parkJournalEntryRes()          {}
-func (*UnprocessableHeaders) postGoodsReceiptRes()          {}
-func (*UnprocessableHeaders) postJournalEntryRes()          {}
-func (*UnprocessableHeaders) postParkedJournalEntryRes()    {}
-func (*UnprocessableHeaders) postSupplierInvoiceRes()       {}
-func (*UnprocessableHeaders) proposePaymentRunRes()         {}
-func (*UnprocessableHeaders) reconcileMigrationRunRes()     {}
-func (*UnprocessableHeaders) recordAgentToolCallRes()       {}
-func (*UnprocessableHeaders) rejectApprovalRequestRes()     {}
-func (*UnprocessableHeaders) rejectPaymentRunRes()          {}
-func (*UnprocessableHeaders) releaseContractRes()           {}
-func (*UnprocessableHeaders) releasePaymentRunRes()         {}
-func (*UnprocessableHeaders) releasePurchaseOrderRes()      {}
-func (*UnprocessableHeaders) releaseSupplierInvoiceRes()    {}
-func (*UnprocessableHeaders) renewContractRes()             {}
-func (*UnprocessableHeaders) reportBankFileStatusRes()      {}
-func (*UnprocessableHeaders) requestBankAccountChangeRes()  {}
-func (*UnprocessableHeaders) requestBankAccountEndRes()     {}
-func (*UnprocessableHeaders) reverseGoodsReceiptRes()       {}
-func (*UnprocessableHeaders) reverseJournalEntryRes()       {}
-func (*UnprocessableHeaders) reverseSupplierInvoiceRes()    {}
-func (*UnprocessableHeaders) simulateChangeRequestRes()     {}
-func (*UnprocessableHeaders) startAgentSessionRes()         {}
-func (*UnprocessableHeaders) startMigrationRunRes()         {}
-func (*UnprocessableHeaders) submitChangeRequestRes()       {}
-func (*UnprocessableHeaders) submitPurchaseOrderChangeRes() {}
-func (*UnprocessableHeaders) submitRequisitionRes()         {}
-func (*UnprocessableHeaders) terminateContractRes()         {}
-func (*UnprocessableHeaders) transmitBankFileRes()          {}
-func (*UnprocessableHeaders) unblockBusinessPartnerRes()    {}
-func (*UnprocessableHeaders) unblockLegalEntityRes()        {}
-func (*UnprocessableHeaders) unblockOrgUnitRes()            {}
-func (*UnprocessableHeaders) unlockFiscalPeriodRes()        {}
-func (*UnprocessableHeaders) updateAiPolicyRes()            {}
-func (*UnprocessableHeaders) updateChangeRequestRes()       {}
-func (*UnprocessableHeaders) updateConnectorRes()           {}
-func (*UnprocessableHeaders) updateContractRes()            {}
-func (*UnprocessableHeaders) updateLegalEntityRes()         {}
-func (*UnprocessableHeaders) updateOrgUnitRes()             {}
-func (*UnprocessableHeaders) updateParkedJournalEntryRes()  {}
-func (*UnprocessableHeaders) updatePrincipalRes()           {}
-func (*UnprocessableHeaders) updatePurchaseOrderChangeRes() {}
-func (*UnprocessableHeaders) updatePurchaseOrderRes()       {}
-func (*UnprocessableHeaders) updateRequisitionRes()         {}
-func (*UnprocessableHeaders) updateRoleRes()                {}
-func (*UnprocessableHeaders) updateSupplierInvoiceRes()     {}
-func (*UnprocessableHeaders) verifyAuditChainRes()          {}
-func (*UnprocessableHeaders) withdrawChangeRequestRes()     {}
+func (*UnprocessableHeaders) activateChangeRequestRes()            {}
+func (*UnprocessableHeaders) activateLegalEntityRes()              {}
+func (*UnprocessableHeaders) activateOrgUnitRes()                  {}
+func (*UnprocessableHeaders) approveApprovalRequestRes()           {}
+func (*UnprocessableHeaders) blockBusinessPartnerRes()             {}
+func (*UnprocessableHeaders) blockLegalEntityRes()                 {}
+func (*UnprocessableHeaders) blockOrgUnitRes()                     {}
+func (*UnprocessableHeaders) blockPrincipalRes()                   {}
+func (*UnprocessableHeaders) cancelApprovalRequestRes()            {}
+func (*UnprocessableHeaders) cancelContractRes()                   {}
+func (*UnprocessableHeaders) cancelDownPaymentRequestRes()         {}
+func (*UnprocessableHeaders) cancelOperationRes()                  {}
+func (*UnprocessableHeaders) cancelParkedJournalEntryRes()         {}
+func (*UnprocessableHeaders) cancelPurchaseOrderChangeRes()        {}
+func (*UnprocessableHeaders) cancelPurchaseOrderRes()              {}
+func (*UnprocessableHeaders) cancelRequisitionRes()                {}
+func (*UnprocessableHeaders) cancelSupplierInvoiceRes()            {}
+func (*UnprocessableHeaders) captureSupplierInvoiceRes()           {}
+func (*UnprocessableHeaders) clearSupplierInvoiceDownPaymentsRes() {}
+func (*UnprocessableHeaders) closeFiscalPeriodRes()                {}
+func (*UnprocessableHeaders) closePurchaseOrderRes()               {}
+func (*UnprocessableHeaders) createBusinessPartnerRes()            {}
+func (*UnprocessableHeaders) createChangeRequestRes()              {}
+func (*UnprocessableHeaders) createClearingRes()                   {}
+func (*UnprocessableHeaders) createCompanyAccessRes()              {}
+func (*UnprocessableHeaders) createConnectorRes()                  {}
+func (*UnprocessableHeaders) createContractRes()                   {}
+func (*UnprocessableHeaders) createDownPaymentRequestRes()         {}
+func (*UnprocessableHeaders) createExchangeRateRes()               {}
+func (*UnprocessableHeaders) createLegalEntityRes()                {}
+func (*UnprocessableHeaders) createMigrationRunRes()               {}
+func (*UnprocessableHeaders) createOrgUnitRes()                    {}
+func (*UnprocessableHeaders) createPartnerChangeRes()              {}
+func (*UnprocessableHeaders) createPrincipalRes()                  {}
+func (*UnprocessableHeaders) createPurchaseOrderChangeRes()        {}
+func (*UnprocessableHeaders) createPurchaseOrderRes()              {}
+func (*UnprocessableHeaders) createRecommendationRes()             {}
+func (*UnprocessableHeaders) createRegressionSuiteRes()            {}
+func (*UnprocessableHeaders) createRequisitionRes()                {}
+func (*UnprocessableHeaders) createRoleAssignmentRes()             {}
+func (*UnprocessableHeaders) createRoleRes()                       {}
+func (*UnprocessableHeaders) createSodRuleRes()                    {}
+func (*UnprocessableHeaders) createSupplierInvoiceRes()            {}
+func (*UnprocessableHeaders) createUploadRes()                     {}
+func (*UnprocessableHeaders) decideRecommendationRes()             {}
+func (*UnprocessableHeaders) disableConnectorRes()                 {}
+func (*UnprocessableHeaders) enableConnectorRes()                  {}
+func (*UnprocessableHeaders) endAgentSessionRes()                  {}
+func (*UnprocessableHeaders) endCompanyAccessRes()                 {}
+func (*UnprocessableHeaders) endRoleAssignmentRes()                {}
+func (*UnprocessableHeaders) endRolePermissionRes()                {}
+func (*UnprocessableHeaders) endSodRuleRes()                       {}
+func (*UnprocessableHeaders) grantRolePermissionRes()              {}
+func (*UnprocessableHeaders) holdSupplierInvoiceRes()              {}
+func (*UnprocessableHeaders) lockFiscalPeriodRes()                 {}
+func (*UnprocessableHeaders) matchSupplierInvoiceRes()             {}
+func (*UnprocessableHeaders) openFiscalPeriodRes()                 {}
+func (*UnprocessableHeaders) parkJournalEntryRes()                 {}
+func (*UnprocessableHeaders) postGoodsReceiptRes()                 {}
+func (*UnprocessableHeaders) postJournalEntryRes()                 {}
+func (*UnprocessableHeaders) postParkedJournalEntryRes()           {}
+func (*UnprocessableHeaders) postSupplierInvoiceRes()              {}
+func (*UnprocessableHeaders) proposePaymentRunRes()                {}
+func (*UnprocessableHeaders) reconcileMigrationRunRes()            {}
+func (*UnprocessableHeaders) recordAgentToolCallRes()              {}
+func (*UnprocessableHeaders) rejectApprovalRequestRes()            {}
+func (*UnprocessableHeaders) rejectPaymentRunRes()                 {}
+func (*UnprocessableHeaders) releaseContractRes()                  {}
+func (*UnprocessableHeaders) releasePaymentRunRes()                {}
+func (*UnprocessableHeaders) releasePurchaseOrderRes()             {}
+func (*UnprocessableHeaders) releaseSupplierInvoiceRes()           {}
+func (*UnprocessableHeaders) renewContractRes()                    {}
+func (*UnprocessableHeaders) reportBankFileStatusRes()             {}
+func (*UnprocessableHeaders) requestBankAccountChangeRes()         {}
+func (*UnprocessableHeaders) requestBankAccountEndRes()            {}
+func (*UnprocessableHeaders) reverseGoodsReceiptRes()              {}
+func (*UnprocessableHeaders) reverseJournalEntryRes()              {}
+func (*UnprocessableHeaders) reverseSupplierInvoiceRes()           {}
+func (*UnprocessableHeaders) simulateChangeRequestRes()            {}
+func (*UnprocessableHeaders) startAgentSessionRes()                {}
+func (*UnprocessableHeaders) startMigrationRunRes()                {}
+func (*UnprocessableHeaders) submitChangeRequestRes()              {}
+func (*UnprocessableHeaders) submitPurchaseOrderChangeRes()        {}
+func (*UnprocessableHeaders) submitRequisitionRes()                {}
+func (*UnprocessableHeaders) terminateContractRes()                {}
+func (*UnprocessableHeaders) transmitBankFileRes()                 {}
+func (*UnprocessableHeaders) unblockBusinessPartnerRes()           {}
+func (*UnprocessableHeaders) unblockLegalEntityRes()               {}
+func (*UnprocessableHeaders) unblockOrgUnitRes()                   {}
+func (*UnprocessableHeaders) unlockFiscalPeriodRes()               {}
+func (*UnprocessableHeaders) updateAiPolicyRes()                   {}
+func (*UnprocessableHeaders) updateChangeRequestRes()              {}
+func (*UnprocessableHeaders) updateConnectorRes()                  {}
+func (*UnprocessableHeaders) updateContractRes()                   {}
+func (*UnprocessableHeaders) updateLegalEntityRes()                {}
+func (*UnprocessableHeaders) updateOrgUnitRes()                    {}
+func (*UnprocessableHeaders) updateParkedJournalEntryRes()         {}
+func (*UnprocessableHeaders) updatePrincipalRes()                  {}
+func (*UnprocessableHeaders) updatePurchaseOrderChangeRes()        {}
+func (*UnprocessableHeaders) updatePurchaseOrderRes()              {}
+func (*UnprocessableHeaders) updateRequisitionRes()                {}
+func (*UnprocessableHeaders) updateRoleRes()                       {}
+func (*UnprocessableHeaders) updateSupplierInvoiceRes()            {}
+func (*UnprocessableHeaders) verifyAuditChainRes()                 {}
+func (*UnprocessableHeaders) withdrawChangeRequestRes()            {}
 
 // UpdateAiPolicyOKHeaders wraps AiPolicy with response headers.
 type UpdateAiPolicyOKHeaders struct {
@@ -27892,12 +28724,13 @@ func (s *UpdateSupplierInvoiceOKHeaders) SetResponse(val SupplierInvoice) {
 	s.Response = val
 }
 
-func (*UpdateSupplierInvoiceOKHeaders) cancelSupplierInvoiceRes()  {}
-func (*UpdateSupplierInvoiceOKHeaders) holdSupplierInvoiceRes()    {}
-func (*UpdateSupplierInvoiceOKHeaders) postSupplierInvoiceRes()    {}
-func (*UpdateSupplierInvoiceOKHeaders) releaseSupplierInvoiceRes() {}
-func (*UpdateSupplierInvoiceOKHeaders) reverseSupplierInvoiceRes() {}
-func (*UpdateSupplierInvoiceOKHeaders) updateSupplierInvoiceRes()  {}
+func (*UpdateSupplierInvoiceOKHeaders) cancelSupplierInvoiceRes()            {}
+func (*UpdateSupplierInvoiceOKHeaders) clearSupplierInvoiceDownPaymentsRes() {}
+func (*UpdateSupplierInvoiceOKHeaders) holdSupplierInvoiceRes()              {}
+func (*UpdateSupplierInvoiceOKHeaders) postSupplierInvoiceRes()              {}
+func (*UpdateSupplierInvoiceOKHeaders) releaseSupplierInvoiceRes()           {}
+func (*UpdateSupplierInvoiceOKHeaders) reverseSupplierInvoiceRes()           {}
+func (*UpdateSupplierInvoiceOKHeaders) updateSupplierInvoiceRes()            {}
 
 // Merged schema.
 // Ref: #/components/schemas/Upload

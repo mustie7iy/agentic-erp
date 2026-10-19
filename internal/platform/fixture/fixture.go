@@ -48,7 +48,7 @@ func Years() []int {
 // DocumentTypes get a number range per company and year.
 var DocumentTypes = map[string]string{"journal_sa": "", "journal_ab": "", "journal_kr": "", "journal_we": "", "journal_kg": "", "requisition": "PR", "purchase_order": "PO",
 	"contract": "CT", "goods_receipt": "GR", "supplier_invoice": "SI", "partner_change": "", "payment_run": "PR", "journal_zp": "",
-	"journal_re": "", "journal_kz": "", "journal_ob": ""}
+	"journal_re": "", "journal_kz": "", "journal_ob": "", "down_payment_request": "DP"}
 
 // Document is the prototype's configuration (companies 1000 in USD and
 // 2000 in EUR) with number ranges for every document type in Years.
@@ -230,5 +230,31 @@ func (e Env) GRIR(tb testing.TB) {
 		return ledger.Setup{LegalEntities: tenancy.Directory{}}.Apply(ctx, doc)
 	}); err != nil {
 		tb.Fatal(err)
+	}
+}
+
+// Withholding gives company 2000 a withholding tax payable account
+// (236000) and the codes, in the ledger, as an activated configuration
+// with them would (T46f).
+func (e Env) Withholding(tb testing.TB, codes ...config.WithholdingTaxCode) {
+	tb.Helper()
+	doc := Document(tb)
+	de := doc.Company("2000")
+	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "236000", Name: "Withholding tax payable", Type: config.Liability})
+	de.WithholdingTaxCodes = codes
+	if err := apitest.Committed(tb, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		return ledger.Setup{LegalEntities: tenancy.Directory{}}.Apply(ctx, doc)
+	}); err != nil {
+		tb.Fatal(err)
+	}
+}
+
+// SupplierWithholding gives the supplier the withholding tax codes in
+// company 2000, as a partner change would.
+func (e Env) SupplierWithholding(tb testing.TB, supplier uuid.UUID, codes ...string) {
+	tb.Helper()
+	for _, c := range codes {
+		pgtest.Exec(tb, `INSERT INTO partner.supplier_withholding (tenant_id, partner_id, legal_entity_id, code, created_by, updated_by)
+			VALUES ($1, $2, $3, $4, $5, $5)`, e.Tenant.ID, supplier, e.DE, c, e.Tenant.Human.ID)
 	}
 }

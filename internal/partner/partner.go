@@ -78,6 +78,9 @@ type Accounts interface {
 	// subledger of the kind (supplier or customer) and can be posted in the
 	// legal entity.
 	IsReconciliationAccount(ctx context.Context, legalEntity, account uuid.UUID, kind string) (bool, error)
+	// IsWithholdingTaxCode reports whether the code is an active
+	// withholding tax code of the legal entity (T46e).
+	IsWithholdingTaxCode(ctx context.Context, legalEntity uuid.UUID, code string) (bool, error)
 }
 
 // Endpoints implements the partner part of the generated API.
@@ -123,6 +126,7 @@ type SupplierCompany struct {
 	PaymentTermCode         string    `json:"payment_term_code"`
 	IsPostingBlocked        bool      `json:"is_posting_blocked"`
 	IsPaymentBlocked        bool      `json:"is_payment_blocked"`
+	WithholdingTaxCodes     []string  `json:"withholding_tax_codes"` // T46e
 }
 
 // Address is a row of partner.address.
@@ -172,7 +176,9 @@ const partnerSelect = `SELECT p.id, p.number, p.kind, p.name, p.legal_name, p.co
 		p.version, p.created_at, p.created_by, p.updated_at, p.updated_by,
 		coalesce((SELECT array_agg(r.role ORDER BY r.role) FROM partner.partner_role r WHERE r.tenant_id = p.tenant_id AND r.partner_id = p.id), '{}'),
 		coalesce((SELECT json_agg(json_build_object('legal_entity_id', s.legal_entity_id, 'reconciliation_account_id', s.reconciliation_account_id,
-			'payment_term_code', s.payment_term_code, 'is_posting_blocked', s.is_posting_blocked, 'is_payment_blocked', s.is_payment_blocked)
+			'payment_term_code', s.payment_term_code, 'is_posting_blocked', s.is_posting_blocked, 'is_payment_blocked', s.is_payment_blocked,
+			'withholding_tax_codes', coalesce((SELECT array_agg(w.code ORDER BY w.code) FROM partner.supplier_withholding w WHERE w.tenant_id = s.tenant_id
+				AND w.partner_id = s.partner_id AND w.legal_entity_id = s.legal_entity_id AND w.is_active), '{}'))
 			ORDER BY s.legal_entity_id) FROM partner.supplier_company s WHERE s.tenant_id = p.tenant_id AND s.partner_id = p.id), '[]'),
 		coalesce((SELECT json_agg(json_build_object('id', a.id, 'purpose', a.purpose, 'line1', a.line1, 'line2', a.line2, 'city', a.city,
 			'postal_code', a.postal_code, 'region', a.region, 'country_code', a.country_code, 'valid_from', a.valid_from, 'valid_to', a.valid_to)

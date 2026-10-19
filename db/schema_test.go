@@ -1230,6 +1230,28 @@ func TestExclusionReasons(t *testing.T) {
 		mustApp(t, f.tenant, exclude(reason))
 	}
 	failsWith(t, asApp(t, f.tenant, exclude("item_lost")), "payment_exclusion_reason_code_check")
+	// T46c: a request left out has an exclusion of its own, once per run,
+	// for a reason its supplier cannot be paid or its tax code.
+	request := id()
+	excludeRequest := func(request uuid.UUID, reason string, amount int) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.request_exclusion (tenant_id, payment_run_id, down_payment_request_id, supplier_id, reason_code, amount)
+				VALUES ($1,$2,$3,$4,$5,$6)`, f.tenant, run, request, id(), reason, amount)
+		}
+	}
+	mustApp(t, f.tenant, excludeRequest(request, "tax_code_invalid", 100))
+	mustApp(t, f.tenant, excludeRequest(id(), "supplier_blocked", 100))
+	for _, c := range []struct {
+		name   string
+		insert func(tx pgx.Tx) error
+		fails  string
+	}{
+		{"a request twice", excludeRequest(request, "supplier_blocked", 100), "request_exclusion_pkey"},
+		{"a debit balance", excludeRequest(id(), "debit_balance", 100), "request_exclusion_reason_code_check"},
+		{"nothing left out", excludeRequest(id(), "tax_code_invalid", 0), "request_exclusion_amount_check"},
+	} {
+		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, c.insert), c.fails) })
+	}
 }
 
 // TestPrincipalsAreTheirIssuersSubjects: a principal's issuer and subject
@@ -2558,4 +2580,341 @@ func TestExistingAgentsLevelTwo(t *testing.T) {
 			t.Errorf("level of %s: got %d, want %d", a, got, want)
 		}
 	}
+}
+
+// TestSpecialGLItems: a down payment is a supplier line with special G/L
+// indicator A on the legal entity's down payment account (ADR-0037, T46a):
+// a line is on that account exactly when it carries the indicator, the
+// indicator needs a partner and is A, and the account is fixed once
+// determined.
+func TestSpecialGLItems(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	dp := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, `INSERT INTO ledger.gl_account (tenant_id, id, chart_id, number, name, account_type, reconciliation_kind, status, created_by, updated_by)
+			VALUES ($1, $2, $3, '159000', 'Down payments made', 'asset', 'supplier', 'active', $4, $4)`, f.tenant, dp, f.chart, f.actor); err != nil {
+			return err
+		}
+		if err := exec(tx, `INSERT INTO ledger.company_account (tenant_id, legal_entity_id, account_id, created_by, updated_by) VALUES ($1, $2, $3, $4, $4)`,
+			f.tenant, f.entity, dp, f.actor); err != nil {
+			return err
+		}
+		return exec(tx, `INSERT INTO ledger.account_determination (tenant_id, legal_entity_id, key, account_id, updated_by) VALUES ($1, $2, 'down_payment', $3, $4)`,
+			f.tenant, f.entity, dp, f.actor)
+	})
+	post := func(account uuid.UUID, partner *uuid.UUID, special any) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			je := id()
+			if err := exec(tx, `INSERT INTO ledger.journal_entry (tenant_id, fiscal_year, id, legal_entity_id, ledger_id, fiscal_period, document_type,
+				document_number, document_date, posting_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc, source_context, posted_by)
+				VALUES ($1,2026,$2,$3,$4,4,'ZP',$5,'2026-04-02','2026-04-02','USD','USD','EUR',1,0.9,'payments',$6)`,
+				f.tenant, je, f.entity, f.ledger, je.String()[24:], f.actor); err != nil {
+				return err
+			}
+			if err := exec(tx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id, fiscal_period,
+				posting_date, account_id, amount_tc, amount_lc, amount_gc, partner_id, special_gl) VALUES ($1,2026,$2,1,$3,$4,4,'2026-04-02',$5,100,100,90,$6,$7)`,
+				f.tenant, je, f.entity, f.ledger, account, partner, special); err != nil {
+				return err
+			}
+			return exec(tx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id, fiscal_period,
+				posting_date, account_id, amount_tc, amount_lc, amount_gc) VALUES ($1,2026,$2,2,$3,$4,4,'2026-04-02',$5,-100,-100,-90)`,
+				f.tenant, je, f.entity, f.ledger, f.bank)
+		}
+	}
+	for _, c := range []struct {
+		name    string
+		account uuid.UUID
+		partner *uuid.UUID
+		special any
+		fails   string
+	}{
+		{"a down payment", dp, &f.supplier, "A", ""},
+		{"the down payment account without the indicator", dp, &f.supplier, nil, "journal_line_special_gl_account"},
+		{"the indicator on the payables account", f.ap, &f.supplier, "A", "journal_line_special_gl_account"},
+		{"the indicator without a partner", f.expense, nil, "A", "journal_line_special_gl"},
+		{"another indicator", dp, &f.supplier, "B", "journal_line_special_gl"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := asApp(t, f.tenant, post(c.account, c.partner, c.special))
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("insert: got %v, want success", err)
+				}
+				return
+			}
+			failsOn(t, err, c.fails)
+		})
+	}
+	t.Run("the down payment account changed", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE ledger.account_determination SET account_id = $2, version = version + 1 WHERE tenant_id = $1 AND key = 'down_payment'`, f.tenant, f.ap)
+		}), "account_determination_down_payment_fixed")
+	})
+}
+
+// TestDownPaymentRequests: a down payment request (ADR-0037, T46b) is open
+// first, moves only from open to cancelled with a reason (an open request
+// is not edited), is for more than
+// zero, carries tax only with a tax code and below its amount, and what was
+// requested never changes.
+func TestDownPaymentRequests(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	insert := func(r uuid.UUID, amount int, taxCode any, tax int, status string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payables.down_payment_request (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, amount,
+				tax_code, tax_amount, due_date, status, created_by, updated_by) VALUES ($1, $2, gen_random_uuid()::text, $3, $4, 'USD', $5, $6, $7, '2026-04-02', $8, $9, $9)`,
+				f.tenant, r, f.entity, f.supplier, amount, taxCode, tax, status, f.actor)
+		}
+	}
+	open := id()
+	mustApp(t, f.tenant, insert(open, 11900, "V1", 1900, "open"))
+	for _, c := range []struct {
+		name   string
+		insert func(tx pgx.Tx) error
+		fails  string
+	}{
+		{"zero", insert(id(), 0, nil, 0, "open"), "down_payment_request_amount_check"},
+		{"tax without a code", insert(id(), 100, nil, 10, "open"), "down_payment_request_tax"},
+		{"tax of the whole amount", insert(id(), 100, "V1", 100, "open"), "down_payment_request_tax"},
+		{"cancelled first", insert(id(), 100, nil, 0, "cancelled"), "down_payment_request_lifecycle"},
+		{"a number twice", func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payables.down_payment_request (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, amount,
+				due_date, created_by, updated_by) SELECT $1, $2, document_number, legal_entity_id, supplier_id, currency, 100, due_date, $3, $3
+				FROM payables.down_payment_request WHERE tenant_id = $1 AND id = $4`, f.tenant, id(), f.actor, open)
+		}, "down_payment_request_number"},
+		{"blank reference", func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payables.down_payment_request (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, amount,
+				due_date, reference, created_by, updated_by) VALUES ($1, $2, gen_random_uuid()::text, $3, $4, 'USD', 100, '2026-04-02', '  ', $5, $5)`,
+				f.tenant, id(), f.entity, f.supplier, f.actor)
+		}, "down_payment_request_reference_check"},
+	} {
+		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, c.insert), c.fails) })
+	}
+	update := func(set string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE payables.down_payment_request SET `+set+`, version = version + 1 WHERE tenant_id = $1 AND id = $2`, f.tenant, open)
+		}
+	}
+	for _, c := range []struct{ name, set, fails string }{
+		{"changed while open", "amount = 100", "down_payment_request_lifecycle"},
+		{"amount changed on cancelling", "status = 'cancelled', cancel_reason = 'x', amount = 100", "down_payment_request_fixed"},
+		{"number changed on cancelling", "status = 'cancelled', cancel_reason = 'x', document_number = 'X'", "down_payment_request_fixed"},
+		{"cancelled without a reason", "status = 'cancelled'", "down_payment_request_cancel_reason"},
+	} {
+		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, update(c.set)), c.fails) })
+	}
+	mustApp(t, f.tenant, update("status = 'cancelled', cancel_reason = 'x'"))
+	t.Run("reopened", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, update("status = 'open', cancel_reason = NULL")), "down_payment_request_lifecycle")
+	})
+}
+
+// TestDownPaymentPayments: a payment pays a supplier's items, at most one
+// such payment per supplier and run, or one down payment request, named
+// exactly when it is of kind down_payment and paid once per run; a paid
+// request names its entry, and only an open one is paid (T46c, ADR-0037).
+func TestDownPaymentPayments(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	hb, run, request := id(), id(), id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, `INSERT INTO payments.house_bank (tenant_id, id, legal_entity_id, code, name, iban_cipher, iban_last4, bic, currency, gl_account_id, status, created_by, updated_by)
+			VALUES ($1,$2,$3,'MAIN','Main','\x00','5555','BUKBGB22','USD',$4,'active',$5,$5)`, f.tenant, hb, f.entity, f.bank, f.actor); err != nil {
+			return err
+		}
+		if err := exec(tx, `INSERT INTO payments.payment_run (tenant_id, id, document_number, legal_entity_id, house_bank_id, run_date, due_by, currency, total_amount, status, proposed_by, created_by, updated_by)
+			VALUES ($1,$2,'PR1',$3,$4,'2026-07-31','2026-07-31','USD',300,'proposed',$5,$5,$5)`, f.tenant, run, f.entity, hb, f.actor); err != nil {
+			return err
+		}
+		return exec(tx, `INSERT INTO payables.down_payment_request (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, amount, due_date,
+			created_by, updated_by) VALUES ($1, $2, 'DP1', $3, $4, 'USD', 100, '2026-07-31', $5, $5)`, f.tenant, request, f.entity, f.supplier, f.actor)
+	})
+	pay := func(kind string, req any) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.payment (tenant_id, id, payment_run_id, supplier_id, bank_account_id, amount, currency, end_to_end_id, created_by,
+				kind, down_payment_request_id) VALUES ($1, $2, $3, $4, $5, 100, 'USD', left(md5(random()::text), 20), $6, $7, $8)`, f.tenant, id(), run, f.supplier, id(), f.actor, kind, req)
+		}
+	}
+	mustApp(t, f.tenant, pay("items", nil))
+	mustApp(t, f.tenant, pay("down_payment", request))
+	for _, c := range []struct {
+		name   string
+		insert func(tx pgx.Tx) error
+		fails  string
+	}{
+		{"a second items payment", pay("items", nil), "payment_items_once"},
+		{"the request twice", pay("down_payment", request), "payment_request_once"},
+		{"a down payment without its request", pay("down_payment", nil), "payment_down_payment_request"},
+		{"items naming a request", pay("items", id()), "payment_down_payment_request"},
+	} {
+		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, c.insert), c.fails) })
+	}
+	update := func(set string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE payables.down_payment_request SET `+set+`, version = version + 1 WHERE tenant_id = $1 AND id = $2`, f.tenant, request)
+		}
+	}
+	t.Run("paid without its entry", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, update("status = 'paid'")), "down_payment_request_paid")
+	})
+	t.Run("an entry without its year", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, update("status = 'paid', journal_entry_id = gen_random_uuid()")), "down_payment_request_paid")
+	})
+	mustApp(t, f.tenant, update("status = 'paid', journal_entry_year = 2026, journal_entry_id = gen_random_uuid()"))
+	t.Run("cancelled once paid", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, update("status = 'cancelled', cancel_reason = 'x'")), "down_payment_request_lifecycle")
+	})
+	// T46d: a cleared request names the invoice and the transfer, and its
+	// payment stays its payment.
+	t.Run("cleared without the transfer", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, update("status = 'cleared'")), "down_payment_request_cleared")
+	})
+	t.Run("cleared against an unknown invoice", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, update("status = 'cleared', cleared_invoice_id = gen_random_uuid(), clearing_entry_year = 2026, clearing_entry_id = gen_random_uuid()")),
+			"down_payment_request_invoice")
+	})
+	t.Run("the payment changed", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, update("journal_entry_id = gen_random_uuid()")), "down_payment_request_lifecycle")
+	})
+	t.Run("the payment changed on clearing", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, update("status = 'cleared', cleared_invoice_id = gen_random_uuid(), clearing_entry_year = 2026, clearing_entry_id = gen_random_uuid(), "+
+			"journal_entry_id = gen_random_uuid()")), "down_payment_request_fixed")
+	})
+}
+
+// TestWithholdingTaxCodes: a legal entity's withholding tax code has a
+// code of 1-4 upper-case letters or digits, a rate above 0 and below 100,
+// a base of net or gross, a posting at invoice or payment and an account
+// of the legal entity; a supplier's code belongs to its company data
+// (T46e).
+func TestWithholdingTaxCodes(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	code := func(c string, rate int, base, posting string, account uuid.UUID) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO ledger.withholding_tax_code (tenant_id, legal_entity_id, code, description, rate_pct, base, account_id, posting,
+				created_by, updated_by) VALUES ($1, $2, $3, 'WHT', $4, $5, $6, $7, $8, $8)`, f.tenant, f.entity, c, rate, base, account, posting, f.actor)
+		}
+	}
+	mustApp(t, f.tenant, code("W1", 10, "net", "invoice", f.ap))
+	for _, c := range []struct {
+		name   string
+		insert func(tx pgx.Tx) error
+		fails  string
+	}{
+		{"a lower-case code", code("w2", 10, "net", "invoice", f.ap), "withholding_tax_code_code_check"},
+		{"a rate of 0", code("W2", 0, "net", "invoice", f.ap), "withholding_tax_code_rate_pct_check"},
+		{"a rate of 100", code("W2", 100, "net", "invoice", f.ap), "withholding_tax_code_rate_pct_check"},
+		{"another base", code("W2", 10, "tax", "invoice", f.ap), "withholding_tax_code_base_check"},
+		{"another posting", code("W2", 10, "net", "order", f.ap), "withholding_tax_code_posting_check"},
+		{"an account of no company", code("W2", 10, "net", "invoice", id()), "withholding_tax_code_tenant_id_legal_entity_id_account_id_fkey"},
+		{"a supplier without company data", func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO partner.supplier_withholding (tenant_id, partner_id, legal_entity_id, code, created_by, updated_by)
+				VALUES ($1, $2, $3, 'W1', $4, $4)`, f.tenant, id(), f.entity, f.actor)
+		}, "supplier_withholding_tenant_id_partner_id_legal_entity_id_fkey"},
+		{"a supplier's lower-case code", func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO partner.supplier_withholding (tenant_id, partner_id, legal_entity_id, code, created_by, updated_by)
+				VALUES ($1, $2, $3, 'w1', $4, $4)`, f.tenant, id(), f.entity, f.actor)
+		}, "supplier_withholding_code_check"},
+	} {
+		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, c.insert), c.fails) })
+	}
+}
+
+// TestOpenItemWithholding: an open item keeps its withholding taxes
+// (T46f), one row per code: the amount withheld at invoice, of the base's
+// sign and less than it, and none for a code deducted at payment; the rows
+// are fixed. A payment item's withholding is of its sign and leaves it
+// paying something after its discount, fixed like the rest of the item.
+func TestOpenItemWithholding(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	var je uuid.UUID
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		var err error
+		je, err = f.entry(tx, 4, "2026-04-02", line{account: f.expense, amount: 500}, line{account: f.ap, amount: -500, partner: &f.supplier})
+		return err
+	})
+	row := func(code, posting string, base int, amount *int, lineNo int) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO ledger.open_item_withholding (tenant_id, fiscal_year, journal_entry_id, line_no, code, posting, rate_pct, base_amount,
+				amount, account_id) VALUES ($1, 2026, $2, $3, $4, $5, 10, $6, $7, $8)`, f.tenant, je, lineNo, code, posting, base, amount, f.ap)
+		}
+	}
+	n := func(v int) *int { return &v }
+	for _, c := range []struct {
+		name, code, posting string
+		base                int
+		amount              *int
+		line                int
+		fails               string
+	}{
+		{"at invoice", "W1", "invoice", 500, n(50), 2, ""},
+		{"at payment", "W2", "payment", 500, nil, 2, ""},
+		{"a credit memo's at invoice", "W3", "invoice", -500, n(-50), 2, ""},
+		{"at invoice without an amount", "W4", "invoice", 500, nil, 2, "open_item_withholding_amount"},
+		{"at payment with an amount", "W4", "payment", 500, n(50), 2, "open_item_withholding_amount"},
+		{"of the other sign", "W4", "invoice", 500, n(-50), 2, "open_item_withholding_amount"},
+		{"the whole base", "W4", "invoice", 500, n(500), 2, "open_item_withholding_amount"},
+		{"another moment", "W4", "clearing", 500, nil, 2, "open_item_withholding_posting_check"},
+		{"of no line", "W4", "payment", 500, nil, 9, "open_item_withholding_line_fkey"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := asApp(t, f.tenant, row(c.code, c.posting, c.base, c.amount, c.line))
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("insert: got %v, want success", err)
+				}
+				return
+			}
+			failsOn(t, err, c.fails)
+		})
+	}
+	t.Run("fixed", func(t *testing.T) {
+		_, err := testDB.Exec(context.Background(), "UPDATE ledger.open_item_withholding SET base_amount = 1 WHERE tenant_id = $1", f.tenant)
+		failsWith(t, err, "insert-only")
+	})
+	hb, run, pay := id(), id(), id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, `INSERT INTO payments.house_bank (tenant_id, id, legal_entity_id, code, name, iban_cipher, iban_last4, bic, currency, gl_account_id, status, created_by, updated_by)
+			VALUES ($1,$2,$3,'MAIN','Main','\x00','5555','BUKBGB22','USD',$4,'active',$5,$5)`, f.tenant, hb, f.entity, f.bank, f.actor); err != nil {
+			return err
+		}
+		if err := exec(tx, `INSERT INTO payments.payment_run (tenant_id, id, document_number, legal_entity_id, house_bank_id, run_date, due_by, currency, total_amount, status, proposed_by, created_by, updated_by)
+			VALUES ($1,$2,'PR1',$3,$4,'2026-07-31','2026-07-31','USD',250,'proposed',$5,$5,$5)`, f.tenant, run, f.entity, hb, f.actor); err != nil {
+			return err
+		}
+		return exec(tx, `INSERT INTO payments.payment (tenant_id, id, payment_run_id, supplier_id, bank_account_id, amount, withholding_amount, currency, end_to_end_id, created_by)
+			VALUES ($1,$2,$3,$4,$5,250,50,'USD','E2E-1',$6)`, f.tenant, pay, run, f.supplier, id(), f.actor)
+	})
+	for _, c := range []struct {
+		name                          string
+		amount, discount, withholding int
+		fails                         string
+	}{
+		{"an invoice's withholding", 300, 6, 45, ""},
+		{"a credit memo's withholding", -50, 0, -7, ""},
+		{"of the other sign", 300, 0, -45, "payment_item_withholding_within"},
+		{"with the discount, the whole amount", 300, 100, 200, "payment_item_withholding_within"},
+	} {
+		t.Run("payment item: "+c.name, func(t *testing.T) {
+			err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+				return exec(tx, `INSERT INTO payments.payment_item (tenant_id, payment_id, item_fiscal_year, item_entry_id, item_line_no, amount, discount_amount,
+					withholding_amount, due_date) VALUES ($1, $2, 2026, $3, 2, $4, $5, $6, '2026-07-31')`, f.tenant, pay, id(), c.amount, c.discount, c.withholding)
+			})
+			if c.fails == "" {
+				if err != nil {
+					t.Fatalf("insert: got %v, want success", err)
+				}
+				return
+			}
+			failsOn(t, err, c.fails)
+		})
+	}
+	t.Run("payment item: a withholding changed", func(t *testing.T) {
+		_, err := testDB.Exec(context.Background(), "UPDATE payments.payment_item SET withholding_amount = 1 WHERE tenant_id = $1 AND withholding_amount = 45", f.tenant)
+		failsWith(t, err, "only be deactivated")
+	})
 }

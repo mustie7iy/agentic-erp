@@ -52,8 +52,11 @@ type Company struct {
 	ChartOfAccounts      []Account            `yaml:"chart_of_accounts" json:"chart_of_accounts"`
 	AccountDetermination AccountDetermination `yaml:"account_determination" json:"account_determination"`
 	TaxCodes             []TaxCode            `yaml:"tax_codes" json:"tax_codes"`
-	InvoiceTolerance     Tolerance            `yaml:"invoice_tolerance" json:"invoice_tolerance"`
-	AutoPostLimit        string               `yaml:"auto_post_limit" json:"auto_post_limit"`
+	// WithholdingTaxCodes are the withholding taxes deducted from suppliers
+	// (SAP extended withholding tax, T059P/T059Z; T46e).
+	WithholdingTaxCodes []WithholdingTaxCode `yaml:"withholding_tax_codes,omitempty" json:"withholding_tax_codes,omitempty"`
+	InvoiceTolerance    Tolerance            `yaml:"invoice_tolerance" json:"invoice_tolerance"`
+	AutoPostLimit       string               `yaml:"auto_post_limit" json:"auto_post_limit"`
 	// ManualEntryApprovalLimit is the largest manual journal entry, by its
 	// debits in the company's currency, that people post without approval
 	// (T35); above it the controller approves the entry first.
@@ -103,6 +106,11 @@ type AccountDetermination struct {
 	// payment term has discounts (T36a). Discounts granted to customers
 	// (SAP SKT, an expense) will need a key of their own.
 	CashDiscount string `yaml:"cash_discount,omitempty" json:"cash_discount,omitempty"`
+	// DownPayment is the alternative reconciliation account of down
+	// payments (SAP T074, special G/L A; ADR-0037): an asset that is a
+	// vendor reconciliation account. Once activated it stays
+	// (ledger.Setup.Check).
+	DownPayment string `yaml:"down_payment,omitempty" json:"down_payment,omitempty"`
 }
 
 type TaxCode struct {
@@ -110,6 +118,35 @@ type TaxCode struct {
 	Description string `yaml:"description" json:"description"`
 	RatePercent string `yaml:"rate_percent" json:"rate_percent"`
 	Account     string `yaml:"account" json:"account"`
+}
+
+// WithholdingTaxCode is a withholding tax deducted from what a supplier is
+// paid and owed to the tax authority instead: a rate of the invoice's net
+// (the default) or gross, deducted when the invoice posts or when it is
+// paid, to a liability account (the withholding tax payable).
+type WithholdingTaxCode struct {
+	Code        string `yaml:"code" json:"code"`
+	Description string `yaml:"description" json:"description"`
+	RatePercent string `yaml:"rate_percent" json:"rate_percent"`
+	Base        string `yaml:"base,omitempty" json:"base,omitempty"` // WithholdingNet (also when empty) or WithholdingGross
+	Account     string `yaml:"account" json:"account"`
+	Posting     string `yaml:"posting" json:"posting"` // WithholdingAtInvoice or WithholdingAtPayment
+}
+
+// Withholding tax bases and posting moments.
+const (
+	WithholdingNet       = "net"
+	WithholdingGross     = "gross"
+	WithholdingAtInvoice = "invoice"
+	WithholdingAtPayment = "payment"
+)
+
+// BaseOrNet is the code's base, net when none is given.
+func (w WithholdingTaxCode) BaseOrNet() string {
+	if w.Base == "" {
+		return WithholdingNet
+	}
+	return w.Base
 }
 
 // Tolerance bounds the price variance on an invoice line (SAP T169G key PP).

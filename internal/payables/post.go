@@ -82,7 +82,9 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 }
 
 // posting is the entry an invoice posts, with the payment terms it posts
-// with (invoiceTerms), which the ledger keeps with its open item.
+// with (invoiceTerms) and its supplier's withholding taxes (withholding),
+// which the ledger keeps with its open item; what is withheld at invoice
+// is credited to the codes' accounts instead of the supplier.
 func (e *Endpoints) posting(ctx context.Context, tx pgx.Tx, v Invoice, sup partner.Supplier, date time.Time) (ledger.Posting, *ledger.ItemTerms, error) {
 	order, err := e.orderOf(ctx, v)
 	if err != nil {
@@ -96,8 +98,16 @@ func (e *Endpoints) posting(ctx context.Context, tx pgx.Tx, v Invoice, sup partn
 	if err != nil {
 		return ledger.Posting{}, nil, err
 	}
+	ws, wl, withheld, err := e.withholding(ctx, v, sup)
+	if err != nil {
+		return ledger.Posting{}, nil, err
+	}
+	// The supplier line is the last (invoiceLines): it is owed what the
+	// invoice does not withhold.
+	lines[len(lines)-1].Amount = -signed(v, v.Gross-withheld)
+	lines = append(lines, wl...)
 	posting := invoicePosting(v, v.ID, date)
-	posting.Lines, posting.GRIR, posting.Terms = lines, grir, terms
+	posting.Lines, posting.GRIR, posting.Terms, posting.Withholding = lines, grir, terms, ws
 	return posting, terms, nil
 }
 
@@ -397,6 +407,9 @@ func (e *Endpoints) ReverseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 	// ((status IN ('posted', 'reversed')) = (journal_entry_id IS NOT NULL))
 	// and the pairing of id and year, migration 000007.
 	if err := requireNoCorrections(ctx, tx, v); err != nil {
+		return Invoice{}, err
+	}
+	if err := requireNoClearedDownPayments(ctx, tx, v); err != nil {
 		return Invoice{}, err
 	}
 	cleared, err := e.Postings.IsCleared(ctx, *v.JournalEntryYear, *v.JournalEntryID)

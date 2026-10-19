@@ -448,6 +448,13 @@ the configuration cannot hold, or that counts in months or fixed days
 (ZMONA, ZFAEL), is drafted to fail validation with a note until a reviewer
 sets it.
 
+A supplier's company data names the withholding taxes deducted from it in
+that legal entity (`supplier_withholding`, SAP LFBW; T46e): active codes of
+the legal entity's `ledger.withholding_tax_code`, each once, replaced as a
+whole by a partner change (codes taken off are deactivated, never deleted).
+A configuration that takes a code away from a company while a supplier has
+it is refused (`partner.WithholdingCodes`).
+
 ## 3.7 General ledger (`ledger`)
 
 ```mermaid
@@ -697,8 +704,16 @@ automatic postings use per legal entity and key: `ap_reconciliation`,
 GR/IR clearing (T33) `gr_ir` and `price_difference`; the GR/IR account is a liability that no
 tax code posts, starts without postings other than a migration run's, and
 stays once activated (configuration validation, `ledger.Setup.Check`); order
-items that named it before stay as they are, and posting them is refused),
-`tax_code` (rate, account, direction).
+items that named it before stay as they are, and posting them is refused;
+and for down payments (T46, ADR-0037) `down_payment`, the alternative
+reconciliation account of special G/L items: an asset that is a vendor
+reconciliation account, fixed once determined),
+`tax_code` (rate, account, direction), `withholding_tax_code` (T46e: the
+configuration's `companies[].withholding_tax_codes`, SAP T059P/T059Z, kept
+by the setup per legal entity: a rate above 0 and below 100% of the
+invoice's net, the default, or gross, deducted at invoice or at payment, to
+a liability that reconciles no supplier, the withholding tax payable; a code
+the document no longer has is deactivated).
 
 An open item on a supplier reconciliation account keeps the payment terms
 it was posted with (`open_item_terms`, migration 000068, T36b), as SAP
@@ -710,6 +725,31 @@ supplier open item are refused). The payable items and `GET
 /v1/open-items` show them, with the net due date and each discount's last
 day (`payment_terms`); an item posted without them (before T36, manual,
 migrated) has none and is due by its supplier's current terms.
+
+It keeps its supplier's withholding taxes too (`open_item_withholding`,
+migration 000088, T46f, ADR-0037; SAP WITH_ITEM), one row per code of the
+supplier in the legal entity when it posted: the code, its rate and
+account then, the base (the invoice's net or gross, in the sign the item
+is paid in) and, for a code deducted at invoice, the amount withheld (of
+the base's sign and less than it; none for a code deducted at payment),
+insert-only. An invoice posts what its codes deducted at invoice withhold
+to their accounts and owes the supplier the rest; what all its codes
+withhold is less than its gross (`payables.withholding_exceeds_invoice`).
+The payable items carry the codes deducted at payment.
+
+Special G/L items (T46, ADR-0037). `journal_line.special_gl` marks a
+supplier line as a special G/L item; `A` (down payment) is the only
+indicator. A line carries `A` exactly when it is on the legal entity's
+`down_payment` account (trigger `journal_line_special_gl_account`), and it
+has a partner (`journal_line_special_gl`). Special items are open items of
+their supplier, shown with their indicator in the open-items listing,
+journal entries and `JournalEntryPosted`, but `OpenItems.Payable` leaves
+them out, so they never net in a payment run or count towards a debit
+balance, and clearing, settlement and reservation refuse them
+(`ledger.special_gl_item`): they leave the account only by clearing against
+the supplier's invoice (T46d) or by a reversal, which keeps the indicator.
+Listing the `down_payment` account's open items (`account_id`) lists the
+supplier's down payments.
 
 ## 3.8 Procurement (`procurement`)
 
@@ -1141,6 +1181,44 @@ request limit: purpose, content type, size limit, the object key the bytes
 go to, until when, and its status (`open`, `received` through the API,
 `used` by the invoice in `used_by`, with size and hash once known).
 
+`down_payment_request` (T46b, ADR-0037) is a request to pay a supplier in
+advance of an invoice still to come (SAP F-47, special G/L F, a noted
+item). It is a payables document, not a ledger posting: it moves no value
+until a payment run pays it (T46c), which posts the special G/L item A on
+the down payment account (§3.7). It holds a document number, from the
+legal entity's `down_payment_request` number range of the fiscal year its
+due date falls in, the legal entity, the supplier,
+an optional released order of the supplier in the same currency, the
+amount to pay (tax included, more than zero), an optional input tax code
+with the tax the amount includes (amount × rate / (100 + rate), rounded
+half away from zero, valid on the due date), the due date and a
+reference. It is created `open` and moves to `paid` when a released
+payment run's payment posts it (§3.10, naming that `journal_entry_id`) or
+to `cancelled`, with a reason (`:cancel`); what was requested never changes, and an open request
+is not edited (trigger `down_payment_request_change`). Entering and
+cancelling need their own permission, `payables.down_payment.request` (a
+request pays a supplier before any invoice backs it), and are audited and
+publish `DownPaymentRequested` and `DownPaymentRequestCancelled`.
+
+A paid request's down payment is cleared against the supplier's final
+invoice (`supplier-invoices/{id}:clearDownPayments`, SAP F-54; T46d):
+a posted invoice (kind `invoice`) of the request's supplier, legal entity
+and currency, on the request's purchase order when it names one; whole
+down payments only, so those cleared against an invoice add up to at most
+its gross amount (422 `payables.down_payments_exceed_invoice`). The
+transfer (`ledger.Postings.ClearDownPayments`, document type AB) credits
+each down payment on the down payment account, which clears it, reverses
+the input tax its payment claimed (refused when that entry's tax is shared
+with a down payment not cleared with it), and debits the supplier's
+payables account with their total, at the amounts already booked, so with
+no exchange difference. That debit keeps the invoice's payment terms, so
+the next run nets it against the invoice and takes a cash discount only on
+the remainder. The requests move to `cleared`, naming the invoice and the
+transfer (`down_payment_request_cleared`); the invoice is not reversed
+while they stand (409 `payables.down_payments_cleared`). The clearing is
+audited and publishes `DownPaymentsCleared`. Special G/L items keep no
+payment terms (`open_item_terms` is kept for the other supplier lines).
+
 ## 3.10 Payments (`payments`)
 
 ```mermaid
@@ -1222,7 +1300,19 @@ At release the settlement credits the bank with what is paid and the
 discounts to the legal entity's `cash_discount` account, both at the
 posting date's rates, so the items clear at their original amounts and
 what is left in local and group currency is the exchange difference
-(`ledger.Settle`). The discount is taken off the gross amount, so its tax
+(`ledger.Settle`). A run withholds the taxes deducted at payment (T46f,
+ADR-0037): each code's rate of its base less the discount's share of it
+(the base times what the item pays after its discount over what it owes),
+rounded once, half away from zero, item by item; `payment_item` keeps it
+(`withholding_amount`, of the item's sign, and with the discount less than
+the item, migration 000088), `payment` the total, and the payment's amount
+is what is left; the settlement credits it to the codes' accounts, a line
+per account and code. The release posts only what the run withheld (409
+`ledger.withholding_changed` otherwise), and a withholding that would take
+all the item owes fails the proposal (422 `payments.withholding_too_large`)
+rather than the item's check. Down payments withhold nothing, and manual clearing
+takes no withholding.
+The discount is taken off the gross amount, so its tax
 share corrects the input tax (T36d, SAP's tax adjustment, §17 UStG): each
 item's discount is split by its entry's tax lines (a line with a tax code
 on that code's account) in proportion to the gross the entry owes the
@@ -1246,6 +1336,42 @@ of a proposed run after it is refused (409 `payments.discount_lapsed`,
 days in UTC): the run is rejected and proposed again, at the discount then
 earned; a release being resumed is not refused, since some of its
 payments may have posted.
+
+Down payment requests (T46c, ADR-0037). A `payment` has a `kind`: `items`,
+the supplier's open items netted, at most one per supplier and run
+(`payment_items_once`), or `down_payment`, one down payment request
+(`down_payment_request_id`, `payment_request_once`), paid whole and never
+netted with the supplier's items, as SAP pays special G/L items
+separately. A proposal pays every open request of the legal entity due by
+the due-by date in the run's currency that no live run pays (a run
+proposing or proposed, or releasing with the payment not posted). A
+supplier that cannot be paid (blocked, no bank account, a bank change) is
+excluded with its requests; one whose items are a debit balance still has
+its requests paid. A request whose input tax code is not valid on the run
+date is left out with reason `tax_code_invalid`, and the supplier's items
+are still paid. A request left out has an exclusion of its own, in
+`payments.request_exclusion` (key run and request, its supplier, reason and
+amount), beside `payment_exclusion`, which keeps one row per run and
+supplier for the items (the release's drop and the dropped check use it
+alone); the listing returns both. During the upgrade an application
+version from before T46c must not release a run a newer one proposed with
+request payments, which it would settle as items payments without items. A
+proposed run whose
+request's tax code ended since is refused at release (409
+`payments.proposal_outdated`). The release posts a
+request's payment through `ledger.Postings.PayDownPayment`: Dr the down
+payment account as the supplier's special G/L item A, net of tax; Dr input
+tax on the request's tax code; Cr bank, with the payment as its source
+document, so posting it again returns its entry; in the same transaction
+the payment records the entry and the request moves to `paid`, naming it
+(`DownPaymentRequestPaid`).
+A down payment's payment is never dropped by a release (it has no items to
+fall out of being open), and its bank file remittance is the request's
+number and reference. The payments context reads and records requests
+through a port of its own (`payments.DownPayments`), adapted from
+`payables.DownPaymentRequests` in `internal/app`; a request a live run pays
+is not cancelled (409 `payables.request_in_payment_run`), which asks
+through `payments.Reservations.RequestRunOf` under the proposals lock.
 
 A partial unique index on active `payment_item (tenant_id, item_fiscal_year,
 item_entry_id, item_line_no)` guarantees an open item is in at most one live run; rejecting a run
