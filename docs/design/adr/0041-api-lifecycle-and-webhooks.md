@@ -118,7 +118,10 @@ event version breaks someone else's system.
   and `:rotateSecret`; `uow.OmitOnReplay` keeps it out of the answer
   stored with the idempotency key, so a replay answers without it and it is
   never at rest in the clear. It is sealed in hex, since fieldcrypt seals
-  values upper-cased. Both secret columns are re-sealed when the tenant's
+  values upper-cased. A seal without that normal form was weighed and
+  left out: it would have to reach the keyring, the legacy keys and the
+  re-sealing at key rotation (a mark per column), all for one value
+  whose bytes hex already carries losslessly; IBANs keep the normal form. Both secret columns are re-sealed when the tenant's
   key rotates. A second rotation within 24 hours retires the oldest secret
   at once (two secrets sign at most); `:delete` drops the previous one.
   Changes are audited without the URL's path or query (only its host) and
