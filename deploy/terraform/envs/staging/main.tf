@@ -65,6 +65,11 @@ variable "ca_country" {
   type        = string
 }
 
+variable "dr_region" {
+  description = "The disaster-recovery region the cell's backups are copied to and its bucket replicates to (ADR-0040)."
+  type        = string
+}
+
 module "environment" {
   source = "../../modules/environment"
   providers = {
@@ -82,6 +87,7 @@ module "environment" {
   root_certificate   = var.root_certificate
   ca_organization    = var.ca_organization
   ca_country         = var.ca_country
+  dr_region          = var.dr_region
 }
 
 output "cell" {

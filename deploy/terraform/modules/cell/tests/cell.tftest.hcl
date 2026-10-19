@@ -29,6 +29,12 @@ mock_provider "aws" {
   mock_resource "aws_iam_role" {
     defaults = { arn = "arn:aws:iam::222222222222:role/mock" }
   }
+  mock_resource "aws_backup_vault" {
+    defaults = { arn = "arn:aws:backup:eu-west-1:222222222222:backup-vault:erp-dev1-dr" }
+  }
+  mock_resource "aws_rds_cluster" {
+    defaults = { arn = "arn:aws:rds:eu-central-1:222222222222:cluster:erp-dev1" }
+  }
   mock_resource "aws_s3_bucket" {
     defaults = { arn = "arn:aws:s3:::erp-dev1-objects-x" }
   }
@@ -72,7 +78,7 @@ run "the_database_requires_tls_1_3_and_survives_a_zone" {
     error_message = "a Multi-AZ DB cluster of PostgreSQL 17"
   }
   assert {
-    condition     = aws_rds_cluster.cell[0].storage_encrypted && aws_rds_cluster.cell[0].deletion_protection && aws_rds_cluster.cell[0].backup_retention_period >= 14
+    condition     = aws_rds_cluster.cell[0].storage_encrypted && aws_rds_cluster.cell[0].deletion_protection && aws_rds_cluster.cell[0].backup_retention_period == 14
     error_message = "encrypted, protected from deletion, two weeks of point-in-time recovery"
   }
   assert {
@@ -349,4 +355,98 @@ run "another_cell_reads_its_own_secrets_alone" {
     condition     = length(jsondecode(aws_iam_role_policy.workload["external_secrets"].policy).Statement[1].Resource) == 1
     error_message = "a cell given no global secrets decrypts with its data key alone"
   }
+}
+
+run "a_cell_without_a_dr_region_keeps_two_weeks_and_its_versions_35_days" {
+  command = apply
+
+  assert {
+    condition     = aws_rds_cluster.cell[0].backup_retention_period == 14
+    error_message = "14 days of point-in-time recovery outside production (ADR-0040)"
+  }
+  assert {
+    condition     = aws_s3_bucket_lifecycle_configuration.objects.rule[0].noncurrent_version_expiration[0].noncurrent_days == 35 && aws_s3_bucket_lifecycle_configuration.objects.rule[0].status == "Enabled"
+    error_message = "the bucket keeps noncurrent versions as long as the longest point-in-time recovery"
+  }
+  assert {
+    condition     = aws_s3_bucket_object_lock_configuration.objects.object_lock_enabled == "Enabled" && length(aws_s3_bucket_object_lock_configuration.objects.rule) == 0
+    error_message = "object lock enabled for compliance-mode retention, with no default retention"
+  }
+  assert {
+    condition     = length(aws_kms_key.dr) == 0 && length(aws_backup_plan.cell) == 0 && length(aws_s3_bucket.replica) == 0 && length(aws_s3_bucket_replication_configuration.objects) == 0
+    error_message = "a cell without a DR region creates nothing there"
+  }
+}
+
+run "a_production_cell_copies_its_backups_and_objects_to_the_dr_region" {
+  command = apply
+  # Its own state: the runs after it plan a cell without a DR region.
+  state_key = "dr"
+  variables {
+    backup_retention_days = 35
+    dr_region             = "eu-west-1"
+  }
+
+  assert {
+    condition     = aws_rds_cluster.cell[0].backup_retention_period == 35
+    error_message = "35 days of point-in-time recovery in production (ADR-0040)"
+  }
+  assert {
+    condition     = aws_kms_key.dr["dr"].region == "eu-west-1" && aws_kms_key.dr["dr"].enable_key_rotation
+    error_message = "a rotating key of the DR region"
+  }
+  assert {
+    condition     = aws_backup_vault.dr["dr"].region == "eu-west-1" && aws_backup_vault.dr["dr"].kms_key_arn == aws_kms_key.dr["dr"].arn
+    error_message = "the copies are in the DR region, encrypted with its key"
+  }
+  assert {
+    condition     = one(aws_backup_plan.cell["dr"].rule).schedule == "cron(0 * * * ? *)"
+    error_message = "the database is snapshotted every hour"
+  }
+  assert {
+    condition     = one(one(aws_backup_plan.cell["dr"].rule).copy_action).destination_vault_arn == aws_backup_vault.dr["dr"].arn && one(one(one(aws_backup_plan.cell["dr"].rule).copy_action).lifecycle).delete_after == 7
+    error_message = "every snapshot is copied to the DR vault and kept there 7 days"
+  }
+  assert {
+    condition     = tolist(aws_backup_selection.database["dr"].resources) == tolist([aws_rds_cluster.cell[0].arn])
+    error_message = "the plan backs up the cell's database cluster"
+  }
+  assert {
+    condition     = aws_s3_bucket.replica["dr"].region == "eu-west-1" && aws_s3_bucket.replica["dr"].object_lock_enabled
+    error_message = "the replica bucket is in the DR region with object lock, which replicating locked objects needs"
+  }
+  assert {
+    condition     = one(one(aws_s3_bucket_server_side_encryption_configuration.replica["dr"].rule).apply_server_side_encryption_by_default).kms_master_key_id == aws_kms_key.dr["dr"].arn
+    error_message = "the replica is encrypted with the DR region's key"
+  }
+  assert {
+    condition     = aws_s3_bucket_lifecycle_configuration.replica["dr"].rule[0].noncurrent_version_expiration[0].noncurrent_days == 35
+    error_message = "the replica keeps noncurrent versions as long as the bucket"
+  }
+  assert {
+    condition     = one(aws_s3_bucket_replication_configuration.objects["dr"].rule).delete_marker_replication[0].status == "Enabled"
+    error_message = "deletions replicate as delete markers, so they are noncurrent versions in both"
+  }
+  assert {
+    condition     = one(one(one(aws_s3_bucket_replication_configuration.objects["dr"].rule).destination).encryption_configuration).replica_kms_key_id == aws_kms_key.dr["dr"].arn && one(aws_s3_bucket_replication_configuration.objects["dr"].rule).destination[0].bucket == aws_s3_bucket.replica["dr"].arn
+    error_message = "objects replicate to the replica, encrypted with the DR region's key"
+  }
+}
+
+run "more_than_35_days_of_recovery_is_refused" {
+  command = plan
+  variables {
+    backup_retention_days = 36
+  }
+  expect_failures = [var.backup_retention_days]
+}
+
+run "a_dr_region_for_the_single_instance_shape_is_refused" {
+  command   = plan
+  state_key = "single"
+  variables {
+    zone_redundant = false
+    dr_region      = "eu-west-1"
+  }
+  expect_failures = [var.dr_region]
 }

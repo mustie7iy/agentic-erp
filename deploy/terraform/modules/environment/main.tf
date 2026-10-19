@@ -81,6 +81,18 @@ variable "zone_redundant" {
   default     = true
 }
 
+variable "backup_retention_days" {
+  description = "Days of the cell's point-in-time recovery: 35 in production, 14 elsewhere (ADR-0040)."
+  type        = number
+  default     = 14
+}
+
+variable "dr_region" {
+  description = "The cell's disaster-recovery region (ADR-0040): staging and production; null in dev and test."
+  type        = string
+  default     = null
+}
+
 variable "node_scaling" {
   description = "The home cell's node count bounds."
   type = object({
@@ -125,6 +137,8 @@ module "cell" {
   public_api_cidrs          = var.public_api_cidrs
   node_scaling              = var.node_scaling
   zone_redundant            = var.zone_redundant
+  backup_retention_days     = var.backup_retention_days
+  dr_region                 = var.dr_region
   # The home cell: the router runs on its cluster (the erp-global chart).
   global_secrets = module.global.external_secrets
 }

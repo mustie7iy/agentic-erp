@@ -108,3 +108,18 @@ resource "aws_dynamodb_table" "plain" {
     type = "S"
   }
 }
+
+resource "aws_backup_vault" "plain" {
+  name = "erp-policy-fixture"
+}
+
+resource "aws_s3_bucket_replication_configuration" "plain" {
+  bucket = "erp-policy-fixture"
+  role   = "arn:aws:iam::111111111111:role/fixture"
+  rule {
+    status = "Enabled"
+    destination {
+      bucket = "arn:aws:s3:::erp-policy-fixture-replica"
+    }
+  }
+}

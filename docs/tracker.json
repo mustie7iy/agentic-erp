@@ -5169,9 +5169,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Point-in-time recovery 35 days in production, 14 elsewhere; backups copied to the DR region for 7 days; the bucket's noncurrent versions kept 35 days and replicated, with a KMS key in the DR region",
-        "r": "deploy/terraform/modules/cell · T41b",
+        "r": "deploy/terraform/modules/cell (dr.tf) · AWS Backup hourly to a DR vault, S3 replication with delete markers, object lock; tftest, conftest (backup vaults and replicas need a KMS key) · T41b",
         "c": []
        },
        {

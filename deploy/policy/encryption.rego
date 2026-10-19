@@ -149,3 +149,26 @@ deny contains msg if {
 	object.get(body, "at_rest_encryption_enabled", false) != true
 	msg := sprintf("aws_elasticache_replication_group.%s: at_rest_encryption_enabled must be true", [name])
 }
+
+# A backup vault without a key uses AWS's own; the copies in the DR region
+# are encrypted with a key of the platform's there (ADR-0040).
+deny contains msg if {
+	some ["aws_backup_vault", name, body] in resources
+	object.get(body, "kms_key_arn", "") == ""
+	msg := sprintf("aws_backup_vault.%s: needs kms_key_arn (a key of the platform's)", [name])
+}
+
+# Replicating KMS-encrypted objects without a destination key would leave
+# them unreplicated or encrypted with S3's key; every rule names one.
+deny contains msg if {
+	some ["aws_s3_bucket_replication_configuration", name, body] in resources
+	some rule in body.rule
+	not replica_encrypted(rule)
+	msg := sprintf("aws_s3_bucket_replication_configuration.%s: every rule's destination needs encryption_configuration with a replica_kms_key_id", [name])
+}
+
+replica_encrypted(rule) if {
+	some destination in rule.destination
+	some config in destination.encryption_configuration
+	object.get(config, "replica_kms_key_id", "") != ""
+}

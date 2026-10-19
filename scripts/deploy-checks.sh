@@ -59,7 +59,7 @@ done
 echo "== policy on resources that must be refused"
 # Each fixture and the number of refusals it must draw: one per resource
 # left unencrypted, one per endpoint a VPC lacks.
-for fixture in unencrypted:17 no-endpoints:3; do
+for fixture in unencrypted:19 no-endpoints:3; do
   dir="deploy/policy/testdata/${fixture%%:*}"
   want="${fixture##*:}"
   if out="$($CONFTEST test --parser hcl2 --combine --policy deploy/policy --no-color "$dir"/*.tf 2>&1)"; then

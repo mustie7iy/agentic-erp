@@ -129,3 +129,11 @@ test_cell_resources if {
 	deny["aws_efs_file_system.f: encrypted must be true"] with input as file({"aws_efs_file_system": {"f": [{}]}})
 	deny["aws_elasticache_replication_group.r: at_rest_encryption_enabled must be true"] with input as file({"aws_elasticache_replication_group": {"r": [{}]}})
 }
+
+test_dr_copies if {
+	deny["aws_backup_vault.v: needs kms_key_arn (a key of the platform's)"] with input as file({"aws_backup_vault": {"v": [{"name": "x"}]}})
+	count(deny) == 0 with input as file({"aws_backup_vault": {"v": [{"kms_key_arn": "${aws_kms_key.dr.arn}"}]}})
+	msg := "aws_s3_bucket_replication_configuration.r: every rule's destination needs encryption_configuration with a replica_kms_key_id"
+	deny[msg] with input as file({"aws_s3_bucket_replication_configuration": {"r": [{"rule": [{"destination": [{"bucket": "b"}]}]}]}})
+	count(deny) == 0 with input as file({"aws_s3_bucket_replication_configuration": {"r": [{"rule": [{"destination": [{"encryption_configuration": [{"replica_kms_key_id": "${aws_kms_key.dr.arn}"}]}]}]}]}})
+}

@@ -3,10 +3,11 @@
 # In the production shape (zone_redundant) it is a Multi-AZ DB cluster, a
 # writer and two readable standbys in three zones; dev and test run a
 # single-AZ instance on small gp3 storage. Either way it requires TLS 1.3
-# from every client (T38), is encrypted with the cell's data key, keeps two
-# weeks of point-in-time recovery (T41 builds on it), and cannot be deleted
-# by accident. The master password is RDS-managed in Secrets Manager; the
-# platform's roles are created by its migrations.
+# from every client (T38), is encrypted with the cell's data key, keeps
+# backup_retention_days of point-in-time recovery (35 in production, 14
+# elsewhere, ADR-0040), and cannot be deleted by accident. The master
+# password is RDS-managed in Secrets Manager; the platform's roles are
+# created by its migrations.
 
 data "aws_rds_engine_version" "postgres" {
   engine  = "postgres"
@@ -85,7 +86,7 @@ resource "aws_rds_cluster" "cell" {
   db_cluster_parameter_group_name = aws_rds_cluster_parameter_group.cell[0].name
   storage_encrypted               = true
   kms_key_id                      = aws_kms_key.data.arn
-  backup_retention_period         = 14
+  backup_retention_period         = var.backup_retention_days
   preferred_backup_window         = "02:00-03:00"
   preferred_maintenance_window    = "sun:03:30-sun:04:30"
   copy_tags_to_snapshot           = true
@@ -138,7 +139,7 @@ resource "aws_db_instance" "cell" {
   parameter_group_name            = aws_db_parameter_group.cell[0].name
   storage_encrypted               = true
   kms_key_id                      = aws_kms_key.data.arn
-  backup_retention_period         = 14
+  backup_retention_period         = var.backup_retention_days
   backup_window                   = "02:00-03:00"
   maintenance_window              = "sun:03:30-sun:04:30"
   copy_tags_to_snapshot           = true
