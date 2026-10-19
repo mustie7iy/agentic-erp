@@ -655,7 +655,7 @@
        },
        {
         "s": "D",
-        "t": "Proposals without a house bank, in a currency, pay each supplier (items and down payment requests) through its first method a ranked active bank can pay, else exclude it with no_house_bank; payments post to their bank's account; one bank file per house bank and method; payment_run.house_bank_id nullable (breaking change accepted); at most one active house bank per ledger account in the schema (house_bank_account_once, a deferrable unique constraint attached to a concurrently built index; ADR-0038)",
+        "t": "Proposals without a house bank, in a currency, pay each supplier (items and down payment requests) through its first method a ranked active bank in the run currency can pay (a ranked bank in another currency is skipped), else exclude it with no_house_bank; a run without a bank must name its currency (payments.currency_required) and a run for one bank refuses another currency (payments.currency_mismatch); payments post to their bank's account; one bank file per house bank and method; payment_run.house_bank_id nullable (breaking change accepted); at most one active house bank per ledger account in the schema (house_bank_account_once, a deferrable unique constraint attached to a concurrently built index; ADR-0038)",
         "r": "db/migrations/000092-000097 · payments.router · payment.house_bank_id/payment_method · bank_file_once_per_bank · house_bank_account_once · T45c",
         "c": []
        }

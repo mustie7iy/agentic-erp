@@ -205,3 +205,51 @@ func TestFileWithoutPayments(t *testing.T) {
 		t.Errorf("content status: got %d, want 500: %s", r.Code, r.Body)
 	}
 }
+
+// TestProposalSkipsBanksInOtherCurrencies: in a run without a house bank a
+// ranked bank whose account is in another currency than the run's cannot
+// pay, so the ranking's next bank does, or the supplier's next method; a
+// supplier with no method left is excluded with no_house_bank (ADR-0038,
+// product owner 2026-10-19).
+func TestProposalSkipsBanksInOtherCurrencies(t *testing.T) {
+	e, db := methodSetup(t)
+	pgtest.Exec(t, `UPDATE payments.house_bank SET currency = 'USD', version = version + 1 WHERE id = $1`, db)
+	pgtest.Exec(t, `INSERT INTO payments.payment_method (tenant_id, legal_entity_id, code, description, is_active, created_by, updated_by)
+		VALUES ($1, $2, 'D', 'D', true, $3, $3)`, e.Tenant.ID, e.DE, e.Tenant.Human.ID)
+	pgtest.Exec(t, `INSERT INTO payments.bank_ranking (tenant_id, legal_entity_id, method, currency, house_banks, created_by, updated_by)
+		VALUES ($1, $2, 'D', 'EUR', '{DB}', $3, $3)`, e.Tenant.ID, e.DE, e.Tenant.Human.ID)
+	unpaid := e.NewSupplier(t, "BP90000007")
+	for _, s := range []struct {
+		id         uuid.UUID
+		iban, name string
+	}{{e.Supplier, "DE89370400440532013000", "Supplier"}, {e.Vendor, "DE02120300000000202051", "Vendor"}, {unpaid, "DE75512108001245126199", "Unpaid"}} {
+		e.bankAccount(t, s.id, s.iban, s.name, "2026-01-01", "", "create")
+		e.invoice(t, s.id, "INV-"+s.name, "100.00", "2026-03-01")
+	}
+	e.methods(t, e.Supplier, "{T}") // T ranks DB, in USD, before MAIN: MAIN
+	e.methods(t, e.Vendor, "{D,S}") // D ranks only DB: S, through MAIN
+	e.methods(t, unpaid, "{D}")
+
+	op, _ := e.Must(202, "POST", "/v1/payment-runs:propose", fmt.Sprintf(`{"legal_entity_id": %q, "currency": "EUR", "run_date": "2026-04-15",
+		"due_by": "2026-04-15"}`, e.DE), "")
+	work(t)
+	run, _ := e.Must(200, "GET", op["resource"].(string), "", "")
+	main := e.bank.String()
+	paid := map[string]string{}
+	for _, p := range e.payments(t, run) {
+		m := p.(map[string]any)
+		paid[m["supplier_id"].(string)] += fmt.Sprint(m["house_bank_id"], " ", m["payment_method"])
+	}
+	want := map[string]string{e.Supplier.String(): main + " T", e.Vendor.String(): main + " S"} // one payment each
+	for k, w := range want {
+		if paid[k] != w {
+			t.Errorf("payment of %s: got %q, want %q", k, paid[k], w)
+		}
+	}
+	if len(paid) != len(want) {
+		t.Errorf("payments: got %v, want %v", paid, want)
+	}
+	if got := e.exclusions(t, run)[unpaid.String()]; got != "no_house_bank 100.00" {
+		t.Errorf("exclusion of %s: got %q, want no_house_bank 100.00", unpaid, got)
+	}
+}

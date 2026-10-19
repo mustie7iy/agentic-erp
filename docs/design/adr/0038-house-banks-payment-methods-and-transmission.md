@@ -51,8 +51,13 @@ and France, by EBICS.
   `api/breaking-accepted.txt`); a run proposed for one bank keeps it and
   pays everyone through it, as before, with no method on its payments or
   its one file. A run without a bank is proposed in a currency, which it
-  names; a supplier, or a down payment request, no ranked bank can pay is
-  excluded with `no_house_bank`, not failed.
+  names (`payments.currency_required` otherwise); a run proposed for one
+  bank takes only that bank's currency (`payments.currency_mismatch`). In a
+  run without a bank, a ranked bank whose account is in another currency
+  than the run's is skipped and the ranking's next bank, or the supplier's
+  next method, is tried; a supplier, or a down payment request, no ranked
+  bank can pay is excluded with `no_house_bank`, not failed (product owner
+  2026-10-19).
   The previous version reads a run without a bank as the zero id and
   cannot release it, so proposals without a bank wait until the upgrade
   completes, as configuration changes do (06 §6.4).

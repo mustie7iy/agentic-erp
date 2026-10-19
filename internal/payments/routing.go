@@ -21,11 +21,12 @@ type via struct {
 // bank selection): in a run proposed for one house bank, through it; in one
 // proposed without, through the first of the supplier's payment methods
 // (its company data, in order) whose ranking for the run currency has an
-// active house bank, that bank, the first the ranking names. The zero
-// router routes per run.
+// active house bank in that currency, that bank, the first the ranking
+// names; a ranked bank whose account is in another currency is skipped
+// (product owner 2026-10-19). The zero router routes per run.
 type router struct {
 	byMethod bool
-	banks    map[string]uuid.UUID // method → the first active house bank its ranking for the currency names
+	banks    map[string]uuid.UUID // method → its ranking's first active house bank in the run currency
 }
 
 // routerFor is the run's router: per run when it has a house bank, else
@@ -36,7 +37,7 @@ func routerFor(ctx context.Context, tx pgx.Tx, r Run) (router, error) {
 	}
 	rows, _ := tx.Query(ctx, `SELECT method, bank FROM (
 			SELECT r.method, (SELECT h.id FROM unnest(r.house_banks) WITH ORDINALITY AS b(code, n)
-				JOIN payments.house_bank h ON h.tenant_id = r.tenant_id AND h.legal_entity_id = r.legal_entity_id AND h.code = b.code AND h.status = 'active'
+				JOIN payments.house_bank h ON h.tenant_id = r.tenant_id AND h.legal_entity_id = r.legal_entity_id AND h.code = b.code AND h.status = 'active' AND h.currency = r.currency
 				ORDER BY b.n LIMIT 1) AS bank
 			FROM payments.bank_ranking r
 			JOIN payments.payment_method m ON m.tenant_id = r.tenant_id AND m.legal_entity_id = r.legal_entity_id AND m.code = r.method AND m.is_active
