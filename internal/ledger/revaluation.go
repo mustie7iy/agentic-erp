@@ -52,8 +52,7 @@ type RevaluedItem struct {
 }
 
 // Direction is gain for a positive difference, loss for a negative one and
-// none without one: a debit item (a receivable) worth more, or a credit
-// item (a payable) worth less, is a gain.
+// none without one.
 func (it RevaluedItem) Direction() string {
 	switch {
 	case it.DifferenceLC > 0:
@@ -79,8 +78,10 @@ type RevaluationTotal struct {
 // revaluationScope reads what a run values at a key date, both kinds in
 // one statement, in the currencies other than local: open items are lines
 // on supplier or customer reconciliation accounts posted on or before the
-// key date and not cleared by a clearing dated on or before it, down
-// payments (special G/L) excluded; balances are of flagged accounts other
+// key date and neither cleared by a clearing dated on or before it nor
+// reversed by a reversal dated on or before it (a reversal cancels its
+// entry's items, and its own, without clearing them), down payments
+// (special G/L) excluded; balances are of flagged accounts other
 // than the GR/IR account, per currency, where the transaction currency
 // balance is not zero. Each row says whether its account has an active
 // valuation (fx_valuation_account), so a run without one fails closed. The
@@ -90,7 +91,7 @@ type RevaluationTotal struct {
 // a join with the chart's accounts it was run once per account (T48b's
 // budget).
 const revaluationScope = `WITH scope AS MATERIALIZED (
-		SELECT l.account_id, l.partner_id, l.fiscal_year, l.journal_entry_id, l.line_no, e.currency_tc, l.amount_tc, l.amount_lc, l.amount_gc
+		SELECT l.tenant_id, l.account_id, l.partner_id, l.fiscal_year, l.journal_entry_id, l.line_no, e.currency_tc, l.amount_tc, l.amount_lc, l.amount_gc
 		FROM ledger.journal_line l
 		JOIN ledger.gl_account g ON g.tenant_id = l.tenant_id AND g.id = l.account_id AND g.reconciliation_kind IN ('supplier', 'customer')
 		JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id AND e.fiscal_year <= $4
@@ -99,8 +100,13 @@ const revaluationScope = `WITH scope AS MATERIALIZED (
 			AND NOT EXISTS (SELECT FROM ledger.clearing_item ci JOIN ledger.clearing c ON c.tenant_id = ci.tenant_id AND c.id = ci.clearing_id
 				WHERE ci.tenant_id = l.tenant_id AND ci.fiscal_year = l.fiscal_year AND ci.journal_entry_id = l.journal_entry_id
 					AND ci.line_no = l.line_no AND c.clearing_date <= $3)
+			AND NOT EXISTS (SELECT FROM ledger.reversal r JOIN ledger.journal_entry re ON re.tenant_id = r.tenant_id AND re.fiscal_year = r.reversal_year
+					AND re.id = r.reversal_entry_id
+				WHERE r.tenant_id = l.tenant_id AND re.posting_date <= $3
+					AND ((r.original_year = l.fiscal_year AND r.original_entry_id = l.journal_entry_id)
+						OR (r.reversal_year = l.fiscal_year AND r.reversal_entry_id = l.journal_entry_id)))
 		UNION ALL
-		SELECT l.account_id, NULL, NULL, NULL, NULL, e.currency_tc, sum(l.amount_tc)::bigint, sum(l.amount_lc)::bigint, sum(l.amount_gc)::bigint
+		SELECT l.tenant_id, l.account_id, NULL, NULL, NULL, NULL, e.currency_tc, sum(l.amount_tc)::bigint, sum(l.amount_lc)::bigint, sum(l.amount_gc)::bigint
 		FROM ledger.journal_line l
 		JOIN ledger.company_account ca ON ca.tenant_id = l.tenant_id AND ca.legal_entity_id = l.legal_entity_id AND ca.account_id = l.account_id
 			AND ca.revalue_foreign_currency
@@ -108,15 +114,15 @@ const revaluationScope = `WITH scope AS MATERIALIZED (
 		WHERE l.legal_entity_id = $1 AND l.ledger_id = $2 AND l.fiscal_year <= $4 AND l.posting_date <= $3 AND e.currency_tc <> e.currency_lc
 			AND NOT EXISTS (SELECT FROM ledger.account_determination d WHERE d.tenant_id = l.tenant_id AND d.legal_entity_id = l.legal_entity_id
 				AND d.key = 'gr_ir' AND d.account_id = l.account_id)
-		GROUP BY l.account_id, e.currency_tc
+		GROUP BY l.tenant_id, l.account_id, e.currency_tc
 		HAVING sum(l.amount_tc) <> 0
 	)
 	SELECT s.account_id, s.partner_id, s.fiscal_year, s.journal_entry_id, s.line_no, s.currency_tc, c.exponent, s.amount_tc, s.amount_lc, s.amount_gc,
 		g.number, v.account_id IS NOT NULL
 	FROM scope s
-	JOIN ledger.gl_account g ON g.id = s.account_id
+	JOIN ledger.gl_account g ON g.tenant_id = s.tenant_id AND g.id = s.account_id
 	JOIN ref.currency c ON c.code = s.currency_tc
-	LEFT JOIN ledger.fx_valuation_account v ON v.legal_entity_id = $1 AND v.account_id = s.account_id AND v.is_active
+	LEFT JOIN ledger.fx_valuation_account v ON v.tenant_id = s.tenant_id AND v.legal_entity_id = $1 AND v.account_id = s.account_id AND v.is_active
 	ORDER BY g.number, s.currency_tc, s.fiscal_year, s.journal_entry_id, s.line_no`
 
 // valueRevaluation values what a run of the legal entity and ledger at the

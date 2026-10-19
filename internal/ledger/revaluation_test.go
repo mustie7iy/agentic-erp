@@ -75,9 +75,9 @@ func preview(le uuid.UUID, keyDate string) string {
 
 // TestRevaluationPreview values the open items of the payables
 // reconciliation account and the flagged bank account's balance at the key
-// date (ADR-0042): items posted after it, cleared on or before it, in
-// local currency or down payments are not valued; an item cleared after
-// it is; the rate is the legal entity's rate type's; group currency
+// date (ADR-0042): items posted after it, cleared or reversed on or
+// before it, in local currency or down payments are not valued; an item
+// cleared or reversed after it is; the rate is the legal entity's rate type's; group currency
 // differences follow from local at the average rate; and a key date that
 // is not a period end, a missing, stale or unrecordable rate and an
 // account without a valuation are refused.
@@ -105,6 +105,18 @@ func TestRevaluationPreview(t *testing.T) {
 		e.Must(201, "POST", "/v1/clearings", clearing(e.de, day, ref{map[string]any{"fiscal_year": 2026, "id": x.ID.String()}, 2},
 			ref{map[string]any{"fiscal_year": 2026, "id": y.ID.String()}, 1}), "")
 	}
+	reverse := func(x ledger.Entry, day string) {
+		on := date(day)
+		if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+			_, err := postings().Reverse(ctx, x.ID, &on, nil)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reverse(revaluationPost(t, e, e.de, "2026-03-02", "USD", pl(expense, 5000, nil), pl(ap, -5000, &e.supplier)), "2026-03-10")
+	inv6 := revaluationPost(t, e, e.de, "2026-03-02", "USD", pl(expense, 6000, nil), pl(ap, -6000, &e.supplier))
+	reverse(inv6, "2026-04-02")
 	clear("2026-03-20", inv2, pay2)
 	clear("2026-04-05", inv3, pay3)
 	usExpense, usAP := settleAccount(t, e, "1000", "520000"), settleAccount(t, e, "1000", "211000")
@@ -126,7 +138,7 @@ func TestRevaluationPreview(t *testing.T) {
 			it := x.(map[string]any)
 			line := ""
 			if it["journal_entry_id"] != nil {
-				line = fmt.Sprintf(" %s/%v", map[string]string{inv1.ID.String(): "inv1", inv3.ID.String(): "inv3"}[it["journal_entry_id"].(string)], it["line_no"])
+				line = fmt.Sprintf(" %s/%v", map[string]string{inv1.ID.String(): "inv1", inv3.ID.String(): "inv3", inv6.ID.String(): "inv6"}[it["journal_entry_id"].(string)], it["line_no"])
 			}
 			items = append(items, fmt.Sprintf("%s%s %v %v %v %v %v %v %v %v", names[it["account_id"].(string)], line, amount(it, "amount"), amount(it, "amount_lc"),
 				it["rate"], it["rate_valid_from"], amount(it, "valued_lc"), amount(it, "difference_lc"), amount(it, "difference_gc"), it["direction"]))
@@ -135,6 +147,7 @@ func TestRevaluationPreview(t *testing.T) {
 			"100000 430.00 344.00 0.900000000000 2026-03-15 387.00 43.00 43.00 gain",
 			"211000 inv1/2 -100.00 -80.00 0.900000000000 2026-03-15 -90.00 -10.00 -10.00 loss",
 			"211000 inv3/2 -20.00 -16.00 0.900000000000 2026-03-15 -18.00 -2.00 -2.00 loss",
+			"211000 inv6/2 -60.00 -48.00 0.900000000000 2026-03-15 -54.00 -6.00 -6.00 loss",
 		}
 		if strings.Join(items, "\n") != strings.Join(want, "\n") {
 			t.Errorf("items:\ngot  %s\nwant %s", strings.Join(items, "\n     "), strings.Join(want, "\n     "))
@@ -145,7 +158,7 @@ func TestRevaluationPreview(t *testing.T) {
 			totals = append(totals, fmt.Sprintf("%s %v %v %v %v %v %v %v %v", names[s["account_id"].(string)], s["currency"], s["direction"], s["item_count"],
 				amount(s, "amount"), amount(s, "amount_lc"), amount(s, "valued_lc"), amount(s, "difference_lc"), amount(s, "difference_gc")))
 		}
-		wantTotals := []string{"100000 USD gain 1 430.00 344.00 387.00 43.00 43.00", "211000 USD loss 2 -120.00 -96.00 -108.00 -12.00 -12.00"}
+		wantTotals := []string{"100000 USD gain 1 430.00 344.00 387.00 43.00 43.00", "211000 USD loss 3 -180.00 -144.00 -162.00 -18.00 -18.00"}
 		if strings.Join(totals, "\n") != strings.Join(wantTotals, "\n") {
 			t.Errorf("totals:\ngot  %s\nwant %s", strings.Join(totals, "\n     "), strings.Join(wantTotals, "\n     "))
 		}

@@ -60,13 +60,15 @@ posting.
   original items stay open and the next period starts from their booked
   amounts (SAP's reset). A run without differences posts no entries.
 - **Valuation (T48b).** An item is open at the key date when posted on or
-  before it and not cleared by a clearing dated on or before it; only
+  before it and neither cleared by a clearing nor reversed by a reversal
+  dated on or before it; only
   items in a currency other than local currency are valued, and a flagged
   account's balance only where its transaction-currency balance is not
   zero. Each is valued `round(amount_tc × rate)` against its booked local
   amount, rounded once; a positive difference is a gain, a negative one a
   loss, and its group currency amount is the local difference at the key
-  date's average rate. The key date must be the last day of a (non-special)
+  date's average rate, the rate the valuation entry posts at (not checked
+  for staleness, unlike the valuation rate). The key date must be the last day of a (non-special)
   posting period of the ledger (422 `ledger.key_date_not_period_end`). An
   account with items in scope and no active valuation fails the run and
   the preview closed (422 `ledger.revaluation_account_missing`, naming
