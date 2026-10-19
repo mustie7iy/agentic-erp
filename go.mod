@@ -15,6 +15,7 @@ require (
 	github.com/nats-io/nats-server/v2 v2.15.1
 	github.com/nats-io/nats.go v1.54.0
 	github.com/ogen-go/ogen v1.24.0
+	github.com/pkg/sftp v1.13.10
 	github.com/prometheus/client_golang v1.25.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.47.0
@@ -23,6 +24,8 @@ require (
 	go.opentelemetry.io/otel/trace v1.47.0
 	go.temporal.io/api v1.63.5
 	go.temporal.io/sdk v1.49.0
+	golang.org/x/crypto v0.57.0
+	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -51,6 +54,7 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/klauspost/compress v1.20.1 // indirect
+	github.com/kr/fs v0.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/minio/highwayhash v1.0.4 // indirect
@@ -84,7 +88,6 @@ require (
 	go.uber.org/zap v1.28.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
-	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/exp v0.0.0-20240325151524-a685a6edb6d8 // indirect
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/net v0.60.0 // indirect
@@ -96,7 +99,6 @@ require (
 	golang.org/x/tools v0.49.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc // indirect
-	google.golang.org/grpc v1.83.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
 

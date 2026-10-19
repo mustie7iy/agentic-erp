@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"path"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/go-faster/jx"
@@ -21,6 +23,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/sftpclient"
 )
 
 func init() {
@@ -35,7 +38,10 @@ const (
 	SAPOData = "sap_odata"
 )
 
-var kinds = []string{SAPOData, SAPFile, "bank_sftp", "bank_ebics", "edi_as2", "email", "tax_engine", "ticketing"}
+// BankSFTP is the kind of a house bank's SFTP channel (ADR-0038).
+const BankSFTP = "bank_sftp"
+
+var kinds = []string{SAPOData, SAPFile, BankSFTP, "bank_ebics", "edi_as2", "email", "tax_engine", "ticketing"}
 
 // Connector is a row of integration.connector.
 type Connector struct {
@@ -96,8 +102,46 @@ func checkSettings(kind string, settings map[string]any) error {
 		}
 	case SAPOData:
 		return checkODataSettings(settings)
+	case BankSFTP:
+		return checkSFTPSettings(settings)
 	}
 	return nil
+}
+
+// checkSFTPSettings validates a bank_sftp channel (ADR-0038): the server's
+// host and optional port, the account, the server's host key, pinned, and
+// the absolute directory the bank collects from. The client's private key
+// is the secret_ref's (required where the channel is used, T44b): there
+// is no password, and no other setting.
+func checkSFTPSettings(settings map[string]any) error {
+	for k := range settings {
+		if !slices.Contains([]string{"host", "port", "user", "host_key", "directory"}, k) {
+			return invalid("integration.invalid_settings", "settings."+k, "Not a bank_sftp setting; credentials go in secret_ref.")
+		}
+	}
+	for _, k := range []string{"host", "user"} {
+		if v, ok := settings[k].(string); !ok || v == "" || strings.ContainsAny(v, ":@/ ") {
+			return invalid("integration.invalid_settings", "settings."+k, "The SFTP server's "+k+", without port, path or spaces.")
+		}
+	}
+	if n, ok := settings["port"]; ok {
+		//nolint:forbidigo // encoding/json decodes every number in map[string]any as float64; a port is not an amount
+		if f, isNumber := n.(float64); !isNumber || f < 1 || f > 65535 || f != float64(int(f)) {
+			return invalid("integration.invalid_settings", "settings.port", "The SFTP server's port, from 1 to 65535; 22 when left out.")
+		}
+	}
+	if k, ok := settings["host_key"].(string); !ok || !validHostKey(k) {
+		return invalid("integration.invalid_settings", "settings.host_key", "The SFTP server's public key in authorized_keys form, as the bank gave it.")
+	}
+	if d, ok := settings["directory"].(string); !ok || !path.IsAbs(d) {
+		return invalid("integration.invalid_settings", "settings.directory", "The absolute directory the bank collects files from.")
+	}
+	return nil
+}
+
+func validHostKey(line string) bool {
+	_, err := sftpclient.ParseHostKey(line)
+	return err == nil
 }
 
 // checkODataSettings validates the settings of a sap_odata source.

@@ -18821,7 +18821,7 @@ components:
             settings:
               type: object
               additionalProperties: true
-              description: "Connector settings (endpoints, formats); never secrets."
+              description: "Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory` (absolute); its `secret_ref` names the private key, as there are no passwords (ADR-0038)."
             secret_ref:
               type: string
               description: Vault path of the credentials.
@@ -18871,7 +18871,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; never secrets."
+          description: "Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory` (absolute); its `secret_ref` names the private key, as there are no passwords (ADR-0038)."
         secret_ref:
           type: string
           description: Vault path of the credentials.
@@ -18893,7 +18893,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; replaced as a whole."
+          description: "Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory` (absolute); its `secret_ref` names the private key, as there are no passwords (ADR-0038)."
         secret_ref:
           type:
             - string

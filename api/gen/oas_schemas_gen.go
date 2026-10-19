@@ -6704,7 +6704,9 @@ type Connector struct {
 	Kind string `json:"kind"`
 	// Name, unique per tenant.
 	Name string `json:"name"`
-	// Connector settings (endpoints, formats); never secrets.
+	// Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port`
+	// (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory`
+	// (absolute); its `secret_ref` names the private key, as there are no passwords (ADR-0038).
 	Settings ConnectorSettings `json:"settings"`
 	// Vault path of the credentials.
 	SecretRef OptString `json:"secret_ref"`
@@ -6831,7 +6833,9 @@ type ConnectorCreate struct {
 	Kind string `json:"kind"`
 	// Name, unique per tenant.
 	Name string `json:"name"`
-	// Connector settings; never secrets.
+	// Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22),
+	// `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory` (absolute);
+	// its `secret_ref` names the private key, as there are no passwords (ADR-0038).
 	Settings ConnectorCreateSettings `json:"settings"`
 	// Vault path of the credentials.
 	SecretRef OptString `json:"secret_ref"`
@@ -6877,7 +6881,9 @@ func (s *ConnectorCreate) SetSecretRef(val OptString) {
 	s.SecretRef = val
 }
 
-// Connector settings; never secrets.
+// Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22),
+// `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory` (absolute);
+// its `secret_ref` names the private key, as there are no passwords (ADR-0038).
 type ConnectorCreateSettings map[string]jx.Raw
 
 func (s *ConnectorCreateSettings) init() ConnectorCreateSettings {
@@ -7064,7 +7070,9 @@ func (s *ConnectorPageHeaders) SetResponse(val ConnectorPage) {
 
 func (*ConnectorPageHeaders) listConnectorsRes() {}
 
-// Connector settings (endpoints, formats); never secrets.
+// Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port`
+// (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory`
+// (absolute); its `secret_ref` names the private key, as there are no passwords (ADR-0038).
 type ConnectorSettings map[string]jx.Raw
 
 func (s *ConnectorSettings) init() ConnectorSettings {
@@ -7081,7 +7089,9 @@ func (s *ConnectorSettings) init() ConnectorSettings {
 type ConnectorUpdate struct {
 	// Name.
 	Name OptString `json:"name"`
-	// Connector settings; replaced as a whole.
+	// Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22),
+	// `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory` (absolute);
+	// its `secret_ref` names the private key, as there are no passwords (ADR-0038).
 	Settings OptConnectorUpdateSettings `json:"settings"`
 	// Vault path of the credentials. Send null to clear.
 	SecretRef OptNilString `json:"secret_ref"`
@@ -7117,7 +7127,9 @@ func (s *ConnectorUpdate) SetSecretRef(val OptNilString) {
 	s.SecretRef = val
 }
 
-// Connector settings; replaced as a whole.
+// Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22),
+// `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory` (absolute);
+// its `secret_ref` names the private key, as there are no passwords (ADR-0038).
 type ConnectorUpdateSettings map[string]jx.Raw
 
 func (s *ConnectorUpdateSettings) init() ConnectorUpdateSettings {

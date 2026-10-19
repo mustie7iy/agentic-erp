@@ -95,4 +95,15 @@ and France, by EBICS.
   asset account; the account determination's `bank` stays the main bank's
   account where the main bank names none.
 - Transmission is per house bank (T44); a release still completes without
-  a connector, and its files wait to be transmitted.
+  a connector, and its files wait to be transmitted. T44 is split: the SFTP
+  transport and the `bank_sftp` connector's settings (T44a: host, port,
+  user, the server's `host_key` in authorized_keys form, pinned, and an
+  absolute `directory`; the private key by `secret_ref`, settings never
+  hold a password; a file is written under a hidden name and renamed, so
+  the bank never collects half a file, and the rename never overwrites a
+  file already there, so a retry after a lost acknowledgement is told
+  apart by T44c's hash, not by the server; the host key is asked for by its
+  type, so a server with keys of several types presents the pinned one, and
+  a certificate is refused), a house bank's channel (T44b),
+  duplicate detection by content hash (T44c), EBICS refused in production
+  (T44d), retries and the sweep (T44e).

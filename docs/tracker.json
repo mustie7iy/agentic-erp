@@ -627,8 +627,39 @@
      {
       "s": "P",
       "t": "Bank transmission (EBICS, SFTP, host-to-host)",
-      "r": "payments.Connector · DirConnector drops files for a transfer agent; EBICS and SFTP connectors to come · ADR-0038 · T44 (after T45c: SFTP and EBICS connectors per house bank, a file whose content hash was already sent counts as sent, EBICS refused in production, retries, the sweep)",
-      "c": []
+      "r": "payments.Connector · DirConnector drops files for a transfer agent · ADR-0038 · T44 (split T44a-T44e, after T45c)",
+      "c": [
+       {
+        "s": "D",
+        "t": "SFTP transport: upload to a pinned host key with key authentication (no passwords), complete or not at all (hidden name, then rename); bank_sftp connector settings validated (host, port, user, host_key, absolute directory; the private key by secret_ref)",
+        "r": "internal/platform/sftpclient · github.com/pkg/sftp · integration.checkSFTPSettings · T44a",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A house bank's channel: each house bank names its bank connector; transmission resolves it per bank (secret resolved through the secrets path, failing closed), connector_id on bank_file_transmitted; DirConnector stays the server-wide fallback",
+        "r": "T44b",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Duplicate detection by content hash: a file whose hash was already sent through the bank's channel counts as sent, recorded where a lost acknowledgement cannot lose it",
+        "r": "T44c",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "EBICS connector, built and refused in production: the server fails to start when a house bank's channel is EBICS until certified with a bank",
+        "r": "T44d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Retry policies for transmission (transient failures retried with backoff, bounded) and the sweep for bank files a cancelled release leaves in object storage",
+        "r": "T44e",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",
