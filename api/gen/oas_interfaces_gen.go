@@ -593,6 +593,10 @@ type ParkJournalEntryRes interface {
 	parkJournalEntryRes()
 }
 
+type PauseWebhookSubscriptionRes interface {
+	pauseWebhookSubscriptionRes()
+}
+
 type PostGoodsReceiptRes interface {
 	postGoodsReceiptRes()
 }
@@ -659,6 +663,10 @@ type RequestBankAccountChangeRes interface {
 
 type RequestBankAccountEndRes interface {
 	requestBankAccountEndRes()
+}
+
+type ResumeWebhookSubscriptionRes interface {
+	resumeWebhookSubscriptionRes()
 }
 
 type ReverseGoodsReceiptRes interface {

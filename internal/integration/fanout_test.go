@@ -44,7 +44,8 @@ func fanoutFor(t *testing.T, log *pgtest.SyncBuffer) *integration.Fanout {
 }
 
 // TestWebhookFanout: an offered event becomes one pending delivery per
-// active subscription naming its type or context, in its tenant only; read
+// active or paused subscription naming its type or context (a paused one
+// holds it, a disabled one gets none), in its tenant only; read
 // twice it adds nothing (the inbox).
 func TestWebhookFanout(t *testing.T) {
 	c := webhookClient(t)
@@ -53,6 +54,8 @@ func TestWebhookFanout(t *testing.T) {
 	createHook(c, `"tenancy.*"`)
 	paused, _ := createHook(c, `"ledger.*"`)
 	pgtest.Exec(t, `UPDATE integration.webhook_subscription SET status = 'paused', version = version + 1 WHERE id = $1`, paused["id"])
+	disabled, _ := createHook(c, `"ledger.*"`)
+	pgtest.Exec(t, `UPDATE integration.webhook_subscription SET status = 'disabled', disabled_reason = 'gone', version = version + 1 WHERE id = $1`, disabled["id"])
 	other := webhookClient(t)
 	createHook(other, `"ledger.*"`)
 
@@ -64,7 +67,7 @@ func TestWebhookFanout(t *testing.T) {
 			t.Fatalf("read %d: %v", i+1, err)
 		}
 	}
-	want := []string{byContext["id"].(string), byType["id"].(string)}
+	want := []string{byContext["id"].(string), byType["id"].(string), paused["id"].(string)}
 	slices.Sort(want)
 	if got := deliveries(t, m.ID); !slices.Equal(got, want) {
 		t.Fatalf("deliveries to %v, want one to each of %v", got, want)

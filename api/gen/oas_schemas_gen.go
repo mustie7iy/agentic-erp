@@ -2794,6 +2794,7 @@ func (*BadRequestHeaders) lockFiscalPeriodRes()                 {}
 func (*BadRequestHeaders) matchSupplierInvoiceRes()             {}
 func (*BadRequestHeaders) openFiscalPeriodRes()                 {}
 func (*BadRequestHeaders) parkJournalEntryRes()                 {}
+func (*BadRequestHeaders) pauseWebhookSubscriptionRes()         {}
 func (*BadRequestHeaders) postGoodsReceiptRes()                 {}
 func (*BadRequestHeaders) postJournalEntryRes()                 {}
 func (*BadRequestHeaders) postParkedJournalEntryRes()           {}
@@ -2811,6 +2812,7 @@ func (*BadRequestHeaders) renewContractRes()                    {}
 func (*BadRequestHeaders) reportBankFileStatusRes()             {}
 func (*BadRequestHeaders) requestBankAccountChangeRes()         {}
 func (*BadRequestHeaders) requestBankAccountEndRes()            {}
+func (*BadRequestHeaders) resumeWebhookSubscriptionRes()        {}
 func (*BadRequestHeaders) reverseGoodsReceiptRes()              {}
 func (*BadRequestHeaders) reverseJournalEntryRes()              {}
 func (*BadRequestHeaders) reverseSupplierInvoiceRes()           {}
@@ -6644,6 +6646,7 @@ func (*ConflictHeaders) lockFiscalPeriodRes()                 {}
 func (*ConflictHeaders) matchSupplierInvoiceRes()             {}
 func (*ConflictHeaders) openFiscalPeriodRes()                 {}
 func (*ConflictHeaders) parkJournalEntryRes()                 {}
+func (*ConflictHeaders) pauseWebhookSubscriptionRes()         {}
 func (*ConflictHeaders) postGoodsReceiptRes()                 {}
 func (*ConflictHeaders) postJournalEntryRes()                 {}
 func (*ConflictHeaders) postParkedJournalEntryRes()           {}
@@ -6661,6 +6664,7 @@ func (*ConflictHeaders) renewContractRes()                    {}
 func (*ConflictHeaders) reportBankFileStatusRes()             {}
 func (*ConflictHeaders) requestBankAccountChangeRes()         {}
 func (*ConflictHeaders) requestBankAccountEndRes()            {}
+func (*ConflictHeaders) resumeWebhookSubscriptionRes()        {}
 func (*ConflictHeaders) reverseGoodsReceiptRes()              {}
 func (*ConflictHeaders) reverseJournalEntryRes()              {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()           {}
@@ -10077,6 +10081,7 @@ func (*ForbiddenHeaders) lockFiscalPeriodRes()                 {}
 func (*ForbiddenHeaders) matchSupplierInvoiceRes()             {}
 func (*ForbiddenHeaders) openFiscalPeriodRes()                 {}
 func (*ForbiddenHeaders) parkJournalEntryRes()                 {}
+func (*ForbiddenHeaders) pauseWebhookSubscriptionRes()         {}
 func (*ForbiddenHeaders) postGoodsReceiptRes()                 {}
 func (*ForbiddenHeaders) postJournalEntryRes()                 {}
 func (*ForbiddenHeaders) postParkedJournalEntryRes()           {}
@@ -10094,6 +10099,7 @@ func (*ForbiddenHeaders) renewContractRes()                    {}
 func (*ForbiddenHeaders) reportBankFileStatusRes()             {}
 func (*ForbiddenHeaders) requestBankAccountChangeRes()         {}
 func (*ForbiddenHeaders) requestBankAccountEndRes()            {}
+func (*ForbiddenHeaders) resumeWebhookSubscriptionRes()        {}
 func (*ForbiddenHeaders) reverseGoodsReceiptRes()              {}
 func (*ForbiddenHeaders) reverseJournalEntryRes()              {}
 func (*ForbiddenHeaders) reverseSupplierInvoiceRes()           {}
@@ -15341,6 +15347,7 @@ func (*NotFoundHeaders) listRolePermissionsRes()              {}
 func (*NotFoundHeaders) lockFiscalPeriodRes()                 {}
 func (*NotFoundHeaders) matchSupplierInvoiceRes()             {}
 func (*NotFoundHeaders) openFiscalPeriodRes()                 {}
+func (*NotFoundHeaders) pauseWebhookSubscriptionRes()         {}
 func (*NotFoundHeaders) postParkedJournalEntryRes()           {}
 func (*NotFoundHeaders) postSupplierInvoiceRes()              {}
 func (*NotFoundHeaders) reconcileMigrationRunRes()            {}
@@ -15355,6 +15362,7 @@ func (*NotFoundHeaders) renewContractRes()                    {}
 func (*NotFoundHeaders) reportBankFileStatusRes()             {}
 func (*NotFoundHeaders) requestBankAccountChangeRes()         {}
 func (*NotFoundHeaders) requestBankAccountEndRes()            {}
+func (*NotFoundHeaders) resumeWebhookSubscriptionRes()        {}
 func (*NotFoundHeaders) reverseGoodsReceiptRes()              {}
 func (*NotFoundHeaders) reverseJournalEntryRes()              {}
 func (*NotFoundHeaders) reverseSupplierInvoiceRes()           {}
@@ -20482,6 +20490,7 @@ func (*PreconditionFailedHeaders) holdSupplierInvoiceRes()              {}
 func (*PreconditionFailedHeaders) lockFiscalPeriodRes()                 {}
 func (*PreconditionFailedHeaders) matchSupplierInvoiceRes()             {}
 func (*PreconditionFailedHeaders) openFiscalPeriodRes()                 {}
+func (*PreconditionFailedHeaders) pauseWebhookSubscriptionRes()         {}
 func (*PreconditionFailedHeaders) postParkedJournalEntryRes()           {}
 func (*PreconditionFailedHeaders) postSupplierInvoiceRes()              {}
 func (*PreconditionFailedHeaders) reconcileMigrationRunRes()            {}
@@ -20494,6 +20503,7 @@ func (*PreconditionFailedHeaders) releaseSupplierInvoiceRes()           {}
 func (*PreconditionFailedHeaders) renewContractRes()                    {}
 func (*PreconditionFailedHeaders) reportBankFileStatusRes()             {}
 func (*PreconditionFailedHeaders) requestBankAccountEndRes()            {}
+func (*PreconditionFailedHeaders) resumeWebhookSubscriptionRes()        {}
 func (*PreconditionFailedHeaders) reverseGoodsReceiptRes()              {}
 func (*PreconditionFailedHeaders) reverseJournalEntryRes()              {}
 func (*PreconditionFailedHeaders) reverseSupplierInvoiceRes()           {}
@@ -20632,6 +20642,7 @@ func (*PreconditionRequiredHeaders) lockFiscalPeriodRes()                 {}
 func (*PreconditionRequiredHeaders) matchSupplierInvoiceRes()             {}
 func (*PreconditionRequiredHeaders) openFiscalPeriodRes()                 {}
 func (*PreconditionRequiredHeaders) parkJournalEntryRes()                 {}
+func (*PreconditionRequiredHeaders) pauseWebhookSubscriptionRes()         {}
 func (*PreconditionRequiredHeaders) postGoodsReceiptRes()                 {}
 func (*PreconditionRequiredHeaders) postJournalEntryRes()                 {}
 func (*PreconditionRequiredHeaders) postParkedJournalEntryRes()           {}
@@ -20649,6 +20660,7 @@ func (*PreconditionRequiredHeaders) renewContractRes()                    {}
 func (*PreconditionRequiredHeaders) reportBankFileStatusRes()             {}
 func (*PreconditionRequiredHeaders) requestBankAccountChangeRes()         {}
 func (*PreconditionRequiredHeaders) requestBankAccountEndRes()            {}
+func (*PreconditionRequiredHeaders) resumeWebhookSubscriptionRes()        {}
 func (*PreconditionRequiredHeaders) reverseGoodsReceiptRes()              {}
 func (*PreconditionRequiredHeaders) reverseJournalEntryRes()              {}
 func (*PreconditionRequiredHeaders) reverseSupplierInvoiceRes()           {}
@@ -25747,6 +25759,7 @@ func (*ServiceUnavailableHeaders) lockFiscalPeriodRes()                 {}
 func (*ServiceUnavailableHeaders) matchSupplierInvoiceRes()             {}
 func (*ServiceUnavailableHeaders) openFiscalPeriodRes()                 {}
 func (*ServiceUnavailableHeaders) parkJournalEntryRes()                 {}
+func (*ServiceUnavailableHeaders) pauseWebhookSubscriptionRes()         {}
 func (*ServiceUnavailableHeaders) postGoodsReceiptRes()                 {}
 func (*ServiceUnavailableHeaders) postJournalEntryRes()                 {}
 func (*ServiceUnavailableHeaders) postParkedJournalEntryRes()           {}
@@ -25764,6 +25777,7 @@ func (*ServiceUnavailableHeaders) renewContractRes()                    {}
 func (*ServiceUnavailableHeaders) reportBankFileStatusRes()             {}
 func (*ServiceUnavailableHeaders) requestBankAccountChangeRes()         {}
 func (*ServiceUnavailableHeaders) requestBankAccountEndRes()            {}
+func (*ServiceUnavailableHeaders) resumeWebhookSubscriptionRes()        {}
 func (*ServiceUnavailableHeaders) reverseGoodsReceiptRes()              {}
 func (*ServiceUnavailableHeaders) reverseJournalEntryRes()              {}
 func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()           {}
@@ -27579,6 +27593,7 @@ func (*TooManyRequestsHeaders) lockFiscalPeriodRes()                 {}
 func (*TooManyRequestsHeaders) matchSupplierInvoiceRes()             {}
 func (*TooManyRequestsHeaders) openFiscalPeriodRes()                 {}
 func (*TooManyRequestsHeaders) parkJournalEntryRes()                 {}
+func (*TooManyRequestsHeaders) pauseWebhookSubscriptionRes()         {}
 func (*TooManyRequestsHeaders) postGoodsReceiptRes()                 {}
 func (*TooManyRequestsHeaders) postJournalEntryRes()                 {}
 func (*TooManyRequestsHeaders) postParkedJournalEntryRes()           {}
@@ -27596,6 +27611,7 @@ func (*TooManyRequestsHeaders) renewContractRes()                    {}
 func (*TooManyRequestsHeaders) reportBankFileStatusRes()             {}
 func (*TooManyRequestsHeaders) requestBankAccountChangeRes()         {}
 func (*TooManyRequestsHeaders) requestBankAccountEndRes()            {}
+func (*TooManyRequestsHeaders) resumeWebhookSubscriptionRes()        {}
 func (*TooManyRequestsHeaders) reverseGoodsReceiptRes()              {}
 func (*TooManyRequestsHeaders) reverseJournalEntryRes()              {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()           {}
@@ -27836,6 +27852,7 @@ func (*UnauthorizedHeaders) lockFiscalPeriodRes()                 {}
 func (*UnauthorizedHeaders) matchSupplierInvoiceRes()             {}
 func (*UnauthorizedHeaders) openFiscalPeriodRes()                 {}
 func (*UnauthorizedHeaders) parkJournalEntryRes()                 {}
+func (*UnauthorizedHeaders) pauseWebhookSubscriptionRes()         {}
 func (*UnauthorizedHeaders) postGoodsReceiptRes()                 {}
 func (*UnauthorizedHeaders) postJournalEntryRes()                 {}
 func (*UnauthorizedHeaders) postParkedJournalEntryRes()           {}
@@ -27853,6 +27870,7 @@ func (*UnauthorizedHeaders) renewContractRes()                    {}
 func (*UnauthorizedHeaders) reportBankFileStatusRes()             {}
 func (*UnauthorizedHeaders) requestBankAccountChangeRes()         {}
 func (*UnauthorizedHeaders) requestBankAccountEndRes()            {}
+func (*UnauthorizedHeaders) resumeWebhookSubscriptionRes()        {}
 func (*UnauthorizedHeaders) reverseGoodsReceiptRes()              {}
 func (*UnauthorizedHeaders) reverseJournalEntryRes()              {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()           {}
@@ -27994,6 +28012,7 @@ func (*UnprocessableHeaders) lockFiscalPeriodRes()                 {}
 func (*UnprocessableHeaders) matchSupplierInvoiceRes()             {}
 func (*UnprocessableHeaders) openFiscalPeriodRes()                 {}
 func (*UnprocessableHeaders) parkJournalEntryRes()                 {}
+func (*UnprocessableHeaders) pauseWebhookSubscriptionRes()         {}
 func (*UnprocessableHeaders) postGoodsReceiptRes()                 {}
 func (*UnprocessableHeaders) postJournalEntryRes()                 {}
 func (*UnprocessableHeaders) postParkedJournalEntryRes()           {}
@@ -28011,6 +28030,7 @@ func (*UnprocessableHeaders) renewContractRes()                    {}
 func (*UnprocessableHeaders) reportBankFileStatusRes()             {}
 func (*UnprocessableHeaders) requestBankAccountChangeRes()         {}
 func (*UnprocessableHeaders) requestBankAccountEndRes()            {}
+func (*UnprocessableHeaders) resumeWebhookSubscriptionRes()        {}
 func (*UnprocessableHeaders) reverseGoodsReceiptRes()              {}
 func (*UnprocessableHeaders) reverseJournalEntryRes()              {}
 func (*UnprocessableHeaders) reverseSupplierInvoiceRes()           {}
@@ -29081,6 +29101,8 @@ func (s *UpdateWebhookSubscriptionOKHeaders) SetResponse(val WebhookSubscription
 }
 
 func (*UpdateWebhookSubscriptionOKHeaders) deleteWebhookSubscriptionRes()       {}
+func (*UpdateWebhookSubscriptionOKHeaders) pauseWebhookSubscriptionRes()        {}
+func (*UpdateWebhookSubscriptionOKHeaders) resumeWebhookSubscriptionRes()       {}
 func (*UpdateWebhookSubscriptionOKHeaders) rotateWebhookSubscriptionSecretRes() {}
 func (*UpdateWebhookSubscriptionOKHeaders) updateWebhookSubscriptionRes()       {}
 
@@ -29351,9 +29373,10 @@ type WebhookSubscription struct {
 	// CloudEvents types marked `x-webhook` in the AsyncAPI contract, or `<context>.*` for all of a
 	// context's.
 	EventTypes []string `json:"event_types"`
-	// Status. `disabled`: the dispatcher stopped after failures or a 410 Gone (`disabled_reason`).
-	// `deleted`: ended by `:delete`. Open enumeration: clients must accept and preserve values not listed
-	// here; values may be added within /v1.
+	// Status. `paused` (by `:pause`): deliveries are held and sent in order on `:resume`. `disabled`: the
+	// dispatcher stopped after 5 days of failures or a 410 Gone (`disabled_reason`); its pending
+	// deliveries are not sent. `deleted`: ended by `:delete`. Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
 	Status string `json:"status"`
 	// Why the dispatcher disabled it; present only when `disabled`. Open enumeration: clients must accept
 	// and preserve values not listed here; values may be added within /v1.

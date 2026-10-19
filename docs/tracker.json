@@ -4799,9 +4799,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Delivery: due deliveries claimed per tenant (10 in flight, 50/s per subscription), signed and sent through egress, retried 30 s to 12 h for 3 days then dead lettered, in order per resource; 410 or 5 days failing disables; pause holds, resume releases",
+        "r": "internal/integration/dispatch.go · db/migrations/000092 · T50f",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Delivery, retries, pause/resume and operations",
-        "r": "T50f–g",
+        "t": "Operations: replay, redelivery and ping",
+        "r": "T50g",
         "c": []
        }
       ]

@@ -1016,6 +1016,14 @@ type Handler interface {
 	//
 	// POST /v1/parked-journal-entries
 	ParkJournalEntry(ctx context.Context, req *JournalEntryCreate, params ParkJournalEntryParams) (ParkJournalEntryRes, error)
+	// PauseWebhookSubscription implements pauseWebhookSubscription operation.
+	//
+	// Holds the deliveries of an active subscription: events keep being recorded for it but none is sent
+	// until `:resume`, which sends them in order. A delivery held past the 30-day retention is dropped.
+	// Requires status `active` (409 `integration.webhook_not_active`).
+	//
+	// POST /v1/webhook-subscriptions/{id}:pause
+	PauseWebhookSubscription(ctx context.Context, params PauseWebhookSubscriptionParams) (PauseWebhookSubscriptionRes, error)
 	// PostGoodsReceipt implements postGoodsReceipt operation.
 	//
 	// Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122,
@@ -1197,6 +1205,13 @@ type Handler interface {
 	//
 	// POST /v1/business-partners/{id}/bank-accounts/{bank_account_id}:end
 	RequestBankAccountEnd(ctx context.Context, req *BankAccountEnd, params RequestBankAccountEndParams) (RequestBankAccountEndRes, error)
+	// ResumeWebhookSubscription implements resumeWebhookSubscription operation.
+	//
+	// Sends the deliveries held while the subscription was paused, in order per resource, and the later
+	// ones as they come. Requires status `paused` (409 `integration.webhook_not_paused`).
+	//
+	// POST /v1/webhook-subscriptions/{id}:resume
+	ResumeWebhookSubscription(ctx context.Context, params ResumeWebhookSubscriptionParams) (ResumeWebhookSubscriptionRes, error)
 	// ReverseGoodsReceipt implements reverseGoodsReceipt operation.
 	//
 	// Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make

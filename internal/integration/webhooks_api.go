@@ -131,3 +131,21 @@ func (e *Endpoints) RotateWebhookSubscriptionSecret(ctx context.Context, params 
 	}
 	return subscriptionOK(s, withSecret(ctx, s)), nil
 }
+
+// PauseWebhookSubscription implements POST /v1/webhook-subscriptions/{id}:pause.
+func (e *Endpoints) PauseWebhookSubscription(ctx context.Context, params gen.PauseWebhookSubscriptionParams) (gen.PauseWebhookSubscriptionRes, error) {
+	s, err := e.PauseSubscription(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	if err != nil {
+		return nil, err
+	}
+	return subscriptionOK(s, subscriptionToAPI(s)), nil
+}
+
+// ResumeWebhookSubscription implements POST /v1/webhook-subscriptions/{id}:resume.
+func (e *Endpoints) ResumeWebhookSubscription(ctx context.Context, params gen.ResumeWebhookSubscriptionParams) (gen.ResumeWebhookSubscriptionRes, error) {
+	s, err := e.ResumeSubscription(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	if err != nil {
+		return nil, err
+	}
+	return subscriptionOK(s, subscriptionToAPI(s)), nil
+}

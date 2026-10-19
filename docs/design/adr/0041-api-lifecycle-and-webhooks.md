@@ -127,8 +127,7 @@ event version breaks someone else's system.
   Changes are audited without the URL's path or query (only its host) and
   publish no event: nothing in the platform reacts to them. Reads are GETs
   and so already allowed at every autonomy level; no `x-autonomy` mark is
-  needed. Pausing and resuming a subscription wait for the delivery
-  (T50f).
+  needed. Pausing and resuming came with the delivery (T50f).
 - **Fan-out (T50e):** a durable JetStream consumer (`webhook-fanout`,
   shared by replicas) reads the streams of the contexts offering
   `x-webhook` events, starting at the events published after it was first
@@ -137,7 +136,7 @@ event version breaks someone else's system.
   tenant than its `tenantid`, arrives on another context's stream than its
   type's or is malformed, and in that tenant's
   transaction (the app role, no role of its own) inserts one pending
-  delivery per active subscription naming the type or its context, the
+  delivery per active (and, since T50f, paused) subscription naming the type or its context, the
   subscriptions read `FOR SHARE`. `UNIQUE (tenant_id, subscription_id,
   event_id)` is the inbox: an event read again adds nothing. The body is
   rendered once, the CloudEvents structured JSON of every `ce-*`
@@ -146,6 +145,51 @@ event version breaks someone else's system.
   is the platform's own bookkeeping of an event already recorded, as the
   outbox is; the delivery attempts are what T50f records. A failed
   database write leaves the event to be read again after 5 seconds.
+- **Delivery (T50f):** `:pause` and `:resume` (`x-agent: false`,
+  audited, refused with 409 from another status) hold and release a
+  subscription's deliveries: the fan-out records deliveries for active
+  and paused subscriptions alike (product owner, 2026-10-19), the
+  dispatcher sends only an active one's, and on resume the held ones go
+  out in order while within the 30-day retention. `disabled` (5 days of
+  failures or a 410) drops: its pending deliveries are never sent and the
+  retention removes them. The dispatcher (`integration.Dispatcher`, one
+  per replica) works in rounds: the worker role (migration 000092 grants
+  it the delivery columns it needs, never a body, URL or secret) finds the
+  due deliveries that are the earliest pending of their subscription and
+  subject, every tenant's first before any tenant's second and at most 10
+  per tenant; each tenant's are claimed in its transaction `FOR UPDATE
+  SKIP LOCKED`, leased for 2 minutes (`next_attempt_at` moved, version
+  bumped) so another replica skips them, and sent concurrently; the round
+  waits for its sends. 50 per second per subscription is a
+  `platform/ratelimit` bucket; a delivery over it is left due. A request
+  is the stored body as `application/cloudevents+json`, signed with the
+  current secret and, while it signs, the previous one (opened with
+  fieldcrypt, hex); `webhook-id` is the delivery id, the same on every
+  attempt. The answer is recorded in another transaction guarded by the
+  leased version and `status = 'pending'`, so a second recording of the
+  same attempt changes nothing; a lost recording leaves the lease to lapse
+  and the delivery is sent again (at least once; the endpoint drops the
+  duplicate by `webhook-id`). Any 2xx delivers and clears
+  `failing_since`; a 410 dead letters the delivery and disables the
+  subscription (`gone`); anything else, or no answer, waits 30 s, 2 min,
+  10 min, 1 h, 6 h, then 12 h, each plus up to 10 % taken from the
+  delivery id, and an attempt whose place on that schedule falls past 3
+  days is not made: the 11th failure dead letters (`dead`), which releases
+  the subject's next delivery. Counting on the schedule rather than from
+  the event keeps a delivery held by a pause from losing its retries. The
+  first failure sets `failing_since`; a failure 5 days after it disables
+  the subscription (`failing`). Disabling is audited as the system actor
+  `DispatchActor`. A secret that cannot be opened is recorded as a failed
+  attempt (so the schedule and the dead letter apply); a stop during the
+  send records nothing and the lease lapses. Order per resource is the
+  order the fan-out recorded the deliveries (their UUIDv7 ids): the
+  stream's order with one replica, but two replicas sharing the consumer
+  (up to 1000 unacknowledged events) may record one resource's
+  consecutive events in either order when they fan them out in the same
+  moment; consumers order by the event's `time` where it matters. Setting or clearing `failing_since` changes the
+  subscription's version, so an ETag read before it gets a 412. The 10 in flight and the
+  50 per second are per replica, as the API's rate limits are. Deliveries
+  older than 30 days are deleted hourly by the worker role.
 - **Consumer review (T50h)** of the contract waits until the product owner
   names the pilot partner.
 

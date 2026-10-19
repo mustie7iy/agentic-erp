@@ -326,3 +326,40 @@ func (e *Endpoints) RotateSecret(ctx context.Context, id uuid.UUID, ifMatch func
 	return updated, record(ctx, "integration.webhook_subscription.rotate_secret", id,
 		map[string]any{"host": host(updated.URL), "previous_expires_at": updated.PreviousExpiresAt})
 }
+
+// PauseSubscription holds an active subscription's deliveries: the fan-out
+// keeps recording them and none is sent until it is resumed, when they go
+// out in order (those past the retention are gone).
+func (e *Endpoints) PauseSubscription(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (Subscription, error) {
+	return e.moveSubscription(ctx, id, ifMatch, "active", "paused", "pause",
+		problem.Conflict("integration.webhook_not_active", "Only an active webhook subscription can be paused."))
+}
+
+// ResumeSubscription sends a paused subscription's held deliveries and the
+// later ones as they come.
+func (e *Endpoints) ResumeSubscription(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (Subscription, error) {
+	return e.moveSubscription(ctx, id, ifMatch, "paused", "active", "resume",
+		problem.Conflict("integration.webhook_not_paused", "Only a paused webhook subscription can be resumed."))
+}
+
+// moveSubscription moves a subscription from one status to another,
+// audited as verb; refused is the answer when it is in another status.
+func (e *Endpoints) moveSubscription(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, from, to, verb string, refused error) (Subscription, error) {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return Subscription{}, err
+	}
+	s, err := changeable(ctx, tx, id, ifMatch)
+	if err != nil {
+		return Subscription{}, err
+	}
+	if s.Status != from {
+		return Subscription{}, refused
+	}
+	updated, err := scanSubscription(tx.QueryRow(ctx, `UPDATE integration.webhook_subscription SET status = $2, version = version + 1, updated_by = $3
+		WHERE id = $1 RETURNING `+subscriptionColumns, id, to, p.ID))
+	if err != nil {
+		return Subscription{}, fmt.Errorf("integration: %s webhook subscription %s: %w", verb, id, err)
+	}
+	return updated, record(ctx, "integration.webhook_subscription."+verb, id, map[string]any{"host": host(updated.URL)})
+}

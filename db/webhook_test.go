@@ -168,3 +168,49 @@ func TestWebhookIsolation(t *testing.T) {
 		}
 	})
 }
+
+// TestWebhookWorkerGrants: the delivery worker's role (000092) finds and
+// deletes deliveries across tenants but reads no body, URL or secret.
+func TestWebhookWorkerGrants(t *testing.T) {
+	need(t)
+	tenant, actor := id(), id()
+	sub := webhookSubscription(tenant, actor)
+	mustApp(t, tenant, sub.insert("integration.webhook_subscription"))
+	d := webhookDelivery(tenant, sub["id"].(uuid.UUID))
+	mustApp(t, tenant, d.insert("integration.webhook_delivery"))
+	asWorker := func(sql string, args ...any) error {
+		ctx := context.Background()
+		tx, err := testDB.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		if _, err := tx.Exec(ctx, "SET LOCAL ROLE erp_worker"); err != nil {
+			t.Fatal(err)
+		}
+		_, err = tx.Exec(ctx, sql, args...)
+		return err
+	}
+	for name, sql := range map[string]string{
+		"due deliveries": `SELECT d.tenant_id, d.id, d.subscription_id, d.subject, d.status, d.next_attempt_at, d.created_at, s.status
+			FROM integration.webhook_delivery d JOIN integration.webhook_subscription s ON s.tenant_id = d.tenant_id AND s.id = d.subscription_id`,
+		"the retention": `DELETE FROM integration.webhook_delivery WHERE id = $1`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			args := []any{}
+			if strings.Contains(sql, "$1") {
+				args = append(args, d["id"])
+			}
+			if err := asWorker(sql, args...); err != nil {
+				t.Errorf("got %v, want allowed", err)
+			}
+		})
+	}
+	for name, sql := range map[string]string{
+		"a body":   `SELECT body FROM integration.webhook_delivery`,
+		"a URL":    `SELECT url FROM integration.webhook_subscription`,
+		"a secret": `SELECT secret_cipher FROM integration.webhook_subscription`,
+	} {
+		t.Run(name, func(t *testing.T) { failsWith(t, asWorker(sql), "permission denied") })
+	}
+}

@@ -9247,6 +9247,108 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/webhook-subscriptions/{id}:pause":
+    post:
+      operationId: pauseWebhookSubscription
+      tags:
+        - integration
+      summary: Pause a webhook subscription
+      description: "Holds the deliveries of an active subscription: events keep being recorded for it but none is sent until `:resume`, which sends them in order. A delivery held past the 30-day retention is dropped. Requires status `active` (409 `integration.webhook_not_active`)."
+      x-permission: integration.webhook.manage
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The paused webhook subscription.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookSubscription"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/webhook-subscriptions/{id}:resume":
+    post:
+      operationId: resumeWebhookSubscription
+      tags:
+        - integration
+      summary: Resume a webhook subscription
+      description: "Sends the deliveries held while the subscription was paused, in order per resource, and the later ones as they come. Requires status `paused` (409 `integration.webhook_not_paused`)."
+      x-permission: integration.webhook.manage
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The resumed webhook subscription.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookSubscription"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/migration-runs:
     get:
       operationId: listMigrationRuns
@@ -19117,7 +19219,7 @@ components:
                 maxLength: 200
             status:
               type: string
-              description: "Status. `disabled`: the dispatcher stopped after failures or a 410 Gone (`disabled_reason`). `deleted`: ended by `:delete`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "Status. `paused` (by `:pause`): deliveries are held and sent in order on `:resume`. `disabled`: the dispatcher stopped after 5 days of failures or a 410 Gone (`disabled_reason`); its pending deliveries are not sent. `deleted`: ended by `:delete`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - active
                 - paused
