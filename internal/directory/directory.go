@@ -87,9 +87,15 @@ type Store interface {
 	// Upsert records a tenant's entry. A read_only status already in the
 	// directory is kept, since only an operator sets and clears it; so are
 	// offboarded (but for erased) and erased, which no restore of a cell
-	// takes back (ADR-0040).
+	// takes back (ADR-0040). An entry the directory places in another cell
+	// is left alone (ErrOtherCell): a move switches it (Move), and the cell
+	// moved from may still hold the tenant's rows.
 	Upsert(ctx context.Context, e Entry) error
 }
+
+// ErrOtherCell means the directory places the tenant in another cell than
+// the one writing, which leaves the entry as it is.
+var ErrOtherCell = errors.New("directory: the tenant is in another cell")
 
 // Schema is the directory's tables, created when the store opens: the
 // tenants, the cells, the issuers (which tenant an active identity
@@ -210,31 +216,41 @@ func (e *Entry) fields() []any {
 	return []any{&e.TenantID, &e.Region, &e.Cell, &e.APIURL, &e.Status, &e.Version, &e.UpdatedAt}
 }
 
-// keptStatus is the status an upsert leaves: read_only stays; from the
-// entry's own cell, erased stays and offboarded stays unless the tenant is
-// now erased; any other takes the cell's. Another cell's write is the
-// tenant's new home after a move (an export and an import, ADR-0029), whose
-// status is its own; an import back into the same cell clears the status
-// through Reinstate.
+// keptStatus is the status an upsert (from the entry's own cell, the only
+// one that writes it) leaves: read_only stays, erased stays and offboarded
+// stays unless the tenant is now erased; any other takes the cell's. An
+// import clears the status through Reinstate, into another cell after the
+// entry was moved there.
 const keptStatus = `CASE WHEN directory.tenant.status = 'read_only' THEN 'read_only'
-	WHEN directory.tenant.cell <> EXCLUDED.cell THEN EXCLUDED.status
 	WHEN directory.tenant.status = 'erased' THEN 'erased'
 	WHEN directory.tenant.status = 'offboarded' AND EXCLUDED.status <> 'erased' THEN 'offboarded' ELSE EXCLUDED.status END`
 
 // Upsert implements Store.
 func (p *Postgres) Upsert(ctx context.Context, e Entry) error {
 	err := p.inTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO directory.tenant (tenant_id, region, cell, api_url, status) VALUES ($1, $2, $3, $4, $5)
+		// The outer SELECT sees the entry as it was before the write, so a
+		// Move racing the write may be misreported (a skip as nil, or the
+		// reverse) though never misapplied: ON CONFLICT checks the cell
+		// against the row it locks. The next round reports it right.
+		var elsewhere bool
+		err := tx.QueryRow(ctx, `WITH up AS (INSERT INTO directory.tenant (tenant_id, region, cell, api_url, status) VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (tenant_id) DO UPDATE SET region = EXCLUDED.region, cell = EXCLUDED.cell, api_url = EXCLUDED.api_url,
 			status = `+keptStatus+`, version = directory.tenant.version + 1, updated_at = now()
-			WHERE (directory.tenant.region, directory.tenant.cell, directory.tenant.api_url) IS DISTINCT FROM (EXCLUDED.region, EXCLUDED.cell, EXCLUDED.api_url)
-			   OR directory.tenant.status <> `+keptStatus,
-			e.TenantID, e.Region, e.Cell, e.APIURL, e.Status)
+			WHERE directory.tenant.cell = EXCLUDED.cell AND ((directory.tenant.region, directory.tenant.cell, directory.tenant.api_url) IS DISTINCT FROM (EXCLUDED.region, EXCLUDED.cell, EXCLUDED.api_url)
+			   OR directory.tenant.status <> `+keptStatus+`) RETURNING 1)
+			SELECT NOT EXISTS (SELECT 1 FROM up) AND EXISTS (SELECT 1 FROM directory.tenant WHERE tenant_id = $1 AND cell <> $3)`,
+			e.TenantID, e.Region, e.Cell, e.APIURL, e.Status).Scan(&elsewhere)
 		if err != nil {
 			return fmt.Errorf("write tenant %s: %w", e.TenantID, err)
 		}
+		if elsewhere {
+			return ErrOtherCell
+		}
 		return nil
 	})
+	if errors.Is(err, ErrOtherCell) {
+		return err
+	}
 	if err != nil {
 		return fmt.Errorf("directory: upsert: %w", err)
 	}
@@ -567,7 +583,12 @@ func (s *Sync) begin(ctx context.Context, scope database.Scope) (pgx.Tx, error) 
 // provisioning, a status change). Failures are logged: the next round
 // catches up.
 func (s *Sync) Register(ctx context.Context, tenant uuid.UUID, region, status string) {
-	if err := s.Directory.Upsert(ctx, Entry{TenantID: tenant, Region: region, Cell: s.Cell, APIURL: s.APIURL, Status: status}); err != nil {
+	err := s.Directory.Upsert(ctx, Entry{TenantID: tenant, Region: region, Cell: s.Cell, APIURL: s.APIURL, Status: status})
+	if errors.Is(err, ErrOtherCell) {
+		s.Log.InfoContext(ctx, "directory registration left a tenant another cell owns", "tenant_id", tenant, "cell", s.Cell)
+		return
+	}
+	if err != nil {
 		s.Log.ErrorContext(ctx, "directory registration failed; the next round retries", "tenant_id", tenant, "error", err)
 	}
 }
@@ -579,7 +600,7 @@ type Cells interface {
 
 // RunOnce records the cell itself, every tenant of it and, where the
 // directory keeps issuers, their active identity providers' issuers; it
-// returns how many tenants.
+// returns how many tenants it recorded.
 func (s *Sync) RunOnce(ctx context.Context) (int, error) {
 	if cells, ok := s.Directory.(Cells); ok && s.ControlURL != "" {
 		if err := cells.UpsertCell(ctx, Cell{Name: s.Cell, Region: s.Region, APIURL: s.APIURL, ControlURL: s.ControlURL, Accepting: s.Accepting}); err != nil {
@@ -595,15 +616,35 @@ func (s *Sync) RunOnce(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("directory: read tenants of cell %s: %w", s.Cell, err)
 	}
-	for _, t := range tenants {
-		if err := s.Directory.Upsert(ctx, Entry{TenantID: t.ID, Region: t.Region, Cell: s.Cell, APIURL: s.APIURL, Status: StatusOf(t.Lifecycle)}); err != nil {
-			return 0, err
-		}
+	recorded, err := s.recordTenants(ctx, tenants)
+	if err != nil {
+		return 0, err
 	}
 	if err := s.syncIssuers(ctx, tx); err != nil {
 		return 0, err
 	}
-	return len(tenants), nil
+	return recorded, nil
+}
+
+// recordTenants upserts the cell's tenants, leaving those the directory
+// places in another cell (the cell a tenant moved from still holds its rows
+// until they are removed, 05 §5.4), and returns how many it recorded.
+func (s *Sync) recordTenants(ctx context.Context, tenants []tenancy.Tenant) (int, error) {
+	skipped := 0
+	for _, t := range tenants {
+		err := s.Directory.Upsert(ctx, Entry{TenantID: t.ID, Region: t.Region, Cell: s.Cell, APIURL: s.APIURL, Status: StatusOf(t.Lifecycle)})
+		if errors.Is(err, ErrOtherCell) {
+			skipped++
+			continue
+		}
+		if err != nil {
+			return 0, err
+		}
+	}
+	if skipped > 0 {
+		s.Log.InfoContext(ctx, "directory sync left tenants another cell owns", "cell", s.Cell, "skipped", skipped)
+	}
+	return len(tenants) - skipped, nil
 }
 
 // Run rounds until ctx ends, logging failures.

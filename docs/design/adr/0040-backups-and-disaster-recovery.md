@@ -115,10 +115,14 @@ as the tenant's (`offboarding.Worker.Adopt`) rather than exporting erased
 data a second time; a tenant with no export there is a problem for the
 operator. A tenant the directory has only offboarded is offboarded again
 and starts its grace period over: the worker exports it once more, a
-second locked copy, which the erasure leaves as the first. The directory
-keeps these statuses only against the entry's own cell, so a tenant moved
-to another cell (an export and an import, ADR-0029) takes that cell's
-status; an import back into the same cell reinstates the entry
+second locked copy, which the erasure leaves as the first. Only the
+entry's own cell writes it (ADR-0023), so a tenant re-onboarded into
+another cell (an export and an import, ADR-0029) is first moved there
+(`:move` takes an offboarded or erased entry, keeping its status, so the
+router still refuses it) and the import then reinstates it (should the
+import never run, the old cell's later erasure leaves the moved entry
+offboarded, which the router refuses as well); an import back
+into the same cell reinstates the entry
 (`directory.Postgres.Reinstate`, run by `erp-server import`), the one way
 past what a sync cannot undo. The reconciliation lives in
 `internal/drverify` and uses the control plane (an audited offboarding),
