@@ -6,7 +6,7 @@
 CREATE TABLE integration.webhook_subscription (
   tenant_id               uuid NOT NULL,
   id                      uuid NOT NULL,
-  url                     text NOT NULL CHECK (url ~ '^https://[^\s/?#]+(/\S*)?$' AND length(url) <= 2048),
+  url                     text NOT NULL CHECK (url ~ '^https://[^\s/?#]+([/?][^\s#]*)?$' AND length(url) <= 2048),
   description             text NOT NULL DEFAULT '' CHECK (length(description) <= 200),
   -- Full CloudEvents types or `<context>.*`; that each is offered for
   -- webhooks (x-webhook in api/asyncapi.yaml) is checked by the application.
