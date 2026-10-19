@@ -157,7 +157,10 @@ and France, by EBICS.
   audited as `integration.connector.disable` with the operator's handle and
   the reason (a handle, not an email address: the audit trail refuses
   personal data, ADR-0026), its `connector_disabled` event waiting in the
-  outbox until the cell runs; then the cell is started again), and, in T44e, transmission out of the
+  outbox until the cell runs; run again on a connector already disabled,
+  it reports so and succeeds, so the runbook can be repeated; then the
+  cell is started again), and, in T44e,
+  transmission out of the
   request transaction: the request marks the file to be sent and a
   platform worker job uploads it, as the outbox relays events, so no
   database connection is held during the SFTP upload and the external

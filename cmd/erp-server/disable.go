@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/integration"
 	platformconfig "github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 )
@@ -46,7 +47,14 @@ func disableConnectorCmd(ctx context.Context, args []string, cfg platformconfig.
 		fmt.Fprintln(stderr, "erp-server disable-connector: -tenant and -connector must be ids, -by and -reason are required")
 		return 2
 	}
-	if err := disableConnector(ctx, cfg, t, c, *by, *reason); err != nil {
+	err := disableConnector(ctx, cfg, t, c, *by, *reason)
+	if err != nil && problem.From(err).Code == "integration.invalid_status" {
+		// Already disabled: the runbook may be run again after a lost
+		// output or a partial run, and finds its work done.
+		fmt.Fprintf(stdout, "connector %s of tenant %s is already disabled\n", c, t)
+		return 0
+	}
+	if err != nil {
 		fmt.Fprintln(stderr, "erp-server disable-connector:", err)
 		return 1
 	}
