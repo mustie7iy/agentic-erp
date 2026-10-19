@@ -6,7 +6,7 @@
 CREATE TABLE integration.webhook_subscription (
   tenant_id               uuid NOT NULL,
   id                      uuid NOT NULL,
-  url                     text NOT NULL CHECK (url ~ '^https://' AND length(url) <= 2048),
+  url                     text NOT NULL CHECK (url ~ '^https://[^\s/?#]+(/\S*)?$' AND length(url) <= 2048),
   description             text NOT NULL DEFAULT '' CHECK (length(description) <= 200),
   -- Full CloudEvents types or `<context>.*`; that each is offered for
   -- webhooks (x-webhook in api/asyncapi.yaml) is checked by the application.
@@ -57,7 +57,9 @@ CREATE TABLE integration.webhook_delivery (
   UNIQUE (tenant_id, subscription_id, event_id),
   FOREIGN KEY (tenant_id, subscription_id) REFERENCES integration.webhook_subscription (tenant_id, id),
   CONSTRAINT webhook_delivery_next_attempt CHECK ((status = 'pending') = (next_attempt_at IS NOT NULL)),
-  CONSTRAINT webhook_delivery_delivered CHECK ((status = 'delivered') = (delivered_at IS NOT NULL))
+  CONSTRAINT webhook_delivery_delivered CHECK ((status = 'delivered') = (delivered_at IS NOT NULL)),
+  -- Only a pending delivery may not have been attempted yet.
+  CONSTRAINT webhook_delivery_attempted CHECK (status = 'pending' OR attempts >= 1)
 );
 -- The dispatcher picks the pending deliveries that are due.
 CREATE INDEX webhook_delivery_due ON integration.webhook_delivery (next_attempt_at) WHERE status = 'pending';

@@ -101,7 +101,10 @@ event version breaks someone else's system.
   identity context, partner bank accounts and partner master data (a
   partner may be a person) are not marked `x-webhook`, nor are agents,
   platform and tenant-lifecycle events; `api/asyncapi_test.go` refuses a
-  mark on an excluded kind. The subscription operations enter
+  mark on an excluded kind. Free-text fields of marked events (a block
+  reason, a hold reason, an approval comment) are sent as written; a user
+  who types bank or personal details there sends them. The subscription
+  operations enter
   `openapi.yaml` with their handlers (T50d), so no operation is served as
   a 501.
 - **Consumer review (T50h)** of the contract waits until the product owner
