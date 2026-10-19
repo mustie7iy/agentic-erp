@@ -14,7 +14,10 @@
 #      present with the tenant's fingerprint as it was, "after" absent;
 #   4. measure: the RPO is the restore point less the newest data the
 #      restore kept (the "before" marker), the RTO the restore's start to
-#      the verification's pass; then the side database is removed.
+#      the verification's pass, which fails the drill past 30 minutes;
+#      then the side database is removed (a removal that fails, too).
+# The pods are labelled erp-restore-drill, which the erp-cell chart's
+# NetworkPolicy of that name lets reach the databases in the VPC.
 # RESTORE_PROVIDER picks where:
 #   aws (staging): RESTORE_KIND=point-in-time restores the cell's DB
 #     cluster RESTORE_CLUSTER with restore-db-cluster-to-point-in-time
@@ -197,6 +200,12 @@ class AWS:
 
     def prepare(self):
         self.image = self.kube("get", "deployment", "erp-server", "-o", "jsonpath={.spec.template.spec.containers[0].image}").stdout.strip()
+        # The chart's erp-restore-drill NetworkPolicy selects the pods by
+        # name and release: the cell's default deny lets nothing else out.
+        self.release = self.kube("get", "deployment", "erp-server", "-o",
+                                 "jsonpath={.metadata.labels.app\\.kubernetes\\.io/instance}").stdout.strip()
+        if not self.release:
+            raise Step("deployment erp-server has no app.kubernetes.io/instance label: the drill's pods would match no NetworkPolicy")
         raw = self.kube("get", "secret", "erp-migrate", "-o", "jsonpath={.data.database-url}").stdout.strip()
         self.source_url = base64.b64decode(raw).decode()
 
@@ -210,7 +219,8 @@ class AWS:
             self.objects.append(("configmap", name))
             mounts.append({"name": "markers", "mountPath": "/etc/erp/drill", "readOnly": True})
             volumes.append({"name": "markers", "configMap": {"name": name}})
-        spec = {"apiVersion": "v1", "kind": "Pod", "metadata": {"name": name, "labels": {"app.kubernetes.io/component": "restore-drill"}},
+        spec = {"apiVersion": "v1", "kind": "Pod", "metadata": {"name": name, "labels": {"app.kubernetes.io/name": "erp-restore-drill",
+                                                              "app.kubernetes.io/instance": self.release}},
                 "spec": {"restartPolicy": "Never", "automountServiceAccountToken": False,
                          "securityContext": {"runAsNonRoot": True, "runAsUser": 65532, "seccompProfile": {"type": "RuntimeDefault"}},
                          "containers": [{"name": "erp-server", "image": self.image, "args": args,
@@ -302,11 +312,19 @@ class AWS:
                                                             "-lost", "/etc/erp/drill/after.json"], name, [before, after])
 
     def cleanup(self):
+        """Removes what the drill made; a removal that fails is reported
+        and fails the drill: a side cluster left running costs money."""
+        failures = []
         for what, name in reversed(self.objects):
             if what == "cluster":
-                sh(self.aws, "rds", "delete-db-cluster", *self.regional(), "--db-cluster-identifier", name, "--skip-final-snapshot", check=False)
-            else:
-                self.kube("delete", what, name, "--ignore-not-found", check=False)
+                r = sh(self.aws, "rds", "delete-db-cluster", *self.regional(), "--db-cluster-identifier", name, "--skip-final-snapshot", check=False)
+                # Not found: a restore that failed before making it.
+                if r.returncode != 0 and "DBClusterNotFoundFault" not in r.stderr:
+                    failures.append("delete the side cluster %s by hand: %s" % (name, r.stderr.strip()[-300:]))
+            elif self.kube("delete", what, name, "--ignore-not-found", check=False).returncode != 0:
+                failures.append("delete %s %s in %s by hand" % (what, name, self.ns))
+        if failures:
+            raise Step("; ".join(failures))
 
 if provider not in ("aws", "local"):
     fail("RESTORE_PROVIDER %r is neither aws nor local" % provider)
@@ -340,9 +358,11 @@ try:
         raise Step("the verification failed: %s" % "; ".join(verified.get("problems") or [out.strip()[-400:]]))
     rto = round(time.monotonic() - restore_started)
     rpo = round((point - when(verified["restored_marker"]["at"])).total_seconds(), 3)
+    if rto > 1800:
+        raise Step("the restore took %ds, past the RTO of 30 minutes (01 §1.3)" % rto)
     result = "passed"
-except Step as e:
-    print("restore-drill: " + str(e), file=sys.stderr)
+except Exception as e:  # any failure is a failed run, recorded as such
+    print("restore-drill: %s" % e, file=sys.stderr)
 finally:
     try:
         drill.cleanup()

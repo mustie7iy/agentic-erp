@@ -130,11 +130,16 @@ def when(text):
     except ValueError:
         return None
 
+def now():
+    return when(os.environ["NOW"]) if os.environ.get("NOW") else datetime.datetime.now(datetime.timezone.utc)
+
 def restore_run_ok(d):
-    """Whether d is a well-formed restore drill run."""
+    """Whether d is a well-formed restore drill run, started in the past
+    (a future time would count as fresh until it came)."""
     number = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0
     return isinstance(d, dict) and set(d) == RESTORE_KEYS and d["kind"] in ("point-in-time", "dr-copies") \
         and d["provider"] in ("aws", "local") and isinstance(d["by"], str) and d["by"] != "" and when(d["started"]) is not None \
+        and when(d["started"]) <= now() \
         and d["result"] in ("passed", "failed") and str(d["run"]).startswith("https://") \
         and (d["result"] == "failed" or (when(d["restore_point"]) is not None and number(d["rpo_seconds"]) and number(d["rto_seconds"])))
 
@@ -144,9 +149,8 @@ def restored_lately():
     text = at(base, "%s/%s/drills/restore.json" % (root, drill_cell))
     runs = load(text, "restore.json") if text is not None else []
     passed = [when(d["started"]) for d in runs if isinstance(runs, list) and restore_run_ok(d) and d["provider"] == "aws" and d["result"] == "passed"]
-    now = when(os.environ["NOW"]) if os.environ.get("NOW") else datetime.datetime.now(datetime.timezone.utc)
     last = max(passed) if passed else None
-    return last, last is not None and now - last <= RESTORE_MAX_AGE
+    return last, last is not None and now() - last <= RESTORE_MAX_AGE
 
 def ran_before(path, rel):
     """Whether the cell ran rel before BASE's: a rollback."""

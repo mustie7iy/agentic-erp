@@ -106,6 +106,7 @@ case_ failed-restore-drill-record ok "restore drill (local): failed" 'put "$rest
 case_ restore-drill-rewritten refused "append-only" 'put "$restores" "[$(restore point-in-time aws 2026-10-01T10:00:00Z passed)]" p'
 case_ restore-drill-removed refused "is removed" 'git rm -q "$restores" && git commit -q -m p'
 case_ bad-restore-drill-record refused "each run must be" 'put "$restores" "[$(restore point-in-time aws 2026-09-01T10:00:00Z passed), $(restore point-in-time gcp 2026-10-18T10:00:00Z passed)]" p'
+case_ restore-drill-in-the-future refused "each run must be" 'put "$restores" "[$(restore point-in-time aws 2026-09-01T10:00:00Z passed), $(restore point-in-time aws 2036-10-18T10:00:00Z passed)]" p'
 case_ restore-drill-without-measures refused "each run must be" 'put "$restores" "[$(restore point-in-time aws 2026-09-01T10:00:00Z passed), $(restore point-in-time aws 2026-10-18T10:00:00Z passed | sed "s/\"rto_seconds\": 900/\"rto_seconds\": null/")]" p'
 case_ dev-takes-any ok "" 'put "$(env_file dev/dev1)" "$(release v1.3.0 4)" p'
 case_ test-takes-devs ok "" 'put "$(env_file test/test1)" "$(release v1.2.0 3)" p'

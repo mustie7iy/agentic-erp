@@ -186,6 +186,11 @@ for d in json.load(open(sys.argv[1])):
         break
 else:
     sys.exit("helm-checks: erp-cell renders no erp-temporal ConfigMap")
+# The restore drill's pods reach the databases in the VPC and nothing else.
+drill = [d for d in json.load(open(sys.argv[1])) if d and d.get("kind") == "NetworkPolicy" and d["metadata"]["name"] == "erp-restore-drill"]
+if not drill or drill[0]["spec"]["podSelector"]["matchLabels"].get("app.kubernetes.io/name") != "erp-restore-drill" \
+        or [p["port"] for r in drill[0]["spec"]["egress"] for p in r["ports"]] != [5432] or drill[0]["spec"].get("ingress"):
+    sys.exit("helm-checks: erp-cell's erp-restore-drill policy must let the drill's pods reach port 5432 in the VPC, and nothing in")
 PY
 (cd temporal && go build -o "$work/erp-temporal" ./cmd/erp-temporal)
 ERP_TEMPORAL_CONFIG="$work/temporal.yaml" "$work/erp-temporal" check-config

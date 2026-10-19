@@ -141,7 +141,13 @@ creation of the first copy made after the marker), writes the "after"
 marker, restores a side cluster, runs `erp-server dr verify` as a one-off
 pod of the cell's server image against it, measures the RPO (the point
 less the "before" marker) and the RTO (the restore's start to the
-verification's pass), and removes the side cluster. Each run is appended to
+verification's pass; past 30 minutes the drill fails), and removes the
+side cluster. Its pods are labelled `erp-restore-drill`, which the
+erp-cell chart's NetworkPolicy of that name lets reach the databases in
+the VPC past the cell's default deny. The RPO so measured shows that the
+restore kept what it should up to its point; the data a real incident
+loses is the replica's lag (region failover) or the age of the newest
+copy (restore from copies), which the runbook reads at the time. Each run is appended to
 `deploy/environments/staging/stg1/drills/restore.json` (kind, provider,
 who, when, restore point, RPO and RTO, result, the run's log), which only
 grows, merged by a pull request of its own. The promotion checks (ADR-0035)

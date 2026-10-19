@@ -136,6 +136,27 @@ spec:
       ports:
         - {protocol: TCP, port: 5432}
 ---
+# The restore drill's one-off pods (scripts/restore-drill.sh, ADR-0040):
+# erp-server dr mark against the writer, dr verify against a side cluster
+# restored in the VPC; nothing else.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: erp-restore-drill
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-restore-drill") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "erp-cell.selector" (dict "root" . "component" "erp-restore-drill") | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: {{ $vpc }}
+      ports:
+        - {protocol: TCP, port: 5432}
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

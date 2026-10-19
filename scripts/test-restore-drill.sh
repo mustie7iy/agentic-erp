@@ -63,6 +63,8 @@ if name == "aws":
                                   {"Status": "COMPLETED", "CreationDate": iso(now), "RecoveryPointArn": "arn:copy"}]}
     elif cmd == ["backup", "start-restore-job"]:
         out = {"RestoreJobId": "job-1"}
+    elif cmd == ["rds", "delete-db-cluster"] and os.environ.get("FAKE_DELETE") == "fail":
+        sys.exit("InvalidParameterCombination: deletion protection is enabled")
     elif cmd == ["backup", "describe-restore-job"]:
         out = {"Status": os.environ.get("FAKE_RESTORE_JOB", "COMPLETED")}
     print(json.dumps(out))
@@ -70,7 +72,7 @@ if name == "aws":
 if name == "kubectl":
     verb = a[2]
     if verb == "get" and a[3] == "deployment":
-        print("registry.example/erp-server@sha256:" + "1" * 64)
+        print("erp-cell" if "instance" in a[-1] else "registry.example/erp-server@sha256:" + "1" * 64)
     elif verb == "get" and a[3] == "secret":
         print(base64.b64encode(b"postgres://migrator:x@writer.example:5432/erp?sslmode=verify-full&sslrootcert=/etc/erp/rds/ca.pem").decode())
     elif verb == "create":
@@ -82,6 +84,9 @@ if name == "kubectl":
     elif verb == "apply":
         pod = json.load(open(a[a.index("-f") + 1]))
         state.setdefault("pods", {})[pod["metadata"]["name"]] = pod["spec"]["containers"][0]["args"]
+        # Selected by the chart's erp-restore-drill NetworkPolicy, or the default deny holds it.
+        if pod["metadata"]["labels"] != {"app.kubernetes.io/name": "erp-restore-drill", "app.kubernetes.io/instance": "erp-cell"}:
+            sys.exit("pod %s: labels %s match no NetworkPolicy" % (pod["metadata"]["name"], pod["metadata"]["labels"]))
     elif verb == "get" and a[3] == "pod":
         print("Succeeded")
     elif verb == "logs":
@@ -152,6 +157,9 @@ case_ aws-restore-job-fails 1 failed "rds delete-db-cluster --region eu-central-
   RESTORE_CLUSTER=erp-stg1 DRILL_TENANT=0d5c7a1e-41d0-4e7b-9a0d-d2111e5e0099 RESTORE_DR_REGION=eu-central-2 RESTORE_DR_VAULT=erp-stg1-dr RESTORE_ROLE_ARN=arn:role
 case_ aws-verification-fails 1 failed "rds delete-db-cluster" RESTORE_PROVIDER=aws RESTORE_CLUSTER=erp-stg1 \
   DRILL_TENANT=0d5c7a1e-41d0-4e7b-9a0d-d2111e5e0099 FAKE_VERIFY=fail
+case_ aws-side-cluster-left 1 failed "rds delete-db-cluster" RESTORE_PROVIDER=aws RESTORE_CLUSTER=erp-stg1 \
+  DRILL_TENANT=0d5c7a1e-41d0-4e7b-9a0d-d2111e5e0099 FAKE_DELETE=fail
+grep -q "delete the side cluster erp-stg1-drill-.* by hand" "$work/out" || { echo "FAIL aws-side-cluster-left: not reported" >&2; failed=1; }
 rm -f "$record"
 case_ unknown-provider 1 "" "" RESTORE_PROVIDER=gcp
 case_ local-dr-copies 1 "" "" RESTORE_PROVIDER=local RESTORE_KIND=dr-copies
