@@ -177,8 +177,16 @@ type CreateUploadRes interface {
 	createUploadRes()
 }
 
+type CreateWebhookSubscriptionRes interface {
+	createWebhookSubscriptionRes()
+}
+
 type DecideRecommendationRes interface {
 	decideRecommendationRes()
+}
+
+type DeleteWebhookSubscriptionRes interface {
+	deleteWebhookSubscriptionRes()
 }
 
 type DisableConnectorRes interface {
@@ -377,6 +385,10 @@ type GetUploadRes interface {
 	getUploadRes()
 }
 
+type GetWebhookSubscriptionRes interface {
+	getWebhookSubscriptionRes()
+}
+
 type GrantRolePermissionRes interface {
 	grantRolePermissionRes()
 }
@@ -561,6 +573,10 @@ type ListSupplierInvoicesRes interface {
 	listSupplierInvoicesRes()
 }
 
+type ListWebhookSubscriptionsRes interface {
+	listWebhookSubscriptionsRes()
+}
+
 type LockFiscalPeriodRes interface {
 	lockFiscalPeriodRes()
 }
@@ -655,6 +671,10 @@ type ReverseJournalEntryRes interface {
 
 type ReverseSupplierInvoiceRes interface {
 	reverseSupplierInvoiceRes()
+}
+
+type RotateWebhookSubscriptionSecretRes interface {
+	rotateWebhookSubscriptionSecretRes()
 }
 
 type SimulateChangeRequestRes interface {
@@ -755,6 +775,10 @@ type UpdateRoleRes interface {
 
 type UpdateSupplierInvoiceRes interface {
 	updateSupplierInvoiceRes()
+}
+
+type UpdateWebhookSubscriptionRes interface {
+	updateWebhookSubscriptionRes()
 }
 
 type VerifyAuditChainRes interface {

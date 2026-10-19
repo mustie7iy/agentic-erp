@@ -104,10 +104,9 @@ type Response struct {
 // status. An error means no answer was had: the URL was refused, the
 // address was not public, or the connection, TLS or time failed.
 func (c *Client) Post(ctx context.Context, rawURL string, header http.Header, body []byte) (Response, error) {
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
-		// The URL is not repeated: it may carry a token or credentials.
-		return Response{}, errors.New("egress: the endpoint is not an https URL with a host and without credentials")
+	u, err := parse(rawURL)
+	if err != nil {
+		return Response{}, err
 	}
 	req := (&http.Request{
 		Method:        http.MethodPost,

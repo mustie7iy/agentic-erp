@@ -104,9 +104,28 @@ event version breaks someone else's system.
   mark on an excluded kind. Free-text fields of marked events (a block
   reason, a hold reason, an approval comment) are sent as written; a user
   who types bank or personal details there sends them. The subscription
-  operations enter
-  `openapi.yaml` with their handlers (T50d), so no operation is served as
-  a 501.
+  URL is https with a host, without credentials or fragment (a query may
+  carry the endpoint's token), as the egress client requires.
+- **Subscription API (T50d):** `/v1/webhook-subscriptions` with create,
+  list, get, update (merge patch) and the custom methods `:delete` (status
+  `deleted`; 04 §4.3 has no hard delete) and `:rotateSecret`, each served
+  by its handler (no 501). The URL is checked at write time by
+  `egress.CheckURL`, the client's rules plus the host resolving to public
+  addresses only (the client still checks every address it dials). Event
+  types are those marked `x-webhook` or `<context>.*` for a context that
+  offers any, duplicates dropped. The limit of 20 is counted under a
+  per-tenant advisory lock. The `whsec_` secret is answered only by create
+  and `:rotateSecret`; `uow.OmitOnReplay` keeps it out of the answer
+  stored with the idempotency key, so a replay answers without it and it is
+  never at rest in the clear. It is sealed in hex, since fieldcrypt seals
+  values upper-cased. Both secret columns are re-sealed when the tenant's
+  key rotates. A second rotation within 24 hours retires the oldest secret
+  at once (two secrets sign at most); `:delete` drops the previous one.
+  Changes are audited without the URL's path or query (only its host) and
+  publish no event: nothing in the platform reacts to them. Reads are GETs
+  and so already allowed at every autonomy level; no `x-autonomy` mark is
+  needed. Pausing and resuming a subscription wait for the dispatcher
+  (T50e).
 - **Consumer review (T50h)** of the contract waits until the product owner
   names the pilot partner.
 
@@ -130,5 +149,5 @@ event version breaks someone else's system.
   appear without code.
 - Breaking `/v1` after the partner integrates needs a beta operation or a
   `/v2`; breaking an event needs a `.vN+1` and both published for a year.
-- The egress package came with T50b and `x-webhook` with T50c; the
-  subscription API comes with T50d.
+- The egress package came with T50b, `x-webhook` with T50c and the
+  subscription API with T50d.

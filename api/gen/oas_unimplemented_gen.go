@@ -481,12 +481,36 @@ func (UnimplementedHandler) CreateUpload(ctx context.Context, req *UploadCreate,
 	return r, ht.ErrNotImplemented
 }
 
+// CreateWebhookSubscription implements createWebhookSubscription operation.
+//
+// Subscribes an HTTPS endpoint to event types (ADR-0041). The URL's host must resolve to public
+// addresses only. At most 20 subscriptions that are not deleted per tenant (422
+// `integration.webhook_limit`). Event types are those marked `x-webhook` in the AsyncAPI contract, or
+// `<context>.*` for all of a context's; duplicates are dropped. The answer carries the signing secret,
+// shown only here and by `:rotateSecret`; a replay of the request answers without it.
+//
+// POST /v1/webhook-subscriptions
+func (UnimplementedHandler) CreateWebhookSubscription(ctx context.Context, req *WebhookSubscriptionCreate, params CreateWebhookSubscriptionParams) (r CreateWebhookSubscriptionRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // DecideRecommendation implements decideRecommendation operation.
 //
 // Records what a person did with an open recommendation: accepted, overridden or ignored. Human-only.
 //
 // POST /v1/recommendations/{id}:decide
 func (UnimplementedHandler) DecideRecommendation(ctx context.Context, req *RecommendationDecide, params DecideRecommendationParams) (r DecideRecommendationRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// DeleteWebhookSubscription implements deleteWebhookSubscription operation.
+//
+// Ends the subscription: its status becomes `deleted`, nothing more is sent to it, and it no longer
+// counts toward the limit of 20. The row is kept (no hard deletes). Requires a status other than
+// `deleted`.
+//
+// POST /v1/webhook-subscriptions/{id}:delete
+func (UnimplementedHandler) DeleteWebhookSubscription(ctx context.Context, params DeleteWebhookSubscriptionParams) (r DeleteWebhookSubscriptionRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -950,6 +974,15 @@ func (UnimplementedHandler) GetUpload(ctx context.Context, params GetUploadParam
 	return r, ht.ErrNotImplemented
 }
 
+// GetWebhookSubscription implements getWebhookSubscription operation.
+//
+// Returns one webhook subscription, without its secret.
+//
+// GET /v1/webhook-subscriptions/{id}
+func (UnimplementedHandler) GetWebhookSubscription(ctx context.Context, params GetWebhookSubscriptionParams) (r GetWebhookSubscriptionRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GrantRolePermission implements grantRolePermission operation.
 //
 // Adds an effective-dated permission grant to the role.
@@ -1375,6 +1408,16 @@ func (UnimplementedHandler) ListSupplierInvoices(ctx context.Context, params Lis
 	return r, ht.ErrNotImplemented
 }
 
+// ListWebhookSubscriptions implements listWebhookSubscriptions operation.
+//
+// The tenant's webhook subscriptions, newest first; deleted ones only when asked for with
+// `status=deleted`. Secrets are never listed. Sortable by: `created_at`.
+//
+// GET /v1/webhook-subscriptions
+func (UnimplementedHandler) ListWebhookSubscriptions(ctx context.Context, params ListWebhookSubscriptionsParams) (r ListWebhookSubscriptionsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // LockFiscalPeriod implements lockFiscalPeriod operation.
 //
 // Locks the period for good: a locked period refuses postings, reversals and clearings dated in it, as
@@ -1695,6 +1738,18 @@ func (UnimplementedHandler) ReverseSupplierInvoice(ctx context.Context, req *Sup
 	return r, ht.ErrNotImplemented
 }
 
+// RotateWebhookSubscriptionSecret implements rotateWebhookSubscriptionSecret operation.
+//
+// Issues a new signing secret, answered only here. The previous secret keeps signing alongside the new
+// one for 24 hours (`previous_secret_expires_at`), so the endpoint can switch without losing a
+// delivery; rotating again within that time retires the older one at once. A replay of the request
+// answers without the secret. Requires a status other than `deleted`.
+//
+// POST /v1/webhook-subscriptions/{id}:rotateSecret
+func (UnimplementedHandler) RotateWebhookSubscriptionSecret(ctx context.Context, params RotateWebhookSubscriptionSecretParams) (r RotateWebhookSubscriptionSecretRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // SimulateChangeRequest implements simulateChangeRequest operation.
 //
 // Replays recent business transactions against the proposed configuration and records the result as
@@ -1973,6 +2028,17 @@ func (UnimplementedHandler) UpdateRole(ctx context.Context, req *RoleUpdate, par
 //
 // PATCH /v1/supplier-invoices/{id}
 func (UnimplementedHandler) UpdateSupplierInvoice(ctx context.Context, req *SupplierInvoiceUpdate, params UpdateSupplierInvoiceParams) (r UpdateSupplierInvoiceRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateWebhookSubscription implements updateWebhookSubscription operation.
+//
+// Changes a subscription's URL, description or event types, checked as on create; a deleted
+// subscription cannot be changed (409). JSON Merge Patch (RFC 7396): absent fields are unchanged,
+// arrays are replaced as a whole.
+//
+// PATCH /v1/webhook-subscriptions/{id}
+func (UnimplementedHandler) UpdateWebhookSubscription(ctx context.Context, req *WebhookSubscriptionUpdate, params UpdateWebhookSubscriptionParams) (r UpdateWebhookSubscriptionRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
