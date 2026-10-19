@@ -1,4 +1,4 @@
--- Cleared requests do not survive the downgrade: 000073 knows paid only.
+-- Cleared requests do not survive the downgrade: 000080 knows paid only.
 SET LOCAL row_security = off; -- the down migration changes every tenant's rows (06 §6.4)
 ALTER TABLE payables.down_payment_request DISABLE TRIGGER down_payment_request_change;
 UPDATE payables.down_payment_request SET status = 'paid', cleared_invoice_id = NULL, clearing_entry_year = NULL, clearing_entry_id = NULL

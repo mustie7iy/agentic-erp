@@ -1,5 +1,5 @@
 -- A validated constraint cannot be marked unvalidated again; the down
--- restores 000074's state by adding each one back NOT VALID.
+-- restores 000081's state by adding each one back NOT VALID.
 ALTER TABLE payables.down_payment_request DROP CONSTRAINT down_payment_request_invoice;
 ALTER TABLE payables.down_payment_request ADD CONSTRAINT down_payment_request_invoice
   FOREIGN KEY (tenant_id, cleared_invoice_id) REFERENCES payables.supplier_invoice (tenant_id, id) NOT VALID;

@@ -727,7 +727,7 @@ day (`payment_terms`); an item posted without them (before T36, manual,
 migrated) has none and is due by its supplier's current terms.
 
 It keeps its supplier's withholding taxes too (`open_item_withholding`,
-migration 000081, T46f, ADR-0037; SAP WITH_ITEM), one row per code of the
+migration 000088, T46f, ADR-0037; SAP WITH_ITEM), one row per code of the
 supplier in the legal entity when it posted: the code, its rate and
 account then, the base (the invoice's net or gross, in the sign the item
 is paid in) and, for a code deducted at invoice, the amount withheld (of
@@ -1305,7 +1305,7 @@ ADR-0037): each code's rate of its base less the discount's share of it
 (the base times what the item pays after its discount over what it owes),
 rounded once, half away from zero, item by item; `payment_item` keeps it
 (`withholding_amount`, of the item's sign, and with the discount less than
-the item, migration 000081), `payment` the total, and the payment's amount
+the item, migration 000088), `payment` the total, and the payment's amount
 is what is left; the settlement credits it to the codes' accounts, a line
 per account and code. The release posts only what the run withheld (409
 `ledger.withholding_changed` otherwise), and a withholding that would take

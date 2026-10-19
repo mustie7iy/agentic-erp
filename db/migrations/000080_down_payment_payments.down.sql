@@ -1,4 +1,4 @@
--- Paid requests and request payments do not survive the downgrade: 000072
+-- Paid requests and request payments do not survive the downgrade: 000079
 -- knows neither.
 SET LOCAL row_security = off; -- the down migration changes every tenant's rows (06 §6.4)
 ALTER TABLE payables.down_payment_request DISABLE TRIGGER down_payment_request_change;

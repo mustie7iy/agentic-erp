@@ -18,7 +18,7 @@ ALTER TABLE payables.down_payment_request ADD CONSTRAINT down_payment_request_cl
 -- An invoice's reversal finds the down payments cleared against it.
 CREATE INDEX down_payment_request_by_invoice ON payables.down_payment_request (tenant_id, cleared_invoice_id) WHERE cleared_invoice_id IS NOT NULL;
 
--- As 000073's, with paid to cleared; the payment that paid a request stays
+-- As 000080's, with paid to cleared; the payment that paid a request stays
 -- its payment.
 CREATE OR REPLACE FUNCTION payables.check_down_payment_request_change() RETURNS trigger
 LANGUAGE plpgsql AS $$

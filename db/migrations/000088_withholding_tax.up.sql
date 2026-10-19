@@ -31,7 +31,7 @@ SELECT platform.secure_table('ledger.open_item_withholding'::regclass);
 -- the item's sign, and the payment their total; its amount is what is
 -- paid after discounts and withholding. Existing rows withheld nothing, and
 -- the constant default adds the columns without rewriting the tables; the
--- check is added NOT VALID and validated in 000082 (06 §6.4), new rows are
+-- check is added NOT VALID and validated in 000089 (06 §6.4), new rows are
 -- checked from here on.
 ALTER TABLE payments.payment_item ADD COLUMN withholding_amount bigint NOT NULL DEFAULT 0;
 ALTER TABLE payments.payment_item ADD CONSTRAINT payment_item_withholding_within CHECK (withholding_amount = 0

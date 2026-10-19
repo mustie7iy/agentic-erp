@@ -1,4 +1,4 @@
--- Validates the checks 000073 and 000074 added NOT VALID on existing
+-- Validates the checks 000080 and 000081 added NOT VALID on existing
 -- tables (06 §6.4), scanning them without blocking writes.
 ALTER TABLE payments.payment VALIDATE CONSTRAINT payment_kind_check;
 ALTER TABLE payments.payment VALIDATE CONSTRAINT payment_down_payment_request;
