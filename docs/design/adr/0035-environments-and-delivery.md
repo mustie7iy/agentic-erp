@@ -428,8 +428,13 @@ orders the cells (`dev/dev1`, `test/test1`, `staging/stg1`,
 one before it runs on the base branch, every further production cell what
 the canary runs, or a release it ran before (a rollback is a revert). A
 release reaches production only once `staging/stg1/drills/<version>.json`
-records its drill passed (release, the release rolled back to, result, the
-run), committed by a pull request of its own. `scripts/promotion-checks.sh`
+records its drill passed for the release's commit (release, commit, the
+release rolled back to, result, the run), committed by a pull request of
+its own; a version re-pinned to another commit is drilled again. A
+promotion changes that one file in the whole repository, and the checks
+that judge it are the base branch's: the workflow runs as
+`pull_request_target` and reads the pull request's commit as data, so a
+promotion cannot also rewrite its own checks. `scripts/promotion-checks.sh`
 checks all of it offline, `test-promotion-checks.sh` on a throwaway
 repository; the `promotion` workflow runs both and then, in the
 `delivery` environment as the erp-delivery role, `verify-image.sh` on

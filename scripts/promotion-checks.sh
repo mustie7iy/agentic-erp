@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# Checks a promotion pull request (ADR-0035, T40d) against BASE (the
-# branch it merges into), without credentials:
-#   - it changes the release of one cell: deploy/environments/<env>/<cell>/
-#     release.json, a values file of the erp-cell and erp-global charts
-#     naming the release's version, commit and image digests;
+# Checks a promotion pull request (ADR-0035, T40d), HEAD (default HEAD),
+# against BASE (the branch it merges into), without credentials. It reads
+# HEAD's files as data only, so the promotion workflow runs BASE's copy of
+# this script on the pull request's commit:
+#   - it changes the release of one cell and no other file of the
+#     repository: deploy/environments/<env>/<cell>/release.json, a values
+#     file of the erp-cell and erp-global charts naming the release's
+#     version, commit and image digests;
 #   - that release is well formed: vX.Y.Z, a full commit, each of the
 #     platform's images by digest from its own repository;
 #   - it is the release the cell before it on deploy/environments/path.json
@@ -11,20 +14,21 @@
 #     taking what the canary runs; or a release the cell ran before (a
 #     rollback, which is a revert);
 #   - a release reaches production only after its rollback drill in
-#     staging passed: <drill cell>/drills/<version>.json at BASE records it
-#     ({"release", "rolled_back_to", "result", "run"}, committed by a pull
-#     request of its own, as path.json changes are).
+#     staging passed for that very commit: <drill cell>/drills/<version>.json
+#     at BASE records it ({"release", "commit", "rolled_back_to", "result",
+#     "run"}, committed by a pull request of its own, as path.json changes
+#     are), so a version re-pinned to another commit needs a drill again.
 # With OUT set it writes "<commit> <image ref>" lines there, which the
 # deploy workflow verifies with scripts/verify-image.sh (signatures,
 # attestations, provenance naming the commit) before the promotion merges.
-#   scripts/promotion-checks.sh origin/main
+#   scripts/promotion-checks.sh origin/main [HEAD]
 set -euo pipefail
 cd "$(dirname "$0")/.."
-base="${1:?usage: promotion-checks.sh BASE}"
-python3 - "$base" "${OUT:-}" <<'PY'
+base="${1:?usage: promotion-checks.sh BASE [HEAD]}"
+python3 - "$base" "${2:-HEAD}" "${OUT:-}" <<'PY'
 import json, re, subprocess, sys
 
-base, out = sys.argv[1], sys.argv[2]
+base, head, out = sys.argv[1], sys.argv[2], sys.argv[3]
 root = "deploy/environments"
 images = {"server": "erp-server", "router": "erp-router", "pgbouncer": "erp-pgbouncer", "nats": "erp-nats", "temporal": "erp-temporal"}
 
@@ -81,28 +85,37 @@ def ran_before(path, rel):
 
 order = load(at(base, root + "/path.json") or fail("no %s/path.json at %s" % (root, base)), "path.json")
 path, drill_cell = order["path"], order["drill"]
-changed = [p for p in git("diff", "--name-only", base + "...HEAD", "--", root).split()]
+# The whole tree: a promotion that also changed a script or a workflow
+# would otherwise land it on BASE unreviewed by these checks.
+everything = git("diff", "--name-only", "%s...%s" % (base, head)).split()
+changed = [p for p in everything if p.startswith(root + "/")]
 releases = [p for p in changed if re.fullmatch(root + r"/[a-z]+/[a-z][a-z0-9]{1,19}/release\.json", p)]
 drills = [p for p in changed if re.fullmatch(re.escape("%s/%s/drills/" % (root, drill_cell)) + r"v\d+\.\d+\.\d+\.json", p)]
 others = [p for p in changed if p not in releases and p not in drills and p != root + "/path.json"]
 if others:
     fail("only cells' release.json, the drills' records and path.json live under %s, not %s" % (root, ", ".join(others)))
+if root + "/path.json" in changed:
+    new = load(at(head, root + "/path.json") or fail("%s/path.json is removed" % root), "path.json")
+    if not isinstance(new.get("path"), list) or not new["path"] or not all(isinstance(c, str) for c in new["path"]) \
+            or new.get("drill") not in new["path"]:
+        fail("path.json must name a non-empty path of cells and a drill cell on it")
 for p in drills:
-    text = at("HEAD", p) or fail("%s is removed: a drill's record is kept" % p)
+    text = at(head, p) or fail("%s is removed: a drill's record is kept" % p)
     d = load(text, p)
     name = p.rsplit("/", 1)[1][:-len(".json")]
-    if set(d) != {"release", "rolled_back_to", "result", "run"} or d["release"] != name or d["result"] not in ("passed", "failed") \
+    if set(d) != {"release", "commit", "rolled_back_to", "result", "run"} or d["release"] != name \
+            or not re.fullmatch(r"[0-9a-f]{40}", str(d["commit"])) or d["result"] not in ("passed", "failed") \
             or not re.fullmatch(r"v\d+\.\d+\.\d+", str(d["rolled_back_to"])) or not str(d["run"]).startswith("https://"):
-        fail('%s must be {"release": "%s", "rolled_back_to": "vX.Y.Z", "result": "passed" or "failed", "run": "https://..."}' % (p, name))
+        fail('%s must be {"release": "%s", "commit": "<full commit>", "rolled_back_to": "vX.Y.Z", "result": "passed" or "failed", "run": "https://..."}' % (p, name))
     print("promotion-checks: %s records the drill of %s: %s" % (drill_cell, name, d["result"]))
 if not releases:
     print("promotion-checks: no release changes")
     sys.exit()
-if len(releases) != 1 or len(releases) != len(changed):
-    fail("a promotion changes one cell's release.json and nothing else, not %s" % ", ".join(changed))
+if len(releases) != 1 or len(releases) != len(everything):
+    fail("a promotion changes one cell's release.json and nothing else, not %s" % ", ".join(everything))
 target = releases[0]
 cell = target[len(root) + 1:-len("/release.json")]
-text = at("HEAD", target) or fail("%s is removed: a cell's release is replaced, never removed" % target)
+text = at(head, target) or fail("%s is removed: a cell's release is replaced, never removed" % target)
 doc = load(text, target)
 rel = release(target, doc)
 version = rel[0]
@@ -124,8 +137,9 @@ else:
     if env == "production":
         record = at(base, "%s/%s/drills/%s.json" % (root, drill_cell, version))
         drill = load(record, "drill") if record is not None else None
-        if not drill or drill.get("result") != "passed" or drill.get("release") != version:
-            fail("%s reaches production only after its rollback drill in %s passed (%s/drills/%s.json)" % (version, drill_cell, drill_cell, version))
+        if not drill or drill.get("result") != "passed" or drill.get("release") != version or drill.get("commit") != rel[1]:
+            fail("%s (%s) reaches production only after its rollback drill in %s passed for that commit (%s/drills/%s.json)"
+                 % (version, rel[1], drill_cell, drill_cell, version))
     print("promotion-checks: %s takes %s" % (cell, version))
 
 if out:

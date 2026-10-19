@@ -18,39 +18,60 @@ name: promotion
 #              ERP_COSIGN_KEY         awskms:///<the release key's ARN>
 #              ERP_AWS_REGION         the key's and the registry's region
 #              ERP_REGISTRIES         the ECR registries the releases pin, comma-separated
+# The checks run as pull_request_target: the workflow and the scripts are
+# BASE's, and the pull request's commit is only read, as data (git show of
+# its files), never checked out or run. So a promotion cannot change what
+# judges it; a change to the checks themselves is tested by `self-test`
+# (pull_request, nothing secret) and judges promotions once it is merged.
 on:
-  pull_request:
+  pull_request_target:
     paths:
       - deploy/environments/**
+  pull_request:
+    paths:
       - scripts/promotion-checks.sh
       - scripts/test-promotion-checks.sh
       - .github/workflows/promotion.yml
 
 concurrency:
-  group: promotion-${{ github.event.pull_request.number }}
+  group: promotion-${{ github.event_name }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
+  self-test:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: The checks' own tests
+        run: ./scripts/test-promotion-checks.sh
+
   checks:
+    if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       images: ${{ steps.check.outputs.images }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7 # BASE, the default of pull_request_target
         with:
           fetch-depth: 0
-      - name: The checks' own tests
-        run: ./scripts/test-promotion-checks.sh
+          persist-credentials: false
+      - name: The pull request's commit, as data
+        env:
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: git fetch --no-tags origin "+refs/pull/${NUMBER}/head:refs/remotes/pr/head"
       - name: Promotion checks
         id: check
         env:
           BASE: origin/${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          OUT="$RUNNER_TEMP/images" ./scripts/promotion-checks.sh "$BASE"
+          OUT="$RUNNER_TEMP/images" ./scripts/promotion-checks.sh "$BASE" "$HEAD_SHA"
           if [ -s "$RUNNER_TEMP/images" ]; then echo "images=true" >> "$GITHUB_OUTPUT"; fi
 
   verify:
@@ -63,17 +84,22 @@ jobs:
       contents: read
       id-token: write # the erp-delivery role: read the images and the key's public half
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7 # BASE: its verify-image.sh judges the images
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       # The images again, from the same commits (seconds, and no artifact).
       - name: The pinned images
         env:
+          NUMBER: ${{ github.event.pull_request.number }}
           BASE: origin/${{ github.base_ref }}
-        run: OUT="$RUNNER_TEMP/images" ./scripts/promotion-checks.sh "$BASE"
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git fetch --no-tags origin "+refs/pull/${NUMBER}/head:refs/remotes/pr/head"
+          OUT="$RUNNER_TEMP/images" ./scripts/promotion-checks.sh "$BASE" "$HEAD_SHA"
       - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.ERP_DELIVERY_ROLE_ARN }}

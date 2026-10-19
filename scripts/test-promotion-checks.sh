@@ -35,16 +35,20 @@ put() {
   git -C "$repo" commit -q -m "$3"
 }
 env_file() { echo "deploy/environments/$1/release.json"; }
-drill() { printf '{"release": "%s", "rolled_back_to": "%s", "result": "%s", "run": "https://ci.example/run/1"}' "$1" "$2" "$3"; }
+# drill VERSION DIGIT ROLLED_BACK_TO RESULT: a drill's record of the release whose commit repeats DIGIT.
+drill() { printf '{"release": "%s", "commit": "%s", "rolled_back_to": "%s", "result": "%s", "run": "https://ci.example/run/1"}' "$1" "$(printf "%040d" 0 | tr 0 "$2")" "$3" "$4"; }
 
 # main: v1.0.0 everywhere, v1.1.0 promoted up to staging, whose drill passed.
 for cell in dev/dev1 test/test1 staging/stg1 production/prod1 production/prod2; do put "$(env_file $cell)" "$(release v1.0.0 1)" "v1.0.0 to $cell"; done
 for cell in dev/dev1 test/test1 staging/stg1; do put "$(env_file $cell)" "$(release v1.1.0 2)" "v1.1.0 to $cell"; done
-put deploy/environments/staging/stg1/drills/v1.1.0.json "$(drill v1.1.0 v1.0.0 passed)" "v1.1.0's drill"
+put deploy/environments/staging/stg1/drills/v1.1.0.json "$(drill v1.1.0 2 v1.0.0 passed)" "v1.1.0's drill"
 put "$(env_file dev/dev1)" "$(release v1.2.0 3)" "v1.2.0 to dev"
 # faildrill: the same, but the drill failed.
 git -C "$repo" checkout -q -b faildrill
-put deploy/environments/staging/stg1/drills/v1.1.0.json "$(drill v1.1.0 v1.0.0 failed)" "v1.1.0's drill, again"
+put deploy/environments/staging/stg1/drills/v1.1.0.json "$(drill v1.1.0 2 v1.0.0 failed)" "v1.1.0's drill, again"
+# repinned: v1.1.0 re-pinned to another commit up to staging, its drill that of the first.
+git -C "$repo" checkout -q -b repinned main
+for cell in dev/dev1 test/test1 staging/stg1; do put "$(env_file $cell)" "$(release v1.1.0 5)" "v1.1.0 again to $cell"; done
 git -C "$repo" checkout -q main
 
 # case NAME WANT GREP STEPS: STEPS (shell) on a branch off BASE (main by
@@ -69,12 +73,16 @@ case_ test-takes-devs ok "" 'put "$(env_file test/test1)" "$(release v1.2.0 3)" 
 case_ test-skips-nothing refused "may take only the release dev/dev1 runs" 'put "$(env_file test/test1)" "$(release v1.3.0 4)" p'
 case_ canary-after-drill ok "" 'put "$(env_file production/prod1)" "$(release v1.1.0 2)" p'
 BASE=faildrill case_ canary-after-a-failed-drill refused "rollback drill" 'put "$(env_file production/prod1)" "$(release v1.1.0 2)" p'
+BASE=repinned case_ canary-of-a-repinned-version refused "for that commit" 'put "$(env_file production/prod1)" "$(release v1.1.0 5)" p'
+case_ release-and-script refused "nothing else" 'put "$(env_file test/test1)" "$(release v1.2.0 3)" p && put scripts/verify-image.sh "exit 0" q'
+case_ drill-without-commit refused "must be" 'put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.2.0 3 v1.1.0 passed | sed "s/\"commit\": \"3*\", //")" p'
+case_ bad-path refused "path.json must" 'put deploy/environments/path.json "{\"path\": [\"dev/dev1\"], \"drill\": \"staging/stg1\"}" p'
 case_ cells-follow-the-canary refused "may take only the release production/prod1 runs" 'put "$(env_file production/prod2)" "$(release v1.1.0 2)" p'
 case_ rollback ok "rolls back" 'put "$(env_file staging/stg1)" "$(release v1.0.0 1)" p'
 case_ two-cells refused "one cell" 'put "$(env_file test/test1)" "$(release v1.2.0 3)" p && put "$(env_file staging/stg1)" "$(release v1.0.0 1)" q'
-case_ release-and-drill refused "one cell" 'put "$(env_file test/test1)" "$(release v1.2.0 3)" p && put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.2.0 v1.1.0 passed)" q'
-case_ drill-record ok "records the drill" 'put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.2.0 v1.1.0 failed)" p'
-case_ bad-drill-record refused "must be" 'put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.3.0 v1.1.0 passed)" p'
+case_ release-and-drill refused "one cell" 'put "$(env_file test/test1)" "$(release v1.2.0 3)" p && put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.2.0 3 v1.1.0 passed)" q'
+case_ drill-record ok "records the drill" 'put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.2.0 3 v1.1.0 failed)" p'
+case_ bad-drill-record refused "must be" 'put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.3.0 3 v1.1.0 passed)" p'
 case_ by-tag refused "not a sha256 digest" 'put "$(env_file dev/dev1)" "$(release v1.3.0 4 | sed "s/sha256:4*\"/latest\"/")" p'
 case_ foreign-repository refused "repository" 'put "$(env_file dev/dev1)" "$(release v1.3.0 4 | sed "s|amazonaws.com/erp-nats|amazonaws.com/nats|")" p'
 case_ missing-image refused "images must be exactly" 'put "$(env_file dev/dev1)" "$(release v1.3.0 4 | python3 -c "import json,sys; d=json.load(sys.stdin); del d[\"images\"][\"temporal\"]; print(json.dumps(d))")" p'
@@ -85,7 +93,9 @@ case_ off-the-path refused "not on" 'put "$(env_file sandbox/sbx1)" "$(release v
 # An accepted promotion lists its five images, by digest, with the commit.
 git -C "$repo" checkout -q -B listed main
 (cd "$repo" && put "$(env_file test/test1)" "$(release v1.2.0 3)" p)
-OUT="$work/out" "$repo/scripts/promotion-checks.sh" main >/dev/null
+# As the workflow runs it: BASE's copy of the checks, on the PR's commit.
+git -C "$repo" checkout -q main
+OUT="$work/out" "$repo/scripts/promotion-checks.sh" main listed >/dev/null
 if [ "$(grep -c "^$(printf "%040d" 0 | tr 0 3) .*@sha256:$(printf "%064d" 0 | tr 0 3)$" "$work/out")" -ne 5 ]; then
   echo "FAIL listed: OUT does not list the five images with the release's commit" >&2
   cat "$work/out" >&2
