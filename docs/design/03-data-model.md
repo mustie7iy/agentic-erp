@@ -753,6 +753,30 @@ the supplier's invoice (T46d) or by a reversal, which keeps the indicator.
 Listing the `down_payment` account's open items (`account_id`) lists the
 supplier's down payments.
 
+Foreign-currency revaluation (T48, ADR-0042, migration 000091). The
+document currency is the entry's `currency_tc`; lines carry no currency of
+their own. `company_account.revalue_foreign_currency` flags a balance-sheet
+account that reconciles no partner whose balance per currency is revalued
+(`company_account_revalue_foreign_currency`; the flag stays while an
+active valuation names it). `fx_valuation` holds the legal entity's one
+valuation rate type (default `average`); `fx_valuation_account`, per legal
+entity and revalued account, the unrealised gain (a revenue) and loss (an
+expense) and, exactly for a supplier or customer reconciliation account, a
+balance-sheet adjustment account that reconciles nothing
+(`fx_valuation_account_revalued`, `_adjustment`, `_gain`, `_loss`); both
+from `companies[].fx_valuation`, deactivated when removed.
+`revaluation_run` is one run of a legal entity and ledger at a key date:
+its rate type, status `posted` then `cancelled`, and its valuation entry
+(dated the key date) and reversal entry (the next day), both or neither,
+of its legal entity and ledger (`revaluation_run_entries`,
+`revaluation_run_entry_dates`), fixed once posted
+(`revaluation_run_lifecycle`, `revaluation_run_fixed`); one posted run per
+key date (`revaluation_run_posted`). `revaluation_item`, insert-only, is
+what a run valued: an open item (a journal line, with its partner) or a
+flagged account's balance in one currency (`revaluation_item_kind`), each
+once per run, with its transaction and booked local amounts, the rate and
+its validity, and the local amount at that rate.
+
 ## 3.8 Procurement (`procurement`)
 
 ```mermaid

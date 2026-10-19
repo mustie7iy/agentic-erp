@@ -1001,9 +1001,9 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "Document currency separate from company currency",
-      "r": "T48",
+      "s": "D",
+      "t": "Document currency separate from company currency: on the entry header (journal_entry.currency_tc), every posting path takes one other than local currency",
+      "r": "ADR-0042 · ledger.TestDocumentCurrencyOnEveryPostingPath · T48a",
       "c": []
      },
      {
@@ -1013,10 +1013,35 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Open-item revaluation run",
       "r": "T48",
-      "c": []
+      "c": [
+       {
+        "s": "D",
+        "t": "ADR-0042 and schema: flagged G/L accounts (company_account.revalue_foreign_currency), one valuation rate type per legal entity, unrealised gain/loss and adjustment accounts per revalued account from companies[].fx_valuation, revaluation runs per legal entity, ledger and key date (one posted per key date) and their valued items",
+        "r": "db/migrations/000091 · config.FXValuation · ledger.fx_valuation_account · ledger.revaluation_run · T48a",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Valuation engine and preview (open to agents): open items of reconciliation accounts and balances of flagged accounts at the key date's rate; stale rate refused (ledger.rate_stale)",
+        "r": "T48b",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Posting run: valuation entry on the key date, reversal on the 1st of the next period, both periods open; 409 ledger.revaluation_exists; audit and RevaluationRunPosted",
+        "r": "T48c",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Cancel and close-out: cancel reverses both entries, RevaluationRunCancelled; rerun after cancel",
+        "r": "T48d",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",

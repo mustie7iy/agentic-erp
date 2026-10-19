@@ -70,6 +70,38 @@ type Company struct {
 	// each ranking per currency the house banks that pay with it (SAP
 	// T042E/T042I; ADR-0038).
 	PaymentMethods []PaymentMethod `yaml:"payment_methods,omitempty" json:"payment_methods,omitempty"`
+	// FXValuation is how a revaluation run values the company's open items
+	// and balances in foreign currency (SAP FAGL_FCV; ADR-0042).
+	FXValuation FXValuation `yaml:"fx_valuation,omitempty" json:"fx_valuation,omitempty"`
+}
+
+// FXValuation is the company's foreign-currency valuation (ADR-0042): the
+// one rate type it values at, average when none is given, and where the
+// valuation of each revalued account posts.
+type FXValuation struct {
+	RateType string               `yaml:"rate_type,omitempty" json:"rate_type,omitempty"`
+	Accounts []FXValuationAccount `yaml:"accounts,omitempty" json:"accounts,omitempty"`
+}
+
+// RateTypeOrAverage is the rate type the company values at, average when
+// none is given.
+func (f FXValuation) RateTypeOrAverage() string {
+	if f.RateType == "" {
+		return "average"
+	}
+	return f.RateType
+}
+
+// FXValuationAccount says where the valuation of one revalued account
+// posts (SAP T030S): its unrealised gain and loss, which may be the
+// realised fx_gain and fx_loss accounts, and, for a vendor reconciliation
+// account, the balance-sheet adjustment account its difference goes to; a
+// flagged account (revalue_foreign_currency) takes the difference itself.
+type FXValuationAccount struct {
+	Account        string `yaml:"account" json:"account"`
+	Adjustment     string `yaml:"adjustment,omitempty" json:"adjustment,omitempty"`
+	UnrealisedGain string `yaml:"unrealised_gain" json:"unrealised_gain"`
+	UnrealisedLoss string `yaml:"unrealised_loss" json:"unrealised_loss"`
 }
 
 // AccountType classifies an account for the balance sheet and the income
@@ -89,6 +121,11 @@ type Account struct {
 	Name                 string      `yaml:"name" json:"name"`
 	Type                 AccountType `yaml:"type" json:"type"`
 	VendorReconciliation bool        `yaml:"vendor_reconciliation,omitempty" json:"vendor_reconciliation,omitempty"`
+	// RevalueForeignCurrency marks a balance-sheet account that reconciles
+	// no supplier, such as a foreign-currency bank account, whose balance
+	// in each foreign currency a revaluation run values (ADR-0042);
+	// reconciliation accounts are valued through their open items.
+	RevalueForeignCurrency bool `yaml:"revalue_foreign_currency,omitempty" json:"revalue_foreign_currency,omitempty"`
 }
 
 // AccountDetermination says which accounts automatic postings use (SAP T030).

@@ -5,6 +5,10 @@
 // period balances derived by a projector, and each purchase order item's
 // GR/IR position on its own lines (grir.go, T33).
 //
+// Foreign-currency revaluation (ADR-0042, T48) values open items and
+// flagged accounts' balances at a key date; its settings are kept from the
+// configuration (fxsetup.go).
+//
 // A locked period returns to closed only through an approved period_unlock
 // approval request (T32): the ledger opens it (RequestUnlock) and is called
 // back when it completes (PeriodUnlocks).

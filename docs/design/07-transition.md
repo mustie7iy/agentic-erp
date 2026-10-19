@@ -1698,7 +1698,7 @@ Each tracker item of phase 2 carries the step that builds it.
 
 | Step | Work | Exit criterion |
 |---|---|---|
-| T48 | **Document currency and FX revaluation** | Journal lines carry `amount_tc` and the document currency code beside local and group currency; a revaluation run at a key date posts unrealised gains and losses on open items and reverses them on the 1st of the next period. Lane F |
+| T48 | **Document currency and FX revaluation** | Every posting path takes a document currency other than local currency, kept on the entry header beside each line's `amount_tc`, local and group amounts (ADR-0042); a revaluation run at a key date posts unrealised gains and losses on open items and reverses them on the 1st of the next period. Lane F |
 | T49 | **Bank statements and reconciliation** | camt.053 and MT940 statements imported idempotently; lines matched by rules from configuration; clearing postings above a threshold need approval; an agent proposes matches for unmatched lines and never posts. Lane S; after T44 |
 | T50 | **API versioning, deprecation and webhooks** | A versioning and deprecation policy enforced by the breaking-change check; signed webhooks for business events delivered through the outbox; the contract reviewed by a consumer (the pilot's integration partner). Lane P |
 | T52 | **Parallel ledgers** | Leading and non-leading ledgers and ledger groups; ledger-specific postings; a reconciliation report between ledgers. Lane F; after T48 |
