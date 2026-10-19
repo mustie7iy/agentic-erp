@@ -43,7 +43,7 @@ SELECT platform.secure_table('payments.bank_ranking'::regclass);
 
 -- The supplier's methods in its order of preference: up to ten codes. The
 -- default needs no rewrite; the check is added NOT VALID and validated by
--- 000091 (06 §6.4).
+-- 000092 (06 §6.4).
 ALTER TABLE partner.supplier_company ADD COLUMN payment_methods text[] NOT NULL DEFAULT '{}';
 ALTER TABLE partner.supplier_company ADD CONSTRAINT supplier_company_payment_methods
   CHECK (cardinality(payment_methods) = 0 OR array_to_string(payment_methods, ',', '?') ~ '^[A-Z0-9](,[A-Z0-9]){0,9}$') NOT VALID;

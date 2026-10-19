@@ -76,7 +76,7 @@ func methodOf(m *string) string {
 
 // payingBank is the house bank that pays payment p of run r: its own in a
 // run proposed without one, else the run's. Both have foreign keys into
-// payments.house_bank (000008, 000092), so the bank is found; a payment
+// payments.house_bank (000008, 000093), so the bank is found; a payment
 // naming none in a run without one is broken data, an error.
 func payingBank(ctx context.Context, tx pgx.Tx, r Run, p Payment) (houseBank, error) {
 	id := r.HouseBankID

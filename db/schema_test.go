@@ -1955,7 +1955,7 @@ func TestAuthPolicy(t *testing.T) {
 // TestControlRoleReadsTheRegistry: the cell resolves a token's tenant
 // before it knows the tenant, as the control role across tenants; it reads
 // what decides the tenant and the policy, not who changed them. It reads
-// connectors' kind and status, to refuse EBICS in production (000100,
+// connectors' kind and status, to refuse EBICS in production (000101,
 // T44d), never their settings or secret references.
 func TestControlRoleReadsTheRegistry(t *testing.T) {
 	need(t)

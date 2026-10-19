@@ -81,7 +81,7 @@ type EBICSConnector struct {
 }
 
 // ActiveEBICSConnectors lists every tenant's active bank_ebics connectors,
-// read by the control role across tenants (ADR-0003, 000100): in
+// read by the control role across tenants (ADR-0003, 000101): in
 // production the server refuses to start while there is one (T44d). The
 // API refuses to create or enable one there and a production import refuses
 // a tenant with one (RefuseActiveEBICS), so a connector from before or a

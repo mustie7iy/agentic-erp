@@ -286,7 +286,7 @@ func TestReservationsReconcileFailsLoudly(t *testing.T) {
 // changes tenant rows (000042 reconciling reservations, 000046 binding
 // principals) fails rather than see no tenant's rows and change nothing.
 func TestTenantRowMigrationsRefuseRowSecurity(t *testing.T) {
-	for _, version := range []int{42, 46, 92} {
+	for _, version := range []int{42, 46, 93} {
 		t.Run(fmt.Sprint(version), func(t *testing.T) {
 			conn := emptyDatabase(t)
 			migrateBefore(t, conn, version)
@@ -440,12 +440,12 @@ func TestPrincipalIssuerRebound(t *testing.T) {
 	}
 }
 
-// TestHouseBankAccountsBackfilled: 000092 gives each active house bank its
+// TestHouseBankAccountsBackfilled: 000093 gives each active house bank its
 // account as active_gl_account_id and leaves inactive ones null, and
-// 000097's constraint then refuses a second active bank on the account.
+// 000098's constraint then refuses a second active bank on the account.
 func TestHouseBankAccountsBackfilled(t *testing.T) {
 	conn := emptyDatabase(t)
-	migrateBefore(t, conn, 92)
+	migrateBefore(t, conn, 93)
 	p := newPayables(t, conn)
 	retired := id()
 	inTenant(t, conn, p.tenant, func(tx pgx.Tx) error {

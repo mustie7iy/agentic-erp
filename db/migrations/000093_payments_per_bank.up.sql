@@ -6,9 +6,9 @@
 -- for one bank keeps it, and its payments and file leave both null: null
 -- is the run's bank, so the rows written before need no backfill and a
 -- release by the previous version still writes its one file under the
--- unique index 000094 builds. The previous version cannot release a run
+-- unique index 000095 builds. The previous version cannot release a run
 -- without a bank, so such proposals wait until the upgrade completes.
--- Constraints are added NOT VALID and validated by 000093 (06 §6.4). It
+-- Constraints are added NOT VALID and validated by 000094 (06 §6.4). It
 -- backfills house_bank, so row-level
 -- security is off, as for every migration that changes tenant rows.
 SET LOCAL row_security = off;
@@ -35,7 +35,7 @@ ALTER TABLE payments.request_exclusion ADD CONSTRAINT request_exclusion_reason_c
   'no_bank_account', 'bank_change_pending', 'bank_change_hold', 'tax_code_invalid', 'no_house_bank')) NOT VALID;
 
 -- At most one active house bank per ledger account (house_bank_account_once,
--- 000096-000097): the account while the bank is active, null otherwise,
+-- 000097-000098): the account while the bank is active, null otherwise,
 -- written by the application (payments.HouseBanks). The previous version
 -- does not write it, so while it still runs its configuration changes to
 -- house banks are refused by the check; configuration changes wait until

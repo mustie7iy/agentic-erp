@@ -1294,14 +1294,14 @@ name the bank connector its files are transmitted through
 (`connector_id`, the integration context's, so no foreign key; T44b);
 without one they go to the server's directory. Each file a house bank
 accepted is recorded by its content hash (`payments.sent_bank_file`,
-insert-only, unique per house bank and hash; T44c, 000099), in a
+insert-only, unique per house bank and hash; T44c, 000100), in a
 transaction of its own committed right after the upload: a file whose hash
 its bank already took counts as sent and is not uploaded again, so a
 transmission whose own commit was lost is never sent twice.
 EBICS connectors (`integration.connector` of kind `bank_ebics`) are refused
 in production until EBICS is certified with a bank (T44d): the control role
 `erp_control` reads every tenant's connectors' kind and status, never their
-settings or secret reference (000100), and a production cell refuses to
+settings or secret reference (000101), and a production cell refuses to
 start while one is active; disabling it is the remedy.
 
 A company's payment methods (`payments.payment_method`, SAP T042Z) rank,
@@ -1323,7 +1323,7 @@ and the release writes one bank file per house bank and method. At most one
 active house bank of a legal entity is on a ledger account
 (`house_bank_account_once`, a deferrable unique constraint on
 `active_gl_account_id`, checked at commit so banks may swap accounts;
-000092-000097).
+000093-000098).
 
 A proposal pays each supplier its open items due by the run's due date,
 netted in one payment: an invoice is due on the net due date of the terms
@@ -1534,7 +1534,7 @@ the database or by a row lock:
 
 - **One bank file per run, house bank and method.** A unique index on
   `bank_file (tenant_id, payment_run_id, house_bank_id, payment_method)
-  NULLS NOT DISTINCT` (000094, built concurrently; it replaced 000033's per
+  NULLS NOT DISTINCT` (000095, built concurrently; it replaced 000033's per
   run) refuses a second file, so a release step run again or two
   overlapping releases cannot pay the suppliers twice. In object storage the
   file is kept under its key (`tenants/<tenant>/bank-files/<run id>.xml`,

@@ -24,7 +24,7 @@ and France, by EBICS.
   one. No two house banks of a company share an account, so a clearing
   account's balance belongs to one bank: the configuration refuses it, and
   the schema enforces it for active banks (`house_bank_account_once`,
-  000092-000097; T45c, 06 §6.4), every running version deactivating a
+  000093-000098; T45c, 06 §6.4), every running version deactivating a
   replaced bank before it activates its replacement. A version from before
   T45c does not write `active_gl_account_id`, so its house bank changes are
   refused by the check while it still runs: configuration changes wait
@@ -106,7 +106,7 @@ and France, by EBICS.
   type, so a server with keys of several types presents the pinned one, and
   a certificate is refused), a house bank's channel (T44b: the house
   bank's `connector` names a `bank_sftp` connector, checked on submission
-  and stored as `payments.house_bank.connector_id`, 000098, with no foreign
+  and stored as `payments.house_bank.connector_id`, 000099, with no foreign
   key across contexts; transmission resolves it per bank through the
   integration context's `BankChannels`, which the application wires to
   ports of the payments context, and fails closed: a connector that is
@@ -118,7 +118,7 @@ and France, by EBICS.
   sends every file to the directory, so a configuration naming a connector
   waits until the upgrade completes),
   duplicate detection by content hash (T44c: `payments.sent_bank_file`,
-  000099, keyed by tenant, house bank and SHA-256, insert-only, records each
+  000100, keyed by tenant, house bank and SHA-256, insert-only, records each
   file a bank accepted with the connector it went through, and is the
   upload's audit record (ADR-0011); it is written in
   a transaction of its own committed right after the upload, before the
@@ -137,7 +137,7 @@ and France, by EBICS.
   `host_id`, `partner_id` and `user_id`, the subscriber's keys by
   `secret_ref`; in production the API refuses to create or enable one
   (`integration.ebics_not_certified`), and the server refuses to start while
-  any tenant has an active one, read as `erp_control`, 000100, so a
+  any tenant has an active one, read as `erp_control`, 000101, so a
   connector from before or a change by hand fails closed; a production
   import refuses a tenant with one, as it refuses one without an identity
   provider. No

@@ -1,5 +1,5 @@
 -- migrate:no-transaction
--- The index house_bank_account_once (000097) is attached to: at most one
+-- The index house_bank_account_once (000098) is attached to: at most one
 -- active house bank of a legal entity per ledger account (ADR-0038). Nulls
 -- (inactive banks) are distinct. Built concurrently (06 §6.4); no IF NOT
 -- EXISTS, so an invalid index left by a failed build (two active banks on

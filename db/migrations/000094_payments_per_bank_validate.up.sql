@@ -1,4 +1,4 @@
--- Validates what 000092 added NOT VALID (06 §6.4): the new columns are null
+-- Validates what 000093 added NOT VALID (06 §6.4): the new columns are null
 -- on every row before it, and house_bank_active_account holds on the
 -- backfilled rows.
 ALTER TABLE payments.payment VALIDATE CONSTRAINT payment_house_bank;

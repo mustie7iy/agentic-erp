@@ -638,19 +638,19 @@
        {
         "s": "D",
         "t": "A house bank's channel: each house bank names its bank connector; transmission resolves it per bank (secret resolved through the secrets path, failing closed), connector_id on bank_file_transmitted; DirConnector stays the server-wide fallback",
-        "r": "house_bank.connector · payments.house_bank.connector_id (000098) · integration.BankChannels · payments.SFTPConnector · sftptest · T44b",
+        "r": "house_bank.connector · payments.house_bank.connector_id (000099) · integration.BankChannels · payments.SFTPConnector · sftptest · T44b",
         "c": []
        },
        {
         "s": "D",
         "t": "Duplicate detection by content hash: a file whose hash was already sent through the bank's channel counts as sent, recorded where a lost acknowledgement cannot lose it",
-        "r": "payments.sent_bank_file (000099), written in its own transaction after the upload · payments.SentFiles · duplicate on bank_file_transmitted · T44c",
+        "r": "payments.sent_bank_file (000100), written in its own transaction after the upload · payments.SentFiles · duplicate on bank_file_transmitted · T44c",
         "c": []
        },
        {
         "s": "D",
         "t": "EBICS connector, built and refused in production: bank_ebics settings checked; in production the API refuses to create or enable one and the server refuses to start while one is active, until certified with a bank",
-        "r": "integration.BankEBICS · integration.ActiveEBICSConnectors (erp_control, 000100) · integration.ebics_not_certified · erp-server refuseEBICS · T44d",
+        "r": "integration.BankEBICS · integration.ActiveEBICSConnectors (erp_control, 000101) · integration.ebics_not_certified · erp-server refuseEBICS · T44d",
         "c": []
        },
        {
@@ -693,13 +693,13 @@
        {
         "s": "D",
         "t": "Payment methods: per method and currency the ranked house banks in configuration; suppliers' payment methods in their company data, in order, active methods of the company that a configuration cannot take away while a supplier or a pending change has them",
-        "r": "companies[].payment_methods · payments.PaymentMethods (payment_method, bank_ranking) · supplier_companies[].payment_methods · partner.PaymentMethodCodes · 000090-000091 · T45b",
+        "r": "companies[].payment_methods · payments.PaymentMethods (payment_method, bank_ranking) · supplier_companies[].payment_methods · partner.PaymentMethodCodes · 000091-000092 · T45b",
         "c": []
        },
        {
         "s": "D",
         "t": "Proposals without a house bank, in a currency, pay each supplier (items and down payment requests) through its first method a ranked active bank in the run currency can pay (a ranked bank in another currency is skipped), else exclude it with no_house_bank; a run without a bank must name its currency (payments.currency_required) and a run for one bank refuses another currency (payments.currency_mismatch); payments post to their bank's account; one bank file per house bank and method; payment_run.house_bank_id nullable (breaking change accepted); at most one active house bank per ledger account in the schema (house_bank_account_once, a deferrable unique constraint attached to a concurrently built index; ADR-0038)",
-        "r": "db/migrations/000092-000097 · payments.router · payment.house_bank_id/payment_method · bank_file_once_per_bank · house_bank_account_once · T45c",
+        "r": "db/migrations/000093-000098 · payments.router · payment.house_bank_id/payment_method · bank_file_once_per_bank · house_bank_account_once · T45c",
         "c": []
        }
       ]

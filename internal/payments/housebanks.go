@@ -135,7 +135,7 @@ func (h HouseBanks) sameDetails(ctx context.Context, tx pgx.Tx, tenant uuid.UUID
 // Apply makes the house banks the document no longer lists inactive, then
 // creates each listed one, or reactivates it and updates its ledger
 // account. Deactivating first keeps an account that moves to a new bank
-// from being active on two at once; house_bank_account_once (000097) is
+// from being active on two at once; house_bank_account_once (000098) is
 // checked at commit, so banks that swap accounts pass too.
 func (h HouseBanks) Apply(ctx context.Context, doc *config.Config) error {
 	tx, p, err := reqctx.Request(ctx)
