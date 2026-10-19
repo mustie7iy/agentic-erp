@@ -320,7 +320,7 @@ func TestProvidersInProduction(t *testing.T) {
 		https := "https" + strings.TrimPrefix(is.URL, "http")
 		_, err := p.Verify(context.Background(), https, authntest.Audience, lasting(t, is))
 		wantStatus(t, err, 503)
-		if !strings.Contains(problem.Cause(problem.From(err)).Error(), "not allowed") {
+		if !strings.Contains(problem.Cause(problem.From(err)).Error(), "not a public unicast address") {
 			t.Errorf("cause: got %v, want the address refused", problem.Cause(problem.From(err)))
 		}
 		wantFetches(t, is, 0, 0)

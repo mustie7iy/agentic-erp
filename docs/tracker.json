@@ -4764,10 +4764,29 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Webhooks for business events",
       "r": "ADR-0041 · T50b–g",
-      "c": []
+      "c": [
+       {
+        "s": "D",
+        "t": "Egress client: https only, public addresses checked at dial time, no proxy or redirects, system roots, 5 s connect / 10 s total, 64 KB read",
+        "r": "internal/platform/egress · T50b",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Standard Webhooks signer and verifier (whsec_ secrets, rotation, timestamp tolerance) checked against committed vectors",
+        "r": "internal/platform/webhook · api/webhooks-test-vectors.json · T50b",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Subscriptions, dispatcher, retries, operations and x-webhook events",
+        "r": "T50c–g",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
