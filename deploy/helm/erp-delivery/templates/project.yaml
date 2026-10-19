@@ -4,7 +4,7 @@
 # runs. Bootstrapped with the root Application, then synced by it.
 {{- $addons := include "erp-delivery.addons" . | fromJsonArray }}
 {{- $namespaces := list "argocd" "kube-system" "erp" "erp-global" }}
-{{- $repositories := list .Values.repository }}
+{{- $repositories := list (include "erp-delivery.repository" .) }}
 {{- range $addons }}
 {{- $namespaces = append $namespaces .namespace }}
 {{- $repositories = append $repositories .repository }}

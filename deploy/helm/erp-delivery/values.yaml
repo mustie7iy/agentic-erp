@@ -3,10 +3,8 @@
 # outputs and changed by a pull request of their own; the release it runs
 # is release.json beside it, which promotions change.
 
-# The repository Argo CD reads deploy/ from, with the cell's deploy key.
-repository: git@github.com:mustie7iy/agentic-erp.git
-# The branch whose deploy/ the cell runs.
-revision: main
+# The repository and branch are the chart's own (_helpers.tpl), not values:
+# a cell's values cannot point it at a branch the promotion checks never saw.
 
 # Set by cell.json.
 # The environment (dev, test, staging, production) and the cell's id (the

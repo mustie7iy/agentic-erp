@@ -430,8 +430,11 @@ key, `erp/<cell>/argocd-repository`, which the bootstrap loads and the
 External Secrets Operator's role cannot read. The `erp-delivery` chart is
 the cell's app of apps: its root Application renders the chart with the
 cell's own values, `deploy/environments/<env>/<cell>/cell.json` (written
-from the cell's Terraform outputs, changed by a pull request of their own,
-holding no image), into one Application per add-on of `addons.txt` in its
+from the cell's Terraform outputs, changed by a pull request of their own;
+`promotion-checks.sh` refuses one naming another cell or holding an image,
+Argo CD's settings, the migrations deadline or any key but the cell's own
+values; the repository and branch are the chart's own, so no cell's values
+can point it at a branch the checks never saw), into one Application per add-on of `addons.txt` in its
 order (one sync wave each; an Application is healthy once what it deploys
 is, so each wave waits for the one before), then `erp-cluster`, then
 `erp-cell` and, on the environment's home cell, `erp-global`, these two
@@ -450,7 +453,11 @@ only hooks of a lower weight deleted at most on success. PreSync hooks run
 on every sync, a self-heal's too; the migrations and the engine's schema
 Job are idempotent, so such a sync costs their run and changes nothing.
 `helm-checks.sh` renders the chart and holds it to the order, the pins,
-the destination and the release files.
+the destination and the release files. The 90-minute limit also bounds
+the root Application's own sync, which on a first bootstrap waits for
+every wave, the migrations included; if it runs out, it retries while the
+children's syncs go on, and a sync started by hand finishes the
+bootstrap.
 
 *Promotions (T40d2).* Each cell's release is a file,
 `deploy/environments/<env>/<cell>/release.json`: the release's version and

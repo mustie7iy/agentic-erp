@@ -8,8 +8,8 @@ metadata:
   namespace: argocd
 spec:
   source:
-    repoURL: {{ .Values.repository }}
-    targetRevision: {{ .Values.revision }}
+    repoURL: {{ include "erp-delivery.repository" . }}
+    targetRevision: {{ include "erp-delivery.revision" . }}
     path: deploy/helm/erp-delivery
     helm:
       releaseName: erp-delivery

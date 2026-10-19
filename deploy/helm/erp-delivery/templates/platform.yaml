@@ -29,8 +29,8 @@ metadata:
     argocd.argoproj.io/sync-wave: {{ .wave | quote }}
 spec:
   source:
-    repoURL: {{ $.Values.repository }}
-    targetRevision: {{ $.Values.revision }}
+    repoURL: {{ include "erp-delivery.repository" . }}
+    targetRevision: {{ include "erp-delivery.revision" . }}
     path: deploy/helm/{{ .name }}
     helm:
       releaseName: {{ .name }}

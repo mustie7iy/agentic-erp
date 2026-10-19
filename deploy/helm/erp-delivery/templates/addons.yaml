@@ -24,8 +24,8 @@ spec:
         valuesObject:
           {{- toYaml . | nindent 10 }}
         {{- end }}
-    - repoURL: {{ $root.Values.repository }}
-      targetRevision: {{ $root.Values.revision }}
+    - repoURL: {{ include "erp-delivery.repository" . }}
+      targetRevision: {{ include "erp-delivery.revision" . }}
       ref: values
   destination:
     server: https://kubernetes.default.svc

@@ -293,7 +293,8 @@ echo "helm-checks: erp-global refuses to render without each value it requires, 
 rotating "$work/erp-cell.json" "$work/erp-global.json"
 echo "helm-checks: every rotating password is refreshed within five minutes"
 
-# hooks JSON: each hook Job's secrets and config maps come from hooks of a
+# hooks JSON: each hook Job's secrets and config maps (mounted or read
+# into its environment) come from hooks of a
 # lower weight for the same events, deleted at most when the hooks
 # succeeded: Helm deletes those after its last hook, Argo CD once its whole
 # sync has, so they outlive the Jobs that mount them. Anything else would
@@ -320,13 +321,20 @@ for d in docs:
     if d["kind"] != "Job" or not events:
         continue
     jobs += 1
-    for v in d["spec"]["template"]["spec"].get("volumes", []):
+    pod = d["spec"]["template"]["spec"]
+    refs = []
+    for v in pod.get("volumes", []):
         if "secret" in v:
-            key = ("secret", v["secret"]["secretName"])
+            refs.append(("secret", v["secret"]["secretName"]))
         elif "configMap" in v:
-            key = ("configmap", v["configMap"]["name"])
-        else:
-            continue
+            refs.append(("configmap", v["configMap"]["name"]))
+    for c in pod.get("initContainers", []) + pod["containers"]:
+        for e in c.get("envFrom", []):
+            refs += [(k, e[r]["name"]) for k, r in (("secret", "secretRef"), ("configmap", "configMapRef")) if r in e]
+        for e in c.get("env", []):
+            ref = e.get("valueFrom", {})
+            refs += [(k, ref[r]["name"]) for k, r in (("secret", "secretKeyRef"), ("configmap", "configMapKeyRef")) if r in ref]
+    for key in refs:
         if key not in made:
             sys.exit("helm-checks: hook Job %s mounts %s %s, which no hook makes" % (d["metadata"]["name"], key[0], key[1]))
         e, w, policy, name = made[key]
@@ -400,7 +408,7 @@ for value in environment cell; do
     exit 1
   fi
 done
-for bad in 'cell=dev-1' 'environment=sandbox' 'erpCell.images.server.digest=sha256:1' 'erpGlobal.images.router.digest=sha256:1'; do
+for bad in 'cell=dev-1' 'environment=sandbox' 'revision=other' 'repository=git@example.com:x.git' 'erpCell.images.server.digest=sha256:1' 'erpGlobal.images.router.digest=sha256:1'; do
   if "$HELM" template erp-delivery "$chart" -f "$values" --set "$bad" >/dev/null 2>&1; then
     echo "helm-checks: erp-delivery took $bad" >&2
     exit 1

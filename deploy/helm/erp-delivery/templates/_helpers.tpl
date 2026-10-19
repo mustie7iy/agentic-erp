@@ -1,5 +1,16 @@
+{{/* The repository Argo CD reads deploy/ from, with the cell's deploy key,
+and the branch it runs: fixed here, so that only a reviewed change to the
+chart moves them, never a cell's values. */}}
+{{- define "erp-delivery.repository" -}}git@github.com:mustie7iy/agentic-erp.git{{- end -}}
+{{- define "erp-delivery.revision" -}}main{{- end -}}
+
 {{/* The cell's directory under deploy/environments, checked. */}}
 {{- define "erp-delivery.cellPath" -}}
+{{- range $k := list "repository" "revision" -}}
+{{- if hasKey $.Values $k -}}
+{{- fail (printf "%s is the chart's own, not a cell's value" $k) -}}
+{{- end -}}
+{{- end -}}
 {{- $env := required "environment is required: dev, test, staging or production" .Values.environment -}}
 {{- $cell := required "cell is required: the cell's id (ERP_CELL)" .Values.cell -}}
 {{- if not (has $env (list "dev" "test" "staging" "production")) -}}

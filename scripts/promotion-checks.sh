@@ -15,7 +15,10 @@
 #     rollback, which is a revert);
 #   - a cell's own values, <env>/<cell>/cell.json (the erp-delivery chart's,
 #     from its Terraform outputs), change in a pull request of their own
-#     and name that cell, and no image: release.json pins those;
+#     and name that cell, and hold only the cell's own values: no image
+#     (release.json pins those), no repository or branch (the chart's),
+#     no Argo CD settings and no migrations deadline (held under Argo
+#     CD's sync limit by helm-checks.sh);
 #   - a release reaches production only after its rollback drill in
 #     staging passed for that very commit: <drill cell>/drills/<version>.json
 #     at BASE records it ({"release", "commit", "rolled_back_to", "result",
@@ -107,8 +110,15 @@ for p in cells:
     d = load(at(head, p) or fail("%s is removed: a cell's values are replaced, never removed" % p), p)
     if not isinstance(d, dict) or d.get("environment") != env or d.get("cell") != name:
         fail('%s must be an object naming its cell: "environment": "%s", "cell": "%s"' % (p, env, name))
-    if any(isinstance(d.get(c), dict) and "images" in d[c] for c in ("erpCell", "erpGlobal")):
+    extra = set(d) - {"_comment", "environment", "cell", "home", "addons", "erpCluster", "erpCell", "erpGlobal"}
+    if extra:
+        fail("%s holds only the cell's own values, not %s" % (p, ", ".join(sorted(extra))))
+    if not all(isinstance(d.get(c, {}), dict) for c in ("addons", "erpCluster", "erpCell", "erpGlobal")):
+        fail("%s: addons, erpCluster, erpCell and erpGlobal are objects" % p)
+    if any("images" in d.get(c, {}) for c in ("erpCell", "erpGlobal")):
         fail("%s pins no image: the cell's release.json does" % p)
+    if "argo-cd" in d.get("addons", {}) or "migrations" in d.get("erpCell", {}):
+        fail("%s sets neither Argo CD nor the migrations deadline: the charts' own values hold them" % p)
     print("promotion-checks: %s changes the values of %s/%s" % (p, env, name))
 if root + "/path.json" in changed:
     new = load(at(head, root + "/path.json") or fail("%s/path.json is removed" % root), "path.json")
