@@ -77,10 +77,10 @@ func preview(le uuid.UUID, keyDate string) string {
 // reconciliation account and the flagged bank account's balance at the key
 // date (ADR-0042): items posted after it, cleared or reversed on or
 // before it, in local currency or down payments are not valued; an item
-// cleared or reversed after it is; the rate is the legal entity's rate type's; group currency
-// differences follow from local at the average rate; and a key date that
-// is not a period end, a missing, stale or unrecordable rate and an
-// account without a valuation are refused.
+// cleared or reversed after it is; the rate is the legal entity's rate
+// type's; group currency differences follow from local at the average
+// rate; and a key date that is not a period end, a missing, stale or
+// unrecordable rate and an account without a valuation are refused.
 func TestRevaluationPreview(t *testing.T) {
 	e := setup(t)
 	revaluationSetup(t, e, true)
