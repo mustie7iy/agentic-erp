@@ -5175,9 +5175,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Restore verified: migration version, audit hash chains, balanced journal entries and trial balances (bigint sums), fingerprints (ADR-0030) against the old database's where it is kept, the drill's markers (audit events: the one before the restore point present with the tenant's fingerprint, the one after absent)",
+        "r": "erp-server dr mark|verify · internal/drverify · T41d",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Restore verified: migration version, audit hash chains, balanced journal and trial balances, fingerprints (ADR-0030) against the old database's where it is kept, RPO/RTO markers; tenants the directory records as offboarded or erased offboarded and erased again (the directory records them first)",
-        "r": "T41d",
+        "t": "Restore verification completed: audit chains against their anchors in the object store (ADR-0025), every tenant the directory places in the cell present; the directory records erased and keeps offboarded and erased against a cell's sync, and the verification offboards and erases those tenants again",
+        "r": "T41f",
         "c": []
        }
       ]

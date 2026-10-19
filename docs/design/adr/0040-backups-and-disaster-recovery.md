@@ -105,19 +105,31 @@ early by an operator, it does not. The directory is the record outside the
 cell, but today it cannot keep one: a cell's directory sync upserts every
 tenant's status from the cell and keeps only `read_only`
 (`directory.Upsert`), so a restored cell's first sync would write such a
-tenant back as `active`. T41d therefore makes the directory record
+tenant back as `active`. T41f therefore makes the directory record
 `erased` (written by the cell when it erases) and keep `offboarded` and
 `erased` against a cell's sync, as it keeps `read_only`; the runbook lists
 the directory's offboarded and erased tenants before a restored cell's
 workloads start, and the restore verification offboards and erases them
 again.
 
-**Every restore is verified (T41d).** A verification command checks a
-restored cell: the migration version, every audit hash chain against its
-anchors (ADR-0025), a balanced journal and the trial balances, every tenant the directory
-places in the cell present in it, the fingerprints of ADR-0030 compared
-with the old database's where it is kept (a restore in place), and the RPO and
-RTO from markers written before the incident and read after the restore.
+**Every restore is verified (T41d).** `erp-server dr verify` checks a
+restored cell before it serves, reading only (internal/drverify): the
+schema at the migration version the binary was built for; every tenant's
+audit hash chain recomputed against its chain head (ADR-0011); every
+journal entry balanced in all three currencies and every legal entity's
+ledger netting to zero (bigint sums, ADR-0005); every tenant's per-table
+counts and chain head (the fingerprint of ADR-0030), compared with the
+old database's where it is kept (`ERP_DR_OLD_DATABASE_URL`: a restore in
+place, a promoted replica); and the drill's markers. A marker is an audit
+event of the drill tenant (`erp-server dr mark`), so it is restored,
+exported and verified with the chain and needs no table: the drill writes
+one before the restore point and one after, and the restored cell must
+hold exactly the first, with the tenant's fingerprint as the marker's
+transaction left it. The report is JSON; a failed check exits 1. It runs in
+`erp-server`, not the `erp` client: it reads the database directly, before
+the cell's API is up. Still to come (T41f): the chains against their
+anchors in the object store (ADR-0025), every tenant the directory places
+in the cell present in it, and the directory's `erased` status above.
 
 **Drills (T41e).** Staging's drill cell restores itself to a point in time
 and restores from its copies in the disaster-recovery region (staging has
@@ -169,7 +181,7 @@ RELOAD, RESUME). Only 503s, every retried post once, recovery within 60 s.
 **Whole-cell restore to a point in time** (corruption, a bad migration):
 1. Freeze the cell's tenants in the directory (ADR-0023); stop the cell's
    workloads (scale to zero) so nothing writes. List the directory's
-   offboarded and erased tenants of the cell (until T41d makes the
+   offboarded and erased tenants of the cell (until T41f makes the
    directory keep them against a sync, this list is the record).
 2. Restore the database to the point (`aws rds
    restore-db-cluster-to-point-in-time`, or `restore-db-instance-to-point-in-time`
@@ -217,6 +229,6 @@ RELOAD, RESUME). Only 503s, every retried post once, recovery within 60 s.
 - The DR region costs a replica instance, a VPC with NAT gateways, an EKS
   control plane and storage for the copies; dev and test have none.
 - The directory gains an `erased` status and keeps `offboarded` and
-  `erased` against a cell's sync (T41d).
+  `erased` against a cell's sync (T41f).
 - The pre-pilot confirmation on staging can change the production database
   shape; T41b2 is written so that the replica is one resource to replace.

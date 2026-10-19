@@ -58,6 +58,7 @@ var allowed = map[string][]string{
 	"delivery/testagent":      {"apitools", "llm"},
 	"directory":               {"tenancy"},
 	"eval":                    {"apitools", "llm"},
+	"drverify":                {"offboarding", "tenancy"},
 	"globalplane":             {"directory", "offboarding"},
 	"integration":             {"bankfile", "config", "ledger", "operations", "partner", "payables", "procurement", "sap", "tenancy"},
 	"ledger":                  {"approvals", "config", "tenancy"},
