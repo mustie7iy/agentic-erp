@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -154,5 +155,44 @@ func TestRecordAfterDelete(t *testing.T) {
 	}
 	if failing {
 		t.Error("the deleted subscription: got failing_since set, want it unchanged")
+	}
+}
+
+// TestRecordLocksSubscriptionFirst: recording an attempt waits for a
+// transaction holding the subscription (a redelivery, a replay) before it
+// locks the delivery, so that transaction may still change the delivery
+// without a deadlock; the recording then finds the version moved.
+func TestRecordLocksSubscriptionFirst(t *testing.T) {
+	c := pendingDelivery(t)
+	ctx := context.Background()
+	holder, err := pgtest.Pool(t).Begin(ctx, database.Scope{Role: "erp_app", TenantID: c.tenant})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Rollback(ctx)
+	if _, err := holder.Exec(ctx, `SELECT FROM integration.webhook_subscription WHERE id = $1 FOR UPDATE`, c.sub); err != nil {
+		t.Fatal(err)
+	}
+	d := &Dispatcher{Pool: pgtest.Pool(t), AppRole: "erp_app", Log: slog.New(slog.DiscardHandler)}
+	done := make(chan error, 1)
+	go func() { done <- d.record(ctx, c, answer{status: http.StatusNoContent}) }()
+	pgtest.Eventually(t, 10*time.Second, func() bool {
+		var waiting int
+		pgtest.Scan(t, `SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%webhook_subscription WHERE id = $1 FOR UPDATE%'`, nil, &waiting)
+		return waiting > 0
+	}, "the recording does not wait for the subscription")
+	if _, err := holder.Exec(ctx, `UPDATE integration.webhook_delivery SET version = version + 1 WHERE id = $1`, c.id); err != nil {
+		t.Fatalf("change the delivery while the recording waits: %v", err)
+	}
+	if err := holder.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	var attempts int
+	pgtest.Scan(t, `SELECT attempts FROM integration.webhook_delivery WHERE id = $1`, []any{c.id}, &attempts)
+	if attempts != 0 {
+		t.Errorf("attempts: got %d, want 0 (the version moved)", attempts)
 	}
 }

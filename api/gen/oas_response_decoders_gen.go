@@ -291155,9 +291155,46 @@ func decodePingWebhookSubscriptionResponse(resp *http.Response) (res PingWebhook
 			}(); err != nil {
 				return res, errors.Wrap(err, "validate")
 			}
-			var wrapper PingWebhookSubscriptionOKHeaders
+			var wrapper RedeliverWebhookDeliveryOKHeaders
 			wrapper.Response = response
 			h := uri.NewHeaderDecoder(resp.Header)
+			// Parse "ETag" header.
+			{
+				cfg := uri.HeaderParameterDecodingConfig{
+					Name:    "ETag",
+					Explode: false,
+				}
+				if err := func() error {
+					if err := h.HasParam(cfg); err == nil {
+						if err := h.DecodeParam(cfg, func(d uri.Decoder) error {
+							var wrapperDotETagVal string
+							if err := func() error {
+								val, err := d.DecodeValue()
+								if err != nil {
+									return err
+								}
+
+								c, err := conv.ToString(val)
+								if err != nil {
+									return err
+								}
+
+								wrapperDotETagVal = c
+								return nil
+							}(); err != nil {
+								return err
+							}
+							wrapper.ETag.SetTo(wrapperDotETagVal)
+							return nil
+						}); err != nil {
+							return err
+						}
+					}
+					return nil
+				}(); err != nil {
+					return res, errors.Wrap(err, "parse ETag header")
+				}
+			}
 			// Parse "Idempotent-Replayed" header.
 			{
 				cfg := uri.HeaderParameterDecodingConfig{

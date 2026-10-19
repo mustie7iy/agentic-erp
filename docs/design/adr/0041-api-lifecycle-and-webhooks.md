@@ -229,6 +229,12 @@ event version breaks someone else's system.
   2xx is `dead`), leaves `failing_since` and the status alone (a 410 to a
   ping disables nothing) and does not drop it on disabling. The ping type
   is the one the delivery table allows outside the contract (000092).
+  Redelivering a ping is refused for a disabled subscription like any
+  delivery (a new `:ping` is not); a ping pending when its subscription
+  is deleted is never sent and the retention removes it. Recording an
+  attempt locks the subscription before the delivery, the order
+  redelivery, replay and disabling take them in, so none deadlocks with
+  another.
   All three are `x-agent: false`, audited, and take an Idempotency-Key as
   every POST does.
 - **Consumer review (T50h)** of the contract waits until the product owner

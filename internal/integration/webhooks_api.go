@@ -245,5 +245,5 @@ func (e *Endpoints) PingWebhookSubscription(ctx context.Context, params gen.Ping
 	if err != nil {
 		return nil, err
 	}
-	return &gen.PingWebhookSubscriptionOKHeaders{Response: deliveryToAPI(d)}, nil
+	return &gen.RedeliverWebhookDeliveryOKHeaders{ETag: gen.NewOptString(etag.Format(d.Version)), Response: deliveryToAPI(d)}, nil
 }

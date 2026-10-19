@@ -3,6 +3,7 @@ package integration_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -198,7 +199,10 @@ func TestWebhookReplay(t *testing.T) {
 // ping pings the subscription and returns its delivery id.
 func (x *dispatch) ping(sub string) string {
 	x.t.Helper()
-	got, _ := x.c.Must(200, "POST", hooks+"/"+sub+":ping", "", x.tag(sub))
+	got, tag := x.c.Must(200, "POST", hooks+"/"+sub+":ping", "", x.tag(sub))
+	if tag != fmt.Sprintf(`"%v"`, got["version"]) {
+		x.t.Errorf("ping ETag: got %s, want the delivery's version %v", tag, got["version"])
+	}
 	if got["status"] != "pending" || got["type"] != integration.PingType || got["subject"] != sub {
 		x.t.Fatalf("ping: got %v, want a pending ping about the subscription", got)
 	}

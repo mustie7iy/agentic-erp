@@ -31741,7 +31741,8 @@ type ListWebhookDeliveriesParams struct {
 	ID uuid.UUID
 	// Only deliveries in this status.
 	Status OptString `json:",omitempty,omitzero"`
-	// Only deliveries created at or after this instant.
+	// Only deliveries recorded (`created_at`) at or after this instant; `:replay`'s `since` is the events'
+	// time instead.
 	Since OptDateTime `json:",omitempty,omitzero"`
 	// Maximum number of items to return. Defaults to 50, maximum 500.
 	PageSize OptInt32 `json:",omitempty,omitzero"`

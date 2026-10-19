@@ -26,6 +26,15 @@ func (d *Dispatcher) record(ctx context.Context, c claimed, a answer) error {
 		return fmt.Errorf("integration: record webhook delivery %s: %w", c.id, err)
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
+	// The subscription is locked before the delivery, the order the API's
+	// redelivery and replay and a disabling take them in, so neither waits
+	// for the other in a cycle. A ping changes nothing of the subscription.
+	var sub subscriptionState
+	if !c.ping {
+		if sub, err = lockSubscription(ctx, tx, c.sub); err != nil {
+			return fmt.Errorf("integration: record webhook delivery %s: %w", c.id, err)
+		}
+	}
 	now := clock.Now(d.Now)
 	status, next := nextState(c, a, now)
 	var lastStatus *int
@@ -47,7 +56,7 @@ func (d *Dispatcher) record(ctx context.Context, c claimed, a answer) error {
 	}
 	// A ping only tests the endpoint: its outcome is the delivery's alone.
 	if !c.ping {
-		if err := d.afterAttempt(ctx, tx, c, a, now); err != nil {
+		if err := d.afterAttempt(ctx, tx, c, sub, a, now); err != nil {
 			return fmt.Errorf("integration: record webhook delivery %s: %w", c.id, err)
 		}
 	}
@@ -95,21 +104,31 @@ func retryAfter(id uuid.UUID, n int) (time.Duration, bool) {
 	return wait + wait*time.Duration(binary.BigEndian.Uint64(id[8:])%100)/1000, true
 }
 
+// subscriptionState is what recording an attempt reads of its
+// subscription.
+type subscriptionState struct {
+	status, url  string
+	failingSince *time.Time
+}
+
+func lockSubscription(ctx context.Context, tx pgx.Tx, id uuid.UUID) (subscriptionState, error) {
+	var s subscriptionState
+	if err := tx.QueryRow(ctx, `SELECT status, url, failing_since FROM integration.webhook_subscription WHERE id = $1 FOR UPDATE`,
+		id).Scan(&s.status, &s.url, &s.failingSince); err != nil {
+		return s, fmt.Errorf("read subscription %s: %w", id, err)
+	}
+	return s, nil
+}
+
 // afterAttempt keeps the subscription's failing_since: a delivery clears
 // it, the first failure sets it, and a failure FailingLimit after it, or a
 // 410 Gone, disables a subscription that is active or paused.
 // failing_since is the dispatcher's bookkeeping: changing it leaves the
 // version (the ETag) and updated_by alone, which only the tenant's changes
 // and disabling move.
-func (d *Dispatcher) afterAttempt(ctx context.Context, tx pgx.Tx, c claimed, a answer, now time.Time) error {
-	sub := c.sub
-	var status, url string
-	var failingSince *time.Time
-	if err := tx.QueryRow(ctx, `SELECT status, url, failing_since FROM integration.webhook_subscription WHERE id = $1 FOR UPDATE`,
-		sub).Scan(&status, &url, &failingSince); err != nil {
-		return fmt.Errorf("read subscription %s: %w", sub, err)
-	}
-	live := status == "active" || status == "paused"
+func (d *Dispatcher) afterAttempt(ctx context.Context, tx pgx.Tx, c claimed, s subscriptionState, a answer, now time.Time) error {
+	sub, url, failingSince := c.sub, s.url, s.failingSince
+	live := s.status == "active" || s.status == "paused"
 	switch {
 	case a.delivered():
 		if failingSince == nil {
