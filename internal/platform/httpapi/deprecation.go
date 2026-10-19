@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/mustie7iy/agentic-erp/api"
@@ -10,7 +11,7 @@ import (
 
 // router finds the operation a method and path reach (the generated server).
 type router interface {
-	FindRoute(method, path string) (gen.Route, bool)
+	FindPath(method string, u *url.URL) (gen.Route, bool)
 }
 
 // notice is the headers that announce a deprecated operation (ADR-0041).
@@ -37,13 +38,14 @@ func deprecations(ops map[string]api.Operation) map[string]notice {
 
 // announce sets the notice of a deprecated operation on every answer to
 // it, errors included (an unauthenticated call learns of the sunset too),
-// before the request goes on.
+// before the request goes on. A handler that set a Link of its own would
+// replace this one (the unit of work copies headers by name); none does.
 func announce(routes router, table map[string]notice, next http.Handler) http.Handler {
 	if len(table) == 0 {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if route, ok := routes.FindRoute(r.Method, r.URL.Path); ok {
+		if route, ok := routes.FindPath(r.Method, r.URL); ok {
 			if n, ok := table[route.OperationID()]; ok {
 				h := w.Header()
 				h.Set("Deprecation", n.deprecation)

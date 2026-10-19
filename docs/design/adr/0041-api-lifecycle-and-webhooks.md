@@ -21,14 +21,16 @@ event version breaks someone else's system.
 - **Event types carry the major version as a suffix**
   (`com.example.erp.<context>.<event>.v<N>`). Within a `.vN` only additions
   are allowed: no event type or field removed, no type changed, no field
-  newly required. A breaking change publishes `.vN+1` alongside `.vN` for
-  12 months.
+  newly required or no longer required. A breaking change publishes
+  `.vN+1` alongside `.vN` for 12 months.
 
 ### Deprecation
 - An operation is deprecated in the contract: `deprecated: true`,
   `x-deprecated-at: <date>`, `x-sunset: <date>` at least 365 days after it,
   and `externalDocs.url` pointing at its migration notes. The API package
   refuses a contract where these are incomplete or the notice is shorter.
+  The headers are served for the public API (`openapi.yaml`); the operator
+  and model contracts have no external consumers to warn.
 - Every answer to a deprecated operation, errors included, carries
   `Deprecation: @<unix seconds>` (RFC 9745), `Sunset: <HTTP date>`
   (RFC 8594) and `Link: <notes>; rel="deprecation"`. A middleware builds
@@ -49,7 +51,9 @@ event version breaks someone else's system.
 ### Event compatibility
 - `cmd/eventcompat` compares `api/asyncapi.yaml` with main's, message by
   CloudEvents type, and fails on a removed event type or field, a changed
-  type or a newly required field. It runs in the existing breaking-change
+  type, or a field newly required or no longer required. It compares types,
+  properties, required fields, items and alternatives; formats, enums and
+  headers are left to review. It runs in the existing breaking-change
   step of CI and in `scripts/ci-local.sh`, not as a job of its own.
 
 ### Webhooks (T50b–g)

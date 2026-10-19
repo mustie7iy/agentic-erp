@@ -313,7 +313,8 @@ aggregates. Delivery is at least once and ordered per resource; consumers
 deduplicate on `id` through their inbox table.
 
 Within a `.vN` an event changes only additively: no event type or field
-removed, no type changed, no field newly required. A breaking change
+removed, no type changed, no field newly required or no longer required.
+A breaking change
 publishes `.vN+1` beside `.vN` for 12 months. `cmd/eventcompat` checks this
 against main in the breaking-change step (ADR-0041).
 
