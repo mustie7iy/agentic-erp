@@ -37,7 +37,9 @@ type Mark struct {
 }
 
 // Mark writes a marker in the tenant's audit chain and returns it with the
-// tenant's fingerprint taken in the same transaction.
+// tenant's fingerprint taken in the same transaction. The transaction is
+// read committed, each count its own snapshot: the drill tenant must be
+// idle while it is marked, or the fingerprint matches no state.
 func (v *Verifier) Mark(ctx context.Context, tenant uuid.UUID, name string) (Mark, error) {
 	if name == "" {
 		return Mark{}, errors.New("drverify: a marker needs a name")
@@ -75,8 +77,8 @@ func (v *Verifier) markers(ctx context.Context, r *Report) error {
 			r.problem("marker %q, written before the restore point, is missing: the restore lost data it should hold", v.Restored.Name)
 		} else {
 			r.Restored = &Mark{TenantID: v.Restored.TenantID, Name: v.Restored.Name, At: at}
+			v.compare(*v.Restored, r)
 		}
-		v.compare(*v.Restored, r)
 	}
 	if v.Lost != nil {
 		_, found, err := v.find(ctx, *v.Lost)
@@ -108,13 +110,20 @@ func (v *Verifier) compare(m Mark, r *Report) {
 }
 
 // find reads when the marker was written; found is false when the restored
-// chain does not hold it.
+// chain does not hold it. A marker with its time is that very event: a
+// drill tenant holds the markers of every earlier drill, names repeated.
 func (v *Verifier) find(ctx context.Context, m Mark) (time.Time, bool, error) {
-	var at time.Time
+	var (
+		at      time.Time
+		written *time.Time
+	)
+	if !m.At.IsZero() {
+		written = &m.At
+	}
 	err := v.read(ctx, v.scope(m.TenantID), func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `SELECT occurred_at FROM audit.audit_event
-			WHERE tenant_id = $1 AND action = $2 AND detail->>'name' = $3 ORDER BY seq LIMIT 1`,
-			m.TenantID, MarkAction, m.Name).Scan(&at)
+			WHERE tenant_id = $1 AND action = $2 AND detail->>'name' = $3 AND ($4::timestamptz IS NULL OR occurred_at = $4)
+			ORDER BY seq LIMIT 1`, m.TenantID, MarkAction, m.Name, written).Scan(&at)
 	})
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):

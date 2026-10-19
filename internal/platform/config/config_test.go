@@ -871,6 +871,8 @@ func TestLoadSchema(t *testing.T) {
 		{"Environment", c.Environment, Production},
 		{"LogLevel", c.LogLevel, slog.LevelWarn},
 		{"DBMaxConns", c.DBMaxConns, int32(2)},
+		{"AppRole", c.AppRole, "erp_app"},
+		{"ControlRole", c.ControlRole, "erp_control"},
 	})
 	cases := map[string]struct {
 		settings map[string]string

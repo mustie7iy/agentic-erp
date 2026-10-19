@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -159,6 +160,14 @@ func TestVerifyRestoredCell(t *testing.T) {
 			t.Fatal(err)
 		}
 		wantProblems(t, r, "the old database has no tenant")
+		// The other way round: a tenant the restore lost.
+		empty := newCell(t)
+		lost := *empty.verifier(db.LatestVersion())
+		lost.Old = c.pool
+		if r, err = lost.Verify(ctx); err != nil {
+			t.Fatal(err)
+		}
+		wantProblems(t, r, "tenant "+ten.String()+": the restored database has no tenant with this id")
 	})
 	t.Run("a restore past its point fails", func(t *testing.T) {
 		if _, err := v.Mark(ctx, ten, "after"); err != nil {
@@ -170,6 +179,32 @@ func TestVerifyRestoredCell(t *testing.T) {
 		}
 		wantProblems(t, r, "audit.audit_event: 2 rows in the restored database, 1 in marker before",
 			"audit chain head: seq 2", "marker \"after\", written after the restore point, is present")
+	})
+	t.Run("a marker's name is that of an earlier drill's", func(t *testing.T) {
+		again := *v
+		second, err := v.Mark(ctx, ten, "before")
+		if err != nil {
+			t.Fatal(err)
+		}
+		lost := second
+		again.Restored, again.Lost = &before, &lost
+		r, err := again.Verify(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Found by its time: the first "before" is the one restored, the
+		// second the one "lost", which is present.
+		if r.Restored == nil || !r.Restored.At.Equal(before.At) {
+			t.Errorf("restored marker: got %+v, want the first, written at %s", r.Restored, before.At)
+		}
+		wantProblems(t, r, "audit.audit_event: 3 rows", "audit chain head: seq 3", "marker \"before\", written after the restore point, is present")
+		gone := *v
+		gone.Lost = &drverify.Mark{TenantID: ten, Name: "before", At: before.At.Add(time.Second)}
+		gone.Restored = &drverify.Mark{TenantID: ten, Name: "before", At: before.At} // no fingerprint to compare
+		if r, err = gone.Verify(ctx); err != nil {
+			t.Fatal(err)
+		}
+		wantProblems(t, r)
 	})
 	t.Run("a restore without the marker before its point fails", func(t *testing.T) {
 		missing := *v
@@ -270,6 +305,13 @@ func TestDatabaseFailures(t *testing.T) {
 		for name, f := range map[string]drverify.Verifier{
 			"restored": {Begin: refused, Want: 1},
 			"old":      {Pool: c.pool, OldBegin: refused, Old: c.pool, AppRole: "erp_app", ControlRole: "erp_control"},
+			// The tenant's fingerprint there, then the old tenants' list refused.
+			"old tenants": {Pool: c.pool, OldBegin: func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+				if s.TenantID == uuid.Nil {
+					return nil, pgtest.ErrInjected
+				}
+				return c.pool.Begin(ctx, s)
+			}, Old: c.pool, AppRole: "erp_app", ControlRole: "erp_control"},
 		} {
 			if _, err := f.Verify(ctx); !errors.Is(err, pgtest.ErrInjected) {
 				t.Errorf("%s: got %v, want the refused begin", name, err)

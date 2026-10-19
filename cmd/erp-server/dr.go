@@ -35,8 +35,10 @@ var drSettings = database.Settings{LockTimeout: 5 * time.Second}
 // must be there, the tenant's fingerprint as it was), -lost the one
 // written after (it must not). ERP_DR_OLD_DATABASE_URL, when set, is the
 // database the cell ran on before: every tenant's fingerprint is compared
-// with its own there.
-func drCmd(ctx context.Context, args []string, cfg platformconfig.Config, getenv func(string) string, stdout, stderr io.Writer) int {
+// with its own there. Like migrate, it reads only the database settings
+// (config.LoadSchema): a drill runs it as a one-off pod against a side
+// database, with no keys, issuers or stores.
+func drCmd(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || (args[0] != "mark" && args[0] != "verify") {
 		fmt.Fprintln(stderr, "erp-server dr: mark or verify (erp-server dr mark -tenant ID -name NAME; erp-server dr verify [-restored FILE] [-lost FILE])")
 		return 2
@@ -51,6 +53,11 @@ func drCmd(ctx context.Context, args []string, cfg platformconfig.Config, getenv
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
+		return 2
+	}
+	cfg, err := platformconfig.LoadSchema(getenv)
+	if err != nil {
+		fmt.Fprintln(stderr, "erp-server dr: configuration:", err)
 		return 2
 	}
 	run := func(v *drverify.Verifier) (any, error) { return drVerify(ctx, v, *restored, *lost, getenv) }
@@ -75,7 +82,7 @@ func drCmd(ctx context.Context, args []string, cfg platformconfig.Config, getenv
 func withVerifier(ctx context.Context, cfg platformconfig.Config, fn func(*drverify.Verifier) (any, error)) (any, error) {
 	pool, err := database.Open(ctx, cfg.DatabaseURL, drSettings)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("the restored database: %w", err)
 	}
 	defer pool.Close()
 	return fn(&drverify.Verifier{Pool: pool, AppRole: cfg.AppRole, ControlRole: cfg.ControlRole, Want: db.LatestVersion()})

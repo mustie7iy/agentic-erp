@@ -12,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/db"
-	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -34,8 +33,7 @@ func TestDRCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = conn.Close(ctx) // set up; the commands open their own connections
-	env := environment(t, authntest.New(t), "")
-	env["DATABASE_URL"] = u
+	env := map[string]string{"DATABASE_URL": u, "ERP_ENV": "development"}
 	dir := t.TempDir()
 	mark := func(name string) string {
 		t.Helper()
@@ -77,6 +75,7 @@ func TestDRCommand(t *testing.T) {
 		{"a lost marker that is not JSON", []string{"dr", "verify", "-lost", junk}, nil, 1, "junk.json"},
 		{"an old database out of reach", []string{"dr", "verify"}, map[string]string{"ERP_DR_OLD_DATABASE_URL": "postgres://postgres@127.0.0.1:1/x?connect_timeout=1"}, 1, "the old database"},
 		{"a database out of reach", []string{"dr", "verify"}, map[string]string{"DATABASE_URL": "postgres://postgres@127.0.0.1:1/x?connect_timeout=1"}, 1, "erp-server dr verify"},
+		{"no database", []string{"dr", "verify"}, map[string]string{"DATABASE_URL": ""}, 2, "DATABASE_URL is required"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			e := map[string]string{}

@@ -80,6 +80,9 @@ func cli(ctx context.Context, args []string, getenv func(string) string, stdout,
 	if len(args) > 0 && args[0] == "migrate" {
 		return migrateCmd(ctx, args[1:], getenv, stderr)
 	}
+	if len(args) > 0 && args[0] == "dr" {
+		return drCmd(ctx, args[1:], getenv, stdout, stderr)
+	}
 	cfg, err := config.Load(getenv)
 	if err != nil {
 		fmt.Fprintln(stderr, "erp-server: configuration:", err)
@@ -100,8 +103,6 @@ func cli(ctx context.Context, args []string, getenv func(string) string, stdout,
 			return pricesCmd(ctx, args[1:], cfg, stdout, stderr)
 		case "certify":
 			return certifyCmd(ctx, args[1:], cfg, stdout, stderr)
-		case "dr":
-			return drCmd(ctx, args[1:], cfg, getenv, stdout, stderr)
 		}
 		fmt.Fprintf(stderr, "erp-server: unknown command %q (the server takes no arguments; erp-server provision creates a tenant, erp-server rewrap moves tenant keys onto the current master, erp-server import brings an exported tenant in, erp-server register-provider registers a tenant's identity provider, erp-server migrate applies the pending migrations, erp-server prices load records models' prices, erp-server certify load records an evaluation's certification, erp-server dr verify checks a restored cell)\n", args[0])
 		return 2

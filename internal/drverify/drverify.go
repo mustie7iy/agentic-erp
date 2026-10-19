@@ -74,6 +74,9 @@ func (v *Verifier) Verify(ctx context.Context) (Report, error) {
 			return Report{}, err
 		}
 	}
+	if err := v.gone(ctx, tenants, &r); err != nil {
+		return Report{}, err
+	}
 	if err := v.markers(ctx, &r); err != nil {
 		return Report{}, err
 	}
@@ -107,7 +110,37 @@ func (v *Verifier) cell(ctx context.Context, r *Report) ([]uuid.UUID, error) {
 	return ids, nil
 }
 
-// tenant checks one tenant in its scope, in one snapshot.
+// gone reports every tenant of the old database the restored one lacks:
+// the largest loss a restore can have, which the restored database alone
+// cannot show.
+func (v *Verifier) gone(ctx context.Context, restored []uuid.UUID, r *Report) error {
+	if v.Old == nil {
+		return nil
+	}
+	tx, err := database.BeginOr(ctx, v.Old, v.OldBegin, database.Scope{Role: v.ControlRole, ReadOnly: true})
+	if err != nil {
+		return fmt.Errorf("drverify: list the old database's tenants: begin: %w", err)
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx)) // read-only: ending it cannot lose anything
+	old, err := tenancy.AllTenants(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("drverify: list the old database's tenants: %w", err)
+	}
+	have := map[uuid.UUID]bool{}
+	for _, id := range restored {
+		have[id] = true
+	}
+	for _, t := range old {
+		if !have[t.ID] {
+			r.problem("tenant %s: the restored database has no tenant with this id; the old database has it", t.ID)
+		}
+	}
+	return nil
+}
+
+// tenant checks one tenant in its scope. The transaction is read
+// committed; a restored database is quiescent while it is verified, so the
+// statements see one state.
 func (v *Verifier) tenant(ctx context.Context, id uuid.UUID, r *Report) error {
 	var fp offboarding.Fingerprint
 	err := v.read(ctx, v.scope(id), func(tx pgx.Tx) error {
