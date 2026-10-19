@@ -40,8 +40,8 @@ const maxDepth = 32
 // EventChanges lists what changed from base to head, two AsyncAPI
 // documents, that breaks a consumer of an event version: within a .vN
 // type only additions are allowed, so a removed event type, a removed
-// field, a changed type or a newly required field needs a .vN+1 published
-// alongside (ADR-0041). Messages are matched by their CloudEvents type.
+// field, a changed type or a field newly required or no longer required
+// needs a .vN+1 published alongside (ADR-0041). Messages are matched by their CloudEvents type.
 // Only types, properties, required, items and the alternatives are
 // compared: formats, enums, consts and headers are left to review.
 func EventChanges(base, head []byte) ([]string, error) {

@@ -4707,7 +4707,7 @@
        },
        {
         "s": "D",
-        "t": "Events change only additively within a .vN: no removed event or field, type change or newly required field",
+        "t": "Events change only additively within a .vN: no removed event or field, type change, or field newly required or no longer required",
         "r": "api.EventChanges · cmd/eventcompat · T50a",
         "c": []
        },
