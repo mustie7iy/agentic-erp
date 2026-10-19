@@ -48,6 +48,13 @@ func check(ctx context.Context, admin *apitools.Client, ch Check, saved map[stri
 	for _, k := range keys {
 		v := want.(map[string]any)[k] // fill keeps a map a map
 		got, ok := at(doc, k)
+		m, _ := v.(map[string]any) // a value that is no map is no $not
+		if not, isNot := m["$not"]; isNot {
+			if ok && same(got, not) {
+				return fmt.Errorf("%s %s: got %s, want anything else", path, k, text(got)), nil
+			}
+			continue
+		}
 		if !ok || !same(got, v) {
 			return fmt.Errorf("%s %s: got %s, want %s", path, k, text(got), text(v)), nil
 		}

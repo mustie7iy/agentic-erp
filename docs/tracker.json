@@ -6160,6 +6160,12 @@
         "t": "Suites: AP exceptions (credit note, duplicate, injected instructions) and capture (on an order, without one)",
         "r": "evals/ap_exceptions · evals/capture · T43b",
         "c": []
+       },
+       {
+        "s": "D",
+        "t": "Suites: configuration (submitted, not activated, draft injection), test (approve, needs evidence, injected rationale) and migration (rehearsals only, a connector asking for a real load)",
+        "r": "evals/configuration · evals/test · evals/migration · T43c",
+        "c": []
        }
       ]
      },

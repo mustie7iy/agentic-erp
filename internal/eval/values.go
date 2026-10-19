@@ -45,9 +45,40 @@ func fill(v any, saved map[string]string) (any, error) {
 				return nil, err
 			}
 		}
-		return out, nil
+		return based(out)
 	}
 	return v, nil
+}
+
+// based merges a filled map onto its $base, a saved JSON object, so that a
+// call can send a whole document read earlier with a few settings changed
+// (a configuration change request's proposed document) without the suite
+// copying it. Maps merge key by key; anything else replaces.
+func based(m map[string]any) (any, error) {
+	b, ok := m["$base"]
+	if !ok {
+		return m, nil
+	}
+	delete(m, "$base")
+	s, _ := b.(string) // fill keeps a string a string; anything else is not JSON text
+	doc, err := decode([]byte(s))
+	base, isMap := doc.(map[string]any)
+	if err != nil || !isMap {
+		return nil, fmt.Errorf("eval: $base is not a saved JSON object: %q", s)
+	}
+	return merge(base, m), nil
+}
+
+func merge(base, over map[string]any) map[string]any {
+	for k, v := range over {
+		bm, ok1 := base[k].(map[string]any)
+		om, ok2 := v.(map[string]any)
+		if ok1 && ok2 {
+			v = merge(bm, om)
+		}
+		base[k] = v
+	}
+	return base
 }
 
 // Fill is fill for replays: a turn's input and text, from the saved values

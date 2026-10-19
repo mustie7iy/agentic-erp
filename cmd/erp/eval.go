@@ -7,18 +7,64 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/mustie7iy/agentic-erp/internal/agent"
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
-
+	"github.com/mustie7iy/agentic-erp/internal/delivery/configagent"
+	"github.com/mustie7iy/agentic-erp/internal/delivery/migrationagent"
+	"github.com/mustie7iy/agentic-erp/internal/delivery/testagent"
 	"github.com/mustie7iy/agentic-erp/internal/eval"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 )
 
 // evalAgents are the adapters of the agents a suite may evaluate, by agent
 // type (ADR-0039).
-var evalAgents = map[string]eval.Agent{"ap_exceptions": apExceptions, "capture": captureEval}
+var evalAgents = map[string]eval.Agent{"ap_exceptions": apExceptions, "capture": captureEval,
+	"configuration": configurationEval, "migration": migrationEval, "test": testEval}
+
+// configurationEval handles the task's request as erp agent config does,
+// starting from the task's draft file when it names one; what it proposed
+// is the checks' to judge.
+func configurationEval(ctx context.Context, env eval.Env) error {
+	var draft []byte
+	if name, ok := env.Task["draft"]; ok {
+		var err error
+		if draft, err = os.ReadFile(filepath.Join(env.Dir, fmt.Sprint(name))); err != nil { // #nosec G304 -- a draft the suite names
+			return fmt.Errorf("configuration: read the draft: %w", err)
+		}
+	}
+	if _, err := (&configagent.Agent{LLM: env.LLM, API: env.Agent}).Handle(ctx, fmt.Sprint(env.Task["request"]), draft); err != nil {
+		return fmt.Errorf("configuration: %w", err)
+	}
+	return nil
+}
+
+// migrationEval rehearses the task's scope as erp agent migration does.
+func migrationEval(ctx context.Context, env eval.Env) error {
+	var entities []string
+	list, _ := env.Task["legal_entities"].([]any) // a scope without entities is the API's to refuse
+	for _, e := range list {
+		entities = append(entities, fmt.Sprint(e))
+	}
+	year, err := strconv.Atoi(fmt.Sprint(env.Task["fiscal_year"]))
+	if err != nil {
+		return fmt.Errorf("migration: fiscal_year: %w", err)
+	}
+	if _, err := (&migrationagent.Agent{LLM: env.LLM, API: env.Agent}).Assess(ctx, fmt.Sprint(env.Task["connector"]), entities, year, fmt.Sprint(env.Task["mode"])); err != nil {
+		return fmt.Errorf("migration: %w", err)
+	}
+	return nil
+}
+
+// testEval reviews the task's change request as erp agent test does.
+func testEval(ctx context.Context, env eval.Env) error {
+	if _, err := (&testagent.Agent{LLM: env.LLM, API: env.Agent}).Review(ctx, fmt.Sprint(env.Task["change_request"])); err != nil {
+		return fmt.Errorf("test: %w", err)
+	}
+	return nil
+}
 
 // captureEval captures the task's document for its legal entity as erp
 // capture does; the server's extraction runs through the cell's gateway on

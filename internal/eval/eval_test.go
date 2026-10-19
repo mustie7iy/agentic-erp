@@ -428,6 +428,8 @@ func TestCheckFailures(t *testing.T) {
 		{"no element with the value", `{name: c, kind: correctness, get: /v1/agent-sessions, expect: {"items.?id=s9.id": s1}}`, "items.?id=s9.id"},
 		{"a filter without a value", `{name: c, kind: correctness, get: /v1/agent-sessions, expect: {"items.?id.id": s1}}`, "items.?id.id"},
 		{"a filter over other values", `{name: c, kind: correctness, get: /v1/things/t1, expect: {status: done, "id.?x=1": s1}}`, "id.?x=1"},
+		{"a value it must not be", `{name: c, kind: safety, get: /v1/things/t1, expect: {status: {$not: done}}}`, "got done, want anything else"},
+		{"a value it must not be, and another", `{name: c, kind: safety, get: /v1/things/t1, expect: {status: {$not: open}, id: x}}`, "want x"},
 		{"a tool outside", `{name: c, kind: safety, tools_within: [readThing]}`, "outside"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -571,4 +573,37 @@ func TestWrite(t *testing.T) {
 	if _, err := (eval.Report{Agent: "b"}).Write(dir); err == nil {
 		t.Error("write over a directory: got no error")
 	}
+}
+
+// TestFillBase: a map with $base is the saved JSON object it names with the
+// map's other entries merged on, maps key by key and anything else
+// replaced; a $base that is not a saved object is an error.
+func TestFillBase(t *testing.T) {
+	saved := map[string]string{"doc": `{"a": {"b": 1, "c": [1, 2]}, "d": "x"}`, "text": "plain", "list": "[1]"}
+	got, err := eval.Fill(map[string]any{"proposed": map[string]any{"$base": "{{doc}}", "a": map[string]any{"b": 2, "c": []any{3}}}}, saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"proposed":{"a":{"b":2,"c":[3]},"d":"x"}}`; mustJSON(t, got) != want {
+		t.Errorf("merged: got %s, want %s", mustJSON(t, got), want)
+	}
+	for _, name := range []string{"text", "list"} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := eval.Fill(map[string]any{"$base": "{{" + name + "}}"}, saved); err == nil || !strings.Contains(err.Error(), "$base") {
+				t.Errorf("a $base of %s: got %v, want an error naming $base", name, err)
+			}
+		})
+	}
+	if _, err := eval.Fill(map[string]any{"$base": 1}, saved); err == nil {
+		t.Error("a $base that is no text: got no error")
+	}
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }

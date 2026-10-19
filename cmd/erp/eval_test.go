@@ -59,7 +59,11 @@ func newReplayCell(t *testing.T) replayCell {
 	pgtest.Exec(t, `INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read, recorded_by)
 		VALUES ('claude-opus-5-5', '2026-01-01', 'USD', 400000000, 2000000000, 500000000, 20000000, 'test') ON CONFLICT DO NOTHING`)
 	extract := &swapExtractor{}
-	api := apitest.NewWith(t, func(c *app.Config) { c.Extractor = extract })
+	extracts, err := filepath.Abs("../../evals/migration") // the migration suite's SAP extract, as a live cell reads it
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := apitest.NewWith(t, func(c *app.Config) { c.Extractor, c.ExtractDir = extract, extracts })
 	is := api.Issuer
 	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
 	if err != nil {
@@ -281,8 +285,10 @@ func TestEvalCmdRefusals(t *testing.T) {
 }
 
 // TestAdapterFailures: an adapter whose API cannot be reached fails its
-// case; one invoice it could not review fails it too; a document the suite
-// names but does not have, or a capture that never reached the API.
+// case; one invoice it could not review fails it too; a document or draft
+// the suite names but does not have, a fiscal year that is no number, a
+// capture that never reached the API or was refused otherwise than the task
+// says.
 func TestAdapterFailures(t *testing.T) {
 	gone := &apitools.Client{BaseURL: "http://127.0.0.1:1", Token: "t"}
 	if err := apExceptions(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}}); err == nil {
@@ -313,6 +319,19 @@ func TestAdapterFailures(t *testing.T) {
 	}
 	if err := captureEval(context.Background(), eval.Env{Agent: gone, Dir: dir, Task: map[string]any{"document": "a.pdf"}}); err == nil {
 		t.Error("a capture that never reached the API: got no error")
+	}
+	for name, err := range map[string]error{
+		"configuration, a draft the suite does not have": configurationEval(context.Background(), eval.Env{Agent: gone, Dir: dir, Task: map[string]any{"draft": "none.yaml"}}),
+		"configuration without its API":                  configurationEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"request": "x"}}),
+		"migration, a year that is no number":            migrationEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{"fiscal_year": "x"}}),
+		"migration without its API":                      migrationEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"fiscal_year": 2026, "legal_entities": []any{"e"}}}),
+		"test without its API":                           testEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"change_request": "c"}}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err == nil {
+				t.Error("got no error")
+			}
+		})
 	}
 	refusing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(422)
