@@ -681,6 +681,12 @@ type Handler interface {
 	//
 	// GET /v1/uploads/{id}
 	GetUpload(ctx context.Context, params GetUploadParams) (GetUploadRes, error)
+	// GetWebhookDelivery implements getWebhookDelivery operation.
+	//
+	// Returns one delivery: its event, status and the outcome of its last attempt.
+	//
+	// GET /v1/webhook-subscriptions/{id}/deliveries/{delivery_id}
+	GetWebhookDelivery(ctx context.Context, params GetWebhookDeliveryParams) (GetWebhookDeliveryRes, error)
 	// GetWebhookSubscription implements getWebhookSubscription operation.
 	//
 	// Returns one webhook subscription, without its secret.
@@ -974,6 +980,13 @@ type Handler interface {
 	//
 	// GET /v1/supplier-invoices
 	ListSupplierInvoices(ctx context.Context, params ListSupplierInvoicesParams) (ListSupplierInvoicesRes, error)
+	// ListWebhookDeliveries implements listWebhookDeliveries operation.
+	//
+	// The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by:
+	// `created_at`.
+	//
+	// GET /v1/webhook-subscriptions/{id}/deliveries
+	ListWebhookDeliveries(ctx context.Context, params ListWebhookDeliveriesParams) (ListWebhookDeliveriesRes, error)
 	// ListWebhookSubscriptions implements listWebhookSubscriptions operation.
 	//
 	// The tenant's webhook subscriptions, newest first; deleted ones only when asked for with
@@ -1024,6 +1037,17 @@ type Handler interface {
 	//
 	// POST /v1/webhook-subscriptions/{id}:pause
 	PauseWebhookSubscription(ctx context.Context, params PauseWebhookSubscriptionParams) (PauseWebhookSubscriptionRes, error)
+	// PingWebhookSubscription implements pingWebhookSubscription operation.
+	//
+	// Queues a synthetic `webhook.ping` CloudEvent (data: the subscription's `subscription_id`), signed
+	// like any other, which the dispatcher sends at once, also while the subscription is paused or
+	// disabled. The request does not wait for the endpoint: the answer is the pending delivery, whose
+	// `status`, `last_status` and `last_error` tell the outcome once attempted. A ping is attempted once,
+	// is not retried and does not count toward the subscription's failures. Refused for a deleted
+	// subscription (409 `integration.webhook_deleted`).
+	//
+	// POST /v1/webhook-subscriptions/{id}:ping
+	PingWebhookSubscription(ctx context.Context, params PingWebhookSubscriptionParams) (PingWebhookSubscriptionRes, error)
 	// PostGoodsReceipt implements postGoodsReceipt operation.
 	//
 	// Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122,
@@ -1103,6 +1127,15 @@ type Handler interface {
 	//
 	// POST /v1/agent-sessions/{id}/tool-calls
 	RecordAgentToolCall(ctx context.Context, req *AgentToolCallCreate, params RecordAgentToolCallParams) (RecordAgentToolCallRes, error)
+	// RedeliverWebhookDelivery implements redeliverWebhookDelivery operation.
+	//
+	// Queues the delivery again, whatever its status: `pending` with no attempts, sent in its resource's
+	// event order under its original `webhook-id`. Refused for a deleted subscription (409
+	// `integration.webhook_deleted`) and a disabled one (409 `integration.webhook_disabled`; resume it
+	// first).
+	//
+	// POST /v1/webhook-subscriptions/{id}/deliveries/{delivery_id}:redeliver
+	RedeliverWebhookDelivery(ctx context.Context, params RedeliverWebhookDeliveryParams) (RedeliverWebhookDeliveryRes, error)
 	// RejectApprovalRequest implements rejectApprovalRequest operation.
 	//
 	// Rejects the request with a mandatory comment. Human-only; the requester cannot reject. Besides
@@ -1179,6 +1212,17 @@ type Handler interface {
 	//
 	// POST /v1/contracts/{id}:renew
 	RenewContract(ctx context.Context, req *ContractRenew, params RenewContractParams) (RenewContractRes, error)
+	// ReplayWebhookDeliveries implements replayWebhookDeliveries operation.
+	//
+	// Queues again every kept delivery of the subscription whose event occurred at or after `since`,
+	// whatever its status (delivered, dead and dropped ones too; pings are left out): each becomes
+	// `pending` with no attempts, and they go out in event order per resource. `since` is within the
+	// 30-day retention (422 `integration.invalid_replay_since`). The endpoint receives each event under
+	// its original `webhook-id`. Refused for a deleted subscription (409 `integration.webhook_deleted`)
+	// and a disabled one (409 `integration.webhook_disabled`; resume it first).
+	//
+	// POST /v1/webhook-subscriptions/{id}:replay
+	ReplayWebhookDeliveries(ctx context.Context, req *WebhookReplay, params ReplayWebhookDeliveriesParams) (ReplayWebhookDeliveriesRes, error)
 	// ReportBankFileStatus implements reportBankFileStatus operation.
 	//
 	// Applies the bank's status report (pain.002, camt.054) to a transmitted file: `accepted` moves it to

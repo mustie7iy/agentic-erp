@@ -25,12 +25,20 @@ CREATE TRIGGER webhook_subscription_touch BEFORE UPDATE ON integration.webhook_s
   WHEN (NEW.version <> OLD.version OR to_jsonb(NEW) - 'failing_since' <> to_jsonb(OLD) - 'failing_since')
   EXECUTE FUNCTION platform.touch();
 
-GRANT SELECT (tenant_id, id, subscription_id, event_id, subject, occurred_at, status, next_attempt_at, created_at), DELETE
+-- A ping (T50g) tests an endpoint with a synthetic `webhook.ping` event,
+-- not one of the contract's: one attempt, sent whatever the subscription's
+-- status but deleted, and its outcome left on the delivery.
+ALTER TABLE integration.webhook_delivery DROP CONSTRAINT webhook_delivery_type_check,
+  ADD CONSTRAINT webhook_delivery_type_check CHECK (type ~ '^com\.example\.erp\.[a-z_]+\.[a-z_]+\.v[0-9]+$' OR type = 'webhook.ping');
+
+GRANT SELECT (tenant_id, id, subscription_id, event_id, type, subject, occurred_at, status, next_attempt_at, created_at), DELETE
   ON integration.webhook_delivery TO erp_worker;
 GRANT SELECT (tenant_id, id, status) ON integration.webhook_subscription TO erp_worker;
 
 -- A delivery waits for the earlier pending ones of its subscription and
 -- resource (subject).
 CREATE INDEX webhook_delivery_order ON integration.webhook_delivery (tenant_id, subscription_id, subject, occurred_at, event_id) WHERE status = 'pending';
+-- A subscription's deliveries are listed newest first (T50g).
+CREATE INDEX webhook_delivery_subscription ON integration.webhook_delivery (tenant_id, subscription_id, created_at, id);
 -- The retention deletes by age.
 CREATE INDEX webhook_delivery_created ON integration.webhook_delivery (created_at);

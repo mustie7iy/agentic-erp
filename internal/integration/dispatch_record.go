@@ -45,8 +45,11 @@ func (d *Dispatcher) record(ctx context.Context, c claimed, a answer) error {
 	if tag.RowsAffected() == 0 {
 		return nil
 	}
-	if err := d.afterAttempt(ctx, tx, c, a, now); err != nil {
-		return fmt.Errorf("integration: record webhook delivery %s: %w", c.id, err)
+	// A ping only tests the endpoint: its outcome is the delivery's alone.
+	if !c.ping {
+		if err := d.afterAttempt(ctx, tx, c, a, now); err != nil {
+			return fmt.Errorf("integration: record webhook delivery %s: %w", c.id, err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("integration: commit webhook delivery %s: %w", c.id, err)
@@ -56,12 +59,13 @@ func (d *Dispatcher) record(ctx context.Context, c claimed, a answer) error {
 
 // nextState is the delivery's status after the attempt and, while pending,
 // when it is attempted next: any 2xx delivers, a 410 Gone dead letters at
-// once, anything else retries on the schedule until RetryWindow.
+// once, anything else retries on the schedule until RetryWindow; a ping
+// is attempted once.
 func nextState(c claimed, a answer, now time.Time) (string, *time.Time) {
 	switch {
 	case a.delivered():
 		return "delivered", nil
-	case a.status == http.StatusGone:
+	case a.status == http.StatusGone, c.ping:
 		return "dead", nil
 	}
 	wait, ok := retryAfter(c.id, int(c.attempts)+1)
@@ -133,7 +137,8 @@ func setSubscription(ctx context.Context, tx pgx.Tx, sub uuid.UUID, sql string, 
 
 // disable stops deliveries to a subscription, audited as the dispatcher's:
 // a change the tenant sees, so it moves the version. Its pending
-// deliveries are dropped; resuming it does not bring them back.
+// deliveries are dropped, pings aside; resuming it does not bring them
+// back.
 func (d *Dispatcher) disable(ctx context.Context, tx pgx.Tx, c claimed, reason, url string, now time.Time) error {
 	sub, tenant := c.sub, c.tenant
 	if err := setSubscription(ctx, tx, sub, `UPDATE integration.webhook_subscription SET status = 'disabled', disabled_reason = $3,
@@ -141,7 +146,7 @@ func (d *Dispatcher) disable(ctx context.Context, tx pgx.Tx, c claimed, reason, 
 		return err
 	}
 	if err := setSubscription(ctx, tx, sub, `UPDATE integration.webhook_delivery SET status = 'dropped', next_attempt_at = NULL, version = version + 1
-		WHERE subscription_id = $1 AND status = 'pending'`, sub); err != nil {
+		WHERE subscription_id = $1 AND status = 'pending' AND type <> $2`, sub, PingType); err != nil {
 		return err
 	}
 	actor := reqctx.Principal{ID: DispatchActor, Kind: reqctx.KindSystem, TenantID: tenant}
@@ -154,20 +159,26 @@ func (d *Dispatcher) disable(ctx context.Context, tx pgx.Tx, c claimed, reason, 
 	return nil
 }
 
-// Prune deletes the deliveries older than DeliveryRetention, held ones
-// too; it returns how many.
-func (d *Dispatcher) Prune(ctx context.Context) (int64, error) {
+// Prune deletes up to PruneBatch of the deliveries older than
+// DeliveryRetention, held ones too; it returns how many and whether it
+// found a full batch, so more may be left.
+func (d *Dispatcher) Prune(ctx context.Context) (n int64, more bool, err error) {
 	tx, err := database.BeginOr(ctx, d.Pool, d.Begin, database.Scope{Role: d.WorkerRole})
 	if err != nil {
-		return 0, fmt.Errorf("integration: prune webhook deliveries: %w", err)
+		return 0, false, fmt.Errorf("integration: prune webhook deliveries: %w", err)
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	tag, err := tx.Exec(ctx, `DELETE FROM integration.webhook_delivery WHERE created_at < $1`, clock.Now(d.Now).Add(-DeliveryRetention))
+	batch := pruneBatch
+	if d.PruneBatch > 0 {
+		batch = d.PruneBatch
+	}
+	tag, err := tx.Exec(ctx, `DELETE FROM integration.webhook_delivery WHERE (tenant_id, id) IN (
+		SELECT tenant_id, id FROM integration.webhook_delivery WHERE created_at < $1 LIMIT $2)`, clock.Now(d.Now).Add(-DeliveryRetention), batch)
 	if err != nil {
-		return 0, fmt.Errorf("integration: prune webhook deliveries: %w", err)
+		return 0, false, fmt.Errorf("integration: prune webhook deliveries: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("integration: commit the webhook delivery pruning: %w", err)
+		return 0, false, fmt.Errorf("integration: commit the webhook delivery pruning: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	return tag.RowsAffected(), tag.RowsAffected() == int64(batch), nil
 }

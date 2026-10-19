@@ -529,17 +529,25 @@ func TestWebhookPauseHolds(t *testing.T) {
 }
 
 // TestWebhookDispatchPrune: deliveries past the retention are deleted,
-// held ones too; a second pruning finds none.
+// held ones too, in batches: a full batch says more may be left; a last
+// pruning finds none.
 func TestWebhookDispatchPrune(t *testing.T) {
 	x := newDispatch(t)
 	x.hook(x.c, `"ledger.*"`)
-	old := x.event(x.c, uuid.New())
+	old := []string{x.event(x.c, uuid.New()), x.event(x.c, uuid.New())}
 	kept := x.event(x.c, uuid.New())
-	pgtest.Exec(t, `UPDATE integration.webhook_delivery SET created_at = $2, version = version + 1 WHERE id = $1`, old, x.clock.now().Add(-integration.DeliveryRetention-time.Minute))
-	for i, want := range []int64{1, 0} {
-		n, err := x.d.Prune(context.Background())
-		if err != nil || n != want {
-			t.Fatalf("prune %d: got %d (%v), want %d", i+1, n, err, want)
+	pgtest.Exec(t, `UPDATE integration.webhook_delivery SET created_at = $2, version = version + 1 WHERE id = ANY ($1::uuid[])`, old, x.clock.now().Add(-integration.DeliveryRetention-time.Minute))
+	x.d.PruneBatch = 1
+	for i, want := range []struct {
+		n    int64
+		more bool
+	}{{1, true}, {1, true}, {0, false}} {
+		n, more, err := x.d.Prune(context.Background())
+		if err != nil {
+			t.Fatalf("prune %d: %v", i+1, err)
+		}
+		if n != want.n || more != want.more {
+			t.Errorf("prune %d: got %d (more %v), want %d (more %v)", i+1, n, more, want.n, want.more)
 		}
 	}
 	var left []string
@@ -646,7 +654,7 @@ func TestWebhookDispatchPruneFailures(t *testing.T) {
 	for _, f := range []*faults{{beginAt: 1}, {failAt: 1}, {commitAt: 1}} {
 		x := newDispatch(t)
 		x.d.Begin = f.begin(pgtest.Pool(t))
-		if _, err := x.d.Prune(context.Background()); !errors.Is(err, pgtest.ErrInjected) {
+		if _, _, err := x.d.Prune(context.Background()); !errors.Is(err, pgtest.ErrInjected) {
 			t.Errorf("%+v: got %v, want the injected failure", f, err)
 		}
 	}

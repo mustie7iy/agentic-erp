@@ -91,8 +91,8 @@ event version breaks someone else's system.
   specification's reference vector, fixes the format for subscribers and
   is checked by the tests.
 - **Governance:** subscription changes are `x-agent: false` (an agent never
-  routes tenant data to a new endpoint); reads and the ping are
-  `x-autonomy: read`. Every change writes an audit record (ADR-0011).
+  routes tenant data to a new endpoint), and so are redelivery, replay
+  and the ping (T50g); reads are GETs, allowed at every autonomy level. Every change writes an audit record (ADR-0011).
 - **Contract and schema (T50c):** `integration.webhook_subscription` and
   `integration.webhook_delivery` (migration 000091), permissions
   `integration.webhook.read` and `.manage`. Deleting a subscription sets
@@ -199,7 +199,38 @@ event version breaks someone else's system.
   `failing_since`, a conditional GET (`If-None-Match`, not served today)
   must not answer 304 for a subscription. The 10 in flight and the
   50 per second are per replica, as the API's rate limits are. Deliveries
-  older than 30 days are deleted hourly by the worker role.
+  older than 30 days are deleted hourly by the worker role, at most 1000
+  per transaction and the next batch at once while one is full (T50g).
+  A delivery of another resource that a replica is sending when the
+  subscription is disabled may reach the endpoint and still be recorded
+  `dropped`: its recording finds the version moved.
+- **Operations (T50g):** a subscription's deliveries are listed (newest
+  first, by `status` and `since`, without bodies) and read one by one
+  under `/v1/webhook-subscriptions/{id}/deliveries`. None of the
+  operations calls the endpoint in the request; each leaves pending
+  deliveries for the dispatcher, which sends them under their event's
+  `webhook-id`, so a deduplicating endpoint takes an event once.
+  `:redeliver` (If-Match: the delivery's version) resets one delivery,
+  whatever its status, to `pending` with no attempts and its last answer
+  cleared. `:replay` with `since` at most 30 days back (and not in the
+  future) does the same to every kept delivery of the subscription whose
+  event occurred since then, `delivered`, `dead` and `dropped` ones
+  included, pings left out; the dispatcher's order per resource sends
+  them in event order, and a second replay leaves the same state. Both
+  are refused for a deleted or disabled subscription (409
+  `integration.webhook_disabled`: resume it first, since disabling drops
+  pending deliveries), lock the subscription so a concurrent disabling
+  waits or is seen, and are audited. `:ping` queues a synthetic
+  `webhook.ping` CloudEvent (subject and `data.subscription_id`: the
+  subscription; source `/erp/integration/webhooks`), signed like any
+  other, and answers its delivery, from which the tenant reads the
+  outcome. The dispatcher sends a ping also while the subscription is
+  paused or disabled (not deleted), makes one attempt (anything but a
+  2xx is `dead`), leaves `failing_since` and the status alone (a 410 to a
+  ping disables nothing) and does not drop it on disabling. The ping type
+  is the one the delivery table allows outside the contract (000092).
+  All three are `x-agent: false`, audited, and take an Idempotency-Key as
+  every POST does.
 - **Consumer review (T50h)** of the contract waits until the product owner
   names the pilot partner.
 

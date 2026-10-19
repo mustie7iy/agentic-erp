@@ -702,6 +702,12 @@ type Invoker interface {
 	//
 	// GET /v1/uploads/{id}
 	GetUpload(ctx context.Context, params GetUploadParams) (GetUploadRes, error)
+	// GetWebhookDelivery invokes getWebhookDelivery operation.
+	//
+	// Returns one delivery: its event, status and the outcome of its last attempt.
+	//
+	// GET /v1/webhook-subscriptions/{id}/deliveries/{delivery_id}
+	GetWebhookDelivery(ctx context.Context, params GetWebhookDeliveryParams) (GetWebhookDeliveryRes, error)
 	// GetWebhookSubscription invokes getWebhookSubscription operation.
 	//
 	// Returns one webhook subscription, without its secret.
@@ -995,6 +1001,13 @@ type Invoker interface {
 	//
 	// GET /v1/supplier-invoices
 	ListSupplierInvoices(ctx context.Context, params ListSupplierInvoicesParams) (ListSupplierInvoicesRes, error)
+	// ListWebhookDeliveries invokes listWebhookDeliveries operation.
+	//
+	// The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by:
+	// `created_at`.
+	//
+	// GET /v1/webhook-subscriptions/{id}/deliveries
+	ListWebhookDeliveries(ctx context.Context, params ListWebhookDeliveriesParams) (ListWebhookDeliveriesRes, error)
 	// ListWebhookSubscriptions invokes listWebhookSubscriptions operation.
 	//
 	// The tenant's webhook subscriptions, newest first; deleted ones only when asked for with
@@ -1045,6 +1058,17 @@ type Invoker interface {
 	//
 	// POST /v1/webhook-subscriptions/{id}:pause
 	PauseWebhookSubscription(ctx context.Context, params PauseWebhookSubscriptionParams) (PauseWebhookSubscriptionRes, error)
+	// PingWebhookSubscription invokes pingWebhookSubscription operation.
+	//
+	// Queues a synthetic `webhook.ping` CloudEvent (data: the subscription's `subscription_id`), signed
+	// like any other, which the dispatcher sends at once, also while the subscription is paused or
+	// disabled. The request does not wait for the endpoint: the answer is the pending delivery, whose
+	// `status`, `last_status` and `last_error` tell the outcome once attempted. A ping is attempted once,
+	// is not retried and does not count toward the subscription's failures. Refused for a deleted
+	// subscription (409 `integration.webhook_deleted`).
+	//
+	// POST /v1/webhook-subscriptions/{id}:ping
+	PingWebhookSubscription(ctx context.Context, params PingWebhookSubscriptionParams) (PingWebhookSubscriptionRes, error)
 	// PostGoodsReceipt invokes postGoodsReceipt operation.
 	//
 	// Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122,
@@ -1124,6 +1148,15 @@ type Invoker interface {
 	//
 	// POST /v1/agent-sessions/{id}/tool-calls
 	RecordAgentToolCall(ctx context.Context, request *AgentToolCallCreate, params RecordAgentToolCallParams) (RecordAgentToolCallRes, error)
+	// RedeliverWebhookDelivery invokes redeliverWebhookDelivery operation.
+	//
+	// Queues the delivery again, whatever its status: `pending` with no attempts, sent in its resource's
+	// event order under its original `webhook-id`. Refused for a deleted subscription (409
+	// `integration.webhook_deleted`) and a disabled one (409 `integration.webhook_disabled`; resume it
+	// first).
+	//
+	// POST /v1/webhook-subscriptions/{id}/deliveries/{delivery_id}:redeliver
+	RedeliverWebhookDelivery(ctx context.Context, params RedeliverWebhookDeliveryParams) (RedeliverWebhookDeliveryRes, error)
 	// RejectApprovalRequest invokes rejectApprovalRequest operation.
 	//
 	// Rejects the request with a mandatory comment. Human-only; the requester cannot reject. Besides
@@ -1200,6 +1233,17 @@ type Invoker interface {
 	//
 	// POST /v1/contracts/{id}:renew
 	RenewContract(ctx context.Context, request *ContractRenew, params RenewContractParams) (RenewContractRes, error)
+	// ReplayWebhookDeliveries invokes replayWebhookDeliveries operation.
+	//
+	// Queues again every kept delivery of the subscription whose event occurred at or after `since`,
+	// whatever its status (delivered, dead and dropped ones too; pings are left out): each becomes
+	// `pending` with no attempts, and they go out in event order per resource. `since` is within the
+	// 30-day retention (422 `integration.invalid_replay_since`). The endpoint receives each event under
+	// its original `webhook-id`. Refused for a deleted subscription (409 `integration.webhook_deleted`)
+	// and a disabled one (409 `integration.webhook_disabled`; resume it first).
+	//
+	// POST /v1/webhook-subscriptions/{id}:replay
+	ReplayWebhookDeliveries(ctx context.Context, request *WebhookReplay, params ReplayWebhookDeliveriesParams) (ReplayWebhookDeliveriesRes, error)
 	// ReportBankFileStatus invokes reportBankFileStatus operation.
 	//
 	// Applies the bank's status report (pain.002, camt.054) to a transmitted file: `accepted` moves it to
@@ -15191,6 +15235,156 @@ func (c *Client) sendGetUpload(ctx context.Context, params GetUploadParams) (res
 	return result, nil
 }
 
+// GetWebhookDelivery invokes getWebhookDelivery operation.
+//
+// Returns one delivery: its event, status and the outcome of its last attempt.
+//
+// GET /v1/webhook-subscriptions/{id}/deliveries/{delivery_id}
+func (c *Client) GetWebhookDelivery(ctx context.Context, params GetWebhookDeliveryParams) (GetWebhookDeliveryRes, error) {
+	res, err := c.sendGetWebhookDelivery(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetWebhookDelivery(ctx context.Context, params GetWebhookDeliveryParams) (res GetWebhookDeliveryRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getWebhookDelivery"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/webhook-subscriptions/{id}/deliveries/{delivery_id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetWebhookDeliveryOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [4]string
+	pathParts[0] = "/v1/webhook-subscriptions/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/deliveries/"
+	{
+		// Encode "delivery_id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "delivery_id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.DeliveryID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetWebhookDeliveryOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetWebhookDeliveryResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetWebhookSubscription invokes getWebhookSubscription operation.
 //
 // Returns one webhook subscription, without its secret.
@@ -25803,6 +25997,228 @@ func (c *Client) sendListSupplierInvoices(ctx context.Context, params ListSuppli
 	return result, nil
 }
 
+// ListWebhookDeliveries invokes listWebhookDeliveries operation.
+//
+// The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by:
+// `created_at`.
+//
+// GET /v1/webhook-subscriptions/{id}/deliveries
+func (c *Client) ListWebhookDeliveries(ctx context.Context, params ListWebhookDeliveriesParams) (ListWebhookDeliveriesRes, error) {
+	res, err := c.sendListWebhookDeliveries(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListWebhookDeliveries(ctx context.Context, params ListWebhookDeliveriesParams) (res ListWebhookDeliveriesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listWebhookDeliveries"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/webhook-subscriptions/{id}/deliveries"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListWebhookDeliveriesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/webhook-subscriptions/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/deliveries"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "since" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "since",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Since.Get(); ok {
+				return e.EncodeValue(conv.DateTimeToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListWebhookDeliveriesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListWebhookDeliveriesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListWebhookSubscriptions invokes listWebhookSubscriptions operation.
 //
 // The tenant's webhook subscriptions, newest first; deleted ones only when asked for with
@@ -26770,6 +27186,168 @@ func (c *Client) sendPauseWebhookSubscription(ctx context.Context, params PauseW
 
 	stage = "DecodeResponse"
 	result, err := decodePauseWebhookSubscriptionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// PingWebhookSubscription invokes pingWebhookSubscription operation.
+//
+// Queues a synthetic `webhook.ping` CloudEvent (data: the subscription's `subscription_id`), signed
+// like any other, which the dispatcher sends at once, also while the subscription is paused or
+// disabled. The request does not wait for the endpoint: the answer is the pending delivery, whose
+// `status`, `last_status` and `last_error` tell the outcome once attempted. A ping is attempted once,
+// is not retried and does not count toward the subscription's failures. Refused for a deleted
+// subscription (409 `integration.webhook_deleted`).
+//
+// POST /v1/webhook-subscriptions/{id}:ping
+func (c *Client) PingWebhookSubscription(ctx context.Context, params PingWebhookSubscriptionParams) (PingWebhookSubscriptionRes, error) {
+	res, err := c.sendPingWebhookSubscription(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendPingWebhookSubscription(ctx context.Context, params PingWebhookSubscriptionParams) (res PingWebhookSubscriptionRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("pingWebhookSubscription"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/webhook-subscriptions/{id}:ping"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, PingWebhookSubscriptionOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/webhook-subscriptions/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":ping"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, PingWebhookSubscriptionOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodePingWebhookSubscriptionResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -27820,6 +28398,185 @@ func (c *Client) sendRecordAgentToolCall(ctx context.Context, request *AgentTool
 
 	stage = "DecodeResponse"
 	result, err := decodeRecordAgentToolCallResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// RedeliverWebhookDelivery invokes redeliverWebhookDelivery operation.
+//
+// Queues the delivery again, whatever its status: `pending` with no attempts, sent in its resource's
+// event order under its original `webhook-id`. Refused for a deleted subscription (409
+// `integration.webhook_deleted`) and a disabled one (409 `integration.webhook_disabled`; resume it
+// first).
+//
+// POST /v1/webhook-subscriptions/{id}/deliveries/{delivery_id}:redeliver
+func (c *Client) RedeliverWebhookDelivery(ctx context.Context, params RedeliverWebhookDeliveryParams) (RedeliverWebhookDeliveryRes, error) {
+	res, err := c.sendRedeliverWebhookDelivery(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendRedeliverWebhookDelivery(ctx context.Context, params RedeliverWebhookDeliveryParams) (res RedeliverWebhookDeliveryRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("redeliverWebhookDelivery"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/webhook-subscriptions/{id}/deliveries/{delivery_id}:redeliver"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RedeliverWebhookDeliveryOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/webhook-subscriptions/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/deliveries/"
+	{
+		// Encode "delivery_id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "delivery_id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.DeliveryID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":redeliver"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RedeliverWebhookDeliveryOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRedeliverWebhookDeliveryResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -28968,6 +29725,171 @@ func (c *Client) sendRenewContract(ctx context.Context, request *ContractRenew, 
 
 	stage = "DecodeResponse"
 	result, err := decodeRenewContractResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ReplayWebhookDeliveries invokes replayWebhookDeliveries operation.
+//
+// Queues again every kept delivery of the subscription whose event occurred at or after `since`,
+// whatever its status (delivered, dead and dropped ones too; pings are left out): each becomes
+// `pending` with no attempts, and they go out in event order per resource. `since` is within the
+// 30-day retention (422 `integration.invalid_replay_since`). The endpoint receives each event under
+// its original `webhook-id`. Refused for a deleted subscription (409 `integration.webhook_deleted`)
+// and a disabled one (409 `integration.webhook_disabled`; resume it first).
+//
+// POST /v1/webhook-subscriptions/{id}:replay
+func (c *Client) ReplayWebhookDeliveries(ctx context.Context, request *WebhookReplay, params ReplayWebhookDeliveriesParams) (ReplayWebhookDeliveriesRes, error) {
+	res, err := c.sendReplayWebhookDeliveries(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendReplayWebhookDeliveries(ctx context.Context, request *WebhookReplay, params ReplayWebhookDeliveriesParams) (res ReplayWebhookDeliveriesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("replayWebhookDeliveries"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/webhook-subscriptions/{id}:replay"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ReplayWebhookDeliveriesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/webhook-subscriptions/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":replay"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeReplayWebhookDeliveriesRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ReplayWebhookDeliveriesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeReplayWebhookDeliveriesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
