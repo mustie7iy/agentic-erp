@@ -106,4 +106,12 @@ resource "aws_secretsmanager_secret" "cell" {
   name                    = "erp/${var.name}/${each.key}"
   kms_key_id              = aws_kms_key.data.arn
   recovery_window_in_days = 30
+  # A pilot light's cluster reads the same secrets in the DR region.
+  dynamic "replica" {
+    for_each = local.pilot
+    content {
+      region     = var.dr_region
+      kms_key_id = aws_kms_key.dr[replica.key].arn
+    }
+  }
 }

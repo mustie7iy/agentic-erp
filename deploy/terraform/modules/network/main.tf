@@ -50,7 +50,15 @@ variable "zone_redundant" {
   default     = true
 }
 
-data "aws_region" "current" {}
+variable "region" {
+  description = "The region the network is built in; null is the provider's (a cell's disaster-recovery region names its own, ADR-0040)."
+  type        = string
+  default     = null
+}
+
+data "aws_region" "current" {
+  region = var.region
+}
 
 locals {
   egress_zones        = var.zone_redundant ? var.availability_zones : [var.availability_zones[0]]
@@ -58,6 +66,7 @@ locals {
 }
 
 resource "aws_vpc" "cell" {
+  region               = var.region
   cidr_block           = var.cidr
   enable_dns_support   = true
   enable_dns_hostnames = true
@@ -65,6 +74,7 @@ resource "aws_vpc" "cell" {
 }
 
 resource "aws_subnet" "public" {
+  region                  = var.region
   for_each                = { for i, az in var.availability_zones : az => i }
   vpc_id                  = aws_vpc.cell.id
   availability_zone       = each.key
@@ -74,6 +84,7 @@ resource "aws_subnet" "public" {
 }
 
 resource "aws_subnet" "private" {
+  region            = var.region
   for_each          = { for i, az in var.availability_zones : az => i }
   vpc_id            = aws_vpc.cell.id
   availability_zone = each.key
@@ -82,17 +93,20 @@ resource "aws_subnet" "private" {
 }
 
 resource "aws_internet_gateway" "cell" {
+  region = var.region
   vpc_id = aws_vpc.cell.id
   tags   = { Name = var.name }
 }
 
 resource "aws_eip" "nat" {
+  region   = var.region
   for_each = toset(local.egress_zones)
   domain   = "vpc"
   tags     = { Name = "${var.name}-nat-${each.key}" }
 }
 
 resource "aws_nat_gateway" "cell" {
+  region        = var.region
   for_each      = toset(local.egress_zones)
   subnet_id     = aws_subnet.public[each.key].id
   allocation_id = aws_eip.nat[each.key].id
@@ -100,6 +114,7 @@ resource "aws_nat_gateway" "cell" {
 }
 
 resource "aws_route_table" "public" {
+  region = var.region
   vpc_id = aws_vpc.cell.id
   route {
     cidr_block = "0.0.0.0/0"
@@ -109,12 +124,14 @@ resource "aws_route_table" "public" {
 }
 
 resource "aws_route_table_association" "public" {
+  region         = var.region
   for_each       = aws_subnet.public
   subnet_id      = each.value.id
   route_table_id = aws_route_table.public.id
 }
 
 resource "aws_route_table" "private" {
+  region   = var.region
   for_each = aws_subnet.private
   vpc_id   = aws_vpc.cell.id
   route {
@@ -125,12 +142,14 @@ resource "aws_route_table" "private" {
 }
 
 resource "aws_route_table_association" "private" {
+  region         = var.region
   for_each       = aws_subnet.private
   subnet_id      = each.value.id
   route_table_id = aws_route_table.private[each.key].id
 }
 
 resource "aws_vpc_endpoint" "s3" {
+  region            = var.region
   vpc_id            = aws_vpc.cell.id
   service_name      = "com.amazonaws.${data.aws_region.current.region}.s3"
   vpc_endpoint_type = "Gateway"
@@ -139,6 +158,7 @@ resource "aws_vpc_endpoint" "s3" {
 }
 
 resource "aws_security_group" "endpoints" {
+  region      = var.region
   name        = "${var.name}-endpoints"
   description = "HTTPS from the cell to the interface endpoints"
   vpc_id      = aws_vpc.cell.id
@@ -155,6 +175,7 @@ resource "aws_security_group" "endpoints" {
 # .rego can see them: they and S3 are the services the platform's own
 # clients call (ADR-0016, ADR-0019, ADR-0024).
 resource "aws_vpc_endpoint" "kms" {
+  region              = var.region
   vpc_id              = aws_vpc.cell.id
   service_name        = "com.amazonaws.${data.aws_region.current.region}.kms"
   vpc_endpoint_type   = "Interface"
@@ -165,6 +186,7 @@ resource "aws_vpc_endpoint" "kms" {
 }
 
 resource "aws_vpc_endpoint" "sts" {
+  region              = var.region
   vpc_id              = aws_vpc.cell.id
   service_name        = "com.amazonaws.${data.aws_region.current.region}.sts"
   vpc_endpoint_type   = "Interface"
@@ -175,6 +197,7 @@ resource "aws_vpc_endpoint" "sts" {
 }
 
 resource "aws_vpc_endpoint" "interface" {
+  region              = var.region
   for_each            = toset(var.more_interface_endpoints)
   vpc_id              = aws_vpc.cell.id
   service_name        = "com.amazonaws.${data.aws_region.current.region}.${each.key}"

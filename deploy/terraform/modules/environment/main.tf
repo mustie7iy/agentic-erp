@@ -93,6 +93,24 @@ variable "dr_region" {
   default     = null
 }
 
+variable "pilot_light" {
+  description = "Keep the home cell's pilot light in dr_region (production, ADR-0040)."
+  type        = bool
+  default     = false
+}
+
+variable "dr_cidr" {
+  description = "The pilot light's VPC /16 in dr_region."
+  type        = string
+  default     = null
+}
+
+variable "dr_availability_zones" {
+  description = "Three availability zones of dr_region, for the pilot light."
+  type        = list(string)
+  default     = []
+}
+
 variable "node_scaling" {
   description = "The home cell's node count bounds."
   type = object({
@@ -139,6 +157,9 @@ module "cell" {
   zone_redundant            = var.zone_redundant
   backup_retention_days     = var.backup_retention_days
   dr_region                 = var.dr_region
+  pilot_light               = var.pilot_light
+  dr_cidr                   = var.dr_cidr
+  dr_availability_zones     = var.dr_availability_zones
   # The home cell: the router runs on its cluster (the erp-global chart).
   global_secrets = module.global.external_secrets
 }

@@ -71,6 +71,11 @@ variable "dr_region" {
   type        = string
 }
 
+variable "dr_availability_zones" {
+  description = "Three availability zones of dr_region, for prod1's pilot light."
+  type        = list(string)
+}
+
 module "environment" {
   source = "../../modules/environment"
   providers = {
@@ -90,6 +95,9 @@ module "environment" {
   ca_country            = var.ca_country
   dr_region             = var.dr_region
   backup_retention_days = 35
+  pilot_light           = true
+  dr_cidr               = "10.65.0.0/16"
+  dr_availability_zones = var.dr_availability_zones
 }
 
 output "cell" {

@@ -5188,9 +5188,15 @@
       "r": "ADR-0040 · T41",
       "c": [
        {
+        "s": "D",
+        "t": "Production cells: a cross-region read replica (lag alarm at 60 s) and a pilot-light DR region (VPC and endpoints, EKS control plane without nodes, the field key replicated, the secrets replicated)",
+        "r": "deploy/terraform/modules/cell/pilot_light.tf · T41b2 · to confirm on AWS staging before the pilot: a Multi-AZ DB cluster's cross-region replica and backups (else a Multi-AZ DB instance)",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Production cells: a cross-region read replica and a pilot-light DR region (VPC, EKS control plane without nodes) Argo CD syncs on failover",
-        "r": "T41b2 · to confirm on AWS staging before the pilot: a Multi-AZ DB cluster's cross-region replica and backups (else a Multi-AZ DB instance)",
+        "t": "The pilot light made runnable: a DR node group at zero the runbook scales up, the workload roles trusting the DR cluster's OIDC provider, their permissions on the DR bucket and keys, Argo CD synced there on failover",
+        "r": "T41b3",
         "c": []
        },
        {

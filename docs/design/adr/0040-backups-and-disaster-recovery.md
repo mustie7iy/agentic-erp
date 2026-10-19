@@ -54,7 +54,11 @@ hourly copies passes; the module raises it to 250 in both regions.
 **Region failover: a pilot light (T41b2).** A production cell has, in its
 disaster-recovery region, a cross-region read replica of its database and a
 pilot-light stack: the VPC, the endpoints and an EKS control plane with no
-nodes, plus the cell's KMS keys' counterparts there. Asynchronous
+nodes, plus the cell's KMS keys' counterparts there (the field key is a
+multi-Region key replicated there, so tenant keys wrapped at home unwrap;
+the secrets are replicated). The node group at zero, the workload roles'
+trust of the DR cluster and their permissions on the DR bucket and keys
+follow (T41b3). Asynchronous
 replication keeps the replica seconds behind; an alarm fires when its lag
 passes 60 s, the RPO. On a region failure the operator (runbook below)
 promotes the replica, scales the node group up and lets Argo CD (ADR-0035)

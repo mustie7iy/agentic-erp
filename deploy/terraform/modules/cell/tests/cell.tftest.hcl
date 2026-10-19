@@ -465,3 +465,81 @@ run "a_dr_region_for_the_single_instance_shape_is_refused" {
   }
   expect_failures = [var.dr_region]
 }
+
+run "a_production_cell_keeps_a_pilot_light_in_the_dr_region" {
+  command   = apply
+  state_key = "pilot"
+  variables {
+    backup_retention_days = 35
+    dr_region             = "eu-west-1"
+    pilot_light           = true
+    dr_cidr               = "10.65.0.0/16"
+    dr_availability_zones = ["eu-west-1a", "eu-west-1b", "eu-west-1c"]
+  }
+
+  assert {
+    condition     = aws_db_instance.dr["dr"].region == "eu-west-1" && aws_db_instance.dr["dr"].replicate_source_db == aws_rds_cluster.cell[0].arn
+    error_message = "a cross-region read replica of the cell's database"
+  }
+  assert {
+    condition     = aws_db_instance.dr["dr"].storage_encrypted && aws_db_instance.dr["dr"].kms_key_id == aws_kms_key.dr["dr"].arn && aws_db_instance.dr["dr"].deletion_protection
+    error_message = "the replica is encrypted with the DR key and protected from deletion"
+  }
+  assert {
+    condition     = { for p in aws_db_parameter_group.dr["dr"].parameter : p.name => p.value }["ssl_min_protocol_version"] == "TLSv1.3"
+    error_message = "the replica requires TLS 1.3 as the primary does"
+  }
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.replica_lag["dr"].metric_name == "ReplicaLag" && aws_cloudwatch_metric_alarm.replica_lag["dr"].threshold == 60 && aws_cloudwatch_metric_alarm.replica_lag["dr"].region == "eu-west-1"
+    error_message = "an alarm when the replica is more than the RPO (60 s) behind"
+  }
+  assert {
+    condition     = aws_eks_cluster.dr["dr"].region == "eu-west-1" && one(one(aws_eks_cluster.dr["dr"].encryption_config).provider).key_arn == aws_kms_key.dr_cluster["dr"].arn && !aws_eks_cluster.dr["dr"].vpc_config[0].endpoint_public_access
+    error_message = "a private EKS control plane in the DR region, its secrets encrypted with the DR cluster key"
+  }
+  assert {
+    condition     = length(aws_eks_access_entry.dr_admin) == 1
+    error_message = "the administrators reach the DR cluster"
+  }
+  assert {
+    condition     = aws_kms_key.fields.multi_region && aws_kms_replica_key.fields["dr"].primary_key_arn == aws_kms_key.fields.arn && aws_kms_replica_key.fields["dr"].region == "eu-west-1"
+    error_message = "the field key is replicated, so tenant keys wrapped at home unwrap in the DR region"
+  }
+  assert {
+    condition     = alltrue([for s in aws_secretsmanager_secret.cell : one(s.replica).region == "eu-west-1"])
+    error_message = "the secrets are replicated to the DR region"
+  }
+}
+
+run "a_cell_without_a_pilot_light_has_none" {
+  command   = plan
+  state_key = "dr"
+  variables {
+    backup_retention_days = 35
+    dr_region             = "eu-west-1"
+  }
+
+  assert {
+    condition     = length(aws_db_instance.dr) == 0 && length(aws_eks_cluster.dr) == 0 && length(module.dr_network) == 0 && !aws_kms_key.fields.multi_region
+    error_message = "staging has the backup copies only"
+  }
+}
+
+run "a_pilot_light_without_a_dr_region_is_refused" {
+  command   = plan
+  state_key = "refused"
+  variables {
+    pilot_light = true
+  }
+  expect_failures = [var.pilot_light]
+}
+
+run "a_pilot_light_without_its_network_is_refused" {
+  command   = plan
+  state_key = "refused"
+  variables {
+    pilot_light = true
+    dr_region   = "eu-west-1"
+  }
+  expect_failures = [var.dr_cidr, var.dr_availability_zones]
+}
