@@ -131,9 +131,9 @@ func (d *Dispatcher) Run(ctx context.Context) {
 // RunOnce claims the due deliveries, every tenant's first before any
 // tenant's second and at most TenantInFlight of each, sends them and
 // records the answers. It returns how many it sent and whether it found a
-// full batch, so the next round runs at once. A tenant whose deliveries
-// cannot be claimed or recorded is reported and the others' are sent
-// still.
+// full batch and claimed some of it, so the next round runs at once. A
+// tenant whose deliveries cannot be claimed or recorded is reported and
+// the others' are sent still.
 func (d *Dispatcher) RunOnce(ctx context.Context) (sent int, more bool, err error) {
 	now := clock.Now(d.Now)
 	due, more, err := d.due(ctx, now)
