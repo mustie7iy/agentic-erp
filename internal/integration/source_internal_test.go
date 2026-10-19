@@ -33,3 +33,13 @@ func TestSourceInvalidSettings(t *testing.T) {
 		})
 	}
 }
+
+// TestHost: the audit trail keeps a URL's host only, and nothing of a URL
+// that does not parse (one written other than through the API).
+func TestHost(t *testing.T) {
+	for raw, want := range map[string]string{"https://hooks.example.com:8443/erp?token=x": "hooks.example.com:8443", "https://a%zz/": ""} {
+		if got := host(raw); got != want {
+			t.Errorf("host(%q): got %q, want %q", raw, got, want)
+		}
+	}
+}

@@ -8,6 +8,7 @@ package app
 
 import (
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
@@ -206,7 +207,7 @@ func Integration(cfg Config) *integration.Endpoints {
 	return &integration.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Settings: configuration.Settings{},
 		Partners: partner.Migration{Ports: partners}, Suppliers: partner.Suppliers{}, Orders: procurementEndpoints(cfg), OrderValues: procurement.Orders{},
 		Invoices: payablesEndpoints(cfg, uploads(cfg)), InvoiceCounts: payables.Invoices{}, Postings: postings(), Reports: ledger.Reports{},
-		Secrets: resolver(cfg.Secrets), ExtractDir: cfg.ExtractDir, Workflows: cfg.Workflows != nil, RefuseEBICS: cfg.RefuseEBICS}
+		Secrets: resolver(cfg.Secrets), Keys: cfg.FieldKeys, Resolver: net.DefaultResolver, ExtractDir: cfg.ExtractDir, Workflows: cfg.Workflows != nil, RefuseEBICS: cfg.RefuseEBICS}
 }
 
 // procurementEndpoints is the procurement context as the API wires it.

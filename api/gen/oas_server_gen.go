@@ -344,12 +344,30 @@ type Handler interface {
 	//
 	// POST /v1/uploads
 	CreateUpload(ctx context.Context, req *UploadCreate, params CreateUploadParams) (CreateUploadRes, error)
+	// CreateWebhookSubscription implements createWebhookSubscription operation.
+	//
+	// Subscribes an HTTPS endpoint to event types (ADR-0041). The URL's host must resolve to public
+	// addresses only. At most 20 subscriptions that are not deleted per tenant (422
+	// `integration.webhook_limit`). Event types are those marked `x-webhook` in the AsyncAPI contract, or
+	// `<context>.*` for all of a context's; duplicates are dropped. The answer carries the signing secret,
+	// shown only here and by `:rotateSecret`; a replay of the request answers without it.
+	//
+	// POST /v1/webhook-subscriptions
+	CreateWebhookSubscription(ctx context.Context, req *WebhookSubscriptionCreate, params CreateWebhookSubscriptionParams) (CreateWebhookSubscriptionRes, error)
 	// DecideRecommendation implements decideRecommendation operation.
 	//
 	// Records what a person did with an open recommendation: accepted, overridden or ignored. Human-only.
 	//
 	// POST /v1/recommendations/{id}:decide
 	DecideRecommendation(ctx context.Context, req *RecommendationDecide, params DecideRecommendationParams) (DecideRecommendationRes, error)
+	// DeleteWebhookSubscription implements deleteWebhookSubscription operation.
+	//
+	// Ends the subscription: its status becomes `deleted`, nothing more is sent to it, and it no longer
+	// counts toward the limit of 20. The row is kept (no hard deletes). Requires a status other than
+	// `deleted`.
+	//
+	// POST /v1/webhook-subscriptions/{id}:delete
+	DeleteWebhookSubscription(ctx context.Context, params DeleteWebhookSubscriptionParams) (DeleteWebhookSubscriptionRes, error)
 	// DisableConnector implements disableConnector operation.
 	//
 	// Stops all message exchange through the connector; queued messages wait. Requires status `active`.
@@ -663,6 +681,12 @@ type Handler interface {
 	//
 	// GET /v1/uploads/{id}
 	GetUpload(ctx context.Context, params GetUploadParams) (GetUploadRes, error)
+	// GetWebhookSubscription implements getWebhookSubscription operation.
+	//
+	// Returns one webhook subscription, without its secret.
+	//
+	// GET /v1/webhook-subscriptions/{id}
+	GetWebhookSubscription(ctx context.Context, params GetWebhookSubscriptionParams) (GetWebhookSubscriptionRes, error)
 	// GrantRolePermission implements grantRolePermission operation.
 	//
 	// Adds an effective-dated permission grant to the role.
@@ -950,6 +974,13 @@ type Handler interface {
 	//
 	// GET /v1/supplier-invoices
 	ListSupplierInvoices(ctx context.Context, params ListSupplierInvoicesParams) (ListSupplierInvoicesRes, error)
+	// ListWebhookSubscriptions implements listWebhookSubscriptions operation.
+	//
+	// The tenant's webhook subscriptions, newest first; deleted ones only when asked for with
+	// `status=deleted`. Secrets are never listed. Sortable by: `created_at`.
+	//
+	// GET /v1/webhook-subscriptions
+	ListWebhookSubscriptions(ctx context.Context, params ListWebhookSubscriptionsParams) (ListWebhookSubscriptionsRes, error)
 	// LockFiscalPeriod implements lockFiscalPeriod operation.
 	//
 	// Locks the period for good: a locked period refuses postings, reversals and clearings dated in it, as
@@ -1198,6 +1229,15 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices/{id}:reverse
 	ReverseSupplierInvoice(ctx context.Context, req *SupplierInvoiceReverse, params ReverseSupplierInvoiceParams) (ReverseSupplierInvoiceRes, error)
+	// RotateWebhookSubscriptionSecret implements rotateWebhookSubscriptionSecret operation.
+	//
+	// Issues a new signing secret, answered only here. The previous secret keeps signing alongside the new
+	// one for 24 hours (`previous_secret_expires_at`), so the endpoint can switch without losing a
+	// delivery; rotating again within that time retires the older one at once. A replay of the request
+	// answers without the secret. Requires a status other than `deleted`.
+	//
+	// POST /v1/webhook-subscriptions/{id}:rotateSecret
+	RotateWebhookSubscriptionSecret(ctx context.Context, params RotateWebhookSubscriptionSecretParams) (RotateWebhookSubscriptionSecretRes, error)
 	// SimulateChangeRequest implements simulateChangeRequest operation.
 	//
 	// Replays recent business transactions against the proposed configuration and records the result as
@@ -1404,6 +1444,14 @@ type Handler interface {
 	//
 	// PATCH /v1/supplier-invoices/{id}
 	UpdateSupplierInvoice(ctx context.Context, req *SupplierInvoiceUpdate, params UpdateSupplierInvoiceParams) (UpdateSupplierInvoiceRes, error)
+	// UpdateWebhookSubscription implements updateWebhookSubscription operation.
+	//
+	// Changes a subscription's URL, description or event types, checked as on create; a deleted
+	// subscription cannot be changed (409). JSON Merge Patch (RFC 7396): absent fields are unchanged,
+	// arrays are replaced as a whole.
+	//
+	// PATCH /v1/webhook-subscriptions/{id}
+	UpdateWebhookSubscription(ctx context.Context, req *WebhookSubscriptionUpdate, params UpdateWebhookSubscriptionParams) (UpdateWebhookSubscriptionRes, error)
 	// VerifyAuditChain implements verifyAuditChain operation.
 	//
 	// Recomputes the tenant's hash chain over a range and compares it with the stored hashes and the

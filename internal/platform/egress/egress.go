@@ -25,12 +25,18 @@ func RefusePrivate(_, address string, _ syscall.RawConn) error {
 	if err != nil {
 		return fmt.Errorf("egress: dial %s: %w", address, err)
 	}
-	ip := ap.Addr().Unmap()
-	if !ip.IsGlobalUnicast() || ip.IsPrivate() || (ip.Is6() && !globalUnicast6.Contains(ip)) ||
-		slices.ContainsFunc(nonPublic, func(p netip.Prefix) bool { return p.Contains(ip) }) {
+	if ip := ap.Addr().Unmap(); !Public(ip) {
 		return fmt.Errorf("egress: address %s is not a public unicast address", ip)
 	}
 	return nil
+}
+
+// Public tells whether ip is a public unicast address, the only kind
+// RefusePrivate lets a connection reach.
+func Public(ip netip.Addr) bool {
+	ip = ip.Unmap()
+	return ip.IsGlobalUnicast() && !ip.IsPrivate() && (!ip.Is6() || globalUnicast6.Contains(ip)) &&
+		!slices.ContainsFunc(nonPublic, func(p netip.Prefix) bool { return p.Contains(ip) })
 }
 
 // globalUnicast6 is the only IPv6 range allocated for global unicast

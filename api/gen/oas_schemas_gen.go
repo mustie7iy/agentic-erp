@@ -2690,7 +2690,9 @@ func (*BadRequestHeaders) createRoleRes()                       {}
 func (*BadRequestHeaders) createSodRuleRes()                    {}
 func (*BadRequestHeaders) createSupplierInvoiceRes()            {}
 func (*BadRequestHeaders) createUploadRes()                     {}
+func (*BadRequestHeaders) createWebhookSubscriptionRes()        {}
 func (*BadRequestHeaders) decideRecommendationRes()             {}
+func (*BadRequestHeaders) deleteWebhookSubscriptionRes()        {}
 func (*BadRequestHeaders) disableConnectorRes()                 {}
 func (*BadRequestHeaders) enableConnectorRes()                  {}
 func (*BadRequestHeaders) endAgentSessionRes()                  {}
@@ -2740,6 +2742,7 @@ func (*BadRequestHeaders) getSodRuleRes()                       {}
 func (*BadRequestHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*BadRequestHeaders) getSupplierInvoiceRes()               {}
 func (*BadRequestHeaders) getUploadRes()                        {}
+func (*BadRequestHeaders) getWebhookSubscriptionRes()           {}
 func (*BadRequestHeaders) grantRolePermissionRes()              {}
 func (*BadRequestHeaders) holdSupplierInvoiceRes()              {}
 func (*BadRequestHeaders) listAccountsRes()                     {}
@@ -2786,6 +2789,7 @@ func (*BadRequestHeaders) listRolePermissionsRes()              {}
 func (*BadRequestHeaders) listRolesRes()                        {}
 func (*BadRequestHeaders) listSodRulesRes()                     {}
 func (*BadRequestHeaders) listSupplierInvoicesRes()             {}
+func (*BadRequestHeaders) listWebhookSubscriptionsRes()         {}
 func (*BadRequestHeaders) lockFiscalPeriodRes()                 {}
 func (*BadRequestHeaders) matchSupplierInvoiceRes()             {}
 func (*BadRequestHeaders) openFiscalPeriodRes()                 {}
@@ -2810,6 +2814,7 @@ func (*BadRequestHeaders) requestBankAccountEndRes()            {}
 func (*BadRequestHeaders) reverseGoodsReceiptRes()              {}
 func (*BadRequestHeaders) reverseJournalEntryRes()              {}
 func (*BadRequestHeaders) reverseSupplierInvoiceRes()           {}
+func (*BadRequestHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*BadRequestHeaders) simulateChangeRequestRes()            {}
 func (*BadRequestHeaders) startAgentSessionRes()                {}
 func (*BadRequestHeaders) startMigrationRunRes()                {}
@@ -2835,6 +2840,7 @@ func (*BadRequestHeaders) updatePurchaseOrderRes()              {}
 func (*BadRequestHeaders) updateRequisitionRes()                {}
 func (*BadRequestHeaders) updateRoleRes()                       {}
 func (*BadRequestHeaders) updateSupplierInvoiceRes()            {}
+func (*BadRequestHeaders) updateWebhookSubscriptionRes()        {}
 func (*BadRequestHeaders) verifyAuditChainRes()                 {}
 func (*BadRequestHeaders) withdrawChangeRequestRes()            {}
 
@@ -6621,7 +6627,9 @@ func (*ConflictHeaders) createRoleRes()                       {}
 func (*ConflictHeaders) createSodRuleRes()                    {}
 func (*ConflictHeaders) createSupplierInvoiceRes()            {}
 func (*ConflictHeaders) createUploadRes()                     {}
+func (*ConflictHeaders) createWebhookSubscriptionRes()        {}
 func (*ConflictHeaders) decideRecommendationRes()             {}
+func (*ConflictHeaders) deleteWebhookSubscriptionRes()        {}
 func (*ConflictHeaders) disableConnectorRes()                 {}
 func (*ConflictHeaders) enableConnectorRes()                  {}
 func (*ConflictHeaders) endAgentSessionRes()                  {}
@@ -6656,6 +6664,7 @@ func (*ConflictHeaders) requestBankAccountEndRes()            {}
 func (*ConflictHeaders) reverseGoodsReceiptRes()              {}
 func (*ConflictHeaders) reverseJournalEntryRes()              {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()           {}
+func (*ConflictHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*ConflictHeaders) simulateChangeRequestRes()            {}
 func (*ConflictHeaders) startAgentSessionRes()                {}
 func (*ConflictHeaders) startMigrationRunRes()                {}
@@ -6681,6 +6690,7 @@ func (*ConflictHeaders) updatePurchaseOrderRes()              {}
 func (*ConflictHeaders) updateRequisitionRes()                {}
 func (*ConflictHeaders) updateRoleRes()                       {}
 func (*ConflictHeaders) updateSupplierInvoiceRes()            {}
+func (*ConflictHeaders) updateWebhookSubscriptionRes()        {}
 func (*ConflictHeaders) verifyAuditChainRes()                 {}
 func (*ConflictHeaders) withdrawChangeRequestRes()            {}
 
@@ -9963,7 +9973,9 @@ func (*ForbiddenHeaders) createRoleRes()                       {}
 func (*ForbiddenHeaders) createSodRuleRes()                    {}
 func (*ForbiddenHeaders) createSupplierInvoiceRes()            {}
 func (*ForbiddenHeaders) createUploadRes()                     {}
+func (*ForbiddenHeaders) createWebhookSubscriptionRes()        {}
 func (*ForbiddenHeaders) decideRecommendationRes()             {}
+func (*ForbiddenHeaders) deleteWebhookSubscriptionRes()        {}
 func (*ForbiddenHeaders) disableConnectorRes()                 {}
 func (*ForbiddenHeaders) enableConnectorRes()                  {}
 func (*ForbiddenHeaders) endAgentSessionRes()                  {}
@@ -10013,6 +10025,7 @@ func (*ForbiddenHeaders) getSodRuleRes()                       {}
 func (*ForbiddenHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*ForbiddenHeaders) getSupplierInvoiceRes()               {}
 func (*ForbiddenHeaders) getUploadRes()                        {}
+func (*ForbiddenHeaders) getWebhookSubscriptionRes()           {}
 func (*ForbiddenHeaders) grantRolePermissionRes()              {}
 func (*ForbiddenHeaders) holdSupplierInvoiceRes()              {}
 func (*ForbiddenHeaders) listAccountsRes()                     {}
@@ -10059,6 +10072,7 @@ func (*ForbiddenHeaders) listRolePermissionsRes()              {}
 func (*ForbiddenHeaders) listRolesRes()                        {}
 func (*ForbiddenHeaders) listSodRulesRes()                     {}
 func (*ForbiddenHeaders) listSupplierInvoicesRes()             {}
+func (*ForbiddenHeaders) listWebhookSubscriptionsRes()         {}
 func (*ForbiddenHeaders) lockFiscalPeriodRes()                 {}
 func (*ForbiddenHeaders) matchSupplierInvoiceRes()             {}
 func (*ForbiddenHeaders) openFiscalPeriodRes()                 {}
@@ -10083,6 +10097,7 @@ func (*ForbiddenHeaders) requestBankAccountEndRes()            {}
 func (*ForbiddenHeaders) reverseGoodsReceiptRes()              {}
 func (*ForbiddenHeaders) reverseJournalEntryRes()              {}
 func (*ForbiddenHeaders) reverseSupplierInvoiceRes()           {}
+func (*ForbiddenHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*ForbiddenHeaders) simulateChangeRequestRes()            {}
 func (*ForbiddenHeaders) startAgentSessionRes()                {}
 func (*ForbiddenHeaders) startMigrationRunRes()                {}
@@ -10108,6 +10123,7 @@ func (*ForbiddenHeaders) updatePurchaseOrderRes()              {}
 func (*ForbiddenHeaders) updateRequisitionRes()                {}
 func (*ForbiddenHeaders) updateRoleRes()                       {}
 func (*ForbiddenHeaders) updateSupplierInvoiceRes()            {}
+func (*ForbiddenHeaders) updateWebhookSubscriptionRes()        {}
 func (*ForbiddenHeaders) verifyAuditChainRes()                 {}
 func (*ForbiddenHeaders) withdrawChangeRequestRes()            {}
 
@@ -12009,6 +12025,67 @@ func (s *GetUploadOKHeaders) SetResponse(val Upload) {
 }
 
 func (*GetUploadOKHeaders) getUploadRes() {}
+
+// GetWebhookSubscriptionOKHeaders wraps WebhookSubscription with response headers.
+type GetWebhookSubscriptionOKHeaders struct {
+	ETag               OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           WebhookSubscription
+}
+
+// GetETag returns the value of ETag.
+func (s *GetWebhookSubscriptionOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *GetWebhookSubscriptionOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *GetWebhookSubscriptionOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *GetWebhookSubscriptionOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *GetWebhookSubscriptionOKHeaders) GetResponse() WebhookSubscription {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetWebhookSubscriptionOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *GetWebhookSubscriptionOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *GetWebhookSubscriptionOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *GetWebhookSubscriptionOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetWebhookSubscriptionOKHeaders) SetResponse(val WebhookSubscription) {
+	s.Response = val
+}
+
+func (*GetWebhookSubscriptionOKHeaders) getWebhookSubscriptionRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/GoodsReceipt
@@ -15203,6 +15280,7 @@ func (*NotFoundHeaders) closeFiscalPeriodRes()                {}
 func (*NotFoundHeaders) closePurchaseOrderRes()               {}
 func (*NotFoundHeaders) createPurchaseOrderChangeRes()        {}
 func (*NotFoundHeaders) decideRecommendationRes()             {}
+func (*NotFoundHeaders) deleteWebhookSubscriptionRes()        {}
 func (*NotFoundHeaders) disableConnectorRes()                 {}
 func (*NotFoundHeaders) enableConnectorRes()                  {}
 func (*NotFoundHeaders) endAgentSessionRes()                  {}
@@ -15250,6 +15328,7 @@ func (*NotFoundHeaders) getSodRuleRes()                       {}
 func (*NotFoundHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*NotFoundHeaders) getSupplierInvoiceRes()               {}
 func (*NotFoundHeaders) getUploadRes()                        {}
+func (*NotFoundHeaders) getWebhookSubscriptionRes()           {}
 func (*NotFoundHeaders) grantRolePermissionRes()              {}
 func (*NotFoundHeaders) holdSupplierInvoiceRes()              {}
 func (*NotFoundHeaders) listAgentToolCallsRes()               {}
@@ -15279,6 +15358,7 @@ func (*NotFoundHeaders) requestBankAccountEndRes()            {}
 func (*NotFoundHeaders) reverseGoodsReceiptRes()              {}
 func (*NotFoundHeaders) reverseJournalEntryRes()              {}
 func (*NotFoundHeaders) reverseSupplierInvoiceRes()           {}
+func (*NotFoundHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*NotFoundHeaders) simulateChangeRequestRes()            {}
 func (*NotFoundHeaders) startMigrationRunRes()                {}
 func (*NotFoundHeaders) submitChangeRequestRes()              {}
@@ -15302,6 +15382,7 @@ func (*NotFoundHeaders) updatePurchaseOrderRes()              {}
 func (*NotFoundHeaders) updateRequisitionRes()                {}
 func (*NotFoundHeaders) updateRoleRes()                       {}
 func (*NotFoundHeaders) updateSupplierInvoiceRes()            {}
+func (*NotFoundHeaders) updateWebhookSubscriptionRes()        {}
 func (*NotFoundHeaders) withdrawChangeRequestRes()            {}
 
 // Merged schema.
@@ -20389,6 +20470,7 @@ func (*PreconditionFailedHeaders) clearSupplierInvoiceDownPaymentsRes() {}
 func (*PreconditionFailedHeaders) closeFiscalPeriodRes()                {}
 func (*PreconditionFailedHeaders) closePurchaseOrderRes()               {}
 func (*PreconditionFailedHeaders) decideRecommendationRes()             {}
+func (*PreconditionFailedHeaders) deleteWebhookSubscriptionRes()        {}
 func (*PreconditionFailedHeaders) disableConnectorRes()                 {}
 func (*PreconditionFailedHeaders) enableConnectorRes()                  {}
 func (*PreconditionFailedHeaders) endAgentSessionRes()                  {}
@@ -20415,6 +20497,7 @@ func (*PreconditionFailedHeaders) requestBankAccountEndRes()            {}
 func (*PreconditionFailedHeaders) reverseGoodsReceiptRes()              {}
 func (*PreconditionFailedHeaders) reverseJournalEntryRes()              {}
 func (*PreconditionFailedHeaders) reverseSupplierInvoiceRes()           {}
+func (*PreconditionFailedHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*PreconditionFailedHeaders) simulateChangeRequestRes()            {}
 func (*PreconditionFailedHeaders) startMigrationRunRes()                {}
 func (*PreconditionFailedHeaders) submitChangeRequestRes()              {}
@@ -20439,6 +20522,7 @@ func (*PreconditionFailedHeaders) updatePurchaseOrderRes()              {}
 func (*PreconditionFailedHeaders) updateRequisitionRes()                {}
 func (*PreconditionFailedHeaders) updateRoleRes()                       {}
 func (*PreconditionFailedHeaders) updateSupplierInvoiceRes()            {}
+func (*PreconditionFailedHeaders) updateWebhookSubscriptionRes()        {}
 func (*PreconditionFailedHeaders) withdrawChangeRequestRes()            {}
 
 // PreconditionRequiredHeaders wraps Problem with response headers.
@@ -20532,7 +20616,9 @@ func (*PreconditionRequiredHeaders) createRoleRes()                       {}
 func (*PreconditionRequiredHeaders) createSodRuleRes()                    {}
 func (*PreconditionRequiredHeaders) createSupplierInvoiceRes()            {}
 func (*PreconditionRequiredHeaders) createUploadRes()                     {}
+func (*PreconditionRequiredHeaders) createWebhookSubscriptionRes()        {}
 func (*PreconditionRequiredHeaders) decideRecommendationRes()             {}
+func (*PreconditionRequiredHeaders) deleteWebhookSubscriptionRes()        {}
 func (*PreconditionRequiredHeaders) disableConnectorRes()                 {}
 func (*PreconditionRequiredHeaders) enableConnectorRes()                  {}
 func (*PreconditionRequiredHeaders) endAgentSessionRes()                  {}
@@ -20566,6 +20652,7 @@ func (*PreconditionRequiredHeaders) requestBankAccountEndRes()            {}
 func (*PreconditionRequiredHeaders) reverseGoodsReceiptRes()              {}
 func (*PreconditionRequiredHeaders) reverseJournalEntryRes()              {}
 func (*PreconditionRequiredHeaders) reverseSupplierInvoiceRes()           {}
+func (*PreconditionRequiredHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*PreconditionRequiredHeaders) simulateChangeRequestRes()            {}
 func (*PreconditionRequiredHeaders) startAgentSessionRes()                {}
 func (*PreconditionRequiredHeaders) startMigrationRunRes()                {}
@@ -20591,6 +20678,7 @@ func (*PreconditionRequiredHeaders) updatePurchaseOrderRes()              {}
 func (*PreconditionRequiredHeaders) updateRequisitionRes()                {}
 func (*PreconditionRequiredHeaders) updateRoleRes()                       {}
 func (*PreconditionRequiredHeaders) updateSupplierInvoiceRes()            {}
+func (*PreconditionRequiredHeaders) updateWebhookSubscriptionRes()        {}
 func (*PreconditionRequiredHeaders) verifyAuditChainRes()                 {}
 func (*PreconditionRequiredHeaders) withdrawChangeRequestRes()            {}
 
@@ -25642,7 +25730,9 @@ func (*ServiceUnavailableHeaders) createRoleRes()                       {}
 func (*ServiceUnavailableHeaders) createSodRuleRes()                    {}
 func (*ServiceUnavailableHeaders) createSupplierInvoiceRes()            {}
 func (*ServiceUnavailableHeaders) createUploadRes()                     {}
+func (*ServiceUnavailableHeaders) createWebhookSubscriptionRes()        {}
 func (*ServiceUnavailableHeaders) decideRecommendationRes()             {}
+func (*ServiceUnavailableHeaders) deleteWebhookSubscriptionRes()        {}
 func (*ServiceUnavailableHeaders) disableConnectorRes()                 {}
 func (*ServiceUnavailableHeaders) enableConnectorRes()                  {}
 func (*ServiceUnavailableHeaders) endAgentSessionRes()                  {}
@@ -25677,6 +25767,7 @@ func (*ServiceUnavailableHeaders) requestBankAccountEndRes()            {}
 func (*ServiceUnavailableHeaders) reverseGoodsReceiptRes()              {}
 func (*ServiceUnavailableHeaders) reverseJournalEntryRes()              {}
 func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()           {}
+func (*ServiceUnavailableHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*ServiceUnavailableHeaders) simulateChangeRequestRes()            {}
 func (*ServiceUnavailableHeaders) startAgentSessionRes()                {}
 func (*ServiceUnavailableHeaders) startMigrationRunRes()                {}
@@ -25702,6 +25793,7 @@ func (*ServiceUnavailableHeaders) updatePurchaseOrderRes()              {}
 func (*ServiceUnavailableHeaders) updateRequisitionRes()                {}
 func (*ServiceUnavailableHeaders) updateRoleRes()                       {}
 func (*ServiceUnavailableHeaders) updateSupplierInvoiceRes()            {}
+func (*ServiceUnavailableHeaders) updateWebhookSubscriptionRes()        {}
 func (*ServiceUnavailableHeaders) verifyAuditChainRes()                 {}
 func (*ServiceUnavailableHeaders) withdrawChangeRequestRes()            {}
 
@@ -27383,7 +27475,9 @@ func (*TooManyRequestsHeaders) createRoleRes()                       {}
 func (*TooManyRequestsHeaders) createSodRuleRes()                    {}
 func (*TooManyRequestsHeaders) createSupplierInvoiceRes()            {}
 func (*TooManyRequestsHeaders) createUploadRes()                     {}
+func (*TooManyRequestsHeaders) createWebhookSubscriptionRes()        {}
 func (*TooManyRequestsHeaders) decideRecommendationRes()             {}
+func (*TooManyRequestsHeaders) deleteWebhookSubscriptionRes()        {}
 func (*TooManyRequestsHeaders) disableConnectorRes()                 {}
 func (*TooManyRequestsHeaders) enableConnectorRes()                  {}
 func (*TooManyRequestsHeaders) endAgentSessionRes()                  {}
@@ -27433,6 +27527,7 @@ func (*TooManyRequestsHeaders) getSodRuleRes()                       {}
 func (*TooManyRequestsHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*TooManyRequestsHeaders) getSupplierInvoiceRes()               {}
 func (*TooManyRequestsHeaders) getUploadRes()                        {}
+func (*TooManyRequestsHeaders) getWebhookSubscriptionRes()           {}
 func (*TooManyRequestsHeaders) grantRolePermissionRes()              {}
 func (*TooManyRequestsHeaders) holdSupplierInvoiceRes()              {}
 func (*TooManyRequestsHeaders) listAccountsRes()                     {}
@@ -27479,6 +27574,7 @@ func (*TooManyRequestsHeaders) listRolePermissionsRes()              {}
 func (*TooManyRequestsHeaders) listRolesRes()                        {}
 func (*TooManyRequestsHeaders) listSodRulesRes()                     {}
 func (*TooManyRequestsHeaders) listSupplierInvoicesRes()             {}
+func (*TooManyRequestsHeaders) listWebhookSubscriptionsRes()         {}
 func (*TooManyRequestsHeaders) lockFiscalPeriodRes()                 {}
 func (*TooManyRequestsHeaders) matchSupplierInvoiceRes()             {}
 func (*TooManyRequestsHeaders) openFiscalPeriodRes()                 {}
@@ -27503,6 +27599,7 @@ func (*TooManyRequestsHeaders) requestBankAccountEndRes()            {}
 func (*TooManyRequestsHeaders) reverseGoodsReceiptRes()              {}
 func (*TooManyRequestsHeaders) reverseJournalEntryRes()              {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()           {}
+func (*TooManyRequestsHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*TooManyRequestsHeaders) simulateChangeRequestRes()            {}
 func (*TooManyRequestsHeaders) startAgentSessionRes()                {}
 func (*TooManyRequestsHeaders) startMigrationRunRes()                {}
@@ -27528,6 +27625,7 @@ func (*TooManyRequestsHeaders) updatePurchaseOrderRes()              {}
 func (*TooManyRequestsHeaders) updateRequisitionRes()                {}
 func (*TooManyRequestsHeaders) updateRoleRes()                       {}
 func (*TooManyRequestsHeaders) updateSupplierInvoiceRes()            {}
+func (*TooManyRequestsHeaders) updateWebhookSubscriptionRes()        {}
 func (*TooManyRequestsHeaders) verifyAuditChainRes()                 {}
 func (*TooManyRequestsHeaders) withdrawChangeRequestRes()            {}
 
@@ -27634,7 +27732,9 @@ func (*UnauthorizedHeaders) createRoleRes()                       {}
 func (*UnauthorizedHeaders) createSodRuleRes()                    {}
 func (*UnauthorizedHeaders) createSupplierInvoiceRes()            {}
 func (*UnauthorizedHeaders) createUploadRes()                     {}
+func (*UnauthorizedHeaders) createWebhookSubscriptionRes()        {}
 func (*UnauthorizedHeaders) decideRecommendationRes()             {}
+func (*UnauthorizedHeaders) deleteWebhookSubscriptionRes()        {}
 func (*UnauthorizedHeaders) disableConnectorRes()                 {}
 func (*UnauthorizedHeaders) enableConnectorRes()                  {}
 func (*UnauthorizedHeaders) endAgentSessionRes()                  {}
@@ -27684,6 +27784,7 @@ func (*UnauthorizedHeaders) getSodRuleRes()                       {}
 func (*UnauthorizedHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*UnauthorizedHeaders) getSupplierInvoiceRes()               {}
 func (*UnauthorizedHeaders) getUploadRes()                        {}
+func (*UnauthorizedHeaders) getWebhookSubscriptionRes()           {}
 func (*UnauthorizedHeaders) grantRolePermissionRes()              {}
 func (*UnauthorizedHeaders) holdSupplierInvoiceRes()              {}
 func (*UnauthorizedHeaders) listAccountsRes()                     {}
@@ -27730,6 +27831,7 @@ func (*UnauthorizedHeaders) listRolePermissionsRes()              {}
 func (*UnauthorizedHeaders) listRolesRes()                        {}
 func (*UnauthorizedHeaders) listSodRulesRes()                     {}
 func (*UnauthorizedHeaders) listSupplierInvoicesRes()             {}
+func (*UnauthorizedHeaders) listWebhookSubscriptionsRes()         {}
 func (*UnauthorizedHeaders) lockFiscalPeriodRes()                 {}
 func (*UnauthorizedHeaders) matchSupplierInvoiceRes()             {}
 func (*UnauthorizedHeaders) openFiscalPeriodRes()                 {}
@@ -27754,6 +27856,7 @@ func (*UnauthorizedHeaders) requestBankAccountEndRes()            {}
 func (*UnauthorizedHeaders) reverseGoodsReceiptRes()              {}
 func (*UnauthorizedHeaders) reverseJournalEntryRes()              {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()           {}
+func (*UnauthorizedHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*UnauthorizedHeaders) simulateChangeRequestRes()            {}
 func (*UnauthorizedHeaders) startAgentSessionRes()                {}
 func (*UnauthorizedHeaders) startMigrationRunRes()                {}
@@ -27779,6 +27882,7 @@ func (*UnauthorizedHeaders) updatePurchaseOrderRes()              {}
 func (*UnauthorizedHeaders) updateRequisitionRes()                {}
 func (*UnauthorizedHeaders) updateRoleRes()                       {}
 func (*UnauthorizedHeaders) updateSupplierInvoiceRes()            {}
+func (*UnauthorizedHeaders) updateWebhookSubscriptionRes()        {}
 func (*UnauthorizedHeaders) verifyAuditChainRes()                 {}
 func (*UnauthorizedHeaders) withdrawChangeRequestRes()            {}
 
@@ -27874,7 +27978,9 @@ func (*UnprocessableHeaders) createRoleRes()                       {}
 func (*UnprocessableHeaders) createSodRuleRes()                    {}
 func (*UnprocessableHeaders) createSupplierInvoiceRes()            {}
 func (*UnprocessableHeaders) createUploadRes()                     {}
+func (*UnprocessableHeaders) createWebhookSubscriptionRes()        {}
 func (*UnprocessableHeaders) decideRecommendationRes()             {}
+func (*UnprocessableHeaders) deleteWebhookSubscriptionRes()        {}
 func (*UnprocessableHeaders) disableConnectorRes()                 {}
 func (*UnprocessableHeaders) enableConnectorRes()                  {}
 func (*UnprocessableHeaders) endAgentSessionRes()                  {}
@@ -27908,6 +28014,7 @@ func (*UnprocessableHeaders) requestBankAccountEndRes()            {}
 func (*UnprocessableHeaders) reverseGoodsReceiptRes()              {}
 func (*UnprocessableHeaders) reverseJournalEntryRes()              {}
 func (*UnprocessableHeaders) reverseSupplierInvoiceRes()           {}
+func (*UnprocessableHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*UnprocessableHeaders) simulateChangeRequestRes()            {}
 func (*UnprocessableHeaders) startAgentSessionRes()                {}
 func (*UnprocessableHeaders) startMigrationRunRes()                {}
@@ -27933,6 +28040,7 @@ func (*UnprocessableHeaders) updatePurchaseOrderRes()              {}
 func (*UnprocessableHeaders) updateRequisitionRes()                {}
 func (*UnprocessableHeaders) updateRoleRes()                       {}
 func (*UnprocessableHeaders) updateSupplierInvoiceRes()            {}
+func (*UnprocessableHeaders) updateWebhookSubscriptionRes()        {}
 func (*UnprocessableHeaders) verifyAuditChainRes()                 {}
 func (*UnprocessableHeaders) withdrawChangeRequestRes()            {}
 
@@ -28902,6 +29010,80 @@ func (*UpdateSupplierInvoiceOKHeaders) releaseSupplierInvoiceRes()           {}
 func (*UpdateSupplierInvoiceOKHeaders) reverseSupplierInvoiceRes()           {}
 func (*UpdateSupplierInvoiceOKHeaders) updateSupplierInvoiceRes()            {}
 
+// UpdateWebhookSubscriptionOKHeaders wraps WebhookSubscription with response headers.
+type UpdateWebhookSubscriptionOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           WebhookSubscription
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateWebhookSubscriptionOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateWebhookSubscriptionOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *UpdateWebhookSubscriptionOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *UpdateWebhookSubscriptionOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *UpdateWebhookSubscriptionOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateWebhookSubscriptionOKHeaders) GetResponse() WebhookSubscription {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateWebhookSubscriptionOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateWebhookSubscriptionOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *UpdateWebhookSubscriptionOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *UpdateWebhookSubscriptionOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *UpdateWebhookSubscriptionOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateWebhookSubscriptionOKHeaders) SetResponse(val WebhookSubscription) {
+	s.Response = val
+}
+
+func (*UpdateWebhookSubscriptionOKHeaders) deleteWebhookSubscriptionRes()       {}
+func (*UpdateWebhookSubscriptionOKHeaders) rotateWebhookSubscriptionSecretRes() {}
+func (*UpdateWebhookSubscriptionOKHeaders) updateWebhookSubscriptionRes()       {}
+
 // Merged schema.
 // Ref: #/components/schemas/Upload
 type Upload struct {
@@ -29145,4 +29327,439 @@ func (s *UploadHeaders) init() UploadHeaders {
 		*s = m
 	}
 	return m
+}
+
+// Merged schema.
+// Ref: #/components/schemas/WebhookSubscription
+type WebhookSubscription struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The HTTPS endpoint, without credentials or fragment; a query may carry the endpoint's token.
+	URL string `json:"url"`
+	// What the endpoint is for.
+	Description string `json:"description"`
+	// CloudEvents types marked `x-webhook` in the AsyncAPI contract, or `<context>.*` for all of a
+	// context's.
+	EventTypes []string `json:"event_types"`
+	// Status. `disabled`: the dispatcher stopped after failures or a 410 Gone (`disabled_reason`).
+	// `deleted`: ended by `:delete`. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Status string `json:"status"`
+	// Why the dispatcher disabled it; present only when `disabled`. Open enumeration: clients must accept
+	// and preserve values not listed here; values may be added within /v1.
+	DisabledReason OptString `json:"disabled_reason"`
+	// First failed delivery since the last success; absent while deliveries succeed.
+	FailingSince OptDateTime `json:"failing_since"`
+	// Until when the previous secret also signs, after a rotation; absent otherwise.
+	PreviousSecretExpiresAt OptDateTime `json:"previous_secret_expires_at"`
+	// The `whsec_` signing secret: present only in the answers to create and `:rotateSecret`, never stored
+	// in the clear.
+	Secret OptString `json:"secret"`
+}
+
+// GetID returns the value of ID.
+func (s *WebhookSubscription) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *WebhookSubscription) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *WebhookSubscription) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *WebhookSubscription) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *WebhookSubscription) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *WebhookSubscription) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetURL returns the value of URL.
+func (s *WebhookSubscription) GetURL() string {
+	return s.URL
+}
+
+// GetDescription returns the value of Description.
+func (s *WebhookSubscription) GetDescription() string {
+	return s.Description
+}
+
+// GetEventTypes returns the value of EventTypes.
+func (s *WebhookSubscription) GetEventTypes() []string {
+	return s.EventTypes
+}
+
+// GetStatus returns the value of Status.
+func (s *WebhookSubscription) GetStatus() string {
+	return s.Status
+}
+
+// GetDisabledReason returns the value of DisabledReason.
+func (s *WebhookSubscription) GetDisabledReason() OptString {
+	return s.DisabledReason
+}
+
+// GetFailingSince returns the value of FailingSince.
+func (s *WebhookSubscription) GetFailingSince() OptDateTime {
+	return s.FailingSince
+}
+
+// GetPreviousSecretExpiresAt returns the value of PreviousSecretExpiresAt.
+func (s *WebhookSubscription) GetPreviousSecretExpiresAt() OptDateTime {
+	return s.PreviousSecretExpiresAt
+}
+
+// GetSecret returns the value of Secret.
+func (s *WebhookSubscription) GetSecret() OptString {
+	return s.Secret
+}
+
+// SetID sets the value of ID.
+func (s *WebhookSubscription) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *WebhookSubscription) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *WebhookSubscription) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *WebhookSubscription) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *WebhookSubscription) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *WebhookSubscription) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetURL sets the value of URL.
+func (s *WebhookSubscription) SetURL(val string) {
+	s.URL = val
+}
+
+// SetDescription sets the value of Description.
+func (s *WebhookSubscription) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetEventTypes sets the value of EventTypes.
+func (s *WebhookSubscription) SetEventTypes(val []string) {
+	s.EventTypes = val
+}
+
+// SetStatus sets the value of Status.
+func (s *WebhookSubscription) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetDisabledReason sets the value of DisabledReason.
+func (s *WebhookSubscription) SetDisabledReason(val OptString) {
+	s.DisabledReason = val
+}
+
+// SetFailingSince sets the value of FailingSince.
+func (s *WebhookSubscription) SetFailingSince(val OptDateTime) {
+	s.FailingSince = val
+}
+
+// SetPreviousSecretExpiresAt sets the value of PreviousSecretExpiresAt.
+func (s *WebhookSubscription) SetPreviousSecretExpiresAt(val OptDateTime) {
+	s.PreviousSecretExpiresAt = val
+}
+
+// SetSecret sets the value of Secret.
+func (s *WebhookSubscription) SetSecret(val OptString) {
+	s.Secret = val
+}
+
+// Create a webhook subscription (status `active`).
+// Ref: #/components/schemas/WebhookSubscriptionCreate
+type WebhookSubscriptionCreate struct {
+	// The HTTPS endpoint; its host must resolve to public addresses only.
+	URL string `json:"url"`
+	// What the endpoint is for.
+	Description OptString `json:"description"`
+	// Event types marked `x-webhook`, or `<context>.*`; duplicates are dropped.
+	EventTypes []string `json:"event_types"`
+}
+
+// GetURL returns the value of URL.
+func (s *WebhookSubscriptionCreate) GetURL() string {
+	return s.URL
+}
+
+// GetDescription returns the value of Description.
+func (s *WebhookSubscriptionCreate) GetDescription() OptString {
+	return s.Description
+}
+
+// GetEventTypes returns the value of EventTypes.
+func (s *WebhookSubscriptionCreate) GetEventTypes() []string {
+	return s.EventTypes
+}
+
+// SetURL sets the value of URL.
+func (s *WebhookSubscriptionCreate) SetURL(val string) {
+	s.URL = val
+}
+
+// SetDescription sets the value of Description.
+func (s *WebhookSubscriptionCreate) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SetEventTypes sets the value of EventTypes.
+func (s *WebhookSubscriptionCreate) SetEventTypes(val []string) {
+	s.EventTypes = val
+}
+
+// WebhookSubscriptionHeaders wraps WebhookSubscription with response headers.
+type WebhookSubscriptionHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           WebhookSubscription
+}
+
+// GetETag returns the value of ETag.
+func (s *WebhookSubscriptionHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *WebhookSubscriptionHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *WebhookSubscriptionHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *WebhookSubscriptionHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *WebhookSubscriptionHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *WebhookSubscriptionHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *WebhookSubscriptionHeaders) GetResponse() WebhookSubscription {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *WebhookSubscriptionHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *WebhookSubscriptionHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *WebhookSubscriptionHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *WebhookSubscriptionHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *WebhookSubscriptionHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *WebhookSubscriptionHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *WebhookSubscriptionHeaders) SetResponse(val WebhookSubscription) {
+	s.Response = val
+}
+
+func (*WebhookSubscriptionHeaders) createWebhookSubscriptionRes() {}
+
+// One page of webhook subscriptions.
+// Ref: #/components/schemas/WebhookSubscriptionPage
+type WebhookSubscriptionPage struct {
+	// The webhook subscriptions on this page.
+	Items []WebhookSubscription `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *WebhookSubscriptionPage) GetItems() []WebhookSubscription {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *WebhookSubscriptionPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *WebhookSubscriptionPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *WebhookSubscriptionPage) SetItems(val []WebhookSubscription) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *WebhookSubscriptionPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *WebhookSubscriptionPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+// WebhookSubscriptionPageHeaders wraps WebhookSubscriptionPage with response headers.
+type WebhookSubscriptionPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           WebhookSubscriptionPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *WebhookSubscriptionPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *WebhookSubscriptionPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *WebhookSubscriptionPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *WebhookSubscriptionPageHeaders) GetResponse() WebhookSubscriptionPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *WebhookSubscriptionPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *WebhookSubscriptionPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *WebhookSubscriptionPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *WebhookSubscriptionPageHeaders) SetResponse(val WebhookSubscriptionPage) {
+	s.Response = val
+}
+
+func (*WebhookSubscriptionPageHeaders) listWebhookSubscriptionsRes() {}
+
+// Merge patch of a webhook subscription.
+// Ref: #/components/schemas/WebhookSubscriptionUpdate
+type WebhookSubscriptionUpdate struct {
+	// The HTTPS endpoint; its host must resolve to public addresses only.
+	URL OptString `json:"url"`
+	// What the endpoint is for.
+	Description OptString `json:"description"`
+	// Event types marked `x-webhook`, or `<context>.*`; replaced as a whole.
+	EventTypes []string `json:"event_types"`
+}
+
+// GetURL returns the value of URL.
+func (s *WebhookSubscriptionUpdate) GetURL() OptString {
+	return s.URL
+}
+
+// GetDescription returns the value of Description.
+func (s *WebhookSubscriptionUpdate) GetDescription() OptString {
+	return s.Description
+}
+
+// GetEventTypes returns the value of EventTypes.
+func (s *WebhookSubscriptionUpdate) GetEventTypes() []string {
+	return s.EventTypes
+}
+
+// SetURL sets the value of URL.
+func (s *WebhookSubscriptionUpdate) SetURL(val OptString) {
+	s.URL = val
+}
+
+// SetDescription sets the value of Description.
+func (s *WebhookSubscriptionUpdate) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SetEventTypes sets the value of EventTypes.
+func (s *WebhookSubscriptionUpdate) SetEventTypes(val []string) {
+	s.EventTypes = val
 }

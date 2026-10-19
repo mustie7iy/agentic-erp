@@ -4787,9 +4787,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Subscription API: create, list, get, update, :delete, :rotateSecret; URL checked by the egress rules, x-webhook event types, at most 20, secret shown once",
+        "r": "internal/integration/webhooks.go · api/openapi.yaml · T50d",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Subscription API, dispatcher, retries and operations",
-        "r": "T50d–g",
+        "t": "Dispatcher, retries and operations",
+        "r": "T50e–g",
         "c": []
        }
       ]

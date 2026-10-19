@@ -31,6 +31,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -122,10 +123,12 @@ type Endpoints struct {
 	Postings      Postings
 	Reports       Reports
 	Secrets       Secrets
-	ExtractDir    string       // sap_file connectors read extracts below it; empty: they cannot be used
-	HTTP          *http.Client // for sap_odata connectors; nil: the reader's default
-	Workflows     bool         // runs leave the request and run as workflows (ADR-0012); false: they complete within it
-	RefuseEBICS   bool         // production: bank_ebics connectors cannot be created or enabled (ADR-0038, T44d)
+	Keys          Sealer          // seals webhook secrets with the tenant's key
+	Resolver      egress.Resolver // resolves webhook hosts when a URL is written
+	ExtractDir    string          // sap_file connectors read extracts below it; empty: they cannot be used
+	HTTP          *http.Client    // for sap_odata connectors; nil: the reader's default
+	Workflows     bool            // runs leave the request and run as workflows (ADR-0012); false: they complete within it
+	RefuseEBICS   bool            // production: bank_ebics connectors cannot be created or enabled (ADR-0038, T44d)
 }
 
 // record publishes the events and adds the audit entry of a change; the
