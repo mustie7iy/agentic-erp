@@ -22,7 +22,10 @@ var evalAgents = map[string]eval.Agent{"ap_exceptions": apExceptions, "capture":
 
 // captureEval captures the task's document for its legal entity as erp
 // capture does; the server's extraction runs through the cell's gateway on
-// erp-extraction. A capture the API refuses is the case's to judge.
+// erp-extraction. Only the refusal the task names (refused: a problem code)
+// is the case's to judge: any other, an unreadable document, an exhausted
+// budget or a broken cell, fails the case rather than pass a check that
+// nothing was entered.
 func captureEval(ctx context.Context, env eval.Env) error {
 	doc, err := os.ReadFile(filepath.Join(env.Dir, fmt.Sprint(env.Task["document"]))) // #nosec G304 -- a document the suite names
 	if err != nil {
@@ -30,10 +33,13 @@ func captureEval(ctx context.Context, env eval.Env) error {
 	}
 	_, err = capture(ctx, env.Agent, map[string]string{"legal_entity_id": fmt.Sprint(env.Task["legal_entity_id"])}, doc)
 	var refused *apitools.Error
-	if errors.As(err, &refused) {
+	if want, ok := env.Task["refused"]; ok && errors.As(err, &refused) && refused.Code == fmt.Sprint(want) {
 		return nil
 	}
-	return err
+	if err != nil {
+		return fmt.Errorf("capture: %w", err)
+	}
+	return nil
 }
 
 // apExceptions reviews the held invoices as erp agent invoices does; an

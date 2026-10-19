@@ -314,4 +314,18 @@ func TestAdapterFailures(t *testing.T) {
 	if err := captureEval(context.Background(), eval.Env{Agent: gone, Dir: dir, Task: map[string]any{"document": "a.pdf"}}); err == nil {
 		t.Error("a capture that never reached the API: got no error")
 	}
+	refusing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(422)
+		_, _ = w.Write([]byte(`{"code": "payables.unreadable_document"}`))
+	}))
+	t.Cleanup(refusing.Close)
+	refused := eval.Env{Agent: &apitools.Client{BaseURL: refusing.URL, Token: "t"}, Dir: dir,
+		Task: map[string]any{"document": "a.pdf", "refused": "payables.capture_needs_order"}}
+	if err := captureEval(context.Background(), refused); err == nil {
+		t.Error("a refusal other than the task's: got no error")
+	}
+	refused.Task["refused"] = "payables.unreadable_document"
+	if err := captureEval(context.Background(), refused); err != nil {
+		t.Errorf("the task's refusal: got %v, want none", err)
+	}
 }

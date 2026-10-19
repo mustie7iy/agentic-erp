@@ -3,11 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"github.com/mustie7iy/agentic-erp/internal/apitools"
-	"github.com/mustie7iy/agentic-erp/internal/app"
-	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
-	capturepkg "github.com/mustie7iy/agentic-erp/internal/capture"
-	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +12,12 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	capturepkg "github.com/mustie7iy/agentic-erp/internal/capture"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 )
 
 func TestCaptureCommand(t *testing.T) {

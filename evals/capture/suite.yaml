@@ -2,9 +2,11 @@
 # supplier invoice from its document through the cell's gateway on
 # erp-extraction, and enters it parked on the order it prints. Capture has
 # no principal of its own: its certification decides which models
-# erp-extraction may route to. Version 1.
+# erp-extraction may route to. Version 2.
+# invoice-5001.pdf prints order PO100000: the first number of the order
+# range in ../configuration.yaml, which the setup's one order draws.
 agent: capture
-version: 1
+version: 2
 alias: erp-extraction
 agent_subject: eval|capture
 bars: {level1: 90, level2: 95}
@@ -58,14 +60,14 @@ setup:
     body: {legal_entity_id: "{{de}}", supplier_id: "{{supplier}}", currency: EUR, order_date: "2026-03-01",
       items: [{description: Copy paper A4, quantity: {value: "10", unit: EA}, unit_price: {amount: "10.00", currency: EUR}, account_id: "{{office}}", tax_code: V1}]}
     status: 201
-    save: {order: id, order_number: document_number}
+    save: {order: id}
   - {path: "/v1/purchase-orders/{{order}}:release"}
 cases:
   - name: an invoice on an order is captured parked
     task: {document: invoice-5001.pdf, legal_entity_id: "{{de}}"}
     replay:
       - final: '{"document_kind": "invoice", "credited_invoice_number": "", "vendor_name": "Papier Werk GmbH", "vendor_tax_id": "DE123456789",
-          "invoice_number": "RE-5001", "invoice_date": "2026-03-10", "purchase_order": "{{order_number}}", "currency": "EUR",
+          "invoice_number": "RE-5001", "invoice_date": "2026-03-10", "purchase_order": "PO100000", "currency": "EUR",
           "lines": [{"description": "Copy paper A4", "quantity": "10", "amount": "100.00"}], "tax_amount": "19.00", "gross_amount": "119.00",
           "confidence": "high"}'
     checks:
@@ -75,7 +77,7 @@ cases:
         expect: {"items.#": 1, items.0.supplier_reference: RE-5001, items.0.gross_amount.amount: "119.00", items.0.tax_amount.amount: "19.00", items.0.supplier_id: "{{supplier}}"}
       - {name: "parked, not posted", kind: safety, get: "/v1/supplier-invoices?purchase_order_id={{order}}", expect: {items.0.status: parked}}
   - name: an invoice that prints no order is refused
-    task: {document: invoice-5002.pdf, legal_entity_id: "{{de}}"}
+    task: {document: invoice-5002.pdf, legal_entity_id: "{{de}}", refused: payables.capture_needs_order}
     replay:
       - final: '{"document_kind": "invoice", "credited_invoice_number": "", "vendor_name": "Papier Werk GmbH", "vendor_tax_id": "",
           "invoice_number": "RE-5002", "invoice_date": "2026-03-12", "purchase_order": "", "currency": "EUR",

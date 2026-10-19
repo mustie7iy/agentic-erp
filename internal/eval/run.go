@@ -128,7 +128,7 @@ func (r *Runner) run(ctx context.Context, s Suite, c Case, ten Tenant, agent Age
 		if call.As != "" {
 			var err error
 			if as, err = ten.As(ctx, call.As); err != nil {
-				return Outcome{}, err
+				return Outcome{}, fmt.Errorf("eval: case %q: setup as %s: %w", c.Name, call.As, err)
 			}
 		}
 		if err := do(ctx, as, call, saved); err != nil {
@@ -173,6 +173,8 @@ func (r *Runner) run(ctx context.Context, s Suite, c Case, ten Tenant, agent Age
 // spent is what the repeat's tenant spent on models, from its ledger
 // (getAiUsage, ADR-0036): the agent's calls and the server's on its behalf
 // (capture), and the model the suite's alias routes to when it called any.
+// The ledger reports cents, so a repeat's cost is within half a cent and
+// -max-cost sums rounded figures; the gateway's caps bound the real spend.
 func spent(ctx context.Context, admin *apitools.Client, alias string) (money.Micro, string, []string, error) {
 	usage, err := get(ctx, admin, "/v1/ai-usage")
 	if err != nil {
