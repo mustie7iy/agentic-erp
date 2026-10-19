@@ -163,3 +163,18 @@ func TestFailed(t *testing.T) {
 		})
 	}
 }
+
+// A timer already due when the context has ended does not start another
+// round: the select alone would pick it about half the time.
+func TestWaitCancelledWins(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for i := range 1000 {
+		if Wait(ctx, 0) {
+			t.Fatalf("wait %d: got run again, want stop after the cancel", i)
+		}
+	}
+	if !Wait(context.Background(), time.Nanosecond) {
+		t.Error("wait: got stop, want run again while the context lives")
+	}
+}
