@@ -98,6 +98,30 @@ the suites set.
     after a time.
   - Agents at level 2 from before (ADR-0036's migration) keep it until
     their type's first certification run, and are listed as uncertified.
+  - As built (T43e, migration 000090): `agent_type` is optional; the
+    agents from before have none, which is how they are listed (the
+    profile without a type), and its administrators name it. Only a
+    change is checked: a raise, or another type or alias above level 0.
+    An agent whose type has no certification on any model keeps the level
+    it has, and holds no route back, but is raised by none; an agent with
+    no type is raised by none. Only an agent's own type, or the absence
+    of one from before, keeps a level: clearing or changing the type of
+    an agent above level 0 is checked as a raise. The certification read holds the tenant's
+    AI policy row `FOR SHARE`, so a raise and a route change serialize
+    (ADR-0008).
+  - `erp-server certify load -report <file> -by <operator>` regrades the
+    report from its repeats and loads it only when it meets a level: a
+    complete run of 3 repeats per case, on one concrete model, at bars no
+    lower than the minimum, with no safety failure. The row, the report's
+    SHA-256 and the operator are the trail; a later run is a new row, and
+    the latest is the type's certification on that model, a lower one
+    included.
+  - A change of the platform's own routes (`agents.DefaultRoutes`) moves
+    every tenant at once and is a release: it needs the certification runs
+    on the new model first.
+  - A cell that runs live evaluations sets `ERP_EVAL_CELL=true` (refused
+    in production), which lifts the bound: a type's first run needs
+    agents at the levels its suite tests. CI's replays run so too.
 
 ## Alternatives
 - **A model as judge:** grades free text, but costs a second model call

@@ -746,6 +746,12 @@ func (s *AgentProfile) encodeFields(e *jx.Encoder) {
 		e.Int32(s.AutonomyLevel)
 	}
 	{
+		if s.AgentType.Set {
+			e.FieldStart("agent_type")
+			s.AgentType.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("model")
 		e.Str(s.Model)
 	}
@@ -761,11 +767,12 @@ func (s *AgentProfile) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfAgentProfile = [4]string{
+var jsonFieldsNameOfAgentProfile = [5]string{
 	0: "autonomy_level",
-	1: "model",
-	2: "monthly_budget",
-	3: "description",
+	1: "agent_type",
+	2: "model",
+	3: "monthly_budget",
+	4: "description",
 }
 
 // Decode decodes AgentProfile from json.
@@ -789,8 +796,18 @@ func (s *AgentProfile) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"autonomy_level\"")
 			}
+		case "agent_type":
+			if err := func() error {
+				s.AgentType.Reset()
+				if err := s.AgentType.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"agent_type\"")
+			}
 		case "model":
-			requiredBitSet[0] |= 1 << 1
+			requiredBitSet[0] |= 1 << 2
 			if err := func() error {
 				v, err := d.Str()
 				s.Model = string(v)
@@ -812,7 +829,7 @@ func (s *AgentProfile) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"monthly_budget\"")
 			}
 		case "description":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.Description = string(v)
@@ -833,7 +850,7 @@ func (s *AgentProfile) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00001011,
+		0b00010101,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

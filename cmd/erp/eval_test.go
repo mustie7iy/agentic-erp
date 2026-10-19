@@ -63,7 +63,7 @@ func newReplayCell(t *testing.T) replayCell {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api := apitest.NewWith(t, func(c *app.Config) { c.Extractor, c.ExtractDir = extract, extracts })
+	api := apitest.NewWith(t, func(c *app.Config) { c.Extractor, c.ExtractDir, c.EvalCell = extract, extracts, true }) // an evaluation cell (ADR-0039)
 	is := api.Issuer
 	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
 	if err != nil {

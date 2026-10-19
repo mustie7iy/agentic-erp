@@ -111,6 +111,16 @@ type Config struct {
 	RequireBoundAgents bool
 	// Model is the model gateway (agents.Gateway, ADR-0036); nil answers 503.
 	Model http.Handler
+	// EvalCell lifts the bound of agents' autonomy by their type's
+	// certification, on a cell that runs live evaluations (ERP_EVAL_CELL,
+	// ADR-0039): a type's first run needs agents at its suite's levels.
+	EvalCell bool
+}
+
+// certifications bounds agents' autonomy by their type's certification
+// (ADR-0039), unless the cell runs live evaluations.
+func certifications(cfg Config) agents.Certifications {
+	return agents.Certifications{Agents: identity.AutonomousAgents, Waived: cfg.EvalCell}
 }
 
 // New builds the public API handler.
@@ -119,7 +129,7 @@ func New(cfg Config) (http.Handler, error) {
 	h := handler{
 		operationsAPI: &operations.Endpoints{Pages: cfg.Pages, Workflows: cfg.Workflows, Log: cfg.Log},
 		tenancyAPI:    &tenancy.Endpoints{Pages: cfg.Pages},
-		identityAPI:   &identity.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}},
+		identityAPI:   &identity.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Certifications: certifications(cfg)},
 		configAPI:     &configuration.Endpoints{Pages: cfg.Pages, Dependencies: Configuration(cfg)},
 		partnerAPI: &partner.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys,
 			Approvals: opener()},
@@ -140,7 +150,7 @@ func New(cfg Config) (http.Handler, error) {
 		paymentsAPI:    Payments(cfg),
 		auditAPI:       &audit.Endpoints{Pages: cfg.Pages, Anchors: cfg.Objects},
 		integrationAPI: Integration(cfg),
-		agentsAPI:      &agents.Endpoints{Pages: cfg.Pages, Countries: tenancy.Countries},
+		agentsAPI:      &agents.Endpoints{Pages: cfg.Pages, Countries: tenancy.Countries, Certifications: certifications(cfg)},
 	}
 	return httpapi.New(h, httpapi.Pipeline{
 		Pool: cfg.Pool, AppRole: cfg.AppRole, Verifier: cfg.Verifier, Limits: cfg.Limits, RequestTimeout: cfg.RequestTimeout,

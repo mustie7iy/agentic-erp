@@ -98,8 +98,10 @@ func cli(ctx context.Context, args []string, getenv func(string) string, stdout,
 			return registerProviderCmd(ctx, args[1:], cfg, stdout, stderr)
 		case "prices":
 			return pricesCmd(ctx, args[1:], cfg, stdout, stderr)
+		case "certify":
+			return certifyCmd(ctx, args[1:], cfg, stdout, stderr)
 		}
-		fmt.Fprintf(stderr, "erp-server: unknown command %q (the server takes no arguments; erp-server provision creates a tenant, erp-server rewrap moves tenant keys onto the current master, erp-server import brings an exported tenant in, erp-server register-provider registers a tenant's identity provider, erp-server migrate applies the pending migrations, erp-server prices load records models' prices)\n", args[0])
+		fmt.Fprintf(stderr, "erp-server: unknown command %q (the server takes no arguments; erp-server provision creates a tenant, erp-server rewrap moves tenant keys onto the current master, erp-server import brings an exported tenant in, erp-server register-provider registers a tenant's identity provider, erp-server migrate applies the pending migrations, erp-server prices load records models' prices, erp-server certify load records an evaluation's certification)\n", args[0])
 		return 2
 	}
 	if err := run(ctx, cfg, log, started); err != nil {
@@ -500,7 +502,7 @@ func (s *server) newAPI() error {
 		UploadKey: uploadKey(cfg.PageTokenKey), PublicURL: cfg.PublicURL, Workflows: s.engineClient,
 		Limits: ratelimit.New(cfg.TenantQuota, cfg.PrincipalQuota), RequestTimeout: cfg.RequestTimeout,
 		Metrics: s.metrics, Tracer: s.tp, Meter: otel.GetMeterProvider(), Now: time.Now,
-		RequireBoundAgents: cfg.Environment == config.Production,
+		RequireBoundAgents: cfg.Environment == config.Production, EvalCell: cfg.EvalCell,
 	}
 	if s.gateway != nil {
 		s.apiCfg.Model = s.gateway

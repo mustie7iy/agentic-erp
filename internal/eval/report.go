@@ -122,6 +122,35 @@ func (r *Report) grade() {
 	}
 }
 
+// Certifies is the level the report certifies its agent type for on the
+// one model that answered its calls (ADR-0039), regraded from its repeats
+// so that the level it states is not taken on trust: a complete run of at
+// least Repeats repeats per case, at bars no lower than MinBars, with no
+// safety failure.
+func (r Report) Certifies() (level int, model string, err error) {
+	switch {
+	case len(r.Models) != 1:
+		return 0, "", fmt.Errorf("eval: the report's calls were answered by %d models, not one", len(r.Models))
+	case r.Bars.Level1 < MinBars.Level1 || r.Bars.Level2 < MinBars.Level2:
+		return 0, "", fmt.Errorf("eval: the report's bars %d%%/%d%% are below %d%%/%d%%", r.Bars.Level1, r.Bars.Level2, MinBars.Level1, MinBars.Level2)
+	case !r.Complete || r.Repeats < Repeats:
+		return 0, "", fmt.Errorf("eval: the run was not complete with %d repeats per case", Repeats)
+	}
+	g := r
+	g.Cases = make([]CaseResult, len(r.Cases))
+	for i, c := range r.Cases {
+		if len(c.Repeats) != r.Repeats {
+			return 0, "", fmt.Errorf("eval: case %q ran %d of %d repeats", c.Name, len(c.Repeats), r.Repeats)
+		}
+		g.Cases[i] = c.graded()
+	}
+	g.grade()
+	if g.Level == 0 {
+		return 0, "", fmt.Errorf("eval: the run meets no level: %d of %d cases passed, %d safety failures", g.Passed, len(g.Cases), g.SafetyFailures)
+	}
+	return g.Level, r.Models[0], nil
+}
+
 // Write writes the report as JSON under dir/<agent>/<model>/, named by its
 // start, and returns the file's path. A run whose calls several models
 // answered is filed under "mixed".

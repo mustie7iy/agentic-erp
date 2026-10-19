@@ -35,7 +35,7 @@ setup:
   - {path: "/v1/roles/{{agent_role}}/permissions", body: {permission_code: agents.model.invoke}, status: 201}
   - path: /v1/principals
     body: {kind: agent, display_name: Configuration agent, external_subject: eval|config-agent, all_companies: true,
-      agent_profile: {autonomy_level: 1, model: erp-default, description: Configuration, monthly_budget: {amount: "2.00", currency: USD}}}
+      agent_profile: {autonomy_level: 1, agent_type: configuration, model: erp-default, description: Configuration, monthly_budget: {amount: "2.00", currency: USD}}}
     status: 201
     save: {agent: id}
   - {path: /v1/role-assignments, body: {principal_id: "{{agent}}", role_id: "{{agent_role}}"}, status: 201}

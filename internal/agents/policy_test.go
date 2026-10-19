@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/agents"
+	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
@@ -77,7 +78,7 @@ func TestUpdateAIPolicy(t *testing.T) {
 	update := func(ifMatch string, ch agents.PolicyChange) (agents.Policy, error) {
 		var p agents.Policy
 		err := inTenant(t, ten, func(ctx context.Context, tx pgx.Tx) (err error) {
-			p, err = agents.UpdatePolicy(ctx, tx, ten.Human.ID, etag.IfMatch(ifMatch), ch)
+			p, err = agents.UpdatePolicy(ctx, tx, ten.Human.ID, etag.IfMatch(ifMatch), ch, agents.Certifications{Agents: identity.AutonomousAgents})
 			return err
 		})
 		return p, err
@@ -234,7 +235,7 @@ func TestPolicyDatabaseFailures(t *testing.T) {
 		"read":  func(ctx context.Context, tx pgx.Tx) error { _, err := agents.ReadPolicy(ctx, tx); return err },
 		"admit": agents.Admit,
 		"update": func(ctx context.Context, tx pgx.Tx) error {
-			_, err := agents.UpdatePolicy(ctx, tx, actor, etag.IfMatch("*"), agents.PolicyChange{Enabled: &off, MonthlyCap: &capped})
+			_, err := agents.UpdatePolicy(ctx, tx, actor, etag.IfMatch("*"), agents.PolicyChange{Enabled: &off, MonthlyCap: &capped}, agents.Certifications{})
 			return err
 		},
 		"suspend": func(ctx context.Context, tx pgx.Tx) error {

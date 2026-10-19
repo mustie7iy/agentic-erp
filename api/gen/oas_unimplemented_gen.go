@@ -1833,8 +1833,10 @@ func (UnimplementedHandler) UnlockFiscalPeriod(ctx context.Context, req *ReasonI
 // are refused, while people and services work on. The platform's operators can suspend a tenant's AI
 // too, which wins over `enabled`; only they lift it. The cap is in USD, the prices' currency. Every
 // alias must route, under the policy, to a model it allows and that has a recorded price, and `routes`
-// may name only the platform's aliases (422 `agents.invalid_policy`). Human-only. Recorded in the
-// audit trail and published as `AiPolicyChanged`.
+// may name only the platform's aliases (422 `agents.invalid_policy`). A route may not move an alias to
+// a model on which one of the tenant's agents on it, above level 0, is not certified for its level
+// (ADR-0039), unless its type has never been certified (422 `agents.uncertified_route`). Human-only.
+// Recorded in the audit trail and published as `AiPolicyChanged`.
 //
 // PATCH /v1/ai-policy
 func (UnimplementedHandler) UpdateAiPolicy(ctx context.Context, req *AiPolicyUpdate, params UpdateAiPolicyParams) (r UpdateAiPolicyRes, _ error) {

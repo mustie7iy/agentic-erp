@@ -274,3 +274,25 @@ func (ten Tenant) AllCompanies(tb testing.TB, a Actor) {
 	tb.Helper()
 	Exec(tb, `UPDATE identity.principal SET all_companies = true, version = version + 1 WHERE tenant_id = $1 AND id = $2`, ten.ID, a.ID)
 }
+
+// Certify certifies agentType for level on a model of the test's own, with
+// a price so that routes may name it, and returns the model (ADR-0039).
+// Certifications are platform reference data, which a test adds only for
+// models no tenant routes to unless the test routes it (Route). The model
+// is named for the type and level, so a run loads each once.
+func Certify(tb testing.TB, agentType string, level int) string {
+	tb.Helper()
+	model := fmt.Sprintf("test-%s-%d", strings.ReplaceAll(agentType, "_", "-"), level)
+	Exec(tb, `INSERT INTO ref.model_price (model, effective_from, currency, input, output, cache_write, cache_read, recorded_by)
+		VALUES ($1, '2026-01-01', 'USD', 0, 0, 0, 0, 'pgtest') ON CONFLICT DO NOTHING`, model)
+	Exec(tb, `INSERT INTO ref.agent_certification (agent_type, model, level, suite_version, report_sha256, certified_by)
+		VALUES ($1, $2, $3, 1, encode(sha256(convert_to($2, 'UTF8')), 'hex'), 'pgtest') ON CONFLICT DO NOTHING`, agentType, model, level)
+	return model
+}
+
+// Route routes the tenant's alias to model in its AI policy.
+func Route(tb testing.TB, tenant uuid.UUID, alias, model string) {
+	tb.Helper()
+	Exec(tb, `INSERT INTO agents.ai_policy (tenant_id, routes) VALUES ($1, jsonb_build_object($2::text, $3::text))
+		ON CONFLICT (tenant_id) DO UPDATE SET routes = agents.ai_policy.routes || EXCLUDED.routes, version = agents.ai_policy.version + 1`, tenant, alias, model)
+}

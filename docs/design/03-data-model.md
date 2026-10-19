@@ -171,7 +171,8 @@ erDiagram
     date valid_from
     date valid_to }
   agent_profile { uuid principal_id PK
-    smallint autonomy_level "0-3, enforced by authz (000077)"
+    smallint autonomy_level "0-3, enforced by authz (000077); above 0 bounded by certification (000090)"
+    text agent_type "open enum, whose certification bounds the level (000090)"
     text model "a model alias (000076)" }
   identity_provider { uuid id PK
     text issuer "OIDC iss"
@@ -1626,6 +1627,18 @@ when it was made. It starts empty: an operator records published prices
 (`erp-server prices load`); a recorded price stands, and the rows with who
 recorded them are the prices' trail. Prices are in USD alone, so costs add
 up; the gateway refuses a model without a price.
+
+`ref.agent_certification` (000090, ADR-0039) holds, per agent type and
+concrete model, the autonomy level an evaluation run certified (1 or 2),
+with the suite's version, the report's SHA-256 and the operator who loaded
+it (`erp-server certify load`); a loaded row stands, and the latest load
+for a type and model is its certification. Keyed by the concrete model, a
+certification lapses when an alias routes elsewhere. An agent's profile
+names its `agent_type`; identity refuses a level above what the type is
+certified for on the model its alias routes to, and the AI policy refuses
+moving an alias onto a model on which an agent on it is not certified.
+Agents with no type, from before certification, keep their level but are
+raised by none.
 
 A call is held against its budget lines before it is forwarded: each
 line, read `FOR UPDATE` (ADR-0008), must fit what it has spent, what its

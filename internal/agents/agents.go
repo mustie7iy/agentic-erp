@@ -47,6 +47,9 @@ type Endpoints struct {
 	// numbers only.
 	Countries Countries
 	Now       func() time.Time // the usage report's current month; nil: the wall clock
+	// Certifications keeps the AI policy's routes on models the tenant's
+	// agents are certified on (ADR-0039).
+	Certifications Certifications
 }
 
 // Session is a row of agents.session.

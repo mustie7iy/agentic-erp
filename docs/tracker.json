@@ -6182,9 +6182,9 @@
       ]
      },
      {
-      "s": "T",
-      "t": "Autonomy promotion criteria from eval results",
-      "r": "T43",
+      "s": "D",
+      "t": "Certification: erp-server certify load (a report meeting a level), ref.agent_certification per agent type and model, agent_profile.agent_type; raising above the certified level refused (identity.autonomy_uncertified), routes onto uncertified models refused (agents.uncertified_route); ERP_EVAL_CELL for live runs",
+      "r": "000090 · internal/agents/certification.go · cmd/erp-server/certify.go · ADR-0039 · T43e",
       "c": []
      }
     ]

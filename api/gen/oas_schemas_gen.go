@@ -468,8 +468,19 @@ func (s *Address) SetValidTo(val OptDate) {
 // Settings of an agent principal.
 // Ref: #/components/schemas/AgentProfile
 type AgentProfile struct {
-	// Autonomy level 0 (suggest only) to 3.
+	// Autonomy level 0 (suggest only) to 3. Above 0 the agent's type must be certified for the level on
+	// the concrete model its alias routes to under the tenant's AI policy (ADR-0039), or a change that
+	// raises the level, or names another type or alias, is 422 `identity.autonomy_uncertified`. An agent
+	// whose type has never been certified keeps the level it has, as the agents from before certification
+	// do, but is raised by none.
 	AutonomyLevel int32 `json:"autonomy_level"`
+	// What the agent is, whose evaluation suite certifies its autonomy (ADR-0039). The profile is replaced
+	// as a whole, so leaving it out clears it: an agent with none stays at level 0 (one from before
+	// certification, which never had one, keeps its level), and clearing or changing the type of an agent
+	// above level 0 is checked as a raise. Another value is 422 `identity.unknown_agent_type`. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	AgentType OptString `json:"agent_type"`
 	// The model alias the agent runs on, which the model gateway routes under the tenant's AI policy
 	// (ADR-0036): `erp-default`, `erp-extraction` or `erp-analytics`; another value is 422
 	// `identity.unknown_model_alias`. Profiles that named a Claude model before were moved to
@@ -484,6 +495,11 @@ type AgentProfile struct {
 // GetAutonomyLevel returns the value of AutonomyLevel.
 func (s *AgentProfile) GetAutonomyLevel() int32 {
 	return s.AutonomyLevel
+}
+
+// GetAgentType returns the value of AgentType.
+func (s *AgentProfile) GetAgentType() OptString {
+	return s.AgentType
 }
 
 // GetModel returns the value of Model.
@@ -504,6 +520,11 @@ func (s *AgentProfile) GetDescription() string {
 // SetAutonomyLevel sets the value of AutonomyLevel.
 func (s *AgentProfile) SetAutonomyLevel(val int32) {
 	s.AutonomyLevel = val
+}
+
+// SetAgentType sets the value of AgentType.
+func (s *AgentProfile) SetAgentType(val OptString) {
+	s.AgentType = val
 }
 
 // SetModel sets the value of Model.

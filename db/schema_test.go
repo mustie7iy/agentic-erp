@@ -2918,3 +2918,51 @@ func TestOpenItemWithholding(t *testing.T) {
 		failsWith(t, err, "only be deactivated")
 	})
 }
+
+// TestAgentCertification: certifications are platform reference data the
+// application reads and never writes, of level 1 or 2 with the report's
+// SHA-256, standing once loaded; an agent's type is a lower-case name
+// (ADR-0039).
+func TestAgentCertification(t *testing.T) {
+	need(t)
+	ctx := context.Background()
+	model := "test-" + id().String() // certifications are global; each run certifies a model of its own
+	hash := strings.Repeat("0f", 32)
+	insert := func(level int, report string) error {
+		_, err := testDB.Exec(ctx, `INSERT INTO ref.agent_certification (agent_type, model, level, suite_version, report_sha256, certified_by)
+			VALUES ('test', $1, $2, 1, $3, 'ops')`, model, level, report)
+		return err
+	}
+	if err := insert(2, hash); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("level 1 or 2", func(t *testing.T) {
+		failsWith(t, insert(3, strings.Repeat("1f", 32)), "agent_certification_level_check")
+	})
+	t.Run("a SHA-256", func(t *testing.T) { failsWith(t, insert(1, "abc"), "agent_certification_report_check") })
+	t.Run("a certification stands", func(t *testing.T) {
+		_, err := testDB.Exec(ctx, "UPDATE ref.agent_certification SET level = 1 WHERE model = $1", model)
+		failsWith(t, err, "insert-only")
+	})
+	a := newFixture(t)
+	t.Run("the application reads, never writes", func(t *testing.T) {
+		mustApp(t, a.tenant, func(tx pgx.Tx) error {
+			var n int
+			return tx.QueryRow(ctx, "SELECT count(*) FROM ref.agent_certification WHERE model = $1", model).Scan(&n)
+		})
+		failsWith(t, asApp(t, a.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO ref.agent_certification (agent_type, model, level, suite_version, report_sha256, certified_by)
+				VALUES ('test', $1, 1, 1, $2, 'app')`, model, strings.Repeat("2f", 32))
+		}), "permission denied")
+	})
+	t.Run("an agent's type", func(t *testing.T) {
+		agent := id()
+		failsWith(t, asApp(t, a.tenant, func(tx pgx.Tx) error {
+			if err := exec(tx, "INSERT INTO identity.principal (tenant_id, id, kind, display_name, status, created_by, updated_by) VALUES ($1,$2,'agent','A','active',$3,$3)", a.tenant, agent, a.actor); err != nil {
+				return err
+			}
+			return exec(tx, `INSERT INTO identity.agent_profile (tenant_id, principal_id, agent_type, model, description, created_by, updated_by)
+				VALUES ($1,$2,'AP Exceptions','erp-default','d',$3,$3)`, a.tenant, agent, a.actor)
+		}), "agent_profile_agent_type_check")
+	})
+}

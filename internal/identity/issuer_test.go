@@ -27,7 +27,7 @@ func TestCreatorWithoutIssuer(t *testing.T) {
 		VALUES ($1, $2, 'agent', 'No issuer', 'active', $2, $2)`, ten.ID, actor.ID)
 	subject := "auth0|" + actor.ID.String()
 	err := apitest.Committed(t, ten, actor, func(ctx context.Context) error {
-		_, err := identity.CreatePrincipal(ctx, identity.NewPrincipal{Kind: identity.Human, ExternalSubject: &subject, DisplayName: "Locked out"})
+		_, err := identity.CreatePrincipal(ctx, nil, identity.NewPrincipal{Kind: identity.Human, ExternalSubject: &subject, DisplayName: "Locked out"})
 		return err
 	})
 	if pr := problem.From(err); pr.Code != "identity.creator_without_issuer" {
@@ -39,7 +39,7 @@ func TestCreatorWithoutIssuer(t *testing.T) {
 		t.Errorf("principals written: got %d, want 0", n)
 	}
 	err = apitest.Committed(t, ten, actor, func(ctx context.Context) error {
-		_, err := identity.CreatePrincipal(ctx, identity.NewPrincipal{Kind: identity.Agent, DisplayName: "Helper",
+		_, err := identity.CreatePrincipal(ctx, nil, identity.NewPrincipal{Kind: identity.Agent, DisplayName: "Helper",
 			Profile: &identity.ProfileInput{Model: "erp-default", Description: "d"}})
 		return err
 	})

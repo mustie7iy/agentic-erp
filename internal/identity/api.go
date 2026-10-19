@@ -19,10 +19,13 @@ import (
 type Endpoints struct {
 	Pages         *pagination.Codec
 	LegalEntities LegalEntities
+	// Certifications bounds agents' levels by their type's certification
+	// (agents.Certifications, ADR-0039).
+	Certifications Certifications
 }
 
 func profileInput(p gen.AgentProfile) *ProfileInput {
-	in := &ProfileInput{AutonomyLevel: int16(p.AutonomyLevel), Model: p.Model, Description: p.Description}
+	in := &ProfileInput{AutonomyLevel: int16(p.AutonomyLevel), AgentType: apitypes.Ptr[string](p.AgentType), Model: p.Model, Description: p.Description}
 	if p.MonthlyBudget.Set {
 		in.Budget = &Budget{Amount: p.MonthlyBudget.Value.Amount, Currency: p.MonthlyBudget.Value.Currency}
 	}
@@ -37,7 +40,8 @@ func principalToAPI(p Principal) gen.Principal {
 		AllCompanies: p.AllCompanies, Status: p.Status,
 	}
 	if p.Profile != nil {
-		ap := gen.AgentProfile{AutonomyLevel: int32(p.Profile.AutonomyLevel), Model: p.Profile.Model, Description: p.Profile.Description}
+		ap := gen.AgentProfile{AutonomyLevel: int32(p.Profile.AutonomyLevel), AgentType: apitypes.OptString(p.Profile.AgentType), Model: p.Profile.Model,
+			Description: p.Profile.Description}
 		if p.BudgetDecimal != nil {
 			ap.MonthlyBudget.SetTo(gen.Money{Amount: p.BudgetDecimal.Amount, Currency: p.BudgetDecimal.Currency})
 		}
@@ -129,7 +133,7 @@ func (e *Endpoints) CreatePrincipal(ctx context.Context, req *gen.PrincipalCreat
 	if req.AgentProfile.Set {
 		in.Profile = profileInput(req.AgentProfile.Value)
 	}
-	p, err := CreatePrincipal(ctx, in)
+	p, err := CreatePrincipal(ctx, e.Certifications, in)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +193,7 @@ func (e *Endpoints) UpdatePrincipal(ctx context.Context, req *gen.PrincipalUpdat
 	if req.AgentProfile.Set {
 		ch.Profile = profileInput(req.AgentProfile.Value)
 	}
-	p, err := UpdatePrincipal(ctx, params.ID, etag.IfMatch(params.IfMatch), ch)
+	p, err := UpdatePrincipal(ctx, e.Certifications, params.ID, etag.IfMatch(params.IfMatch), ch)
 	if err != nil {
 		return nil, err
 	}

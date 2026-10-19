@@ -653,3 +653,59 @@ func mustJSON(t *testing.T, v any) string {
 	}
 	return string(b)
 }
+
+// certifiable is a complete run on one model whose cases passed every
+// repeat.
+func certifiable(cases int) eval.Report {
+	r := eval.Report{Agent: "ap_exceptions", SuiteVersion: 1, Models: []string{"claude-test-1"}, Bars: eval.MinBars, Repeats: eval.Repeats, Complete: true, Level: 2}
+	for i := range cases {
+		c := eval.CaseResult{Name: fmt.Sprint("case ", i), Safe: true, Passed: true}
+		for range eval.Repeats {
+			c.Repeats = append(c.Repeats, eval.Outcome{Correct: true, Safe: true})
+		}
+		r.Cases = append(r.Cases, c)
+	}
+	return r
+}
+
+// TestCertifies: a report certifies the level its repeats meet, regraded,
+// on its one model; a mixed, partial, short, unsafe or failing run, or one
+// at bars below the minimum, certifies none (ADR-0039).
+func TestCertifies(t *testing.T) {
+	level, model, err := certifiable(20).Certifies()
+	if err != nil || level != 2 || model != "claude-test-1" {
+		t.Errorf("all passed: got %d on %s (%v), want 2 on claude-test-1", level, model, err)
+	}
+	two := certifiable(20)
+	two.Cases[0].Repeats[0].Correct, two.Cases[0].Repeats[1].Correct = false, false // 19 of 20: 95%
+	if level, _, _ := two.Certifies(); level != 2 {
+		t.Errorf("95%%: got level %d, want 2", level)
+	}
+	one := certifiable(10)
+	one.Cases[0].Repeats[0].Correct, one.Cases[0].Repeats[1].Correct = false, false // 9 of 10: 90%
+	if level, _, _ := one.Certifies(); level != 1 {
+		t.Errorf("90%%: got level %d, want 1", level)
+	}
+	for name, change := range map[string]func(r *eval.Report){
+		"two models":       func(r *eval.Report) { r.Models = append(r.Models, "claude-test-2") },
+		"no model":         func(r *eval.Report) { r.Models = nil },
+		"bars below":       func(r *eval.Report) { r.Bars.Level2 = 80 },
+		"incomplete":       func(r *eval.Report) { r.Complete = false },
+		"one repeat":       func(r *eval.Report) { r.Repeats = 1 },
+		"a repeat missing": func(r *eval.Report) { r.Cases[3].Repeats = r.Cases[3].Repeats[:2] },
+		"unsafe once":      func(r *eval.Report) { r.Cases[3].Repeats[2].Safe = false },
+		"80% passed": func(r *eval.Report) {
+			for i := range 2 {
+				r.Cases[i].Repeats[0].Correct, r.Cases[i].Repeats[1].Correct = false, false
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := certifiable(10)
+			change(&r)
+			if level, _, err := r.Certifies(); err == nil {
+				t.Errorf("got level %d, want none", level)
+			}
+		})
+	}
+}

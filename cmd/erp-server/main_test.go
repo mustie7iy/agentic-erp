@@ -36,6 +36,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/mustie7iy/agentic-erp/internal/directory"
+	"github.com/mustie7iy/agentic-erp/internal/eval"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
@@ -2045,6 +2046,85 @@ func TestPricesLoad(t *testing.T) {
 		{"no file", []string{"prices", "load", "-file", filepath.Join(dir, "none.json"), "-by", "ops"}, env, 1, "read"},
 		{"not JSON", []string{"prices", "load", "-file", notJSON, "-by", "ops"}, env, 1, "not a JSON list"},
 		{"no database", []string{"prices", "load", "-file", good, "-by", "ops"}, broken, 1, "database"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			stdout.Reset()
+			stderr.Reset()
+			if code := cli(context.Background(), c.args, func(k string) string { return c.env[k] }, &stdout, &stderr, nil); code != c.code || !strings.Contains(stderr.String(), c.want) {
+				t.Errorf("got %d %s, want %d and %q", code, stderr.String(), c.code, c.want)
+			}
+		})
+	}
+}
+
+// TestCertifyLoad: erp-server certify load records the level a report
+// meets for its agent type on its model, with the report's hash and who
+// loaded it, once; a report that meets no level is refused (ADR-0039).
+func TestCertifyLoad(t *testing.T) {
+	env := environment(t, authntest.New(t), "")
+	getenv := func(k string) string { return env[k] }
+	dir := t.TempDir()
+	model := "test-certify-" + uuid.NewString()[:8] // certifications are global; each run certifies a model of its own
+	write := func(name string, r eval.Report) string {
+		path := filepath.Join(dir, name)
+		raw, err := json.Marshal(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	r := eval.Report{Agent: "ap_exceptions", SuiteVersion: 3, Models: []string{model}, Bars: eval.MinBars, Repeats: eval.Repeats, Complete: true}
+	for i := range 10 {
+		c := eval.CaseResult{Name: fmt.Sprint("case ", i)}
+		for range eval.Repeats {
+			c.Repeats = append(c.Repeats, eval.Outcome{Correct: true, Safe: true})
+		}
+		r.Cases = append(r.Cases, c)
+	}
+	good := write("good.json", r)
+	r.Cases[0].Repeats[0].Safe = false
+	unsafe := write("unsafe.json", r)
+	r.Agent, r.Cases[0].Repeats[0].Safe = "capture", true
+	capture := write("capture.json", r)
+	notJSON := filepath.Join(dir, "bad.json")
+	if err := os.WriteFile(notJSON, []byte(`{`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := cli(context.Background(), []string{"certify", "load", "-report", good, "-by", "ops|alice"}, getenv, &stdout, &stderr, nil); code != 0 {
+		t.Fatalf("load: exit %d %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "ap_exceptions certified for level 2 on "+model+" by ops|alice") {
+		t.Errorf("output: got %s", stdout.String())
+	}
+	var by string
+	var level, version int
+	pgtest.Scan(t, `SELECT certified_by, level, suite_version FROM ref.agent_certification WHERE model = $1`, []any{model}, &by, &level, &version)
+	if by != "ops|alice" || level != 2 || version != 3 {
+		t.Errorf("recorded: got %s, level %d, suite version %d; want ops|alice, 2, 3", by, level, version)
+	}
+	broken := maps.Clone(env)
+	broken["DATABASE_URL"] = "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"
+	for _, c := range []struct {
+		name string
+		args []string
+		env  map[string]string
+		code int
+		want string
+	}{
+		{"loaded already", []string{"certify", "load", "-report", good, "-by", "ops"}, env, 1, "loaded already"},
+		{"a safety failure", []string{"certify", "load", "-report", unsafe, "-by", "ops"}, env, 1, "meets no level"},
+		{"no agent type", []string{"certify", "load", "-report", capture, "-by", "ops"}, env, 1, "not an agent type"},
+		{"no subcommand", []string{"certify"}, env, 2, "erp-server certify load"},
+		{"no operator", []string{"certify", "load", "-report", good}, env, 2, "-report and -by are required"},
+		{"a bad flag", []string{"certify", "load", "-x"}, env, 2, "flag provided"},
+		{"help", []string{"certify", "load", "-h"}, env, 0, "-by"},
+		{"no file", []string{"certify", "load", "-report", filepath.Join(dir, "none.json"), "-by", "ops"}, env, 1, "read"},
+		{"not JSON", []string{"certify", "load", "-report", notJSON, "-by", "ops"}, env, 1, "not an evaluation report"},
+		{"no database", []string{"certify", "load", "-report", good, "-by", "ops"}, broken, 1, "database"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			stdout.Reset()
