@@ -642,9 +642,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Duplicate detection by content hash: a file whose hash was already sent through the bank's channel counts as sent, recorded where a lost acknowledgement cannot lose it",
-        "r": "T44c",
+        "r": "payments.sent_bank_file (000099), written in its own transaction after the upload · payments.SentFiles · duplicate on bank_file_transmitted · T44c",
         "c": []
        },
        {
@@ -655,7 +655,7 @@
        },
        {
         "s": "T",
-        "t": "Retry policies for transmission (transient failures retried with backoff, bounded) and the sweep for bank files a cancelled release leaves in object storage",
+        "t": "Transmission out of the request transaction: the request marks the file to send and a platform/worker job uploads it (outbox-style), so no database connection is held during the upload; retries with backoff (bounded) and the sweep for bank files a cancelled release leaves in object storage",
         "r": "T44e",
         "c": []
        }

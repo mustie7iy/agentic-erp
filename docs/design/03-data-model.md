@@ -1273,6 +1273,10 @@ erDiagram
     uuid gl_account_id
     uuid active_gl_account_id "gl_account_id while active; unique per legal entity"
     uuid connector_id "its channel, an integration connector; null: the server's directory (T44b)" }
+  sent_bank_file { uuid house_bank_id PK
+    bytea sha256 PK
+    uuid bank_file_id
+    uuid connector_id "null: the server's directory" }
   bank_file { uuid id PK
     uuid payment_run_id "unique per run, house bank and method"
     uuid house_bank_id "null: the run's (T45c)"
@@ -1288,7 +1292,12 @@ company uses; a house bank the configuration no longer lists becomes
 inactive, and its code never takes other bank details. A house bank may
 name the bank connector its files are transmitted through
 (`connector_id`, the integration context's, so no foreign key; T44b);
-without one they go to the server's directory.
+without one they go to the server's directory. Each file a house bank
+accepted is recorded by its content hash (`payments.sent_bank_file`,
+insert-only, unique per house bank and hash; T44c, 000099), in a
+transaction of its own committed right after the upload: a file whose hash
+its bank already took counts as sent and is not uploaded again, so a
+transmission whose own commit was lost is never sent twice.
 
 A company's payment methods (`payments.payment_method`, SAP T042Z) rank,
 per currency, the house banks that pay with them, first preferred

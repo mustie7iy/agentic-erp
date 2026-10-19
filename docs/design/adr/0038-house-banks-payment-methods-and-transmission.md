@@ -117,5 +117,25 @@ and France, by EBICS.
   `DirConnector`, its event's `connector_id` null. The previous version
   sends every file to the directory, so a configuration naming a connector
   waits until the upgrade completes),
-  duplicate detection by content hash (T44c), EBICS refused in production
-  (T44d), retries and the sweep (T44e).
+  duplicate detection by content hash (T44c: `payments.sent_bank_file`,
+  000099, keyed by tenant, house bank and SHA-256, insert-only, records each
+  file a bank accepted with the connector it went through, and is the
+  upload's audit record (ADR-0011); it is written in
+  a transaction of its own committed right after the upload, before the
+  request's transaction marks the file transmitted, so a lost commit of that
+  state cannot lose it; before sending, a file whose hash is recorded for
+  its bank is not uploaded, moves to transmitted, and
+  `bank_file_transmitted` says `duplicate: true`. If the record itself
+  cannot be committed, or not within its bound (it needs a second pool
+  connection while the request holds one), the transmission fails and the
+  file stays created:
+  the retry uploads it again and the bank refuses the repeated message id,
+  as before T44c. The file row is locked `FOR NO KEY UPDATE`, so the
+  record's foreign key check does not wait for the request holding it),
+  EBICS refused in production (T44d), and, in T44e, transmission out of the
+  request transaction: the request marks the file to be sent and a
+  platform worker job uploads it, as the outbox relays events, so no
+  database connection is held during the SFTP upload and the external
+  effect follows the outbox rule (ADR-0007); T44e also holds the retries
+  with backoff and the sweep. Until then the upload runs inside the
+  request, holding its transaction.

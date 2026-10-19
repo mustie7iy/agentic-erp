@@ -37,6 +37,7 @@ type failureRuns struct {
 func TestDatabaseFailures(t *testing.T) {
 	e := setup(t)
 	h := endpoints(&connector{})
+	h.Sent = payments.SentFiles{Pool: pgtest.Pool(t), AppRole: "erp_app"}
 	var s failureRuns
 	if !t.Run("released and transmitted runs", func(t *testing.T) { s.released(t, e.in(t)) }) {
 		t.FailNow()

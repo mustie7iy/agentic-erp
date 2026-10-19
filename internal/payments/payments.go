@@ -147,6 +147,7 @@ type Endpoints struct {
 	Keys          *fieldcrypt.Keyring // opens house bank IBANs
 	Connector     Connector           // transmits the files of house banks without a channel; nil: those answer 503
 	Channels      BankChannels        // house banks' own channels (T44b)
+	Sent          SentFiles           // the files banks took, by content hash (T44c)
 	Objects       blobstore.Store     // keeps bank files as written at release; nil: files are rendered again when needed
 	Accounts      Accounts            // the cash discount account a run with discounts posts to
 	DownPayments  DownPayments        // the down payment requests runs pay (T46c)
