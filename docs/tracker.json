@@ -194,7 +194,7 @@
        {
         "s": "T",
         "t": "Point-in-time recovery",
-        "r": "T41",
+        "r": "ADR-0040 · T41b (35 days in production) · T41d (restore verified)",
         "c": []
        }
       ]
@@ -5158,21 +5158,53 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Backups and point-in-time recovery",
-      "r": "T41",
-      "c": []
+      "r": "ADR-0040 · T41",
+      "c": [
+       {
+        "s": "D",
+        "t": "Backups and disaster recovery decided: retention, cross-region copies, a pilot-light DR region, JetStream rebuilt from the outboxes (published rows kept), Temporal restored with the cell, whole-cell recovery and per-tenant restore by export and import; the runbook",
+        "r": "ADR-0040 · T41a",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Point-in-time recovery 35 days in production, 14 elsewhere; backups copied to the DR region for 7 days; the bucket's noncurrent versions kept 35 days and replicated, with a KMS key in the DR region",
+        "r": "deploy/terraform/modules/cell · T41b",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Restore verified: migration version, audit hash chains, balanced journal and trial balances, fingerprints against the directory, RPO/RTO markers; tenants the directory records as erased erased again (the directory records erasure first)",
+        "r": "T41d",
+        "c": []
+       }
+      ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Disaster recovery plan with RPO/RTO targets and drills",
-      "r": "T41",
-      "c": []
+      "r": "ADR-0040 · T41",
+      "c": [
+       {
+        "s": "T",
+        "t": "Production cells: a cross-region read replica and a pilot-light DR region (VPC, EKS control plane without nodes) Argo CD syncs on failover",
+        "r": "T41b2 · to confirm on AWS staging before the pilot: a Multi-AZ DB cluster's cross-region replica and backups (else a Multi-AZ DB instance)",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Restore drills recorded append-only in deploy/environments/staging/stg1/drills/restore.json; a production promotion refused when the last passed restore drill is older than 90 days",
+        "r": "T41e",
+        "c": []
+       }
+      ]
      },
      {
       "s": "P",
       "t": "High availability (replicas, failover)",
-      "r": "connection loss under load answered as retryable 503 and recovered in ~50 ms (TestResilienceDatabaseConnectionLoss); real failover drills to come · T41",
+      "r": "connection loss under load answered as retryable 503 and recovered in ~50 ms (TestResilienceDatabaseConnectionLoss) · T41c: a former writer's read-only error (25006) answered as retryable 503, and a replica promoted behind PgBouncer under load (make failover, weekly)",
       "c": []
      },
      {
