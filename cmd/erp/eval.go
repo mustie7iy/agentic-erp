@@ -2,15 +2,20 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/agent"
+	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/configagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/migrationagent"
@@ -21,8 +26,61 @@ import (
 
 // evalAgents are the adapters of the agents a suite may evaluate, by agent
 // type (ADR-0039).
-var evalAgents = map[string]eval.Agent{"ap_exceptions": apExceptions, "capture": captureEval,
+var evalAgents = map[string]eval.Agent{"analytics": analyticsEval, "ap_exceptions": apExceptions, "capture": captureEval,
 	"configuration": configurationEval, "migration": migrationEval, "test": testEval}
+
+// analyticsEval asks the task's question as erp ask does, its session
+// reading what the API gives the agent principal and no more. Its reply
+// is the answer graded against the semantic layer's own results for the
+// task's reference queries (analytics.Grade), the answer's narrative, and
+// the companies whose data the session read.
+func analyticsEval(ctx context.Context, env eval.Env) error {
+	t, err := tasked(env, "question")
+	if err != nil {
+		return err
+	}
+	var refs []analytics.Query
+	if err := retype(env.Task["reference"], &refs); err != nil {
+		return fmt.Errorf("analytics: the task's reference: %w", err)
+	}
+	if len(refs) == 0 {
+		// Nothing to grade against would pass any figure.
+		return errors.New("analytics: the task names no reference queries")
+	}
+	m, _ := analytics.DefaultModel() // embedded, and TestModelLoadsAndValidates proves it parses
+	facts, err := analytics.Source{API: env.Agent}.Facts(ctx, m, time.Now())
+	if err != nil {
+		return fmt.Errorf("analytics: read the facts: %w", err)
+	}
+	reference := make([]*analytics.Result, 0, len(refs))
+	for _, q := range refs {
+		r, err := analytics.Execute(m, facts, analytics.Principal{ID: "eval"}, q)
+		if err != nil {
+			return fmt.Errorf("analytics: the reference query %v: %w", q.Measures, err)
+		}
+		reference = append(reference, r)
+	}
+	s := analytics.NewSession(m, facts, analytics.Principal{ID: "eval"})
+	ans, err := analytics.NewAgent(env.LLM.Client, env.LLM.Model).Ask(ctx, s, t["question"])
+	if err != nil {
+		return fmt.Errorf("analytics: %w", err)
+	}
+	env.Reply(map[string]any{"grade": ans.Grade(s.Results, reference), "narrative": ans.Narrative(),
+		"companies": slices.Sorted(maps.Keys(facts.Companies))})
+	return nil
+}
+
+// retype reads a task's YAML value as v's type, through JSON.
+func retype(in, v any) error {
+	b, err := json.Marshal(in)
+	if err != nil {
+		return fmt.Errorf("eval: encode: %w", err)
+	}
+	if err := json.Unmarshal(b, v); err != nil {
+		return fmt.Errorf("eval: decode: %w", err)
+	}
+	return nil
+}
 
 // configurationEval handles the task's request as erp agent config does,
 // starting from the task's draft file when it names one; what it proposed

@@ -352,3 +352,36 @@ func TestAdapterFailures(t *testing.T) {
 		t.Errorf("the task's refusal: got %v, want none", err)
 	}
 }
+
+// TestAnalyticsAdapterFailures: a task without its question or its
+// reference queries, a reference that is no list of queries or names no
+// metric, facts that cannot be read and a model that does not answer each
+// fail the case before anything is graded.
+func TestAnalyticsAdapterFailures(t *testing.T) {
+	empty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"items": []}`))
+	}))
+	t.Cleanup(empty.Close)
+	api := &apitools.Client{BaseURL: empty.URL, Token: "t"}
+	gone := &apitools.Client{BaseURL: "http://127.0.0.1:1", Token: "t"}
+	revenue := []any{map[string]any{"measures": []any{"revenue"}}}
+	for _, c := range []struct {
+		name  string
+		env   eval.Env
+		cause string
+	}{
+		{"no question", eval.Env{Agent: api, Task: map[string]any{"reference": revenue}}, "no question"},
+		{"no reference", eval.Env{Agent: api, Task: map[string]any{"question": "q"}}, "no reference"},
+		{"a reference that is no list", eval.Env{Agent: api, Task: map[string]any{"question": "q", "reference": "revenue"}}, "decode"},
+		{"a reference that does not encode", eval.Env{Agent: api, Task: map[string]any{"question": "q", "reference": make(chan int)}}, "encode"},
+		{"facts unreadable", eval.Env{Agent: gone, Task: map[string]any{"question": "q", "reference": revenue}}, "read the facts"},
+		{"a reference without a metric", eval.Env{Agent: api, Task: map[string]any{"question": "q", "reference": []any{map[string]any{"measures": []any{"nope"}}}}}, "reference query"},
+		{"no model answer", eval.Env{Agent: api, LLM: llmtest.New(t).Runner(), Task: map[string]any{"question": "q", "reference": revenue}}, "exhausted"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if err := analyticsEval(context.Background(), c.env); err == nil || !strings.Contains(err.Error(), c.cause) {
+				t.Errorf("got %v, want an error with %q", err, c.cause)
+			}
+		})
+	}
+}

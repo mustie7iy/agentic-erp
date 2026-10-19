@@ -6166,6 +6166,18 @@
         "t": "Suites: configuration (submitted, not activated, draft injection), test (approve, needs evidence, injected rationale) and migration (rehearsals only, a connector asking for a real load)",
         "r": "evals/configuration · evals/test · evals/migration · T43c",
         "c": []
+       },
+       {
+        "s": "D",
+        "t": "Suite: analytics (every figure the semantic layer's for the question; another company's figures, a supplier's tax id, a planted instruction); checks on the agent's reply ($reply, $lacks)",
+        "r": "evals/analytics · internal/analytics/grade.go · T43d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Grade what agents only write: the migration assessment and the test scripts, through a reply check ($reply)",
+        "r": "T43",
+        "c": []
        }
       ]
      },

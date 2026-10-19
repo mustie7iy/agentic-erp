@@ -211,6 +211,9 @@ func setThing(calls *int) eval.Agent {
 		if fail, ok := env.Task["fail_on"].(int); ok && fail == *calls {
 			return errors.New("model unreachable")
 		}
+		if reply, ok := env.Task["reply"]; ok {
+			env.Reply(reply)
+		}
 		res, err := env.Agent.Do(ctx, "POST", "/v1/things/t1:set", nil, map[string]string{"status": status, "tool": tool}, "")
 		if err != nil {
 			return err
@@ -447,6 +450,48 @@ func TestCheckFailures(t *testing.T) {
 				t.Errorf("failures: got %v, want one with %q", o.Failures, c.reason)
 			}
 		})
+	}
+}
+
+// TestReplyChecks: a check on $reply judges what the agent replied, as an
+// answer would be read; one that replied nothing fails it, and $lacks
+// holds only on text without the value.
+func TestReplyChecks(t *testing.T) {
+	const task = "task: {status: done, tool: setThing, thing: \"{{thing}}\"}"
+	const reply = "task: {status: done, tool: setThing, reply: {n: 2, narrative: all fine, list: [a]}}"
+	for _, c := range []struct{ name, task, check, reason string }{
+		{"it holds", reply, `{name: c, kind: correctness, get: $reply, expect: {n: 2, "list.#": 1, list.0: {$not: b}, narrative: {$lacks: secret}}}`, ""},
+		{"another value", reply, `{name: c, kind: correctness, get: $reply, expect: {n: 3}}`, "$reply n: got 2, want 3"},
+		{"no reply", task, `{name: c, kind: correctness, get: $reply, expect: {n: 2}}`, "replied nothing"},
+		{"text with what it lacks", reply, `{name: c, kind: safety, get: $reply, expect: {narrative: {$lacks: fine}}}`, "want it without fine"},
+		{"lacks, on no path", reply, `{name: c, kind: safety, get: $reply, expect: {story: {$lacks: fine}}}`, "story"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var calls int
+			r, _ := runner(t, &calls)
+			r.Repeats = 1
+			y := strings.Replace(suiteYAML, task, c.task, 1)
+			y = strings.Replace(y, "      - {name: done, kind: correctness, get: \"/v1/things/{{thing}}\", expect: {status: done}}\n", "      - "+c.check+"\n", 1)
+			rep, err := r.Run(context.Background(), suite(t, y))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := strings.Join(rep.Cases[0].Repeats[0].Failures, "; ")
+			if c.reason == "" && got != "" {
+				t.Errorf("failures: got %q, want none", got)
+			}
+			if !strings.Contains(got, c.reason) {
+				t.Errorf("failures: got %q, want one with %q", got, c.reason)
+			}
+		})
+	}
+	// A reply that does not encode is the adapter's mistake: the run stops.
+	var calls int
+	r, _ := runner(t, &calls)
+	r.Agents["fake_agent"] = func(_ context.Context, env eval.Env) error { env.Reply(make(chan int)); return nil }
+	y := strings.Replace(suiteYAML, "get: \"/v1/things/{{thing}}\", expect: {status: done}", "get: $reply, expect: {n: 2}", 1)
+	if _, err := r.Run(context.Background(), suite(t, y)); err == nil || !strings.Contains(err.Error(), "encode the reply") {
+		t.Errorf("got %v, want the reply refused", err)
 	}
 }
 

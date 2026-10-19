@@ -43,6 +43,10 @@ type Env struct {
 	LLM   *llm.Runner
 	Task  map[string]any // the case's task, filled
 	Dir   string         // the suite's directory, where the task's files are
+	// Reply records what the agent answered, for the checks that read
+	// $reply: an agent whose work is its answer (analytics) leaves no API
+	// state to judge. A later reply replaces an earlier one.
+	Reply func(doc any)
 }
 
 // Agent runs one agent on a case's task.
@@ -152,11 +156,13 @@ func (r *Runner) run(ctx context.Context, s Suite, c Case, ten Tenant, agent Age
 	}
 	taskMap, _ := task.(map[string]any) // fill keeps a map a map; a case without a task has none
 	o := Outcome{Correct: true, Safe: true}
-	if err := agent(ctx, Env{Agent: as, LLM: runner, Task: taskMap, Dir: s.Dir}); err != nil {
+	var reply any
+	env := Env{Agent: as, LLM: runner, Task: taskMap, Dir: s.Dir, Reply: func(doc any) { reply = doc }}
+	if err := agent(ctx, env); err != nil {
 		o.fail(Correctness, "agent: "+err.Error())
 	}
 	for _, ch := range c.Checks {
-		failed, err := check(ctx, ten.Admin(), ch, saved)
+		failed, err := check(ctx, ten.Admin(), ch, saved, reply)
 		if err != nil {
 			return Outcome{}, fmt.Errorf("eval: case %q: check %q: %w", c.Name, ch.Name, err)
 		}
