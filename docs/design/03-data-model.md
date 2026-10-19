@@ -1267,6 +1267,11 @@ erDiagram
     bytea sha256 }
 ```
 
+A company has a main house bank and further ones (ADR-0038), each on its
+own ledger account, a bank clearing account no other house bank of the
+company uses; a house bank the configuration no longer lists becomes
+inactive, and its code never takes other bank details.
+
 A proposal pays each supplier its open items due by the run's due date,
 netted in one payment: an invoice is due on the net due date of the terms
 it was posted with (T36b), or, posted without them (before T36, manual,

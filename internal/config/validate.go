@@ -175,11 +175,57 @@ func (v *validator) company(p string, co *Company) {
 	if co.OverDeliveryPercent < 0 || co.OverDeliveryPercent > 100 {
 		v.err(p+".gr_over_delivery_percent", "must be 0-100")
 	}
-	if !ValidIBAN(co.HouseBank.IBAN) {
-		v.err(p+".house_bank.iban", "IBAN %q fails the ISO 13616 check", co.HouseBank.IBAN)
+	v.houseBanks(p, co)
+}
+
+// isTaxAccount reports whether the account is the input tax account or a
+// tax code's.
+func (c *Company) isTaxAccount(number string) bool {
+	if number != "" && number == c.AccountDetermination.InputTax {
+		return true
 	}
-	if !bicRe.MatchString(co.HouseBank.BIC) {
-		v.err(p+".house_bank.bic", "BIC %q is not a valid SWIFT code", co.HouseBank.BIC)
+	return slices.ContainsFunc(c.TaxCodes, func(t TaxCode) bool { return number != "" && t.Account == number })
+}
+
+// houseBanks checks each house bank's IBAN and BIC and that its code is
+// unique in the company, and that each has its own ledger account
+// (ADR-0038) that takes no tax: a further bank names one, a plain asset
+// account of the chart that no other house bank of the company uses; the
+// main bank without one keeps the account determination's bank account,
+// whose type is checked there.
+func (v *validator) houseBanks(p string, co *Company) {
+	codes := map[string]bool{}
+	accounts := map[string]string{}
+	for i, hb := range co.AllHouseBanks() {
+		hp := p + ".house_bank"
+		if i > 0 {
+			hp = fmt.Sprintf("%s.house_banks[%s]", p, hb.Name)
+		}
+		if codes[hb.Name] {
+			v.err(hp+".name", "duplicate house bank")
+		}
+		codes[hb.Name] = true
+		if !ValidIBAN(hb.IBAN) {
+			v.err(hp+".iban", "IBAN %q fails the ISO 13616 check", hb.IBAN)
+		}
+		if !bicRe.MatchString(hb.BIC) {
+			v.err(hp+".bic", "BIC %q is not a valid SWIFT code", hb.BIC)
+		}
+		if i > 0 && hb.GLAccount == "" {
+			v.err(hp+".gl_account", "is required: each further house bank has its own ledger account")
+			continue
+		}
+		if hb.GLAccount != "" {
+			v.account(hp+".gl_account", co, hb.GLAccount, Asset, false)
+		}
+		if number := co.HouseBankAccount(hb); co.isTaxAccount(number) {
+			v.err(hp+".gl_account", "account %s takes input tax, not a bank's payments", number)
+		}
+		number := co.HouseBankAccount(hb)
+		if other, taken := accounts[number]; taken {
+			v.err(hp+".gl_account", "account %s is already the ledger account of house bank %s", number, other)
+		}
+		accounts[number] = hb.Name
 	}
 }
 
@@ -218,6 +264,25 @@ func (v *validator) chartOfAccounts(p string, co *Company) {
 	}
 }
 
+// account checks that the account is in the chart with the type its use
+// needs, a vendor reconciliation account where the use is one and no other
+// account.
+func (v *validator) account(path string, co *Company, number string, want AccountType, recon bool) {
+	a := co.Account(number)
+	switch {
+	case number == "":
+		v.err(path, "is required")
+	case a == nil:
+		v.err(path, "account %s is not in the chart of accounts", number)
+	case a.Type != want:
+		v.err(path, "account %s is %s, expected %s", number, a.Type, want)
+	case recon && !a.VendorReconciliation:
+		v.err(path, "account %s is not a vendor reconciliation account", number)
+	case !recon && a.VendorReconciliation:
+		v.err(path, "account %s is a vendor reconciliation account, posted only through the supplier's items", number)
+	}
+}
+
 // accountDetermination checks that each determined account is in the chart
 // with the type its use needs, a vendor reconciliation account where the
 // use is one and no other account; the FX accounts are optional, the
@@ -228,19 +293,7 @@ func (v *validator) chartOfAccounts(p string, co *Company) {
 func (v *validator) accountDetermination(p string, co *Company) {
 	ad := co.AccountDetermination
 	check := func(field, number string, want AccountType, recon bool) {
-		a := co.Account(number)
-		switch {
-		case number == "":
-			v.err(p+".account_determination."+field, "is required")
-		case a == nil:
-			v.err(p+".account_determination."+field, "account %s is not in the chart of accounts", number)
-		case a.Type != want:
-			v.err(p+".account_determination."+field, "account %s is %s, expected %s", number, a.Type, want)
-		case recon && !a.VendorReconciliation:
-			v.err(p+".account_determination."+field, "account %s is not a vendor reconciliation account", number)
-		case !recon && a.VendorReconciliation:
-			v.err(p+".account_determination."+field, "account %s is a vendor reconciliation account, posted only through the supplier's items", number)
-		}
+		v.account(p+".account_determination."+field, co, number, want, recon)
 	}
 	check("ap_reconciliation", ad.APReconciliation, Liability, true)
 	check("input_tax", ad.InputTax, Asset, false)

@@ -293,7 +293,7 @@ func TestAccounts(t *testing.T) {
 		tok, _ := page["next_page_token"].(string)
 		return len(page["items"].([]any)), tok
 	}
-	if n, _ := count("legal_entity_id=" + e.de.String()); n != 10 {
+	if n, _ := count("legal_entity_id=" + e.de.String()); n != 11 {
 		t.Fatalf("by legal entity: %d", n)
 	}
 	if n, _ := count("chart_id=" + a["chart_id"].(string) + "&status=active&number=211000"); n != 1 {
@@ -306,8 +306,8 @@ func TestAccounts(t *testing.T) {
 	if tok == "" {
 		t.Fatal("page 1: got no next page token, want one")
 	}
-	if n, tok := count("page_size=15&page_token=" + tok); n != 5 {
-		t.Errorf("page 2: got %d, want 5", n)
+	if n, tok := count("page_size=15&page_token=" + tok); n != 6 {
+		t.Errorf("page 2: got %d, want 6", n)
 	} else if tok != "" {
 		t.Errorf("page 2 next page token: got %q, want none", tok)
 	}

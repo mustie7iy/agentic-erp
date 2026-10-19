@@ -101,6 +101,7 @@ func classify(path string) Tier {
 // identity instead of position.
 var listKeys = map[string]string{
 	"companies": "code", "chart_of_accounts": "number", "tax_codes": "code", "withholding_tax_codes": "code",
+	"house_banks":   "name",
 	"payment_terms": "key",
 	"number_ranges": "company,document_type,fiscal_year",
 }

@@ -97,6 +97,9 @@ companies:
       - number: "610000"
         name: Salaries and Wages
         type: expense
+      - number: "101000"
+        name: Bank clearing - Deutsche Bank
+        type: asset
     account_determination:
       ap_reconciliation: "211000"
       input_tax: "140000"

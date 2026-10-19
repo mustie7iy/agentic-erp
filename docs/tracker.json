@@ -627,7 +627,7 @@
      {
       "s": "P",
       "t": "Bank transmission (EBICS, SFTP, host-to-host)",
-      "r": "payments.Connector · DirConnector drops files for a transfer agent; EBICS and SFTP connectors to come · T44",
+      "r": "payments.Connector · DirConnector drops files for a transfer agent; EBICS and SFTP connectors to come · ADR-0038 · T44 (after T45c: SFTP and EBICS connectors per house bank, a file whose content hash was already sent counts as sent, EBICS refused in production, retries, the sweep)",
       "c": []
      },
      {
@@ -637,10 +637,29 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Multiple house banks and payment methods",
-      "r": "T45",
-      "c": []
+      "r": "ADR-0038 · T45 (split T45a, T45b, T45c; then T44)",
+      "c": [
+       {
+        "s": "D",
+        "t": "Several house banks per company (companies[].house_banks), each on its own ledger account, a bank clearing account no other house bank of the company uses; the main bank keeps the account determination's bank account unless it names one; SAP T012K rows beyond the first become further house banks",
+        "r": "companies[].house_banks · house_bank.gl_account · payments.HouseBanks · sapconfig T012K · T45a",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Payment methods: per method and currency the ranked house banks in configuration; suppliers' payment methods in their company data",
+        "r": "T45b",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Proposals without a house bank pay each supplier through its first method a ranked bank can pay; one bank file per house bank and method; payment_run.house_bank_id nullable (breaking change accepted); at most one active house bank per ledger account in the schema (house_bank_account_once, a deferrable unique constraint attached to a concurrently built index; ADR-0038)",
+        "r": "T45c",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",
