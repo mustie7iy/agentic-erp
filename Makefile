@@ -1,4 +1,4 @@
-.PHONY: temporal-checks generate run-server build images images-reproducible image-scan signing-roundtrip test-release-scripts lint lint-all test test-short ci-local db-up test-db coverage fuzz perf load soak resilience failover demo clean
+.PHONY: temporal-checks generate run-server build images images-reproducible image-scan signing-roundtrip test-release-scripts lint lint-all test test-short ci-local db-up test-db coverage fuzz perf load soak resilience failover restore-drill demo clean
 
 build:
 	go build -o bin/erp ./cmd/erp
@@ -141,6 +141,12 @@ resilience:
 # PostgreSQL primary, replica and PgBouncer in Docker; weekly in the nfr job.
 failover:
 	scripts/failover.sh
+
+# The restore drill in Docker (ADR-0040): a base backup and the WAL archive
+# restored to a point in time and verified. RUN_URL is where its log is.
+RUN_URL ?= https://localhost/restore-drill
+restore-drill:
+	RESTORE_PROVIDER=local scripts/restore-drill.sh "$(RUN_URL)"
 
 # Full walkthrough through the CLI against a real API server and database:
 # mock SAP extract, configuration draft, migration of company 1000 through

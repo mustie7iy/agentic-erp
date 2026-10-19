@@ -28,6 +28,14 @@
 #     a failed run stays failed; a version re-pinned to another commit
 #     needs a drill again. A run added names a release and commit, and a
 #     release rolled back to, that the drill cell ran at BASE;
+#   - a release reaches production only while the drill cell's last passed
+#     AWS restore drill (<drill cell>/drills/restore.json at BASE,
+#     scripts/restore-drill.sh, ADR-0040) started within 90 days (NOW, an
+#     ISO time, stands in for the clock in tests); a rollback is exempt,
+#     being the way out of an incident. The record is append-only too, its
+#     runs {"kind", "provider", "by", "started", "restore_point",
+#     "rpo_seconds", "rto_seconds", "result", "run"}; a local run (weekly
+#     CI) is recorded but does not count;
 # With OUT set it writes "<commit> <image ref>" lines there, which the
 # deploy workflow verifies with scripts/verify-image.sh (signatures,
 # attestations, provenance naming the commit) before the promotion merges;
@@ -44,7 +52,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 base="${1:?usage: promotion-checks.sh BASE [HEAD]}"
 python3 - "$base" "${2:-HEAD}" "${OUT:-}" "${APPROVAL_OUT:-}" <<'PY'
-import json, re, subprocess, sys
+import datetime, json, os, re, subprocess, sys
 
 base, head, out, approval_out = sys.argv[1:5]
 root = "deploy/environments"
@@ -112,6 +120,34 @@ def drilled(version, commit):
     mine = [d for d in runs if isinstance(runs, list) and isinstance(d, dict) and d.get("release") == version and d.get("commit") == commit]
     return bool(mine) and mine[-1].get("result") == "passed"
 
+RESTORE_KEYS = {"kind", "provider", "by", "started", "restore_point", "rpo_seconds", "rto_seconds", "result", "run"}
+RESTORE_MAX_AGE = datetime.timedelta(days=90)
+
+def when(text):
+    """An ISO time in UTC (...Z), or None."""
+    try:
+        return datetime.datetime.fromisoformat(str(text).replace("Z", "+00:00")) if str(text).endswith("Z") else None
+    except ValueError:
+        return None
+
+def restore_run_ok(d):
+    """Whether d is a well-formed restore drill run."""
+    number = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0
+    return isinstance(d, dict) and set(d) == RESTORE_KEYS and d["kind"] in ("point-in-time", "dr-copies") \
+        and d["provider"] in ("aws", "local") and isinstance(d["by"], str) and d["by"] != "" and when(d["started"]) is not None \
+        and d["result"] in ("passed", "failed") and str(d["run"]).startswith("https://") \
+        and (d["result"] == "failed" or (when(d["restore_point"]) is not None and number(d["rpo_seconds"]) and number(d["rto_seconds"])))
+
+def restored_lately():
+    """When the last passed AWS restore drill at BASE started, and whether
+    that is within RESTORE_MAX_AGE of now."""
+    text = at(base, "%s/%s/drills/restore.json" % (root, drill_cell))
+    runs = load(text, "restore.json") if text is not None else []
+    passed = [when(d["started"]) for d in runs if isinstance(runs, list) and restore_run_ok(d) and d["provider"] == "aws" and d["result"] == "passed"]
+    now = when(os.environ["NOW"]) if os.environ.get("NOW") else datetime.datetime.now(datetime.timezone.utc)
+    last = max(passed) if passed else None
+    return last, last is not None and now - last <= RESTORE_MAX_AGE
+
 def ran_before(path, rel):
     """Whether the cell ran rel before BASE's: a rollback."""
     for rev in git("log", "--first-parent", "--format=%H", base, "--", path).split()[1:]:
@@ -130,7 +166,8 @@ changed = [p for p in everything if p.startswith(root + "/")]
 releases = [p for p in changed if re.fullmatch(root + r"/[a-z]+/[a-z][a-z0-9]{1,19}/release\.json", p)]
 cells = [p for p in changed if re.fullmatch(root + r"/[a-z]+/[a-z][a-z0-9]{1,19}/cell\.json", p)]
 drills = [p for p in changed if re.fullmatch(re.escape("%s/%s/drills/" % (root, drill_cell)) + r"v\d+\.\d+\.\d+\.json", p)]
-others = [p for p in changed if p not in releases and p not in cells and p not in drills and p != root + "/path.json"]
+restores = [p for p in changed if p == "%s/%s/drills/restore.json" % (root, drill_cell)]
+others = [p for p in changed if p not in releases and p not in cells and p not in drills and p not in restores and p != root + "/path.json"]
 if others:
     fail("only cells' release.json and cell.json, the drills' records and path.json live under %s, not %s" % (root, ", ".join(others)))
 for p in cells:
@@ -168,6 +205,18 @@ for p in drills:
         if not ran_at_drill(d["release"], d["commit"]) or not ran_at_drill(d["rolled_back_to"]):
             fail("%s: %s never ran %s at %s, or %s: a record names what the drill ran" % (p, drill_cell, name, d["commit"], d["rolled_back_to"]))
         print("promotion-checks: %s records a drill of %s: %s" % (drill_cell, name, d["result"]))
+for p in restores:
+    runs = load(at(head, p) or fail("%s is removed: the restore drills' record is kept" % p), p)
+    before = at(base, p)
+    kept = load(before, p) if before is not None else []
+    if not isinstance(runs, list) or runs[:len(kept)] != kept or len(runs) == len(kept):
+        fail("%s is append-only: a pull request adds runs to it, never changes or removes one" % p)
+    for d in runs[len(kept):]:
+        if not restore_run_ok(d):
+            fail('%s: each run must be {"kind": "point-in-time" or "dr-copies", "provider": "aws" or "local", "by": "<who>", '
+                 '"started": "<UTC time>Z", "restore_point": "<UTC time>Z", "rpo_seconds": n, "rto_seconds": n, '
+                 '"result": "passed" or "failed", "run": "https://..."} (a failed run may lack the point and the measures)' % p)
+        print("promotion-checks: %s records a %s restore drill (%s): %s" % (drill_cell, d["kind"], d["provider"], d["result"]))
 production = root + "/path.json" in changed or any(p.startswith(root + "/production/") for p in releases + cells)
 
 def approval(known_good):
@@ -211,6 +260,11 @@ else:
     if env == "production" and not drilled(version, rel[1]):
         fail("%s (%s) reaches production only after its rollback drill in %s passed for that commit (%s/drills/%s.json)"
              % (version, rel[1], drill_cell, drill_cell, version))
+    if env == "production":
+        last, fresh = restored_lately()
+        if not fresh:
+            fail("%s reaches production only while %s's last passed restore drill on AWS is at most 90 days old (%s/drills/restore.json): %s"
+                 % (version, drill_cell, drill_cell, "the last started %s" % last.strftime("%Y-%m-%d") if last else "there is none"))
     print("promotion-checks: %s takes %s" % (cell, version))
 approval(known_good)
 

@@ -134,12 +134,33 @@ in the cell present in it, and the directory's `erased` status above.
 **Drills (T41e).** Staging's drill cell restores itself to a point in time
 and restores from its copies in the disaster-recovery region (staging has
 the copies, not the replica and pilot light, which production alone pays
-for; where the region failover itself is rehearsed is an open decision for
-the PO before the pilot); each run is appended to
-`deploy/environments/staging/stg1/drills/restore.json` (who, when, restore
-point, RPO and RTO measured, verification result), which only grows. The
-promotion checks (ADR-0035) refuse a production promotion when the last
-passed restore drill is older than 90 days.
+for), with `scripts/restore-drill.sh` (`RESTORE_PROVIDER=aws`,
+`RESTORE_KIND=point-in-time` or `dr-copies`): it writes the drill
+tenant's "before" marker, takes the restore point (for the copies, the
+creation of the first copy made after the marker), writes the "after"
+marker, restores a side cluster, runs `erp-server dr verify` as a one-off
+pod of the cell's server image against it, measures the RPO (the point
+less the "before" marker) and the RTO (the restore's start to the
+verification's pass), and removes the side cluster. Each run is appended to
+`deploy/environments/staging/stg1/drills/restore.json` (kind, provider,
+who, when, restore point, RPO and RTO, result, the run's log), which only
+grows, merged by a pull request of its own. The promotion checks (ADR-0035)
+refuse a production promotion when the last passed restore drill on AWS
+started more than 90 days before; a rollback is exempt, being the way out
+of an incident. The same drill runs in Docker (`RESTORE_PROVIDER=local`,
+`make restore-drill`, weekly.yml's `dr` on demand): a base backup and the
+WAL archive restored with `recovery_target_time`; its runs do not count.
+A copy is restored in the disaster-recovery region, where staging has no
+cluster to run the verification from: until a path is chosen (a
+verification run there, or peering for the drill; T41e2), the `dr-copies` drill
+needs a `KUBECTL` context that reaches that region's side cluster.
+
+**The region failover is rehearsed** (product owner, 2026-10-19) on the
+production pilot cell before it takes live traffic, as a gate of the
+pilot, by the runbook below end to end, then once a year in a maintenance
+window. Before T41b is applied to a cell that already holds objects, an S3
+Batch Replication job copies them once, and the plan is checked to create
+the field key as a multi-Region key (a key cannot become one later).
 
 **Failover inside a region (T41c).** A Multi-AZ failover moves the writer
 within about 35 s; until PgBouncer reconnects, a statement can reach a

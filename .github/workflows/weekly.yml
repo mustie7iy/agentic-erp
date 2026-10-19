@@ -11,7 +11,7 @@ on:
       jobs:
         description: Which jobs to run
         type: choice
-        options: [all, images, release, shuffle, nfr]
+        options: [all, images, release, shuffle, nfr, dr]
         default: all
 
 # Weekly, and on demand before a release (06 §6.5): about four hours of
@@ -95,6 +95,23 @@ jobs:
           echo "GIT_CLIFF=$RUNNER_TEMP/git-cliff-${GIT_CLIFF_VERSION}/git-cliff" >> "$GITHUB_ENV"
       - name: Version rules and changelog
         run: ./scripts/test-release-scripts.sh
+
+  dr:
+    # The restore drill of ADR-0040 in Docker (scripts/restore-drill.sh,
+    # local): a base backup and the WAL archive restored to a point in time,
+    # verified by erp-server dr verify. On demand only; staging's drills on
+    # AWS are the ones the promotion checks count. The run's record stays
+    # in the runner: a local run does not count.
+    if: inputs.jobs == 'dr'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Restore drill (local)
+        run: make restore-drill RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
   shuffle:
     if: github.event_name == 'schedule' || inputs.jobs == 'all' || inputs.jobs == 'shuffle'

@@ -5206,9 +5206,27 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Restore drills (point in time, and from the DR-region copies) recorded append-only in deploy/environments/staging/stg1/drills/restore.json (scripts/promotion-checks.sh accepts it beside the release drills); a production promotion refused when the last passed restore drill on AWS is older than 90 days (rollbacks exempt); the drill in Docker on demand (weekly.yml dr, make restore-drill)",
+        "r": "scripts/restore-drill.sh, test-restore-drill.sh · T41e",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Restore drills (point in time, and from the DR-region copies) recorded append-only in deploy/environments/staging/stg1/drills/restore.json (scripts/promotion-checks.sh accepts it beside the release drills); a production promotion refused when the last passed restore drill is older than 90 days",
-        "r": "T41e",
+        "t": "The region failover rehearsed on the production pilot cell before it takes live traffic (a pre-pilot gate), then yearly in a maintenance window (PO, 2026-10-19)",
+        "r": "ADR-0040 · T41g",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Before T41b is applied to a cell holding objects: a one-off S3 Batch Replication job for the existing objects; the plan checked to create the field key as a multi-Region key from the start",
+        "r": "ADR-0040 · T41h (pre-apply)",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The dr-copies drill's verification reaches the side cluster in the DR region (a verification run there, or peering for the drill): to decide before staging's first copies drill",
+        "r": "ADR-0040 · T41e2",
         "c": []
        }
       ]
