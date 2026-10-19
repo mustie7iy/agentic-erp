@@ -648,9 +648,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Payment methods: per method and currency the ranked house banks in configuration; suppliers' payment methods in their company data",
-        "r": "T45b",
+        "s": "D",
+        "t": "Payment methods: per method and currency the ranked house banks in configuration; suppliers' payment methods in their company data, in order, active methods of the company that a configuration cannot take away while a supplier or a pending change has them",
+        "r": "companies[].payment_methods · payments.PaymentMethods (payment_method, bank_ranking) · supplier_companies[].payment_methods · partner.PaymentMethodCodes · 000090-000091 · T45b",
         "c": []
        },
        {

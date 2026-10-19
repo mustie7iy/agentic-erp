@@ -129,6 +129,18 @@ func TestValidationRules(t *testing.T) {
 			furtherBank("101000")(c)
 			c.Companies[1].HouseBanks[0].BIC = "DEUT"
 		}, "companies[2000].house_banks[DB].bic"},
+		{"payment method code", method(func(m *PaymentMethod) { m.Code = "TT" }), "companies[1000].payment_methods[TT]"},
+		{"payment method code taken", func(c *Config) {
+			c.Companies[0].PaymentMethods = append(c.Companies[0].PaymentMethods, c.Companies[0].PaymentMethods[0])
+		}, "companies[1000].payment_methods[T]"},
+		{"payment method description", method(func(m *PaymentMethod) { m.Description = " " }), "companies[1000].payment_methods[T].description"},
+		{"payment method without a ranking", method(func(m *PaymentMethod) { m.Ranking = nil }), "companies[1000].payment_methods[T].ranking"},
+		{"ranking currency unknown", method(func(m *PaymentMethod) { m.Ranking[0].Currency = "XXY" }), "companies[1000].payment_methods[T].ranking[XXY]"},
+		{"ranking currency twice", method(func(m *PaymentMethod) { m.Ranking = append(m.Ranking, m.Ranking[0]) }), "companies[1000].payment_methods[T].ranking[USD]"},
+		{"ranking without banks", method(func(m *PaymentMethod) { m.Ranking[0].HouseBanks = nil }), "companies[1000].payment_methods[T].ranking[USD].house_banks"},
+		{"ranking an unknown bank", method(func(m *PaymentMethod) { m.Ranking[0].HouseBanks = []string{"DB"} }), "companies[1000].payment_methods[T].ranking[USD].house_banks"},
+		{"ranking a bank twice", method(func(m *PaymentMethod) { m.Ranking[0].HouseBanks = []string{"MAIN", "MAIN"} }),
+			"companies[1000].payment_methods[T].ranking[USD].house_banks"},
 		{"terms key", func(c *Config) { c.PaymentTerms[0].Key = "net thirty days!" }, "payment_terms[net thirty days!]"},
 		{"terms days", func(c *Config) { c.PaymentTerms[0].NetDays = 400 }, "payment_terms[NT14].net_days"},
 		{"no terms", func(c *Config) { c.PaymentTerms = nil }, "payment_terms"},
@@ -201,6 +213,11 @@ func furtherBank(account string) func(c *Config) {
 	return func(c *Config) {
 		c.Companies[1].HouseBanks = []HouseBank{{Name: "DB", IBAN: "DE02120300000000202051", BIC: "DEUTDEFFXXX", GLAccount: account}}
 	}
+}
+
+// method changes company 1000's payment method.
+func method(change func(m *PaymentMethod)) func(c *Config) {
+	return func(c *Config) { change(&c.Companies[0].PaymentMethods[0]) }
 }
 
 // discounts gives NT30 the cash discount tiers.
@@ -416,6 +433,22 @@ func TestDiffTiers(t *testing.T) {
 	}
 	if got := banks[0].Path; got != "companies[2000].house_banks[DB]" {
 		t.Errorf("house bank removal path: got %s, want companies[2000].house_banks[DB]", got)
+	}
+	// A payment method and its rankings are identified by code and
+	// currency; a description is cosmetic.
+	reranked := fixture(t)
+	reranked.Companies[0].PaymentMethods[0].Description = "Wire"
+	reranked.Companies[0].PaymentMethods[0].Ranking = append(reranked.Companies[0].PaymentMethods[0].Ranking,
+		BankRanking{Currency: "EUR", HouseBanks: []string{"MAIN"}})
+	methods, _ := Diff(base, reranked)
+	if len(methods) != 2 {
+		t.Fatalf("payment method changes: got %v, want 2", methods)
+	}
+	if got := methods[0]; got.Path != "companies[1000].payment_methods[T].description" || got.Tier != TierCosmetic {
+		t.Errorf("description change: got %s %v, want companies[1000].payment_methods[T].description cosmetic", got.Path, got.Tier)
+	}
+	if got := methods[1]; got.Path != "companies[1000].payment_methods[T].ranking[EUR]" || got.Tier != TierPostingRelated {
+		t.Errorf("ranking change: got %s %v, want companies[1000].payment_methods[T].ranking[EUR] posting-related", got.Path, got.Tier)
 	}
 	same, _ := Diff(base, fixture(t))
 	if len(same) != 0 {

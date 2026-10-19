@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
+	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -21,7 +22,8 @@ import (
 
 func endpoints() *partner.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	return &partner.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: apitest.FieldKeys(), Approvals: fixture.Approvals()}
+	return &partner.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: apitest.FieldKeys(), Approvals: fixture.Approvals(),
+		PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}}
 }
 
 // TestDatabaseFailures calls every handler and context function outside a
@@ -29,6 +31,7 @@ func endpoints() *partner.Endpoints {
 func TestDatabaseFailures(t *testing.T) {
 	e := setup(t)
 	e.withholdingCodes(t)
+	e.paymentMethods(t)
 	u := func(m map[string]any) uuid.UUID { return uuid.MustParse(id(m)) }
 	bankOf := func(p map[string]any) uuid.UUID {
 		page, _ := e.Must(200, "GET", "/v1/business-partners/"+id(p)+"/bank-accounts", "", "")
@@ -60,7 +63,8 @@ func TestDatabaseFailures(t *testing.T) {
 	when := e.day.AddDate(0, 0, 3)
 	newPartner := &gen.BusinessPartnerCreate{Kind: "organization", Name: "N", CountryCode: "DE", Roles: []string{"supplier"}, Reason: "r",
 		LegalName: gen.NewOptString("N GmbH"), Language: gen.NewOptString("de"),
-		SupplierCompanies: []gen.SupplierCompanyInput{{LegalEntityID: e.le, ReconciliationAccountID: e.recon, PaymentTermCode: "NT30", WithholdingTaxCodes: []string{"W1"}}},
+		SupplierCompanies: []gen.SupplierCompanyInput{{LegalEntityID: e.le, ReconciliationAccountID: e.recon, PaymentTermCode: "NT30", WithholdingTaxCodes: []string{"W1"},
+			PaymentMethods: []string{"T"}}},
 		Addresses: []gen.Address{{Purpose: "legal", Line1: "L", City: "C", CountryCode: "DE", ValidFrom: e.day, ValidTo: gen.NewOptDate(when),
 			Line2: gen.NewOptString("2"), PostalCode: gen.NewOptString("1"), Region: gen.NewOptString("BE")}},
 		TaxIdentifiers: []gen.TaxIdentifierInput{{Scheme: "EU_VAT", Value: "DE123456789"}},

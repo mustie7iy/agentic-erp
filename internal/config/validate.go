@@ -34,6 +34,7 @@ func HasErrors(fs []Finding) bool {
 var (
 	currencyRe = regexp.MustCompile(`^[A-Z]{3}$`)
 	wthCodeRe  = regexp.MustCompile(`^[A-Z0-9]{1,4}$`)
+	methodRe   = regexp.MustCompile(`^[A-Z0-9]$`)
 	countryRe  = regexp.MustCompile(`^[A-Z]{2}$`)
 	bicRe      = regexp.MustCompile(`^[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$`)
 	accountRe  = regexp.MustCompile(`^[0-9A-Za-z]{1,10}$`)
@@ -176,6 +177,7 @@ func (v *validator) company(p string, co *Company) {
 		v.err(p+".gr_over_delivery_percent", "must be 0-100")
 	}
 	v.houseBanks(p, co)
+	v.paymentMethods(p, co)
 }
 
 // isTaxAccount reports whether the account is the input tax account or a
@@ -261,6 +263,55 @@ func (v *validator) chartOfAccounts(p string, co *Company) {
 	}
 	if recon == 0 {
 		v.err(p+".chart_of_accounts", "no vendor reconciliation account")
+	}
+}
+
+// paymentMethods checks the company's payment methods (ADR-0038): unique
+// one-character codes of an upper-case letter or digit, each described and
+// ranking house banks for at least one currency, each currency once, and
+// each ranking naming house banks of the company, each once.
+func (v *validator) paymentMethods(p string, co *Company) {
+	banks := map[string]bool{}
+	for _, hb := range co.AllHouseBanks() {
+		banks[hb.Name] = true
+	}
+	codes := map[string]bool{}
+	for _, m := range co.PaymentMethods {
+		mp := fmt.Sprintf("%s.payment_methods[%s]", p, m.Code)
+		if !methodRe.MatchString(m.Code) || codes[m.Code] {
+			v.err(mp, "a payment method's code is one upper-case letter or digit, unique in the company")
+		}
+		codes[m.Code] = true
+		if strings.TrimSpace(m.Description) == "" {
+			v.err(mp+".description", "is required")
+		}
+		if len(m.Ranking) == 0 {
+			v.err(mp+".ranking", "rank the house banks that pay with the method for at least one currency")
+		}
+		currencies := map[string]bool{}
+		for _, r := range m.Ranking {
+			rp := fmt.Sprintf("%s.ranking[%s]", mp, r.Currency)
+			if _, known := v.exponents[r.Currency]; !known || currencies[r.Currency] {
+				v.err(rp, "a currency of the currency reference data, each once in the method's ranking")
+			}
+			currencies[r.Currency] = true
+			v.rankedBanks(rp, banks, r.HouseBanks)
+		}
+	}
+}
+
+// rankedBanks checks that a ranking names at least one house bank, each a
+// house bank of the company and named once.
+func (v *validator) rankedBanks(rp string, banks map[string]bool, ranked []string) {
+	if len(ranked) == 0 {
+		v.err(rp+".house_banks", "rank at least one house bank")
+	}
+	seen := map[string]bool{}
+	for _, name := range ranked {
+		if !banks[name] || seen[name] {
+			v.err(rp+".house_banks", "house bank %s: a house bank of the company, each once", name)
+		}
+		seen[name] = true
 	}
 }
 

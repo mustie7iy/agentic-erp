@@ -13024,6 +13024,13 @@ components:
           items:
             type: string
             pattern: "^[A-Z0-9]{1,4}$"
+        payment_methods:
+          type: array
+          description: "The methods the supplier may be paid by in this legal entity, in order of preference (SAP LFB1-ZWELS; ADR-0038): codes of the company's `payment_methods` in the configuration."
+          maxItems: 10
+          items:
+            type: string
+            pattern: "^[A-Z0-9]$"
       examples:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
           reconciliation_account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dca"
@@ -13058,6 +13065,13 @@ components:
           items:
             type: string
             pattern: "^[A-Z0-9]{1,4}$"
+        payment_methods:
+          type: array
+          description: "The methods the supplier may be paid by in this legal entity, in order of preference (ADR-0038): active payment methods of the company's configuration, each once. A payment proposal pays the supplier through the first method a ranked house bank can pay. The list replaces the supplier's methods in the legal entity: leaving it out takes every method off the supplier there, as the other company data is replaced too."
+          maxItems: 10
+          items:
+            type: string
+            pattern: "^[A-Z0-9]$"
       additionalProperties: false
       examples:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"

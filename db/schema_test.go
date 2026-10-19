@@ -2823,6 +2823,53 @@ func TestWithholdingTaxCodes(t *testing.T) {
 	}
 }
 
+// TestPaymentMethodSchema: a payment method's code is one upper-case
+// letter or digit; a ranking belongs to a method of its legal entity, in a
+// known currency, and ranks at least one house bank; a supplier has up to
+// ten methods, each one upper-case letter or digit (ADR-0038).
+func TestPaymentMethodSchema(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	method := func(code string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.payment_method (tenant_id, legal_entity_id, code, description, created_by, updated_by)
+				VALUES ($1, $2, $3, 'M', $4, $4)`, f.tenant, f.entity, code, f.actor)
+		}
+	}
+	ranking := func(m, currency string, banks []string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.bank_ranking (tenant_id, legal_entity_id, method, currency, house_banks, created_by, updated_by)
+				VALUES ($1, $2, $3, $4, $5, $6, $6)`, f.tenant, f.entity, m, currency, banks, f.actor)
+		}
+	}
+	methods := func(supplier uuid.UUID, list string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO partner.supplier_company (tenant_id, partner_id, legal_entity_id, reconciliation_account_id, payment_term_code,
+				payment_methods, created_by, updated_by) VALUES ($1, $2, $3, $4, 'NT30', `+list+`, $5, $5)`, f.tenant, supplier, f.entity, f.ap, f.actor)
+		}
+	}
+	mustApp(t, f.tenant, method("T"))
+	mustApp(t, f.tenant, ranking("T", "USD", []string{"MAIN", "HSBC"}))
+	mustApp(t, f.tenant, methods(f.supplier, `ARRAY['T', 'U']`))
+	for _, c := range []struct {
+		name  string
+		write func(tx pgx.Tx) error
+		fails string
+	}{
+		{"a two-character method", method("TT"), "payment_method_code_check"},
+		{"a lower-case method", method("t"), "payment_method_code_check"},
+		{"a ranking of no method", ranking("U", "USD", []string{"MAIN"}), "bank_ranking_tenant_id_legal_entity_id_method_fkey"},
+		{"a ranking in an unknown currency", ranking("T", "XXY", []string{"MAIN"}), "bank_ranking_currency_fkey"},
+		{"a ranking of no bank", ranking("T", "EUR", []string{}), "bank_ranking_house_banks_check"},
+		{"a supplier's lower-case method", methods(f.otherSupplier, `ARRAY['t']`), "supplier_company_payment_methods"},
+		{"a supplier's empty method", methods(f.otherSupplier, `ARRAY['']`), "supplier_company_payment_methods"},
+		{"a supplier's null method", methods(f.otherSupplier, `ARRAY['T', NULL]`), "supplier_company_payment_methods"},
+		{"eleven methods", methods(f.otherSupplier, `string_to_array('A,B,C,D,E,F,G,H,I,J,K', ',')`), "supplier_company_payment_methods"},
+	} {
+		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, c.write), c.fails) })
+	}
+}
+
 // TestOpenItemWithholding: an open item keeps its withholding taxes
 // (T46f), one row per code: the amount withheld at invoice, of the base's
 // sign and less than it, and none for a code deducted at payment; the rows

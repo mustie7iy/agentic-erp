@@ -83,24 +83,34 @@ type Accounts interface {
 	IsWithholdingTaxCode(ctx context.Context, legalEntity uuid.UUID, code string) (bool, error)
 }
 
+// PaymentMethods is what the partner context asks the payments context
+// about payment methods (ADR-0038).
+type PaymentMethods interface {
+	// IsPaymentMethod reports whether the code is an active payment method
+	// of the legal entity.
+	IsPaymentMethod(ctx context.Context, legalEntity uuid.UUID, code string) (bool, error)
+}
+
 // Endpoints implements the partner part of the generated API.
 type Endpoints struct {
-	Pages         *pagination.Codec
-	LegalEntities LegalEntities
-	Accounts      Accounts
-	Keys          *fieldcrypt.Keyring
-	Approvals     Opener
+	Pages          *pagination.Codec
+	LegalEntities  LegalEntities
+	Accounts       Accounts
+	PaymentMethods PaymentMethods
+	Keys           *fieldcrypt.Keyring
+	Approvals      Opener
 }
 
 // Ports are the other contexts and keys requests are checked and sealed with.
 type Ports struct {
-	LegalEntities LegalEntities
-	Accounts      Accounts
-	Keys          *fieldcrypt.Keyring
+	LegalEntities  LegalEntities
+	Accounts       Accounts
+	PaymentMethods PaymentMethods
+	Keys           *fieldcrypt.Keyring
 }
 
 func (e *Endpoints) ports() Ports {
-	return Ports{LegalEntities: e.LegalEntities, Accounts: e.Accounts, Keys: e.Keys}
+	return Ports{LegalEntities: e.LegalEntities, Accounts: e.Accounts, PaymentMethods: e.PaymentMethods, Keys: e.Keys}
 }
 
 // Date is a calendar date as PostgreSQL renders it in JSON.
@@ -127,6 +137,7 @@ type SupplierCompany struct {
 	IsPostingBlocked        bool      `json:"is_posting_blocked"`
 	IsPaymentBlocked        bool      `json:"is_payment_blocked"`
 	WithholdingTaxCodes     []string  `json:"withholding_tax_codes"` // T46e
+	PaymentMethods          []string  `json:"payment_methods"`       // in order (T45b)
 }
 
 // Address is a row of partner.address.
@@ -177,7 +188,7 @@ const partnerSelect = `SELECT p.id, p.number, p.kind, p.name, p.legal_name, p.co
 		coalesce((SELECT array_agg(r.role ORDER BY r.role) FROM partner.partner_role r WHERE r.tenant_id = p.tenant_id AND r.partner_id = p.id), '{}'),
 		coalesce((SELECT json_agg(json_build_object('legal_entity_id', s.legal_entity_id, 'reconciliation_account_id', s.reconciliation_account_id,
 			'payment_term_code', s.payment_term_code, 'is_posting_blocked', s.is_posting_blocked, 'is_payment_blocked', s.is_payment_blocked,
-			'withholding_tax_codes', coalesce((SELECT array_agg(w.code ORDER BY w.code) FROM partner.supplier_withholding w WHERE w.tenant_id = s.tenant_id
+			'payment_methods', s.payment_methods, 'withholding_tax_codes', coalesce((SELECT array_agg(w.code ORDER BY w.code) FROM partner.supplier_withholding w WHERE w.tenant_id = s.tenant_id
 				AND w.partner_id = s.partner_id AND w.legal_entity_id = s.legal_entity_id AND w.is_active), '{}'))
 			ORDER BY s.legal_entity_id) FROM partner.supplier_company s WHERE s.tenant_id = p.tenant_id AND s.partner_id = p.id), '[]'),
 		coalesce((SELECT json_agg(json_build_object('id', a.id, 'purpose', a.purpose, 'line1', a.line1, 'line2', a.line2, 'city', a.city,

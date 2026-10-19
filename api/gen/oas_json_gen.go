@@ -35731,15 +35731,26 @@ func (s *SupplierCompany) encodeFields(e *jx.Encoder) {
 			e.ArrEnd()
 		}
 	}
+	{
+		if s.PaymentMethods != nil {
+			e.FieldStart("payment_methods")
+			e.ArrStart()
+			for _, elem := range s.PaymentMethods {
+				e.Str(elem)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfSupplierCompany = [6]string{
+var jsonFieldsNameOfSupplierCompany = [7]string{
 	0: "legal_entity_id",
 	1: "reconciliation_account_id",
 	2: "payment_term_code",
 	3: "is_posting_blocked",
 	4: "is_payment_blocked",
 	5: "withholding_tax_codes",
+	6: "payment_methods",
 }
 
 // Decode decodes SupplierCompany from json.
@@ -35830,6 +35841,25 @@ func (s *SupplierCompany) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"withholding_tax_codes\"")
 			}
+		case "payment_methods":
+			if err := func() error {
+				s.PaymentMethods = make([]string, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem string
+					v, err := d.Str()
+					elem = string(v)
+					if err != nil {
+						return err
+					}
+					s.PaymentMethods = append(s.PaymentMethods, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"payment_methods\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -35917,13 +35947,24 @@ func (s *SupplierCompanyInput) encodeFields(e *jx.Encoder) {
 			e.ArrEnd()
 		}
 	}
+	{
+		if s.PaymentMethods != nil {
+			e.FieldStart("payment_methods")
+			e.ArrStart()
+			for _, elem := range s.PaymentMethods {
+				e.Str(elem)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfSupplierCompanyInput = [4]string{
+var jsonFieldsNameOfSupplierCompanyInput = [5]string{
 	0: "legal_entity_id",
 	1: "reconciliation_account_id",
 	2: "payment_term_code",
 	3: "withholding_tax_codes",
+	4: "payment_methods",
 }
 
 // Decode decodes SupplierCompanyInput from json.
@@ -35989,6 +36030,25 @@ func (s *SupplierCompanyInput) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"withholding_tax_codes\"")
+			}
+		case "payment_methods":
+			if err := func() error {
+				s.PaymentMethods = make([]string, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem string
+					v, err := d.Str()
+					elem = string(v)
+					if err != nil {
+						return err
+					}
+					s.PaymentMethods = append(s.PaymentMethods, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"payment_methods\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)

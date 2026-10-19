@@ -398,7 +398,8 @@ erDiagram
     uuid reconciliation_account_id "ledger"
     text payment_term_code
     bool is_posting_blocked
-    bool is_payment_blocked }
+    bool is_payment_blocked
+    text_array payment_methods "in order; T45b" }
   bank_account { uuid id PK
     uuid partner_id
     bytea account_cipher
@@ -1229,6 +1230,14 @@ erDiagram
   payment ||--|{ payment_item : settles
   payment_run ||--o{ payment_exclusion : excludes
   payment_run ||--o{ bank_file : produces
+  payment_method ||--o{ bank_ranking : "ranks banks per currency"
+  payment_method { uuid legal_entity_id PK
+    text code PK "one character; T45b"
+    text description
+    bool is_active }
+  bank_ranking { text method PK
+    char currency PK
+    text_array house_banks "house bank codes, first preferred" }
   payment_run { uuid id PK
     text document_number
     uuid legal_entity_id
@@ -1271,6 +1280,14 @@ A company has a main house bank and further ones (ADR-0038), each on its
 own ledger account, a bank clearing account no other house bank of the
 company uses; a house bank the configuration no longer lists becomes
 inactive, and its code never takes other bank details.
+
+A company's payment methods (`payments.payment_method`, SAP T042Z) rank,
+per currency, the house banks that pay with them, first preferred
+(`payments.bank_ranking.house_banks`, codes of the company's house banks;
+SAP T042E/T042I). A supplier's company data lists the methods it may be
+paid by, in order (`partner.supplier_company.payment_methods`, SAP
+LFB1-ZWELS): active methods of its company, which the configuration cannot
+take away while a supplier, or a pending partner change, has them (T45b).
 
 A proposal pays each supplier its open items due by the run's due date,
 netted in one payment: an invoice is due on the net due date of the terms

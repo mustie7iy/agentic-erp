@@ -25,7 +25,17 @@ and France, by EBICS.
   account's balance belongs to one bank: the configuration refuses it, and
   the schema enforces it for active banks (`house_bank_account_once`) once
   no running version still activates a replacing bank before deactivating
-  the one it replaces (T45c; 06 §6.4). No house bank's account takes tax.
+  the one it replaces (T45c; 06 §6.4). The rule is a `DEFERRABLE
+  INITIALLY DEFERRED` unique constraint, so one configuration may swap two
+  banks' accounts. PostgreSQL attaches a constraint only to a non-partial
+  index, so a nullable `active_gl_account_id` (the account while the bank
+  is active, null otherwise; added without a default, written by the
+  application, backfilled, then tied to `gl_account_id` and `status` by a
+  check added `NOT VALID` and validated) carries it: indexed `CONCURRENTLY`
+  on `(tenant_id, legal_entity_id, active_gl_account_id)` and attached with
+  `ADD CONSTRAINT … UNIQUE USING INDEX … DEFERRABLE`, so no step rewrites
+  the table or holds a lock while it scans. No house bank's account takes
+  tax.
   A house bank is identified by its code; its IBAN and BIC never change
   under that code, and a code the document drops becomes inactive.
 - **Payment methods.** The methods a supplier may be paid by come from its
@@ -59,6 +69,13 @@ and France, by EBICS.
 - Configuration: `companies[].house_banks` and `gl_account` (T45a); payment
   methods and the ranking (T45b); suppliers' methods in partner company data
   (T45b); proposals and releases per bank and method (T45c).
+- Payment methods are the payments context's (`payment_method`,
+  `bank_ranking`, the ranking's banks by code); a supplier's methods are a
+  list on its partner company data. The partner context checks them through
+  a `PaymentMethods` port the application wires to the payments context, as
+  it checks accounts through the ledger's, so no package import changes
+  direction; like withholding tax codes, a configuration cannot take away a
+  method a supplier or a pending partner change has.
 - Each bank clearing account must be in the chart of accounts as a plain
   asset account; the account determination's `bank` stays the main bank's
   account where the main bank names none.

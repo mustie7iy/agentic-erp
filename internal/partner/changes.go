@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -42,6 +43,10 @@ type SupplierCompanyInput struct {
 	// WithholdingTaxCodes are the withholding taxes deducted from the
 	// supplier in the legal entity (SAP LFBW; T46e), codes of its company.
 	WithholdingTaxCodes []string `json:"withholding_tax_codes,omitempty"`
+	// PaymentMethods are the methods the supplier may be paid by in the
+	// legal entity, in order (SAP LFB1-ZWELS; ADR-0038), methods of its
+	// company.
+	PaymentMethods []string `json:"payment_methods,omitempty"`
 }
 
 // AddressInput is an address to add.
@@ -182,6 +187,9 @@ func checkCompanies(ctx context.Context, tx pgx.Tx, ports Ports, supplier bool, 
 	if err != nil {
 		return err
 	}
+	if err := lockGiven(ctx, tx, in); err != nil {
+		return err
+	}
 	seen := map[uuid.UUID]bool{}
 	for i, s := range in {
 		f := fmt.Sprintf("supplier_companies[%d]", i)
@@ -207,36 +215,66 @@ func checkCompanies(ctx context.Context, tx pgx.Tx, ports Ports, supplier bool, 
 		if !term {
 			return invalid("partner.unknown_payment_term", f+".payment_term_code", "payment terms from the configuration")
 		}
-		if err := checkWithholding(ctx, tx, ports, f, s); err != nil {
+		if err := checkCompanyCodes(ctx, ports, f, s); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// checkWithholding requires a supplier's withholding tax codes to be
-// active codes of the legal entity's company (T46e), each once, under the
-// withholding lock, so a configuration taking a code away waits for the
-// change and then sees it pending (WithholdingCodes).
-func checkWithholding(ctx context.Context, tx pgx.Tx, ports Ports, f string, s SupplierCompanyInput) error {
-	if len(s.WithholdingTaxCodes) > 0 {
-		if err := lockWithholding(ctx, tx); err != nil {
+// checkCompanyCodes checks the supplier's withholding tax codes and payment
+// methods in the company.
+func checkCompanyCodes(ctx context.Context, ports Ports, f string, s SupplierCompanyInput) error {
+	if err := checkCodes(ctx, withholdingCodes, f, s.LegalEntityID, s.WithholdingTaxCodes, ports.Accounts.IsWithholdingTaxCode); err != nil {
+		return err
+	}
+	return checkCodes(ctx, paymentMethodCodes, f, s.LegalEntityID, s.PaymentMethods, ports.PaymentMethods.IsPaymentMethod)
+}
+
+// lockGiven takes, for each kind of code the companies give, the kind's
+// lock, so a configuration taking a code away waits for the change and
+// then sees it pending (WithholdingCodes, PaymentMethodCodes). The locks
+// are taken in the order an activation takes them, withholding first, so
+// the two never wait on each other in a cycle.
+func lockGiven(ctx context.Context, tx pgx.Tx, in []SupplierCompanyInput) error {
+	var withholding, methods bool
+	for _, s := range in {
+		withholding = withholding || len(s.WithholdingTaxCodes) > 0
+		methods = methods || len(s.PaymentMethods) > 0
+	}
+	for _, k := range []struct {
+		given bool
+		kind  supplierCodes
+	}{{withholding, withholdingCodes}, {methods, paymentMethodCodes}} {
+		if !k.given {
+			continue
+		}
+		if err := lockCodes(ctx, tx, k.kind.lock); err != nil {
 			return err
 		}
 	}
+	return nil
+}
+
+// checkCodes requires a supplier's codes of the kind to be active codes
+// of the legal entity's company, each once; lockGiven has taken the
+// kind's lock.
+func checkCodes(ctx context.Context, kind supplierCodes, f string, le uuid.UUID, codes []string,
+	exists func(ctx context.Context, legalEntity uuid.UUID, code string) (bool, error)) error {
+	slug := strings.ReplaceAll(kind.noun, " ", "_")
 	seen := map[string]bool{}
-	for j, code := range s.WithholdingTaxCodes {
-		field := fmt.Sprintf("%s.withholding_tax_codes[%d]", f, j)
+	for j, code := range codes {
+		field := fmt.Sprintf("%s.%s[%d]", f, kind.field, j)
 		if seen[code] {
-			return invalid("partner.duplicate_withholding_tax_code", field, "each withholding tax code once")
+			return invalid("partner.duplicate_"+slug, field, "each "+kind.noun+" once")
 		}
 		seen[code] = true
-		ok, err := ports.Accounts.IsWithholdingTaxCode(ctx, s.LegalEntityID, code)
+		ok, err := exists(ctx, le, code)
 		if err != nil {
 			return err
 		}
 		if !ok {
-			return invalid("partner.unknown_withholding_tax_code", field, "a withholding tax code of the company's configuration")
+			return invalid("partner.unknown_"+slug, field, "a "+kind.noun+" of the company's configuration")
 		}
 	}
 	return nil
@@ -389,16 +427,19 @@ func addRoles(ctx context.Context, tx pgx.Tx, p reqctx.Principal, partnerID uuid
 
 func putCompanies(ctx context.Context, tx pgx.Tx, p reqctx.Principal, partnerID uuid.UUID, in []SupplierCompanyInput) error {
 	var les, accounts []uuid.UUID
-	var terms []string
+	var terms, methods []string
 	for _, s := range in {
 		les, accounts, terms = append(les, s.LegalEntityID), append(accounts, s.ReconciliationAccountID), append(terms, s.PaymentTermCode)
+		// A method is one letter or digit, so a comma separates them
+		// unambiguously; string_to_array makes '' the empty list.
+		methods = append(methods, strings.Join(s.PaymentMethods, ","))
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO partner.supplier_company AS s (tenant_id, partner_id, legal_entity_id, reconciliation_account_id,
-			payment_term_code, created_by, updated_by)
-		SELECT $1, $2, le, a, t, $3, $3 FROM unnest($4::uuid[], $5::uuid[], $6::text[]) AS x(le, a, t)
+			payment_term_code, payment_methods, created_by, updated_by)
+		SELECT $1, $2, le, a, t, string_to_array(m, ','), $3, $3 FROM unnest($4::uuid[], $5::uuid[], $6::text[], $7::text[]) AS x(le, a, t, m)
 		ON CONFLICT (tenant_id, partner_id, legal_entity_id) DO UPDATE SET reconciliation_account_id = EXCLUDED.reconciliation_account_id,
-			payment_term_code = EXCLUDED.payment_term_code, version = s.version + 1, updated_by = $3`,
-		p.TenantID, partnerID, p.ID, les, accounts, terms)
+			payment_term_code = EXCLUDED.payment_term_code, payment_methods = EXCLUDED.payment_methods, version = s.version + 1, updated_by = $3`,
+		p.TenantID, partnerID, p.ID, les, accounts, terms, methods)
 	if err != nil {
 		return fmt.Errorf("partner: put supplier companies of business partner %s: %w", partnerID, err)
 	}
@@ -421,7 +462,7 @@ func putWithholding(ctx context.Context, tx pgx.Tx, p reqctx.Principal, partnerI
 	// Giving codes waits for a configuration taking codes away, which then
 	// sees them (WithholdingCodes); taking them off needs no lock.
 	if len(codes) > 0 {
-		if err := lockWithholding(ctx, tx); err != nil {
+		if err := lockCodes(ctx, tx, withholdingLock); err != nil {
 			return err
 		}
 	}

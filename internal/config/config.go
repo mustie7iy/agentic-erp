@@ -66,6 +66,10 @@ type Company struct {
 	// HouseBanks are the company's further house banks (SAP T012K), each
 	// with its own ledger account (ADR-0038).
 	HouseBanks []HouseBank `yaml:"house_banks,omitempty" json:"house_banks,omitempty"`
+	// PaymentMethods are the ways the company pays suppliers (SAP T042Z),
+	// each ranking per currency the house banks that pay with it (SAP
+	// T042E/T042I; ADR-0038).
+	PaymentMethods []PaymentMethod `yaml:"payment_methods,omitempty" json:"payment_methods,omitempty"`
 }
 
 // AccountType classifies an account for the balance sheet and the income
@@ -181,6 +185,22 @@ func (c *Company) HouseBankAccount(hb HouseBank) string {
 		return c.AccountDetermination.Bank
 	}
 	return hb.GLAccount
+}
+
+// PaymentMethod is a way of paying suppliers, such as a SEPA credit
+// transfer, identified by a one-character code as in SAP (ZLSCH). A
+// supplier's company data lists the methods it may be paid by, in order.
+type PaymentMethod struct {
+	Code        string        `yaml:"code" json:"code"`
+	Description string        `yaml:"description" json:"description"`
+	Ranking     []BankRanking `yaml:"ranking" json:"ranking"`
+}
+
+// BankRanking is, for payments in a currency, the house banks that pay
+// with a method, the first one preferred (SAP T042I).
+type BankRanking struct {
+	Currency   string   `yaml:"currency" json:"currency"`
+	HouseBanks []string `yaml:"house_banks" json:"house_banks"`
 }
 
 type PaymentTerm struct {

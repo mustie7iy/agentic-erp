@@ -379,7 +379,12 @@ func fileAndPortCalls(t *testing.T, e env, h *payments.Endpoints, s *failureRuns
 			_, err := houseBanks().Check(ctx, nil, fixture.Document(t))
 			return err
 		},
-		"apply house banks": func(ctx context.Context) error { return houseBanks().Apply(ctx, fixture.Document(t)) },
+		"apply house banks":     func(ctx context.Context) error { return houseBanks().Apply(ctx, fixture.Document(t)) },
+		"apply payment methods": func(ctx context.Context) error { return paymentMethods().Apply(ctx, fixture.Document(t)) },
+		"is payment method": func(ctx context.Context) error {
+			_, err := paymentMethods().IsPaymentMethod(ctx, e.DE, "T")
+			return err
+		},
 		"payees": func(ctx context.Context) error {
 			_, err := partner.Payees{Keys: apitest.FieldKeys()}.Payees(ctx, e.DE, []uuid.UUID{e.Supplier}, date("2026-04-15"))
 			return err

@@ -87,7 +87,9 @@ func Approvals() approvals.Approvals {
 func Deps() configuration.Dependencies {
 	return configuration.Dependencies{LegalEntities: tenancy.Directory{}, Approvals: Approvals(),
 		Sections: []configuration.Section{ledger.Setup{LegalEntities: tenancy.Directory{}}, partner.PaymentTerms{},
-			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: apitest.FieldKeys()}},
+			partner.PaymentMethodCodes{LegalEntities: tenancy.Directory{}},
+			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: apitest.FieldKeys()},
+			payments.PaymentMethods{LegalEntities: tenancy.Directory{}}},
 		Simulator: payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates},
 		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates}, Actors: identity.Actors{}}
 }

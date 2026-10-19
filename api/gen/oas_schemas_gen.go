@@ -25982,6 +25982,9 @@ type SupplierCompany struct {
 	// The withholding taxes deducted from the supplier in this legal entity (SAP LFBW; T46e): codes of the
 	// company's `withholding_tax_codes` in the configuration.
 	WithholdingTaxCodes []string `json:"withholding_tax_codes"`
+	// The methods the supplier may be paid by in this legal entity, in order of preference (SAP
+	// LFB1-ZWELS; ADR-0038): codes of the company's `payment_methods` in the configuration.
+	PaymentMethods []string `json:"payment_methods"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -26014,6 +26017,11 @@ func (s *SupplierCompany) GetWithholdingTaxCodes() []string {
 	return s.WithholdingTaxCodes
 }
 
+// GetPaymentMethods returns the value of PaymentMethods.
+func (s *SupplierCompany) GetPaymentMethods() []string {
+	return s.PaymentMethods
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *SupplierCompany) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -26044,6 +26052,11 @@ func (s *SupplierCompany) SetWithholdingTaxCodes(val []string) {
 	s.WithholdingTaxCodes = val
 }
 
+// SetPaymentMethods sets the value of PaymentMethods.
+func (s *SupplierCompany) SetPaymentMethods(val []string) {
+	s.PaymentMethods = val
+}
+
 // Company-specific supplier data to set up.
 // Ref: #/components/schemas/SupplierCompanyInput
 type SupplierCompanyInput struct {
@@ -26057,6 +26070,12 @@ type SupplierCompanyInput struct {
 	// company's configuration, each once. The list replaces the supplier's codes in the legal entity:
 	// leaving it out takes every code off the supplier there, as the other company data is replaced too.
 	WithholdingTaxCodes []string `json:"withholding_tax_codes"`
+	// The methods the supplier may be paid by in this legal entity, in order of preference (ADR-0038):
+	// active payment methods of the company's configuration, each once. A payment proposal pays the
+	// supplier through the first method a ranked house bank can pay. The list replaces the supplier's
+	// methods in the legal entity: leaving it out takes every method off the supplier there, as the other
+	// company data is replaced too.
+	PaymentMethods []string `json:"payment_methods"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -26079,6 +26098,11 @@ func (s *SupplierCompanyInput) GetWithholdingTaxCodes() []string {
 	return s.WithholdingTaxCodes
 }
 
+// GetPaymentMethods returns the value of PaymentMethods.
+func (s *SupplierCompanyInput) GetPaymentMethods() []string {
+	return s.PaymentMethods
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *SupplierCompanyInput) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -26097,6 +26121,11 @@ func (s *SupplierCompanyInput) SetPaymentTermCode(val string) {
 // SetWithholdingTaxCodes sets the value of WithholdingTaxCodes.
 func (s *SupplierCompanyInput) SetWithholdingTaxCodes(val []string) {
 	s.WithholdingTaxCodes = val
+}
+
+// SetPaymentMethods sets the value of PaymentMethods.
+func (s *SupplierCompanyInput) SetPaymentMethods(val []string) {
+	s.PaymentMethods = val
 }
 
 // Merged schema.
