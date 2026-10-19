@@ -30208,7 +30208,9 @@ func (s *Server) handleParkJournalEntryRequest(args [0]string, argsEscaped bool,
 //
 // Holds the deliveries of an active subscription (how a tenant stops deliveries): events keep being
 // recorded for it but none is sent until `:resume`, which sends them in order. A delivery held past
-// the 30-day retention is dropped. Requires status `active` (409 `integration.webhook_not_active`).
+// the 30-day retention is dropped. Pausing stops the failure clock: `failing_since` is cleared, so
+// time paused does not count toward the 5 days, which start again at the first failure after
+// `:resume`. Requires status `active` (409 `integration.webhook_not_active`).
 //
 // POST /v1/webhook-subscriptions/{id}:pause
 func (s *Server) handlePauseWebhookSubscriptionRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

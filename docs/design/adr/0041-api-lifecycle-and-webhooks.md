@@ -150,7 +150,10 @@ event version breaks someone else's system.
   subscription's deliveries; pausing is how a tenant stops deliveries,
   `disabled` stays the dispatcher's state, and `:resume` also makes a
   disabled subscription active again, its failure tracking reset
-  (product owner, 2026-10-19): the fan-out records deliveries for active
+  (product owner, 2026-10-19); pausing clears `failing_since` too, so time
+  paused never counts toward the 5 days, which start again at the first
+  failure after the resume (a delivery in flight at the pause may set it,
+  and the resume clears it again): the fan-out records deliveries for active
   and paused subscriptions alike (product owner, 2026-10-19), the
   dispatcher sends only an active one's, and on resume the held ones go
   out in order while within the 30-day retention. `disabled` (5 days of

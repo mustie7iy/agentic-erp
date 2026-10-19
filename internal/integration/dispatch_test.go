@@ -528,6 +528,38 @@ func TestWebhookPauseHolds(t *testing.T) {
 	x.c.Problem(409, "integration.webhook_deleted", "POST", hooks+"/"+id+":pause", "", tag)
 }
 
+// TestWebhookPauseStopsFailingClock: time paused does not count toward
+// FailingLimit. Pausing clears failing_since and the count starts again
+// from the first failure after the resume.
+func TestWebhookPauseStopsFailingClock(t *testing.T) {
+	x := newDispatch(t)
+	id, _ := x.hook(x.c, `"ledger.*"`)
+	x.rec.answerWith("*", http.StatusInternalServerError)
+	d := x.event(x.c, uuid.New())
+	x.round(1)
+	if _, _, since := x.subscription(id); since == nil {
+		t.Fatal("failing_since before the pause: got none, want the first failure")
+	}
+	_, tag := x.c.Must(200, "GET", hooks+"/"+id, "", "")
+	paused, tag := x.c.Must(200, "POST", hooks+"/"+id+":pause", "", tag)
+	if v, ok := paused["failing_since"]; ok {
+		t.Errorf("failing_since after the pause: got %v, want none", v)
+	}
+	x.clock.set(x.clock.now().Add(integration.FailingLimit + time.Hour))
+	x.c.Must(200, "POST", hooks+"/"+id+":resume", "", tag)
+	x.round(1)
+	status, _, since := x.subscription(id)
+	if status != "active" {
+		t.Errorf("status after a failure past the limit counted from before the pause: got %s, want active", status)
+	}
+	if since == nil || !since.Equal(x.clock.now()) {
+		t.Errorf("failing_since after the resume: got %v, want the first failure after it, %v", since, x.clock.now())
+	}
+	if row := x.delivery(d); row.status != "pending" || row.attempts != 2 {
+		t.Errorf("delivery: got %s after %d, want pending after 2", row.status, row.attempts)
+	}
+}
+
 // TestWebhookDispatchPrune: deliveries past the retention are deleted,
 // held ones too, in batches: a full batch says more may be left; a last
 // pruning finds none.

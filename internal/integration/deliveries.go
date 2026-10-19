@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -122,7 +123,7 @@ func (e *Endpoints) Replay(ctx context.Context, sub uuid.UUID, ifMatch func(int3
 	if err != nil {
 		return 0, err
 	}
-	if now := time.Now(); since.Before(now.Add(-DeliveryRetention)) || since.After(now) {
+	if now := clock.Now(e.Now); since.Before(now.Add(-DeliveryRetention)) || since.After(now) {
 		return 0, invalid("integration.invalid_replay_since", "since", "An instant in the past, at most 30 days back: deliveries are kept 30 days.")
 	}
 	if _, err := queueable(ctx, tx, sub, ifMatch); err != nil {
@@ -147,7 +148,7 @@ func (e *Endpoints) Ping(ctx context.Context, sub uuid.UUID, ifMatch func(int32)
 	if _, err := changeable(ctx, tx, sub, ifMatch); err != nil {
 		return Delivery{}, err
 	}
-	event, now := uuid.Must(uuid.NewV7()), time.Now().UTC()
+	event, now := uuid.Must(uuid.NewV7()), clock.Now(e.Now).UTC()
 	body := pingBody(p.TenantID, sub, event, now)
 	d, err := scanDelivery(tx.QueryRow(ctx, `INSERT INTO integration.webhook_delivery
 		(tenant_id, id, subscription_id, event_id, type, subject, occurred_at, body, status, next_attempt_at)
