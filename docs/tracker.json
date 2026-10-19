@@ -4609,7 +4609,7 @@
        {
         "s": "T",
         "t": "Contract reviewed by a consumer",
-        "r": "T50",
+        "r": "T50h · waits for the product owner to name the pilot partner",
         "c": []
        }
       ]
@@ -4683,10 +4683,41 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "API versioning and deprecation policy",
-      "r": "T50",
-      "c": []
+      "r": "ADR-0041 · 04 §4.10 · T50a",
+      "c": [
+       {
+        "s": "D",
+        "t": "Deprecation in the contract (deprecated, x-deprecated-at, x-sunset at least 365 days later, externalDocs) announced with Deprecation, Sunset and Link rel=deprecation headers built from it",
+        "r": "api.Lifecycle · httpapi.announce · T50a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "oasdiff refuses a sunset under 365 days (--deprecation-days-stable) in CI and ci-local",
+        "r": ".github/workflows/ci.yml · scripts/ci-local.sh · T50a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Every accepted breaking change names its T-number and reason",
+        "r": "api/breaking_accepted_test.go · T50a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Events change only additively within a .vN: no removed event or field, type change or newly required field",
+        "r": "api.EventChanges · cmd/eventcompat · T50a",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Accepted breaking changes only for x-stability-level: beta operations once the pilot partner consumes /v1",
+        "r": "ADR-0041 · enforced when the partner is named",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",
@@ -4735,7 +4766,7 @@
      {
       "s": "T",
       "t": "Webhooks for business events",
-      "r": "T50",
+      "r": "ADR-0041 · T50b–g",
       "c": []
      },
      {

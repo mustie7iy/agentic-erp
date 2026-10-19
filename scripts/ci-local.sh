@@ -64,9 +64,14 @@ breaking() {
   for spec in openapi control directory; do
     if git cat-file -e "origin/main:api/$spec.yaml" 2>/dev/null; then
       git show "origin/main:api/$spec.yaml" >"$logs/base-$spec.yaml" || return 1
-      oasdiff breaking --fail-on ERR --err-ignore api/breaking-accepted.txt "$logs/base-$spec.yaml" "api/$spec.yaml" || rc=1
+      oasdiff breaking --fail-on ERR --deprecation-days-stable=365 --err-ignore api/breaking-accepted.txt "$logs/base-$spec.yaml" "api/$spec.yaml" || rc=1
     fi
   done
+  # Events change only additively within a .vN (ADR-0041).
+  if git cat-file -e "origin/main:api/asyncapi.yaml" 2>/dev/null; then
+    git show "origin/main:api/asyncapi.yaml" >"$logs/base-asyncapi.yaml" || return 1
+    go run ./cmd/eventcompat "$logs/base-asyncapi.yaml" api/asyncapi.yaml || rc=1
+  fi
   return "$rc"
 }
 

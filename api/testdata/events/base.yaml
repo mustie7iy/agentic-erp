@@ -1,0 +1,31 @@
+# Fixture for EventChanges: one versioned event and one without a type header.
+components:
+  messages:
+    ThingDone:
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/Headers'
+          - properties:
+              type: {const: com.example.erp.things.thing_done.v1}
+      payload: {$ref: '#/components/schemas/ThingDoneV1'}
+    Untyped:
+      payload: {type: object, properties: {id: {type: string}}}
+  schemas:
+    Headers: {type: object}
+    Uuid: {type: string, format: uuid}
+    ThingDoneV1:
+      type: object
+      required: [thing_id]
+      properties:
+        thing_id: {$ref: '#/components/schemas/Uuid'}
+        note: {type: [string, 'null']}
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              qty: {type: integer}
+        party:
+          oneOf:
+            - {type: string}
+            - {type: integer}
