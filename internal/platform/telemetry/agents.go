@@ -24,6 +24,10 @@ const (
 	DecisionModified = "modified" // approved after a person changed it
 )
 
+// TokenKinds are the kind label's values: the token kinds a call is
+// billed for.
+var TokenKinds = []string{"input", "output", "cache_read", "cache_write"}
+
 // Decisions are the decision label's values.
 var Decisions = []string{DecisionApproved, DecisionRejected, DecisionModified}
 
@@ -60,8 +64,8 @@ type ModelCall struct {
 
 // ModelCalled counts a recorded model call.
 func (m *Metrics) ModelCalled(c ModelCall) {
-	for kind, n := range map[string]int64{"input": c.Input, "output": c.Output, "cache_read": c.CacheRead, "cache_write": c.CacheWrite} {
-		m.agents.tokens.WithLabelValues(c.AgentKind, c.Alias, kind).Add(float64(n))
+	for i, n := range []int64{c.Input, c.Output, c.CacheRead, c.CacheWrite} {
+		m.agents.tokens.WithLabelValues(c.AgentKind, c.Alias, TokenKinds[i]).Add(float64(n))
 	}
 	m.agents.cost.WithLabelValues(c.AgentKind, c.Currency).Add(float64(c.CostMicro))
 	m.agents.calls.WithLabelValues(c.AgentKind, c.Alias, c.Status).Observe(c.Duration.Seconds())

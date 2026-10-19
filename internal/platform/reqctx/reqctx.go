@@ -180,6 +180,8 @@ func InfoFrom(ctx context.Context) *Info {
 // Commit holds what runs once the unit of work's transaction has
 // committed: effects the outbox does not carry that must not happen for a
 // request rolled back, such as counting a decision in a metric (ADR-0043).
+// A request adds to it from its own goroutine; it is not safe for
+// concurrent use.
 type Commit struct{ fns []func() }
 
 type commitKey struct{}

@@ -121,8 +121,9 @@ type Handler interface {
 // Modifier is a Handler whose objects a person may change while their
 // request is pending. Modified reports whether one did, so that an agent's
 // proposal approved after a person changed it counts as an override
-// (ADR-0043). A Handler that is not one has objects nobody changes while
-// they wait.
+// (ADR-0043). It is asked before the Handler hears of the approval, so the
+// approval's own change to the object is not taken for one. A Handler
+// that is not one has objects nobody changes while they wait.
 type Modifier interface {
 	Modified(ctx context.Context, objectID, requestID uuid.UUID) (bool, error)
 }
@@ -602,10 +603,10 @@ func (d Decider) Approve(ctx context.Context, id uuid.UUID, ifMatch func(int32) 
 		if err := complete(ctx, tx, p, id, Approved, comment); err != nil {
 			return Request{}, err
 		}
-		if err := d.notify(r, func(h Handler) error { return h.Approved(ctx, r.ObjectID, id) }); err != nil {
+		if err := d.observe(ctx, tx, r, telemetry.DecisionApproved); err != nil {
 			return Request{}, err
 		}
-		if err := d.observe(ctx, tx, r, telemetry.DecisionApproved); err != nil {
+		if err := d.notify(r, func(h Handler) error { return h.Approved(ctx, r.ObjectID, id) }); err != nil {
 			return Request{}, err
 		}
 	}
@@ -628,10 +629,10 @@ func (d Decider) Reject(ctx context.Context, id uuid.UUID, ifMatch func(int32) e
 	if err := complete(ctx, tx, p, id, Rejected, comment); err != nil {
 		return Request{}, err
 	}
-	if err := d.notify(r, func(h Handler) error { return h.Rejected(ctx, r.ObjectID, id, comment) }); err != nil {
+	if err := d.observe(ctx, tx, r, telemetry.DecisionRejected); err != nil {
 		return Request{}, err
 	}
-	if err := d.observe(ctx, tx, r, telemetry.DecisionRejected); err != nil {
+	if err := d.notify(r, func(h Handler) error { return h.Rejected(ctx, r.ObjectID, id, comment) }); err != nil {
 		return Request{}, err
 	}
 	return getRequest(ctx, tx, id, false)

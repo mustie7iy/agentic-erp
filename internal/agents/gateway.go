@@ -442,17 +442,27 @@ type row struct {
 	redactions                 int
 }
 
+// CallStatuses are how a recorded call ended: the ledger's status and
+// erp_model_call_duration_seconds' status label.
+var CallStatuses = []string{callSucceeded, callFailed, callRefused}
+
+const (
+	callSucceeded = "succeeded"
+	callFailed    = "failed"
+	callRefused   = "refused"
+)
+
 // meter turns the provider's answer into a ledger row: an answer that is
 // not a message is a failed call with no tokens, priced at nothing.
 func (g *Gateway) meter(status int, raw []byte, sendErr error, model string, pr price) row {
-	r := row{model: model, status: "failed", currency: pr.currency}
+	r := row{model: model, status: callFailed, currency: pr.currency}
 	var u usage
 	if sendErr != nil || status != http.StatusOK || json.Unmarshal(raw, &u) != nil {
 		return r
 	}
-	r.status = "succeeded"
+	r.status = callSucceeded
 	if u.StopReason == "refusal" {
-		r.status = "refused"
+		r.status = callRefused
 	}
 	r.input, r.output, r.write, r.read = u.Usage.Input, u.Usage.Output, u.Usage.CacheWrite, u.Usage.CacheRead
 	r.cost = cost(r, pr)

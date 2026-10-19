@@ -57,7 +57,7 @@ func TestAgentProposalsDecided(t *testing.T) {
 		}
 		return id
 	}
-	any := func(int32) error { return nil }
+	anyVersion := func(int32) error { return nil }
 	// decide runs as the approver and then, as the unit of work would, what
 	// the decision left for after its commit.
 	decide := func(t *testing.T, fn func(ctx context.Context) error) error {
@@ -73,9 +73,18 @@ func TestAgentProposalsDecided(t *testing.T) {
 		return err
 	}
 	for name, fn := range map[string]func(ctx context.Context, id uuid.UUID) error{
-		"approved": func(ctx context.Context, id uuid.UUID) error { _, err := plain.Approve(ctx, id, any, ""); return err },
-		"rejected": func(ctx context.Context, id uuid.UUID) error { _, err := plain.Reject(ctx, id, any, "no"); return err },
-		"modified": func(ctx context.Context, id uuid.UUID) error { _, err := changed.Approve(ctx, id, any, ""); return err },
+		"approved": func(ctx context.Context, id uuid.UUID) error {
+			_, err := plain.Approve(ctx, id, anyVersion, "")
+			return err
+		},
+		"rejected": func(ctx context.Context, id uuid.UUID) error {
+			_, err := plain.Reject(ctx, id, anyVersion, "no")
+			return err
+		},
+		"modified": func(ctx context.Context, id uuid.UUID) error {
+			_, err := changed.Approve(ctx, id, anyVersion, "")
+			return err
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			id := open(t, f.Tenant.Agent)
@@ -86,7 +95,7 @@ func TestAgentProposalsDecided(t *testing.T) {
 	}
 	t.Run("a person's request", func(t *testing.T) {
 		id := open(t, f.Tenant.Human)
-		if err := decide(t, func(ctx context.Context) error { _, err := plain.Approve(ctx, id, any, ""); return err }); err != nil {
+		if err := decide(t, func(ctx context.Context) error { _, err := plain.Approve(ctx, id, anyVersion, ""); return err }); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -110,15 +119,15 @@ func TestAgentProposalsDecided(t *testing.T) {
 	modifiedFails.Handlers = map[string]approvals.Handler{approvals.Requisition: modifier{recorder: recorder{&calls}, err: pgtest.ErrInjected}}
 	for name, fn := range map[string]func(ctx context.Context, id uuid.UUID) error{
 		"approve, failing to read the requester's kind": func(ctx context.Context, id uuid.UUID) error {
-			_, err := kindFails.Approve(ctx, id, any, "")
+			_, err := kindFails.Approve(ctx, id, anyVersion, "")
 			return err
 		},
 		"reject, failing to read the requester's kind": func(ctx context.Context, id uuid.UUID) error {
-			_, err := kindFails.Reject(ctx, id, any, "no")
+			_, err := kindFails.Reject(ctx, id, anyVersion, "no")
 			return err
 		},
 		"approve, failing to read whether it was modified": func(ctx context.Context, id uuid.UUID) error {
-			_, err := modifiedFails.Approve(ctx, id, any, "")
+			_, err := modifiedFails.Approve(ctx, id, anyVersion, "")
 			return err
 		},
 	} {

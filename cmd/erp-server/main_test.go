@@ -43,6 +43,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 
+	"github.com/mustie7iy/agentic-erp/internal/agents"
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
 	"github.com/mustie7iy/agentic-erp/internal/platform/autonomy"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
@@ -2030,7 +2031,7 @@ func TestMetricsCatalog(t *testing.T) {
 	}
 	for label, n := range map[string]int{"operation": len(api.MustOperations()) + len(control) + 1, "class": len(api.Classes),
 		"context": len(outbox.Contexts), "event": len(events), "agent_kind": len(autonomy.Kinds), "alias": len(modelalias.Aliases),
-		"decision": len(telemetry.Decisions)} {
+		"decision": len(telemetry.Decisions), "kind": len(telemetry.TokenKinds), "status": len(agents.CallStatuses)} {
 		if n > telemetry.Labels[label] {
 			t.Errorf("label %s: got %d values, want at most %d", label, n, telemetry.Labels[label])
 		}

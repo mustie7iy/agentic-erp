@@ -25,8 +25,8 @@ var Labels = map[string]int{
 	// Agent metrics (T54c).
 	"agent_kind": 16,  // autonomy.Kinds: an agent's type, "untyped" or "none", never a principal id
 	"alias":      8,   // model aliases (modelalias.Aliases, ADR-0036)
-	"kind":       4,   // ModelCall token kinds: input, output, cache_read, cache_write
-	"status":     4,   // how a model call ended: succeeded, failed, refused
+	"kind":       4,   // TokenKinds; a metric needing other kinds names its own label
+	"status":     4,   // agents.CallStatuses; T44's and T50's states take their own label within the ceiling
 	"currency":   200, // ISO 4217 codes
 	"decision":   4,   // ProposalDecided decisions: approved, rejected, modified
 }

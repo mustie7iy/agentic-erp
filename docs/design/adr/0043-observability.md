@@ -64,7 +64,9 @@ which would make a cell's series grow with its customers. T54 closes this.
   states count over a day so a gauge falls once failures stop. The worker
   role reads them through column grants (000091), each from a partial
   index of the rows it watches (000092–000095). Bank-file gauges for T44's
-  worker statuses and webhook delivery gauges (T50) follow those steps.
+  worker statuses and webhook delivery gauges (T50) follow those steps;
+  `status` and `kind` are held at 4 values for the model call (T54c), so
+  those gauges name labels of their own within the series ceiling.
 - **Agent telemetry** (T54c). `agent_kind` is the agent's type
   (`autonomy.Types`), `untyped` for an agent whose profile names none it
   knows, or `none` for a person or service: never a principal id
