@@ -565,6 +565,11 @@ type AgentSession struct {
 	OutputTokens int64 `json:"output_tokens"`
 	// Cost of the session, once ended.
 	Cost OptMoney `json:"cost"`
+	// On the response that starts the session: the agent's autonomy level then (ADR-0036). An agent offers
+	// its model only the operations its level performs (GET and `x-autonomy: read` at every level,
+	// `x-autonomy: propose` from level 1, other writes from level 2); the API refuses the others with 403
+	// `identity.autonomy_insufficient` anyway.
+	AutonomyLevel OptInt32 `json:"autonomy_level"`
 	// Start time.
 	StartedAt time.Time `json:"started_at"`
 	// End time.
@@ -616,6 +621,11 @@ func (s *AgentSession) GetOutputTokens() int64 {
 // GetCost returns the value of Cost.
 func (s *AgentSession) GetCost() OptMoney {
 	return s.Cost
+}
+
+// GetAutonomyLevel returns the value of AutonomyLevel.
+func (s *AgentSession) GetAutonomyLevel() OptInt32 {
+	return s.AutonomyLevel
 }
 
 // GetStartedAt returns the value of StartedAt.
@@ -676,6 +686,11 @@ func (s *AgentSession) SetOutputTokens(val int64) {
 // SetCost sets the value of Cost.
 func (s *AgentSession) SetCost(val OptMoney) {
 	s.Cost = val
+}
+
+// SetAutonomyLevel sets the value of AutonomyLevel.
+func (s *AgentSession) SetAutonomyLevel(val OptInt32) {
+	s.AutonomyLevel = val
 }
 
 // SetStartedAt sets the value of StartedAt.

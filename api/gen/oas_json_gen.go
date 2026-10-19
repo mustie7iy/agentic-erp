@@ -944,6 +944,12 @@ func (s *AgentSession) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.AutonomyLevel.Set {
+			e.FieldStart("autonomy_level")
+			s.AutonomyLevel.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("started_at")
 		json.EncodeDateTime(e, s.StartedAt)
 	}
@@ -959,7 +965,7 @@ func (s *AgentSession) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfAgentSession = [12]string{
+var jsonFieldsNameOfAgentSession = [13]string{
 	0:  "id",
 	1:  "version",
 	2:  "agent_id",
@@ -969,9 +975,10 @@ var jsonFieldsNameOfAgentSession = [12]string{
 	6:  "input_tokens",
 	7:  "output_tokens",
 	8:  "cost",
-	9:  "started_at",
-	10: "ended_at",
-	11: "updated_at",
+	9:  "autonomy_level",
+	10: "started_at",
+	11: "ended_at",
+	12: "updated_at",
 }
 
 // Decode decodes AgentSession from json.
@@ -1089,8 +1096,18 @@ func (s *AgentSession) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"cost\"")
 			}
+		case "autonomy_level":
+			if err := func() error {
+				s.AutonomyLevel.Reset()
+				if err := s.AutonomyLevel.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"autonomy_level\"")
+			}
 		case "started_at":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.StartedAt = v
@@ -1112,7 +1129,7 @@ func (s *AgentSession) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"ended_at\"")
 			}
 		case "updated_at":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.UpdatedAt = v
@@ -1134,7 +1151,7 @@ func (s *AgentSession) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11111111,
-		0b00001010,
+		0b00010100,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

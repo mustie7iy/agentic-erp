@@ -23,6 +23,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -68,6 +69,10 @@ type Session struct {
 	EndedAt      *time.Time
 	Version      int32
 	UpdatedAt    time.Time
+	// AutonomyLevel is the agent's level when the session started, on the
+	// response that starts it only: the agent offers its model the tools
+	// of that level (ADR-0036).
+	AutonomyLevel *int32
 }
 
 const sessionSelect = `SELECT s.id, s.agent_id, s.purpose, s.model, s.status, s.input_tokens, s.output_tokens, s.cost, s.cost_currency, c.exponent,
@@ -131,6 +136,11 @@ func StartSession(ctx context.Context, purpose, model string) (Session, error) {
 	if err != nil {
 		return Session{}, err
 	}
+	level, err := authz.Level(ctx, tx, p.ID)
+	if err != nil {
+		return Session{}, err
+	}
+	s.AutonomyLevel = &level
 	return s, audit.Add(ctx, audit.Entry{Action: "agents.session.start", ObjectType: "agents.session", ObjectID: id, Outcome: "succeeded",
 		Detail: map[string]any{"purpose": purpose, "model": model}})
 }
@@ -339,6 +349,9 @@ func sessionToAPI(s Session) gen.AgentSession {
 	if s.EndedAt != nil {
 		out.EndedAt.SetTo(*s.EndedAt)
 		out.Cost.SetTo(apitypes.Money(s.Cost, s.Currency, s.Exponent))
+	}
+	if s.AutonomyLevel != nil {
+		out.AutonomyLevel.SetTo(*s.AutonomyLevel)
 	}
 	return out
 }

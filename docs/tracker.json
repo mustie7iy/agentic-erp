@@ -6186,6 +6186,12 @@
       "t": "Certification: erp-server certify load (a report meeting a level), ref.agent_certification per agent type and model, agent_profile.agent_type; raising above the certified level refused (identity.autonomy_uncertified), routes onto uncertified models refused (agents.uncertified_route); ERP_EVAL_CELL for live runs",
       "r": "000090 · internal/agents/certification.go · cmd/erp-server/certify.go · ADR-0039 · T43e",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "Agents are offered only the tools their autonomy level performs (startAgentSession answers the level; the 403 stays the backstop); a release changing agents.DefaultRoutes needs a committed report certifying each suite's type on the new model (TestDefaultRoutesAreCertified); the level-2 operations (purchase order changes, renewContract, cancelPurchaseOrder) move only by a certification run proving the type at level 1",
+      "r": "internal/apitools · internal/eval/routes.go · ADR-0036 · ADR-0039 · T43f",
+      "c": []
      }
     ]
    }

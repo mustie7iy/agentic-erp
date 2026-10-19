@@ -118,7 +118,12 @@ the suites set.
     included.
   - A change of the platform's own routes (`agents.DefaultRoutes`) moves
     every tenant at once and is a release: it needs the certification runs
-    on the new model first.
+    on the new model first. A test enforces it (T43f,
+    `eval.RoutesCertified` in `TestDefaultRoutesAreCertified`): for every
+    suite under `evals/`, the model its alias routes to must have a
+    report committed under `evals/results/<type>/<model>/` that certifies
+    a level (`Report.Certifies`), or be a model the routes named when
+    certification began (`claude-opus-5-5`, a list that only shrinks).
   - A cell that runs live evaluations sets `ERP_EVAL_CELL=true` (refused
     in production), which lifts the bound: a type's first run needs
     agents at the levels its suite tests. CI's replays run so too.

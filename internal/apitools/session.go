@@ -13,7 +13,11 @@ import (
 
 // Session is an agent session recorded through the API.
 type Session struct {
-	ID     string
+	ID string
+	// Level is the agent's autonomy level when the session started, as the
+	// API answered it (0 when it did not say): Run offers the model only
+	// the tools of that level (ADR-0036).
+	Level  int
 	client *Client
 }
 
@@ -24,12 +28,13 @@ func StartSession(ctx context.Context, client *Client, purpose, model string) (*
 		return nil, err
 	}
 	var s struct {
-		ID string `json:"id"`
+		ID    string `json:"id"`
+		Level int    `json:"autonomy_level"`
 	}
 	if err := resp.Decode(&s); err != nil {
 		return nil, fmt.Errorf("apitools: start session: %w", err)
 	}
-	return &Session{ID: s.ID, client: client}, nil
+	return &Session{ID: s.ID, Level: s.Level, client: client}, nil
 }
 
 func (s *Session) record(ctx context.Context, tool string, input map[string]any, summary string, isError bool) error {
@@ -64,11 +69,14 @@ func (s *Session) End(ctx context.Context, status string, usage anthropic.BetaUs
 // model gateway (api/model.yaml) to add the call to it.
 const SessionHeader = "Erp-Agent-Session"
 
-// Run runs the model over the tools, at most maxIterations requests, and
-// ends the session: completed, refused when the model declined, failed on
-// an error. It returns the final message and the tokens the run used.
+// Run runs the model over the tools the session's autonomy level performs,
+// at most maxIterations requests, and ends the session: completed, refused
+// when the model declined, failed on an error. It returns the final
+// message and the tokens the run used. A tool above the level is not
+// offered: the model would only be refused it (403
+// identity.autonomy_insufficient, which stays the backstop).
 func Run(ctx context.Context, r *llm.Runner, s *Session, tools []*Tool, params anthropic.BetaMessageNewParams, maxIterations int) (*anthropic.BetaMessage, error) {
-	runner := r.Client.Beta.Messages.NewToolRunner(AsBeta(tools), anthropic.BetaToolRunnerParams{BetaMessageNewParams: params, MaxIterations: maxIterations},
+	runner := r.Client.Beta.Messages.NewToolRunner(AsBeta(offered(tools, s.Level)), anthropic.BetaToolRunnerParams{BetaMessageNewParams: params, MaxIterations: maxIterations},
 		option.WithHeader(SessionHeader, s.ID))
 	var usage anthropic.BetaUsage
 	var last *anthropic.BetaMessage
@@ -95,4 +103,15 @@ func Run(ctx context.Context, r *llm.Runner, s *Session, tools []*Tool, params a
 		return last, err
 	}
 	return last, runErr
+}
+
+// offered is the tools an agent of level performs.
+func offered(tools []*Tool, level int) []*Tool {
+	out := make([]*Tool, 0, len(tools))
+	for _, t := range tools {
+		if t.level <= level {
+			out = append(out, t)
+		}
+	}
+	return out
 }
