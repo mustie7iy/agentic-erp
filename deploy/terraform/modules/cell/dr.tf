@@ -18,12 +18,25 @@ locals {
 resource "aws_kms_key" "dr" {
   for_each                = local.dr
   region                  = var.dr_region
-  description             = "${local.prefix}: database backup copies and the bucket's replica in the DR region (ADR-0040)"
+  description             = "${local.prefix}: database backup copies, the bucket's replica and the restore drill's logs in the DR region (ADR-0040)"
   enable_key_rotation     = true
   deletion_window_in_days = 30
   policy = jsonencode({
-    Version   = "2012-10-17"
-    Statement = [local.administer]
+    Version = "2012-10-17"
+    Statement = [
+      local.administer,
+      {
+        # The restore drill's verification logs there (T41e2).
+        Sid       = "CloudWatchLogs"
+        Effect    = "Allow"
+        Principal = { Service = "logs.${var.dr_region}.amazonaws.com" }
+        Action    = ["kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"]
+        Resource  = "*"
+        Condition = {
+          ArnLike = { "kms:EncryptionContext:aws:logs:arn" = "arn:${data.aws_partition.current.partition}:logs:${var.dr_region}:${data.aws_caller_identity.current.account_id}:log-group:*" }
+        }
+      },
+    ]
   })
   lifecycle {
     prevent_destroy = true

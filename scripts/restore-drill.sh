@@ -23,15 +23,21 @@
 #     cluster RESTORE_CLUSTER with restore-db-cluster-to-point-in-time
 #     (RESTORE_ARGS: further options, the subnet group, security groups,
 #     instance class, as the cell's Terraform outputs give them);
-#     RESTORE_KIND=dr-copies restores the newest copy in the DR region
-#     (RESTORE_DR_REGION, RESTORE_DR_VAULT) made after the "before" marker
-#     with AWS Backup (RESTORE_ROLE_ARN, RESTORE_METADATA: the restore's
-#     metadata as JSON), its point the copy's creation. erp-server runs as
-#     a one-off pod of the cell's server image in RESTORE_NAMESPACE (erp)
-#     with the migrations' database URL (secret erp-migrate) for the
-#     markers, and the side cluster's (its RDS-managed master secret) for
-#     the verification; KUBECTL may carry a --context. DRILL_TENANT is the
-#     drill tenant.
+#     RESTORE_KIND=dr-copies restores the newest copy in the DR region made
+#     after the "before" marker with AWS Backup (RESTORE_ROLE_ARN,
+#     RESTORE_METADATA: further restore metadata as JSON), its point the
+#     copy's creation, into the DR VPC the cell's Terraform keeps for the
+#     drill (RESTORE_DR_TASK: its restore_drill output as JSON). The
+#     markers run as one-off pods of the cell's server image in
+#     RESTORE_NAMESPACE (erp) with the migrations' database URL (secret
+#     erp-migrate); KUBECTL may carry a --context. The verification runs
+#     beside the side cluster: as a pod in the home region for a point in
+#     time, and for the copies as a Fargate task in the DR region (T41e2),
+#     its task definition registered for the run and removed after it, the
+#     side cluster's master password from its RDS-managed secret
+#     (PGPASSWORD), the DR region's RDS certificate authorities from the
+#     file RESTORE_DR_CA (ERP_DR_DATABASE_CA), its report read from the log
+#     group. DRILL_TENANT is the drill tenant.
 #   local (weekly CI, a laptop): PostgreSQL 17 in Docker archiving its WAL,
 #     a base backup, and a second container restored from both with
 #     recovery_target_time; erp-server is built from this checkout
@@ -43,7 +49,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 python3 - "${1:?usage: restore-drill.sh RUN_URL}" <<'PY'
-import base64, datetime, json, os, shlex, subprocess, sys, tempfile, time, urllib.parse, uuid
+import base64, datetime, json, os, re, shlex, subprocess, sys, tempfile, time, urllib.parse, uuid
 
 run_url = sys.argv[1]
 env = os.environ.get
@@ -182,6 +188,9 @@ class AWS:
         self.side = "%s-drill-%s" % (self.cluster, stamp)
         self.region = None  # the side cluster's region; None: the default
         self.objects = []
+        if kind == "dr-copies":
+            self.dr = json.loads(env("RESTORE_DR_TASK") or fail("RESTORE_DR_TASK is the cell's restore_drill output (Terraform)"))
+            self.ca = env("RESTORE_DR_CA") or fail("RESTORE_DR_CA names the DR region's RDS certificate authorities (PEM)")
 
     def json(self, *args):
         return json.loads(sh(self.aws, *args, "--output", "json").stdout or "null")
@@ -274,8 +283,7 @@ class AWS:
     def newest_copy(self):
         """Waits for a copy in the DR region made after the "before"
         marker; its creation is the restore point."""
-        self.region = env("RESTORE_DR_REGION") or fail("RESTORE_DR_REGION names the DR region")
-        vault = env("RESTORE_DR_VAULT") or fail("RESTORE_DR_VAULT names the DR vault")
+        self.region, vault = self.dr["region"], self.dr["vault"]
         def newest():
             points = self.json("backup", "list-recovery-points-by-backup-vault", "--region", self.region, "--backup-vault-name", vault)
             done = [p for p in points.get("RecoveryPoints", []) if p.get("Status") == "COMPLETED" and when(p["CreationDate"]) > self.before_at]
@@ -284,7 +292,9 @@ class AWS:
         return when(self.copy["CreationDate"])
 
     def from_copy(self):
-        metadata = dict(json.loads(env("RESTORE_METADATA", "{}")), DBClusterIdentifier=self.side)
+        # Into the DR VPC, where the verification task runs; no peering.
+        metadata = dict(json.loads(env("RESTORE_METADATA", "{}")), DBClusterIdentifier=self.side,
+                        DBSubnetGroupName=self.dr["db_subnet_group"], VpcSecurityGroupIds=json.dumps([self.dr["db_security_group"]]))
         job = self.json("backup", "start-restore-job", "--region", self.region, "--recovery-point-arn", self.copy["RecoveryPointArn"],
                         "--iam-role-arn", env("RESTORE_ROLE_ARN") or fail("RESTORE_ROLE_ARN names AWS Backup's restore role"),
                         "--metadata", json.dumps(metadata))["RestoreJobId"]
@@ -296,6 +306,8 @@ class AWS:
         until("restore job %s" % job, finished)
 
     def verify(self, before, after):
+        if kind == "dr-copies":
+            return self.task(before, after)
         c = self.described()
         secret = json.loads(self.json("secretsmanager", "get-secret-value", *self.regional(), "--secret-id",
                                       c["MasterUserSecret"]["SecretArn"])["SecretString"])
@@ -311,6 +323,50 @@ class AWS:
         return self.pod("restore-drill-%s-verify" % stamp, ["dr", "verify", "-restored", "/etc/erp/drill/before.json",
                                                             "-lost", "/etc/erp/drill/after.json"], name, [before, after])
 
+    def task(self, before, after):
+        """Runs erp-server dr verify as a Fargate task in the DR region,
+        beside the side cluster; returns its exit code and log."""
+        c, t = self.described(), self.dr
+        u = urllib.parse.urlsplit(self.source_url)
+        query = urllib.parse.urlencode([(k, v) for k, v in urllib.parse.parse_qsl(u.query) if k != "sslrootcert"])
+        netloc = "%s@%s:%s" % (urllib.parse.quote(c["MasterUsername"], safe=""), c["Endpoint"], c.get("Port", 5432))
+        # The registry replicates the images to the DR region (ADR-0040).
+        image = re.sub(r"\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com", ".dkr.ecr.%s.amazonaws.com" % self.region, self.image, count=1)
+        environment = {"ERP_ENV": "production", "DATABASE_URL": urllib.parse.urlunsplit(u._replace(netloc=netloc, query=query)),
+                       "ERP_DR_DATABASE_CA": open(self.ca).read(), "ERP_DR_RESTORED": open(before).read(), "ERP_DR_LOST": open(after).read()}
+        container = {"name": "erp-server", "image": image, "essential": True, "user": "65532", "readonlyRootFilesystem": True,
+                     "command": ["dr", "verify", "-restored", "env:ERP_DR_RESTORED", "-lost", "env:ERP_DR_LOST"],
+                     "environment": [{"name": k, "value": v} for k, v in environment.items()],
+                     "secrets": [{"name": "PGPASSWORD", "valueFrom": c["MasterUserSecret"]["SecretArn"] + ":password::"}],
+                     "mountPoints": [{"sourceVolume": "tmp", "containerPath": "/tmp"}],
+                     "linuxParameters": {"capabilities": {"drop": ["ALL"]}},
+                     "logConfiguration": {"logDriver": "awslogs", "options": {"awslogs-group": t["log_group"], "awslogs-region": self.region,
+                                                                             "awslogs-stream-prefix": "verify"}}}
+        ecs = ["--region", self.region]
+        definition = self.json("ecs", "register-task-definition", *ecs, "--family", "%s-drill-%s" % (self.cluster, stamp),
+                               "--requires-compatibilities", "FARGATE", "--network-mode", "awsvpc", "--cpu", "512", "--memory", "1024",
+                               "--execution-role-arn", t["execution_role_arn"], "--container-definitions", json.dumps([container]),
+                               "--volumes", json.dumps([{"name": "tmp"}]))["taskDefinition"]["taskDefinitionArn"]
+        self.objects.append(("taskdef", definition))
+        ran = self.json("ecs", "run-task", *ecs, "--cluster", t["cluster"], "--launch-type", "FARGATE", "--task-definition", definition,
+                        "--network-configuration", json.dumps({"awsvpcConfiguration": {"subnets": t["subnets"], "securityGroups": [t["security_group"]],
+                                                                                       "assignPublicIp": "DISABLED"}}))
+        if not ran.get("tasks"):
+            raise Step("run-task: %s" % json.dumps(ran.get("failures")))
+        arn = ran["tasks"][0]["taskArn"]
+        self.objects.append(("task", arn))
+        def stopped():
+            d = self.json("ecs", "describe-tasks", *ecs, "--cluster", t["cluster"], "--tasks", arn)["tasks"][0]
+            return d if d.get("lastStatus") == "STOPPED" else None
+        done = until("task %s stopped" % arn, stopped)
+        events = self.json("logs", "get-log-events", *ecs, "--log-group-name", t["log_group"], "--log-stream-name",
+                           "verify/erp-server/" + arn.rsplit("/", 1)[1], "--start-from-head")["events"]
+        out = "\n".join(e["message"] for e in events)
+        code = done["containers"][0].get("exitCode")
+        if code is None:  # never ran: the image, the secret, the network
+            return 1, "%s\n%s" % (out, done.get("stoppedReason", ""))
+        return (0 if code == 0 else 1), out
+
     def cleanup(self):
         """Removes what the drill made; a removal that fails is reported
         and fails the drill: a side cluster left running costs money."""
@@ -321,6 +377,14 @@ class AWS:
                 # Not found: a restore that failed before making it.
                 if r.returncode != 0 and "DBClusterNotFoundFault" not in r.stderr:
                     failures.append("delete the side cluster %s by hand: %s" % (name, r.stderr.strip()[-300:]))
+            elif what == "task":
+                if sh(self.aws, "ecs", "stop-task", *self.regional(), "--cluster", self.dr["cluster"], "--task", name, check=False).returncode != 0:
+                    failures.append("stop the task %s by hand" % name)
+            elif what == "taskdef":
+                gone = [sh(self.aws, "ecs", verb, *self.regional(), flag, name, check=False).returncode == 0
+                        for verb, flag in (("deregister-task-definition", "--task-definition"), ("delete-task-definitions", "--task-definitions"))]
+                if not all(gone):
+                    failures.append("delete the task definition %s by hand" % name)
             elif self.kube("delete", what, name, "--ignore-not-found", check=False).returncode != 0:
                 failures.append("delete %s %s in %s by hand" % (what, name, self.ns))
         if failures:

@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,6 +55,23 @@ func TestDRCommand(t *testing.T) {
 	if err := os.WriteFile(after, []byte(`{"tenant_id":"`+ten.String()+`","name":"after"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	beforeJSON, err := os.ReadFile(before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The database behind TLS, its authority given as PEM rather than a
+	// file (the dr-copies drill's Fargate task).
+	tlsURL, err := url.Parse(pgtest.TLS(t, u))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := tlsURL.Query()
+	caPEM, err := os.ReadFile(q.Get("sslrootcert"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q.Del("sslrootcert")
+	tlsURL.RawQuery = q.Encode()
 	junk := filepath.Join(dir, "junk.json")
 	if err := os.WriteFile(junk, []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
@@ -65,6 +85,11 @@ func TestDRCommand(t *testing.T) {
 	}{
 		{"passes", []string{"dr", "verify", "-restored", before, "-lost", after}, nil, 0, `"problems": []`},
 		{"against the old database", []string{"dr", "verify"}, map[string]string{"ERP_DR_OLD_DATABASE_URL": u}, 0, `"problems": []`},
+		{"markers from the environment, the database's authority as PEM", []string{"dr", "verify", "-restored", "env:ERP_DR_RESTORED", "-lost", after},
+			map[string]string{"ERP_DR_RESTORED": string(beforeJSON), "ERP_ENV": "production", "DATABASE_URL": tlsURL.String(), "ERP_DR_DATABASE_CA": string(caPEM)}, 0, `"problems": []`},
+		{"verify-full without the authority", []string{"dr", "verify"}, map[string]string{"ERP_ENV": "production", "DATABASE_URL": tlsURL.String()}, 1, "erp-server dr verify"},
+		{"an authority for a database that is no URL", []string{"dr", "verify"}, map[string]string{"DATABASE_URL": "file:/etc/erp/db", "ERP_DR_DATABASE_CA": "pem"}, 2, "needs DATABASE_URL as a postgres:// URL"},
+		{"an empty marker variable", []string{"dr", "verify", "-restored", "env:ERP_DR_RESTORED"}, nil, 1, "ERP_DR_RESTORED is empty"},
 		{"fails a restore past its point", []string{"dr", "verify", "-lost", before}, nil, 1, "1 checks failed"},
 		{"no subcommand", []string{"dr"}, nil, 2, "mark or verify"},
 		{"an unknown subcommand", []string{"dr", "restore"}, nil, 2, "mark or verify"},
@@ -95,4 +120,34 @@ func TestDRCommand(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDRDatabaseCAUnwritable: an authority that cannot be written stops
+// the command before it connects, and leaves no directory behind.
+func TestDRDatabaseCAUnwritable(t *testing.T) {
+	env := map[string]string{"DATABASE_URL": "postgres://u@db.example/erp", "ERP_DR_DATABASE_CA": "pem"}
+	getenv := func(k string) string { return env[k] }
+	t.Run("no temporary directory", func(t *testing.T) {
+		t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "none"))
+		if _, _, err := drDatabaseCA(getenv); err == nil || !strings.Contains(err.Error(), "ERP_DR_DATABASE_CA") {
+			t.Errorf("got %v, want an ERP_DR_DATABASE_CA error", err)
+		}
+	})
+	t.Run("the file not written", func(t *testing.T) {
+		tmp := t.TempDir()
+		t.Setenv("TMPDIR", tmp)
+		drWriteCA = func(string, []byte, fs.FileMode) error { return errors.New("disk full") }
+		t.Cleanup(func() { drWriteCA = os.WriteFile })
+		var stdout, stderr bytes.Buffer
+		if code := cli(context.Background(), []string{"dr", "verify"}, getenv, &stdout, &stderr, nil); code != 2 || !strings.Contains(stderr.String(), "disk full") {
+			t.Errorf("got %d %s, want 2 and the write's error", code, stderr.String())
+		}
+		left, err := os.ReadDir(tmp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(left) != 0 {
+			t.Errorf("left behind: got %d entries, want none", len(left))
+		}
+	})
 }

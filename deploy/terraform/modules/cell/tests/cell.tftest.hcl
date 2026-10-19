@@ -521,7 +521,7 @@ run "a_cell_without_a_pilot_light_has_none" {
   }
 
   assert {
-    condition     = length(aws_db_instance.dr) == 0 && length(aws_eks_cluster.dr) == 0 && length(module.dr_network) == 0 && !aws_kms_key.fields.multi_region && length(aws_kms_replica_key.fields) == 0 && alltrue([for s in aws_secretsmanager_secret.cell : length(s.replica) == 0])
+    condition     = length(aws_db_instance.dr) == 0 && length(aws_eks_cluster.dr) == 0 && length(module.dr_network) == 0 && length(aws_ecs_cluster.drill) == 0 && output.restore_drill == null && !aws_kms_key.fields.multi_region && length(aws_kms_replica_key.fields) == 0 && alltrue([for s in aws_secretsmanager_secret.cell : length(s.replica) == 0])
     error_message = "staging has the backup copies only"
   }
 }
@@ -543,4 +543,63 @@ run "a_pilot_light_without_its_network_is_refused" {
     dr_region   = "eu-west-1"
   }
   expect_failures = [var.dr_cidr, var.dr_availability_zones, var.replica_lag_alarm_actions]
+}
+
+run "staging_verifies_its_copies_from_a_task_in_the_dr_region" {
+  command   = apply
+  state_key = "drill"
+  variables {
+    dr_region             = "eu-west-1"
+    restore_drill_dr      = true
+    dr_cidr               = "10.49.0.0/16"
+    dr_availability_zones = ["eu-west-1a", "eu-west-1b", "eu-west-1c"]
+  }
+
+  assert {
+    condition     = length(module.dr_network) == 1 && aws_db_subnet_group.dr["dr"].region == "eu-west-1" && aws_security_group.dr_database["dr"].region == "eu-west-1"
+    error_message = "the copies are restored into a VPC of the DR region"
+  }
+  assert {
+    condition     = length(aws_db_instance.dr) == 0 && length(aws_eks_cluster.dr) == 0 && !aws_kms_key.fields.multi_region
+    error_message = "the drill's side is no pilot light: no replica, no control plane"
+  }
+  assert {
+    condition     = aws_ecs_cluster.drill["dr"].region == "eu-west-1" && aws_cloudwatch_log_group.drill["dr"].kms_key_id == aws_kms_key.dr["dr"].arn
+    error_message = "the verification runs on a Fargate cluster of the DR region and logs encrypted with the DR key"
+  }
+  assert {
+    condition     = contains([for s in jsondecode(aws_kms_key.dr["dr"].policy).Statement : s.Sid if can(s.Sid)], "CloudWatchLogs")
+    error_message = "CloudWatch Logs may use the DR key for the drill's log group"
+  }
+  assert {
+    condition     = toset([for e in aws_security_group.drill["dr"].egress : e.from_port]) == toset([5432, 443]) && length(aws_security_group.drill["dr"].ingress) == 0
+    error_message = "the task reaches the database and HTTPS only, and nothing reaches it"
+  }
+  assert {
+    condition     = endswith(jsondecode(aws_iam_role_policy.drill["dr"].policy).Statement[0].Condition.StringLike["secretsmanager:ResourceTag/aws:rds:primaryDBClusterArn"], ":cluster:${aws_rds_cluster.cell[0].cluster_identifier}-drill-*")
+    error_message = "the task reads the master secrets of the drill's side clusters only"
+  }
+  assert {
+    condition     = output.restore_drill.cluster == aws_ecs_cluster.drill["dr"].name && output.restore_drill.db_subnet_group == aws_db_subnet_group.dr["dr"].name && output.restore_drill.vault == aws_backup_vault.dr["dr"].name
+    error_message = "the drill's settings are an output for scripts/restore-drill.sh"
+  }
+}
+
+run "a_drill_side_without_a_dr_region_is_refused" {
+  command   = plan
+  state_key = "refused"
+  variables {
+    restore_drill_dr = true
+  }
+  expect_failures = [var.restore_drill_dr]
+}
+
+run "a_drill_side_without_its_network_is_refused" {
+  command   = plan
+  state_key = "refused"
+  variables {
+    restore_drill_dr = true
+    dr_region        = "eu-west-1"
+  }
+  expect_failures = [var.dr_cidr, var.dr_availability_zones]
 }

@@ -99,14 +99,20 @@ variable "pilot_light" {
   default     = false
 }
 
+variable "restore_drill_dr" {
+  description = "Run the dr-copies restore drill's verification in dr_region (staging's drill cell, ADR-0040)."
+  type        = bool
+  default     = false
+}
+
 variable "dr_cidr" {
-  description = "The pilot light's VPC /16 in dr_region."
+  description = "The DR VPC's /16 in dr_region (the pilot light's, or the restore drill's)."
   type        = string
   default     = null
 }
 
 variable "dr_availability_zones" {
-  description = "Three availability zones of dr_region, for the pilot light."
+  description = "Three availability zones of dr_region, for the pilot light or the restore drill."
   type        = list(string)
   default     = []
 }
@@ -164,6 +170,7 @@ module "cell" {
   backup_retention_days     = var.backup_retention_days
   dr_region                 = var.dr_region
   pilot_light               = var.pilot_light
+  restore_drill_dr          = var.restore_drill_dr
   dr_cidr                   = var.dr_cidr
   dr_availability_zones     = var.dr_availability_zones
   replica_lag_alarm_actions = var.replica_lag_alarm_actions
@@ -200,6 +207,7 @@ output "cell" {
     cluster_kms_key_arn        = module.cell.cluster_kms_key_arn
     workload_role_arns         = module.cell.workload_role_arns
     aws_endpoints              = module.cell.aws_endpoints
+    restore_drill              = module.cell.restore_drill
   }
 }
 

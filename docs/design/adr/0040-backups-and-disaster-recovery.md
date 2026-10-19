@@ -153,13 +153,27 @@ who, when, restore point, RPO and RTO, result, the run's log), which only
 grows, merged by a pull request of its own. The promotion checks (ADR-0035)
 refuse a production promotion when the last passed restore drill on AWS
 started more than 90 days before; a rollback is exempt, being the way out
-of an incident. The same drill runs in Docker (`RESTORE_PROVIDER=local`,
+of an incident (product owner, 2026-10-19). Until the first AWS drill has
+passed on staging, every production promotion is refused: there is no
+pilot before one (a pre-pilot item). The same drill runs in Docker (`RESTORE_PROVIDER=local`,
 `make restore-drill`, weekly.yml's `dr` on demand): a base backup and the
 WAL archive restored with `recovery_target_time`; its runs do not count.
 A copy is restored in the disaster-recovery region, where staging has no
-cluster to run the verification from: until a path is chosen (a
-verification run there, or peering for the drill; T41e2), the `dr-copies` drill
-needs a `KUBECTL` context that reaches that region's side cluster.
+Kubernetes cluster and the home VPC is not peered (product owner,
+2026-10-19; T41e2). The cell's Terraform keeps there, for staging's drill
+cell (`restore_drill_dr`), a VPC with one NAT gateway, the database subnet
+group and security group the copy is restored into, a Fargate cluster, a
+security group that reaches only PostgreSQL in the VPC and HTTPS, an
+execution role that pulls the image and reads the drill's side clusters'
+RDS-managed secrets only, and a log group under the DR key (the
+`restore_drill` output). The drill registers a task definition of the
+cell's server image (from the registry's replica in that region) running
+`erp-server dr verify` with the markers in its environment, the side
+cluster's master password from its secret (`PGPASSWORD`) and the region's
+RDS authorities as PEM (`ERP_DR_DATABASE_CA`, written to a temporary file
+and named as `sslrootcert`, the TLS check unchanged); runs it once, reads
+its report from the log group, and removes the task definition with the
+side cluster. Nothing runs between drills.
 
 **The region failover is rehearsed** (product owner, 2026-10-19) on the
 production pilot cell before it takes live traffic, as a gate of the
@@ -255,6 +269,8 @@ RELOAD, RESUME). Only 503s, every retried post once, recovery within 60 s.
   consumers' lag.
 - The DR region costs a replica instance, a VPC with NAT gateways, an EKS
   control plane and storage for the copies; dev and test have none.
+  Staging's costs a VPC with one NAT gateway for the restore drill
+  (T41e2); its Fargate task runs only during a drill.
 - The directory gains an `erased` status and keeps `offboarded` and
   `erased` against a cell's sync (T41f).
 - The pre-pilot confirmation on staging can change the production database

@@ -7,7 +7,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,7 +38,11 @@ var drSettings = database.Settings{LockTimeout: 5 * time.Second}
 // must be there, the tenant's fingerprint as it was), -lost the one
 // written after (it must not). ERP_DR_OLD_DATABASE_URL, when set, is the
 // database the cell ran on before: every tenant's fingerprint is compared
-// with its own there. Like migrate, it reads only the database settings
+// with its own there. ERP_DR_DATABASE_CA, when set, is the database's
+// certificate authorities as PEM, for a run with no file to mount (the
+// dr-copies drill's Fargate task, T41e2): written to a temporary file and
+// named as DATABASE_URL's sslrootcert. A marker may be given as env:NAME,
+// the variable holding it. Like migrate, it reads only the database settings
 // (config.LoadSchema): a drill runs it as a one-off pod against a side
 // database, with no keys, issuers or stores.
 func drCmd(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) int {
@@ -55,6 +62,12 @@ func drCmd(ctx context.Context, args []string, getenv func(string) string, stdou
 		}
 		return 2
 	}
+	getenv, cleanup, err := drDatabaseCA(getenv)
+	if err != nil {
+		fmt.Fprintln(stderr, "erp-server dr: configuration:", err)
+		return 2
+	}
+	defer cleanup()
 	cfg, err := platformconfig.LoadSchema(getenv)
 	if err != nil {
 		fmt.Fprintln(stderr, "erp-server dr: configuration:", err)
@@ -96,12 +109,50 @@ func drMark(ctx context.Context, v *drverify.Verifier, tenant, name string) (drv
 	return v.Mark(ctx, id, name)
 }
 
+// drWriteCA writes ERP_DR_DATABASE_CA's file; tests replace it to fail.
+var drWriteCA = os.WriteFile
+
+// drDatabaseCA returns getenv with DATABASE_URL naming ERP_DR_DATABASE_CA,
+// written to a file, as its sslrootcert, and the function that removes the
+// file; getenv itself when the setting is empty.
+func drDatabaseCA(getenv func(string) string) (func(string) string, func(), error) {
+	ca := getenv("ERP_DR_DATABASE_CA")
+	if ca == "" {
+		return getenv, func() {}, nil
+	}
+	u, err := url.Parse(getenv("DATABASE_URL"))
+	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") {
+		// The parse error would quote the URL, password and all.
+		return nil, nil, errors.New("ERP_DR_DATABASE_CA needs DATABASE_URL as a postgres:// URL")
+	}
+	dir, err := os.MkdirTemp("", "erp-dr-")
+	if err != nil {
+		return nil, nil, fmt.Errorf("ERP_DR_DATABASE_CA: %w", err)
+	}
+	remove := func() { _ = os.RemoveAll(dir) } // a temporary file of a one-off run; the task's disk goes with it
+	path := filepath.Join(dir, "ca.pem")
+	if err := drWriteCA(path, []byte(ca), 0o600); err != nil {
+		remove()
+		return nil, nil, fmt.Errorf("ERP_DR_DATABASE_CA: %w", err)
+	}
+	q := u.Query()
+	q.Set("sslrootcert", path)
+	u.RawQuery = q.Encode()
+	withCA := u.String()
+	return func(k string) string {
+		if k == "DATABASE_URL" {
+			return withCA
+		}
+		return getenv(k)
+	}, remove, nil
+}
+
 func drVerify(ctx context.Context, v *drverify.Verifier, restored, lost string, getenv func(string) string) (drverify.Report, error) {
 	var err error
-	if v.Restored, err = readMark(restored); err != nil {
+	if v.Restored, err = readMark(restored, getenv); err != nil {
 		return drverify.Report{}, err
 	}
-	if v.Lost, err = readMark(lost); err != nil {
+	if v.Lost, err = readMark(lost, getenv); err != nil {
 		return drverify.Report{}, err
 	}
 	if url := getenv("ERP_DR_OLD_DATABASE_URL"); url != "" {
@@ -113,13 +164,21 @@ func drVerify(ctx context.Context, v *drverify.Verifier, restored, lost string, 
 	return v.Verify(ctx)
 }
 
-// readMark reads a marker as mark printed it; nil without a file.
-func readMark(path string) (*drverify.Mark, error) {
+// readMark reads a marker as mark printed it, from a file or, as env:NAME,
+// the variable NAME; nil without either.
+func readMark(path string, getenv func(string) string) (*drverify.Mark, error) {
 	if path == "" {
 		return nil, nil
 	}
-	raw, err := os.ReadFile(path) // #nosec G304 -- the operator names the file
-	if err != nil {
+	var (
+		raw []byte
+		err error
+	)
+	if name, ok := strings.CutPrefix(path, "env:"); ok {
+		if raw = []byte(getenv(name)); len(raw) == 0 {
+			return nil, fmt.Errorf("marker: %s is empty", name)
+		}
+	} else if raw, err = os.ReadFile(path); err != nil { // #nosec G304 -- the operator names the file
 		return nil, fmt.Errorf("marker: %w", err)
 	}
 	var m drverify.Mark

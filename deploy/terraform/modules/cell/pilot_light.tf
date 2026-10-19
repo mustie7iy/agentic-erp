@@ -18,23 +18,33 @@ variable "pilot_light" {
   }
 }
 
+variable "restore_drill_dr" {
+  description = "Run the dr-copies restore drill's verification in dr_region: a VPC for the restored side cluster and a Fargate cluster for the verification (staging's drill cell, ADR-0040, T41e2)."
+  type        = bool
+  default     = false
+  validation {
+    condition     = !var.restore_drill_dr || var.dr_region != null
+    error_message = "the restore drill's DR side needs a dr_region"
+  }
+}
+
 variable "dr_cidr" {
-  description = "The DR VPC's /16, used by no other cell or environment; required with pilot_light."
+  description = "The DR VPC's /16, used by no other cell or environment; required with pilot_light or restore_drill_dr."
   type        = string
   default     = null
   validation {
-    condition     = !var.pilot_light || var.dr_cidr != null
-    error_message = "a pilot light needs a dr_cidr"
+    condition     = !(var.pilot_light || var.restore_drill_dr) || var.dr_cidr != null
+    error_message = "a DR VPC (pilot_light, restore_drill_dr) needs a dr_cidr"
   }
 }
 
 variable "dr_availability_zones" {
-  description = "Three availability zones of dr_region; required with pilot_light."
+  description = "Three availability zones of dr_region; required with pilot_light or restore_drill_dr."
   type        = list(string)
   default     = []
   validation {
-    condition     = !var.pilot_light || length(var.dr_availability_zones) == 3
-    error_message = "a pilot light needs three availability zones of dr_region"
+    condition     = !(var.pilot_light || var.restore_drill_dr) || length(var.dr_availability_zones) == 3
+    error_message = "a DR VPC (pilot_light, restore_drill_dr) needs three availability zones of dr_region"
   }
 }
 
@@ -51,18 +61,23 @@ variable "replica_lag_alarm_actions" {
 
 locals {
   pilot = var.pilot_light ? toset(["dr"]) : toset([])
+  # The DR VPC, its database subnet group and security group: the pilot
+  # light's replica lives there, and the restore drill restores the copies
+  # there and verifies them from inside it (T41e2).
+  dr_vpc = var.pilot_light || var.restore_drill_dr ? toset(["dr"]) : toset([])
   # The RPO: the replica may be this far behind (ADR-0040).
   replica_lag_seconds = 60
 }
 
 module "dr_network" {
   source             = "../network"
-  for_each           = local.pilot
+  for_each           = local.dr_vpc
   region             = var.dr_region
   name               = "${local.prefix}-dr"
   cidr               = var.dr_cidr
   availability_zones = var.dr_availability_zones
-  zone_redundant     = true
+  # The drill's VPC carries a drill's traffic only: one NAT gateway is enough.
+  zone_redundant = var.pilot_light
 }
 
 resource "aws_kms_key" "dr_cluster" {
@@ -106,17 +121,17 @@ resource "aws_kms_replica_key" "fields" {
   }
 }
 
-# The database's replica.
+# The database's replica, and the drill's side clusters (T41e2).
 
 resource "aws_db_subnet_group" "dr" {
-  for_each   = local.pilot
+  for_each   = local.dr_vpc
   region     = var.dr_region
   name       = "${local.prefix}-dr"
   subnet_ids = module.dr_network[each.key].private_subnet_ids
 }
 
 resource "aws_security_group" "dr_database" {
-  for_each    = local.pilot
+  for_each    = local.dr_vpc
   region      = var.dr_region
   name        = "${local.prefix}-dr-database"
   description = "PostgreSQL from inside the DR VPC"

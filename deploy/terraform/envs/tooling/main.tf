@@ -38,7 +38,7 @@ variable "environment_account_ids" {
 }
 
 variable "replication_regions" {
-  description = "The cells' regions other than the primary, which receive replicas of the images."
+  description = "The cells' regions other than the primary, and their disaster-recovery regions (the pilot light and the restore drill pull there, ADR-0040), which receive replicas of the images."
   type        = list(string)
   default     = []
 }

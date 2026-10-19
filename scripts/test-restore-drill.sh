@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Tests restore-drill.sh (ADR-0040, T41e) without Docker, AWS or a
+# Tests restore-drill.sh (ADR-0040, T41e, T41e2) without Docker, AWS or a
 # cluster: one stand-in answers as docker, aws, kubectl and erp-server
 # (by the name it is called as), logs every call, and plays erp-server's
-# dr mark and dr verify, the verification failing or a restore job failing
-# where a case says so. Each case runs the drill on a throwaway copy of the
+# dr mark and dr verify, in a pod or in the dr-copies drill's Fargate task,
+# the verification failing, a restore job failing or the task never
+# starting where a case says so. Each case runs the drill on a throwaway copy of the
 # repository and checks its exit, its appended record, and that the side
 # database and the drill's objects were removed.
 set -euo pipefail
@@ -54,25 +55,65 @@ if name == "aws":
     if cmd == ["rds", "describe-db-clusters"]:
         side = "drill" in a[a.index("--db-cluster-identifier") + 1]
         out = {"DBClusters": [{"Status": "available", "LatestRestorableTime": iso(now + datetime.timedelta(minutes=5)),
-                               "Endpoint": "side.cluster.example", "Port": 5432,
+                               "Endpoint": "side.cluster.example", "Port": 5432, "MasterUsername": "erp",
                                "MasterUserSecret": {"SecretArn": "arn:secret:side", "SecretStatus": "active"} if side else {}}]}
     elif cmd == ["secretsmanager", "get-secret-value"]:
         out = {"SecretString": json.dumps({"username": "erp", "password": "p@ss/word"})}
     elif cmd == ["backup", "list-recovery-points-by-backup-vault"]:
         out = {"RecoveryPoints": [{"Status": "COMPLETED", "CreationDate": iso(now - datetime.timedelta(days=1)), "RecoveryPointArn": "arn:old"},
                                   {"Status": "COMPLETED", "CreationDate": iso(now), "RecoveryPointArn": "arn:copy"}]}
-    elif cmd == ["backup", "start-restore-job"]:
-        out = {"RestoreJobId": "job-1"}
+    elif cmd == ["ecs", "delete-task-definitions"] and os.environ.get("FAKE_DELETE") == "fail":
+        sys.exit("AccessDeniedException")
     elif cmd == ["rds", "delete-db-cluster"] and os.environ.get("FAKE_DELETE") == "fail":
         sys.exit("InvalidParameterCombination: deletion protection is enabled")
+    elif cmd == ["backup", "start-restore-job"]:
+        out = {"RestoreJobId": "job-1"}
+    elif cmd == ["ecs", "register-task-definition"]:
+        state["container"] = json.loads(a[a.index("--container-definitions") + 1])[0]
+        out = {"taskDefinition": {"taskDefinitionArn": "arn:aws:ecs:eu-central-2:1:task-definition/erp-stg1-drill:1"}}
+    elif cmd == ["ecs", "run-task"]:
+        if os.environ.get("FAKE_TASK") == "no-capacity":
+            out = {"tasks": [], "failures": [{"reason": "RESOURCE:ENI"}]}
+        else:
+            c = state["container"]
+            e = {x["name"]: x["value"] for x in c["environment"]}
+            # The task reads the side cluster from inside the DR region: the
+            # password from its secret, the authority as PEM, the image
+            # from the region's replica of the registry.
+            want = (c["secrets"] == [{"name": "PGPASSWORD", "valueFrom": "arn:secret:side:password::"}]
+                    and e["DATABASE_URL"] == "postgres://erp@side.cluster.example:5432/erp?sslmode=verify-full"
+                    and e["ERP_DR_DATABASE_CA"] == "dr-ca-pem\n" and c["image"].startswith("1.dkr.ecr.eu-central-2.amazonaws.com/erp-server@")
+                    and c["readonlyRootFilesystem"] and c["user"] == "65532")
+            if not want:
+                sys.exit("run-task: the task definition is not the drill's: %s" % json.dumps(c))
+            args = []
+            for x in c["command"]:
+                if x.startswith("env:"):
+                    path = os.path.join(os.path.dirname(state_file), x[4:])
+                    open(path, "w").write(e[x[4:]])
+                    x = path
+                args.append(x)
+            import io, contextlib
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                state["exit"] = erp(args)
+            state["log"] = buf.getvalue()
+            out = {"tasks": [{"taskArn": "arn:aws:ecs:eu-central-2:1:task/erp-stg1-restore-drill/abc123"}]}
+    elif cmd == ["ecs", "describe-tasks"]:
+        container = {} if os.environ.get("FAKE_TASK") == "never-ran" else {"exitCode": state["exit"]}
+        out = {"tasks": [{"lastStatus": "STOPPED", "stoppedReason": "CannotPullContainerError", "containers": [container]}]}
+    elif cmd == ["logs", "get-log-events"]:
+        assert a[a.index("--log-stream-name") + 1] == "verify/erp-server/abc123", a
+        out = {"events": [{"message": m} for m in state.get("log", "").splitlines()]}
     elif cmd == ["backup", "describe-restore-job"]:
         out = {"Status": os.environ.get("FAKE_RESTORE_JOB", "COMPLETED")}
     print(json.dumps(out))
+    json.dump(state, open(state_file, "w"))
     sys.exit(0)
 if name == "kubectl":
     verb = a[2]
     if verb == "get" and a[3] == "deployment":
-        print("erp-cell" if "instance" in a[-1] else "registry.example/erp-server@sha256:" + "1" * 64)
+        print("erp-cell" if "instance" in a[-1] else "1.dkr.ecr.eu-west-2.amazonaws.com/erp-server@sha256:" + "1" * 64)
     elif verb == "get" and a[3] == "secret":
         print(base64.b64encode(b"postgres://migrator:x@writer.example:5432/erp?sslmode=verify-full&sslrootcert=/etc/erp/rds/ca.pem").decode())
     elif verb == "create":
@@ -143,9 +184,25 @@ if ! grep -q "restore-db-cluster-to-point-in-time --source-db-cluster-identifier
 else
   echo "ok   aws-side-database"
 fi
-case_ aws-dr-copies 0 passed "backup start-restore-job --region eu-central-2 --recovery-point-arn arn:copy" RESTORE_PROVIDER=aws RESTORE_KIND=dr-copies \
-  RESTORE_CLUSTER=erp-stg1 DRILL_TENANT=0d5c7a1e-41d0-4e7b-9a0d-d2111e5e0099 RESTORE_DR_REGION=eu-central-2 RESTORE_DR_VAULT=erp-stg1-dr \
-  RESTORE_ROLE_ARN=arn:role RESTORE_METADATA='{"DBClusterInstanceClass": "db.m6gd.large"}'
+printf 'dr-ca-pem\n' >"$work/dr-ca.pem"
+dr_task='{"region": "eu-central-2", "vault": "erp-stg1-dr", "cluster": "erp-stg1-restore-drill", "subnets": ["subnet-a", "subnet-b"],
+  "security_group": "sg-task", "execution_role_arn": "arn:role:drill", "log_group": "/ecs/erp-stg1/restore-drill",
+  "db_subnet_group": "erp-stg1-dr", "db_security_group": "sg-db"}'
+dr=(RESTORE_PROVIDER=aws RESTORE_KIND=dr-copies RESTORE_CLUSTER=erp-stg1 DRILL_TENANT=0d5c7a1e-41d0-4e7b-9a0d-d2111e5e0099
+  RESTORE_DR_TASK="$dr_task" RESTORE_DR_CA="$work/dr-ca.pem" RESTORE_ROLE_ARN=arn:role)
+case_ aws-dr-copies 0 passed "backup start-restore-job --region eu-central-2 --recovery-point-arn arn:copy" "${dr[@]}" \
+  RESTORE_METADATA='{"DBClusterInstanceClass": "db.m6gd.large"}'
+if ! grep -q 'DBSubnetGroupName": "erp-stg1-dr", "VpcSecurityGroupIds": "\[\\"sg-db\\"\]"' "$work/log" \
+    || ! grep -q "ecs run-task --region eu-central-2 --cluster erp-stg1-restore-drill --launch-type FARGATE" "$work/log" \
+    || ! grep -q "ecs delete-task-definitions --region eu-central-2 --task-definitions arn:aws:ecs:eu-central-2:1:task-definition/erp-stg1-drill:1" "$work/log" \
+    || ! grep -q "ecs stop-task --region eu-central-2 --cluster erp-stg1-restore-drill --task arn:aws:ecs:" "$work/log" \
+    || grep -q "kubectl -n erp create secret" "$work/log"; then
+  echo "FAIL aws-dr-copies: restored into the DR VPC, verified by a task there, its definition removed" >&2
+  cat "$work/log" >&2
+  failed=1
+else
+  echo "ok   aws-dr-copies-task"
+fi
 python3 - "$record" <<'PY' || failed=1
 import json, sys
 r = json.load(open(sys.argv[1]))
@@ -153,8 +210,13 @@ assert len(r) == 4 and [x["result"] for x in r] == ["passed", "failed", "passed"
 assert r[-1]["kind"] == "dr-copies" and r[-1]["provider"] == "aws", r[-1]
 print("ok   record-appended")
 PY
-case_ aws-restore-job-fails 1 failed "rds delete-db-cluster --region eu-central-2" RESTORE_PROVIDER=aws RESTORE_KIND=dr-copies FAKE_RESTORE_JOB=FAILED \
-  RESTORE_CLUSTER=erp-stg1 DRILL_TENANT=0d5c7a1e-41d0-4e7b-9a0d-d2111e5e0099 RESTORE_DR_REGION=eu-central-2 RESTORE_DR_VAULT=erp-stg1-dr RESTORE_ROLE_ARN=arn:role
+case_ aws-restore-job-fails 1 failed "rds delete-db-cluster --region eu-central-2" "${dr[@]}" FAKE_RESTORE_JOB=FAILED
+case_ aws-dr-task-verification-fails 1 failed "ecs deregister-task-definition --region eu-central-2" "${dr[@]}" FAKE_VERIFY=fail
+case_ aws-dr-task-never-ran 1 failed "ecs deregister-task-definition --region eu-central-2" "${dr[@]}" FAKE_TASK=never-ran
+grep -q "CannotPullContainerError" "$work/out" || { echo "FAIL aws-dr-task-never-ran: the reason not reported" >&2; failed=1; }
+case_ aws-dr-task-definition-left 1 failed "ecs delete-task-definitions" "${dr[@]}" FAKE_DELETE=fail
+grep -q "delete the task definition arn:aws:ecs:.* by hand" "$work/out" || { echo "FAIL aws-dr-task-definition-left: not reported" >&2; failed=1; }
+case_ aws-dr-task-no-capacity 1 failed "rds delete-db-cluster --region eu-central-2" "${dr[@]}" FAKE_TASK=no-capacity
 case_ aws-verification-fails 1 failed "rds delete-db-cluster" RESTORE_PROVIDER=aws RESTORE_CLUSTER=erp-stg1 \
   DRILL_TENANT=0d5c7a1e-41d0-4e7b-9a0d-d2111e5e0099 FAKE_VERIFY=fail
 case_ aws-side-cluster-left 1 failed "rds delete-db-cluster" RESTORE_PROVIDER=aws RESTORE_CLUSTER=erp-stg1 \
@@ -164,4 +226,5 @@ rm -f "$record"
 case_ unknown-provider 1 "" "" RESTORE_PROVIDER=gcp
 case_ local-dr-copies 1 "" "" RESTORE_PROVIDER=local RESTORE_KIND=dr-copies
 case_ aws-without-cluster 1 "" "" RESTORE_PROVIDER=aws DRILL_TENANT=x
+case_ aws-dr-copies-without-task 1 "" "" RESTORE_PROVIDER=aws RESTORE_KIND=dr-copies RESTORE_CLUSTER=erp-stg1 DRILL_TENANT=x RESTORE_DR_CA=/x
 exit "$failed"
