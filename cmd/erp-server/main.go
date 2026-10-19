@@ -46,6 +46,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus"
@@ -564,6 +565,18 @@ func (s *server) startWorkers(runCtx context.Context) {
 	s.startOperations(runCtx)
 	s.startMaintenance(runCtx)
 	s.startAudit(runCtx)
+	s.startWebhooks(runCtx)
+}
+
+// startWebhooks starts the webhook dispatcher (ADR-0041): it delivers what
+// the fan-out recorded, so it runs with or without a bus, and prunes
+// deliveries past their retention.
+func (s *server) startWebhooks(runCtx context.Context) {
+	// New fails only for egress.LoopbackForTests outside a test binary; with
+	// no option it always makes a client.
+	client, _ := egress.New()
+	dispatcher := &integration.Dispatcher{Pool: s.pool, AppRole: s.cfg.AppRole, WorkerRole: s.cfg.WorkerRole, Keys: s.keys, Client: client, Log: s.log}
+	s.spawn("webhook dispatcher", func() { dispatcher.Run(runCtx) })
 }
 
 // startProjections starts the balance projector and, without a workflow

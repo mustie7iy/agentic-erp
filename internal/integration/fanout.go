@@ -18,8 +18,9 @@ import (
 
 // Webhook fan-out (ADR-0041, T50e): the events the outbox relay publishes
 // are read from JetStream by a durable consumer, and each event offered to
-// webhooks becomes one pending delivery per active subscription naming its
-// type or context. The unique (tenant_id, subscription_id, event_id) is the
+// webhooks becomes one pending delivery per active or paused subscription
+// naming its type or context: a paused one holds its deliveries until it is
+// resumed. The unique (tenant_id, subscription_id, event_id) is the
 // inbox: an event read twice (a lost acknowledgement, a second replica)
 // adds nothing.
 
@@ -130,13 +131,13 @@ func structured(m outbox.Message) ([]byte, error) {
 	return json.Marshal(doc) //nolint:wrapcheck // the caller says what failed to render
 }
 
-// fanout inserts one pending delivery per active subscription of the
-// tenant naming the event's type or context; one that exists is kept. The
+// fanout inserts one pending delivery per active or paused subscription of
+// the tenant naming the event's type or context; one that exists is kept. The
 // subscriptions are read FOR SHARE, so a concurrent pause or delete waits
 // for the fan-out or is seen by it.
 func fanout(ctx context.Context, tx pgx.Tx, ev fanEvent) error {
 	rows, _ := tx.Query(ctx, `SELECT id FROM integration.webhook_subscription
-		WHERE status = 'active' AND ($1 = ANY (event_types) OR $2 = ANY (event_types)) ORDER BY id FOR SHARE`,
+		WHERE status IN ('active', 'paused') AND ($1 = ANY (event_types) OR $2 = ANY (event_types)) ORDER BY id FOR SHARE`,
 		ev.typ, eventContext(ev.typ)+".*")
 	subs, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {

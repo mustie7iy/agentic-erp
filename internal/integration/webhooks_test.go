@@ -256,6 +256,9 @@ func TestWebhookDatabaseFailures(t *testing.T) {
 	c := webhookClient(t)
 	created, _ := createHook(c, `"ledger.*"`)
 	id := uuid.MustParse(created["id"].(string))
+	held, heldTag := createHook(c, `"ledger.*"`)
+	c.Must(200, "POST", hooks+"/"+held["id"].(string)+":pause", "", heldTag)
+	paused := uuid.MustParse(held["id"].(string))
 	h := endpoints("")
 	anyVersion := gen.UpdateWebhookSubscriptionParams{ID: id, IfMatch: "*"}
 	calls := map[string]func(ctx context.Context) error{
@@ -277,6 +280,14 @@ func TestWebhookDatabaseFailures(t *testing.T) {
 		},
 		"rotate": func(ctx context.Context) error {
 			_, err := h.RotateWebhookSubscriptionSecret(ctx, gen.RotateWebhookSubscriptionSecretParams{ID: id, IfMatch: "*"})
+			return err
+		},
+		"pause": func(ctx context.Context) error {
+			_, err := h.PauseWebhookSubscription(ctx, gen.PauseWebhookSubscriptionParams{ID: id, IfMatch: "*"})
+			return err
+		},
+		"resume": func(ctx context.Context) error {
+			_, err := h.ResumeWebhookSubscription(ctx, gen.ResumeWebhookSubscriptionParams{ID: paused, IfMatch: "*"})
 			return err
 		},
 		"delete": func(ctx context.Context) error {

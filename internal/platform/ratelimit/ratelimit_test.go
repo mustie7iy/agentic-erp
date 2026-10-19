@@ -150,3 +150,26 @@ func TestPrincipalBucketsAreKeyedByIssuer(t *testing.T) {
 		t.Errorf(`issuer "x", subject "y z": got %d, want 204 (separate buckets)`, got)
 	}
 }
+
+// TestAllow: a bucket outside the API spends its burst, then waits for its
+// rate; another key has its own bucket, and no quota never limits.
+func TestAllow(t *testing.T) {
+	now := time.Date(2026, 10, 19, 8, 0, 0, 0, time.UTC)
+	l := &Limiter{Now: func() time.Time { return now }}
+	q := Quota{Rate: 2, Burst: 2}
+	for i, want := range []bool{true, true, false} {
+		if got := l.Allow("a", q); got != want {
+			t.Errorf("take %d: got %v, want %v", i+1, got, want)
+		}
+	}
+	if !l.Allow("b", q) {
+		t.Error("another key: got refused, want its own bucket")
+	}
+	now = now.Add(500 * time.Millisecond)
+	if !l.Allow("a", q) {
+		t.Error("after half a second at 2/s: got refused, want a token back")
+	}
+	if !l.Allow("a", Quota{}) {
+		t.Error("no quota: got refused, want allowed")
+	}
+}
