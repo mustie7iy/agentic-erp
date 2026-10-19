@@ -184,7 +184,7 @@ func readMark(path string, getenv func(string) string) (*drverify.Mark, error) {
 		if raw = []byte(getenv(name)); len(raw) == 0 {
 			return nil, fmt.Errorf("marker: %s is empty", name)
 		}
-	} else if raw, err = os.ReadFile(path); err != nil { // #nosec G304 -- the operator names the file
+	} else if raw, err = os.ReadFile(path); err != nil { // #nosec G304 G703 -- the operator names the file
 		return nil, fmt.Errorf("marker: %w", err)
 	}
 	var m drverify.Mark
