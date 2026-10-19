@@ -62,6 +62,7 @@ func TestWebhookSubscriptions(t *testing.T) {
 	mustApp(t, tenant, sub.insert("integration.webhook_subscription"))
 	mustApp(t, tenant, sub.with(row{"id": id(), "status": "disabled", "disabled_reason": "gone",
 		"previous_secret_cipher": []byte{2}, "previous_expires_at": "2026-10-20T08:00:00Z"}).insert("integration.webhook_subscription"))
+	mustApp(t, tenant, sub.with(row{"id": id(), "url": "https://hooks.example.com?token=x"}).insert("integration.webhook_subscription"))
 	const check = "webhook_subscription_url_check"
 	for _, c := range []struct {
 		name  string
@@ -71,6 +72,7 @@ func TestWebhookSubscriptions(t *testing.T) {
 		{"an http URL", row{"url": "http://hooks.example.com"}, check},
 		{"a URL without a host", row{"url": "https://"}, check},
 		{"a URL with a space", row{"url": "https://hooks.example.com/a b"}, check},
+		{"a URL with a fragment", row{"url": "https://hooks.example.com/erp#x"}, check},
 		{"a URL over 2048 characters", row{"url": "https://" + strings.Repeat("a", 2041)}, check},
 		{"a description over 200 characters", row{"description": strings.Repeat("a", 201)}, "webhook_subscription_description_check"},
 		{"no event types", row{"event_types": []string{}}, "webhook_subscription_event_types_check"},
