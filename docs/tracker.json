@@ -3757,6 +3757,12 @@
         "t": "T47's order changes and renewContract stay at autonomy level 2",
         "r": "PO 2026-10-18 · revisit with T43",
         "c": []
+       },
+       {
+        "s": "T",
+        "t": "T46's writes (createDownPaymentRequest, cancelDownPaymentRequest, clearSupplierInvoiceDownPayments) at autonomy level 2 until the product owner rules whether a down payment request only proposes",
+        "r": "no x-autonomy marker · ADR-0036 · T46 integration",
+        "c": []
        }
       ]
      },

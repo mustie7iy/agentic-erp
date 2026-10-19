@@ -309,7 +309,7 @@ const (
 // payment of open items whose supplier has an exclusion, which such a
 // payment otherwise never has (a proposal pays or excludes each supplier's
 // items). It relies on one items payment per supplier and run, which the
-// unique index payment_items_once holds (000080). A down payment's payment
+// unique index payment_items_once holds (000083). A down payment's payment
 // is never dropped: the release drops payments whose items are no longer
 // open, and it has none; it is paid even when the supplier's items are
 // excluded for a debit balance (payRequests). A request left out has its
