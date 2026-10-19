@@ -221,8 +221,10 @@ func TestRevaluationPreviewTooLarge(t *testing.T) {
 	settleRate(t, e, "USD", "2026-01-01", "0.8")
 	revaluationRate(t, e, "USD", "EUR", "2026-03-15", "0.9")
 	expense, ap := settleAccount(t, e, "2000", "520000"), settleAccount(t, e, "2000", "211000")
-	for range 2 {
-		revaluationPost(t, e, e.de, "2026-03-02", "USD", ledger.PostingLine{AccountID: expense, Amount: 5e18},
+	// In two periods, so that no period's balance, which the projector
+	// keeps, is out of range.
+	for _, day := range []string{"2026-02-02", "2026-03-02"} {
+		revaluationPost(t, e, e.de, day, "USD", ledger.PostingLine{AccountID: expense, Amount: 5e18},
 			ledger.PostingLine{AccountID: ap, Amount: -5e18, PartnerID: &e.supplier})
 	}
 	t.Run("totals", func(t *testing.T) {
