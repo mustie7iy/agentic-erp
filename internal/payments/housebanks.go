@@ -112,7 +112,8 @@ func (h HouseBanks) sameDetails(ctx context.Context, tx pgx.Tx, tenant uuid.UUID
 // Apply makes the house banks the document no longer lists inactive, then
 // creates each listed one, or reactivates it and updates its ledger
 // account. Deactivating first keeps an account that moves to a new bank
-// from being active on two at once.
+// from being active on two at once; house_bank_account_once (000097) is
+// checked at commit, so banks that swap accounts pass too.
 func (h HouseBanks) Apply(ctx context.Context, doc *config.Config) error {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -135,7 +136,7 @@ func (h HouseBanks) Apply(ctx context.Context, doc *config.Config) error {
 		for i, hb := range banks {
 			codes[i] = hb.Name
 		}
-		if _, err := tx.Exec(ctx, `UPDATE payments.house_bank SET status = 'inactive', version = version + 1, updated_by = $3
+		if _, err := tx.Exec(ctx, `UPDATE payments.house_bank SET status = 'inactive', active_gl_account_id = NULL, version = version + 1, updated_by = $3
 			WHERE legal_entity_id = $1 AND code <> ALL($2) AND status = 'active'`, le.ID, codes, p.ID); err != nil {
 			return fmt.Errorf("payments: deactivate the unlisted house banks of legal entity %s: %w", co.Code, err)
 		}
@@ -160,9 +161,9 @@ func (h HouseBanks) upsert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, l
 		return err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO payments.house_bank AS h (tenant_id, id, legal_entity_id, code, name, iban_cipher, iban_last4, bic, currency,
-			gl_account_id, status, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, 'active', $10, $10)
-		ON CONFLICT (tenant_id, legal_entity_id, code) DO UPDATE SET gl_account_id = EXCLUDED.gl_account_id, status = 'active',
+			gl_account_id, active_gl_account_id, status, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, $9, 'active', $10, $10)
+		ON CONFLICT (tenant_id, legal_entity_id, code) DO UPDATE SET gl_account_id = EXCLUDED.gl_account_id, active_gl_account_id = EXCLUDED.gl_account_id, status = 'active',
 			version = h.version + 1, updated_by = EXCLUDED.updated_by
 		WHERE (h.gl_account_id, h.status) IS DISTINCT FROM (EXCLUDED.gl_account_id, 'active')`,
 		p.TenantID, uuid.Must(uuid.NewV7()), le, hb.Name, sealed, fieldcrypt.Last4(hb.IBAN), hb.BIC, currency, account, p.ID)

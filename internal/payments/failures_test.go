@@ -242,7 +242,7 @@ func failureCalls(t *testing.T, e env, h *payments.Endpoints, s *failureRuns) (c
 	t.Helper()
 	calls = map[string]func(ctx context.Context) error{
 		"propose": func(ctx context.Context) error {
-			_, err := h.ProposePaymentRun(ctx, &gen.PaymentRunPropose{LegalEntityID: e.DE, HouseBankID: e.bank, RunDate: date("2026-04-20"),
+			_, err := h.ProposePaymentRun(ctx, &gen.PaymentRunPropose{LegalEntityID: e.DE, HouseBankID: gen.NewOptUUID(e.bank), RunDate: date("2026-04-20"),
 				DueBy: date("2026-04-20")}, gen.ProposePaymentRunParams{})
 			return err
 		},
@@ -429,7 +429,7 @@ func refusalCalls(e env, h *payments.Endpoints, run uuid.UUID) map[string]func(c
 			return err
 		},
 		"propose unknown": func(ctx context.Context) error {
-			_, err := h.ProposePaymentRun(ctx, &gen.PaymentRunPropose{LegalEntityID: uuid.New(), HouseBankID: e.bank}, gen.ProposePaymentRunParams{})
+			_, err := h.ProposePaymentRun(ctx, &gen.PaymentRunPropose{LegalEntityID: uuid.New(), HouseBankID: gen.NewOptUUID(e.bank)}, gen.ProposePaymentRunParams{})
 			return err
 		},
 		"release mismatch": func(ctx context.Context) error {

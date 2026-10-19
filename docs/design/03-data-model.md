@@ -1241,7 +1241,7 @@ erDiagram
   payment_run { uuid id PK
     text document_number
     uuid legal_entity_id
-    uuid house_bank_id
+    uuid house_bank_id "null: each payment names its bank (T45c)"
     date run_date
     text status "proposing | proposed | releasing | released | rejected | failed"
     uuid proposed_by
@@ -1254,6 +1254,8 @@ erDiagram
     uuid bank_account_id
     bigint amount
     char currency
+    uuid house_bank_id "null: the run's (T45c)"
+    text payment_method "null in a run proposed for one bank"
     uuid journal_entry_id }
   payment_item { uuid payment_id PK
     smallint item_fiscal_year PK
@@ -1268,9 +1270,12 @@ erDiagram
     uuid legal_entity_id
     bytea iban_cipher
     text bic
-    uuid gl_account_id }
+    uuid gl_account_id
+    uuid active_gl_account_id "gl_account_id while active; unique per legal entity" }
   bank_file { uuid id PK
-    uuid payment_run_id "unique per run"
+    uuid payment_run_id "unique per run, house bank and method"
+    uuid house_bank_id "null: the run's (T45c)"
+    text payment_method
     text format "pain.001.001.03"
     text object_ref
     bytea sha256 }
@@ -1288,6 +1293,19 @@ SAP T042E/T042I). A supplier's company data lists the methods it may be
 paid by, in order (`partner.supplier_company.payment_methods`, SAP
 LFB1-ZWELS): active methods of its company, which the configuration cannot
 take away while a supplier, or a pending partner change, has them (T45b).
+
+A run is proposed for one house bank, which pays every supplier, or without
+one in a currency (T45c): then each supplier, its items and its down
+payment requests, is paid through the first of its methods whose ranking
+for the currency names an active house bank, the first such bank; a
+supplier none can pay is excluded with `no_house_bank`. The payment names
+the bank and method (`payment.house_bank_id`, `payment_method`; null in a
+run proposed for one bank, whose bank pays), posts to that bank's account,
+and the release writes one bank file per house bank and method. At most one
+active house bank of a legal entity is on a ledger account
+(`house_bank_account_once`, a deferrable unique constraint on
+`active_gl_account_id`, checked at commit so banks may swap accounts;
+000092-000097).
 
 A proposal pays each supplier its open items due by the run's due date,
 netted in one payment: an invoice is due on the net due date of the terms
@@ -1496,11 +1514,13 @@ operation, `release_operation_id`, and posts one payment per transaction;
 the run is `released` when its bank file is written. Its rules, each held by
 the database or by a row lock:
 
-- **One bank file per run.** A unique index on `bank_file (tenant_id,
-  payment_run_id)` (migration 000033, built concurrently) refuses a second
-  file, so a release step run again or two overlapping releases cannot pay
-  the suppliers twice. In object storage the file is kept under the run's
-  key (`tenants/<tenant>/bank-files/<run id>.xml`, write-once), so a
+- **One bank file per run, house bank and method.** A unique index on
+  `bank_file (tenant_id, payment_run_id, house_bank_id, payment_method)
+  NULLS NOT DISTINCT` (000094, built concurrently; it replaced 000033's per
+  run) refuses a second file, so a release step run again or two
+  overlapping releases cannot pay the suppliers twice. In object storage the
+  file is kept under its key (`tenants/<tenant>/bank-files/<run id>.xml`,
+  with `-<bank>-<method>` for a run proposed without a bank; write-once), so a
   FinishRelease retried after the store took the file but its transaction
   was lost writes no second object: it finds the key taken, checks that the
   stored file is the run's file as rendered at the creation time it carries,

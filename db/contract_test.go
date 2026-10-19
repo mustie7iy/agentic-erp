@@ -286,7 +286,7 @@ func TestReservationsReconcileFailsLoudly(t *testing.T) {
 // changes tenant rows (000042 reconciling reservations, 000046 binding
 // principals) fails rather than see no tenant's rows and change nothing.
 func TestTenantRowMigrationsRefuseRowSecurity(t *testing.T) {
-	for _, version := range []int{42, 46} {
+	for _, version := range []int{42, 46, 92} {
 		t.Run(fmt.Sprint(version), func(t *testing.T) {
 			conn := emptyDatabase(t)
 			migrateBefore(t, conn, version)
@@ -438,4 +438,40 @@ func TestPrincipalIssuerRebound(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHouseBankAccountsBackfilled: 000092 gives each active house bank its
+// account as active_gl_account_id and leaves inactive ones null, and
+// 000097's constraint then refuses a second active bank on the account.
+func TestHouseBankAccountsBackfilled(t *testing.T) {
+	conn := emptyDatabase(t)
+	migrateBefore(t, conn, 92)
+	p := newPayables(t, conn)
+	retired := id()
+	inTenant(t, conn, p.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `INSERT INTO payments.house_bank (tenant_id, id, legal_entity_id, code, name, iban_cipher, iban_last4, bic, currency, gl_account_id, status, created_by, updated_by)
+			VALUES ($1,$2,$3,'OLD','Old','\x00','5555','BUKBGB22','USD',$4,'inactive',$5,$5)`, p.tenant, retired, p.entity, p.fixture.bank, p.actor)
+	})
+	if _, err := Migrate(context.Background(), conn); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name string
+		bank uuid.UUID
+		want *uuid.UUID
+	}{{"active", p.bank, &p.fixture.bank}, {"inactive", retired, nil}} {
+		t.Run(c.name, func(t *testing.T) {
+			var got *uuid.UUID
+			inTenant(t, conn, p.tenant, func(tx pgx.Tx) error {
+				return tx.QueryRow(context.Background(), `SELECT active_gl_account_id FROM payments.house_bank WHERE id = $1`, c.bank).Scan(&got)
+			})
+			if (got == nil) != (c.want == nil) || got != nil && *got != *c.want {
+				t.Errorf("active_gl_account_id: got %v, want %v", got, c.want)
+			}
+		})
+	}
+	err := pgx.BeginFunc(context.Background(), conn, func(tx pgx.Tx) error {
+		return exec(tx, `UPDATE payments.house_bank SET status = 'active', active_gl_account_id = gl_account_id, version = version + 1 WHERE id = $1`, retired)
+	})
+	failsWith(t, err, "house_bank_account_once")
 }

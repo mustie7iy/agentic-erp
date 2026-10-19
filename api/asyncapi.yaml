@@ -2886,7 +2886,7 @@ components:
         payment_run_id: {$ref: '#/components/schemas/Uuid'}
         document_number: {type: string}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
-        house_bank_id: {$ref: '#/components/schemas/Uuid'}
+        house_bank_id: {$ref: '#/components/schemas/NullableUuid', description: 'The house bank of a run proposed for one; null for a run proposed without one, whose payments each name their bank (T45c, ADR-0038).'}
         run_date: {$ref: '#/components/schemas/Date'}
         due_by: {$ref: '#/components/schemas/Date'}
         total_amount: {$ref: '#/components/schemas/Money'}
@@ -2904,7 +2904,7 @@ components:
         payment_run_id: {$ref: '#/components/schemas/Uuid'}
         document_number: {type: string}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
-        house_bank_id: {$ref: '#/components/schemas/Uuid'}
+        house_bank_id: {$ref: '#/components/schemas/NullableUuid', description: 'The house bank of a run proposed for one; null for a run proposed without one, whose payments each name their bank (T45c, ADR-0038).'}
         run_date: {$ref: '#/components/schemas/Date'}
         total_amount: {$ref: '#/components/schemas/Money'}
         payment_count: {type: integer, minimum: 0}
@@ -3542,6 +3542,8 @@ components:
         payment_run_id: {"$ref": "#/components/schemas/Uuid"}
         format: {"type": "string", "description": "Open enum: pain.001.001.03, pain.001.001.09."}
         sha256: {"$ref": "#/components/schemas/Sha256Hex"}
+        house_bank_id: {"$ref": "#/components/schemas/Uuid", "description": "The house bank whose account the file pays from; a run writes one file per house bank and payment method (T45c). Absent from events of files written before."}
+        payment_method: {"type": ["string", "null"], "description": "The payment method of the file's payments; null for a run proposed for one house bank (T45c). Absent from events of files written before."}
         status: {"type": "string", "description": "Open enum; created in v1."}
     BankFileAcknowledgedV1:
       type: object

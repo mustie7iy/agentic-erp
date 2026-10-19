@@ -17906,14 +17906,13 @@ components:
               config_version: 42
               evaluated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbb"
     PaymentRun:
-      description: "A payment run (SAP F110): a proposal of payments to suppliers from one house bank."
+      description: "A payment run (SAP F110): a proposal of payments to suppliers in one currency, from one house bank or, proposed without one, from the house banks each supplier's payment methods rank (ADR-0038)."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
           required:
             - document_number
             - legal_entity_id
-            - house_bank_id
             - run_date
             - due_by
             - total_amount
@@ -17932,7 +17931,7 @@ components:
             house_bank_id:
               type: string
               format: uuid
-              description: House bank paying.
+              description: "House bank paying, for a run proposed for one bank; absent when each payment names the bank that pays it (T45c)."
               readOnly: true
             run_date:
               type: string
@@ -18005,7 +18004,6 @@ components:
       description: Parameters of a payment proposal.
       required:
         - legal_entity_id
-        - house_bank_id
         - run_date
         - due_by
       properties:
@@ -18016,7 +18014,11 @@ components:
         house_bank_id:
           type: string
           format: uuid
-          description: "House bank to pay from; its currency is the run currency."
+          description: "House bank to pay every supplier from; its currency is the run currency. Without it, each supplier is paid through the first of its payment methods that a house bank ranked for the method and the run currency pays with (ADR-0038), and suppliers no ranked bank can pay are excluded with `no_house_bank`."
+        currency:
+          type: string
+          description: "The run currency (ISO 4217), required without `house_bank_id`; with it, it may only repeat the house bank's currency."
+          pattern: "^[A-Z]{3}$"
         run_date:
           type: string
           format: date
@@ -18194,6 +18196,15 @@ components:
               format: uuid
               description: The down payment request a payment of kind `down_payment` pays.
               readOnly: true
+            house_bank_id:
+              type: string
+              format: uuid
+              description: "House bank that pays it: the run's, or for a run proposed without one, the first ranked for its payment method and currency (T45c)."
+              readOnly: true
+            payment_method:
+              type: string
+              description: "Payment method it is paid by (SAP ZLSCH); absent in a run proposed for one house bank."
+              readOnly: true
             items:
               type: array
               items:
@@ -18276,7 +18287,7 @@ components:
           readOnly: true
         reason_code:
           type: string
-          description: "Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. A release also excludes, with `item_reversed` or `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid. `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run date (T46c); a request's exclusion names it (`down_payment_request_id`), and the supplier's items may still be paid."
+          description: "Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. A release also excludes, with `item_reversed` or `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid. `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run date (T46c); a request's exclusion names it (`down_payment_request_id`), and the supplier's items may still be paid. `no_house_bank` leaves out a supplier, or a request, of a run proposed without a house bank when none of the supplier's payment methods has a house bank ranked for the run currency (T45c)."
           x-extensible-enum:
             - supplier_blocked
             - payment_blocked
@@ -18287,6 +18298,7 @@ components:
             - item_reversed
             - item_not_open
             - tax_code_invalid
+            - no_house_bank
           readOnly: true
         down_payment_request_id:
           type: string
@@ -18344,6 +18356,15 @@ components:
               type: string
               format: uuid
               description: Payment run.
+              readOnly: true
+            house_bank_id:
+              type: string
+              format: uuid
+              description: "House bank whose account the file pays from; a run writes one file per house bank and payment method (T45c)."
+              readOnly: true
+            payment_method:
+              type: string
+              description: "Payment method of the file's payments; absent for a run proposed for one house bank."
               readOnly: true
             format:
               type: string

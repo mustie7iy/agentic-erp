@@ -84,7 +84,7 @@ func TestProposeValidation(t *testing.T) {
 			api.Problem(c.status, c.code, "POST", "/v1/payment-runs:propose", c.body, "")
 		})
 	}
-	pgtest.Exec(t, `UPDATE payments.house_bank SET status = 'inactive', version = version + 1 WHERE id = $1`, e.bank)
+	pgtest.Exec(t, `UPDATE payments.house_bank SET status = 'inactive', active_gl_account_id = NULL, version = version + 1 WHERE id = $1`, e.bank)
 	e.Problem(422, "payments.house_bank_inactive", "POST", "/v1/payment-runs:propose", body(e.DE, e.bank, "2026-04-15"), "")
 	e.Problem(404, "request.not_found", "GET", "/v1/payment-runs/"+uuid.NewString(), "", "")
 }

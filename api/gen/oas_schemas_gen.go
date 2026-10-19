@@ -3672,6 +3672,11 @@ type BankFile struct {
 	UpdatedBy OptUUID `json:"updated_by"`
 	// Payment run.
 	PaymentRunID uuid.UUID `json:"payment_run_id"`
+	// House bank whose account the file pays from; a run writes one file per house bank and payment method
+	// (T45c).
+	HouseBankID OptUUID `json:"house_bank_id"`
+	// Payment method of the file's payments; absent for a run proposed for one house bank.
+	PaymentMethod OptString `json:"payment_method"`
 	// ISO 20022 message format. Open enumeration: clients must accept and preserve values not listed here;
 	// values may be added within /v1.
 	Format string `json:"format"`
@@ -3713,6 +3718,16 @@ func (s *BankFile) GetUpdatedBy() OptUUID {
 // GetPaymentRunID returns the value of PaymentRunID.
 func (s *BankFile) GetPaymentRunID() uuid.UUID {
 	return s.PaymentRunID
+}
+
+// GetHouseBankID returns the value of HouseBankID.
+func (s *BankFile) GetHouseBankID() OptUUID {
+	return s.HouseBankID
+}
+
+// GetPaymentMethod returns the value of PaymentMethod.
+func (s *BankFile) GetPaymentMethod() OptString {
+	return s.PaymentMethod
 }
 
 // GetFormat returns the value of Format.
@@ -3758,6 +3773,16 @@ func (s *BankFile) SetUpdatedBy(val OptUUID) {
 // SetPaymentRunID sets the value of PaymentRunID.
 func (s *BankFile) SetPaymentRunID(val uuid.UUID) {
 	s.PaymentRunID = val
+}
+
+// SetHouseBankID sets the value of HouseBankID.
+func (s *BankFile) SetHouseBankID(val OptUUID) {
+	s.HouseBankID = val
+}
+
+// SetPaymentMethod sets the value of PaymentMethod.
+func (s *BankFile) SetPaymentMethod(val OptString) {
+	s.PaymentMethod = val
 }
 
 // SetFormat sets the value of Format.
@@ -19282,6 +19307,11 @@ type Payment struct {
 	Kind OptString `json:"kind"`
 	// The down payment request a payment of kind `down_payment` pays.
 	DownPaymentRequestID OptUUID `json:"down_payment_request_id"`
+	// House bank that pays it: the run's, or for a run proposed without one, the first ranked for its
+	// payment method and currency (T45c).
+	HouseBankID OptUUID `json:"house_bank_id"`
+	// Payment method it is paid by (SAP ZLSCH); absent in a run proposed for one house bank.
+	PaymentMethod OptString `json:"payment_method"`
 	// Settled open items; none on a down payment's payment.
 	Items []PaymentItem `json:"items"`
 }
@@ -19354,6 +19384,16 @@ func (s *Payment) GetKind() OptString {
 // GetDownPaymentRequestID returns the value of DownPaymentRequestID.
 func (s *Payment) GetDownPaymentRequestID() OptUUID {
 	return s.DownPaymentRequestID
+}
+
+// GetHouseBankID returns the value of HouseBankID.
+func (s *Payment) GetHouseBankID() OptUUID {
+	return s.HouseBankID
+}
+
+// GetPaymentMethod returns the value of PaymentMethod.
+func (s *Payment) GetPaymentMethod() OptString {
+	return s.PaymentMethod
 }
 
 // GetItems returns the value of Items.
@@ -19431,6 +19471,16 @@ func (s *Payment) SetDownPaymentRequestID(val OptUUID) {
 	s.DownPaymentRequestID = val
 }
 
+// SetHouseBankID sets the value of HouseBankID.
+func (s *Payment) SetHouseBankID(val OptUUID) {
+	s.HouseBankID = val
+}
+
+// SetPaymentMethod sets the value of PaymentMethod.
+func (s *Payment) SetPaymentMethod(val OptString) {
+	s.PaymentMethod = val
+}
+
 // SetItems sets the value of Items.
 func (s *Payment) SetItems(val []PaymentItem) {
 	s.Items = val
@@ -19446,7 +19496,9 @@ type PaymentExclusion struct {
 	// `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid.
 	// `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run
 	// date (T46c); a request's exclusion names it (`down_payment_request_id`), and the supplier's items
-	// may still be paid.
+	// may still be paid. `no_house_bank` leaves out a supplier, or a request, of a run proposed without a
+	// house bank when none of the supplier's payment methods has a house bank ranked for the run currency
+	// (T45c).
 	ReasonCode string `json:"reason_code"`
 	// The down payment request left out, when the exclusion is a request's (T46c): a run lists one
 	// exclusion per supplier for its items and one per request left out, so a supplier may appear more
@@ -19805,8 +19857,9 @@ type PaymentRun struct {
 	DocumentNumber string `json:"document_number"`
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// House bank paying.
-	HouseBankID uuid.UUID `json:"house_bank_id"`
+	// House bank paying, for a run proposed for one bank; absent when each payment names the bank that
+	// pays it (T45c).
+	HouseBankID OptUUID `json:"house_bank_id"`
 	// Run (payment) date.
 	RunDate time.Time `json:"run_date"`
 	// Items due on or before this date are included.
@@ -19870,7 +19923,7 @@ func (s *PaymentRun) GetLegalEntityID() uuid.UUID {
 }
 
 // GetHouseBankID returns the value of HouseBankID.
-func (s *PaymentRun) GetHouseBankID() uuid.UUID {
+func (s *PaymentRun) GetHouseBankID() OptUUID {
 	return s.HouseBankID
 }
 
@@ -19960,7 +20013,7 @@ func (s *PaymentRun) SetLegalEntityID(val uuid.UUID) {
 }
 
 // SetHouseBankID sets the value of HouseBankID.
-func (s *PaymentRun) SetHouseBankID(val uuid.UUID) {
+func (s *PaymentRun) SetHouseBankID(val OptUUID) {
 	s.HouseBankID = val
 }
 
@@ -20167,8 +20220,14 @@ func (*PaymentRunPageHeaders) listPaymentRunsRes() {}
 type PaymentRunPropose struct {
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// House bank to pay from; its currency is the run currency.
-	HouseBankID uuid.UUID `json:"house_bank_id"`
+	// House bank to pay every supplier from; its currency is the run currency. Without it, each supplier
+	// is paid through the first of its payment methods that a house bank ranked for the method and the run
+	// currency pays with (ADR-0038), and suppliers no ranked bank can pay are excluded with
+	// `no_house_bank`.
+	HouseBankID OptUUID `json:"house_bank_id"`
+	// The run currency (ISO 4217), required without `house_bank_id`; with it, it may only repeat the house
+	// bank's currency.
+	Currency OptString `json:"currency"`
 	// Payment date.
 	RunDate time.Time `json:"run_date"`
 	// Include open items due on or before this date.
@@ -20181,8 +20240,13 @@ func (s *PaymentRunPropose) GetLegalEntityID() uuid.UUID {
 }
 
 // GetHouseBankID returns the value of HouseBankID.
-func (s *PaymentRunPropose) GetHouseBankID() uuid.UUID {
+func (s *PaymentRunPropose) GetHouseBankID() OptUUID {
 	return s.HouseBankID
+}
+
+// GetCurrency returns the value of Currency.
+func (s *PaymentRunPropose) GetCurrency() OptString {
+	return s.Currency
 }
 
 // GetRunDate returns the value of RunDate.
@@ -20201,8 +20265,13 @@ func (s *PaymentRunPropose) SetLegalEntityID(val uuid.UUID) {
 }
 
 // SetHouseBankID sets the value of HouseBankID.
-func (s *PaymentRunPropose) SetHouseBankID(val uuid.UUID) {
+func (s *PaymentRunPropose) SetHouseBankID(val OptUUID) {
 	s.HouseBankID = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *PaymentRunPropose) SetCurrency(val OptString) {
+	s.Currency = val
 }
 
 // SetRunDate sets the value of RunDate.

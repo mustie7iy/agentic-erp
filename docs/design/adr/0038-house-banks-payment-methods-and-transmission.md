@@ -23,9 +23,12 @@ and France, by EBICS.
   `bank`, so documents from before stay valid; a further bank must name
   one. No two house banks of a company share an account, so a clearing
   account's balance belongs to one bank: the configuration refuses it, and
-  the schema enforces it for active banks (`house_bank_account_once`) once
-  no running version still activates a replacing bank before deactivating
-  the one it replaces (T45c; 06 §6.4). The rule is a `DEFERRABLE
+  the schema enforces it for active banks (`house_bank_account_once`,
+  000092-000097; T45c, 06 §6.4), every running version deactivating a
+  replaced bank before it activates its replacement. A version from before
+  T45c does not write `active_gl_account_id`, so its house bank changes are
+  refused by the check while it still runs: configuration changes wait
+  until the upgrade completes (06 §6.4). The rule is a `DEFERRABLE
   INITIALLY DEFERRED` unique constraint, so one configuration may swap two
   banks' accounts. PostgreSQL attaches a constraint only to a non-partial
   index, so a nullable `active_gl_account_id` (the account while the bank
@@ -45,7 +48,11 @@ and France, by EBICS.
   its company data that a ranked bank can pay, and the release writes one
   bank file per house bank and method. The run's `house_bank_id` becomes
   nullable in the API and in the schema (a breaking change, accepted in
-  `api/breaking-accepted.txt`); a run proposed for one bank keeps it.
+  `api/breaking-accepted.txt`); a run proposed for one bank keeps it and
+  pays everyone through it, as before, with no method on its payments or
+  its one file. A run without a bank is proposed in a currency, which it
+  names; a supplier, or a down payment request, no ranked bank can pay is
+  excluded with `no_house_bank`, not failed.
   Per-bank amount limits and cheques are out of scope.
 - **Transmission.** SFTP (`pkg/sftp`) and EBICS connectors behind
   `payments.Connector`, one per house bank, with credentials by secret

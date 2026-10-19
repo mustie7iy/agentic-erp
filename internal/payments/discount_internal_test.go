@@ -76,18 +76,18 @@ func TestProposalDiscountsOutOfRange(t *testing.T) {
 	supplier, bank := uuid.New(), uuid.New()
 	payees := map[uuid.UUID]partner.Payee{supplier: {Status: partner.Active, BankAccountID: &bank}}
 	bad := &ledger.ItemTerms{BaselineDate: day("2026-03-01"), NetDays: 30, Discounts: []ledger.Discount{{Days: 10, Percent: "x"}}}
-	_, err := propose([]candidate{{supplier: supplier, items: []Item{{Amount: 100, terms: bad}}}}, payees, Run{RunDate: day("2026-03-05")}, "2000", 0)
+	err := new(proposal).propose([]candidate{{supplier: supplier, items: []Item{{Amount: 100, terms: bad}}}}, payees, Run{RunDate: day("2026-03-05")}, "2000", 0)
 	if err == nil || !strings.Contains(err.Error(), "the discount on item") {
 		t.Errorf("a percent that is not one: got %v, want the discount refused", err)
 	}
 	huge := money.Minor(9_000_000_000_000_000_000)
 	c := candidate{supplier: supplier, items: []Item{{Amount: huge, Discount: huge - 1}, {Amount: huge, Discount: huge - 1}}}
 	var pr proposal
-	if err := pr.pay(c, bank, 1, Run{}, "2000"); err == nil {
+	if err := pr.pay(c, bank, via{}, 1, Run{}, "2000"); err == nil {
 		t.Error("a supplier's discounts beyond an amount: got none, want an error")
 	}
 	pr = proposal{discount: huge}
-	if err := pr.pay(candidate{supplier: supplier, items: []Item{{Amount: huge, Discount: huge - 1}}}, bank, 1, Run{}, "2000"); err == nil {
+	if err := pr.pay(candidate{supplier: supplier, items: []Item{{Amount: huge, Discount: huge - 1}}}, bank, via{}, 1, Run{}, "2000"); err == nil {
 		t.Error("a run's discounts beyond an amount: got none, want an error")
 	}
 }

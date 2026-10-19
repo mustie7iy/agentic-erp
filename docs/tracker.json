@@ -637,7 +637,7 @@
       "c": []
      },
      {
-      "s": "P",
+      "s": "D",
       "t": "Multiple house banks and payment methods",
       "r": "ADR-0038 · T45 (split T45a, T45b, T45c; then T44)",
       "c": [
@@ -654,9 +654,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Proposals without a house bank pay each supplier through its first method a ranked bank can pay; one bank file per house bank and method; payment_run.house_bank_id nullable (breaking change accepted); at most one active house bank per ledger account in the schema (house_bank_account_once, a deferrable unique constraint attached to a concurrently built index; ADR-0038)",
-        "r": "T45c",
+        "s": "D",
+        "t": "Proposals without a house bank, in a currency, pay each supplier (items and down payment requests) through its first method a ranked active bank can pay, else exclude it with no_house_bank; payments post to their bank's account; one bank file per house bank and method; payment_run.house_bank_id nullable (breaking change accepted); at most one active house bank per ledger account in the schema (house_bank_account_once, a deferrable unique constraint attached to a concurrently built index; ADR-0038)",
+        "r": "db/migrations/000092-000097 · payments.router · payment.house_bank_id/payment_method · bank_file_once_per_bank · house_bank_account_once · T45c",
         "c": []
        }
       ]
@@ -5965,6 +5965,12 @@
       "s": "D",
       "t": "Balances mode (opening balances plus open items)",
       "r": "",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "SAP payment methods and bank ranking (T042Z, T042E/T042I) mapped to companies[].payment_methods in sapconfig, and suppliers' methods (LFB1-ZWELS) to their company data in the partner migration",
+      "r": "follow-up of the SAP load · delivery/sapconfig · ADR-0038 · after T45c",
       "c": []
      },
      {
