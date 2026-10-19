@@ -46,7 +46,7 @@ elif verb == "patch":
         state["n"] += 1
         phase = "Failed" if os.environ.get("FAIL_SYNC") == "%s@%d" % (a[4], state["n"]) else "Succeeded"
         app["status"] = {"operationState": {"phase": phase, "startedAt": str(state["n"]), "message": "boom",
-                                            "syncResult": {"revision": rev}}, "health": {"status": "Healthy"}}
+                                            "operation": {"sync": {"revision": rev}}}, "health": {"status": "Healthy"}}
         rel = json.loads(subprocess.run(["git", "show", rev + ":deploy/environments/staging/stg1/release.json"],
                                         capture_output=True, text=True, check=True).stdout)
         image, deployment = {"erp-cell": ("server", "erp-server"), "erp-global": ("router", "erp-router")}[a[4]]
@@ -137,5 +137,7 @@ if [ "$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "
   failed=1
 fi
 ONE_RELEASE=1 case_ nothing-to-roll-back-to refused "nothing to roll back to"
+PRE='mkdir -p deploy/helm/erp-cell && echo x >deploy/helm/erp-cell/Chart.yaml && git add . && git commit -q -m chart' \
+  case_ charts-changed refused "the charts changed"
 RUN=http://ci.example/1 case_ not-https refused "not an https"
 exit "$failed"

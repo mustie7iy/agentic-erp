@@ -14,6 +14,8 @@
 # pinned that release, so nothing is pushed: the root Application's
 # automated sync is paused for the drill and restored when it ends,
 # whatever the outcome, which brings every Application back to the branch.
+# It refuses a drill whose charts changed since N was pinned: production's
+# rollback renders the branch's charts with N's images, the drill's N's.
 # It appends the result, passed or failed, to
 # <drill cell>/drills/<N+1>.json for the release's commit, which a pull
 # request of its own then merges (promotion-checks.sh keeps records
@@ -65,6 +67,13 @@ old_rev = next((r for r in revs[1:] if release_at(r)["release"] != new["release"
 if old_rev is None:
     fail("%s ran no release before %s: nothing to roll back to" % (cell, new["release"]["version"]))
 old = release_at(old_rev)
+# A production rollback reverts release.json alone: the branch's charts
+# with N's images. The drill's revert syncs N's commit, N's charts, so it
+# drills that rollback only where the charts are the same.
+charts = ["deploy/helm/erp-cell", "deploy/helm/erp-global"]
+if git("diff", "--name-only", old_rev, branch, "--", *charts).strip():
+    fail("the charts changed since %s pinned %s: reverting to its commit would not drill the rollback production does"
+         % (old_rev[:12], old["release"]["version"]))
 
 def application(name):
     r = kube("-n", argocd, "get", "application", name, "-o", "json", check=False)
@@ -101,7 +110,7 @@ def synced(name, rev, before):
     def done():
         st = (application(name) or {}).get("status", {})
         op = st.get("operationState") or {}
-        if op.get("startedAt") == before or op.get("syncResult", {}).get("revision") != rev \
+        if op.get("startedAt") == before or op.get("operation", {}).get("sync", {}).get("revision") != rev \
                 or op.get("phase") in (None, "Running", "Terminating"):
             return None
         if op["phase"] != "Succeeded":

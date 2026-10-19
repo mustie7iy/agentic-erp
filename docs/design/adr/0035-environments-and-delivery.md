@@ -526,6 +526,11 @@ deployments run that release's images by digest and finished rolling out,
 and the smoke tests pass (`SMOKE`, a command). Whatever the outcome it
 restores the root's automated sync, whose self-heal brings everything back
 to the branch, and appends the run, passed or failed, to the record.
+Production's rollback reverts `release.json` alone, rendering the
+branch's charts with N's images, while the drill's revert syncs N's
+commit; so the drill refuses to run when `erp-cell` or `erp-global`
+changed since N was pinned, and such a release cannot reach production
+until a drill of a later pair can run.
 `test-rollback-drill.sh` runs it against a stand-in kubectl (no cluster;
 the `promotion-self-test` workflow). Runbook, in staging's account with
 access to `stg1`'s cluster, once N+1 is on `staging/stg1`:
