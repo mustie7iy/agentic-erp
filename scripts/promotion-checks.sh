@@ -21,23 +21,27 @@
 #     CD's sync limit by helm-checks.sh);
 #   - a release reaches production only after its rollback drill in
 #     staging passed for that very commit: <drill cell>/drills/<version>.json
-#     at BASE records it ({"release", "commit", "rolled_back_to", "result",
-#     "run"}, committed by a pull request of its own, as path.json changes
-#     are), so a version re-pinned to another commit needs a drill again.
+#     at BASE lists the drill's runs ([{"release", "commit",
+#     "rolled_back_to", "result", "run"}], scripts/rollback-drill.sh),
+#     the last for that commit passed. Records are appended to by pull
+#     requests of their own, as path.json changes are, never rewritten, so
+#     a failed run stays failed; a version re-pinned to another commit
+#     needs a drill again.
 # With OUT set it writes "<commit> <image ref>" lines there, which the
 # deploy workflow verifies with scripts/verify-image.sh (signatures,
 # attestations, provenance naming the commit) before the promotion merges;
-# with CELL_OUT set, the promoted cell (<env>/<cell>), whose production
-# promotions, rollbacks among them, need an approver's approval
-# (scripts/promotion-approvals.sh).
+# with APPROVAL_OUT set, "production" there when the pull request needs an
+# approver's approval (scripts/promotion-approvals.sh): it changes a
+# production cell's release (a rollback too) or values, or path.json,
+# which orders every later promotion.
 #   scripts/promotion-checks.sh origin/main [HEAD]
 set -euo pipefail
 cd "$(dirname "$0")/.."
 base="${1:?usage: promotion-checks.sh BASE [HEAD]}"
-python3 - "$base" "${2:-HEAD}" "${OUT:-}" "${CELL_OUT:-}" <<'PY'
+python3 - "$base" "${2:-HEAD}" "${OUT:-}" "${APPROVAL_OUT:-}" <<'PY'
 import json, re, subprocess, sys
 
-base, head, out, cell_out = sys.argv[1:5]
+base, head, out, approval_out = sys.argv[1:5]
 root = "deploy/environments"
 images = {"server": "erp-server", "router": "erp-router", "pgbouncer": "erp-pgbouncer", "nats": "erp-nats", "temporal": "erp-temporal"}
 
@@ -126,14 +130,22 @@ if root + "/path.json" in changed:
             or new.get("drill") not in new["path"]:
         fail("path.json must name a non-empty path of cells and a drill cell on it")
 for p in drills:
-    text = at(head, p) or fail("%s is removed: a drill's record is kept" % p)
-    d = load(text, p)
+    runs = load(at(head, p) or fail("%s is removed: a drill's record is kept" % p), p)
     name = p.rsplit("/", 1)[1][:-len(".json")]
-    if set(d) != {"release", "commit", "rolled_back_to", "result", "run"} or d["release"] != name \
-            or not re.fullmatch(r"[0-9a-f]{40}", str(d["commit"])) or d["result"] not in ("passed", "failed") \
-            or not re.fullmatch(r"v\d+\.\d+\.\d+", str(d["rolled_back_to"])) or not str(d["run"]).startswith("https://"):
-        fail('%s must be {"release": "%s", "commit": "<full commit>", "rolled_back_to": "vX.Y.Z", "result": "passed" or "failed", "run": "https://..."}' % (p, name))
-    print("promotion-checks: %s records the drill of %s: %s" % (drill_cell, name, d["result"]))
+    before = at(base, p)
+    kept = load(before, p) if before is not None else []
+    if not isinstance(runs, list) or runs[:len(kept)] != kept or len(runs) == len(kept):
+        fail("%s is append-only: a pull request adds runs to it, never changes or removes one" % p)
+    for d in runs[len(kept):]:
+        if not isinstance(d, dict) or set(d) != {"release", "commit", "rolled_back_to", "result", "run"} or d["release"] != name \
+                or not re.fullmatch(r"[0-9a-f]{40}", str(d["commit"])) or d["result"] not in ("passed", "failed") \
+                or not re.fullmatch(r"v\d+\.\d+\.\d+", str(d["rolled_back_to"])) or not str(d["run"]).startswith("https://"):
+            fail('%s: each run must be {"release": "%s", "commit": "<full commit>", "rolled_back_to": "vX.Y.Z", "result": "passed" or "failed", "run": "https://..."}' % (p, name))
+        print("promotion-checks: %s records a drill of %s: %s" % (drill_cell, name, d["result"]))
+if approval_out:
+    with open(approval_out, "w") as f:
+        if root + "/path.json" in changed or any(p.startswith(root + "/production/") for p in releases + cells):
+            f.write("production\n")
 if not releases:
     print("promotion-checks: no release changes")
     sys.exit()
@@ -162,15 +174,13 @@ else:
             fail("%s may take only the release %s runs, not %s" % (cell, before, version))
     if env == "production":
         record = at(base, "%s/%s/drills/%s.json" % (root, drill_cell, version))
-        drill = load(record, "drill") if record is not None else None
-        if not drill or drill.get("result") != "passed" or drill.get("release") != version or drill.get("commit") != rel[1]:
+        runs = load(record, "drill") if record is not None else []
+        mine = [d for d in runs if isinstance(runs, list) and isinstance(d, dict) and d.get("release") == version and d.get("commit") == rel[1]]
+        if not mine or mine[-1].get("result") != "passed":
             fail("%s (%s) reaches production only after its rollback drill in %s passed for that commit (%s/drills/%s.json)"
                  % (version, rel[1], drill_cell, drill_cell, version))
     print("promotion-checks: %s takes %s" % (cell, version))
 
-if cell_out:
-    with open(cell_out, "w") as f:
-        f.write(cell + "\n")
 if out:
     with open(out, "w") as f:
         for name in sorted(images):

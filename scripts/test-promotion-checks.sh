@@ -36,7 +36,9 @@ put() {
 }
 env_file() { echo "deploy/environments/$1/release.json"; }
 # drill VERSION DIGIT ROLLED_BACK_TO RESULT: a drill's record of the release whose commit repeats DIGIT.
-drill() { printf '{"release": "%s", "commit": "%s", "rolled_back_to": "%s", "result": "%s", "run": "https://ci.example/run/1"}' "$1" "$(printf "%040d" 0 | tr 0 "$2")" "$3" "$4"; }
+run_() { printf '{"release": "%s", "commit": "%s", "rolled_back_to": "%s", "result": "%s", "run": "https://ci.example/run/1"}' "$1" "$(printf "%040d" 0 | tr 0 "$2")" "$3" "$4"; }
+# drill VERSION DIGIT ROLLED_BACK_TO RESULT: a record of one such run.
+drill() { printf '[%s]' "$(run_ "$@")"; }
 
 # main: v1.0.0 everywhere, v1.1.0 promoted up to staging, whose drill passed.
 for cell in dev/dev1 test/test1 staging/stg1 production/prod1 production/prod2; do put "$(env_file $cell)" "$(release v1.0.0 1)" "v1.0.0 to $cell"; done
@@ -45,7 +47,7 @@ put deploy/environments/staging/stg1/drills/v1.1.0.json "$(drill v1.1.0 2 v1.0.0
 put "$(env_file dev/dev1)" "$(release v1.2.0 3)" "v1.2.0 to dev"
 # faildrill: the same, but the drill failed.
 git -C "$repo" checkout -q -b faildrill
-put deploy/environments/staging/stg1/drills/v1.1.0.json "$(drill v1.1.0 2 v1.0.0 failed)" "v1.1.0's drill, again"
+put deploy/environments/staging/stg1/drills/v1.1.0.json "[$(run_ v1.1.0 2 v1.0.0 passed), $(run_ v1.1.0 2 v1.0.0 failed)]" "v1.1.0's drill, again"
 # repinned: v1.1.0 re-pinned to another commit up to staging, its drill that of the first.
 git -C "$repo" checkout -q -b repinned main
 for cell in dev/dev1 test/test1 staging/stg1; do put "$(env_file $cell)" "$(release v1.1.0 5)" "v1.1.0 again to $cell"; done
@@ -82,7 +84,11 @@ case_ cells-follow-the-canary refused "may take only the release production/prod
 case_ rollback ok "rolls back" 'put "$(env_file staging/stg1)" "$(release v1.0.0 1)" p'
 case_ two-cells refused "one cell" 'put "$(env_file test/test1)" "$(release v1.2.0 3)" p && put "$(env_file staging/stg1)" "$(release v1.0.0 1)" q'
 case_ release-and-drill refused "one cell" 'put "$(env_file test/test1)" "$(release v1.2.0 3)" p && put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.2.0 3 v1.1.0 passed)" q'
-case_ drill-record ok "records the drill" 'put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.2.0 3 v1.1.0 failed)" p'
+case_ drill-record ok "records a drill" 'put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.2.0 3 v1.1.0 failed)" p'
+case_ drill-again ok "records a drill" 'put deploy/environments/staging/stg1/drills/v1.1.0.json "[$(run_ v1.1.0 2 v1.0.0 passed), $(run_ v1.1.0 2 v1.0.0 failed)]" p'
+case_ drill-rewritten refused "append-only" 'put deploy/environments/staging/stg1/drills/v1.1.0.json "$(drill v1.1.0 2 v1.0.0 failed)" p'
+case_ drill-unchanged-runs refused "append-only" 'put deploy/environments/staging/stg1/drills/v1.1.0.json "[$(run_ v1.1.0 2 v1.0.0 passed) ]" p'
+BASE=faildrill case_ failed-drill-passed-later ok "" 'put deploy/environments/staging/stg1/drills/v1.1.0.json "[$(run_ v1.1.0 2 v1.0.0 passed), $(run_ v1.1.0 2 v1.0.0 failed), $(run_ v1.1.0 2 v1.0.0 passed)]" p'
 case_ bad-drill-record refused "must be" 'put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.3.0 3 v1.1.0 passed)" p'
 case_ by-tag refused "not a sha256 digest" 'put "$(env_file dev/dev1)" "$(release v1.3.0 4 | sed "s/sha256:4*\"/latest\"/")" p'
 case_ foreign-repository refused "repository" 'put "$(env_file dev/dev1)" "$(release v1.3.0 4 | sed "s|amazonaws.com/erp-nats|amazonaws.com/nats|")" p'
@@ -112,12 +118,24 @@ if [ "$(grep -c "^$(printf "%040d" 0 | tr 0 3) .*@sha256:$(printf "%064d" 0 | tr
 else
   echo "ok   listed"
 fi
-# The promoted cell, which decides whether an approver must approve.
-OUT="$work/out" CELL_OUT="$work/cell" "$repo/scripts/promotion-checks.sh" main listed >/dev/null
-if [ "$(cat "$work/cell")" != test/test1 ]; then
-  echo "FAIL cell: CELL_OUT names $(cat "$work/cell"), want test/test1" >&2
-  failed=1
-else
-  echo "ok   cell"
-fi
+# Whether an approver must approve: production's releases and values, and the path.
+approval() {
+  local name="$1" want="$2"
+  git -C "$repo" checkout -q -B "$name" main
+  (cd "$repo" && eval "$3")
+  git -C "$repo" checkout -q main
+  : >"$work/approval"
+  APPROVAL_OUT="$work/approval" "$repo/scripts/promotion-checks.sh" main "$name" >/dev/null 2>&1 || true
+  if [ "$(cat "$work/approval")" != "$want" ]; then
+    echo "FAIL approval-$name: APPROVAL_OUT says '$(cat "$work/approval")', want '$want'" >&2
+    failed=1
+  else
+    echo "ok   approval-$name"
+  fi
+}
+approval test-release "" 'put "$(env_file test/test1)" "$(release v1.2.0 3)" p'
+approval canary production 'put "$(env_file production/prod1)" "$(release v1.1.0 2)" p'
+approval prod-values production 'put deploy/environments/production/prod1/cell.json "{\"environment\": \"production\", \"cell\": \"prod1\"}" p'
+approval dev-values "" 'put deploy/environments/dev/dev1/cell.json "{\"environment\": \"dev\", \"cell\": \"dev1\"}" p'
+approval path production 'put deploy/environments/path.json "{\"path\": [\"dev/dev1\", \"staging/stg1\"], \"drill\": \"staging/stg1\"}" p'
 exit "$failed"

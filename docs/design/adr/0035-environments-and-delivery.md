@@ -487,7 +487,8 @@ it and the deploy workflow skips them, so a promotion costs two short
 jobs.
 
 *Approvals (T40d4, product owner).* A promotion of a production cell,
-a rollback included, merges only once someone other than its author
+a rollback included, a change to a production cell's `cell.json`, and a
+change to `path.json` (which orders every later promotion) merge only once someone other than its author
 approved its head commit and is listed in `.github/approvers` as the base
 branch has it; no CODEOWNERS. `scripts/promotion-approvals.sh` reads the
 pull request and its reviews through GitHub's API with the workflow's
@@ -495,16 +496,23 @@ read-only token (`contents: read`, `pull-requests: read`): each
 reviewer's latest approval, change request or dismissal stands, a comment
 changing nothing; an approval counts only for the commit it was given on,
 and a head that moved since the checks ran is refused. It is the
-`approvals` job of the `promotion` workflow, run only for production
-cells; since that workflow runs as `pull_request_target`, which a review
-does not trigger, `promotion-review.yml` re-runs its run for the reviewed
-head on an approval or a dismissal and judges nothing itself.
+`approvals` job of the `promotion` workflow, run only when
+`promotion-checks.sh` says one is needed; since that workflow runs as
+`pull_request_target`, which a review does not trigger,
+`promotion-review.yml` re-runs that one job for the reviewed head on any
+review but a comment, or a dismissal, and judges nothing itself.
 `scripts/merge-pr.sh`, which stands in for branch protection, merges a
 pull request changing `deploy/environments/` only once every job of the
-`promotion` workflow passed or was skipped on its head. The list holds the
-product owner alone today, who authors the promotions: until a second
-approver is listed, no production promotion can merge. Changes to the
-list are reviewed as any other change (06 §6.5).
+`promotion` workflow passed or was skipped on its head, and runs
+`promotion-approvals.sh` itself once more where an approval is needed, so a
+change request or a dismissal after the job ran still counts. The list
+holds the product owner alone today, who authors the promotions: until a
+second approver is listed, no production promotion can merge. A change to
+the list itself needs no approval, only the review any change has
+(06 §6.5): with one owner, that is the owner's own. That GitHub reports the
+`pull_request_target` jobs on the pull request's head (which
+`promotion-review.yml` and `merge-pr.sh` read) is confirmed on the first
+promotion pull request; if it does not, both fail closed.
 
 **Bootstrap runbook.** Every root is initialised with
 `-backend-config="bucket=<bucket>" -backend-config="region=<region>" -backend-config="kms_key_id=<state key ARN>"`:

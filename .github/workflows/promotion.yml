@@ -7,7 +7,8 @@ name: promotion
 #     path dev -> test -> staging -> the production canary -> production,
 #     the staging rollback drill passed before production, or a rollback
 #     to what the cell ran before (offline, a few seconds);
-#   - for a production cell, rollbacks included, scripts/promotion-approvals.sh:
+#   - for a production cell's release (rollbacks included) or values, or
+#     path.json, scripts/promotion-approvals.sh:
 #     an approval of the head by someone other than the author, listed in
 #     .github/approvers on BASE (product owner, no CODEOWNERS), read with
 #     the workflow's read-only token; a review re-runs this workflow
@@ -63,9 +64,9 @@ jobs:
           BASE: origin/${{ github.base_ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          OUT="$RUNNER_TEMP/images" CELL_OUT="$RUNNER_TEMP/cell" ./scripts/promotion-checks.sh "$BASE" "$HEAD_SHA"
+          OUT="$RUNNER_TEMP/images" APPROVAL_OUT="$RUNNER_TEMP/approval" ./scripts/promotion-checks.sh "$BASE" "$HEAD_SHA"
           if [ -s "$RUNNER_TEMP/images" ]; then echo "images=true" >> "$GITHUB_OUTPUT"; fi
-          if grep -q '^production/' "$RUNNER_TEMP/cell" 2>/dev/null; then echo "production=true" >> "$GITHUB_OUTPUT"; fi
+          if grep -q '^production$' "$RUNNER_TEMP/approval"; then echo "production=true" >> "$GITHUB_OUTPUT"; fi
 
   approvals:
     needs: checks

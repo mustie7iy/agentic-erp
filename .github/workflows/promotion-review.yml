@@ -2,10 +2,11 @@ name: promotion-review
 
 # A review of a production promotion is judged by the promotion workflow's
 # approvals job (ADR-0035, T40d4), which runs as pull_request_target and so
-# not on a review. This re-runs that workflow's run for the reviewed head,
-# so an approval, or its dismissal, is judged again by BASE's checks; it
-# judges nothing itself. A review of any other pull request finds no such
-# run and ends in seconds; only an approval or a dismissal starts it.
+# not on a review. This re-runs that job alone, of the run for the reviewed
+# head, so an approval, a change request or a dismissal is judged again by
+# BASE's checks; it judges nothing itself (scripts/merge-pr.sh judges the
+# approvals again at merge). A review of any other pull request finds no
+# such job and ends in seconds; a comment starts nothing.
 on:
   pull_request_review:
     types: [submitted, dismissed]
@@ -14,11 +15,11 @@ permissions: {}
 
 jobs:
   rerun:
-    if: github.event.review.state == 'approved' || github.event.action == 'dismissed'
+    if: github.event.action == 'dismissed' || github.event.review.state != 'commented'
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions:
-      actions: write # re-run the promotion workflow's run
+      actions: write # re-run the promotion workflow's approvals job
     steps:
       - name: Judge the promotion again
         env:
@@ -28,8 +29,12 @@ jobs:
         run: |
           run="$(gh run list -R "$REPO" --workflow promotion.yml --event pull_request_target \
             --commit "$HEAD_SHA" --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+          job=""
           if [ -n "$run" ]; then
-            gh run rerun "$run" -R "$REPO"
+            job="$(gh run view "$run" -R "$REPO" --json jobs --jq '.jobs[] | select(.name == "approvals") | .databaseId')"
+          fi
+          if [ -n "$job" ]; then
+            gh run rerun -R "$REPO" --job "$job"
           else
-            echo "promotion-review: no promotion run for $HEAD_SHA"
+            echo "promotion-review: no approvals job for $HEAD_SHA"
           fi
