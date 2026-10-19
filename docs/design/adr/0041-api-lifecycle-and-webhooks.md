@@ -169,7 +169,10 @@ event version breaks someone else's system.
   current secret and, while it signs, the previous one (opened with
   fieldcrypt, hex); `webhook-id` is the CloudEvent id, so the endpoint
   deduplicates across retries, redeliveries and replays, and
-  `webhook-delivery-id` names the delivery for support. The answer is recorded in another transaction guarded by the
+  `webhook-delivery-id` names the delivery for support. Two
+  subscriptions of a tenant to one URL get the same event under the same
+  `webhook-id`, and a deduplicating receiver takes it once, which is
+  meant: it is one event. The answer is recorded in another transaction guarded by the
   leased version and `status = 'pending'`, so a second recording of the
   same attempt changes nothing; a lost recording leaves the lease to lapse
   and the delivery is sent again (at least once; the endpoint drops the
@@ -192,7 +195,9 @@ event version breaks someone else's system.
   is pending. `failing_since` is the dispatcher's bookkeeping and moves
   without the version (the subscription's touch trigger skips an update
   changing only it), so a tenant's ETag stays valid; disabling is a
-  visible change and moves the version. The 10 in flight and the
+  visible change and moves the version. Since the ETag no longer covers
+  `failing_since`, a conditional GET (`If-None-Match`, not served today)
+  must not answer 304 for a subscription. The 10 in flight and the
   50 per second are per replica, as the API's rate limits are. Deliveries
   older than 30 days are deleted hourly by the worker role.
 - **Consumer review (T50h)** of the contract waits until the product owner
