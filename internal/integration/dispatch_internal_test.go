@@ -46,9 +46,18 @@ func TestRecordTwice(t *testing.T) {
 	pgtest.Scan(t, `SELECT d.status, d.attempts, s.status FROM integration.webhook_delivery d
 		JOIN integration.webhook_subscription s ON s.id = d.subscription_id WHERE d.id = $1`, []any{c.id}, &status, &attempts, &subStatus)
 	pgtest.Scan(t, `SELECT count(*) FROM audit.audit_event WHERE object_id = $1`, []any{c.sub}, &audited)
-	if status != "dead" || attempts != 1 || subStatus != "disabled" || audited != 1 {
-		t.Errorf("got delivery %s after %d attempts, subscription %s, %d audit records; want dead after 1, disabled, 1",
-			status, attempts, subStatus, audited)
+	for _, c := range []struct{ name, got, want string }{
+		{"delivery", status, "dead"}, {"subscription", subStatus, "disabled"},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s: got %s, want %s", c.name, c.got, c.want)
+		}
+	}
+	if attempts != 1 {
+		t.Errorf("attempts: got %d, want 1", attempts)
+	}
+	if audited != 1 {
+		t.Errorf("audit records: got %d, want 1", audited)
 	}
 }
 
@@ -140,7 +149,10 @@ func TestRecordAfterDelete(t *testing.T) {
 	var failing bool
 	pgtest.Scan(t, `SELECT d.attempts, s.failing_since IS NOT NULL FROM integration.webhook_delivery d
 		JOIN integration.webhook_subscription s ON s.id = d.subscription_id WHERE d.id = $1`, []any{c.id}, &attempts, &failing)
-	if attempts != 1 || failing {
-		t.Errorf("got %d attempts, failing %v; want 1 attempt and the deleted subscription unchanged", attempts, failing)
+	if attempts != 1 {
+		t.Errorf("attempts: got %d, want 1", attempts)
+	}
+	if failing {
+		t.Error("the deleted subscription: got failing_since set, want it unchanged")
 	}
 }
