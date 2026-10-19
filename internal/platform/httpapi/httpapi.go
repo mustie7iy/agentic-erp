@@ -1,7 +1,8 @@
 // Package httpapi is the request pipeline of the public API (ADR-0014):
 // telemetry, authentication and the unit of work around the server
 // generated from api/openapi.yaml, with authorization per operation and
-// every error as an RFC 9457 problem, and the operational endpoints; and
+// every error as an RFC 9457 problem, deprecations announced from the
+// contract (ADR-0041), and the operational endpoints; and
 // what the hand-written operator APIs (control plane, global directory)
 // share: Operator, NotAllowed and WriteJSON. It names no context:
 // internal/app assembles the contexts' handlers into the generated Handler
@@ -104,6 +105,7 @@ func New(h gen.Handler, p Pipeline) (http.Handler, error) {
 	if p.RequestTimeout > 0 {
 		chain = deadline(p.RequestTimeout, chain)
 	}
+	chain = announce(srv, deprecations(api.MustOperations()), chain)
 	mux := http.NewServeMux()
 	for pattern, route := range p.Routes {
 		mux.Handle(pattern, route)

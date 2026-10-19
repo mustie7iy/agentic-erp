@@ -4,7 +4,9 @@
 // control.yaml for the operators' control plane on the admin listener. The
 // package's tests enforce the rules of docs/design/04-api-design.md on the
 // contracts and check every x-permission against the ref.permission seed in
-// db/migrations.
+// db/migrations. Their lifecycle (deprecation with 365 days' notice,
+// accepted breaking changes, events additive within a version) is ADR-0041:
+// Operation.Lifecycle and EventChanges carry it.
 package api
 
 //go:generate go tool ogen --target gen --package gen --clean openapi.yaml

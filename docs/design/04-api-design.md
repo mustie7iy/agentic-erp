@@ -265,9 +265,19 @@ at most one bank file.
 Within `/v1`, only additive changes are allowed: new resources, new optional
 fields, new optional parameters, new enum values, new error codes. Removing or
 renaming anything, making a field required or changing a type needs `/v2`,
-which runs side by side with `/v1` for at least 12 months. Deprecations are
-announced with the `Deprecation` and `Sunset` headers. The breaking-change
-check in CI enforces this.
+which runs side by side with `/v1` for at least 12 months (ADR-0041).
+
+A deprecated operation says so in the contract: `deprecated: true`,
+`x-deprecated-at`, `x-sunset` at least 365 days later and `externalDocs.url`
+with its migration notes. Every answer to it carries `Deprecation`
+(RFC 9745, `@<unix seconds>`), `Sunset` (RFC 8594) and
+`Link: <notes>; rel="deprecation"`, built from the contract.
+
+The breaking-change check in CI enforces this: oasdiff against main with
+`--deprecation-days-stable=365`. An accepted break is listed in
+`api/breaking-accepted.txt` under a comment naming its T-number and reason;
+once the pilot partner consumes `/v1`, only operations marked
+`x-stability-level: beta` may be listed.
 
 ## 4.11 Limits and quotas
 
@@ -300,8 +310,17 @@ Events are CloudEvents 1.0 with `type` `com.example.erp.<context>.<event>.v1`
 `subject` = resource id, and the extension attributes `tenantid`, `actorid`
 and `traceid`. Payloads carry ids and the changed facts, not whole
 aggregates. Delivery is at least once and ordered per resource; consumers
-deduplicate on `id` through their inbox table. External subscribers receive
-the same events through signed webhooks.
+deduplicate on `id` through their inbox table.
+
+Within a `.vN` an event changes only additively: no event type or field
+removed, no type changed, no field newly required. A breaking change
+publishes `.vN+1` beside `.vN` for 12 months. `cmd/eventcompat` checks this
+against main in the breaking-change step (ADR-0041).
+
+External subscribers receive events marked `x-webhook: true` through
+webhooks signed per Standard Webhooks (HMAC-SHA256, a `whsec_` secret per
+subscription, 24 h overlap on rotation), at most 20 subscriptions per tenant,
+retried with backoff for 3 days, ordered per resource (ADR-0041, T50b–g).
 
 ## 4.13 Agents
 
