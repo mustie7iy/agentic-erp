@@ -1,0 +1,31 @@
+name: promotion-self-test
+
+# The promotion checks' own tests on a throwaway repository (ADR-0035,
+# T40d). Apart from the promotion workflow, which runs as
+# pull_request_target with the base branch's checks: a change to the checks
+# is tested here, without secrets, and judges promotions once merged.
+on:
+  pull_request:
+    paths:
+      - scripts/promotion-checks.sh
+      - scripts/test-promotion-checks.sh
+      - .github/workflows/promotion.yml
+      - .github/workflows/promotion-self-test.yml
+
+concurrency:
+  group: promotion-self-test-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  self-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: The checks' own tests
+        run: ./scripts/test-promotion-checks.sh

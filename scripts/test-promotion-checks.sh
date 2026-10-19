@@ -75,6 +75,7 @@ case_ canary-after-drill ok "" 'put "$(env_file production/prod1)" "$(release v1
 BASE=faildrill case_ canary-after-a-failed-drill refused "rollback drill" 'put "$(env_file production/prod1)" "$(release v1.1.0 2)" p'
 BASE=repinned case_ canary-of-a-repinned-version refused "for that commit" 'put "$(env_file production/prod1)" "$(release v1.1.0 5)" p'
 case_ release-and-script refused "nothing else" 'put "$(env_file test/test1)" "$(release v1.2.0 3)" p && put scripts/verify-image.sh "exit 0" q'
+case_ rename-onto-a-release refused "nothing else" 'mkdir -p deploy/environments/production/prod3 && git mv "$(env_file production/prod2)" "$(env_file production/prod3)" && git commit -q -m p'
 case_ drill-without-commit refused "must be" 'put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.2.0 3 v1.1.0 passed | sed "s/\"commit\": \"3*\", //")" p'
 case_ bad-path refused "path.json must" 'put deploy/environments/path.json "{\"path\": [\"dev/dev1\"], \"drill\": \"staging/stg1\"}" p'
 case_ cells-follow-the-canary refused "may take only the release production/prod1 runs" 'put "$(env_file production/prod2)" "$(release v1.1.0 2)" p'

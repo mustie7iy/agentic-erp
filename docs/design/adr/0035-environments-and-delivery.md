@@ -436,7 +436,8 @@ that judge it are the base branch's: the workflow runs as
 `pull_request_target` and reads the pull request's commit as data, so a
 promotion cannot also rewrite its own checks. `scripts/promotion-checks.sh`
 checks all of it offline, `test-promotion-checks.sh` on a throwaway
-repository; the `promotion` workflow runs both and then, in the
+repository (the `promotion-self-test` workflow, when the checks change);
+the `promotion` workflow runs the checks and then, in the
 `delivery` environment as the erp-delivery role, `verify-image.sh` on
 every pinned image against the release's commit. Only promotion paths run
 it and the deploy workflow skips them, so a promotion costs two short

@@ -21,37 +21,24 @@ name: promotion
 # The checks run as pull_request_target: the workflow and the scripts are
 # BASE's, and the pull request's commit is only read, as data (git show of
 # its files), never checked out or run. So a promotion cannot change what
-# judges it; a change to the checks themselves is tested by `self-test`
-# (pull_request, nothing secret) and judges promotions once it is merged.
+# judges it; a change to the checks themselves is tested by the
+# promotion-self-test workflow and judges promotions once it is merged.
+# The checkout keeps its contents:read token, which fetches the pull
+# request's ref of this private repository; no code of the pull request runs.
 on:
   pull_request_target:
     paths:
       - deploy/environments/**
-  pull_request:
-    paths:
-      - scripts/promotion-checks.sh
-      - scripts/test-promotion-checks.sh
-      - .github/workflows/promotion.yml
 
 concurrency:
-  group: promotion-${{ github.event_name }}-${{ github.event.pull_request.number }}
+  group: promotion-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  self-test:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v7
-      - name: The checks' own tests
-        run: ./scripts/test-promotion-checks.sh
-
   checks:
-    if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -60,7 +47,6 @@ jobs:
       - uses: actions/checkout@v7 # BASE, the default of pull_request_target
         with:
           fetch-depth: 0
-          persist-credentials: false
       - name: The pull request's commit, as data
         env:
           NUMBER: ${{ github.event.pull_request.number }}
@@ -87,7 +73,6 @@ jobs:
       - uses: actions/checkout@v7 # BASE: its verify-image.sh judges the images
         with:
           fetch-depth: 0
-          persist-credentials: false
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod

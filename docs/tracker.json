@@ -4937,7 +4937,7 @@
        {
         "s": "D",
         "t": "Promotions: a release pinned per cell by pull request, along dev, test, staging, the production canary and production, after the staging drill; the pinned images verified against the release's commit",
-        "r": "deploy/environments · scripts/promotion-checks.sh · .github/workflows/promotion.yml · ADR-0035 · T40d2",
+        "r": "deploy/environments · scripts/promotion-checks.sh · .github/workflows/promotion.yml · .github/workflows/promotion-self-test.yml · ADR-0035 · T40d2",
         "c": []
        },
        {

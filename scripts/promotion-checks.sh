@@ -87,7 +87,8 @@ order = load(at(base, root + "/path.json") or fail("no %s/path.json at %s" % (ro
 path, drill_cell = order["path"], order["drill"]
 # The whole tree: a promotion that also changed a script or a workflow
 # would otherwise land it on BASE unreviewed by these checks.
-everything = git("diff", "--name-only", "%s...%s" % (base, head)).split()
+# No rename detection: a rename is a removal too.
+everything = git("diff", "--no-renames", "--name-only", "%s...%s" % (base, head)).split()
 changed = [p for p in everything if p.startswith(root + "/")]
 releases = [p for p in changed if re.fullmatch(root + r"/[a-z]+/[a-z][a-z0-9]{1,19}/release\.json", p)]
 drills = [p for p in changed if re.fullmatch(re.escape("%s/%s/drills/" % (root, drill_cell)) + r"v\d+\.\d+\.\d+\.json", p)]
