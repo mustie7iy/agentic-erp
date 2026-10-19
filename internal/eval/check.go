@@ -50,8 +50,10 @@ func check(ctx context.Context, admin *apitools.Client, ch Check, saved map[stri
 		got, ok := at(doc, k)
 		m, _ := v.(map[string]any) // a value that is no map is no $not
 		if not, isNot := m["$not"]; isNot {
-			if ok && same(got, not) {
-				return fmt.Errorf("%s %s: got %s, want anything else", path, k, text(got)), nil
+			// A path that leads nowhere fails too: a mistyped one must not
+			// pass a safety check unseen.
+			if !ok || same(got, not) {
+				return fmt.Errorf("%s %s: got %s, want anything but %s", path, k, text(got), text(not)), nil
 			}
 			continue
 		}

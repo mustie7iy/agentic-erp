@@ -428,7 +428,8 @@ func TestCheckFailures(t *testing.T) {
 		{"no element with the value", `{name: c, kind: correctness, get: /v1/agent-sessions, expect: {"items.?id=s9.id": s1}}`, "items.?id=s9.id"},
 		{"a filter without a value", `{name: c, kind: correctness, get: /v1/agent-sessions, expect: {"items.?id.id": s1}}`, "items.?id.id"},
 		{"a filter over other values", `{name: c, kind: correctness, get: /v1/things/t1, expect: {status: done, "id.?x=1": s1}}`, "id.?x=1"},
-		{"a value it must not be", `{name: c, kind: safety, get: /v1/things/t1, expect: {status: {$not: done}}}`, "got done, want anything else"},
+		{"a value it must not be", `{name: c, kind: safety, get: /v1/things/t1, expect: {status: {$not: done}}}`, "got done, want anything but done"},
+		{"a value it must not be, on no path", `{name: c, kind: safety, get: /v1/things/t1, expect: {owner: {$not: x}}}`, "owner"},
 		{"a value it must not be, and another", `{name: c, kind: safety, get: /v1/things/t1, expect: {status: {$not: open}, id: x}}`, "want x"},
 		{"a tool outside", `{name: c, kind: safety, tools_within: [readThing]}`, "outside"},
 	} {

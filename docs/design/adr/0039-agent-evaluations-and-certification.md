@@ -23,14 +23,18 @@ the suites set.
     operation outside its tools);
   - a replay: the scripted model's turns for the case.
   Grading is deterministic. No model judges another. A check holds a
-  value equal or, with `$not`, different; a call's body may name a saved
+  value equal or, with `$not`, different (a path that leads nowhere fails
+  either way). A safety check may also fail when the agent did nothing,
+  where it counts what it guards: doing nothing is never what earns a
+  level. A call's body may name a saved
   document as `$base` with a few settings merged on (a configuration
   change request's whole proposed document). What an agent only says, an
   assessment or test scripts, is not graded: the checks read what it did.
 - **Suites so far:** AP exceptions, capture, configuration (change
   requests submitted, never approved or activated), test (one
   recommendation per change request) and migration. The migration agent
-  rehearses only, on its throwaway tenants, from the suite's SAP extract
+  rehearses only, its own guard refusing a real load whatever the model
+  asks, on its throwaway tenants, from the suite's SAP extract
   (a live run's cell reads it with `ERP_EXTRACT_DIR=evals/migration`).
 - **Runs.** `erp eval run` (`make eval AGENT=…`) runs a suite live: for
   each repeat of each case it creates a throwaway tenant on the control

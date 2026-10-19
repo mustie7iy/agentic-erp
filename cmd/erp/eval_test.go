@@ -323,9 +323,13 @@ func TestAdapterFailures(t *testing.T) {
 	for name, err := range map[string]error{
 		"configuration, a draft the suite does not have": configurationEval(context.Background(), eval.Env{Agent: gone, Dir: dir, Task: map[string]any{"draft": "none.yaml"}}),
 		"configuration without its API":                  configurationEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"request": "x"}}),
-		"migration, a year that is no number":            migrationEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{"fiscal_year": "x"}}),
-		"migration without its API":                      migrationEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"fiscal_year": 2026, "legal_entities": []any{"e"}}}),
-		"test without its API":                           testEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"change_request": "c"}}),
+		"migration, a year that is no number":            migrationEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{"connector": "c", "mode": "documents", "fiscal_year": "x"}}),
+		"migration without its API": migrationEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{},
+			Task: map[string]any{"connector": "c", "mode": "documents", "fiscal_year": 2026, "legal_entities": []any{"e"}}}),
+		"test without its API":            testEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"change_request": "c"}}),
+		"configuration without a request": configurationEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
+		"migration without a connector":   migrationEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
+		"test without a change request":   testEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err == nil {

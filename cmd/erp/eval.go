@@ -35,7 +35,11 @@ func configurationEval(ctx context.Context, env eval.Env) error {
 			return fmt.Errorf("configuration: read the draft: %w", err)
 		}
 	}
-	if _, err := (&configagent.Agent{LLM: env.LLM, API: env.Agent}).Handle(ctx, fmt.Sprint(env.Task["request"]), draft); err != nil {
+	t, err := tasked(env, "request")
+	if err != nil {
+		return err
+	}
+	if _, err := (&configagent.Agent{LLM: env.LLM, API: env.Agent}).Handle(ctx, t["request"], draft); err != nil {
 		return fmt.Errorf("configuration: %w", err)
 	}
 	return nil
@@ -48,11 +52,15 @@ func migrationEval(ctx context.Context, env eval.Env) error {
 	for _, e := range list {
 		entities = append(entities, fmt.Sprint(e))
 	}
-	year, err := strconv.Atoi(fmt.Sprint(env.Task["fiscal_year"]))
+	t, err := tasked(env, "connector", "fiscal_year", "mode")
+	if err != nil {
+		return err
+	}
+	year, err := strconv.Atoi(t["fiscal_year"])
 	if err != nil {
 		return fmt.Errorf("migration: fiscal_year: %w", err)
 	}
-	if _, err := (&migrationagent.Agent{LLM: env.LLM, API: env.Agent}).Assess(ctx, fmt.Sprint(env.Task["connector"]), entities, year, fmt.Sprint(env.Task["mode"])); err != nil {
+	if _, err := (&migrationagent.Agent{LLM: env.LLM, API: env.Agent}).Assess(ctx, t["connector"], entities, year, t["mode"]); err != nil {
 		return fmt.Errorf("migration: %w", err)
 	}
 	return nil
@@ -60,10 +68,29 @@ func migrationEval(ctx context.Context, env eval.Env) error {
 
 // testEval reviews the task's change request as erp agent test does.
 func testEval(ctx context.Context, env eval.Env) error {
-	if _, err := (&testagent.Agent{LLM: env.LLM, API: env.Agent}).Review(ctx, fmt.Sprint(env.Task["change_request"])); err != nil {
+	t, err := tasked(env, "change_request")
+	if err != nil {
+		return err
+	}
+	if _, err := (&testagent.Agent{LLM: env.LLM, API: env.Agent}).Review(ctx, t["change_request"]); err != nil {
 		return fmt.Errorf("test: %w", err)
 	}
 	return nil
+}
+
+// tasked is the task's values for keys, as text; a key the task lacks is a
+// suite's mistake, which fails the case rather than run the agent on
+// "<nil>".
+func tasked(env eval.Env, keys ...string) (map[string]string, error) {
+	out := make(map[string]string, len(keys))
+	for _, k := range keys {
+		v, ok := env.Task[k]
+		if !ok {
+			return nil, fmt.Errorf("eval: the task has no %s", k)
+		}
+		out[k] = fmt.Sprint(v)
+	}
+	return out, nil
 }
 
 // captureEval captures the task's document for its legal entity as erp
