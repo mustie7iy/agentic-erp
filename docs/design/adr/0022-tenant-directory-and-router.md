@@ -22,7 +22,10 @@ right after provisioning and after every status change, and a worker
 reconciles every tenant of the cell once a minute, so a missed registration
 heals itself. Statuses pass through from the cell; `read_only` is set in the
 directory alone, for a tenant being moved between cells, and survives the
-cells' writes until an operator clears it.
+cells' writes until an operator clears it. `offboarded` and `erased` (an offboarded
+tenant whose data the cell erased) also survive the cells' writes, but for
+offboarded becoming erased: the directory is the record a cell restored to
+an earlier point is reconciled against (ADR-0040).
 
 **The router verifies, looks up, forwards.** `erp-router` verifies the
 bearer token with the same issuers the cells trust, reads the tenant claim,

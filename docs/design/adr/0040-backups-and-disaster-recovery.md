@@ -102,15 +102,18 @@ comes back with the restore. The restored cell's offboarding worker erases
 again every tenant that was offboarded before the point and whose
 `erase_after` has passed; a tenant offboarded after the point, or erased
 early by an operator, it does not. The directory is the record outside the
-cell, but today it cannot keep one: a cell's directory sync upserts every
-tenant's status from the cell and keeps only `read_only`
-(`directory.Upsert`), so a restored cell's first sync would write such a
-tenant back as `active`. T41f therefore makes the directory record
-`erased` (written by the cell when it erases) and keep `offboarded` and
-`erased` against a cell's sync, as it keeps `read_only`; the runbook lists
-the directory's offboarded and erased tenants before a restored cell's
-workloads start, and the restore verification offboards and erases them
-again.
+cell (T41f): it records `erased` (the cell's sync sends it for a tenant
+with `erased_at`, and the control plane's erasure at once), and
+`directory.Upsert` keeps `offboarded` (but for `erased`) and `erased`
+against a cell's sync, as it keeps `read_only`, so a restored cell's first
+sync cannot write such a tenant back as `active`. Before the restored
+cell's workloads start, `erp-server dr reconcile` offboards again (through
+the control plane, audited) every tenant the directory has offboarded or
+erased and the cell does not, and erases again those the directory has
+erased: against the export already in the object store, which it records
+as the tenant's (`offboarding.Worker.Adopt`) rather than exporting erased
+data a second time; a tenant with no export there is a problem for the
+operator.
 
 **Every restore is verified (T41d).** `erp-server dr verify` checks a
 restored cell before it serves, reading only (internal/drverify): the
@@ -127,9 +130,17 @@ one before the restore point and one after, and the restored cell must
 hold exactly the first, with the tenant's fingerprint as the marker's
 transaction left it. The report is JSON; a failed check exits 1. It runs in
 `erp-server`, not the `erp` client: it reads the database directly, before
-the cell's API is up. Still to come (T41f): the chains against their
-anchors in the object store (ADR-0025), every tenant the directory places
-in the cell present in it, and the directory's `erased` status above.
+the cell's API is up. `erp-server dr reconcile` (T41f) follows it, with
+the cell's whole configuration (its object store and directory): every
+anchor the restored database records agrees with its event and has its
+object (the objects are locked, so existing is enough), and every anchor
+object it does not record agrees with the restored chain at its seq when
+the restore kept that event (anchors of events after the point are
+counted, not faulted); every tenant the directory places in the cell is in
+it (one provisioned after the point is a problem to resolve); and the
+re-offboarding and re-erasure above. It writes, unlike verify, so it is a
+step of a real restore and not of a drill (a drill's side cluster has no
+object store or directory of its own).
 
 **Drills (T41e).** Staging's drill cell restores itself to a point in time
 and restores from its copies in the disaster-recovery region (staging has
@@ -221,9 +232,8 @@ RELOAD, RESUME). Only 503s, every retried post once, recovery within 60 s.
 
 **Whole-cell restore to a point in time** (corruption, a bad migration):
 1. Freeze the cell's tenants in the directory (ADR-0023); stop the cell's
-   workloads (scale to zero) so nothing writes. List the directory's
-   offboarded and erased tenants of the cell (until T41f makes the
-   directory keep them against a sync, this list is the record).
+   workloads (scale to zero) so nothing writes. The directory keeps the
+   cell's offboarded and erased tenants against any sync (T41f).
 2. Restore the database to the point (`aws rds
    restore-db-cluster-to-point-in-time`, or `restore-db-instance-to-point-in-time`
    in dev and test) as a new database with the cell's parameter group,
@@ -231,9 +241,12 @@ RELOAD, RESUME). Only 503s, every retried post once, recovery within 60 s.
 3. Point the cell at it (the database endpoint in the cell's values, the
    master secret of the new database), start the workloads, recreate the
    streams and republish from the restore point less the consumers' lag.
-4. Run the restore verification; offboard and erase again the tenants of
-   step 1's list; resolve the tenants the directory places in the cell and
-   the cell lacks (provisioned after the point).
+4. Run the restore verification (`erp-server dr verify`), then
+   `erp-server dr reconcile` as a one-off pod with the cell's server
+   configuration: it offboards and erases again what the directory says,
+   and names the anchors that disagree and the tenants the directory places
+   in the cell and the cell lacks (provisioned after the point), which the
+   operator resolves before unfreezing.
 5. Unfreeze; keep the old database (deletion protection on) until the
    verification has passed and the incident is closed.
 
@@ -272,6 +285,7 @@ RELOAD, RESUME). Only 503s, every retried post once, recovery within 60 s.
   Staging's costs a VPC with one NAT gateway for the restore drill
   (T41e2); its Fargate task runs only during a drill.
 - The directory gains an `erased` status and keeps `offboarded` and
-  `erased` against a cell's sync (T41f).
+  `erased` against a cell's sync (T41f); an offboarded tenant can never be
+  made active again through a cell, which the lifecycle already forbids.
 - The pre-pilot confirmation on staging can change the production database
   shape; T41b2 is written so that the replica is one resource to replace.

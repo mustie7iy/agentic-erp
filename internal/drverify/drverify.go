@@ -4,8 +4,12 @@
 // and every legal entity's trial balance at zero (ADR-0005), every tenant's
 // per-table counts (ADR-0030) compared with the old database's when it is
 // kept, and the restore drill's markers: the one written before the restore
-// point present, the one written after it absent. It reads only; the
-// restored database is the one under test, so nothing is repaired here.
+// point present, the one written after it absent. Verify reads only; the
+// restored database is the one under test, so nothing is repaired there.
+// Reconciler (T41f) follows it with the cell's object store and directory:
+// the chains against their anchors, every tenant the directory places in
+// the cell present, and the tenants the directory has offboarded or erased
+// since the restore point offboarded and erased again.
 package drverify
 
 import (

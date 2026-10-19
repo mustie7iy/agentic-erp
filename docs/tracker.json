@@ -5181,9 +5181,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Restore verification completed: audit chains against their anchors in the object store (ADR-0025), every tenant the directory places in the cell present; the directory records erased and keeps offboarded and erased against a cell's sync, and the verification offboards and erases those tenants again",
-        "r": "T41f",
+        "s": "D",
+        "t": "Restore reconciled before it serves: audit chains against their anchors in the object store (ADR-0025), every tenant the directory places in the cell present; the directory records erased and keeps offboarded and erased against a cell's sync, and the reconciliation offboards and erases those tenants again (the erasure against the export already in the store)",
+        "r": "erp-server dr reconcile · internal/drverify (reconcile.go, anchors.go) · directory.StatusOf, Upsert · offboarding.Worker.Adopt · T41f",
         "c": []
        }
       ]

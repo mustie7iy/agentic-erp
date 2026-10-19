@@ -19,6 +19,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
@@ -566,8 +567,9 @@ func TestDirectoryStatementFailures(t *testing.T) {
 		"upsert cell": func() error {
 			return dir.UpsertCell(ctx, directory.Cell{Name: "sf-1", Region: "sf-west", APIURL: "https://sf-1", ControlURL: "http://sf-1:9090", Accepting: true})
 		},
-		"list cells": func() error { _, err := dir.ListCells(ctx, "sf-west"); return err },
-		"place":      func() error { _, err := dir.Place(ctx, "sf-key-"+uuid.NewString(), "sf-west", ""); return err },
+		"list cells":   func() error { _, err := dir.ListCells(ctx, "sf-west"); return err },
+		"cell tenants": func() error { _, err := dir.CellTenants(ctx, "sf-1"); return err },
+		"place":        func() error { _, err := dir.Place(ctx, "sf-key-"+uuid.NewString(), "sf-west", ""); return err },
 	} {
 		t.Run(name, func(t *testing.T) {
 			for n := 1; n < 10; n++ {
@@ -589,4 +591,82 @@ func TestDirectoryStatementFailures(t *testing.T) {
 		})
 	}
 	dir.InTx = nil
+}
+
+// TestErasedAndOffboardedOutliveARestore: the directory is the record
+// outside the cell (ADR-0040). Once offboarded an entry stays so but for
+// erased, once erased it stays so, whatever a cell restored to an earlier
+// point upserts; a directory made before erased gains it.
+func TestErasedAndOffboardedOutliveARestore(t *testing.T) {
+	ctx := context.Background()
+	u := pgtest.EmptyDatabase(t)
+	// A directory as it was before erased.
+	conn, err := pgx.Connect(ctx, u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = conn.Exec(ctx, `CREATE SCHEMA directory; CREATE TABLE directory.tenant (tenant_id uuid PRIMARY KEY, region text NOT NULL, cell text NOT NULL,
+		api_url text NOT NULL, status text NOT NULL CHECK (status IN ('active', 'suspended', 'offboarded', 'read_only')), updated_at timestamptz NOT NULL DEFAULT now())`)
+	_ = conn.Close(ctx) // the old table is made; closing loses nothing
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, err := directory.Open(ctx, u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	again, err := directory.Open(ctx, u) // a second opener finds the constraint done
+	if err != nil {
+		t.Fatal(err)
+	}
+	again.Close()
+	tenant, other := uuid.New(), uuid.New()
+	upsert := func(id uuid.UUID, status string) {
+		t.Helper()
+		if err := dir.Upsert(ctx, directory.Entry{TenantID: id, Region: "eu-west", Cell: "eu-1", APIURL: "https://eu-1", Status: status}); err != nil {
+			t.Fatalf("upsert %s: %v", status, err)
+		}
+	}
+	for _, step := range []struct{ name, upsert, want string }{
+		{"active", directory.Active, directory.Active},
+		{"offboarded", directory.Offboarded, directory.Offboarded},
+		{"a restored cell says active", directory.Active, directory.Offboarded},
+		{"erased", directory.Erased, directory.Erased},
+		{"a restored cell says offboarded", directory.Offboarded, directory.Erased},
+		{"a restored cell says active again", directory.Active, directory.Erased},
+	} {
+		upsert(tenant, step.upsert)
+		if e, err := dir.Lookup(ctx, tenant); err != nil || e.Status != step.want {
+			t.Errorf("%s: got %s (%v), want %s", step.name, e.Status, err, step.want)
+		}
+	}
+	upsert(other, directory.Suspended)
+	entries, err := dir.CellTenants(ctx, "eu-1")
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("cell tenants: got %d (%v), want 2", len(entries), err)
+	}
+	if none, err := dir.CellTenants(ctx, "eu-2"); err != nil || len(none) != 0 {
+		t.Errorf("another cell's tenants: got %d (%v), want none", len(none), err)
+	}
+}
+
+func TestStatusOf(t *testing.T) {
+	at := time.Now()
+	for _, c := range []struct {
+		name string
+		in   tenancy.Lifecycle
+		want string
+	}{
+		{"provisioning", tenancy.Lifecycle{Status: "provisioning"}, directory.Active},
+		{"active", tenancy.Lifecycle{Status: "active"}, directory.Active},
+		{"offboarded", tenancy.Lifecycle{Status: "offboarded"}, directory.Offboarded},
+		{"erased", tenancy.Lifecycle{Status: "offboarded", ErasedAt: &at}, directory.Erased},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := directory.StatusOf(c.in); got != c.want {
+				t.Errorf("got %s, want %s", got, c.want)
+			}
+		})
+	}
 }

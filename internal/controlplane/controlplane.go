@@ -503,5 +503,9 @@ func (s *Service) Erase(ctx context.Context, op Operator, id uuid.UUID, ifMatch 
 		return Tenant{}, offboarding.Erasure{}, err
 	}
 	t, err := s.Get(ctx, id)
+	if err == nil && s.Directory != nil {
+		// The directory records the erasure at once, outside the cell (ADR-0040).
+		s.Directory.Register(ctx, t.ID, t.Region, directory.Erased)
+	}
 	return t, er, err
 }

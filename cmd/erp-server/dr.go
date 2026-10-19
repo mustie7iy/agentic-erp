@@ -31,7 +31,8 @@ var drSettings = database.Settings{LockTimeout: 5 * time.Second}
 //	erp-server dr mark -tenant ID -name NAME
 //	erp-server dr verify [-restored FILE] [-lost FILE]
 //
-// mark writes a marker into the tenant's audit chain and prints it, with
+// erp-server dr reconcile (reconcile.go) follows verify, with the cell's
+// whole configuration. mark writes a marker into the tenant's audit chain and prints it, with
 // the tenant's fingerprint, as JSON. verify runs every check against
 // DATABASE_URL and prints the report as JSON; it exits 1 when a check
 // failed. -restored is the marker written before the restore point (it
@@ -46,8 +47,11 @@ var drSettings = database.Settings{LockTimeout: 5 * time.Second}
 // (config.LoadSchema): a drill runs it as a one-off pod against a side
 // database, with no keys, issuers or stores.
 func drCmd(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "reconcile" {
+		return reconcileCmd(ctx, args[1:], getenv, stdout, stderr)
+	}
 	if len(args) == 0 || (args[0] != "mark" && args[0] != "verify") {
-		fmt.Fprintln(stderr, "erp-server dr: mark or verify (erp-server dr mark -tenant ID -name NAME; erp-server dr verify [-restored FILE] [-lost FILE])")
+		fmt.Fprintln(stderr, "erp-server dr: mark, verify or reconcile (erp-server dr mark -tenant ID -name NAME; erp-server dr verify [-restored FILE] [-lost FILE]; erp-server dr reconcile)")
 		return 2
 	}
 	fs := flag.NewFlagSet("erp-server dr "+args[0], flag.ContinueOnError)
