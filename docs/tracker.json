@@ -4764,7 +4764,7 @@
       ]
      },
      {
-      "s": "P",
+      "s": "D",
       "t": "Webhooks for business events",
       "r": "ADR-0041 · T50b–g",
       "c": [
@@ -4805,9 +4805,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Operations: replay, redelivery and ping",
-        "r": "T50g",
+        "s": "D",
+        "t": "Operations: deliveries listed and read; :redeliver and :replay (since at most 30 days, dead and dropped too) requeue in event order; :ping queues a signed webhook.ping the dispatcher sends once, paused or disabled too; retention in batches of 1000",
+        "r": "internal/integration/deliveries.go · api/openapi.yaml · db/migrations/000092 · T50g",
         "c": []
        }
       ]

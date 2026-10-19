@@ -60,6 +60,9 @@ const (
 	claimLease = 2 * time.Minute
 	// dispatchBatch is how many deliveries a round claims at most.
 	dispatchBatch = 500
+	// pruneBatch is how many deliveries one retention transaction deletes
+	// at most, so it holds few locks briefly; a full batch asks again at once.
+	pruneBatch = 1000
 )
 
 // backoff is the wait after each failed attempt; after the last, every
@@ -92,6 +95,7 @@ type Dispatcher struct {
 	Client     Poster
 	Interval   time.Duration // between rounds when one found nothing more; default one second
 	Batch      int           // deliveries claimed per round; 0: 500
+	PruneBatch int           // deliveries deleted per retention transaction; 0: 1000
 	Now        func() time.Time
 	Log        *slog.Logger
 	Begin      database.BeginFunc // nil means Pool.Begin; tests inject failures
@@ -106,6 +110,7 @@ type claimed struct {
 	event           uuid.UUID // the CloudEvent id: the webhook-id on every attempt, redelivery and replay
 	version         int32     // after the lease
 	attempts        int32     // before this attempt
+	ping            bool      // attempted once, whatever the subscription's status but deleted
 	url             string
 	body            []byte
 	sealed          [][]byte // the current secret, then the previous one while it signs
@@ -119,13 +124,14 @@ type answer struct {
 
 func (a answer) delivered() bool { return a.status >= 200 && a.status < 300 }
 
-// Run delivers in rounds and prunes old deliveries hourly until ctx ends.
+// Run delivers in rounds and prunes old deliveries hourly, in batches,
+// until ctx ends.
 func (d *Dispatcher) Run(ctx context.Context) {
 	var wg sync.WaitGroup
 	wg.Go(func() {
 		worker.Loop(ctx, time.Hour, time.Hour, func(ctx context.Context) (bool, error) {
-			_, err := d.Prune(ctx)
-			return false, err
+			_, more, err := d.Prune(ctx)
+			return more, err
 		}, d.Log, "webhook delivery retention failed")
 	})
 	worker.Loop(ctx, d.Interval, time.Second, func(ctx context.Context) (bool, error) {
@@ -181,7 +187,8 @@ func (d *Dispatcher) RunOnce(ctx context.Context) (sent int, more bool, err erro
 }
 
 // due finds the deliveries to attempt, by tenant: pending, due, of an
-// active subscription (a paused one holds them) and the earliest pending
+// active subscription (a paused one holds them; a ping goes to a paused or
+// disabled one too) and the earliest pending
 // of their subscription and resource, so a resource's events arrive in
 // order and a dead letter releases the next.
 func (d *Dispatcher) due(ctx context.Context, now time.Time) (map[uuid.UUID][]uuid.UUID, bool, error) {
@@ -198,11 +205,12 @@ func (d *Dispatcher) due(ctx context.Context, now time.Time) (map[uuid.UUID][]uu
 			SELECT d.tenant_id, d.id, d.next_attempt_at,
 				row_number() OVER (PARTITION BY d.tenant_id ORDER BY d.next_attempt_at, d.id) AS turn
 			FROM integration.webhook_delivery d
-			JOIN integration.webhook_subscription s ON s.tenant_id = d.tenant_id AND s.id = d.subscription_id AND s.status = 'active'
+			JOIN integration.webhook_subscription s ON s.tenant_id = d.tenant_id AND s.id = d.subscription_id
+				AND (s.status = 'active' OR (d.type = $4 AND s.status IN ('paused', 'disabled')))
 			WHERE d.status = 'pending' AND d.next_attempt_at <= $1 AND NOT EXISTS (
 				SELECT FROM integration.webhook_delivery e WHERE e.tenant_id = d.tenant_id AND e.subscription_id = d.subscription_id
 					AND e.subject = d.subject AND e.status = 'pending' AND (e.occurred_at, e.event_id) < (d.occurred_at, d.event_id))) h
-		WHERE turn <= $2 ORDER BY turn, next_attempt_at, id LIMIT $3`, now, TenantInFlight, batch)
+		WHERE turn <= $2 ORDER BY turn, next_attempt_at, id LIMIT $3`, now, TenantInFlight, batch, PingType)
 	out := map[uuid.UUID][]uuid.UUID{}
 	var tenant, id uuid.UUID
 	found := 0
@@ -229,19 +237,20 @@ func (d *Dispatcher) claim(ctx context.Context, tenant uuid.UUID, ids []uuid.UUI
 		return nil, fmt.Errorf("integration: claim webhook deliveries of tenant %s: %w", tenant, err)
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `SELECT d.id, d.event_id, d.subscription_id, d.attempts, d.body, s.url, s.secret_cipher,
+	rows, _ := tx.Query(ctx, `SELECT d.id, d.event_id, d.subscription_id, d.attempts, d.type = $3, d.body, s.url, s.secret_cipher,
 			CASE WHEN s.previous_expires_at > $2 THEN s.previous_secret_cipher END
 		FROM integration.webhook_delivery d JOIN integration.webhook_subscription s ON s.id = d.subscription_id
-		WHERE d.id = ANY ($1) AND d.status = 'pending' AND d.next_attempt_at <= $2 AND s.status = 'active' AND NOT EXISTS (
+		WHERE d.id = ANY ($1) AND d.status = 'pending' AND d.next_attempt_at <= $2
+			AND (s.status = 'active' OR (d.type = $3 AND s.status IN ('paused', 'disabled'))) AND NOT EXISTS (
 			SELECT FROM integration.webhook_delivery e WHERE e.subscription_id = d.subscription_id
 				AND e.subject = d.subject AND e.status = 'pending' AND (e.occurred_at, e.event_id) < (d.occurred_at, d.event_id))
-		ORDER BY d.id FOR UPDATE OF d SKIP LOCKED`, ids, now)
+		ORDER BY d.id FOR UPDATE OF d SKIP LOCKED`, ids, now, PingType)
 	var claims []claimed
 	quota := ratelimit.Quota{Rate: SubscriptionRate, Burst: SubscriptionRate}
 	all, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (claimed, error) {
 		c := claimed{tenant: tenant}
 		var current, previous []byte
-		err := r.Scan(&c.id, &c.event, &c.sub, &c.attempts, &c.body, &c.url, &current, &previous)
+		err := r.Scan(&c.id, &c.event, &c.sub, &c.attempts, &c.ping, &c.body, &c.url, &current, &previous)
 		c.sealed = [][]byte{current}
 		if previous != nil {
 			c.sealed = append(c.sealed, previous)

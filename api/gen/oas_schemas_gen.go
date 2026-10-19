@@ -2742,6 +2742,7 @@ func (*BadRequestHeaders) getSodRuleRes()                       {}
 func (*BadRequestHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*BadRequestHeaders) getSupplierInvoiceRes()               {}
 func (*BadRequestHeaders) getUploadRes()                        {}
+func (*BadRequestHeaders) getWebhookDeliveryRes()               {}
 func (*BadRequestHeaders) getWebhookSubscriptionRes()           {}
 func (*BadRequestHeaders) grantRolePermissionRes()              {}
 func (*BadRequestHeaders) holdSupplierInvoiceRes()              {}
@@ -2789,12 +2790,14 @@ func (*BadRequestHeaders) listRolePermissionsRes()              {}
 func (*BadRequestHeaders) listRolesRes()                        {}
 func (*BadRequestHeaders) listSodRulesRes()                     {}
 func (*BadRequestHeaders) listSupplierInvoicesRes()             {}
+func (*BadRequestHeaders) listWebhookDeliveriesRes()            {}
 func (*BadRequestHeaders) listWebhookSubscriptionsRes()         {}
 func (*BadRequestHeaders) lockFiscalPeriodRes()                 {}
 func (*BadRequestHeaders) matchSupplierInvoiceRes()             {}
 func (*BadRequestHeaders) openFiscalPeriodRes()                 {}
 func (*BadRequestHeaders) parkJournalEntryRes()                 {}
 func (*BadRequestHeaders) pauseWebhookSubscriptionRes()         {}
+func (*BadRequestHeaders) pingWebhookSubscriptionRes()          {}
 func (*BadRequestHeaders) postGoodsReceiptRes()                 {}
 func (*BadRequestHeaders) postJournalEntryRes()                 {}
 func (*BadRequestHeaders) postParkedJournalEntryRes()           {}
@@ -2802,6 +2805,7 @@ func (*BadRequestHeaders) postSupplierInvoiceRes()              {}
 func (*BadRequestHeaders) proposePaymentRunRes()                {}
 func (*BadRequestHeaders) reconcileMigrationRunRes()            {}
 func (*BadRequestHeaders) recordAgentToolCallRes()              {}
+func (*BadRequestHeaders) redeliverWebhookDeliveryRes()         {}
 func (*BadRequestHeaders) rejectApprovalRequestRes()            {}
 func (*BadRequestHeaders) rejectPaymentRunRes()                 {}
 func (*BadRequestHeaders) releaseContractRes()                  {}
@@ -2809,6 +2813,7 @@ func (*BadRequestHeaders) releasePaymentRunRes()                {}
 func (*BadRequestHeaders) releasePurchaseOrderRes()             {}
 func (*BadRequestHeaders) releaseSupplierInvoiceRes()           {}
 func (*BadRequestHeaders) renewContractRes()                    {}
+func (*BadRequestHeaders) replayWebhookDeliveriesRes()          {}
 func (*BadRequestHeaders) reportBankFileStatusRes()             {}
 func (*BadRequestHeaders) requestBankAccountChangeRes()         {}
 func (*BadRequestHeaders) requestBankAccountEndRes()            {}
@@ -6647,6 +6652,7 @@ func (*ConflictHeaders) matchSupplierInvoiceRes()             {}
 func (*ConflictHeaders) openFiscalPeriodRes()                 {}
 func (*ConflictHeaders) parkJournalEntryRes()                 {}
 func (*ConflictHeaders) pauseWebhookSubscriptionRes()         {}
+func (*ConflictHeaders) pingWebhookSubscriptionRes()          {}
 func (*ConflictHeaders) postGoodsReceiptRes()                 {}
 func (*ConflictHeaders) postJournalEntryRes()                 {}
 func (*ConflictHeaders) postParkedJournalEntryRes()           {}
@@ -6654,6 +6660,7 @@ func (*ConflictHeaders) postSupplierInvoiceRes()              {}
 func (*ConflictHeaders) proposePaymentRunRes()                {}
 func (*ConflictHeaders) reconcileMigrationRunRes()            {}
 func (*ConflictHeaders) recordAgentToolCallRes()              {}
+func (*ConflictHeaders) redeliverWebhookDeliveryRes()         {}
 func (*ConflictHeaders) rejectApprovalRequestRes()            {}
 func (*ConflictHeaders) rejectPaymentRunRes()                 {}
 func (*ConflictHeaders) releaseContractRes()                  {}
@@ -6661,6 +6668,7 @@ func (*ConflictHeaders) releasePaymentRunRes()                {}
 func (*ConflictHeaders) releasePurchaseOrderRes()             {}
 func (*ConflictHeaders) releaseSupplierInvoiceRes()           {}
 func (*ConflictHeaders) renewContractRes()                    {}
+func (*ConflictHeaders) replayWebhookDeliveriesRes()          {}
 func (*ConflictHeaders) reportBankFileStatusRes()             {}
 func (*ConflictHeaders) requestBankAccountChangeRes()         {}
 func (*ConflictHeaders) requestBankAccountEndRes()            {}
@@ -10029,6 +10037,7 @@ func (*ForbiddenHeaders) getSodRuleRes()                       {}
 func (*ForbiddenHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*ForbiddenHeaders) getSupplierInvoiceRes()               {}
 func (*ForbiddenHeaders) getUploadRes()                        {}
+func (*ForbiddenHeaders) getWebhookDeliveryRes()               {}
 func (*ForbiddenHeaders) getWebhookSubscriptionRes()           {}
 func (*ForbiddenHeaders) grantRolePermissionRes()              {}
 func (*ForbiddenHeaders) holdSupplierInvoiceRes()              {}
@@ -10076,12 +10085,14 @@ func (*ForbiddenHeaders) listRolePermissionsRes()              {}
 func (*ForbiddenHeaders) listRolesRes()                        {}
 func (*ForbiddenHeaders) listSodRulesRes()                     {}
 func (*ForbiddenHeaders) listSupplierInvoicesRes()             {}
+func (*ForbiddenHeaders) listWebhookDeliveriesRes()            {}
 func (*ForbiddenHeaders) listWebhookSubscriptionsRes()         {}
 func (*ForbiddenHeaders) lockFiscalPeriodRes()                 {}
 func (*ForbiddenHeaders) matchSupplierInvoiceRes()             {}
 func (*ForbiddenHeaders) openFiscalPeriodRes()                 {}
 func (*ForbiddenHeaders) parkJournalEntryRes()                 {}
 func (*ForbiddenHeaders) pauseWebhookSubscriptionRes()         {}
+func (*ForbiddenHeaders) pingWebhookSubscriptionRes()          {}
 func (*ForbiddenHeaders) postGoodsReceiptRes()                 {}
 func (*ForbiddenHeaders) postJournalEntryRes()                 {}
 func (*ForbiddenHeaders) postParkedJournalEntryRes()           {}
@@ -10089,6 +10100,7 @@ func (*ForbiddenHeaders) postSupplierInvoiceRes()              {}
 func (*ForbiddenHeaders) proposePaymentRunRes()                {}
 func (*ForbiddenHeaders) reconcileMigrationRunRes()            {}
 func (*ForbiddenHeaders) recordAgentToolCallRes()              {}
+func (*ForbiddenHeaders) redeliverWebhookDeliveryRes()         {}
 func (*ForbiddenHeaders) rejectApprovalRequestRes()            {}
 func (*ForbiddenHeaders) rejectPaymentRunRes()                 {}
 func (*ForbiddenHeaders) releaseContractRes()                  {}
@@ -10096,6 +10108,7 @@ func (*ForbiddenHeaders) releasePaymentRunRes()                {}
 func (*ForbiddenHeaders) releasePurchaseOrderRes()             {}
 func (*ForbiddenHeaders) releaseSupplierInvoiceRes()           {}
 func (*ForbiddenHeaders) renewContractRes()                    {}
+func (*ForbiddenHeaders) replayWebhookDeliveriesRes()          {}
 func (*ForbiddenHeaders) reportBankFileStatusRes()             {}
 func (*ForbiddenHeaders) requestBankAccountChangeRes()         {}
 func (*ForbiddenHeaders) requestBankAccountEndRes()            {}
@@ -15334,6 +15347,7 @@ func (*NotFoundHeaders) getSodRuleRes()                       {}
 func (*NotFoundHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*NotFoundHeaders) getSupplierInvoiceRes()               {}
 func (*NotFoundHeaders) getUploadRes()                        {}
+func (*NotFoundHeaders) getWebhookDeliveryRes()               {}
 func (*NotFoundHeaders) getWebhookSubscriptionRes()           {}
 func (*NotFoundHeaders) grantRolePermissionRes()              {}
 func (*NotFoundHeaders) holdSupplierInvoiceRes()              {}
@@ -15344,14 +15358,17 @@ func (*NotFoundHeaders) listPaymentExclusionsRes()            {}
 func (*NotFoundHeaders) listPaymentsRes()                     {}
 func (*NotFoundHeaders) listPurchaseOrderChangesRes()         {}
 func (*NotFoundHeaders) listRolePermissionsRes()              {}
+func (*NotFoundHeaders) listWebhookDeliveriesRes()            {}
 func (*NotFoundHeaders) lockFiscalPeriodRes()                 {}
 func (*NotFoundHeaders) matchSupplierInvoiceRes()             {}
 func (*NotFoundHeaders) openFiscalPeriodRes()                 {}
 func (*NotFoundHeaders) pauseWebhookSubscriptionRes()         {}
+func (*NotFoundHeaders) pingWebhookSubscriptionRes()          {}
 func (*NotFoundHeaders) postParkedJournalEntryRes()           {}
 func (*NotFoundHeaders) postSupplierInvoiceRes()              {}
 func (*NotFoundHeaders) reconcileMigrationRunRes()            {}
 func (*NotFoundHeaders) recordAgentToolCallRes()              {}
+func (*NotFoundHeaders) redeliverWebhookDeliveryRes()         {}
 func (*NotFoundHeaders) rejectApprovalRequestRes()            {}
 func (*NotFoundHeaders) rejectPaymentRunRes()                 {}
 func (*NotFoundHeaders) releaseContractRes()                  {}
@@ -15359,6 +15376,7 @@ func (*NotFoundHeaders) releasePaymentRunRes()                {}
 func (*NotFoundHeaders) releasePurchaseOrderRes()             {}
 func (*NotFoundHeaders) releaseSupplierInvoiceRes()           {}
 func (*NotFoundHeaders) renewContractRes()                    {}
+func (*NotFoundHeaders) replayWebhookDeliveriesRes()          {}
 func (*NotFoundHeaders) reportBankFileStatusRes()             {}
 func (*NotFoundHeaders) requestBankAccountChangeRes()         {}
 func (*NotFoundHeaders) requestBankAccountEndRes()            {}
@@ -20409,6 +20427,67 @@ func (s *PaymentRunPropose) SetDueBy(val time.Time) {
 	s.DueBy = val
 }
 
+// PingWebhookSubscriptionOKHeaders wraps WebhookDelivery with response headers.
+type PingWebhookSubscriptionOKHeaders struct {
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           WebhookDelivery
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *PingWebhookSubscriptionOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *PingWebhookSubscriptionOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *PingWebhookSubscriptionOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *PingWebhookSubscriptionOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *PingWebhookSubscriptionOKHeaders) GetResponse() WebhookDelivery {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *PingWebhookSubscriptionOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *PingWebhookSubscriptionOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *PingWebhookSubscriptionOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *PingWebhookSubscriptionOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *PingWebhookSubscriptionOKHeaders) SetResponse(val WebhookDelivery) {
+	s.Response = val
+}
+
+func (*PingWebhookSubscriptionOKHeaders) pingWebhookSubscriptionRes() {}
+
 // PreconditionFailedHeaders wraps Problem with response headers.
 type PreconditionFailedHeaders struct {
 	RateLimitLimit     OptInt32
@@ -20491,9 +20570,11 @@ func (*PreconditionFailedHeaders) lockFiscalPeriodRes()                 {}
 func (*PreconditionFailedHeaders) matchSupplierInvoiceRes()             {}
 func (*PreconditionFailedHeaders) openFiscalPeriodRes()                 {}
 func (*PreconditionFailedHeaders) pauseWebhookSubscriptionRes()         {}
+func (*PreconditionFailedHeaders) pingWebhookSubscriptionRes()          {}
 func (*PreconditionFailedHeaders) postParkedJournalEntryRes()           {}
 func (*PreconditionFailedHeaders) postSupplierInvoiceRes()              {}
 func (*PreconditionFailedHeaders) reconcileMigrationRunRes()            {}
+func (*PreconditionFailedHeaders) redeliverWebhookDeliveryRes()         {}
 func (*PreconditionFailedHeaders) rejectApprovalRequestRes()            {}
 func (*PreconditionFailedHeaders) rejectPaymentRunRes()                 {}
 func (*PreconditionFailedHeaders) releaseContractRes()                  {}
@@ -20501,6 +20582,7 @@ func (*PreconditionFailedHeaders) releasePaymentRunRes()                {}
 func (*PreconditionFailedHeaders) releasePurchaseOrderRes()             {}
 func (*PreconditionFailedHeaders) releaseSupplierInvoiceRes()           {}
 func (*PreconditionFailedHeaders) renewContractRes()                    {}
+func (*PreconditionFailedHeaders) replayWebhookDeliveriesRes()          {}
 func (*PreconditionFailedHeaders) reportBankFileStatusRes()             {}
 func (*PreconditionFailedHeaders) requestBankAccountEndRes()            {}
 func (*PreconditionFailedHeaders) resumeWebhookSubscriptionRes()        {}
@@ -20643,6 +20725,7 @@ func (*PreconditionRequiredHeaders) matchSupplierInvoiceRes()             {}
 func (*PreconditionRequiredHeaders) openFiscalPeriodRes()                 {}
 func (*PreconditionRequiredHeaders) parkJournalEntryRes()                 {}
 func (*PreconditionRequiredHeaders) pauseWebhookSubscriptionRes()         {}
+func (*PreconditionRequiredHeaders) pingWebhookSubscriptionRes()          {}
 func (*PreconditionRequiredHeaders) postGoodsReceiptRes()                 {}
 func (*PreconditionRequiredHeaders) postJournalEntryRes()                 {}
 func (*PreconditionRequiredHeaders) postParkedJournalEntryRes()           {}
@@ -20650,6 +20733,7 @@ func (*PreconditionRequiredHeaders) postSupplierInvoiceRes()              {}
 func (*PreconditionRequiredHeaders) proposePaymentRunRes()                {}
 func (*PreconditionRequiredHeaders) reconcileMigrationRunRes()            {}
 func (*PreconditionRequiredHeaders) recordAgentToolCallRes()              {}
+func (*PreconditionRequiredHeaders) redeliverWebhookDeliveryRes()         {}
 func (*PreconditionRequiredHeaders) rejectApprovalRequestRes()            {}
 func (*PreconditionRequiredHeaders) rejectPaymentRunRes()                 {}
 func (*PreconditionRequiredHeaders) releaseContractRes()                  {}
@@ -20657,6 +20741,7 @@ func (*PreconditionRequiredHeaders) releasePaymentRunRes()                {}
 func (*PreconditionRequiredHeaders) releasePurchaseOrderRes()             {}
 func (*PreconditionRequiredHeaders) releaseSupplierInvoiceRes()           {}
 func (*PreconditionRequiredHeaders) renewContractRes()                    {}
+func (*PreconditionRequiredHeaders) replayWebhookDeliveriesRes()          {}
 func (*PreconditionRequiredHeaders) reportBankFileStatusRes()             {}
 func (*PreconditionRequiredHeaders) requestBankAccountChangeRes()         {}
 func (*PreconditionRequiredHeaders) requestBankAccountEndRes()            {}
@@ -23100,6 +23185,78 @@ func (s *RecommendationPageHeaders) SetResponse(val RecommendationPage) {
 }
 
 func (*RecommendationPageHeaders) listRecommendationsRes() {}
+
+// RedeliverWebhookDeliveryOKHeaders wraps WebhookDelivery with response headers.
+type RedeliverWebhookDeliveryOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           WebhookDelivery
+}
+
+// GetETag returns the value of ETag.
+func (s *RedeliverWebhookDeliveryOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *RedeliverWebhookDeliveryOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *RedeliverWebhookDeliveryOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *RedeliverWebhookDeliveryOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *RedeliverWebhookDeliveryOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *RedeliverWebhookDeliveryOKHeaders) GetResponse() WebhookDelivery {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *RedeliverWebhookDeliveryOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *RedeliverWebhookDeliveryOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *RedeliverWebhookDeliveryOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *RedeliverWebhookDeliveryOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *RedeliverWebhookDeliveryOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RedeliverWebhookDeliveryOKHeaders) SetResponse(val WebhookDelivery) {
+	s.Response = val
+}
+
+func (*RedeliverWebhookDeliveryOKHeaders) redeliverWebhookDeliveryRes() {}
 
 // One case of a regression suite: a supplier invoice and the decision it got when the suite was
 // captured.
@@ -25760,6 +25917,7 @@ func (*ServiceUnavailableHeaders) matchSupplierInvoiceRes()             {}
 func (*ServiceUnavailableHeaders) openFiscalPeriodRes()                 {}
 func (*ServiceUnavailableHeaders) parkJournalEntryRes()                 {}
 func (*ServiceUnavailableHeaders) pauseWebhookSubscriptionRes()         {}
+func (*ServiceUnavailableHeaders) pingWebhookSubscriptionRes()          {}
 func (*ServiceUnavailableHeaders) postGoodsReceiptRes()                 {}
 func (*ServiceUnavailableHeaders) postJournalEntryRes()                 {}
 func (*ServiceUnavailableHeaders) postParkedJournalEntryRes()           {}
@@ -25767,6 +25925,7 @@ func (*ServiceUnavailableHeaders) postSupplierInvoiceRes()              {}
 func (*ServiceUnavailableHeaders) proposePaymentRunRes()                {}
 func (*ServiceUnavailableHeaders) reconcileMigrationRunRes()            {}
 func (*ServiceUnavailableHeaders) recordAgentToolCallRes()              {}
+func (*ServiceUnavailableHeaders) redeliverWebhookDeliveryRes()         {}
 func (*ServiceUnavailableHeaders) rejectApprovalRequestRes()            {}
 func (*ServiceUnavailableHeaders) rejectPaymentRunRes()                 {}
 func (*ServiceUnavailableHeaders) releaseContractRes()                  {}
@@ -25774,6 +25933,7 @@ func (*ServiceUnavailableHeaders) releasePaymentRunRes()                {}
 func (*ServiceUnavailableHeaders) releasePurchaseOrderRes()             {}
 func (*ServiceUnavailableHeaders) releaseSupplierInvoiceRes()           {}
 func (*ServiceUnavailableHeaders) renewContractRes()                    {}
+func (*ServiceUnavailableHeaders) replayWebhookDeliveriesRes()          {}
 func (*ServiceUnavailableHeaders) reportBankFileStatusRes()             {}
 func (*ServiceUnavailableHeaders) requestBankAccountChangeRes()         {}
 func (*ServiceUnavailableHeaders) requestBankAccountEndRes()            {}
@@ -27541,6 +27701,7 @@ func (*TooManyRequestsHeaders) getSodRuleRes()                       {}
 func (*TooManyRequestsHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*TooManyRequestsHeaders) getSupplierInvoiceRes()               {}
 func (*TooManyRequestsHeaders) getUploadRes()                        {}
+func (*TooManyRequestsHeaders) getWebhookDeliveryRes()               {}
 func (*TooManyRequestsHeaders) getWebhookSubscriptionRes()           {}
 func (*TooManyRequestsHeaders) grantRolePermissionRes()              {}
 func (*TooManyRequestsHeaders) holdSupplierInvoiceRes()              {}
@@ -27588,12 +27749,14 @@ func (*TooManyRequestsHeaders) listRolePermissionsRes()              {}
 func (*TooManyRequestsHeaders) listRolesRes()                        {}
 func (*TooManyRequestsHeaders) listSodRulesRes()                     {}
 func (*TooManyRequestsHeaders) listSupplierInvoicesRes()             {}
+func (*TooManyRequestsHeaders) listWebhookDeliveriesRes()            {}
 func (*TooManyRequestsHeaders) listWebhookSubscriptionsRes()         {}
 func (*TooManyRequestsHeaders) lockFiscalPeriodRes()                 {}
 func (*TooManyRequestsHeaders) matchSupplierInvoiceRes()             {}
 func (*TooManyRequestsHeaders) openFiscalPeriodRes()                 {}
 func (*TooManyRequestsHeaders) parkJournalEntryRes()                 {}
 func (*TooManyRequestsHeaders) pauseWebhookSubscriptionRes()         {}
+func (*TooManyRequestsHeaders) pingWebhookSubscriptionRes()          {}
 func (*TooManyRequestsHeaders) postGoodsReceiptRes()                 {}
 func (*TooManyRequestsHeaders) postJournalEntryRes()                 {}
 func (*TooManyRequestsHeaders) postParkedJournalEntryRes()           {}
@@ -27601,6 +27764,7 @@ func (*TooManyRequestsHeaders) postSupplierInvoiceRes()              {}
 func (*TooManyRequestsHeaders) proposePaymentRunRes()                {}
 func (*TooManyRequestsHeaders) reconcileMigrationRunRes()            {}
 func (*TooManyRequestsHeaders) recordAgentToolCallRes()              {}
+func (*TooManyRequestsHeaders) redeliverWebhookDeliveryRes()         {}
 func (*TooManyRequestsHeaders) rejectApprovalRequestRes()            {}
 func (*TooManyRequestsHeaders) rejectPaymentRunRes()                 {}
 func (*TooManyRequestsHeaders) releaseContractRes()                  {}
@@ -27608,6 +27772,7 @@ func (*TooManyRequestsHeaders) releasePaymentRunRes()                {}
 func (*TooManyRequestsHeaders) releasePurchaseOrderRes()             {}
 func (*TooManyRequestsHeaders) releaseSupplierInvoiceRes()           {}
 func (*TooManyRequestsHeaders) renewContractRes()                    {}
+func (*TooManyRequestsHeaders) replayWebhookDeliveriesRes()          {}
 func (*TooManyRequestsHeaders) reportBankFileStatusRes()             {}
 func (*TooManyRequestsHeaders) requestBankAccountChangeRes()         {}
 func (*TooManyRequestsHeaders) requestBankAccountEndRes()            {}
@@ -27800,6 +27965,7 @@ func (*UnauthorizedHeaders) getSodRuleRes()                       {}
 func (*UnauthorizedHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*UnauthorizedHeaders) getSupplierInvoiceRes()               {}
 func (*UnauthorizedHeaders) getUploadRes()                        {}
+func (*UnauthorizedHeaders) getWebhookDeliveryRes()               {}
 func (*UnauthorizedHeaders) getWebhookSubscriptionRes()           {}
 func (*UnauthorizedHeaders) grantRolePermissionRes()              {}
 func (*UnauthorizedHeaders) holdSupplierInvoiceRes()              {}
@@ -27847,12 +28013,14 @@ func (*UnauthorizedHeaders) listRolePermissionsRes()              {}
 func (*UnauthorizedHeaders) listRolesRes()                        {}
 func (*UnauthorizedHeaders) listSodRulesRes()                     {}
 func (*UnauthorizedHeaders) listSupplierInvoicesRes()             {}
+func (*UnauthorizedHeaders) listWebhookDeliveriesRes()            {}
 func (*UnauthorizedHeaders) listWebhookSubscriptionsRes()         {}
 func (*UnauthorizedHeaders) lockFiscalPeriodRes()                 {}
 func (*UnauthorizedHeaders) matchSupplierInvoiceRes()             {}
 func (*UnauthorizedHeaders) openFiscalPeriodRes()                 {}
 func (*UnauthorizedHeaders) parkJournalEntryRes()                 {}
 func (*UnauthorizedHeaders) pauseWebhookSubscriptionRes()         {}
+func (*UnauthorizedHeaders) pingWebhookSubscriptionRes()          {}
 func (*UnauthorizedHeaders) postGoodsReceiptRes()                 {}
 func (*UnauthorizedHeaders) postJournalEntryRes()                 {}
 func (*UnauthorizedHeaders) postParkedJournalEntryRes()           {}
@@ -27860,6 +28028,7 @@ func (*UnauthorizedHeaders) postSupplierInvoiceRes()              {}
 func (*UnauthorizedHeaders) proposePaymentRunRes()                {}
 func (*UnauthorizedHeaders) reconcileMigrationRunRes()            {}
 func (*UnauthorizedHeaders) recordAgentToolCallRes()              {}
+func (*UnauthorizedHeaders) redeliverWebhookDeliveryRes()         {}
 func (*UnauthorizedHeaders) rejectApprovalRequestRes()            {}
 func (*UnauthorizedHeaders) rejectPaymentRunRes()                 {}
 func (*UnauthorizedHeaders) releaseContractRes()                  {}
@@ -27867,6 +28036,7 @@ func (*UnauthorizedHeaders) releasePaymentRunRes()                {}
 func (*UnauthorizedHeaders) releasePurchaseOrderRes()             {}
 func (*UnauthorizedHeaders) releaseSupplierInvoiceRes()           {}
 func (*UnauthorizedHeaders) renewContractRes()                    {}
+func (*UnauthorizedHeaders) replayWebhookDeliveriesRes()          {}
 func (*UnauthorizedHeaders) reportBankFileStatusRes()             {}
 func (*UnauthorizedHeaders) requestBankAccountChangeRes()         {}
 func (*UnauthorizedHeaders) requestBankAccountEndRes()            {}
@@ -28013,6 +28183,7 @@ func (*UnprocessableHeaders) matchSupplierInvoiceRes()             {}
 func (*UnprocessableHeaders) openFiscalPeriodRes()                 {}
 func (*UnprocessableHeaders) parkJournalEntryRes()                 {}
 func (*UnprocessableHeaders) pauseWebhookSubscriptionRes()         {}
+func (*UnprocessableHeaders) pingWebhookSubscriptionRes()          {}
 func (*UnprocessableHeaders) postGoodsReceiptRes()                 {}
 func (*UnprocessableHeaders) postJournalEntryRes()                 {}
 func (*UnprocessableHeaders) postParkedJournalEntryRes()           {}
@@ -28020,6 +28191,7 @@ func (*UnprocessableHeaders) postSupplierInvoiceRes()              {}
 func (*UnprocessableHeaders) proposePaymentRunRes()                {}
 func (*UnprocessableHeaders) reconcileMigrationRunRes()            {}
 func (*UnprocessableHeaders) recordAgentToolCallRes()              {}
+func (*UnprocessableHeaders) redeliverWebhookDeliveryRes()         {}
 func (*UnprocessableHeaders) rejectApprovalRequestRes()            {}
 func (*UnprocessableHeaders) rejectPaymentRunRes()                 {}
 func (*UnprocessableHeaders) releaseContractRes()                  {}
@@ -28027,6 +28199,7 @@ func (*UnprocessableHeaders) releasePaymentRunRes()                {}
 func (*UnprocessableHeaders) releasePurchaseOrderRes()             {}
 func (*UnprocessableHeaders) releaseSupplierInvoiceRes()           {}
 func (*UnprocessableHeaders) renewContractRes()                    {}
+func (*UnprocessableHeaders) replayWebhookDeliveriesRes()          {}
 func (*UnprocessableHeaders) reportBankFileStatusRes()             {}
 func (*UnprocessableHeaders) requestBankAccountChangeRes()         {}
 func (*UnprocessableHeaders) requestBankAccountEndRes()            {}
@@ -29350,6 +29523,430 @@ func (s *UploadHeaders) init() UploadHeaders {
 	}
 	return m
 }
+
+// One event sent, or to be sent, to a subscription's endpoint (ADR-0041). Kept 30 days.
+// Ref: #/components/schemas/WebhookDelivery
+type WebhookDelivery struct {
+	// Identifier (UUIDv7); the `webhook-delivery-id` header of its requests.
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Moves with every attempt.
+	Version int32 `json:"version"`
+	// The subscription it is sent to.
+	SubscriptionID uuid.UUID `json:"subscription_id"`
+	// The CloudEvent id: the `webhook-id` of every attempt, redelivery and replay.
+	EventID uuid.UUID `json:"event_id"`
+	// The CloudEvents type, or `webhook.ping` for a ping.
+	Type string `json:"type"`
+	// The resource the event is about (the subscription, for a ping); a resource's deliveries go out in
+	// event order.
+	Subject uuid.UUID `json:"subject"`
+	// When the event occurred.
+	OccurredAt time.Time `json:"occurred_at"`
+	// `pending`: waiting for its first or next attempt. `delivered`: the endpoint answered 2xx. `dead`:
+	// retries ran out or the endpoint answered 410 (a ping: its one attempt failed). `dropped`: never
+	// sent, since the subscription was disabled. Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// Attempts made since it was last queued.
+	Attempts int32 `json:"attempts"`
+	// When it is attempted next; present only while `pending`.
+	NextAttemptAt OptDateTime `json:"next_attempt_at"`
+	// The endpoint's HTTP status at the last attempt.
+	LastStatus OptInt32 `json:"last_status"`
+	// Why the last attempt got no HTTP status.
+	LastError OptString `json:"last_error"`
+	// When the endpoint accepted it; present only when `delivered`.
+	DeliveredAt OptDateTime `json:"delivered_at"`
+	// When the delivery was recorded (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *WebhookDelivery) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *WebhookDelivery) GetVersion() int32 {
+	return s.Version
+}
+
+// GetSubscriptionID returns the value of SubscriptionID.
+func (s *WebhookDelivery) GetSubscriptionID() uuid.UUID {
+	return s.SubscriptionID
+}
+
+// GetEventID returns the value of EventID.
+func (s *WebhookDelivery) GetEventID() uuid.UUID {
+	return s.EventID
+}
+
+// GetType returns the value of Type.
+func (s *WebhookDelivery) GetType() string {
+	return s.Type
+}
+
+// GetSubject returns the value of Subject.
+func (s *WebhookDelivery) GetSubject() uuid.UUID {
+	return s.Subject
+}
+
+// GetOccurredAt returns the value of OccurredAt.
+func (s *WebhookDelivery) GetOccurredAt() time.Time {
+	return s.OccurredAt
+}
+
+// GetStatus returns the value of Status.
+func (s *WebhookDelivery) GetStatus() string {
+	return s.Status
+}
+
+// GetAttempts returns the value of Attempts.
+func (s *WebhookDelivery) GetAttempts() int32 {
+	return s.Attempts
+}
+
+// GetNextAttemptAt returns the value of NextAttemptAt.
+func (s *WebhookDelivery) GetNextAttemptAt() OptDateTime {
+	return s.NextAttemptAt
+}
+
+// GetLastStatus returns the value of LastStatus.
+func (s *WebhookDelivery) GetLastStatus() OptInt32 {
+	return s.LastStatus
+}
+
+// GetLastError returns the value of LastError.
+func (s *WebhookDelivery) GetLastError() OptString {
+	return s.LastError
+}
+
+// GetDeliveredAt returns the value of DeliveredAt.
+func (s *WebhookDelivery) GetDeliveredAt() OptDateTime {
+	return s.DeliveredAt
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *WebhookDelivery) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *WebhookDelivery) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *WebhookDelivery) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *WebhookDelivery) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetSubscriptionID sets the value of SubscriptionID.
+func (s *WebhookDelivery) SetSubscriptionID(val uuid.UUID) {
+	s.SubscriptionID = val
+}
+
+// SetEventID sets the value of EventID.
+func (s *WebhookDelivery) SetEventID(val uuid.UUID) {
+	s.EventID = val
+}
+
+// SetType sets the value of Type.
+func (s *WebhookDelivery) SetType(val string) {
+	s.Type = val
+}
+
+// SetSubject sets the value of Subject.
+func (s *WebhookDelivery) SetSubject(val uuid.UUID) {
+	s.Subject = val
+}
+
+// SetOccurredAt sets the value of OccurredAt.
+func (s *WebhookDelivery) SetOccurredAt(val time.Time) {
+	s.OccurredAt = val
+}
+
+// SetStatus sets the value of Status.
+func (s *WebhookDelivery) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetAttempts sets the value of Attempts.
+func (s *WebhookDelivery) SetAttempts(val int32) {
+	s.Attempts = val
+}
+
+// SetNextAttemptAt sets the value of NextAttemptAt.
+func (s *WebhookDelivery) SetNextAttemptAt(val OptDateTime) {
+	s.NextAttemptAt = val
+}
+
+// SetLastStatus sets the value of LastStatus.
+func (s *WebhookDelivery) SetLastStatus(val OptInt32) {
+	s.LastStatus = val
+}
+
+// SetLastError sets the value of LastError.
+func (s *WebhookDelivery) SetLastError(val OptString) {
+	s.LastError = val
+}
+
+// SetDeliveredAt sets the value of DeliveredAt.
+func (s *WebhookDelivery) SetDeliveredAt(val OptDateTime) {
+	s.DeliveredAt = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *WebhookDelivery) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *WebhookDelivery) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// WebhookDeliveryHeaders wraps WebhookDelivery with response headers.
+type WebhookDeliveryHeaders struct {
+	ETag               OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           WebhookDelivery
+}
+
+// GetETag returns the value of ETag.
+func (s *WebhookDeliveryHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *WebhookDeliveryHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *WebhookDeliveryHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *WebhookDeliveryHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *WebhookDeliveryHeaders) GetResponse() WebhookDelivery {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *WebhookDeliveryHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *WebhookDeliveryHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *WebhookDeliveryHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *WebhookDeliveryHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *WebhookDeliveryHeaders) SetResponse(val WebhookDelivery) {
+	s.Response = val
+}
+
+func (*WebhookDeliveryHeaders) getWebhookDeliveryRes() {}
+
+// One page of webhook deliveries.
+// Ref: #/components/schemas/WebhookDeliveryPage
+type WebhookDeliveryPage struct {
+	// The webhook deliveries on this page.
+	Items []WebhookDelivery `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *WebhookDeliveryPage) GetItems() []WebhookDelivery {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *WebhookDeliveryPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *WebhookDeliveryPage) SetItems(val []WebhookDelivery) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *WebhookDeliveryPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// WebhookDeliveryPageHeaders wraps WebhookDeliveryPage with response headers.
+type WebhookDeliveryPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           WebhookDeliveryPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *WebhookDeliveryPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *WebhookDeliveryPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *WebhookDeliveryPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *WebhookDeliveryPageHeaders) GetResponse() WebhookDeliveryPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *WebhookDeliveryPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *WebhookDeliveryPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *WebhookDeliveryPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *WebhookDeliveryPageHeaders) SetResponse(val WebhookDeliveryPage) {
+	s.Response = val
+}
+
+func (*WebhookDeliveryPageHeaders) listWebhookDeliveriesRes() {}
+
+// Replay the deliveries of the events since an instant.
+// Ref: #/components/schemas/WebhookReplay
+type WebhookReplay struct {
+	// Replay the events that occurred at or after this instant: at most 30 days back.
+	Since time.Time `json:"since"`
+}
+
+// GetSince returns the value of Since.
+func (s *WebhookReplay) GetSince() time.Time {
+	return s.Since
+}
+
+// SetSince sets the value of Since.
+func (s *WebhookReplay) SetSince(val time.Time) {
+	s.Since = val
+}
+
+// What a replay queued.
+// Ref: #/components/schemas/WebhookReplayResult
+type WebhookReplayResult struct {
+	// How many deliveries were queued again.
+	Queued int32 `json:"queued"`
+}
+
+// GetQueued returns the value of Queued.
+func (s *WebhookReplayResult) GetQueued() int32 {
+	return s.Queued
+}
+
+// SetQueued sets the value of Queued.
+func (s *WebhookReplayResult) SetQueued(val int32) {
+	s.Queued = val
+}
+
+// WebhookReplayResultHeaders wraps WebhookReplayResult with response headers.
+type WebhookReplayResultHeaders struct {
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           WebhookReplayResult
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *WebhookReplayResultHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *WebhookReplayResultHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *WebhookReplayResultHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *WebhookReplayResultHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *WebhookReplayResultHeaders) GetResponse() WebhookReplayResult {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *WebhookReplayResultHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *WebhookReplayResultHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *WebhookReplayResultHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *WebhookReplayResultHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *WebhookReplayResultHeaders) SetResponse(val WebhookReplayResult) {
+	s.Response = val
+}
+
+func (*WebhookReplayResultHeaders) replayWebhookDeliveriesRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/WebhookSubscription

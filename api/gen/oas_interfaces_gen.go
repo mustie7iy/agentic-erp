@@ -385,6 +385,10 @@ type GetUploadRes interface {
 	getUploadRes()
 }
 
+type GetWebhookDeliveryRes interface {
+	getWebhookDeliveryRes()
+}
+
 type GetWebhookSubscriptionRes interface {
 	getWebhookSubscriptionRes()
 }
@@ -573,6 +577,10 @@ type ListSupplierInvoicesRes interface {
 	listSupplierInvoicesRes()
 }
 
+type ListWebhookDeliveriesRes interface {
+	listWebhookDeliveriesRes()
+}
+
 type ListWebhookSubscriptionsRes interface {
 	listWebhookSubscriptionsRes()
 }
@@ -595,6 +603,10 @@ type ParkJournalEntryRes interface {
 
 type PauseWebhookSubscriptionRes interface {
 	pauseWebhookSubscriptionRes()
+}
+
+type PingWebhookSubscriptionRes interface {
+	pingWebhookSubscriptionRes()
 }
 
 type PostGoodsReceiptRes interface {
@@ -625,6 +637,10 @@ type RecordAgentToolCallRes interface {
 	recordAgentToolCallRes()
 }
 
+type RedeliverWebhookDeliveryRes interface {
+	redeliverWebhookDeliveryRes()
+}
+
 type RejectApprovalRequestRes interface {
 	rejectApprovalRequestRes()
 }
@@ -651,6 +667,10 @@ type ReleaseSupplierInvoiceRes interface {
 
 type RenewContractRes interface {
 	renewContractRes()
+}
+
+type ReplayWebhookDeliveriesRes interface {
+	replayWebhookDeliveriesRes()
 }
 
 type ReportBankFileStatusRes interface {

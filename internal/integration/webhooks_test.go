@@ -259,6 +259,9 @@ func TestWebhookDatabaseFailures(t *testing.T) {
 	held, heldTag := createHook(c, `"ledger.*"`)
 	c.Must(200, "POST", hooks+"/"+held["id"].(string)+":pause", "", heldTag)
 	paused := uuid.MustParse(held["id"].(string))
+	_, tag := c.Must(200, "GET", hooks+"/"+id.String(), "", "")
+	ping, _ := c.Must(200, "POST", hooks+"/"+id.String()+":ping", "", tag)
+	delivery := uuid.MustParse(ping["id"].(string))
 	h := endpoints("")
 	anyVersion := gen.UpdateWebhookSubscriptionParams{ID: id, IfMatch: "*"}
 	calls := map[string]func(ctx context.Context) error{
@@ -288,6 +291,26 @@ func TestWebhookDatabaseFailures(t *testing.T) {
 		},
 		"resume": func(ctx context.Context) error {
 			_, err := h.ResumeWebhookSubscription(ctx, gen.ResumeWebhookSubscriptionParams{ID: paused, IfMatch: "*"})
+			return err
+		},
+		"list deliveries": func(ctx context.Context) error {
+			_, err := h.ListWebhookDeliveries(ctx, gen.ListWebhookDeliveriesParams{ID: id})
+			return err
+		},
+		"get delivery": func(ctx context.Context) error {
+			_, err := h.GetWebhookDelivery(ctx, gen.GetWebhookDeliveryParams{ID: id, DeliveryID: delivery})
+			return err
+		},
+		"redeliver": func(ctx context.Context) error {
+			_, err := h.RedeliverWebhookDelivery(ctx, gen.RedeliverWebhookDeliveryParams{ID: id, DeliveryID: delivery, IfMatch: "*"})
+			return err
+		},
+		"replay": func(ctx context.Context) error {
+			_, err := h.ReplayWebhookDeliveries(ctx, &gen.WebhookReplay{Since: time.Now().Add(-time.Hour)}, gen.ReplayWebhookDeliveriesParams{ID: id, IfMatch: "*"})
+			return err
+		},
+		"ping": func(ctx context.Context) error {
+			_, err := h.PingWebhookSubscription(ctx, gen.PingWebhookSubscriptionParams{ID: id, IfMatch: "*"})
 			return err
 		},
 		"delete": func(ctx context.Context) error {

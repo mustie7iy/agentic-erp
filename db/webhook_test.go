@@ -113,6 +113,7 @@ func TestWebhookDeliveries(t *testing.T) {
 		{"the same event again", row{"event_id": d["event_id"]}, "webhook_delivery_tenant_id_subscription_id_event_id_key"},
 		{"an unknown subscription", row{"subscription_id": id()}, "webhook_delivery_tenant_id_subscription_id_fkey"},
 		{"an unversioned type", row{"type": "com.example.erp.ledger.journal_entry_posted"}, "webhook_delivery_type_check"},
+		{"another type outside the contract", row{"type": "webhook.pong"}, "webhook_delivery_type_check"},
 		{"another status", row{"status": "failed", "next_attempt_at": nil, "attempts": 1}, "webhook_delivery_status_check"},
 		{"negative attempts", row{"attempts": -1}, "webhook_delivery_attempts_check"},
 		{"pending with no attempt due", row{"next_attempt_at": nil}, "webhook_delivery_next_attempt"},
@@ -192,7 +193,7 @@ func TestWebhookWorkerGrants(t *testing.T) {
 		return err
 	}
 	for name, sql := range map[string]string{
-		"due deliveries": `SELECT d.tenant_id, d.id, d.subscription_id, d.event_id, d.subject, d.occurred_at, d.status, d.next_attempt_at, d.created_at, s.status
+		"due deliveries": `SELECT d.tenant_id, d.id, d.subscription_id, d.event_id, d.type, d.subject, d.occurred_at, d.status, d.next_attempt_at, d.created_at, s.status
 			FROM integration.webhook_delivery d JOIN integration.webhook_subscription s ON s.tenant_id = d.tenant_id AND s.id = d.subscription_id`,
 		"the retention": `DELETE FROM integration.webhook_delivery WHERE id = $1`,
 	} {
@@ -217,7 +218,8 @@ func TestWebhookWorkerGrants(t *testing.T) {
 
 // TestWebhookBookkeeping (000092): failing_since alone moves without the
 // version, any other change of a subscription still needs it; a delivery
-// dropped unsent needs no attempt.
+// dropped unsent needs no attempt; a ping is the one type outside the
+// contract.
 func TestWebhookBookkeeping(t *testing.T) {
 	need(t)
 	tenant, actor := id(), id()
@@ -235,5 +237,8 @@ func TestWebhookBookkeeping(t *testing.T) {
 	})
 	t.Run("dropped unsent", func(t *testing.T) {
 		mustApp(t, tenant, webhookDelivery(tenant, sub["id"].(uuid.UUID)).with(row{"status": "dropped", "next_attempt_at": nil}).insert("integration.webhook_delivery"))
+	})
+	t.Run("a ping (T50g)", func(t *testing.T) {
+		mustApp(t, tenant, webhookDelivery(tenant, sub["id"].(uuid.UUID)).with(row{"type": "webhook.ping"}).insert("integration.webhook_delivery"))
 	})
 }
