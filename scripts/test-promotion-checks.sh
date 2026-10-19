@@ -59,6 +59,16 @@ git -C "$repo" checkout -q -b prodrun main
 put "$(env_file production/prod1)" "$(release v1.1.0 2)" "v1.1.0 to production/prod1"
 git -C "$repo" checkout -q -b prodgood prodrun
 put deploy/environments/staging/stg1/drills/v1.0.0.json "$(drill v1.0.0 1 v1.0.0 passed)" "v1.0.0's drill"
+# sneaky: a merged pull request whose commits pinned v1.3.0 on stg1 and
+# prod1 before the releases it merged, so main never ran v1.3.0.
+git -C "$repo" checkout -q -b sneaky main
+git -C "$repo" checkout -q -b side
+put "$(env_file staging/stg1)" "$(release v1.3.0 6)" "v1.3.0 to stg1"
+put "$(env_file staging/stg1)" "$(release v1.2.0 3)" "v1.2.0 to stg1"
+put "$(env_file production/prod1)" "$(release v1.3.0 6)" "v1.3.0 to prod1"
+put "$(env_file production/prod1)" "$(release v1.1.0 2)" "v1.1.0 to prod1"
+git -C "$repo" checkout -q sneaky
+git -C "$repo" merge -q --no-ff --no-edit side
 git -C "$repo" checkout -q main
 
 # case NAME WANT GREP STEPS: STEPS (shell) on a branch off BASE (main by
@@ -96,6 +106,8 @@ BASE=stg12 case_ drill-record ok "records a drill" 'put deploy/environments/stag
 case_ drill-not-run-there refused "never ran" 'put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.2.0 3 v1.1.0 passed)" p'
 case_ drill-of-another-commit refused "never ran" 'put deploy/environments/staging/stg1/drills/v1.1.0.json "[$(run_ v1.1.0 2 v1.0.0 passed), $(run_ v1.1.0 5 v1.0.0 passed)]" p'
 BASE=stg12 case_ drill-back-to-what-it-never-ran refused "never ran" 'put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.2.0 3 v0.9.0 passed)" p'
+BASE=sneaky case_ drill-of-a-side-commit refused "never ran" 'put deploy/environments/staging/stg1/drills/v1.3.0.json "$(drill v1.3.0 6 v1.1.0 passed)" p'
+BASE=sneaky case_ rollback-to-a-side-commit refused "may take only" 'put "$(env_file production/prod1)" "$(release v1.3.0 6)" p'
 BASE=prodgood case_ known-good-rollback ok "no approver needed" 'put "$(env_file production/prod1)" "$(release v1.0.0 1)" p'
 case_ drill-again ok "records a drill" 'put deploy/environments/staging/stg1/drills/v1.1.0.json "[$(run_ v1.1.0 2 v1.0.0 passed), $(run_ v1.1.0 2 v1.0.0 failed)]" p'
 case_ drill-rewritten refused "append-only" 'put deploy/environments/staging/stg1/drills/v1.1.0.json "$(drill v1.1.0 2 v1.0.0 failed)" p'

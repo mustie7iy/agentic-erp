@@ -13,7 +13,8 @@
 # A step is a sync of the cell's own Argo CD to the main commit that
 # pinned that release, so nothing is pushed: the root Application's
 # automated sync is paused for the drill and restored when it ends,
-# whatever the outcome, which brings every Application back to the branch.
+# whatever the outcome, which brings every Application back to the branch;
+# the history it reads is the branch's first parents, its merged states.
 # It refuses a drill whose charts changed since N was pinned: production's
 # rollback renders the branch's charts with N's images, the drill's N's.
 # DRILL_CHARTS=current (product owner) drills such a release at once:
@@ -66,7 +67,7 @@ if mode not in ("n", "current"):
     fail("DRILL_CHARTS %r is neither n nor current" % mode)
 cell = json.load(open(root + "/path.json"))["drill"]
 path = "%s/%s/release.json" % (root, cell)
-revs = git("log", "--format=%H", branch, "--", path).split()
+revs = git("log", "--first-parent", "--format=%H", branch, "--", path).split()
 if not revs:
     fail("%s has no %s" % (branch, path))
 def release_at(rev):
@@ -167,6 +168,14 @@ try:
 except Step as e:
     print("rollback-drill: " + str(e), file=sys.stderr)
 finally:
+    # A values patch is kubectl's own field, which neither the root's
+    # server-side apply nor self-heal removes: the drill takes its own off.
+    for name in [a[0] for a in apps]:
+        try:
+            patch(name, {"spec": {"source": {"helm": {"valuesObject": {"release": None, "images": None}}}}})
+        except Step as e:
+            result = "failed"
+            print("rollback-drill: %s: remove release and images from %s's values by hand" % (e, name), file=sys.stderr)
     try:
         patch("erp-delivery", {"spec": {"syncPolicy": {"automated": {"prune": True, "selfHeal": True}}}})
     except Step as e:

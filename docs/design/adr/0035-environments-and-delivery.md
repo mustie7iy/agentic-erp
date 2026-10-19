@@ -526,7 +526,14 @@ no second approver, so a bad release can be reverted at once
 empty); a rollback to a release without that record still needs one. A
 pull request that only appends to a drill's record needs none either: the
 record is append-only and each run is checked against the release and
-commit the drill cell ran.
+commit the drill cell ran. What a cell ran is read from the base branch's
+first-parent history, its merged states, so a commit inside a merged pull
+request that pinned and then reverted a release does not count. A run's
+result and log address are the drill's own word: anyone who may merge
+could append a passed run after a failed one and so make a release
+production already ran a known-good rollback target. That residual risk
+is limited to releases production ran and stays visible in the record's
+history; recording the runs from a workflow would close it.
 
 *The rollback drill (T40d5).* `scripts/rollback-drill.sh` drills the
 release the drill cell runs (N+1) against the one it ran before (N) on the
@@ -546,8 +553,10 @@ owner, 2026-10-19) drills such a release at once: every step syncs the
 branch's commit with the step's `release.json` set as the Application's
 `valuesObject`, which Argo CD gives precedence over the value files, so N
 is deployed on the current charts, then N+1, then N again: the rollback
-production does, proven across the chart change. The root's self-heal
-removes those values when the drill ends.
+production does, proven across the chart change. The drill removes
+those values itself when it ends, in either mode (a field kubectl
+patched is not one the root's server-side apply or self-heal removes),
+and fails the run if it cannot.
 `test-rollback-drill.sh` runs it against a stand-in kubectl (no cluster;
 the `promotion-self-test` workflow). Runbook, in staging's account with
 access to `stg1`'s cluster, once N+1 is on `staging/stg1`:

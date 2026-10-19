@@ -28,7 +28,10 @@ def merge(dst, src):
     for k, v in src.items():
         if v is None:
             dst.pop(k, None)
-        elif isinstance(v, dict) and isinstance(dst.get(k), dict):
+        elif isinstance(v, dict):
+            # As a JSON merge patch: a null removes, even in a new object.
+            if not isinstance(dst.get(k), dict):
+                dst[k] = {}
             merge(dst[k], v)
         else:
             dst[k] = v
@@ -112,6 +115,11 @@ sys.exit(runs[-1] != want)
 CHECK
     if [ -z "$why" ] && [ "$(tail -1 "$work/log")" != 'patch application erp-delivery {"spec": {"syncPolicy": {"automated": {"prune": true, "selfHeal": true}}}}' ]; then
       why="the root's automated sync was not restored last"
+    fi
+    if [ -z "$why" ] && ! python3 -c 'import json, sys
+apps = json.load(open(sys.argv[1]))["application"].values()
+sys.exit(any({"release", "images"} & set(a["spec"].get("source", {}).get("helm", {}).get("valuesObject", {})) for a in apps))' "$work/state.json"; then
+      why="the drill left a release or images in an Application's values"
     fi
   fi
   if [ -z "$why" ] && [ -n "${REVS:-}" ] && [ "$(grep -o '"revision": "[0-9a-f]*"' "$work/log" | cut -d'"' -f4 | sort -u | wc -l | tr -d ' ')" != "$REVS" ]; then

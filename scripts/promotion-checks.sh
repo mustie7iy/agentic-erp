@@ -37,6 +37,8 @@
 # later promotion. Product owner: a production rollback to a known-good
 # release, one the cell ran before whose drill passed for its commit,
 # needs none; nor does a drill's record (appended to, checked above).
+# What a cell ran is BASE's first-parent history, its merged states: a
+# commit inside a merged pull request never ran anywhere.
 #   scripts/promotion-checks.sh origin/main [HEAD]
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -95,7 +97,7 @@ def ran_at_drill(version, commit=None):
     """Whether the drill cell's release.json named version (at commit,
     when given) at BASE or before: what a drill's record may name."""
     p = "%s/%s/release.json" % (root, drill_cell)
-    for rev in git("log", "--format=%H", base, "--", p).split():
+    for rev in git("log", "--first-parent", "--format=%H", base, "--", p).split():
         text = at(rev, p)
         d = load(text, p) if text is not None else {}
         r = d.get("release") if isinstance(d, dict) else None
@@ -112,7 +114,7 @@ def drilled(version, commit):
 
 def ran_before(path, rel):
     """Whether the cell ran rel before BASE's: a rollback."""
-    for rev in git("log", "--format=%H", base, "--", path).split()[1:]:
+    for rev in git("log", "--first-parent", "--format=%H", base, "--", path).split()[1:]:
         text = at(rev, path)
         if text is not None and release(path, load(text, path)) == rel:
             return True
@@ -191,7 +193,7 @@ known_good = False
 
 if ran_before(target, rel):
     print("promotion-checks: %s rolls back to %s, which it ran before" % (cell, version))
-    known_good = drilled(version, rel[1])
+    known_good = production and drilled(version, rel[1])
     if production and known_good:
         print("promotion-checks: %s's drill passed for %s: a known-good rollback, no approver needed" % (version, rel[1]))
 else:
