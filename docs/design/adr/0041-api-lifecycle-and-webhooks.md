@@ -93,6 +93,17 @@ event version breaks someone else's system.
 - **Governance:** subscription changes are `x-agent: false` (an agent never
   routes tenant data to a new endpoint); reads and the ping are
   `x-autonomy: read`. Every change writes an audit record (ADR-0011).
+- **Contract and schema (T50c):** `integration.webhook_subscription` and
+  `integration.webhook_delivery` (migration 000090), permissions
+  `integration.webhook.read` and `.manage`. Deleting a subscription sets
+  status `deleted` (nothing is deleted, 03 §3.1); the limit of 20 counts
+  the subscriptions not deleted and is the application's. Events of the
+  identity context, partner bank accounts and partner master data (a
+  partner may be a person) are not marked `x-webhook`, nor are agents,
+  platform and tenant-lifecycle events; `api/asyncapi_test.go` refuses a
+  mark on an excluded kind. The subscription operations enter
+  `openapi.yaml` with their handlers (T50d), so no operation is served as
+  a 501.
 - **Consumer review (T50h)** of the contract waits until the product owner
   names the pilot partner.
 
@@ -116,5 +127,5 @@ event version breaks someone else's system.
   appear without code.
 - Breaking `/v1` after the partner integrates needs a beta operation or a
   `/v2`; breaking an event needs a `.vN+1` and both published for a year.
-- `x-webhook` and the egress package are added by T50b–g; until then the
-  AsyncAPI contract marks no event for webhooks.
+- The egress package came with T50b and `x-webhook` with T50c; the
+  subscription API comes with T50d.

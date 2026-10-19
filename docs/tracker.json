@@ -4781,9 +4781,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Webhook subscription and delivery schema, permissions, and x-webhook events (no bank or personal data) checked by a test",
+        "r": "db/migrations/000090 · api/asyncapi.yaml · T50c",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Subscriptions, dispatcher, retries, operations and x-webhook events",
-        "r": "T50c–g",
+        "t": "Subscription API, dispatcher, retries and operations",
+        "r": "T50d–g",
         "c": []
        }
       ]
