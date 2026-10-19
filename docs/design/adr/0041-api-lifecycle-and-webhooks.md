@@ -76,8 +76,20 @@ event version breaks someone else's system.
 - **Operations:** replay of a time range, redelivery of one delivery, and a
   ping event to test an endpoint. Deliveries are kept 30 days.
 - **Egress** goes through a shared `internal/platform/egress` client:
-  `refusePrivate` moves there from authn; no proxy, no redirects followed,
-  5 s connect and 10 s total timeouts, responses read up to 64 KB.
+  `RefusePrivate` moves there from authn, which reuses it; https only, to
+  public unicast addresses checked on the address dialled (so DNS
+  rebinding is refused), no proxy (ADR-0033), no redirects followed (a
+  redirect is answered as the delivery's status), the system roots rather
+  than `ERP_TLS_CA` and no client certificate, 5 s connect and 10 s total
+  timeouts, responses and their headers read up to 64 KB. Tests reach a
+  loopback server only through a constructor option that no configuration
+  sets and that fails outside a test binary.
+- **Signatures** (`internal/platform/webhook`): `webhook-signature` is
+  `v1,<base64 HMAC-SHA256>` per secret, space-separated during a rotation;
+  verification ignores other versions and allows a timestamp within 5
+  minutes either way. `api/webhooks-test-vectors.json`, starting with the
+  specification's reference vector, fixes the format for subscribers and
+  is checked by the tests.
 - **Governance:** subscription changes are `x-agent: false` (an agent never
   routes tenant data to a new endpoint); reads and the ping are
   `x-autonomy: read`. Every change writes an audit record (ADR-0011).
