@@ -6,6 +6,7 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -55,21 +56,26 @@ func TestHouseBankChannel(t *testing.T) {
 	e.release(t, run, "")
 	files, _ := e.Must(200, "GET", "/v1/bank-files?payment_run_id="+id(run), "", "")
 	file := files["items"].([]any)[0].(map[string]any)
-	path := "/v1/bank-files/" + id(file) + ":transmit"
 
-	// Without a secret for its key the channel is refused; so is a server
-	// that does not take the file. Nothing is transmitted either way.
+	// Without a secret for its key the channel is refused, and the file
+	// fails; a server that does not take the file is tried again. Nothing
+	// is transmitted either way.
 	pgtest.Exec(t, `UPDATE integration.connector SET secret_ref = NULL, version = version + 1 WHERE id = $1`, conn)
-	e.Problem(422, "integration.secret_required", "POST", path, "", `"1"`)
+	e.failedWith(t, e.transmit(t, id(file), `"1"`), "integration.secret_required")
 	pgtest.Exec(t, `UPDATE integration.connector SET secret_ref = 'env:BANK_KEY', settings = $2, version = version + 1 WHERE id = $1`, conn,
 		sftpSettings(sftptest.NewServer(t, client.PublicKey(), func(s *sftptest.Server) { s.FailRename = true })))
-	e.Problem(503, "platform.unavailable", "POST", path, "", `"1"`)
-	if got, _ := e.Must(200, "GET", "/v1/bank-files/"+id(file), "", ""); got["status"] != "created" {
-		t.Fatalf("file after refusals, status: got %v, want created", got["status"])
+	e.transmit(t, id(file), version(t, e, id(file)))
+	if status, attempts, code := fileState(t, id(file)); status != "to_send" || attempts != 1 || code != "platform.unavailable" {
+		t.Fatalf("file the server did not take: got %s, %d attempts, %s; want to_send, 1, platform.unavailable", status, attempts, code)
 	}
 
 	pgtest.Exec(t, `UPDATE integration.connector SET settings = $2, version = version + 1 WHERE id = $1`, conn, sftpSettings(server))
-	e.Must(202, "POST", path, "", `"1"`)
+	tr := e.transmitter(t)
+	next := due(t, id(file))
+	tr.Now = func() time.Time { return next }
+	if n, err := tr.RunOnce(context.Background()); err != nil || n != 1 {
+		t.Fatalf("second attempt: got %d (%v), want the file sent", n, err)
+	}
 	name := "/2000-" + run["document_number"].(string) + "-" + id(file) + ".xml"
 	if content, ok := server.Read(t, name); !ok || !strings.Contains(content, "<IBAN>DE89370400440532013000</IBAN>") {
 		t.Errorf("uploaded file %s: got %q (found %v), want the pain.001", name, content, ok)

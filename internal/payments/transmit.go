@@ -2,7 +2,6 @@ package payments
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/platform/sftpclient"
@@ -89,31 +89,6 @@ func (e *Endpoints) channel(ctx context.Context, tx pgx.Tx, bank uuid.UUID) (Con
 	return SFTPConnector{Endpoint: ep}, id, nil
 }
 
-// send uploads the file through conn unless its bank already took a file
-// with its content hash, and records the upload in a transaction of its
-// own (T44c). It reports whether the file counted as sent already.
-func (e *Endpoints) send(ctx context.Context, tx pgx.Tx, p reqctx.Principal, f BankFile, conn Connector, connectorID *uuid.UUID) (bool, error) {
-	if dup, err := sent(ctx, tx, f); err != nil || dup {
-		return dup, err
-	}
-	r, err := load(ctx, tx, f.RunID, false)
-	if err != nil {
-		return false, err
-	}
-	le, err := e.entityOf(ctx, r)
-	if err != nil { // errNoEntity included: an existing run's missing entity is a 500, as on the download
-		return false, err
-	}
-	content, err := e.fileOf(ctx, tx, p.TenantID, f)
-	if err != nil {
-		return false, err
-	}
-	if err := conn.Transmit(ctx, File{ID: f.ID, Name: le.Code + "-" + r.DocumentNumber + "-" + f.ID.String() + ".xml", Content: content}); err != nil {
-		return false, problem.Unavailable("The bank connector did not take the file; transmit it again.", 30).WithCause(err)
-	}
-	return false, e.Sent.record(ctx, p, f, connectorID)
-}
-
 func fileNotFound() error { return problem.NotFoundOf("bank file") }
 
 // getFile reads a bank file of a legal entity the caller may act in.
@@ -124,10 +99,7 @@ func getFile(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (BankFile,
 	}
 	q := fileSelect + ` WHERE f.id = $1`
 	if lock {
-		// Not FOR UPDATE: the sent file's record (T44c), written in its own
-		// transaction while this one holds the lock, references the file,
-		// and its foreign key check would wait for this transaction.
-		q += ` FOR NO KEY UPDATE OF f`
+		q += ` FOR UPDATE OF f`
 	}
 	f, err := scanFile(tx.QueryRow(ctx, q, id))
 	if err = authz.Visible(err, access, f.LegalEntityID, fileNotFound(), "payments: read bank file %s", id); err != nil {
@@ -145,13 +117,14 @@ func GetFile(ctx context.Context, id uuid.UUID) (BankFile, error) {
 	return getFile(ctx, tx, id, false)
 }
 
-// TransmitFile sends a created bank file through its house bank's channel
-// (ADR-0038), as an operation that completes within the request. The file comes from object
-// storage (or is rendered again from the run) and must match the hash
-// recorded at release; a connector failure leaves the file created, to be
-// transmitted again. A file whose content hash its bank already took counts
-// as sent: it is not uploaded again, and the event says it was a duplicate
-// (T44c).
+// TransmitFile asks for a created or failed bank file to be sent through
+// its house bank's channel (ADR-0038), as an operation the transmitter
+// completes (T44e): the request only marks the file to_send, in its own
+// transaction, as the outbox records an event (ADR-0007), so no
+// transaction is open while the bank takes the file. The channel and the
+// file's content are checked when the transmitter claims it; a file whose
+// content hash its bank already took counts as sent (T44c). A failed file
+// may be asked for again, with its attempts counted afresh.
 func (e *Endpoints) TransmitFile(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (operations.Operation, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -164,30 +137,35 @@ func (e *Endpoints) TransmitFile(ctx context.Context, id uuid.UUID, ifMatch func
 	if err := ifMatch(f.Version); err != nil {
 		return operations.Operation{}, err
 	}
-	if f.Status != FileCreated {
-		return operations.Operation{}, problem.Conflict("payments.invalid_status", "Only a created bank file can be transmitted; this one is "+f.Status+".")
+	if f.Status != FileCreated && f.Status != FileFailed {
+		return operations.Operation{}, problem.Conflict("payments.invalid_status", "Only a created or failed bank file can be transmitted; this one is "+f.Status+".")
 	}
-	conn, connectorID, err := e.channel(ctx, tx, f.HouseBankID)
+	if err := e.configured(ctx, tx, f.HouseBankID); err != nil {
+		return operations.Operation{}, err
+	}
+	op, err := operations.StartFor(ctx, TransmitKind, map[string]any{"bank_file_id": f.ID}, "/v1/bank-files/"+f.ID.String())
 	if err != nil {
 		return operations.Operation{}, err
 	}
-	op, err := operations.StartFor(ctx, "payments.transmit", map[string]any{"bank_file_id": f.ID}, "/v1/bank-files/"+f.ID.String())
-	if err != nil {
-		return operations.Operation{}, err
+	if _, err := tx.Exec(ctx, `UPDATE payments.bank_file SET status = 'to_send', attempts = 0, next_attempt_at = $2, last_error = NULL,
+		transmit_operation_id = $3, transmit_requested_by = $4, version = version + 1 WHERE id = $1`, f.ID, clock.Now(e.Now), op.ID, p.ID); err != nil {
+		return operations.Operation{}, fmt.Errorf("payments: queue bank file %s: %w", f.ID, err)
 	}
-	duplicate, err := e.send(ctx, tx, p, f, conn, connectorID)
-	if err != nil {
-		return operations.Operation{}, err
+	return op, record(ctx, "payments.bank_file.queue", f.ID, map[string]any{"bank_file_id": f.ID, "operation_id": op.ID, "from_status": f.Status})
+}
+
+// configured refuses a transmission no channel could take: a house bank
+// that names no connector on a server without a directory for its files.
+// A bank's own connector is resolved when the file is claimed.
+func (e *Endpoints) configured(ctx context.Context, tx pgx.Tx, bank uuid.UUID) error {
+	var named bool
+	if err := tx.QueryRow(ctx, `SELECT connector_id IS NOT NULL FROM payments.house_bank WHERE id = $1`, bank).Scan(&named); err != nil {
+		return fmt.Errorf("payments: channel of house bank %s: %w", bank, err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE payments.bank_file SET status = 'transmitted', version = version + 1 WHERE id = $1`, f.ID); err != nil {
-		return operations.Operation{}, fmt.Errorf("payments: mark bank file %s transmitted: %w", f.ID, err)
+	if !named && e.Connector == nil {
+		return problem.Unavailable("Bank file transmission is not configured on this server.", 0)
 	}
-	if err := record(ctx, "payments.bank_file.transmit", f.ID, map[string]any{"bank_file_id": f.ID, "operation_id": op.ID, "connector_id": connectorID, "duplicate": duplicate},
-		fileEvent(f, "bank_file_transmitted", map[string]any{"format": f.Format, "sha256": hex.EncodeToString(f.SHA256), "connector_id": connectorID,
-			"integration_message_id": nil, "status": FileTransmitted, "duplicate": duplicate})); err != nil {
-		return operations.Operation{}, err
-	}
-	return operations.Succeed(ctx, op.ID, "/v1/bank-files/"+f.ID.String(), map[string]any{"bank_file_id": f.ID, "status": FileTransmitted})
+	return nil
 }
 
 // fileStatusReport is what the bank's status report (pain.002, camt.054)

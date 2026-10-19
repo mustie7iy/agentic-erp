@@ -627,7 +627,7 @@
      {
       "s": "P",
       "t": "Bank transmission (EBICS, SFTP, host-to-host)",
-      "r": "payments.Connector · DirConnector drops files for a transfer agent · ADR-0038 · T44 (split T44a-T44e, after T45c)",
+      "r": "payments.Connector · DirConnector drops files for a transfer agent · ADR-0038 · T44 (split T44a-T44f, after T45c)",
       "c": [
        {
         "s": "D",
@@ -666,9 +666,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Transmission out of the request transaction: the request marks the file to send and a platform/worker job uploads it (outbox-style), so no database connection is held during the upload; retries with backoff (1, 5, 15 min, 1 h, 4 h; failed after the sixth attempt, with bank_file_transmission_failed) and the sweep that queues files whose claim lapsed again",
+        "r": "payments.Transmitter · bank_file to_send/sending/failed, attempts, next_attempt_at (000102-000104) · bank_file_transmission_failed · T44e",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Transmission out of the request transaction: the request marks the file to send and a platform/worker job uploads it (outbox-style), so no database connection is held during the upload; retries with backoff (bounded) and the sweep for bank files a cancelled release leaves in object storage",
-        "r": "T44e",
+        "t": "The sweep that removes bank files a cancelled release left in object storage",
+        "r": "T44f",
         "c": []
        }
       ]

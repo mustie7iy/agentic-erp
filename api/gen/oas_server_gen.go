@@ -1259,7 +1259,11 @@ type Handler interface {
 	TerminateContract(ctx context.Context, req *ReasonInput, params TerminateContractParams) (TerminateContractRes, error)
 	// TransmitBankFile implements transmitBankFile operation.
 	//
-	// Sends the file to the bank through the house bank's connector. Requires status `created`.
+	// Asks for the file to be sent to the bank through the house bank's connector. Requires status
+	// `created` or `failed`. The file moves to `to_send` and the bank file transmitter sends it (T44e):
+	// `sending` while the bank takes it, then `transmitted`, or `failed` when the channel refuses it or
+	// after the sixth attempt (the attempts wait 1, 5 and 15 minutes, 1 and 4 hours apart). The Operation
+	// completes with it.
 	//
 	// POST /v1/bank-files/{id}:transmit
 	TransmitBankFile(ctx context.Context, params TransmitBankFileParams) (TransmitBankFileRes, error)

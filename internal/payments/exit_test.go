@@ -105,7 +105,7 @@ func TestCashDiscountExitCriterion(t *testing.T) {
 		t.Fatalf("bank files: got %d, want 1", len(listed))
 	}
 	file := listed[0].(map[string]any)
-	e.Must(202, "POST", "/v1/bank-files/"+id(file)+":transmit", "", `"1"`)
+	e.transmit(t, id(file), `"1"`)
 	if xml := string(e.connector.files[0].Content); !strings.Contains(xml, `<InstdAmt Ccy="EUR">103.89</InstdAmt>`) {
 		t.Errorf("bank file: got\n%s\nwant it to pay 103.89", xml)
 	}

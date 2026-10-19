@@ -1294,10 +1294,18 @@ name the bank connector its files are transmitted through
 (`connector_id`, the integration context's, so no foreign key; T44b);
 without one they go to the server's directory. Each file a house bank
 accepted is recorded by its content hash (`payments.sent_bank_file`,
-insert-only, unique per house bank and hash; T44c, 000100), in a
-transaction of its own committed right after the upload: a file whose hash
-its bank already took counts as sent and is not uploaded again, so a
-transmission whose own commit was lost is never sent twice.
+insert-only, unique per house bank and hash; T44c, 000100), in the
+transaction that marks the file transmitted after the upload: a file whose
+hash its bank already took counts as sent and is not uploaded again.
+Transmission runs outside the request (T44e, 000102-000104): a file asked
+for is `to_send` with its operation (`transmit_operation_id`), who asked
+(`transmit_requested_by`), its `attempts` and when it is due
+(`next_attempt_at`); the transmitter claims it as `sending`, its
+`next_attempt_at` then when the claim lapses, and ends it `transmitted` or
+`failed` (`last_error`, the problem code). A file to send or in flight
+names its request and due time (`bank_file_transmission`); the partial
+index `bank_file_due` holds the queue, and `erp_worker` reads only a
+file's tenant, status and due time.
 EBICS connectors (`integration.connector` of kind `bank_ebics`) are refused
 in production until EBICS is certified with a bank (T44d): the control role
 `erp_control` reads every tenant's connectors' kind and status, never their

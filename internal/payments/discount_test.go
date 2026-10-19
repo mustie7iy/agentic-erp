@@ -146,7 +146,7 @@ func TestDiscountedPaymentPosts(t *testing.T) {
 	}
 	files, _ := e.Must(200, "GET", "/v1/bank-files?payment_run_id="+id(run), "", "")
 	file := files["items"].([]any)[0].(map[string]any)
-	e.Must(202, "POST", "/v1/bank-files/"+id(file)+":transmit", "", `"1"`)
+	e.transmit(t, id(file), `"1"`)
 	if xml := string(e.connector.files[0].Content); !strings.Contains(xml, `<InstdAmt Ccy="EUR">97.00</InstdAmt>`) {
 		t.Errorf("bank file: got\n%s\nwant it to pay 97.00", xml)
 	}

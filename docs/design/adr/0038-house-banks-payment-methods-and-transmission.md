@@ -159,11 +159,39 @@ and France, by EBICS.
   personal data, ADR-0026), its `connector_disabled` event waiting in the
   outbox until the cell runs; run again on a connector already disabled,
   it reports so and succeeds, so the runbook can be repeated; then the
-  cell is started again), and, in T44e,
-  transmission out of the
-  request transaction: the request marks the file to be sent and a
-  platform worker job uploads it, as the outbox relays events, so no
-  database connection is held during the SFTP upload and the external
-  effect follows the outbox rule (ADR-0007); T44e also holds the retries
-  with backoff and the sweep. Until then the upload runs inside the
-  request, holding its transaction.
+  cell is started again), and transmission out of the request
+  transaction (T44e): `:transmit` takes a `created` or `failed` file and
+  marks it `to_send` with its operation and who asked, in the request's
+  transaction, as the outbox records an event (ADR-0007), and answers 202;
+  the bank file transmitter (`payments.Transmitter`, a platform worker on
+  every replica, with or without the workflow engine) finds the tenants
+  with due files as `erp_worker`, then per file, in a short transaction of
+  the tenant as its own system principal, claims it (`FOR UPDATE SKIP
+  LOCKED`), resolves the bank channel, checks the sent-hash record (a
+  file its bank took is transmitted without an upload, `duplicate: true`),
+  reads the content, and moves it to `sending` (attempt counted, the claim
+  lasting five upload bounds, 10 minutes by default); it uploads with no
+  transaction open, bounded (2 minutes by default), then, in a second
+  transaction guarded by the claim (still `sending` with the same attempt
+  count), records the hash and marks the file `transmitted` together,
+  publishes `bank_file_transmitted` and completes the operation. The hash
+  record and the status now commit together, so T44c's transaction of its
+  own is gone; if that commit is lost, the claim lapses and the file is
+  sent again, and the bank refuses the repeated message id. A failed
+  attempt (a problem of 500 or above, or an error that is no problem) is
+  tried again after 1, 5 and 15 minutes, 1 and 4 hours; a refusal (a
+  problem below 500: a disabled or unusable channel, a file that no longer
+  matches its hash) or the sixth attempt's failure moves the file to
+  `failed`, publishes `bank_file_transmission_failed` with the code and
+  fails the operation; a failed file may be asked for again, its attempts
+  counted afresh. The sweep: a `sending` file whose claim lapsed (the
+  replica stopped) is queued again at once, or fails if that was its last
+  attempt. A request cancelled before the claim is withdrawn (the file
+  returns to `created`, nothing sent); one cancelled while the bank has
+  the file keeps the file's outcome. Each step is audited
+  (`payments.bank_file.queue`, `withdraw`, `requeue`, `retry`, `fail`,
+  `transmit`). The previous version transmits only `created` files and
+  reports only `transmitted` ones, so a file it reads in a new status is
+  left to the new version's transmitter (06 §6.4; 000102-000104).
+  The sweep that removes bank files a cancelled release left in object
+  storage is T44f.

@@ -194,7 +194,7 @@ func Payments(cfg Config) *payments.Endpoints {
 		Postings: postings(),
 		Payees:   partner.Payees{Keys: cfg.FieldKeys}, Numbers: configuration.Numbers{}, Calendar: calendar(),
 		Settings: configuration.Settings{}, Actors: identity.Actors{}, Keys: cfg.FieldKeys, Connector: cfg.Connector, Objects: cfg.Objects,
-		Channels: integration.BankChannels{Secrets: resolver(cfg.Secrets)}, Sent: payments.SentFiles{Pool: cfg.Pool, AppRole: cfg.AppRole},
+		Channels: integration.BankChannels{Secrets: resolver(cfg.Secrets)},
 		Accounts: ledger.Accounts{}, DownPayments: downPayments{}, Now: cfg.Now}
 }
 

@@ -37,7 +37,6 @@ type failureRuns struct {
 func TestDatabaseFailures(t *testing.T) {
 	e := setup(t)
 	h := endpoints(&connector{})
-	h.Sent = payments.SentFiles{Pool: pgtest.Pool(t), AppRole: "erp_app"}
 	var s failureRuns
 	if !t.Run("released and transmitted runs", func(t *testing.T) { s.released(t, e.in(t)) }) {
 		t.FailNow()
@@ -122,7 +121,7 @@ func (s *failureRuns) released(t *testing.T, e env) {
 		e.release(t, r, "")
 		fs, _ := e.Must(200, "GET", "/v1/bank-files?payment_run_id="+id(r), "", "")
 		f := id(fs["items"].([]any)[0].(map[string]any))
-		e.Must(202, "POST", "/v1/bank-files/"+f+":transmit", "", `"1"`)
+		e.transmit(t, f, `"1"`)
 		return uuidOf(f)
 	}
 	s.toAck, s.toReject = transmitted("BP90000004", "INV-4"), transmitted("BP90000005", "INV-5")

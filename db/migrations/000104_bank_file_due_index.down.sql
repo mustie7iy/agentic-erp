@@ -1,0 +1,2 @@
+-- migrate:no-transaction
+DROP INDEX CONCURRENTLY IF EXISTS payments.bank_file_due;

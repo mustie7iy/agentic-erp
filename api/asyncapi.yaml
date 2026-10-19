@@ -261,6 +261,7 @@ channels:
       PaymentRunRejected: {$ref: '#/components/messages/PaymentRunRejected'}
       PaymentExcluded: {$ref: '#/components/messages/PaymentExcluded'}
       BankFileTransmitted: {$ref: '#/components/messages/BankFileTransmitted'}
+      BankFileTransmissionFailed: {$ref: '#/components/messages/BankFileTransmissionFailed'}
       PaymentRunFailed: {$ref: '#/components/messages/PaymentRunFailed'}
       BankFileCreated: {$ref: '#/components/messages/BankFileCreated'}
       BankFileAcknowledged: {$ref: '#/components/messages/BankFileAcknowledged'}
@@ -431,6 +432,7 @@ operations:
       - $ref: '#/channels/payments/messages/PaymentRunRejected'
       - $ref: '#/channels/payments/messages/PaymentExcluded'
       - $ref: '#/channels/payments/messages/BankFileTransmitted'
+      - $ref: '#/channels/payments/messages/BankFileTransmissionFailed'
       - $ref: '#/channels/payments/messages/PaymentRunFailed'
       - $ref: '#/channels/payments/messages/BankFileCreated'
       - $ref: '#/channels/payments/messages/BankFileAcknowledged'
@@ -1256,7 +1258,7 @@ components:
       name: BankFileTransmitted
       title: Bank file transmitted
       summary: A payment file was transmitted to the bank.
-      description: Emitted by `bank-files/{id}:transmit` when the connector confirms transmission, or the house bank had already taken a file with the same content hash (`duplicate`, T44c), and the bank file moves to `transmitted`. Subject is the bank file id.
+      description: Emitted by the bank file transmitter, which sends the files `bank-files/{id}:transmit` asked for (T44e), when the connector confirms transmission, or the house bank had already taken a file with the same content hash (`duplicate`, T44c), and the bank file moves to `transmitted`. Subject is the bank file id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -1268,6 +1270,22 @@ components:
         - name: pain001
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e0000000001c, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_file_transmitted.v1, subject: 0192a000-0000-7000-8000-000000000803, time: '2026-10-19T11:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
           payload: {bank_file_id: 0192a000-0000-7000-8000-000000000803, payment_run_id: 0192a000-0000-7000-8000-000000000801, format: pain.001.001.09, sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9, connector_id: 0192a000-0000-7000-8000-000000000b02, integration_message_id: null, status: transmitted, duplicate: false}
+    BankFileTransmissionFailed:
+      name: BankFileTransmissionFailed
+      title: Bank file transmission failed
+      summary: A payment file could not be transmitted to the bank.
+      description: Emitted by the bank file transmitter (T44e, ADR-0038) when the bank file moves to `failed`, after its house bank's channel refused it (a problem below 500, such as a disabled connector or a file that no longer matches its hash) or after its sixth attempt failed; the attempts wait 1, 5 and 15 minutes, 1 and 4 hours apart. The file may be asked for again. Subject is the bank file id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_file_transmission_failed.v1}
+      payload: {$ref: '#/components/schemas/BankFileTransmissionFailedV1'}
+      examples:
+        - name: unreachable
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f1, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_file_transmission_failed.v1, subject: 0192a000-0000-7000-8000-000000000803, time: '2026-10-19T16:25:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
+          payload: {bank_file_id: 0192a000-0000-7000-8000-000000000803, payment_run_id: 0192a000-0000-7000-8000-000000000801, status: failed, attempts: 6, error: {code: platform.unavailable, message: The bank connector did not take the file; it is sent again.}}
 
     # --------------------------------------------------------------- workflow
     ApprovalRequested:
@@ -2946,6 +2964,20 @@ components:
         integration_message_id: {$ref: '#/components/schemas/NullableUuid'}
         status: {type: string, description: 'Open enum; transmitted in v1.'}
         duplicate: {type: boolean, description: "True when the house bank had already taken a file with this content hash (ADR-0038, T44c), a transmission whose own commit was lost: the file was not uploaded again. Absent from events before T44c."}
+    BankFileTransmissionFailedV1:
+      type: object
+      required: [bank_file_id, payment_run_id, status, attempts, error]
+      properties:
+        bank_file_id: {$ref: '#/components/schemas/Uuid'}
+        payment_run_id: {$ref: '#/components/schemas/Uuid'}
+        status: {type: string, description: 'Open enum; failed in v1.'}
+        attempts: {type: integer, minimum: 1, description: How often the file was claimed for this request.}
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: {type: string, description: The problem code of the last attempt.}
+            message: {type: string}
 
     # ------------------------------------------------------------- workflow
     ApprovalEscalatedV1:

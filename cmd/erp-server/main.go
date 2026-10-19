@@ -577,11 +577,15 @@ func (s *server) startProjections(runCtx context.Context) {
 	}
 }
 
-// startOperations starts what runs queued operations: the in-process
-// payment workers, or the workflow worker and the dispatcher that hands it
-// the queued operations.
+// startOperations starts what runs queued operations: the bank file
+// transmitter, and the in-process payment workers or the workflow worker
+// and the dispatcher that hands it the queued operations.
 func (s *server) startOperations(runCtx context.Context) {
 	cfg, pool, log, apiCfg, engine := s.cfg, s.pool, s.log, s.apiCfg, s.engine
+	// Bank files are sent by a worker of every replica, with or without the
+	// workflow engine: the outbox of their transmission (T44e, ADR-0038).
+	transmitter := &payments.Transmitter{Endpoints: app.Payments(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
+	s.spawn("bank file transmitter", func() { transmitter.Run(runCtx) })
 	if engine == nil {
 		proposer := &payments.Proposer{Endpoints: app.Payments(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
 		s.spawn("proposer", func() { proposer.Run(runCtx) })

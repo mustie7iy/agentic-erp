@@ -8099,7 +8099,7 @@ paths:
       tags:
         - payments
       summary: Transmit a bank file
-      description: "Sends the file to the bank through the house bank's connector. Requires status `created`."
+      description: "Asks for the file to be sent to the bank through the house bank's connector. Requires status `created` or `failed`. The file moves to `to_send` and the bank file transmitter sends it (T44e): `sending` while the bank takes it, then `transmitted`, or `failed` when the channel refuses it or after the sixth attempt (the attempts wait 1, 5 and 15 minutes, 1 and 4 hours apart). The Operation completes with it."
       x-permission: payments.file.transmit
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -18378,7 +18378,10 @@ components:
               description: "Transmission status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - created
+                - to_send
+                - sending
                 - transmitted
+                - failed
                 - acknowledged
                 - rejected
               readOnly: true

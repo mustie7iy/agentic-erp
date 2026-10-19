@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -146,6 +147,11 @@ func TestForeignExchange(t *testing.T) {
 	}
 }
 
+// TestTransmitFailures: a request no channel could take is refused; the
+// bank not taking the file is tried again after each wait of
+// transmitBackoff and fails after the sixth attempt, with its event; a
+// refusal (a file that no longer matches its hash) fails at once; an
+// internal error is tried again. Nothing is sent meanwhile.
 func TestTransmitFailures(t *testing.T) {
 	e := setup(t)
 	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
@@ -153,36 +159,51 @@ func TestTransmitFailures(t *testing.T) {
 	run := e.run(t, "2026-04-15", "2026-04-15")
 	e.release(t, run, "")
 	files, _ := e.Must(200, "GET", "/v1/bank-files?payment_run_id="+id(run), "", "")
-	file := files["items"].([]any)[0].(map[string]any)
-	path := "/v1/bank-files/" + id(file) + ":transmit"
+	file := id(files["items"].([]any)[0].(map[string]any))
 
-	// Without a connector nothing is transmitted.
+	// Without a connector nothing is asked for.
 	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
-		_, err := endpoints(nil).TransmitFile(ctx, uuidOf(id(file)), func(int32) error { return nil })
+		_, err := endpoints(nil).TransmitFile(ctx, uuidOf(file), func(int32) error { return nil })
 		return err
 	})
 	if p := problem.From(err); p.Status != 503 {
 		t.Fatalf("no connector: %v", err)
 	}
+	e.Problem(412, "request.version_mismatch", "POST", "/v1/bank-files/"+file+":transmit", "", `"9"`)
+
 	e.connector.err = errBank
-	e.Problem(503, "platform.unavailable", "POST", path, "", `"1"`)
+	op := e.transmit(t, file, `"1"`)
+	checkBackoff(t, e, file)
+	e.failedWith(t, op, "platform.unavailable")
+	if ev := events(t, e.Tenant, "bank_file_transmission_failed"); len(ev) != 1 || ev[0]["attempts"] != float64(6) {
+		t.Errorf("failed events: got %v, want one after 6 attempts", ev)
+	}
 	e.connector.err = nil
-	e.Problem(412, "request.version_mismatch", "POST", path, "", `"9"`)
-	// A run whose data no longer renders the recorded file is not transmitted.
+
+	// A run whose data no longer renders the recorded file is refused at once.
 	pgtest.Exec(t, `UPDATE payments.house_bank SET iban_cipher = $2, version = version + 1 WHERE id = $1`, e.bank,
 		apitest.Seal(t, e.Tenant.ID, "DE02120300000000202051"))
-	e.Problem(409, "payments.bank_file_changed", "POST", path, "", `"1"`)
-	// Bank details that cannot be opened are an internal error.
+	e.failedWith(t, e.transmit(t, file, version(t, e, file)), "payments.bank_file_changed")
+	// Bank details that cannot be opened are an internal error, tried again.
 	pgtest.Exec(t, fmt.Sprintf(`DO $$ BEGIN SET LOCAL session_replication_role = replica;
 		UPDATE partner.bank_account SET account_cipher = '\x00' WHERE partner_id = '%s'; END $$`, e.Supplier))
-	e.Problem(500, "platform.internal", "POST", path, "", `"1"`)
+	e.transmit(t, file, version(t, e, file))
+	if status, attempts, code := fileState(t, file); status != "to_send" || attempts != 1 || code != "platform.internal" {
+		t.Errorf("after an internal error: got %s, %d attempts, %s; want to_send, 1, platform.internal", status, attempts, code)
+	}
+	// So is a house bank IBAN that cannot be opened.
 	pgtest.Exec(t, `UPDATE payments.house_bank SET iban_cipher = '\x00', version = version + 1 WHERE id = $1`, e.bank)
-	e.Problem(500, "platform.internal", "POST", path, "", `"1"`)
+	tr := e.transmitter(t)
+	next := due(t, file)
+	tr.Now = func() time.Time { return next }
+	if _, err := tr.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if status, attempts, code := fileState(t, file); status != "to_send" || attempts != 2 || code != "platform.internal" {
+		t.Errorf("after the house bank's internal error: got %s, %d attempts, %s; want to_send, 2, platform.internal", status, attempts, code)
+	}
 	pgtest.Exec(t, `UPDATE payments.house_bank SET iban_cipher = $2, version = version + 1 WHERE id = $1`, e.bank,
 		apitest.Seal(t, e.Tenant.ID, "DE89370400440532013000"))
-	if got, _ := e.Must(200, "GET", "/v1/bank-files/"+id(file), "", ""); got["status"] != "created" {
-		t.Errorf("file after failures, status: got %v, want created", got["status"])
-	}
 	if len(e.connector.files) != 0 {
 		t.Errorf("files transmitted after failures: got %v, want none", e.connector.files)
 	}
