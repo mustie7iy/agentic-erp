@@ -60,6 +60,10 @@ var maxAttempts = int16(len(transmitBackoff) + 1) // #nosec G115 -- five waits
 // never overlap.
 const claimLease = 5
 
+// finishBound is how long recording an upload's outcome may take once the
+// worker's context has ended.
+const finishBound = 10 * time.Second
+
 // queued is a due file as claimed: its status, attempts so far, and the
 // request it serves.
 type queued struct {
@@ -127,7 +131,7 @@ func (w *Transmitter) RunOnce(ctx context.Context) (int, error) {
 	n := 0
 	var errs []error
 	for _, t := range tenants {
-		for {
+		for ctx.Err() == nil { // a stopping worker claims nothing more
 			did, err := w.one(ctx, t)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("bank file transmitter: tenant %s: %w", t, err))
@@ -165,7 +169,12 @@ func (w *Transmitter) one(ctx context.Context, tenant uuid.UUID) (bool, error) {
 		return did, err
 	}
 	sendErr := w.send(ctx, c)
-	return true, w.job(tenant, "finish").Tx(ctx, func(ctx context.Context, tx pgx.Tx) (bool, error) {
+	// The bank may have the file: its outcome is recorded even when the
+	// worker is stopping (a rolling deploy), within a bound, or the claim
+	// would lapse and the file be sent again (as T44c's record did).
+	fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), finishBound)
+	defer cancel()
+	return true, w.job(tenant, "finish").Tx(fctx, func(ctx context.Context, tx pgx.Tx) (bool, error) {
 		return w.finish(ctx, tx, tenant, c, sendErr)
 	})
 }
@@ -191,6 +200,10 @@ func (w *Transmitter) claim(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (*
 	var c *claim
 	err = uow.Act(ctx, tx, actor(tenant), w.Now, func(ctx context.Context) error {
 		switch {
+		case !q.live && q.status == FileSending:
+			// Cancelled while a claim was out: the bank may have the file.
+			return failFile(ctx, tx, f, q, q.attempts, problem.Conflict("payments.transmission_outcome_unknown",
+				"The request was cancelled while the bank may have had the file; check with the bank before asking for it again."))
 		case !q.live:
 			return withdraw(ctx, tx, f, q)
 		case q.status == FileSending:
@@ -203,8 +216,8 @@ func (w *Transmitter) claim(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (*
 	return c, true, err
 }
 
-// withdraw returns a file whose transmission was cancelled before it was
-// claimed to created: nothing was sent.
+// withdraw returns a file whose transmission was cancelled while it waited
+// for a claim to created: nothing was sent.
 func withdraw(ctx context.Context, tx pgx.Tx, f BankFile, q queued) error {
 	if _, err := tx.Exec(ctx, `UPDATE payments.bank_file SET status = 'created', attempts = 0, next_attempt_at = NULL, transmit_operation_id = NULL,
 		transmit_requested_by = NULL, version = version + 1 WHERE id = $1`, f.ID); err != nil {
@@ -273,7 +286,11 @@ func (w *Transmitter) send(ctx context.Context, c *claim) error {
 	ctx, cancel := context.WithTimeout(ctx, w.upload())
 	defer cancel()
 	if err := c.conn.Transmit(ctx, c.file); err != nil {
-		return problem.Unavailable("The bank connector did not take the file; it is sent again.", 0).WithCause(err)
+		detail := "The bank connector did not take the file; it is sent again."
+		if c.attempt >= maxAttempts {
+			detail = "The bank connector did not take the file on the last attempt."
+		}
+		return problem.Unavailable(detail, 0).WithCause(err)
 	}
 	return nil
 }

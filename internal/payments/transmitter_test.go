@@ -118,6 +118,21 @@ func TestTransmitter(t *testing.T) {
 	t.Run("a hash its bank took", s.transmitDuplicate)
 	t.Run("the sweep", s.transmitSweep)
 	t.Run("cancelled", s.transmitCancelled)
+	t.Run("a stopping worker", func(t *testing.T) {
+		// The worker is stopped while the bank takes the file: the outcome
+		// is recorded all the same, and no further file is claimed.
+		e := e.in(t)
+		file := asked(t, e, "INV-8")
+		ctx, cancel := context.WithCancel(context.Background())
+		e.connector.during = cancel
+		defer func() { e.connector.during = nil }()
+		if _, err := e.transmitter(t).RunOnce(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if status, _, _ := fileState(t, file); status != "transmitted" {
+			t.Errorf("file: got %s, want transmitted", status)
+		}
+	})
 	t.Run("a server without a directory", func(t *testing.T) {
 		// The bank names no connector and the server took its directory
 		// away after the request: the attempt fails and is tried again.
@@ -191,10 +206,18 @@ func (s transmitScenario) transmitDuplicate(t *testing.T) {
 	if got := len(e.connector.files) - before; got != 0 {
 		t.Errorf("uploads: got %d, want none", got)
 	}
+	n := 0
 	for _, ev := range events(t, e.Tenant, "bank_file_transmitted") {
-		if ev["bank_file_id"] == file && ev["duplicate"] != true {
+		if ev["bank_file_id"] != file {
+			continue
+		}
+		n++
+		if ev["duplicate"] != true {
 			t.Errorf("event duplicate: got %v, want true", ev["duplicate"])
 		}
+	}
+	if n != 1 {
+		t.Errorf("transmitted events: got %d, want 1", n)
 	}
 	if status, _, _ := fileState(t, file); status != "transmitted" {
 		t.Errorf("file: got %s, want transmitted", status)
@@ -306,6 +329,7 @@ func TestTransmitterDatabaseFailures(t *testing.T) {
 		"withdrawn": {status: "to_send", op: "cancelled", want: "created", commits: 1},
 		"requeued":  {status: "sending", op: "queued", attempts: 1, want: "transmitted", commits: 3},
 		"lapsed":    {status: "sending", op: "queued", attempts: 6, want: "failed", commits: 1},
+		"unknown":   {status: "sending", op: "cancelled", attempts: 1, want: "failed", commits: 1},
 	} {
 		t.Run(name, func(t *testing.T) {
 			reset := func() {
@@ -411,8 +435,11 @@ func TestTransmitterRounds(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { failing.Run(ctx); close(done) }()
-	for !strings.Contains(logs.String(), "bank file transmission failed") {
-		runtime.Gosched()
+	for deadline := time.Now().Add(time.Minute); !strings.Contains(logs.String(), "bank file transmission failed"); runtime.Gosched() {
+		if time.Now().After(deadline) {
+			cancel()
+			t.Fatal("no failed round logged within a minute")
+		}
 	}
 	cancel()
 	<-done

@@ -188,7 +188,11 @@ and France, by EBICS.
   replica stopped) is queued again at once, or fails if that was its last
   attempt. A request cancelled before the claim is withdrawn (the file
   returns to `created`, nothing sent); one cancelled while the bank has
-  the file keeps the file's outcome. Each step is audited
+  the file keeps the file's outcome; one cancelled while a claim lapsed,
+  the outcome unknown, fails (`payments.transmission_outcome_unknown`),
+  to be checked with the bank. The outcome of an upload is recorded even
+  when the worker is stopping (within 10 seconds), and a stopping worker
+  claims no further file. Each step is audited
   (`payments.bank_file.queue`, `withdraw`, `requeue`, `retry`, `fail`,
   `transmit`). The previous version transmits only `created` files and
   reports only `transmitted` ones, so a file it reads in a new status is

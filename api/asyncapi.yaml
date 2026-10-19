@@ -1285,7 +1285,7 @@ components:
       examples:
         - name: unreachable
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f1, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_file_transmission_failed.v1, subject: 0192a000-0000-7000-8000-000000000803, time: '2026-10-19T16:25:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
-          payload: {bank_file_id: 0192a000-0000-7000-8000-000000000803, payment_run_id: 0192a000-0000-7000-8000-000000000801, status: failed, attempts: 6, error: {code: platform.unavailable, message: The bank connector did not take the file; it is sent again.}}
+          payload: {bank_file_id: 0192a000-0000-7000-8000-000000000803, payment_run_id: 0192a000-0000-7000-8000-000000000801, status: failed, attempts: 6, error: {code: platform.unavailable, message: The bank connector did not take the file on the last attempt.}}
 
     # --------------------------------------------------------------- workflow
     ApprovalRequested:
