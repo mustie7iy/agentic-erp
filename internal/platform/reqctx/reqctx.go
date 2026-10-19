@@ -140,6 +140,19 @@ func TraceID(ctx context.Context) string {
 	return id
 }
 
+type readOnlyKey struct{}
+
+// WithReadOnly marks the request's transaction read-only, so that an error
+// it raises is translated as one (problem.FromReadOnly, ADR-0040).
+func WithReadOnly(ctx context.Context) context.Context {
+	return context.WithValue(ctx, readOnlyKey{}, true)
+}
+
+// ReadOnly reports whether the request's transaction is read-only.
+func ReadOnly(ctx context.Context) bool {
+	return ctx.Value(readOnlyKey{}) != nil
+}
+
 // Info is filled in by the pipeline's inner layers so the outermost layer
 // can log and measure the request with its tenant, principal and operation.
 type Info struct {

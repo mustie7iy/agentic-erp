@@ -190,6 +190,13 @@ func From(err error) *Problem {
 	if strings.HasPrefix(pg.Code, "08") || strings.HasPrefix(pg.Code, "57P0") {
 		return Unavailable("The database connection was lost; retry with the same Idempotency-Key.", 1).WithCause(err)
 	}
+	// read_only_sql_transaction in a read-write transaction: the statement
+	// reached a former writer during a failover, before PgBouncer moved to
+	// the new one; nothing was written (ADR-0040). FromReadOnly keeps it a
+	// 500 in a read-only transaction.
+	if pg.Code == readOnlySQLTransaction {
+		return Unavailable("The database is failing over; retry with the same Idempotency-Key.", 1).WithCause(err)
+	}
 	if pg.ConstraintName != "" {
 		constraintsMu.RLock()
 		f, ok := constraints[pg.ConstraintName]
@@ -217,6 +224,20 @@ func From(err error) *Problem {
 		return Unavailable("The request took too long and was cancelled.", 1).WithCause(err)
 	}
 	return Internal(err)
+}
+
+// readOnlySQLTransaction is SQLSTATE 25006.
+const readOnlySQLTransaction = "25006"
+
+// FromReadOnly is From for an error of a read-only transaction, where
+// 25006 is a write the code should not attempt, a bug that stays a 500
+// rather than a failover to retry (ADR-0040).
+func FromReadOnly(err error) *Problem {
+	var pg *pgconn.PgError
+	if errors.As(err, &pg) && pg.Code == readOnlySQLTransaction {
+		return Internal(err)
+	}
+	return From(err)
 }
 
 // lostConnection reports a connection to the database failing or closing

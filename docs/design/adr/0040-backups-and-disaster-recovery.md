@@ -136,9 +136,16 @@ former writer that is now read-only. The platform answers SQLSTATE 25006
 `platform.unavailable` with `Retry-After`, the transaction rolled back, so
 a client's retry with its idempotency key posts once. Only a read-write
 transaction is mapped so: 25006 in a read-only scope is a write the code
-should not attempt, a bug that stays a 500. A resilience test
-promotes a streaming replica behind PgBouncer under load and asserts
-exactly that, weekly (`make failover`).
+should not attempt, a bug that stays a 500 (the unit of work marks a
+safe method's transaction read-only, `problem.FromReadOnly`). A
+resilience test asserts exactly that, weekly (`make failover`,
+`scripts/failover.sh`): a primary, a streaming replica and PgBouncer in
+transaction mode in Docker; under load the primary restarts as a standby
+(a fence by `default_transaction_read_only` does not hold: PgBouncer
+restores the client's value on every server connection), writes that
+reach it are refused with 25006, the replica is promoted once it has
+replayed the shutdown checkpoint, and PgBouncer is repointed (PAUSE,
+RELOAD, RESUME). Only 503s, every retried post once, recovery within 60 s.
 
 ## Runbook
 

@@ -62,6 +62,12 @@ func Main(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "pgtest: migrate:", err)
 		os.Exit(1)
 	}
+	// The failover rehearsal (scripts/failover.sh) migrates on the primary
+	// and runs the tests through PgBouncer at this host:port.
+	if pooler := os.Getenv("ERP_TEST_POOLER_HOST"); pooler != "" {
+		u.Host = pooler
+		packageURL = u.String()
+	}
 	code := m.Run()
 	// A database left behind does not change this run's result, but it
 	// piles up on the server unnoticed: say so, with its name.

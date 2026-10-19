@@ -1,4 +1,4 @@
-.PHONY: temporal-checks generate run-server build images images-reproducible image-scan signing-roundtrip test-release-scripts lint lint-all test test-short ci-local db-up test-db coverage fuzz perf load soak resilience demo clean
+.PHONY: temporal-checks generate run-server build images images-reproducible image-scan signing-roundtrip test-release-scripts lint lint-all test test-short ci-local db-up test-db coverage fuzz perf load soak resilience failover demo clean
 
 build:
 	go build -o bin/erp ./cmd/erp
@@ -137,6 +137,10 @@ soak:
 	DATABASE_URL="$(DATABASE_URL)" go test -count=1 -v -timeout 48h ./internal/nfr -run 'TestSoak'
 resilience:
 	DATABASE_URL="$(DATABASE_URL)" go test -count=1 -v ./internal/nfr -run 'TestResilience'
+# A replica promoted behind PgBouncer under load (ADR-0040): its own
+# PostgreSQL primary, replica and PgBouncer in Docker; weekly in the nfr job.
+failover:
+	scripts/failover.sh
 
 # Full walkthrough through the CLI against a real API server and database:
 # mock SAP extract, configuration draft, migration of company 1000 through

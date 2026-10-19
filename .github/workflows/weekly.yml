@@ -172,6 +172,8 @@ jobs:
         run: make load ERP_LOAD_DURATION=2m
       - name: Resilience
         run: make resilience
+      - name: Database failover
+        run: make failover
       - name: Soak
         run: make soak ERP_SOAK_DURATION=${{ github.event.inputs.soak || '2h' }} ERP_SOAK_WINDOW=1m
       - name: Fuzz (5 minutes per target)

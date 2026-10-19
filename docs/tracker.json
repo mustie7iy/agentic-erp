@@ -5195,7 +5195,7 @@
        },
        {
         "s": "T",
-        "t": "The pilot light made runnable: a DR node group at zero the runbook scales up, the workload roles trusting the DR cluster's OIDC provider, their permissions on the DR bucket and keys, Argo CD synced there on failover",
+        "t": "The pilot light made runnable: a DR node group at zero the runbook scales up, the workload roles trusting the DR cluster's OIDC provider, their permissions on the DR bucket and keys, Argo CD synced there on failover; confirmed on staging that replicate_source_db takes the cluster's ARN (the API's SourceDBClusterIdentifier), the cluster's engine version pinned so the replica is upgraded first, the master credentials after promotion (RDS-managed in the home region)",
         "r": "T41b3",
         "c": []
        },
@@ -5208,9 +5208,9 @@
       ]
      },
      {
-      "s": "P",
+      "s": "D",
       "t": "High availability (replicas, failover)",
-      "r": "connection loss under load answered as retryable 503 and recovered in ~50 ms (TestResilienceDatabaseConnectionLoss) · T41c: a former writer's read-only error (25006) answered as retryable 503, and a replica promoted behind PgBouncer under load (make failover, weekly)",
+      "r": "connection loss under load answered as retryable 503 and recovered in ~50 ms (TestResilienceDatabaseConnectionLoss) · T41c: a former writer's read-only error (25006) answered as retryable 503 (a 500 in a read-only transaction), and a replica promoted behind PgBouncer under load, recovered in ~15 s (TestResilienceDatabaseFailover, make failover, weekly)",
       "c": []
      },
      {

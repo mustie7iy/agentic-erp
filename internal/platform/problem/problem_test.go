@@ -154,6 +154,7 @@ func TestFromTranslatesDatabaseErrors(t *testing.T) {
 		pgErr("42501", ""):                               {500, "platform.internal"},
 		pgErr("57P01", ""):                               {503, "platform.unavailable"}, // terminated by the administrator (failover)
 		pgErr("08006", ""):                               {503, "platform.unavailable"}, // connection failure
+		pgErr("25006", ""):                               {503, "platform.unavailable"}, // a former writer after a failover
 		&pgconn.ConnectError{}:                           {503, "platform.unavailable"},
 		&net.OpError{Op: "write", Err: errors.New("broken pipe")}: {503, "platform.unavailable"},
 		fmt.Errorf("read: %w", io.ErrUnexpectedEOF):               {503, "platform.unavailable"},
@@ -191,6 +192,29 @@ func TestFromTranslatesDatabaseErrors(t *testing.T) {
 	}
 	if !strings.Contains(lost.Detail, "connection was lost") {
 		t.Errorf("lost connection detail: got %q, want it to contain %q", lost.Detail, "connection was lost")
+	}
+}
+
+// TestFromReadOnly: in a read-only transaction 25006 is a write the code
+// should not attempt, a bug, not a failover (ADR-0040).
+func TestFromReadOnly(t *testing.T) {
+	cases := map[string]struct {
+		err    error
+		status int
+	}{
+		"a write in a read-only transaction": {pgErr("25006", ""), 500},
+		"a lost connection":                  {pgErr("57P01", ""), 503},
+		"a missing reference":                {pgErr("23503", ""), 422},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			if p := FromReadOnly(c.err); p.Status != c.status {
+				t.Errorf("status: got %d, want %d", p.Status, c.status)
+			}
+		})
+	}
+	if p := From(pgErr("25006", "")); p.RetryAfter != 1 {
+		t.Errorf("a former writer must ask the client to retry: RetryAfter got %d, want 1", p.RetryAfter)
 	}
 }
 
