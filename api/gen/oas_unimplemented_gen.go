@@ -1467,9 +1467,9 @@ func (UnimplementedHandler) ParkJournalEntry(ctx context.Context, req *JournalEn
 
 // PauseWebhookSubscription implements pauseWebhookSubscription operation.
 //
-// Holds the deliveries of an active subscription: events keep being recorded for it but none is sent
-// until `:resume`, which sends them in order. A delivery held past the 30-day retention is dropped.
-// Requires status `active` (409 `integration.webhook_not_active`).
+// Holds the deliveries of an active subscription (how a tenant stops deliveries): events keep being
+// recorded for it but none is sent until `:resume`, which sends them in order. A delivery held past
+// the 30-day retention is dropped. Requires status `active` (409 `integration.webhook_not_active`).
 //
 // POST /v1/webhook-subscriptions/{id}:pause
 func (UnimplementedHandler) PauseWebhookSubscription(ctx context.Context, params PauseWebhookSubscriptionParams) (r PauseWebhookSubscriptionRes, _ error) {
@@ -1710,8 +1710,10 @@ func (UnimplementedHandler) RequestBankAccountEnd(ctx context.Context, req *Bank
 
 // ResumeWebhookSubscription implements resumeWebhookSubscription operation.
 //
-// Sends the deliveries held while the subscription was paused, in order per resource, and the later
-// ones as they come. Requires status `paused` (409 `integration.webhook_not_paused`).
+// Makes a paused or disabled subscription active. A paused one's held deliveries are sent, in event
+// order per resource, and later events as they come. A disabled one starts its failure tracking afresh
+// (`failing_since` cleared); the deliveries dropped while it was disabled are not sent. Refused for an
+// active subscription (409 `integration.webhook_already_active`).
 //
 // POST /v1/webhook-subscriptions/{id}:resume
 func (UnimplementedHandler) ResumeWebhookSubscription(ctx context.Context, params ResumeWebhookSubscriptionParams) (r ResumeWebhookSubscriptionRes, _ error) {

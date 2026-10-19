@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -57,7 +58,8 @@ type Fanout struct {
 type fanEvent struct {
 	tenant, id, subject uuid.UUID
 	typ                 string
-	body                []byte // the structured-mode CloudEvent
+	occurred            time.Time // the event's time, which orders a resource's deliveries
+	body                []byte    // the structured-mode CloudEvent
 }
 
 // errRefused marks an event the fan-out will never accept; it is logged and
@@ -112,6 +114,9 @@ func parseEvent(m outbox.Message) (ev fanEvent, offered bool, err error) {
 	if ev.subject, err = uuid.Parse(m.Header["ce-subject"]); err != nil {
 		return ev, true, fmt.Errorf("%w: subject attribute: %w", errRefused, err)
 	}
+	if ev.occurred, err = time.Parse(time.RFC3339Nano, m.Header["ce-time"]); err != nil {
+		return ev, true, fmt.Errorf("%w: time: %w", errRefused, err)
+	}
 	if ev.body, err = structured(m); err != nil {
 		return ev, true, fmt.Errorf("%w: data: %w", errRefused, err)
 	}
@@ -151,11 +156,11 @@ func fanout(ctx context.Context, tx pgx.Tx, ev fanEvent) error {
 		ids[i] = uuid.Must(uuid.NewV7())
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO integration.webhook_delivery
-		(tenant_id, id, subscription_id, event_id, type, subject, body, status, next_attempt_at)
-		SELECT current_setting('app.tenant_id')::uuid, d.id, d.sub, $3, $4, $5, $6, 'pending', now()
+		(tenant_id, id, subscription_id, event_id, type, subject, occurred_at, body, status, next_attempt_at)
+		SELECT current_setting('app.tenant_id')::uuid, d.id, d.sub, $3, $4, $5, $7, $6, 'pending', now()
 		FROM unnest($1::uuid[], $2::uuid[]) AS d (id, sub)
 		ON CONFLICT (tenant_id, subscription_id, event_id) DO NOTHING`,
-		ids, subs, ev.id, ev.typ, ev.subject, ev.body); err != nil {
+		ids, subs, ev.id, ev.typ, ev.subject, ev.body, ev.occurred); err != nil {
 		return fmt.Errorf("insert deliveries: %w", err)
 	}
 	return nil

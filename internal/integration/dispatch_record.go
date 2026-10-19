@@ -94,6 +94,9 @@ func retryAfter(id uuid.UUID, n int) (time.Duration, bool) {
 // afterAttempt keeps the subscription's failing_since: a delivery clears
 // it, the first failure sets it, and a failure FailingLimit after it, or a
 // 410 Gone, disables a subscription that is active or paused.
+// failing_since is the dispatcher's bookkeeping: changing it leaves the
+// version (the ETag) and updated_by alone, which only the tenant's changes
+// and disabling move.
 func (d *Dispatcher) afterAttempt(ctx context.Context, tx pgx.Tx, c claimed, a answer, now time.Time) error {
 	sub := c.sub
 	var status, url string
@@ -108,34 +111,37 @@ func (d *Dispatcher) afterAttempt(ctx context.Context, tx pgx.Tx, c claimed, a a
 		if failingSince == nil {
 			return nil
 		}
-		return setSubscription(ctx, tx, `UPDATE integration.webhook_subscription SET failing_since = NULL,
-			version = version + 1, updated_by = $2 WHERE id = $1`, sub)
+		return setSubscription(ctx, tx, sub, `UPDATE integration.webhook_subscription SET failing_since = NULL WHERE id = $1`, sub)
 	case !live:
 		return nil
 	case a.status == http.StatusGone:
 		return d.disable(ctx, tx, c, "gone", url, now)
 	case failingSince == nil:
-		return setSubscription(ctx, tx, `UPDATE integration.webhook_subscription SET failing_since = $3,
-			version = version + 1, updated_by = $2 WHERE id = $1`, sub, now)
+		return setSubscription(ctx, tx, sub, `UPDATE integration.webhook_subscription SET failing_since = $2 WHERE id = $1`, sub, now)
 	case now.Sub(*failingSince) >= FailingLimit:
 		return d.disable(ctx, tx, c, "failing", url, now)
 	}
 	return nil
 }
 
-func setSubscription(ctx context.Context, tx pgx.Tx, sql string, sub uuid.UUID, args ...any) error {
-	if _, err := tx.Exec(ctx, sql, append([]any{sub, DispatchActor}, args...)...); err != nil {
+func setSubscription(ctx context.Context, tx pgx.Tx, sub uuid.UUID, sql string, args ...any) error {
+	if _, err := tx.Exec(ctx, sql, args...); err != nil {
 		return fmt.Errorf("update subscription %s: %w", sub, err)
 	}
 	return nil
 }
 
-// disable stops deliveries to a subscription, audited as the dispatcher's.
-// Its pending deliveries stay unsent until the retention removes them.
+// disable stops deliveries to a subscription, audited as the dispatcher's:
+// a change the tenant sees, so it moves the version. Its pending
+// deliveries are dropped; resuming it does not bring them back.
 func (d *Dispatcher) disable(ctx context.Context, tx pgx.Tx, c claimed, reason, url string, now time.Time) error {
 	sub, tenant := c.sub, c.tenant
-	if err := setSubscription(ctx, tx, `UPDATE integration.webhook_subscription SET status = 'disabled', disabled_reason = $3,
-		failing_since = coalesce(failing_since, $4), version = version + 1, updated_by = $2 WHERE id = $1`, sub, reason, now); err != nil {
+	if err := setSubscription(ctx, tx, sub, `UPDATE integration.webhook_subscription SET status = 'disabled', disabled_reason = $3,
+		failing_since = coalesce(failing_since, $4), version = version + 1, updated_by = $2 WHERE id = $1`, sub, DispatchActor, reason, now); err != nil {
+		return err
+	}
+	if err := setSubscription(ctx, tx, sub, `UPDATE integration.webhook_delivery SET status = 'dropped', next_attempt_at = NULL, version = version + 1
+		WHERE subscription_id = $1 AND status = 'pending'`, sub); err != nil {
 		return err
 	}
 	actor := reqctx.Principal{ID: DispatchActor, Kind: reqctx.KindSystem, TenantID: tenant}

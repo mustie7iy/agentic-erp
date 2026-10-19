@@ -119,9 +119,10 @@ func TestWebhookFanoutSkipsAndRefuses(t *testing.T) {
 			m.Subject = "erp.test.ledger.x.journal_entry_posted"
 			m.Header["ce-tenantid"] = "x"
 		},
-		"id not a uuid":      func(m *outbox.Message) { m.Header["ce-id"] = "e-1" },
-		"subject not a uuid": func(m *outbox.Message) { m.Header["ce-subject"] = "s-1" },
-		"data not json":      func(m *outbox.Message) { m.Data = []byte("{") },
+		"id not a uuid":        func(m *outbox.Message) { m.Header["ce-id"] = "e-1" },
+		"subject not a uuid":   func(m *outbox.Message) { m.Header["ce-subject"] = "s-1" },
+		"time not a timestamp": func(m *outbox.Message) { m.Header["ce-time"] = "yesterday" },
+		"data not json":        func(m *outbox.Message) { m.Data = []byte("{") },
 	} {
 		t.Run(name, func(t *testing.T) {
 			var log pgtest.SyncBuffer

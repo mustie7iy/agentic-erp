@@ -28,8 +28,14 @@ import (
 // leasing it, sends it signed through the egress client and records the
 // answer with a guard on the version it claimed. A delivery whose
 // recording was lost is sent again when its lease ends: delivery is at
-// least once, and the webhook-id (the delivery's id) lets the endpoint
-// drop a duplicate.
+// least once, and the webhook-id (the event's id) lets the endpoint drop a
+// duplicate, from a retry or a replay alike. A resource's deliveries go
+// out in the order of their events (occurred_at, then the event id), not
+// the order replicas fanned them out.
+
+// HeaderDeliveryID names the delivery an attempt belongs to, for the
+// tenant's support; receivers deduplicate on webhook-id, the event's id.
+const HeaderDeliveryID = "webhook-delivery-id"
 
 // Dispatch limits (ADR-0041).
 const (
@@ -97,8 +103,9 @@ type Dispatcher struct {
 // claimed is a delivery leased for one attempt.
 type claimed struct {
 	tenant, id, sub uuid.UUID
-	version         int32 // after the lease
-	attempts        int32 // before this attempt
+	event           uuid.UUID // the CloudEvent id: the webhook-id on every attempt, redelivery and replay
+	version         int32     // after the lease
+	attempts        int32     // before this attempt
 	url             string
 	body            []byte
 	sealed          [][]byte // the current secret, then the previous one while it signs
@@ -194,7 +201,7 @@ func (d *Dispatcher) due(ctx context.Context, now time.Time) (map[uuid.UUID][]uu
 			JOIN integration.webhook_subscription s ON s.tenant_id = d.tenant_id AND s.id = d.subscription_id AND s.status = 'active'
 			WHERE d.status = 'pending' AND d.next_attempt_at <= $1 AND NOT EXISTS (
 				SELECT FROM integration.webhook_delivery e WHERE e.tenant_id = d.tenant_id AND e.subscription_id = d.subscription_id
-					AND e.subject = d.subject AND e.status = 'pending' AND e.id < d.id)) h
+					AND e.subject = d.subject AND e.status = 'pending' AND (e.occurred_at, e.event_id) < (d.occurred_at, d.event_id))) h
 		WHERE turn <= $2 ORDER BY turn, next_attempt_at, id LIMIT $3`, now, TenantInFlight, batch)
 	out := map[uuid.UUID][]uuid.UUID{}
 	var tenant, id uuid.UUID
@@ -222,19 +229,19 @@ func (d *Dispatcher) claim(ctx context.Context, tenant uuid.UUID, ids []uuid.UUI
 		return nil, fmt.Errorf("integration: claim webhook deliveries of tenant %s: %w", tenant, err)
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `SELECT d.id, d.subscription_id, d.attempts, d.body, s.url, s.secret_cipher,
+	rows, _ := tx.Query(ctx, `SELECT d.id, d.event_id, d.subscription_id, d.attempts, d.body, s.url, s.secret_cipher,
 			CASE WHEN s.previous_expires_at > $2 THEN s.previous_secret_cipher END
 		FROM integration.webhook_delivery d JOIN integration.webhook_subscription s ON s.id = d.subscription_id
 		WHERE d.id = ANY ($1) AND d.status = 'pending' AND d.next_attempt_at <= $2 AND s.status = 'active' AND NOT EXISTS (
 			SELECT FROM integration.webhook_delivery e WHERE e.subscription_id = d.subscription_id
-				AND e.subject = d.subject AND e.status = 'pending' AND e.id < d.id)
+				AND e.subject = d.subject AND e.status = 'pending' AND (e.occurred_at, e.event_id) < (d.occurred_at, d.event_id))
 		ORDER BY d.id FOR UPDATE OF d SKIP LOCKED`, ids, now)
 	var claims []claimed
 	quota := ratelimit.Quota{Rate: SubscriptionRate, Burst: SubscriptionRate}
 	all, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (claimed, error) {
 		c := claimed{tenant: tenant}
 		var current, previous []byte
-		err := r.Scan(&c.id, &c.sub, &c.attempts, &c.body, &c.url, &current, &previous)
+		err := r.Scan(&c.id, &c.event, &c.sub, &c.attempts, &c.body, &c.url, &current, &previous)
 		c.sealed = [][]byte{current}
 		if previous != nil {
 			c.sealed = append(c.sealed, previous)
@@ -312,8 +319,8 @@ func (d *Dispatcher) deliver(ctx context.Context, c claimed) error {
 		}
 		return err
 	}
-	h := http.Header{"Content-Type": {"application/cloudevents+json"}}
-	webhook.SetHeaders(h, c.id.String(), clock.Now(d.Now), c.body, secrets...)
+	h := http.Header{"Content-Type": {"application/cloudevents+json"}, HeaderDeliveryID: {c.id.String()}}
+	webhook.SetHeaders(h, c.event.String(), clock.Now(d.Now), c.body, secrets...)
 	resp, err := d.Client.Post(ctx, c.url, h, c.body)
 	if ctx.Err() != nil {
 		return fmt.Errorf("integration: webhook delivery %s stopped: %w", c.id, ctx.Err())
