@@ -50,7 +50,7 @@ type received struct {
 }
 
 // receiver is a subscriber's endpoint answering each delivery with the
-// status answer gives its webhook-id (204 when answer is nil).
+// status answer gives its delivery id (204 when none).
 type receiver struct {
 	srv    *httptest.Server
 	mu     sync.Mutex
@@ -68,7 +68,7 @@ func newReceiver(t *testing.T) *receiver {
 		}
 		r.mu.Lock()
 		r.got = append(r.got, received{header: req.Header.Clone(), body: body})
-		status, ok := r.answer[req.Header.Get(webhook.HeaderID)]
+		status, ok := r.answer[req.Header.Get(integration.HeaderDeliveryID)]
 		if !ok {
 			status = r.answer["*"]
 		}
@@ -148,8 +148,15 @@ func (x *dispatch) hook(c apitest.Client, types string) (string, webhook.Secret)
 // returns the id of its first delivery.
 func (x *dispatch) event(c apitest.Client, subject uuid.UUID) string {
 	x.t.Helper()
+	return x.eventAt(c, subject, time.Date(2026, 10, 19, 8, 0, 0, 0, time.UTC))
+}
+
+// eventAt is event with the event's time.
+func (x *dispatch) eventAt(c apitest.Client, subject uuid.UUID, at time.Time) string {
+	x.t.Helper()
 	m := busEvent(c.Tenant.ID, posted, "journal_entry_posted")
 	m.Header["ce-subject"] = subject.String()
+	m.Header["ce-time"] = at.Format(time.RFC3339Nano)
 	f := &integration.Fanout{Pool: pgtest.Pool(x.t), AppRole: "erp_app", Log: slog.New(slog.DiscardHandler)}
 	if err := f.Handle(context.Background(), m); err != nil {
 		x.t.Fatal(err)
@@ -195,6 +202,13 @@ func (x *dispatch) subscription(id string) (status string, reason *string, faili
 	return status, reason, failingSince
 }
 
+func (x *dispatch) version(id string) int {
+	x.t.Helper()
+	var v int
+	pgtest.Scan(x.t, `SELECT version FROM integration.webhook_subscription WHERE id = $1`, []any{id}, &v)
+	return v
+}
+
 // TestWebhookDispatchDelivers: a due delivery is sent once, signed with
 // the current and the previous secret during a rotation, as the
 // structured CloudEvent; a second round sends nothing more.
@@ -223,8 +237,13 @@ func TestWebhookDispatchDelivers(t *testing.T) {
 	if ct := r.header.Get("Content-Type"); ct != "application/cloudevents+json" {
 		t.Errorf("content type: got %q, want application/cloudevents+json", ct)
 	}
-	if h := r.header.Get(webhook.HeaderID); h != d {
-		t.Errorf("webhook-id: got %q, want the delivery id %s", h, d)
+	var event string
+	pgtest.Scan(t, `SELECT event_id::text FROM integration.webhook_delivery WHERE id = $1`, []any{d}, &event)
+	if h := r.header.Get(webhook.HeaderID); h != event {
+		t.Errorf("webhook-id: got %q, want the event id %s", h, event)
+	}
+	if h := r.header.Get(integration.HeaderDeliveryID); h != d {
+		t.Errorf("webhook-delivery-id: got %q, want the delivery id %s", h, d)
 	}
 	for name, s := range map[string]webhook.Secret{"new secret": second, "previous secret": first} {
 		if err := (webhook.Verifier{Secrets: []webhook.Secret{s}, Now: x.clock.now}).Verify(r.header, r.body); err != nil {
@@ -246,6 +265,7 @@ func TestWebhookDispatchRetries(t *testing.T) {
 	x.rec.answerWith("*", http.StatusInternalServerError)
 	d := x.event(x.c, uuid.New())
 	start := x.clock.now()
+	before := x.version(id)
 	waits := []time.Duration{30 * time.Second, 2 * time.Minute, 10 * time.Minute, time.Hour, 6 * time.Hour,
 		12 * time.Hour, 12 * time.Hour, 12 * time.Hour, 12 * time.Hour, 12 * time.Hour}
 	for i, wait := range waits {
@@ -267,6 +287,9 @@ func TestWebhookDispatchRetries(t *testing.T) {
 	status, _, since := x.subscription(id)
 	if status != "active" || since == nil || !since.Equal(start) {
 		t.Fatalf("subscription: got %s failing since %v, want active failing since %v", status, since, start)
+	}
+	if v := x.version(id); v != before {
+		t.Errorf("version after failures: got %d, want %d (failing_since is bookkeeping)", v, before)
 	}
 	x.clock.set(start.Add(integration.FailingLimit))
 	x.event(x.c, uuid.New())
@@ -320,10 +343,19 @@ func TestWebhookDispatchGone(t *testing.T) {
 	x := newDispatch(t)
 	id, _ := x.hook(x.c, `"ledger.*"`)
 	x.rec.answerWith("*", http.StatusGone)
-	d := x.event(x.c, uuid.New())
+	resource := uuid.New()
+	before := x.version(id)
+	d := x.event(x.c, resource)
+	waiting := x.event(x.c, resource)
 	x.round(1)
 	if row := x.delivery(d); row.status != "dead" || row.attempts != 1 {
 		t.Errorf("delivery: got %s after %d, want dead after 1", row.status, row.attempts)
+	}
+	if row := x.delivery(waiting); row.status != "dropped" || row.attempts != 0 {
+		t.Errorf("waiting delivery: got %s after %d, want dropped unsent", row.status, row.attempts)
+	}
+	if v := x.version(id); v != before+1 {
+		t.Errorf("version: got %d, want %d (disabling is a visible change)", v, before+1)
 	}
 	if status, reason, _ := x.subscription(id); status != "disabled" || reason == nil || *reason != "gone" {
 		t.Errorf("subscription: got %s (%v), want disabled as gone", status, reason)
@@ -332,6 +364,61 @@ func TestWebhookDispatchGone(t *testing.T) {
 	pgtest.Scan(t, `SELECT actor_id FROM audit.audit_event WHERE object_id = $1 AND action = 'integration.webhook_subscription.disable'`, []any{id}, &actor)
 	if actor != integration.DispatchActor {
 		t.Errorf("disable audited as %s, want the dispatcher %s", actor, integration.DispatchActor)
+	}
+}
+
+// TestWebhookResumeDisabled: resuming a disabled subscription makes it
+// active with its failure tracking reset; what was dropped stays dropped
+// and later events are sent.
+func TestWebhookResumeDisabled(t *testing.T) {
+	x := newDispatch(t)
+	id, _ := x.hook(x.c, `"ledger.*"`)
+	resource := uuid.New()
+	x.event(x.c, resource)
+	dropped := x.event(x.c, resource)
+	x.rec.answerWith("*", http.StatusGone)
+	x.round(1)
+	x.rec.answerWith("*", http.StatusNoContent)
+	_, tag := x.c.Must(200, "GET", hooks+"/"+id, "", "")
+	resumed, _ := x.c.Must(200, "POST", hooks+"/"+id+":resume", "", tag)
+	for _, field := range []string{"disabled_reason", "failing_since"} {
+		if v, ok := resumed[field]; ok {
+			t.Errorf("%s: got %v, want none", field, v)
+		}
+	}
+	if resumed["status"] != "active" {
+		t.Errorf("status: got %v, want active", resumed["status"])
+	}
+	x.round(0)
+	if row := x.delivery(dropped); row.status != "dropped" {
+		t.Errorf("dropped delivery: got %s, want still dropped", row.status)
+	}
+	later := x.event(x.c, resource)
+	x.round(1)
+	if row := x.delivery(later); row.status != "delivered" {
+		t.Errorf("later event: got %s, want delivered", row.status)
+	}
+}
+
+// TestWebhookDispatchEventOrder: deliveries fanned out in the wrong order
+// (two replicas) are sent in the order of their events.
+func TestWebhookDispatchEventOrder(t *testing.T) {
+	x := newDispatch(t)
+	x.hook(x.c, `"ledger.*"`)
+	resource := uuid.New()
+	at := time.Date(2026, 10, 19, 8, 0, 0, 0, time.UTC)
+	second := x.eventAt(x.c, resource, at.Add(time.Second))
+	first := x.eventAt(x.c, resource, at)
+	x.round(1)
+	if row := x.delivery(first); row.status != "delivered" {
+		t.Fatalf("earlier event: got %s, want delivered first", row.status)
+	}
+	if row := x.delivery(second); row.attempts != 0 {
+		t.Fatalf("later event: got %d attempts, want it waiting", row.attempts)
+	}
+	x.round(1)
+	if row := x.delivery(second); row.status != "delivered" {
+		t.Errorf("later event: got %s, want delivered next", row.status)
 	}
 }
 
@@ -407,7 +494,7 @@ func TestWebhookPauseHolds(t *testing.T) {
 	x := newDispatch(t)
 	id, _ := x.hook(x.c, `"ledger.*"`)
 	_, tag := x.c.Must(200, "GET", hooks+"/"+id, "", "")
-	x.c.Problem(409, "integration.webhook_not_paused", "POST", hooks+"/"+id+":resume", "", tag)
+	x.c.Problem(409, "integration.webhook_already_active", "POST", hooks+"/"+id+":resume", "", tag)
 	paused, tag := x.c.Must(200, "POST", hooks+"/"+id+":pause", "", tag)
 	if paused["status"] != "paused" {
 		t.Fatalf("pause: got %v, want paused", paused["status"])

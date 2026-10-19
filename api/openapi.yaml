@@ -9253,7 +9253,7 @@ paths:
       tags:
         - integration
       summary: Pause a webhook subscription
-      description: "Holds the deliveries of an active subscription: events keep being recorded for it but none is sent until `:resume`, which sends them in order. A delivery held past the 30-day retention is dropped. Requires status `active` (409 `integration.webhook_not_active`)."
+      description: "Holds the deliveries of an active subscription (how a tenant stops deliveries): events keep being recorded for it but none is sent until `:resume`, which sends them in order. A delivery held past the 30-day retention is dropped. Requires status `active` (409 `integration.webhook_not_active`)."
       x-permission: integration.webhook.manage
       x-agent: false
       parameters:
@@ -9304,7 +9304,7 @@ paths:
       tags:
         - integration
       summary: Resume a webhook subscription
-      description: "Sends the deliveries held while the subscription was paused, in order per resource, and the later ones as they come. Requires status `paused` (409 `integration.webhook_not_paused`)."
+      description: "Makes a paused or disabled subscription active. A paused one's held deliveries are sent, in event order per resource, and later events as they come. A disabled one starts its failure tracking afresh (`failing_since` cleared); the deliveries dropped while it was disabled are not sent. Refused for an active subscription (409 `integration.webhook_already_active`)."
       x-permission: integration.webhook.manage
       x-agent: false
       parameters:
@@ -19219,7 +19219,7 @@ components:
                 maxLength: 200
             status:
               type: string
-              description: "Status. `paused` (by `:pause`): deliveries are held and sent in order on `:resume`. `disabled`: the dispatcher stopped after 5 days of failures or a 410 Gone (`disabled_reason`); its pending deliveries are not sent. `deleted`: ended by `:delete`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "Status. `paused` (by `:pause`, how a tenant stops deliveries): deliveries are held and sent in order on `:resume`. `disabled`: the dispatcher stopped after 5 days of failures or a 410 Gone (`disabled_reason`); its pending deliveries are dropped, and `:resume` makes it active again for later events. Moving to `disabled` changes the version; `failing_since` alone does not. `deleted`: ended by `:delete`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - active
                 - paused

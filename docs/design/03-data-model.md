@@ -1676,7 +1676,7 @@ activate, and orders under them are refused.
 | `output_message` | Business output (purchase orders to suppliers) per channel |
 | `migration_run` | Migration scope, mode, status, reconciliation report |
 | `webhook_subscription` | A tenant's webhook endpoint (https), its event types or `<context>.*`, status (`active`, `paused`, `disabled` with a reason, `deleted`), its sealed `whsec_` secret and, during a rotation, the previous one with its expiry (ADR-0041) |
-| `webhook_delivery` | One delivery of an event to a subscription, unique per (subscription, event): body, status (`pending` while an attempt is due, `delivered`, `dead`), attempts, last HTTP status and error; kept 30 days. A paused subscription's stay pending until it resumes; the dispatcher leases one it sends by moving `next_attempt_at` (ADR-0041, T50f) |
+| `webhook_delivery` | One delivery of an event to a subscription, unique per (subscription, event): body, the event's `occurred_at` (the order a resource's deliveries are sent in), status (`pending` while an attempt is due, `delivered`, `dead`, `dropped` when its subscription was disabled), attempts, last HTTP status and error; kept 30 days. A paused subscription's stay pending until it resumes; the dispatcher leases one it sends by moving `next_attempt_at` (ADR-0041, T50f) |
 
 ## 3.14 Agents (`agents`)
 

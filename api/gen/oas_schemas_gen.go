@@ -29373,10 +29373,12 @@ type WebhookSubscription struct {
 	// CloudEvents types marked `x-webhook` in the AsyncAPI contract, or `<context>.*` for all of a
 	// context's.
 	EventTypes []string `json:"event_types"`
-	// Status. `paused` (by `:pause`): deliveries are held and sent in order on `:resume`. `disabled`: the
-	// dispatcher stopped after 5 days of failures or a 410 Gone (`disabled_reason`); its pending
-	// deliveries are not sent. `deleted`: ended by `:delete`. Open enumeration: clients must accept and
-	// preserve values not listed here; values may be added within /v1.
+	// Status. `paused` (by `:pause`, how a tenant stops deliveries): deliveries are held and sent in order
+	// on `:resume`. `disabled`: the dispatcher stopped after 5 days of failures or a 410 Gone
+	// (`disabled_reason`); its pending deliveries are dropped, and `:resume` makes it active again for
+	// later events. Moving to `disabled` changes the version; `failing_since` alone does not. `deleted`:
+	// ended by `:delete`. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
 	Status string `json:"status"`
 	// Why the dispatcher disabled it; present only when `disabled`. Open enumeration: clients must accept
 	// and preserve values not listed here; values may be added within /v1.

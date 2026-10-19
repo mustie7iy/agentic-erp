@@ -329,22 +329,26 @@ func (e *Endpoints) RotateSecret(ctx context.Context, id uuid.UUID, ifMatch func
 
 // PauseSubscription holds an active subscription's deliveries: the fan-out
 // keeps recording them and none is sent until it is resumed, when they go
-// out in order (those past the retention are gone).
+// out in order (those past the retention are gone). Pausing is how a
+// tenant stops deliveries; disabled is the dispatcher's.
 func (e *Endpoints) PauseSubscription(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (Subscription, error) {
-	return e.moveSubscription(ctx, id, ifMatch, "active", "paused", "pause",
+	return e.moveSubscription(ctx, id, ifMatch, []string{"active"}, "paused", "pause",
 		problem.Conflict("integration.webhook_not_active", "Only an active webhook subscription can be paused."))
 }
 
-// ResumeSubscription sends a paused subscription's held deliveries and the
-// later ones as they come.
+// ResumeSubscription makes a paused or disabled subscription active: a
+// paused one's held deliveries are sent, and later events as they come.
+// Resuming a disabled one starts its failure tracking afresh; the
+// deliveries dropped while it was disabled stay dropped.
 func (e *Endpoints) ResumeSubscription(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (Subscription, error) {
-	return e.moveSubscription(ctx, id, ifMatch, "paused", "active", "resume",
-		problem.Conflict("integration.webhook_not_paused", "Only a paused webhook subscription can be resumed."))
+	return e.moveSubscription(ctx, id, ifMatch, []string{"paused", "disabled"}, "active", "resume",
+		problem.Conflict("integration.webhook_already_active", "The webhook subscription is already active."))
 }
 
-// moveSubscription moves a subscription from one status to another,
-// audited as verb; refused is the answer when it is in another status.
-func (e *Endpoints) moveSubscription(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, from, to, verb string, refused error) (Subscription, error) {
+// moveSubscription moves a subscription from one of the statuses to
+// another, audited as verb; refused is the answer when it is in another
+// status. Leaving disabled clears its reason and failing_since.
+func (e *Endpoints) moveSubscription(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, from []string, to, verb string, refused error) (Subscription, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Subscription{}, err
@@ -353,13 +357,14 @@ func (e *Endpoints) moveSubscription(ctx context.Context, id uuid.UUID, ifMatch 
 	if err != nil {
 		return Subscription{}, err
 	}
-	if s.Status != from {
+	if !slices.Contains(from, s.Status) {
 		return Subscription{}, refused
 	}
-	updated, err := scanSubscription(tx.QueryRow(ctx, `UPDATE integration.webhook_subscription SET status = $2, version = version + 1, updated_by = $3
+	updated, err := scanSubscription(tx.QueryRow(ctx, `UPDATE integration.webhook_subscription SET status = $2, disabled_reason = NULL,
+		failing_since = CASE WHEN status = 'disabled' THEN NULL ELSE failing_since END, version = version + 1, updated_by = $3
 		WHERE id = $1 RETURNING `+subscriptionColumns, id, to, p.ID))
 	if err != nil {
 		return Subscription{}, fmt.Errorf("integration: %s webhook subscription %s: %w", verb, id, err)
 	}
-	return updated, record(ctx, "integration.webhook_subscription."+verb, id, map[string]any{"host": host(updated.URL)})
+	return updated, record(ctx, "integration.webhook_subscription."+verb, id, map[string]any{"host": host(updated.URL), "previous_status": s.Status})
 }

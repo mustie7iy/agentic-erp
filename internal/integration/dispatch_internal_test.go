@@ -26,8 +26,8 @@ func pendingDelivery(t *testing.T) claimed {
 		sealed: [][]byte{[]byte("sealed")}}
 	pgtest.Exec(t, `INSERT INTO integration.webhook_subscription (tenant_id, id, url, event_types, status, secret_cipher, created_by, updated_by)
 		VALUES ($1, $2, $3, '{ledger.*}', 'active', '\x00', $4, $4)`, c.tenant, c.sub, c.url, ten.Human.ID)
-	pgtest.Exec(t, `INSERT INTO integration.webhook_delivery (tenant_id, id, subscription_id, event_id, type, subject, body, status, next_attempt_at)
-		VALUES ($1, $2, $3, $4, 'com.example.erp.ledger.journal_entry_posted.v1', $4, '{}', 'pending', now())`, c.tenant, c.id, c.sub, uuid.New())
+	pgtest.Exec(t, `INSERT INTO integration.webhook_delivery (tenant_id, id, subscription_id, event_id, type, subject, occurred_at, body, status, next_attempt_at)
+		VALUES ($1, $2, $3, $4, 'com.example.erp.ledger.journal_entry_posted.v1', $4, now(), '{}', 'pending', now())`, c.tenant, c.id, c.sub, uuid.New())
 	return c
 }
 

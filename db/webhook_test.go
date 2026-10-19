@@ -49,7 +49,7 @@ func webhookSubscription(tenant, actor uuid.UUID) row {
 
 func webhookDelivery(tenant, subscription uuid.UUID) row {
 	return row{"tenant_id": tenant, "id": id(), "subscription_id": subscription, "event_id": id(), "type": "com.example.erp.ledger.journal_entry_posted.v1",
-		"subject": id(), "body": []byte(`{}`), "status": "pending", "next_attempt_at": "2026-10-19T08:00:00Z"}
+		"subject": id(), "occurred_at": "2026-10-19T07:59:59Z", "body": []byte(`{}`), "status": "pending", "next_attempt_at": "2026-10-19T08:00:00Z"}
 }
 
 // TestWebhookSubscriptions: a subscription sends to an https URL the
@@ -192,7 +192,7 @@ func TestWebhookWorkerGrants(t *testing.T) {
 		return err
 	}
 	for name, sql := range map[string]string{
-		"due deliveries": `SELECT d.tenant_id, d.id, d.subscription_id, d.subject, d.status, d.next_attempt_at, d.created_at, s.status
+		"due deliveries": `SELECT d.tenant_id, d.id, d.subscription_id, d.event_id, d.subject, d.occurred_at, d.status, d.next_attempt_at, d.created_at, s.status
 			FROM integration.webhook_delivery d JOIN integration.webhook_subscription s ON s.tenant_id = d.tenant_id AND s.id = d.subscription_id`,
 		"the retention": `DELETE FROM integration.webhook_delivery WHERE id = $1`,
 	} {
@@ -213,4 +213,27 @@ func TestWebhookWorkerGrants(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) { failsWith(t, asWorker(sql), "permission denied") })
 	}
+}
+
+// TestWebhookBookkeeping (000092): failing_since alone moves without the
+// version, any other change of a subscription still needs it; a delivery
+// dropped unsent needs no attempt.
+func TestWebhookBookkeeping(t *testing.T) {
+	need(t)
+	tenant, actor := id(), id()
+	sub := webhookSubscription(tenant, actor)
+	mustApp(t, tenant, sub.insert("integration.webhook_subscription"))
+	t.Run("failing_since without the version", func(t *testing.T) {
+		mustApp(t, tenant, func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE integration.webhook_subscription SET failing_since = now() WHERE id = $1`, sub["id"])
+		})
+	})
+	t.Run("another change without the version", func(t *testing.T) {
+		failsWith(t, asApp(t, tenant, func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE integration.webhook_subscription SET failing_since = NULL, description = 'x' WHERE id = $1`, sub["id"])
+		}), "optimistic lock")
+	})
+	t.Run("dropped unsent", func(t *testing.T) {
+		mustApp(t, tenant, webhookDelivery(tenant, sub["id"].(uuid.UUID)).with(row{"status": "dropped", "next_attempt_at": nil}).insert("integration.webhook_delivery"))
+	})
 }
