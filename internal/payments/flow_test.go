@@ -305,6 +305,9 @@ func checkTransmit(t *testing.T, e env, run map[string]any) map[string]any {
 	if ev := events(t, e.Tenant, "bank_file_transmitted"); len(ev) != 1 || ev[0]["sha256"] != created[0]["sha256"] {
 		t.Fatalf("transmitted events: %v", ev)
 	}
+	if ev := events(t, e.Tenant, "bank_file_transmitted"); ev[0]["connector_id"] != nil {
+		t.Errorf("transmitted event connector: got %v, want none (the server's directory)", ev[0]["connector_id"])
+	}
 	e.Problem(409, "payments.invalid_status", "POST", "/v1/bank-files/"+id(file)+":transmit", "", `"2"`)
 	return file
 }

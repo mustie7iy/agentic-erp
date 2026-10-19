@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -111,37 +113,55 @@ func checkSettings(kind string, settings map[string]any) error {
 // checkSFTPSettings validates a bank_sftp channel (ADR-0038): the server's
 // host and optional port, the account, the server's host key, pinned, and
 // the absolute directory the bank collects from. The client's private key
-// is the secret_ref's (required where the channel is used, T44b): there
+// is the secret_ref's, required where the channel is resolved (T44b): there
 // is no password, and no other setting.
 func checkSFTPSettings(settings map[string]any) error {
-	for k := range settings {
-		if !slices.Contains([]string{"host", "port", "user", "host_key", "directory"}, k) {
-			return invalid("integration.invalid_settings", "settings."+k, "Not a bank_sftp setting; credentials go in secret_ref.")
-		}
-	}
-	for _, k := range []string{"host", "user"} {
-		if v, ok := settings[k].(string); !ok || v == "" || strings.ContainsAny(v, ":@/ ") {
-			return invalid("integration.invalid_settings", "settings."+k, "The SFTP server's "+k+", without port, path or spaces.")
-		}
-	}
-	if n, ok := settings["port"]; ok {
-		//nolint:forbidigo // encoding/json decodes every number in map[string]any as float64; a port is not an amount
-		if f, isNumber := n.(float64); !isNumber || f < 1 || f > 65535 || f != float64(int(f)) {
-			return invalid("integration.invalid_settings", "settings.port", "The SFTP server's port, from 1 to 65535; 22 when left out.")
-		}
-	}
-	if k, ok := settings["host_key"].(string); !ok || !validHostKey(k) {
-		return invalid("integration.invalid_settings", "settings.host_key", "The SFTP server's public key in authorized_keys form, as the bank gave it.")
-	}
-	if d, ok := settings["directory"].(string); !ok || !path.IsAbs(d) {
-		return invalid("integration.invalid_settings", "settings.directory", "The absolute directory the bank collects files from.")
-	}
-	return nil
+	_, err := sftpEndpoint(settings)
+	return err
 }
 
-func validHostKey(line string) bool {
-	_, err := sftpclient.ParseHostKey(line)
-	return err == nil
+// sftpEndpoint is the endpoint valid bank_sftp settings name, without the
+// client's key.
+func sftpEndpoint(settings map[string]any) (sftpclient.Endpoint, error) {
+	for k := range settings {
+		if !slices.Contains([]string{"host", "port", "user", "host_key", "directory"}, k) {
+			return sftpclient.Endpoint{}, invalid("integration.invalid_settings", "settings."+k, "Not a bank_sftp setting; credentials go in secret_ref.")
+		}
+	}
+	host, _ := settings["host"].(string) // not a string: "", refused below
+	user, _ := settings["user"].(string) // as host
+	for _, k := range []string{"host", "user"} {
+		if v := map[string]string{"host": host, "user": user}[k]; v == "" || strings.ContainsAny(v, ":@/ ") {
+			return sftpclient.Endpoint{}, invalid("integration.invalid_settings", "settings."+k, "The SFTP server's "+k+", without port, path or spaces.")
+		}
+	}
+	port, err := sftpPort(settings)
+	if err != nil {
+		return sftpclient.Endpoint{}, err
+	}
+	line, _ := settings["host_key"].(string) // not a string: "", which ParseHostKey refuses
+	key, err := sftpclient.ParseHostKey(line)
+	if err != nil {
+		return sftpclient.Endpoint{}, invalid("integration.invalid_settings", "settings.host_key", "The SFTP server's public key in authorized_keys form, as the bank gave it.")
+	}
+	dir, _ := settings["directory"].(string) // not a string: "", which is not absolute
+	if !path.IsAbs(dir) {
+		return sftpclient.Endpoint{}, invalid("integration.invalid_settings", "settings.directory", "The absolute directory the bank collects files from.")
+	}
+	return sftpclient.Endpoint{Addr: net.JoinHostPort(host, strconv.Itoa(port)), User: user, HostKey: key, Dir: dir}, nil
+}
+
+// sftpPort is the settings' port, 22 when left out.
+func sftpPort(settings map[string]any) (int, error) {
+	n, ok := settings["port"]
+	if !ok {
+		return 22, nil
+	}
+	//nolint:forbidigo // encoding/json decodes every number in map[string]any as float64; a port is not an amount
+	if f, isNumber := n.(float64); isNumber && f >= 1 && f <= 65535 && f == float64(int(f)) {
+		return int(f), nil
+	}
+	return 0, invalid("integration.invalid_settings", "settings.port", "The SFTP server's port, from 1 to 65535; 22 when left out.")
 }
 
 // checkODataSettings validates the settings of a sap_odata source.

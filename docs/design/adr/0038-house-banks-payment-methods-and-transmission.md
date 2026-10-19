@@ -104,6 +104,18 @@ and France, by EBICS.
   file already there, so a retry after a lost acknowledgement is told
   apart by T44c's hash, not by the server; the host key is asked for by its
   type, so a server with keys of several types presents the pinned one, and
-  a certificate is refused), a house bank's channel (T44b),
+  a certificate is refused), a house bank's channel (T44b: the house
+  bank's `connector` names a `bank_sftp` connector, checked on submission
+  and stored as `payments.house_bank.connector_id`, 000098, with no foreign
+  key across contexts; transmission resolves it per bank through the
+  integration context's `BankChannels`, which the application wires to
+  ports of the payments context, and fails closed: a connector that is
+  disabled, not a bank channel, without a `secret_ref` or whose key does
+  not resolve is refused and nothing is sent; the key is resolved on each
+  use, so a rotated secret needs no restart; `bank_file_transmitted`
+  names the connector; a bank that names none keeps the server's
+  `DirConnector`, its event's `connector_id` null. The previous version
+  sends every file to the directory, so a configuration naming a connector
+  waits until the upgrade completes),
   duplicate detection by content hash (T44c), EBICS refused in production
   (T44d), retries and the sweep (T44e).

@@ -2942,7 +2942,7 @@ components:
         payment_run_id: {$ref: '#/components/schemas/Uuid'}
         format: {type: string, description: 'Open enum: pain.001.001.03, pain.001.001.09.'}
         sha256: {$ref: '#/components/schemas/Sha256Hex', description: Hash of the transmitted file.}
-        connector_id: {$ref: '#/components/schemas/NullableUuid'}
+        connector_id: {$ref: '#/components/schemas/NullableUuid', description: "The house bank's connector the file went through (ADR-0038, T44b); null when the bank names none and the file went to the server's directory."}
         integration_message_id: {$ref: '#/components/schemas/NullableUuid'}
         status: {type: string, description: 'Open enum; transmitted in v1.'}
 

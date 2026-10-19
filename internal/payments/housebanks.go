@@ -32,6 +32,11 @@ type HouseBanks struct {
 	Accounts interface {
 		Chart(ctx context.Context, legalEntity uuid.UUID) (map[string]ledger.ChartAccount, error)
 	}
+	// Channels finds the bank connector a house bank names (integration
+	// context, through the application's wiring; T44b).
+	Channels interface {
+		ChannelByName(ctx context.Context, name string) (uuid.UUID, bool, error)
+	}
 	Keys *fieldcrypt.Keyring
 }
 
@@ -41,8 +46,9 @@ func init() {
 
 var houseBankCode = regexp.MustCompile(`^[A-Z0-9]{1,5}$`)
 
-// Check refuses names that are not house bank codes and new bank details
-// under the name of an existing house bank.
+// Check refuses names that are not house bank codes, new bank details
+// under the name of an existing house bank, and a connector that is not a
+// bank channel.
 func (h HouseBanks) Check(ctx context.Context, _, proposed *config.Config) ([]config.Finding, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -75,6 +81,11 @@ func (h HouseBanks) checkCompany(ctx context.Context, tx pgx.Tx, tenant uuid.UUI
 			out = append(out, config.Finding{Severity: config.SevError, Path: path + ".name", Message: "a house bank's name is its code: 1-5 upper-case letters or digits"})
 			continue
 		}
+		channel, err := h.checkChannel(ctx, path, hb)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, channel...)
 		if !ok { // the ledger section reports companies without a legal entity
 			continue
 		}
@@ -88,6 +99,18 @@ func (h HouseBanks) checkCompany(ctx context.Context, tx pgx.Tx, tenant uuid.UUI
 		}
 	}
 	return out, nil
+}
+
+// checkChannel finds the bank channel the house bank names, if it names one.
+func (h HouseBanks) checkChannel(ctx context.Context, path string, hb config.HouseBank) ([]config.Finding, error) {
+	if hb.Connector == "" {
+		return nil, nil
+	}
+	if _, found, err := h.Channels.ChannelByName(ctx, hb.Connector); err != nil || found {
+		return nil, err
+	}
+	return []config.Finding{{Severity: config.SevError, Path: path + ".connector",
+		Message: fmt.Sprintf("no bank channel connector (bank_sftp) is named %s", hb.Connector)}}, nil
 }
 
 // sameDetails reports whether the legal entity's house bank of that name,
@@ -153,20 +176,31 @@ func (h HouseBanks) Apply(ctx context.Context, doc *config.Config) error {
 	return nil
 }
 
-// upsert creates the house bank active on the account, or reactivates it
-// and moves it to the account.
+// upsert creates the house bank active on the account and channel, or
+// reactivates it and moves it to them.
 func (h HouseBanks) upsert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le uuid.UUID, currency string, hb config.HouseBank, account uuid.UUID) error {
 	sealed, err := h.Keys.Seal(ctx, p.TenantID, hb.IBAN)
 	if err != nil {
 		return err
 	}
+	var channel *uuid.UUID
+	if hb.Connector != "" {
+		id, found, err := h.Channels.ChannelByName(ctx, hb.Connector)
+		if err != nil {
+			return err
+		}
+		if !found { // checked on submission; a connector renamed since names none
+			return fmt.Errorf("no bank channel connector is named %s", hb.Connector)
+		}
+		channel = &id
+	}
 	_, err = tx.Exec(ctx, `INSERT INTO payments.house_bank AS h (tenant_id, id, legal_entity_id, code, name, iban_cipher, iban_last4, bic, currency,
-			gl_account_id, active_gl_account_id, status, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, $9, 'active', $10, $10)
+			gl_account_id, active_gl_account_id, status, created_by, updated_by, connector_id)
+		VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, $9, 'active', $10, $10, $11)
 		ON CONFLICT (tenant_id, legal_entity_id, code) DO UPDATE SET gl_account_id = EXCLUDED.gl_account_id, active_gl_account_id = EXCLUDED.gl_account_id, status = 'active',
-			version = h.version + 1, updated_by = EXCLUDED.updated_by
-		WHERE (h.gl_account_id, h.status) IS DISTINCT FROM (EXCLUDED.gl_account_id, 'active')`,
-		p.TenantID, uuid.Must(uuid.NewV7()), le, hb.Name, sealed, fieldcrypt.Last4(hb.IBAN), hb.BIC, currency, account, p.ID)
+			connector_id = EXCLUDED.connector_id, version = h.version + 1, updated_by = EXCLUDED.updated_by
+		WHERE (h.gl_account_id, h.status, h.connector_id) IS DISTINCT FROM (EXCLUDED.gl_account_id, 'active', EXCLUDED.connector_id)`,
+		p.TenantID, uuid.Must(uuid.NewV7()), le, hb.Name, sealed, fieldcrypt.Last4(hb.IBAN), hb.BIC, currency, account, p.ID, channel)
 	if err != nil {
 		return fmt.Errorf("write: %w", err)
 	}

@@ -171,6 +171,10 @@ type HouseBank struct {
 	// account determination's bank account, as documents before it did;
 	// a further house bank must name one.
 	GLAccount string `yaml:"gl_account,omitempty" json:"gl_account,omitempty"`
+	// Connector is the name of the bank connector the bank's files are
+	// transmitted through (ADR-0038, T44b); without one they go to the
+	// server's directory, which a transfer agent collects from.
+	Connector string `yaml:"connector,omitempty" json:"connector,omitempty"`
 }
 
 // AllHouseBanks is the main house bank followed by the further ones.

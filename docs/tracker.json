@@ -636,9 +636,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A house bank's channel: each house bank names its bank connector; transmission resolves it per bank (secret resolved through the secrets path, failing closed), connector_id on bank_file_transmitted; DirConnector stays the server-wide fallback",
-        "r": "T44b",
+        "r": "house_bank.connector · payments.house_bank.connector_id (000098) · integration.BankChannels · payments.SFTPConnector · sftptest · T44b",
         "c": []
        },
        {

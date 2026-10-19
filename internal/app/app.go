@@ -175,7 +175,7 @@ func Configuration(cfg Config) configuration.Dependencies {
 		LegalEntities: tenancy.Directory{},
 		Sections: []configuration.Section{ledger.Setup{LegalEntities: tenancy.Directory{}}, partner.PaymentTerms{}, partner.WithholdingCodes{LegalEntities: tenancy.Directory{}},
 			partner.PaymentMethodCodes{LegalEntities: tenancy.Directory{}},
-			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys},
+			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Channels: integration.BankChannels{}, Keys: cfg.FieldKeys},
 			payments.PaymentMethods{LegalEntities: tenancy.Directory{}}},
 		Approvals: opener(),
 		Simulator: payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
@@ -191,6 +191,7 @@ func Payments(cfg Config) *payments.Endpoints {
 		Postings: postings(),
 		Payees:   partner.Payees{Keys: cfg.FieldKeys}, Numbers: configuration.Numbers{}, Calendar: calendar(),
 		Settings: configuration.Settings{}, Actors: identity.Actors{}, Keys: cfg.FieldKeys, Connector: cfg.Connector, Objects: cfg.Objects,
+		Channels: integration.BankChannels{Secrets: resolver(cfg.Secrets)},
 		Accounts: ledger.Accounts{}, DownPayments: downPayments{}, Now: cfg.Now}
 }
 
