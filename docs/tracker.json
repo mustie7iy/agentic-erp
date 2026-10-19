@@ -3759,9 +3759,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "T46's writes (createDownPaymentRequest, cancelDownPaymentRequest, clearSupplierInvoiceDownPayments) at autonomy level 2 until the product owner rules whether a down payment request only proposes",
-        "r": "no x-autonomy marker · ADR-0036 · T46 integration",
+        "s": "D",
+        "t": "Down payment requests propose (createDownPaymentRequest, cancelDownPaymentRequest: a request pays nothing by itself); clearSupplierInvoiceDownPayments stays at autonomy level 2 (it posts journal entries)",
+        "r": "x-autonomy: propose · ADR-0036 · PO 2026-10-19 · T46",
         "c": []
        }
       ]
