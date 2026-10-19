@@ -160,3 +160,46 @@ func TestInfo(t *testing.T) {
 		}
 	}
 }
+
+// The catalog (ADR-0043) holds every registered metric: names that pass
+// promlint, labels from the allow-list, series under the ceiling.
+func TestCatalog(t *testing.T) {
+	m := NewMetrics()
+	m.Gauge("erp_outbox_backlog", "Events waiting.", func(context.Context) (float64, error) { return 0, nil })
+	m.Info("erp_operation_info", "Operations by latency class.", []string{"operation", "class"}, [][]string{{"getX", "read"}})
+	if err := m.Check(); err != nil {
+		t.Fatalf("catalog: got %v, want none", err)
+	}
+	for name, c := range map[string]struct {
+		register func(*Metrics)
+		want     string
+	}{
+		"label not allowed": {func(m *Metrics) {
+			m.Info("erp_tenant_info", "Tenants.", []string{"tenant_id"}, nil)
+		}, `label "tenant_id" is not in the catalog's allow-list`},
+		"promlint": {func(m *Metrics) {
+			m.Gauge("erp_backlog_total", "A gauge named as a counter.", func(context.Context) (float64, error) { return 0, nil })
+		}, "erp_backlog_total: non-counter metrics should not have \"_total\" suffix"},
+		"series ceiling": {func(m *Metrics) {
+			m.counterVec("erp_by_everything_total", "Too many series.", "operation", "event", "code")
+		}, "over the ceiling of 50000"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := NewMetrics()
+			c.register(m)
+			if err := m.Check(); err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("catalog: got %v, want %s", err, c.want)
+			}
+		})
+	}
+}
+
+func TestEventsPublished(t *testing.T) {
+	m := NewMetrics()
+	m.EventsPublished("ledger", "journal_entry_posted", 2)
+	rec := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
+	if want := `erp_events_published_total{context="ledger",event="journal_entry_posted"} 2`; !strings.Contains(rec.Body.String(), want) {
+		t.Errorf("metrics: got %s, want %s", rec.Body.String(), want)
+	}
+}

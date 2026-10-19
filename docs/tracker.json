@@ -5071,6 +5071,12 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Metrics conventions: labels only bounded enumerations, a catalog test over the registry (promlint, label allow-list, series ceiling); erp_events_published_total{context,event} counted on commit; latency buckets at every objective (0.4 and 3 s added); erp_operation_info{operation,class} with x-slo-class",
+        "r": "internal/platform/telemetry/catalog.go · outbox.Relay.Counter · api.Operation.Class · ADR-0043 · 05 §5.9 · T54a",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "Business metrics per context",
         "r": "T54",

@@ -35,6 +35,7 @@ import (
 	"go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/google/uuid"
+	"github.com/mustie7iy/agentic-erp/api"
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/eval"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
@@ -50,7 +51,9 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus/natstest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf/tlstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow/workflowtest"
@@ -2006,6 +2009,25 @@ func TestEngineOverMutualTLS(t *testing.T) {
 // store encrypts at rest and exports it as erp_at_rest_info; with
 // objects=sse-kms it asks for KMS encryption on every write and starts
 // only on a bucket whose default encryption is KMS (ADR-0033).
+// TestMetricsCatalog: every metric the cell registers passes the catalog
+// of ADR-0043, and the enumerations its labels take fit their bounds.
+func TestMetricsCatalog(t *testing.T) {
+	cfg := config.Config{RelayRole: "erp_relay", ProjectorRole: "erp_projector", WorkerRole: "erp_worker",
+		AtRest: config.AtRest{Postgres: "storage-kms", Objects: "sse-kms", NATS: "file-kms"}}
+	if err := newMetrics(pgtest.Pool(t), cfg, quiet()).Check(); err != nil {
+		t.Errorf("catalog: got %v, want none", err)
+	}
+	control, err := api.ControlOperations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for label, n := range map[string]int{"operation": len(api.MustOperations()) + len(control) + 1, "class": len(api.Classes), "context": len(outbox.Contexts)} {
+		if n > telemetry.Labels[label] {
+			t.Errorf("label %s: got %d values, want at most %d", label, n, telemetry.Labels[label])
+		}
+	}
+}
+
 func TestAtRestStatedAndChecked(t *testing.T) {
 	s3 := blobstoretest.New(t)
 	ten := pgtest.NewTenant(t)
@@ -2046,7 +2068,8 @@ func TestAtRestStatedAndChecked(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close() // read whole
-	for _, want := range []string{`erp_at_rest_info{encryption="storage-kms",store="postgres"} 1`, `erp_at_rest_info{encryption="sse-kms",store="objects"} 1`} {
+	for _, want := range []string{`erp_at_rest_info{encryption="storage-kms",store="postgres"} 1`, `erp_at_rest_info{encryption="sse-kms",store="objects"} 1`,
+		`erp_operation_info{class="report",operation="listBalances"} 1`} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("metrics: got %s, want %s", body, want)
 		}

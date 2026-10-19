@@ -2,6 +2,7 @@ package api
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -35,6 +36,37 @@ type Operation struct {
 	// Reads is x-autonomy: read: the operation changes no business data though it is
 	// not a GET, and an agent of any level may perform it.
 	Reads bool
+	// Class is the operation's latency class (ADR-0043): one of Classes.
+	Class string
+}
+
+// Latency classes (ADR-0043): each has its p95/p99 objective in
+// 01-requirements §1.3, and erp_operation_info maps every operation to one.
+const (
+	ClassRead     = "read"     // a GET of one resource
+	ClassList     = "list"     // any other GET
+	ClassWrite    = "write"    // any other method
+	ClassApproval = "approval" // x-slo-class: approval
+	ClassReport   = "report"   // x-slo-class: report
+)
+
+// Classes are the latency classes, a bounded enumeration.
+var Classes = []string{ClassRead, ClassList, ClassWrite, ClassApproval, ClassReport}
+
+// class is the latency class an operation declares with x-slo-class, or
+// the one its method and path imply.
+func class(method, path, declared string) (string, error) {
+	switch {
+	case declared == ClassApproval || declared == ClassReport:
+		return declared, nil
+	case declared != "":
+		return "", fmt.Errorf("x-slo-class is approval, report or absent, not %q", declared)
+	case method != "get":
+		return ClassWrite, nil
+	case strings.HasSuffix(path, "}"):
+		return ClassRead, nil
+	}
+	return ClassList, nil
 }
 
 // Autonomy levels (ADR-0036): what an agent of the level performs beyond
@@ -82,28 +114,43 @@ func parseOperations(src []byte, permissioned bool) (map[string]Operation, error
 			default:
 				continue
 			}
-			var op struct {
-				ID         string `yaml:"operationId"`
-				Permission string `yaml:"x-permission"`
-				Agent      *bool  `yaml:"x-agent"`
-				Autonomy   string `yaml:"x-autonomy"`
-			}
-			if err := node.Decode(&op); err != nil {
+			op, err := parseOperation(method, path, node, permissioned)
+			if err != nil {
 				return nil, fmt.Errorf("api: %s %s: %w", method, path, err)
 			}
-			if op.ID == "" || (permissioned && op.Permission == "") {
-				return nil, fmt.Errorf("api: %s %s: operationId and x-permission are required", method, path)
-			}
-			if op.Autonomy != "" && op.Autonomy != "propose" && op.Autonomy != "read" {
-				return nil, fmt.Errorf("api: %s %s: x-autonomy is propose, read or absent", method, path)
-			}
-			ops[op.ID] = Operation{
-				ID: op.ID, Method: strings.ToUpper(method), Path: path, Permission: op.Permission,
-				AgentAllowed: op.Agent == nil || *op.Agent, Proposes: op.Autonomy == "propose", Reads: op.Autonomy == "read",
-			}
+			ops[op.ID] = op
 		}
 	}
 	return ops, nil
+}
+
+// parseOperation reads one operation of a contract.
+func parseOperation(method, path string, node yaml.Node, permissioned bool) (Operation, error) {
+	var op struct {
+		ID         string `yaml:"operationId"`
+		Permission string `yaml:"x-permission"`
+		Agent      *bool  `yaml:"x-agent"`
+		Autonomy   string `yaml:"x-autonomy"`
+		Class      string `yaml:"x-slo-class"`
+	}
+	if err := node.Decode(&op); err != nil {
+		return Operation{}, fmt.Errorf("decode: %w", err)
+	}
+	if op.ID == "" || (permissioned && op.Permission == "") {
+		return Operation{}, errors.New("operationId and x-permission are required")
+	}
+	if op.Autonomy != "" && op.Autonomy != "propose" && op.Autonomy != "read" {
+		return Operation{}, errors.New("x-autonomy is propose, read or absent")
+	}
+	cls, err := class(method, path, op.Class)
+	if err != nil {
+		return Operation{}, err
+	}
+	return Operation{
+		ID: op.ID, Method: strings.ToUpper(method), Path: path, Permission: op.Permission,
+		AgentAllowed: op.Agent == nil || *op.Agent, Proposes: op.Autonomy == "propose", Reads: op.Autonomy == "read",
+		Class: cls,
+	}, nil
 }
 
 // MustOperations is Operations for program start: the embedded contract is

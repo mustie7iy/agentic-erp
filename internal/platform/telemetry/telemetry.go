@@ -1,7 +1,9 @@
 // Package telemetry makes every request traceable end to end (01-requirements
 // §1.3): a W3C trace per request, one structured log line with tenant,
 // principal and operation, Prometheus metrics per operation, and recovery
-// from handler panics.
+// from handler panics. Metrics follow ADR-0043: label values are bounded
+// enumerations, never tenant, company, principal or document ids, and the
+// catalog (Check) holds every metric to that.
 package telemetry
 
 import (
@@ -19,6 +21,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	dto "github.com/prometheus/client_model/go"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
@@ -50,33 +53,44 @@ func Tracing(ctx context.Context, otlpEndpoint string) (*sdktrace.TracerProvider
 	return sdktrace.NewTracerProvider(sdktrace.WithBatcher(exp)), nil
 }
 
-// Metrics are the HTTP metrics, in their own registry.
+// Metrics are the process's metrics, in their own registry. Every metric
+// is registered through Metrics, so the catalog knows them all.
 type Metrics struct {
-	Registry   *prometheus.Registry
+	registry   *prometheus.Registry
+	families   []family
 	requests   *prometheus.CounterVec
 	duration   *prometheus.HistogramVec
+	events     *prometheus.CounterVec
 	readErrors *prometheus.CounterVec // created by the first Gauge
 }
 
-// NewMetrics registers the request metrics.
+// latencyBuckets hold every p95 and p99 objective of 01-requirements §1.3
+// (0.05, 0.15, 0.2, 0.4, 0.5, 1 and 3 s) as a bucket boundary, so a
+// latency SLO counts requests within its threshold exactly (ADR-0043).
+var latencyBuckets = []float64{.005, .01, .025, .05, .1, .15, .2, .3, .4, .5, 1, 2.5, 3, 5}
+
+// NewMetrics registers the request and event metrics.
 func NewMetrics() *Metrics {
-	m := &Metrics{
-		Registry: prometheus.NewRegistry(),
-		requests: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "erp_http_requests_total", Help: "HTTP requests by operation and status code.",
-		}, []string{"operation", "code"}),
-		duration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name: "erp_http_request_duration_seconds", Help: "HTTP request latency by operation.",
-			Buckets: []float64{.005, .01, .025, .05, .1, .15, .2, .3, .5, 1, 2.5, 5},
-		}, []string{"operation"}),
-	}
-	m.Registry.MustRegister(m.requests, m.duration)
+	m := &Metrics{registry: prometheus.NewRegistry()}
+	m.requests = m.counterVec("erp_http_requests_total", "HTTP requests by operation and status code.", "operation", "code")
+	m.duration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "erp_http_request_duration_seconds", Help: "HTTP request latency by operation.", Buckets: latencyBuckets,
+	}, []string{"operation"})
+	m.register(m.duration, family{name: "erp_http_request_duration_seconds", help: "HTTP request latency by operation.",
+		kind: dto.MetricType_HISTOGRAM, labels: []string{"operation"}, buckets: len(latencyBuckets)})
+	m.events = m.counterVec("erp_events_published_total", "Business events the outbox relay published and committed, by context and event.", "context", "event")
 	return m
+}
+
+// EventsPublished counts n events of one kind the outbox relay published
+// in a committed batch.
+func (m *Metrics) EventsPublished(context, event string, n int) {
+	m.events.WithLabelValues(context, event).Add(float64(n))
 }
 
 // Handler serves the metrics in Prometheus format.
 func (m *Metrics) Handler() http.Handler {
-	return promhttp.HandlerFor(m.Registry, promhttp.HandlerOpts{})
+	return promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{})
 }
 
 // statusWriter records the status code written.

@@ -483,9 +483,28 @@ func (s *server) collaborators() {
 	if s.cfg.BankOutboxDir != "" {
 		s.connector = payments.DirConnector{Dir: s.cfg.BankOutboxDir}
 	}
-	s.metrics = telemetry.NewMetrics()
-	backlogs(s.pool, s.cfg, s.metrics)
-	atRest(s.cfg.AtRest, s.metrics, s.log)
+	s.metrics = newMetrics(s.pool, s.cfg, s.log)
+}
+
+// newMetrics registers the cell's metrics, all of them held to the catalog
+// of ADR-0043 by its test.
+func newMetrics(pool *database.Pool, cfg config.Config, log *slog.Logger) *telemetry.Metrics {
+	m := telemetry.NewMetrics()
+	backlogs(pool, cfg, m)
+	atRest(cfg.AtRest, m, log)
+	operationClasses(m)
+	return m
+}
+
+// operationClasses exports erp_operation_info{operation,class}: each public
+// operation's latency class, which the latency SLOs join the request
+// histogram on, so a class's objective covers its operations (ADR-0043).
+func operationClasses(m *telemetry.Metrics) {
+	var rows [][]string
+	for id, op := range api.MustOperations() {
+		rows = append(rows, []string{id, op.Class})
+	}
+	m.Info("erp_operation_info", "The latency class of each operation of the public API (ADR-0043).", []string{"operation", "class"}, rows)
 }
 
 // atRest states how each store encrypts at rest, in the log and as
@@ -678,7 +697,7 @@ func (s *server) startRelay(ctx, runCtx context.Context, bus *natsbus.Bus) error
 	if err := bus.EnsureStreams(ctx, s.cfg.Cell); err != nil {
 		return err
 	}
-	relay := &outbox.Relay{Pool: s.pool, Role: s.cfg.RelayRole, Publisher: bus, Cell: s.cfg.Cell, Log: s.log}
+	relay := &outbox.Relay{Pool: s.pool, Role: s.cfg.RelayRole, Publisher: bus, Cell: s.cfg.Cell, Log: s.log, Counter: s.metrics}
 	s.spawn("relay", func() { relay.Run(runCtx) })
 	return nil
 }

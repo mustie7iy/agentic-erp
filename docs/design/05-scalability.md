@@ -196,3 +196,22 @@ and changes no API contract.
 | Resilience tests (primary failover, NATS node loss, worker kill) | RPO/RTO targets; operations resume | Quarterly and before go-live |
 | Restore and region failover drills (ADR-0040) | A restore verified within RPO/RTO; recorded in `staging/stg1/drills/restore.json` | Every 90 days at least; production promotions wait on it |
 | Tenant move rehearsal | §5.4 procedure works with verified counts and hash chain | Before the first shared cell exceeds 50% of its cap |
+
+## 5.9 Observability
+
+Each cell monitors itself (ADR-0043): its own Prometheus, Alertmanager and
+Grafana, so a cell's monitoring scales and fails with the cell. What keeps
+that cheap as tenants are added is the label rule: metrics carry only
+bounded enumerations (context, operation, latency class, event, status or
+outcome, agent kind, model alias, currency), never a tenant, company,
+principal or document id, so a cell's series count depends on the code,
+not on its customers. Per-tenant figures stay in the database. A catalog
+test holds every metric the server registers to that rule: promlint names,
+labels from an allow-list, and at most 50,000 series per process with
+every label at its ceiling.
+
+Latency objectives (01 §1.3) are evaluated per class: every operation is
+`read`, `list`, `write`, `approval` or `report` (`erp_operation_info`), and
+the request histogram has a bucket at each threshold. Business events are
+counted as the relay commits them (`erp_events_published_total`); backlog
+and lag gauges are read from the database on scrape.

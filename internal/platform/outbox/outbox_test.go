@@ -41,6 +41,24 @@ func (r *recorder) Publish(_ context.Context, m outbox.Message) error {
 	return nil
 }
 
+// counter records erp_events_published_total by context and event.
+type counter struct {
+	mu sync.Mutex
+	n  map[string]int
+}
+
+func (c *counter) EventsPublished(context, event string, n int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.n[context+"."+event] += n
+}
+
+func (c *counter) get(context, event string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.n[context+"."+event]
+}
+
 func (r *recorder) forTenant(tenant uuid.UUID) []outbox.Message {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -316,8 +334,15 @@ func TestRelayWaitsForTheContextLock(t *testing.T) {
 func TestRelayRepublishesWhenMarkingFails(t *testing.T) {
 	pool := pgtest.Pool(t)
 	ten := pgtest.NewTenant(t)
+	// An event name of its own, so other tests' events do not add to its count.
+	event := "marked_" + strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return 'g' + (r - '0')
+		}
+		return r
+	}, strings.ReplaceAll(uuid.NewString(), "-", ""))
 	inRequest(t, pool, ten, func(ctx context.Context) error {
-		_, err := outbox.Add(ctx, outbox.Event{Context: "platform", Name: "operation_completed", AggregateID: uuid.New(), Payload: 1})
+		_, err := outbox.Add(ctx, outbox.Event{Context: "platform", Name: event, AggregateID: uuid.New(), Payload: 1})
 		return err
 	})
 	// A role that can read but not mark rows: the batch is published, the
@@ -325,13 +350,21 @@ func TestRelayRepublishesWhenMarkingFails(t *testing.T) {
 	// de-duplicates on the event id (natsbus).
 	pgtest.Exec(t, `DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'test_relay_ro') THEN CREATE ROLE test_relay_ro NOLOGIN BYPASSRLS; END IF; END $$`)
 	pgtest.Exec(t, `GRANT USAGE ON SCHEMA platform TO test_relay_ro; GRANT SELECT ON platform.outbox TO test_relay_ro`)
-	rec := &recorder{}
-	ro := &outbox.Relay{Pool: pool, Role: "test_relay_ro", Publisher: rec, Cell: "eu1"}
+	rec, published := &recorder{}, &counter{n: map[string]int{}}
+	ro := &outbox.Relay{Pool: pool, Role: "test_relay_ro", Publisher: rec, Cell: "eu1", Counter: published}
 	if _, err := ro.RunOnce(context.Background()); err == nil {
 		t.Fatal("marking failure not reported")
 	}
-	if _, err := (&outbox.Relay{Pool: pool, Role: "erp_relay", Publisher: rec, Cell: "eu1"}).RunOnce(context.Background()); err != nil {
+	if got := published.get("platform", event); got != 0 {
+		t.Errorf("counted before the commit: got %d, want 0", got)
+	}
+	if _, err := (&outbox.Relay{Pool: pool, Role: "erp_relay", Publisher: rec, Cell: "eu1", Counter: published}).RunOnce(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+	// erp_events_published_total counts committed events: the event
+	// published twice counts once (ADR-0043).
+	if got := published.get("platform", event); got != 1 {
+		t.Errorf("events published: got %d, want 1", got)
 	}
 	msgs := rec.forTenant(ten.ID)
 	if len(msgs) != 2 {
