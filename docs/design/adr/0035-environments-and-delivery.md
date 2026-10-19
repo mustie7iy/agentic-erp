@@ -471,9 +471,11 @@ orders the cells (`dev/dev1`, `test/test1`, `staging/stg1`,
 one before it runs on the base branch, every further production cell what
 the canary runs, or a release it ran before (a rollback is a revert). A
 release reaches production only once `staging/stg1/drills/<version>.json`
-records its drill passed for the release's commit (release, commit, the
-release rolled back to, result, the run), committed by a pull request of
-its own; a version re-pinned to another commit is drilled again. A
+lists the runs of its drill (release, commit, the release rolled back to,
+result, the run) and the last for the release's commit passed; the record
+is appended to by a pull request of its own and never rewritten, so a
+failed run stays on it; a version re-pinned to another commit is drilled
+again. A
 promotion changes that one file in the whole repository, and the checks
 that judge it are the base branch's: the workflow runs as
 `pull_request_target` and reads the pull request's commit as data, so a
@@ -513,6 +515,29 @@ the list itself needs no approval, only the review any change has
 `pull_request_target` jobs on the pull request's head (which
 `promotion-review.yml` and `merge-pr.sh` read) is confirmed on the first
 promotion pull request; if it does not, both fail closed.
+
+*The rollback drill (T40d5).* `scripts/rollback-drill.sh` drills the
+release the drill cell runs (N+1) against the one it ran before (N) on the
+cell's own Argo CD: it pauses the root Application's automated sync (and
+the drilled ones'), syncs erp-cell (and erp-global on a home cell) to the
+main commit that pinned N, then N+1's, then N's again, and after each
+step requires the sync succeeded, the Applications are healthy, the
+deployments run that release's images by digest and finished rolling out,
+and the smoke tests pass (`SMOKE`, a command). Whatever the outcome it
+restores the root's automated sync, whose self-heal brings everything back
+to the branch, and appends the run, passed or failed, to the record.
+`test-rollback-drill.sh` runs it against a stand-in kubectl (no cluster;
+the `promotion-self-test` workflow). Runbook, in staging's account with
+access to `stg1`'s cluster, once N+1 is on `staging/stg1`:
+1. `git fetch origin && git checkout origin/main`;
+2. `SMOKE=<the smoke tests' command> scripts/rollback-drill.sh <https URL of where the drill's log is kept>`,
+   keeping its output there;
+3. commit the record it wrote, `deploy/environments/staging/stg1/drills/<N+1>.json`,
+   on a branch of its own and merge it by pull request; a failed run is
+   recorded too, and a later run appends.
+If the drill is interrupted before it restores the root, restore it by
+hand: `kubectl -n argocd patch application erp-delivery --type merge -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'`.
+The first run on AWS staging is a pre-pilot step.
 
 **Bootstrap runbook.** Every root is initialised with
 `-backend-config="bucket=<bucket>" -backend-config="region=<region>" -backend-config="kms_key_id=<state key ARN>"`:

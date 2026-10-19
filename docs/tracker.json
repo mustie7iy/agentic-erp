@@ -4959,9 +4959,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "The staging rollback drill: deploy N, N+1, revert to N on the drill cell's Argo CD, health, images and smoke tests after each step, an append-only record of every run for the release's commit; tested against a stand-in kubectl",
+        "r": "scripts/rollback-drill.sh · scripts/test-rollback-drill.sh · scripts/promotion-checks.sh · ADR-0035 · T40d5",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "T40d: the staging rollback drill",
-        "r": "ADR-0035",
+        "t": "Pre-pilot: the first rollback drill on AWS staging (stg1), with a smoke suite through the router; confirm on the first promotion pull request that the promotion jobs are reported on its head",
+        "r": "scripts/rollback-drill.sh · ADR-0035",
         "c": []
        }
       ]

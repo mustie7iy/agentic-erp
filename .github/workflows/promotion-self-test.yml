@@ -12,6 +12,8 @@ on:
       - scripts/promotion-approvals.sh
       - scripts/test-promotion-approvals.sh
       - scripts/verify-image.sh
+      - scripts/rollback-drill.sh
+      - scripts/test-rollback-drill.sh
       - .github/approvers
       - .github/workflows/promotion.yml
       - .github/workflows/promotion-self-test.yml
@@ -36,3 +38,4 @@ jobs:
         run: |
           ./scripts/test-promotion-checks.sh
           ./scripts/test-promotion-approvals.sh
+          ./scripts/test-rollback-drill.sh
