@@ -285,6 +285,15 @@ run "secrets_and_objects_are_encrypted_with_the_data_key" {
     error_message = "the cell's secrets are under erp/<cell>/ and encrypted with its data key"
   }
   assert {
+    condition     = contains(keys(aws_secretsmanager_secret.cell), "argocd-repository")
+    error_message = "the cell's Argo CD has a secret for its deploy key"
+  }
+  assert {
+    # The mock gives every secret one ARN: the statement names all but one.
+    condition     = length([for r in jsondecode(aws_iam_role_policy.workload["external_secrets"].policy).Statement[0].Resource : r if r == aws_secretsmanager_secret.cell["argocd-repository"].arn]) == length(aws_secretsmanager_secret.cell) - 1
+    error_message = "the External Secrets Operator cannot read the deploy key"
+  }
+  assert {
     condition     = one(one(aws_s3_bucket_server_side_encryption_configuration.objects.rule).apply_server_side_encryption_by_default).sse_algorithm == "aws:kms"
     error_message = "objects are encrypted with KMS"
   }
@@ -307,4 +316,37 @@ run "a_cell_name_the_platform_refuses_is_refused" {
     name = "dev-1"
   }
   expect_failures = [var.name]
+}
+
+run "the_home_cell_reads_the_global_tiers_secrets_too" {
+  command = apply
+
+  variables {
+    global_secrets = {
+      arns        = ["arn:aws:secretsmanager:eu-central-1:222222222222:secret:erp/global/router-public-key"]
+      kms_key_arn = "arn:aws:kms:eu-central-1:222222222222:key/global"
+    }
+  }
+
+  assert {
+    condition     = contains(jsondecode(aws_iam_role_policy.workload["external_secrets"].policy).Statement[0].Resource, "arn:aws:secretsmanager:eu-central-1:222222222222:secret:erp/global/router-public-key")
+    error_message = "the home cell's External Secrets Operator reads the global secrets it is given"
+  }
+  assert {
+    condition     = contains(jsondecode(aws_iam_role_policy.workload["external_secrets"].policy).Statement[1].Resource, "arn:aws:kms:eu-central-1:222222222222:key/global")
+    error_message = "and decrypts them with the global tier's key"
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.workload["external_secrets"].policy).Statement[1].Condition.StringEquals["kms:ViaService"] == "secretsmanager.eu-central-1.amazonaws.com"
+    error_message = "through Secrets Manager only: the global key also encrypts the directory's storage"
+  }
+}
+
+run "another_cell_reads_its_own_secrets_alone" {
+  command = apply
+
+  assert {
+    condition     = length(jsondecode(aws_iam_role_policy.workload["external_secrets"].policy).Statement[1].Resource) == 1
+    error_message = "a cell given no global secrets decrypts with its data key alone"
+  }
 }

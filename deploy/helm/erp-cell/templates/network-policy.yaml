@@ -3,7 +3,8 @@
 # - The API and the admin listener (/control, metrics) take connections
 #   from the router and the global plane's namespace only; kubelet's
 #   probes are not subject to policies.
-# - The server reaches PgBouncer, NATS and, on 443, the AWS endpoints in
+# - The server reaches PgBouncer, NATS, the workflow engine, on the home
+#   cell the global directory in the VPC and, on 443, the AWS endpoints in
 #   the VPC and the tenants' identity providers outside it.
 # - NATS takes clients from the server and routes from its own nodes.
 # - The workflow engine's frontend takes the server and the engine's own
@@ -72,6 +73,17 @@ spec:
               {{- include "erp-cell.selector" (dict "root" . "component" "erp-temporal") | nindent 14 }}
       ports:
         - {protocol: TCP, port: 7233}
+    {{- if .Values.directory.endpoint }}
+    # The global directory, in the home cell's VPC. The rule admits the
+    # VPC's 5432, the writer's too, which the server could then reach past
+    # PgBouncer; it holds no login for it (only PgBouncer and the Jobs
+    # hold the master credentials), and the writer's security group, not
+    # this policy, is what bounds it.
+    - to:
+        - ipBlock: {cidr: {{ $vpc | quote }}}
+      ports:
+        - {protocol: TCP, port: 5432}
+    {{- end }}
     - ports:
         - {protocol: TCP, port: 443}
 ---

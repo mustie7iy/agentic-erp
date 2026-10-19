@@ -4,9 +4,18 @@
 # operator or by rotation, never by Terraform, so none is in its state.
 
 variable "secrets" {
-  description = "Names of the cell's secrets, under erp/<cell>/ (values are set outside Terraform)."
+  description = "Names of the cell's secrets, under erp/<cell>/ (values are set outside Terraform). argocd-repository is the cell's read-only deploy key, which its Argo CD reads the repository with (ADR-0035)."
   type        = list(string)
-  default     = ["page-token-key", "database-client-password", "temporal-codec-key", "temporal-database-password"]
+  default     = ["page-token-key", "database-client-password", "temporal-codec-key", "temporal-database-password", "argocd-repository"]
+}
+
+variable "global_secrets" {
+  description = "On the environment's home cell, the global tier's secrets its External Secrets Operator also reads for the erp-global chart, and their key (modules/global external_secrets); none elsewhere."
+  type = object({
+    arns        = list(string)
+    kms_key_arn = optional(string)
+  })
+  default = { arns = [] }
 }
 
 resource "aws_s3_bucket" "objects" {

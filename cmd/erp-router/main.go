@@ -22,6 +22,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/proxyproto"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 	"github.com/mustie7iy/agentic-erp/internal/router"
@@ -54,7 +55,7 @@ func cli(ctx context.Context, getenv func(string) string, stderr io.Writer, star
 }
 
 func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(api, admin net.Listener)) error {
-	dir, err := directory.Open(ctx, cfg.DirectoryURL)
+	dir, err := directory.OpenWith(ctx, cfg.DirectoryURL, cfg.DirectoryPassword)
 	if err != nil {
 		return err
 	}
@@ -119,7 +120,8 @@ func newVerifier(ctx context.Context, cfg router.Config, dir *directory.Postgres
 	return authn.NewRegistered(ctx, authn.Environment(cfg.Environment), registry, providers, cfg.Issuers, cfg.Static...)
 }
 
-// listen opens the public and the admin listener, or neither.
+// listen opens the public and the admin listener, or neither; the public
+// one reads the load balancer's PROXY header from its subnets.
 func listen(ctx context.Context, cfg router.Config) (net.Listener, net.Listener, error) {
 	var lc net.ListenConfig
 	ln, err := lc.Listen(ctx, "tcp", cfg.Addr)
@@ -130,6 +132,10 @@ func listen(ctx context.Context, cfg router.Config) (net.Listener, net.Listener,
 	if err != nil {
 		_ = ln.Close() // the admin listener's failure is the one reported
 		return nil, nil, fmt.Errorf("erp-router: admin listen on %s: %w", cfg.AdminAddr, err)
+	}
+	if len(cfg.ProxyFrom) > 0 {
+		// Under the public TLS: the load balancer's header comes first.
+		ln = &proxyproto.Listener{Listener: ln, From: cfg.ProxyFrom}
 	}
 	return ln, adminLn, nil
 }

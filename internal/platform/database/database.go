@@ -37,6 +37,11 @@ type Settings struct {
 	// at least 4). Requests beyond it wait for a connection until their
 	// deadline, which sheds load as 503 instead of overloading the database.
 	MaxConns int32
+	// Password, when set, is the login's password, asked for each new
+	// connection in place of the URL's: a password that rotates (RDS's
+	// managed master credentials, mounted as a file External Secrets
+	// refreshes) reaches new connections without a restart.
+	Password func(context.Context) (string, error)
 }
 
 // DefaultSettings suit request transactions (ADR-0014).
@@ -56,6 +61,16 @@ func Open(ctx context.Context, url string, settings Settings) (*Pool, error) {
 	}
 	if settings.MaxConns != 0 {
 		cfg.MaxConns = settings.MaxConns // the driver refuses a size below 1
+	}
+	if settings.Password != nil {
+		cfg.BeforeConnect = func(ctx context.Context, cc *pgx.ConnConfig) error {
+			pw, err := settings.Password(ctx)
+			if err != nil {
+				return fmt.Errorf("database: password: %w", err)
+			}
+			cc.Password = pw
+			return nil
+		}
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

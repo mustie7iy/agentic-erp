@@ -1,0 +1,12 @@
+apiVersion: v2
+name: erp-global
+description: >-
+  An environment's global router (ADR-0022, ADR-0035): erp-router behind
+  the global tier's Network Load Balancer, registered in its target group
+  by a TargetGroupBinding, terminating the public TLS and reading the
+  balancer's PROXY v2 header, with its certificate, secrets, network
+  policies and disruption budget. Installed in the erp-global namespace of
+  the environment's home cell, after the add-ons and the erp-cluster chart.
+type: application
+version: 0.1.0
+kubeVersion: ">=1.33.0-0"

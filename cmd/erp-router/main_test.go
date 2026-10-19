@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"io"
 	"net"
@@ -372,4 +373,87 @@ func getStatus(t *testing.T, u string) int {
 		t.Fatal(err)
 	}
 	return resp.StatusCode
+}
+
+// TestBehindTheLoadBalancer: with ERP_ROUTER_PROXY_FROM naming the load
+// balancer's addresses, the router reads its PROXY v2 header and the cell
+// sees the client's address in X-Forwarded-For, not the balancer's.
+func TestBehindTheLoadBalancer(t *testing.T) {
+	is := authntest.New(t)
+	env := environment(t, is)
+	env["ERP_ROUTER_PROXY_FROM"] = "127.0.0.0/8"
+	forwarded := make(chan string, 1)
+	cell := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		forwarded <- r.Header.Get("X-Forwarded-For")
+		w.Write([]byte(`{}`))
+	}))
+	defer cell.Close()
+	tenant := uuid.New()
+	dir, err := directory.Open(context.Background(), pgtest.URL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	if err := dir.Upsert(context.Background(), directory.Entry{TenantID: tenant, Region: "eu-west", Cell: "eu-1", APIURL: cell.URL, Status: directory.Active}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var logs bytes.Buffer
+	addr := make(chan string, 1)
+	done := make(chan int, 1)
+	go func() {
+		done <- cli(ctx, func(k string) string { return env[k] }, &logs, func(ln, _ net.Listener) { addr <- ln.Addr().String() })
+	}()
+	var base string
+	select {
+	case a := <-addr:
+		base = a
+	case code := <-done:
+		t.Fatalf("stopped before serving: %d %s", code, logs.String())
+	}
+	// As the balancer: the header, then the client's bytes.
+	header := append([]byte("\r\n\r\n\x00\r\nQUIT\n"), 0x21, 0x11, 0, 12, 203, 0, 113, 7, 127, 0, 0, 1)
+	header = binary.BigEndian.AppendUint16(binary.BigEndian.AppendUint16(header, 51000), 443)
+	balancer := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, network, a string) (net.Conn, error) {
+		c, err := (&net.Dialer{}).DialContext(ctx, network, a)
+		if err == nil {
+			_, err = c.Write(header)
+		}
+		return c, err
+	}}}
+	req, err := http.NewRequestWithContext(t.Context(), "GET", "http://"+base+"/v1/balances", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+is.Token(t, tenant, "ada", nil))
+	resp, err := balancer.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close() // only the status and what the cell saw are asserted
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: got %d, want 200", resp.StatusCode)
+	}
+	if got := <-forwarded; got != "203.0.113.7" {
+		t.Errorf("X-Forwarded-For at the cell: got %q, want the client's 203.0.113.7", got)
+	}
+	// A connection from the balancer's addresses without the header is not
+	// served: net/http answers the failed read with a bare 400 (behind the
+	// public TLS, the handshake fails), and nothing reaches the cell.
+	// The client may see the 400 or, should the router close first, a
+	// broken connection: either way the request is not served, which the
+	// cell's silence below asserts.
+	r, err := http.DefaultClient.Do(req.Clone(t.Context()))
+	if err == nil {
+		_ = r.Body.Close() // only the status is asserted
+		if r.StatusCode != http.StatusBadRequest {
+			t.Errorf("a request without the balancer's header: got %d, want 400", r.StatusCode)
+		}
+	}
+	select {
+	case got := <-forwarded:
+		t.Errorf("a request without the balancer's header reached the cell (X-Forwarded-For %q)", got)
+	default:
+	}
 }

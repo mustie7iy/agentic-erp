@@ -4855,8 +4855,20 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "The erp-global chart: the router behind the load balancer's TargetGroupBinding with a readiness gate, public TLS from the operators' certificate, the PROXY v2 header read from the balancer's subnets alone, the directory's rotating master password read per connection; the home cell registers in the directory",
+        "r": "deploy/helm/erp-global · internal/platform/proxyproto · modules/global secrets.tf · ERP_DIRECTORY_PASSWORD · ADR-0035 · T40c5",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "T40c5: the erp-global chart (the router, its load balancer binding and TLS)",
+        "t": "Logins of their own in the directory for the router and the cells, in place of its master user",
+        "r": "deploy/helm/erp-global · deploy/helm/erp-cell",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Cells outside the home cell's VPC: reach the directory, and the router reaches them",
         "r": "ADR-0035",
         "c": []
        },
@@ -4868,7 +4880,7 @@
        },
        {
         "s": "T",
-        "t": "At first apply: check that the VPC CNI policy agent lets probes through, and fill the page-token-key and database-client-password secrets",
+        "t": "At first apply: check that the VPC CNI policy agent lets probes through, fill the page-token-key and database-client-password secrets, and load the router's public certificate, key and page-token key into erp/global/",
         "r": "",
         "c": []
        },
@@ -4912,26 +4924,50 @@
       ]
      },
      {
-      "s": "P",
+      "s": "D",
       "t": "Environments: dev, test, staging, production",
-      "r": "dev and test: deploy/terraform/envs · T40b; staging and production: T40d",
+      "r": "deploy/terraform/envs (dev, test, staging, production) · modules/environment · ADR-0035 · T40b · T40d1",
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Continuous delivery with approvals and rollback",
       "r": "T40d",
       "c": [
        {
-        "s": "T",
-        "t": "T40d: Argo CD in tooling, promotions, the staging rollback drill",
-        "r": "ADR-0035",
+        "s": "D",
+        "t": "Promotions: a release pinned per cell by pull request, along dev, test, staging, the production canary and production, after the staging drill; the pinned images verified against the release's commit",
+        "r": "deploy/environments · scripts/promotion-checks.sh · .github/workflows/promotion.yml · .github/workflows/promotion-self-test.yml · ADR-0035 · T40d2",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Argo CD in each cell (product owner: no central Argo CD, no cross-account access to a cell's cluster API), an add-on installing itself, the add-ons and the platform at the cell's release.json; the migrations hooks within its 90-minute sync limit, the wave -10 hooks kept until its sync ends",
+        "r": "deploy/helm/erp-delivery · deploy/helm/addons/values/argo-cd.yaml · deploy/terraform/modules/cell (argocd-repository) · scripts/helm-checks.sh · ADR-0035 · T40d3",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Production approvers (product owner): a production promotion merges only with an approval of its head by someone other than its author listed in .github/approvers, read with the read-only token; no CODEOWNERS. With the owner alone listed, production promotion is blocked until a second approver is. Product owner, 2026-10-19: a rollback to a known-good release (the cell ran it, its drill passed for its commit) and a pull request appending to a drill's record (checked against the release and commit the drill cell ran) need no approver",
+        "r": ".github/approvers · scripts/promotion-approvals.sh · scripts/test-promotion-approvals.sh · .github/workflows/promotion.yml · .github/workflows/promotion-review.yml · scripts/merge-pr.sh · ADR-0035 · T40d4",
         "c": []
        },
        {
         "s": "T",
-        "t": "The migrations hook timeout, and wave -10 hooks surviving until the Job mounts them",
-        "r": "T40d",
+        "t": "List a second production approver in .github/approvers: until then no production promotion can merge",
+        "r": ".github/approvers · ADR-0035",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "The staging rollback drill: deploy N, N+1, revert to N on the drill cell's Argo CD, health, images and smoke tests after each step, an append-only record of every run for the release's commit; tested against a stand-in kubectl. It refuses to run across a change of the erp-cell or erp-global charts since N; DRILL_CHARTS=current (product owner, 2026-10-19) drills it at once, N, N+1 and N again on the branch's charts with each release as the Applications' values",
+        "r": "scripts/rollback-drill.sh · scripts/test-rollback-drill.sh · scripts/promotion-checks.sh · ADR-0035 · T40d5",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Pre-pilot: the first rollback drill on AWS staging (stg1), with a smoke suite through the router; confirm on the first promotion pull request that the promotion jobs are reported on its head",
+        "r": "scripts/rollback-drill.sh · ADR-0035",
         "c": []
        }
       ]

@@ -360,7 +360,7 @@ func (s *server) openDirectory(ctx context.Context) (*directory.Postgres, error)
 	if s.cfg.DirectoryURL == "" {
 		return nil, nil
 	}
-	dir, err := directory.Open(ctx, s.cfg.DirectoryURL)
+	dir, err := directory.OpenWith(ctx, s.cfg.DirectoryURL, s.cfg.DirectoryPassword)
 	if err != nil {
 		return nil, err
 	}

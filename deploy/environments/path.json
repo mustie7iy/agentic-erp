@@ -1,0 +1,5 @@
+{
+ "_comment": "The path a release takes (ADR-0035, 06 §6.9), checked by scripts/promotion-checks.sh: each cell takes only the release the one before it runs; the first production cell is the canary, and every further production cell takes what the canary runs. Each <env>/<cell>/release.json is a values file of the erp-cell and erp-global charts.",
+ "path": ["dev/dev1", "test/test1", "staging/stg1", "production/prod1"],
+ "drill": "staging/stg1"
+}

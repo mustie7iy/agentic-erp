@@ -1,0 +1,16 @@
+# The router's pods in the load balancer's target group (modules/global),
+# by IP, registered by the AWS Load Balancer Controller. It manages no
+# security group rule (no networking section): Terraform lets the
+# balancer reach the pods' port.
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: erp-router
+  labels:
+    {{- include "erp-global.labels" (dict "root" . "component" "erp-router") | nindent 4 }}
+spec:
+  serviceRef:
+    name: erp-router
+    port: public
+  targetGroupARN: {{ required "router.targetGroupArn is required: global.router_target_group_arn" .Values.router.targetGroupArn | quote }}
+  targetType: ip

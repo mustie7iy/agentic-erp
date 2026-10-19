@@ -1,0 +1,34 @@
+# The cell's one project: the repository and the add-ons' chart
+# repositories as sources, the cell's own cluster as the only destination
+# (no other cluster is registered, ADR-0035), in the namespaces the cell
+# runs. Bootstrapped with the root Application, then synced by it.
+{{- $addons := include "erp-delivery.addons" . | fromJsonArray }}
+{{- $namespaces := list "argocd" "kube-system" "erp" "erp-global" }}
+{{- $repositories := list (include "erp-delivery.repository" .) }}
+{{- range $addons }}
+{{- $namespaces = append $namespaces .namespace }}
+{{- $repositories = append $repositories .repository }}
+{{- end }}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: erp
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-30"
+spec:
+  description: The cell's add-ons and platform (ADR-0035)
+  sourceRepos:
+    {{- range uniq $repositories }}
+    - {{ . }}
+    {{- end }}
+  destinations:
+    {{- range uniq $namespaces }}
+    - server: https://kubernetes.default.svc
+      namespace: {{ . }}
+    {{- end }}
+  # The add-ons bring CRDs, webhooks and cluster roles; erp-cluster the
+  # platform's namespaces and admission policies.
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"

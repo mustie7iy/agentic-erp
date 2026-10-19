@@ -1,0 +1,9 @@
+apiVersion: v2
+name: erp-delivery
+description: >-
+  A cell's delivery (ADR-0035, T40d): the Argo CD Applications, one per
+  add-on, erp-cluster, erp-cell and, on the home cell, erp-global, that
+  the cell's own Argo CD syncs from deploy/ at the cell's pinned release.
+type: application
+version: 0.1.0
+kubeVersion: ">=1.33.0-0"

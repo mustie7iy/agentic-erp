@@ -1,0 +1,130 @@
+name: promotion
+
+# A promotion pull request (ADR-0035, T40d) pins a release's image digests
+# for one cell (deploy/environments/<env>/<cell>/release.json), which Argo
+# CD then rolls out. It merges only after:
+#   - scripts/promotion-checks.sh: one cell, a well-formed release, the
+#     path dev -> test -> staging -> the production canary -> production,
+#     the staging rollback drill passed before production, or a rollback
+#     to what the cell ran before (offline, a few seconds);
+#   - for a production cell's release or values, or path.json, but not a
+#     rollback to a known-good release (one the cell ran, whose drill
+#     passed for its commit), scripts/promotion-approvals.sh:
+#     an approval of the head by someone other than the author, listed in
+#     .github/approvers on BASE (product owner, no CODEOWNERS), read with
+#     the workflow's read-only token; a review re-runs this workflow
+#     (promotion-review.yml);
+#   - scripts/verify-image.sh on each pinned image: signed by the release
+#     key, both attestations, provenance naming the release's commit. This
+#     job runs in the `delivery` environment, as the erp-delivery role
+#     (GitHub's OIDC), which may read the images and the key's public half
+#     only.
+# Only these paths run it, and the deploy workflow skips them, so a
+# promotion costs two short jobs, three for production. The `delivery` environment sets:
+#   variables  ERP_DELIVERY_ROLE_ARN  envs/tooling delivery_role_arn
+#              ERP_COSIGN_KEY         awskms:///<the release key's ARN>
+#              ERP_AWS_REGION         the key's and the registry's region
+#              ERP_REGISTRIES         the ECR registries the releases pin, comma-separated
+# The checks run as pull_request_target: the workflow and the scripts are
+# BASE's, and the pull request's commit is only read, as data (git show of
+# its files), never checked out or run. So a promotion cannot change what
+# judges it; a change to the checks themselves is tested by the
+# promotion-self-test workflow and judges promotions once it is merged.
+# The checkout keeps its contents:read token, which fetches the pull
+# request's ref of this private repository; no code of the pull request runs.
+on:
+  pull_request_target:
+    paths:
+      - deploy/environments/**
+
+concurrency:
+  group: promotion-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      images: ${{ steps.check.outputs.images }}
+      production: ${{ steps.check.outputs.production }}
+    steps:
+      - uses: actions/checkout@v7 # BASE, the default of pull_request_target
+        with:
+          fetch-depth: 0
+      - name: The pull request's commit, as data
+        env:
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: git fetch --no-tags origin "+refs/pull/${NUMBER}/head:refs/remotes/pr/head"
+      - name: Promotion checks
+        id: check
+        env:
+          BASE: origin/${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          OUT="$RUNNER_TEMP/images" APPROVAL_OUT="$RUNNER_TEMP/approval" ./scripts/promotion-checks.sh "$BASE" "$HEAD_SHA"
+          if [ -s "$RUNNER_TEMP/images" ]; then echo "images=true" >> "$GITHUB_OUTPUT"; fi
+          if grep -q '^production$' "$RUNNER_TEMP/approval"; then echo "production=true" >> "$GITHUB_OUTPUT"; fi
+
+  approvals:
+    needs: checks
+    if: needs.checks.outputs.production == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # the pull request and its reviews
+    steps:
+      - uses: actions/checkout@v7 # BASE: its list and its check judge the approvals
+        with:
+          persist-credentials: false
+      - name: An approver's approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: ./scripts/promotion-approvals.sh "$REPO" "$NUMBER" "$HEAD_SHA"
+
+  verify:
+    needs: checks
+    if: needs.checks.outputs.images == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: delivery
+    permissions:
+      contents: read
+      id-token: write # the erp-delivery role: read the images and the key's public half
+    steps:
+      - uses: actions/checkout@v7 # BASE: its verify-image.sh judges the images
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # The images again, from the same commits (seconds, and no artifact).
+      - name: The pinned images
+        env:
+          NUMBER: ${{ github.event.pull_request.number }}
+          BASE: origin/${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git fetch --no-tags origin "+refs/pull/${NUMBER}/head:refs/remotes/pr/head"
+          OUT="$RUNNER_TEMP/images" ./scripts/promotion-checks.sh "$BASE" "$HEAD_SHA"
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.ERP_DELIVERY_ROLE_ARN }}
+          aws-region: ${{ vars.ERP_AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registries: ${{ vars.ERP_REGISTRIES }}
+      - name: Verify the pinned images
+        env:
+          ERP_COSIGN_PUBLIC_KEY: ${{ vars.ERP_COSIGN_KEY }}
+        run: |
+          while read -r commit ref; do
+            ERP_EXPECTED_COMMIT="$commit" ./scripts/verify-image.sh "$ref"
+          done <"$RUNNER_TEMP/images"

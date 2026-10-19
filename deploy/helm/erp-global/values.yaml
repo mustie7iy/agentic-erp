@@ -1,0 +1,75 @@
+# An environment's global values: most from Terraform's outputs
+# (envs/<env>: global.*, cell.cidr, subordinate_ca_certificate) and the
+# release (the router's image digest, T40d). Every one without a default is
+# required: rendering fails without it.
+
+# The SPIFFE trust domain of the environment (ERP_TRUST_DOMAIN, ADR-0033).
+# The router is spiffe://<trustDomain>/global/erp-router, as the cells
+# expect it.
+trustDomain: ""
+# The namespace of the home cell's erp-cell release, whose API and admin
+# listener the router and the global plane call.
+cellNamespace: erp
+# The home cell's VPC CIDR (cell.cidr): the directory database.
+vpcCidr: ""
+
+# The release's image, by digest from the release registry: the admission
+# policy admits nothing else.
+images:
+  router:
+    repository: ""
+    digest: ""
+
+# The environment's trust anchor (envs/<env> subordinate_ca_certificate,
+# PEM): the subordinate CA, not the root (ADR-0035, Revocation).
+trust:
+  caBundle: ""
+
+# The router's certificate: a day, renewed with a third left (the
+# erp-cluster chart's policy refuses longer).
+certificates:
+  duration: 24h
+  renewBefore: 8h
+
+router:
+  # Spread over the zones, as the load balancer is.
+  replicas: 3
+  # The target group the load balancer forwards to (global.router_target_group_arn).
+  targetGroupArn: ""
+  # The load balancer's subnets (global.router_proxy_sources): the only
+  # sources the public listener takes, each connection beginning with a
+  # PROXY v2 header (ERP_ROUTER_PROXY_FROM).
+  proxyFrom: []
+  # ERP_OPERATOR_ISSUERS: the operators' issuers for the global control
+  # plane on the admin listener, a JSON list.
+  operatorIssuers: ""
+  # How long a directory lookup is remembered (ERP_DIRECTORY_CACHE).
+  cacheTtl: 30s
+  logLevel: info
+  resources:
+    requests: {cpu: 250m, memory: 256Mi}
+    limits: {memory: 512Mi}
+  # Further settings, by name.
+  extraEnv: {}
+
+directory:
+  # The directory database, host:port (global.directory_endpoint).
+  endpoint: ""
+  name: directory
+  # Its RDS-managed master user (modules/global), whose password RDS
+  # rotates and the router reads again for each new connection.
+  user: erp_admin
+  # The master credentials in Secrets Manager (global.directory_master_secret_arn).
+  masterSecretArn: ""
+  # The RDS certificate authorities' bundle (PEM, AWS's published bundle
+  # for the region), which the router verifies the directory with.
+  caBundle: ""
+
+secrets:
+  # The global tier's entries in Secrets Manager (modules/global):
+  # <prefix>/page-token-key (base64 of at least 32 random bytes),
+  # router-public-certificate (the public listener's chain, PEM, from a
+  # public CA) and router-public-key (its key, PEM), which operators load.
+  prefix: erp/global
+  # The store of the erp-cluster chart.
+  store: erp-cell

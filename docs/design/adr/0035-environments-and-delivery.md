@@ -19,14 +19,19 @@ path; T40 builds them in four steps.
 a `tooling` account and one account per environment: `dev`, `test`,
 `staging`, `production`. Tooling holds what every environment trusts or
 pulls: the release signing key, the roles GitHub Actions assumes, the image
-registry, the root certificate authority and, from T40d, Argo CD. A cell is
+registry and the root certificate authority. Argo CD runs in each cell
+(T40d, product owner), not in tooling. A cell is
 a VPC and an EKS cluster in its environment's account and region; a
 dedicated cell may get an account of its own.
 
 **Terraform.** `deploy/terraform/` holds modules (`state`, `accounts`,
 `signing-key`, `release-roles`, `ecr`, `private-ca`; from T40b `network`,
 `cell`, `global` and `subordinate-ca`) and one root per environment, region
-and cell under `envs/` (T40b: `dev` and `test`, one cell each).
+and cell under `envs/` (T40b: `dev` and `test`, one cell each; T40d:
+`staging` and `production`, whose home cell `prod1` is the canary). Each
+environment root calls `modules/environment` (the subordinate CA, the home
+cell and the global tier, wired together) with its account, cell, range
+and shape; a further cell is a root of its own calling `modules/cell`.
 State lives in one S3 bucket in tooling, versioned (superseded versions
 kept a year), encrypted with a key of its own, which the bucket enforces on
 every write, TLS-only, with S3's own locking (`use_lockfile`), one key per
@@ -148,9 +153,12 @@ in the production shape,
 TLS 1.3 only, with a key of its own; and the internet-facing Network Load
 Balancer, TCP 443 to the router's pods as IP targets (registered by the
 `erp-global` chart's TargetGroupBinding, T40c), health-checked over TCP,
-protected from deletion. The router sees the load balancer's addresses,
-not the clients': passing the client address (proxy protocol v2, which the
-router must then read) comes with the router's TLS in T40c. Revocation is
+protected from deletion. The target group sends a PROXY protocol v2
+header and does not preserve client addresses (T40c5), so every
+connection reaches the router from the balancer's subnets
+(`router_proxy_sources`) and names its client, which the router reads from
+those subnets alone (`ERP_ROUTER_PROXY_FROM`; from anywhere else a header
+is not looked for, so a client cannot name another address). Revocation is
 by short lifetime (see Revocation).
 
 **Helm (T40c).** An `erp-cell` chart (the server, PgBouncer, NATS,
@@ -270,8 +278,10 @@ Kubernetes' restricted Pod Security profile):
   provenance once T39's release and T40 meet. The script refuses an index,
   another platform, a source that serves another manifest and a release
   tag that names another image.
-- The migrations' time is bounded by the installer's timeout (Helm's
-  `--timeout`, Argo CD's sync in T40d) as much as by the Job's deadline.
+- The migrations' time is bounded by the installer's timeout as much as
+  by the Job's deadline: Helm's `--timeout`, or Argo CD's sync limit of
+  90 minutes, which `helm-checks.sh` holds above the Jobs' deadline
+  (`migrations.deadlineSeconds`, an hour).
 
 `scripts/helm-checks.sh` renders it, validates it against the add-ons'
 CRDs, refuses a render missing any value it requires or naming an image by
@@ -280,10 +290,51 @@ read-only root file system, no capability, no token, digests, resources,
 disruption budgets, default deny), and has Kyverno's CLI admit the whole
 chart rendered with images signed as the release signs them.
 
-**Cluster add-ons and policies (T40c2).** Each cell runs five upstream
+**The erp-global chart (T40c5).** In the `erp-global` namespace of the
+environment's home cell, after the add-ons and `erp-cluster`:
+- The router: three replicas over the zones, a disruption budget, the
+  restricted profile, no service account token. Its public listener
+  terminates TLS with the operators' certificate (a public CA's, loaded by
+  operators into `erp/global/router-public-certificate` and
+  `router-public-key`, product owner: no ACME) and reads the PROXY header;
+  its admin listener (liveness, metrics, the global control plane with
+  `erp/global/page-token-key`) and its calls to the cells are TLS 1.3 as
+  `spiffe://<td>/global/erp-router`, the identity the cells expect.
+- A TargetGroupBinding registers the pods by IP in Terraform's target
+  group; it manages no security group rule. The pods carry the
+  controller's readiness gate, so a rollout's new pod counts only once the
+  load balancer finds it healthy, and a stopping pod keeps serving 40
+  seconds (`preStop` sleep, longer than the target group's 30-second
+  deregistration) while its deregistration spreads, then drains within
+  the 75-second grace period.
+- The directory's only login is its RDS-managed master user, whose
+  password RDS rotates weekly. External Secrets refreshes it every five
+  minutes into a mounted file, and the router reads it again for each new
+  connection (`ERP_DIRECTORY_PASSWORD`, an `env:` or `file:` reference;
+  `database.Settings.Password`), so a rotation needs no restart. New
+  connections opened between a rotation and the refresh (up to five
+  minutes and the kubelet's sync) fail, and the next request retries;
+  open ones keep working. That window is accepted. The home
+  cell's server registers in the directory the same way
+  (`directory.endpoint` of erp-cell: `ERP_DIRECTORY_URL`, its in-cluster
+  API and control URLs), which is how the router finds it. The global
+  module creates the three `erp/global/` entries empty, encrypted with the
+  global tier's key, and the home cell's External Secrets role may read
+  them and the directory's credentials (`global_secrets`), decrypting
+  through Secrets Manager only (`kms:ViaService`).
+- Network policies: default deny; the public listener from the load
+  balancer's subnets alone; the admin listener from no Pod (operators use
+  port-forward); the router to the home cell's server, the directory in
+  the VPC, 443 (identity providers) and DNS.
+`helm-checks.sh` holds it to the same checks and policies as erp-cell,
+checks that the PROXY sources, the public listener's network policy and
+the readiness gate agree with the load balancer's subnets and the binding,
+and has Kyverno admit the router and its certificate.
+
+**Cluster add-ons and policies (T40c2).** Each cell runs upstream
 charts, pinned by version and by their archive's SHA-256 in
-`deploy/helm/addons/charts.txt`, each a release of its own in its
-namespace: cert-manager, aws-privateca-issuer, the External Secrets
+`deploy/helm/erp-delivery/addons.txt`, each a release of its own in its
+namespace: Argo CD (T40d3), cert-manager, aws-privateca-issuer, the External Secrets
 Operator, the AWS Load Balancer Controller (for TargetGroupBinding only:
 it registers targets and creates no load balancer, listener or security
 group rule) and Kyverno. Each runs as an IRSA role of the cell
@@ -358,15 +409,167 @@ model the ephemeral-container subresource, so the twins are checked to
 be the same policies), and judge certificates and requests, each case
 differing from an admitted one in one respect.
 
-**Delivery (T40d).** Argo CD in tooling pulls `deploy/`. A release is
+**Delivery (T40d).** Each cell's own Argo CD pulls `deploy/`. A release is
 promoted by a pull request that pins its image digests per environment:
 dev, test, staging, a production canary cell, then all cells (06 §6.9). A
 promotion merges only after `verify-image.sh` checks the digests against
 the release's commit. Production promotions need a second approver
-(CODEOWNERS). Every release passes a rollback drill in staging before
+(T40d4), except a rollback to a known-good release (product owner,
+2026-10-19). Every release passes a rollback drill in staging before
 production: deploy N, deploy N+1, revert to N, smoke tests and readiness
 with N's code on N+1's schema, which expand, migrate, contract (§6.4) makes
 safe. Rollback in production is the same revert, per cell.
+
+*Argo CD (T40d3, product owner).* One Argo CD per cell, installed as one
+of its add-ons, pulls the cell's pinned release from `deploy/` and
+deploys to its own cluster alone: no central Argo CD, no other cluster
+registered, so nothing holds access to a cell's cluster API from another
+account. It has no accounts, Dex or ingress of its own; operators work
+through the cell's Kubernetes API with their own access (`kubectl`,
+`argocd --core`). It reads the repository with the cell's read-only deploy
+key, `erp/<cell>/argocd-repository`, which the bootstrap loads and the
+External Secrets Operator's role cannot read. The `erp-delivery` chart is
+the cell's app of apps: its root Application renders the chart with the
+cell's own values, `deploy/environments/<env>/<cell>/cell.json` (written
+from the cell's Terraform outputs, changed by a pull request of their own;
+`promotion-checks.sh` refuses one naming another cell or holding an image,
+Argo CD's settings, the migrations deadline or any key but the cell's own
+values; the repository and branch are the chart's own, so no cell's values
+can point it at a branch the checks never saw), into one Application per add-on of `addons.txt` in its
+order (one sync wave each; an Application is healthy once what it deploys
+is, so each wave waits for the one before), then `erp-cluster`, then
+`erp-cell` and, on the environment's home cell, `erp-global`, these two
+with the cell's `release.json` as a values file. Every Application is in
+one project whose only destination is the cell's own cluster, syncs
+automatically with pruning and self-healing, retries twice, and has no
+resources finalizer, so deleting one leaves what it deployed (the NATS
+volumes among it). Argo CD fetches an add-on chart by its version; the
+archive's SHA-256 is checked by `helm-checks.sh`, not at sync.
+Under Argo CD erp-cell's Helm hooks are PreSync hooks run by weight: the
+wave -10 secrets (an ExternalSecret is complete once ready) and the RDS
+bundle exist before the Jobs of weight 0 start, and Argo CD deletes the
+succeeded hooks only once the whole sync has succeeded, so they outlive the
+Jobs that mount them. `helm-checks.sh` holds every hook Job to mounting
+only hooks of a lower weight deleted at most on success. PreSync hooks run
+on every sync, a self-heal's too; the migrations and the engine's schema
+Job are idempotent, so such a sync costs their run and changes nothing.
+`helm-checks.sh` renders the chart and holds it to the order, the pins,
+the destination and the release files. The 90-minute limit also bounds
+the root Application's own sync, which on a first bootstrap waits for
+every wave, the migrations included; if it runs out, it retries while the
+children's syncs go on, and a sync started by hand finishes the
+bootstrap.
+
+*Promotions (T40d2).* Each cell's release is a file,
+`deploy/environments/<env>/<cell>/release.json`: the release's version and
+commit and the image digests (server, router, PgBouncer, NATS,
+erp-temporal), each from its own repository in the cell's region's
+registry. It is JSON, so it is also the release's values file for the
+erp-cell and erp-global charts (`images.*`). A promotion pull request
+changes one cell's file and nothing else; `deploy/environments/path.json`
+orders the cells (`dev/dev1`, `test/test1`, `staging/stg1`,
+`production/prod1`, the canary), and a cell may take only the release the
+one before it runs on the base branch, every further production cell what
+the canary runs, or a release it ran before (a rollback is a revert). A
+release reaches production only once `staging/stg1/drills/<version>.json`
+lists the runs of its drill (release, commit, the release rolled back to,
+result, the run) and the last for the release's commit passed; the record
+is appended to by a pull request of its own and never rewritten, so a
+failed run stays on it; a version re-pinned to another commit is drilled
+again. Each run added must name a release and commit the drill cell's
+`release.json` pinned on the base branch, and a release it ran to roll
+back to, so a record names what was drilled. A
+promotion changes that one file in the whole repository, and the checks
+that judge it are the base branch's: the workflow runs as
+`pull_request_target` and reads the pull request's commit as data, so a
+promotion cannot also rewrite its own checks. `scripts/promotion-checks.sh`
+checks all of it offline, `test-promotion-checks.sh` on a throwaway
+repository (the `promotion-self-test` workflow, when the checks change);
+the `promotion` workflow runs the checks and then, in the
+`delivery` environment as the erp-delivery role, `verify-image.sh` on
+every pinned image against the release's commit. Only promotion paths run
+it and the deploy workflow skips them, so a promotion costs two short
+jobs.
+
+*Approvals (T40d4, product owner).* A promotion of a production cell, a
+change to a production cell's `cell.json`, and a
+change to `path.json` (which orders every later promotion) merge only once someone other than its author
+approved its head commit and is listed in `.github/approvers` as the base
+branch has it; no CODEOWNERS. `scripts/promotion-approvals.sh` reads the
+pull request and its reviews through GitHub's API with the workflow's
+read-only token (`contents: read`, `pull-requests: read`): each
+reviewer's latest approval, change request or dismissal stands, a comment
+changing nothing; an approval counts only for the commit it was given on,
+and a head that moved since the checks ran is refused. It is the
+`approvals` job of the `promotion` workflow, run only when
+`promotion-checks.sh` says one is needed; since that workflow runs as
+`pull_request_target`, which a review does not trigger,
+`promotion-review.yml` re-runs that one job for the reviewed head on any
+review but a comment, or a dismissal, and judges nothing itself.
+`scripts/merge-pr.sh`, which stands in for branch protection, merges a
+pull request changing `deploy/environments/` only once every job of the
+`promotion` workflow passed or was skipped on its head, and runs
+`promotion-approvals.sh` itself once more where an approval is needed, so a
+change request or a dismissal after the job ran still counts. The list
+holds the product owner alone today, who authors the promotions: until a
+second approver is listed, no production promotion can merge. A change to
+the list itself needs no approval, only the review any change has
+(06 §6.5): with one owner, that is the owner's own. That GitHub reports the
+`pull_request_target` jobs on the pull request's head (which
+`promotion-review.yml` and `merge-pr.sh` read) is confirmed on the first
+promotion pull request; if it does not, both fail closed.
+Two exceptions (product owner, 2026-10-19), both still checked and kept
+in the history: a production rollback to a known-good release, one the
+cell ran before and whose drill's last run for that commit passed, needs
+no second approver, so a bad release can be reverted at once
+(`promotion-checks.sh` says so in its log and leaves `APPROVAL_OUT`
+empty); a rollback to a release without that record still needs one. A
+pull request that only appends to a drill's record needs none either: the
+record is append-only and each run is checked against the release and
+commit the drill cell ran. What a cell ran is read from the base branch's
+first-parent history, its merged states, so a commit inside a merged pull
+request that pinned and then reverted a release does not count. A run's
+result and log address are the drill's own word: anyone who may merge
+could append a passed run after a failed one and so make a release
+production already ran a known-good rollback target. That residual risk
+is limited to releases production ran and stays visible in the record's
+history; recording the runs from a workflow would close it.
+
+*The rollback drill (T40d5).* `scripts/rollback-drill.sh` drills the
+release the drill cell runs (N+1) against the one it ran before (N) on the
+cell's own Argo CD: it pauses the root Application's automated sync (and
+the drilled ones'), syncs erp-cell (and erp-global on a home cell) to the
+main commit that pinned N, then N+1's, then N's again, and after each
+step requires the sync succeeded, the Applications are healthy, the
+deployments run that release's images by digest and finished rolling out,
+and the smoke tests pass (`SMOKE`, a command). Whatever the outcome it
+restores the root's automated sync, whose self-heal brings everything back
+to the branch, and appends the run, passed or failed, to the record.
+Production's rollback reverts `release.json` alone, rendering the
+branch's charts with N's images, while the drill's revert syncs N's
+commit; so by default the drill refuses to run when `erp-cell` or
+`erp-global` changed since N was pinned. `DRILL_CHARTS=current` (product
+owner, 2026-10-19) drills such a release at once: every step syncs the
+branch's commit with the step's `release.json` set as the Application's
+`valuesObject`, which Argo CD gives precedence over the value files, so N
+is deployed on the current charts, then N+1, then N again: the rollback
+production does, proven across the chart change. The drill removes
+those values itself when it ends, in either mode (a field kubectl
+patched is not one the root's server-side apply or self-heal removes),
+and fails the run if it cannot.
+`test-rollback-drill.sh` runs it against a stand-in kubectl (no cluster;
+the `promotion-self-test` workflow). Runbook, in staging's account with
+access to `stg1`'s cluster, once N+1 is on `staging/stg1`:
+1. `git fetch origin && git checkout origin/main`;
+2. `SMOKE=<the smoke tests' command> scripts/rollback-drill.sh <https URL of where the drill's log is kept>`,
+   keeping its output there (with `DRILL_CHARTS=current` when it refuses
+   because the charts changed);
+3. commit the record it wrote, `deploy/environments/staging/stg1/drills/<N+1>.json`,
+   on a branch of its own and merge it by pull request; a failed run is
+   recorded too, and a later run appends.
+If the drill is interrupted before it restores the root, restore it by
+hand: `kubectl -n argocd patch application erp-delivery --type merge -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'`.
+The first run on AWS staging is a pre-pilot step.
 
 **Bootstrap runbook.** Every root is initialised with
 `-backend-config="bucket=<bucket>" -backend-config="region=<region>" -backend-config="kms_key_id=<state key ARN>"`:
@@ -396,7 +599,8 @@ which the state bucket refuses.
    keep more than one administrator role, since if every one were deleted
    only AWS Support could restore access. Set the release environment's
    variables from the outputs (`cosign_key`, `release_role_arn`, `region`).
-5. Apply each environment root (`envs/dev`, `envs/test`) in its account,
+5. Apply each environment root (`envs/dev`, `envs/test`, `envs/staging`,
+   `envs/production`) in its account,
    with `root_ca_arn` and `root_certificate` from tooling's outputs and
    `tooling_role_arn` naming a role in tooling the applying principal may
    assume that may issue from the root CA (`acm-pca:IssueCertificate`,
@@ -404,12 +608,30 @@ which the state bucket refuses.
    role, as in step 4. The root creates the account's Auto Scaling
    service-linked role, which the cell's volume key names and KMS only
    accepts once it exists; in an account that already has it, import it
-   first (`terraform import aws_iam_service_linked_role.autoscaling
+   first (`terraform import module.environment.aws_iam_service_linked_role.autoscaling
    arn:aws:iam::<account>:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling`).
    The role in tooling is made by hand for now. A second cell in the same
    account and region sets
    `manage_ebs_defaults = false`: EBS encryption by default is a setting of
    the account and region, which only one cell owns.
+6. Bootstrap each cell's delivery, in the cell's account with access to
+   its cluster (`aws eks update-kubeconfig`):
+   - write `deploy/environments/<env>/<cell>/cell.json` from the root's
+     outputs (`cell`, `global`; the add-ons' values as
+     `deploy/helm/addons/testdata` shows) and merge it by a pull request;
+   - create a read-only deploy key of the repository for the cell, store
+     its private half in `erp/<cell>/argocd-repository`, and load it:
+     `kubectl create namespace argocd`, then
+     `kubectl -n argocd create secret generic erp-repository --from-literal=type=git --from-literal=url=<repository> --from-file=sshPrivateKey=<(aws secretsmanager get-secret-value --secret-id erp/<cell>/argocd-repository --query SecretString --output text)`
+     and `kubectl -n argocd label secret erp-repository argocd.argoproj.io/secret-type=repository`;
+   - install Argo CD from its pinned archive, checked against `addons.txt`:
+     `helm pull argo-cd --repo https://argoproj.github.io/argo-helm --version <version>`,
+     `shasum -a 256` it, then
+     `helm install argo-cd argo-cd-<version>.tgz -n argocd -f deploy/helm/addons/values/argo-cd.yaml`;
+   - apply the project and the root Application:
+     `helm template erp-delivery deploy/helm/erp-delivery -f deploy/environments/<env>/<cell>/cell.json --show-only templates/project.yaml --show-only templates/root.yaml | kubectl apply -f -`.
+   Argo CD then installs the add-ons, itself included, and the platform at
+   the cell's release. A new deploy key is loaded the same way.
 
 ## Alternatives
 - **One account for everything, environments by VPC.** Cheaper and simpler,
@@ -436,9 +658,12 @@ which the state bucket refuses.
   signatures stored as OCI referrers is checked on the first release by
   verifying the replicated digest in another region.
 - Infrastructure changes are checked without credentials in CI (deploy
-  workflow); plans and applies against the accounts run by hand or, from
-  T40d, through Argo CD's and Terraform's own pipelines, never from a pull
-  request.
+  workflow); plans and applies against the accounts run by hand, never
+  from a pull request. Releases reach the clusters only through each
+  cell's Argo CD pulling from the repository.
+- Each cell runs and upgrades an Argo CD of its own: more to run than one
+  central instance, in exchange for no cross-account access to any
+  cluster's API and a cell that delivers without the others.
 - The steps: T40a (this record, accounts, state, the signing key, the
   release and delivery roles, ECR, the root CA, the encryption policy),
   T40b (cell and global Terraform), T40c (Helm, migrations Job, Kyverno,

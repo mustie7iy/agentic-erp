@@ -1,0 +1,22 @@
+# A cell's delivery (ADR-0035, T40d). The cell's own values are
+# deploy/environments/<env>/<cell>/cell.json, written from its Terraform
+# outputs and changed by a pull request of their own; the release it runs
+# is release.json beside it, which promotions change.
+
+# The repository and branch are the chart's own (_helpers.tpl), not values:
+# a cell's values cannot point it at a branch the promotion checks never saw.
+
+# Set by cell.json.
+# The environment (dev, test, staging, production) and the cell's id (the
+# platform's ERP_CELL: a letter, then lower-case letters or digits).
+environment: ""
+cell: ""
+# The environment's home cell also runs erp-global.
+home: false
+# Each add-on's values from Terraform, by name (deploy/helm/addons/testdata
+# shows what each takes), and the charts' own: everything but the images,
+# which come from release.json.
+addons: {}
+erpCluster: {}
+erpCell: {}
+erpGlobal: {}

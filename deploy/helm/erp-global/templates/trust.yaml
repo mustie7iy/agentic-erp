@@ -1,0 +1,14 @@
+# The certificate authorities the router trusts: the environment's
+# subordinate CA for the cells and its admin clients (ERP_TLS_CA), and
+# RDS's for the directory.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: erp-global-trust
+  labels:
+    {{- include "erp-global.labels" (dict "root" . "component" "erp-global-trust") | nindent 4 }}
+data:
+  ca.crt: |
+    {{- required "trust.caBundle is required: envs/<env> subordinate_ca_certificate" .Values.trust.caBundle | trim | nindent 4 }}
+  rds-ca.pem: |
+    {{- required "directory.caBundle is required: the RDS certificate authorities' bundle" .Values.directory.caBundle | trim | nindent 4 }}

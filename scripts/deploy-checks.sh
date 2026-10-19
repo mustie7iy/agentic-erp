@@ -17,6 +17,12 @@ TERRAFORM="${TERRAFORM:-terraform}"
 TFLINT="${TFLINT:-tflint}"
 CONFTEST="${CONFTEST:-conftest}"
 export TF_IN_AUTOMATION=1 TF_INPUT=0
+# One provider download for every module: each init otherwise unpacks its
+# own copy of the AWS provider (several hundred MB), and the modules together
+# filled a runner's disk. The cache is linked into each module, and each
+# module's .terraform is dropped once its checks ran.
+export TF_PLUGIN_CACHE_DIR="${TF_PLUGIN_CACHE_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/tf-plugin-cache}"
+mkdir -p "$TF_PLUGIN_CACHE_DIR"
 
 echo "== terraform fmt"
 $TERRAFORM fmt -check -recursive deploy/terraform
@@ -39,6 +45,7 @@ for dir in deploy/terraform/modules/* deploy/terraform/envs/*; do
     $TERRAFORM -chdir="$dir" test -no-color
   fi
   $TFLINT --chdir="$dir" --config="$PWD/deploy/terraform/.tflint.hcl" --minimum-failure-severity=notice --no-color
+  rm -rf "$dir/.terraform"
 done
 
 echo "== policy unit tests"
