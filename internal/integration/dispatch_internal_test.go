@@ -178,7 +178,7 @@ func TestRecordLocksSubscriptionFirst(t *testing.T) {
 	go func() { done <- d.record(ctx, c, answer{status: http.StatusNoContent}) }()
 	pgtest.Eventually(t, 10*time.Second, func() bool {
 		var waiting int
-		pgtest.Scan(t, `SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%webhook_subscription WHERE id = $1 FOR UPDATE%'`, nil, &waiting)
+		pgtest.Scan(t, `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND wait_event IN ('transactionid', 'tuple') AND query LIKE '%webhook_subscription WHERE id = $1 FOR UPDATE%'`, nil, &waiting)
 		return waiting > 0
 	}, "the recording does not wait for the subscription")
 	if _, err := holder.Exec(ctx, `UPDATE integration.webhook_delivery SET version = version + 1 WHERE id = $1`, c.id); err != nil {
