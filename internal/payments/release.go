@@ -550,14 +550,28 @@ func (g fileGroup) key(tenant uuid.UUID, r Run) string {
 	return blobstore.Key(tenant, blobstore.KindBankFiles, name+".xml")
 }
 
+// maxMessageID is the longest message id a file of a run with a file per
+// group takes: pain.001 holds 35 characters, and its payment information id
+// adds "-1" (bankfile.Pain001).
+const maxMessageID = 33
+
 // messageID is the file's pain.001 message id, unique per file: the run's,
-// with the bank and method when the run has a file per group.
+// with the bank and method when the run has a file per group. bankfile
+// clips ids to 35 characters, which would cut the bank and method that tell
+// a run's files apart, so a longer one keeps them: the run's part is
+// shortened and followed by a hash of it, which keeps runs apart.
 func (g fileGroup) messageID(entityCode string, r Run) string {
 	id := entityCode + "-" + r.DocumentNumber
-	if g.v.method != nil {
-		id += "-" + g.bank.Code + "-" + *g.v.method
+	if g.v.method == nil {
+		return id
 	}
-	return id
+	suffix := "-" + g.bank.Code + "-" + *g.v.method
+	if len(id)+len(suffix) <= maxMessageID {
+		return id + suffix
+	}
+	sum := sha256.Sum256([]byte(id))
+	hash := "-" + hex.EncodeToString(sum[:4])
+	return id[:maxMessageID-len(hash)-len(suffix)] + hash + suffix
 }
 
 // fileGroups splits a run's payments by the house bank and method that pay

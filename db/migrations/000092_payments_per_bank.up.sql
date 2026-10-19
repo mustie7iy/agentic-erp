@@ -6,8 +6,10 @@
 -- for one bank keeps it, and its payments and file leave both null: null
 -- is the run's bank, so the rows written before need no backfill and a
 -- release by the previous version still writes its one file under the
--- unique index 000094 builds. Constraints are added NOT VALID and
--- validated by 000093 (06 §6.4). It backfills house_bank, so row-level
+-- unique index 000094 builds. The previous version cannot release a run
+-- without a bank, so such proposals wait until the upgrade completes.
+-- Constraints are added NOT VALID and validated by 000093 (06 §6.4). It
+-- backfills house_bank, so row-level
 -- security is off, as for every migration that changes tenant rows.
 SET LOCAL row_security = off;
 ALTER TABLE payments.payment_run ALTER COLUMN house_bank_id DROP NOT NULL;

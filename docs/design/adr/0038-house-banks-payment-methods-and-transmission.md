@@ -53,6 +53,9 @@ and France, by EBICS.
   its one file. A run without a bank is proposed in a currency, which it
   names; a supplier, or a down payment request, no ranked bank can pay is
   excluded with `no_house_bank`, not failed.
+  The previous version reads a run without a bank as the zero id and
+  cannot release it, so proposals without a bank wait until the upgrade
+  completes, as configuration changes do (06 §6.4).
   Per-bank amount limits and cheques are out of scope.
 - **Transmission.** SFTP (`pkg/sftp`) and EBICS connectors behind
   `payments.Connector`, one per house bank, with credentials by secret
