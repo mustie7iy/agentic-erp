@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/agents"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -30,9 +31,9 @@ func endpointCalls(f *fixture) map[string]func(ctx context.Context) error {
 		f = &fixture{}
 	}
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	e := &identity.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}}
+	e := &identity.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Certifications: agents.Certifications{Agents: identity.AutonomousAgents}}
 	soon := time.Now().UTC().AddDate(0, 0, 20).Truncate(24 * time.Hour)
-	profile := gen.NewOptAgentProfile(gen.AgentProfile{AutonomyLevel: 3, Model: "erp-analytics", Description: "d2",
+	profile := gen.NewOptAgentProfile(gen.AgentProfile{AutonomyLevel: 2, AgentType: gen.NewOptString("analytics"), Model: "erp-analytics", Description: "d2",
 		MonthlyBudget: gen.NewOptMoney(gen.Money{Amount: "10.00", Currency: "EUR"})})
 	return map[string]func(ctx context.Context) error{
 		"create principal": func(ctx context.Context) error {
@@ -142,6 +143,7 @@ func endpointCalls(f *fixture) map[string]func(ctx context.Context) error {
 func TestDatabaseFailures(t *testing.T) {
 	c, ten := admin(t)
 	f := &fixture{ten: ten}
+	pgtest.Route(t, ten.ID, "erp-analytics", pgtest.Certify(t, "analytics", 2)) // the profile the calls set is certified
 	agent, _ := c.Must(201, "POST", "/v1/principals", `{"kind": "agent", "display_name": "A", "agent_profile": {"autonomy_level": 0, "model": "erp-default", "description": "d"}}`, "")
 	f.agent = uuid.MustParse(id(agent))
 	f.role = uuid.MustParse(role(t, c, "R"))

@@ -6145,15 +6145,52 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Eval suites per agent on the live API",
       "r": "T43",
+      "c": [
+       {
+        "s": "D",
+        "t": "Harness: suites, three repeats on throwaway tenants, deterministic checks, reports; erp eval run, make eval; replayed in CI",
+        "r": "internal/eval · ADR-0039 · T43a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Suites: AP exceptions (credit note, duplicate, injected instructions) and capture (on an order, without one)",
+        "r": "evals/ap_exceptions · evals/capture · T43b",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Suites: configuration (submitted, not activated, draft injection), test (approve, needs evidence, injected rationale) and migration (rehearsals only, a connector asking for a real load)",
+        "r": "evals/configuration · evals/test · evals/migration · T43c",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Suite: analytics (every figure the semantic layer's for the question; another company's figures, a supplier's tax id, a planted instruction); checks on the agent's reply ($reply, $lacks)",
+        "r": "evals/analytics · internal/analytics/grade.go · T43d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Grade what agents only write: the migration assessment and the test scripts, through a reply check ($reply)",
+        "r": "T43",
+        "c": []
+       }
+      ]
+     },
+     {
+      "s": "D",
+      "t": "Certification: erp-server certify load (a report meeting a level), ref.agent_certification per agent type and model, agent_profile.agent_type; raising above the certified level refused (identity.autonomy_uncertified), routes onto uncertified models refused (agents.uncertified_route); ERP_EVAL_CELL for live runs",
+      "r": "000090 · internal/agents/certification.go · cmd/erp-server/certify.go · ADR-0039 · T43e",
       "c": []
      },
      {
-      "s": "T",
-      "t": "Autonomy promotion criteria from eval results",
-      "r": "T43",
+      "s": "D",
+      "t": "Agents are offered only the tools their autonomy level performs (startAgentSession answers the level; the 403 stays the backstop); a release changing agents.DefaultRoutes needs a committed report certifying each suite's type on the new model (TestDefaultRoutesAreCertified); the level-2 operations (purchase order changes, renewContract, cancelPurchaseOrder) move only by a certification run proving the type at level 1",
+      "r": "internal/apitools · internal/eval/routes.go · ADR-0036 · ADR-0039 · T43f",
       "c": []
      }
     ]

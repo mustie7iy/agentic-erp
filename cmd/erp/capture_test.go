@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +12,12 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	capturepkg "github.com/mustie7iy/agentic-erp/internal/capture"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 )
 
 func TestCaptureCommand(t *testing.T) {
@@ -61,9 +69,10 @@ func TestCaptureCommand(t *testing.T) {
 				return
 			}
 			line := "capture le=" + r.FormValue("legal_entity_id") + " upload=" + r.FormValue("upload_id")
-			if f, _, err := r.FormFile("document"); err == nil {
-				b, _ := io.ReadAll(f)
-				line += " document=" + itoa(len(b))
+			// The contract's document is a form value (a string of bytes), as
+			// the generated server reads it, not a file part.
+			if doc, ok := r.MultipartForm.Value["document"]; ok {
+				line += " document=" + itoa(len(doc[0]))
 			}
 			seen = append(seen, line)
 			switch r.FormValue("legal_entity_id") {
@@ -146,3 +155,31 @@ func TestCaptureCommand(t *testing.T) {
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }
+
+// recordingExtractor records the document capture asked it to read.
+type recordingExtractor struct{ got []byte }
+
+func (x *recordingExtractor) Extract(_ context.Context, pdf []byte) (*capturepkg.Extraction, error) {
+	x.got = pdf
+	return nil, errors.New("not read")
+}
+
+// TestCaptureReachesTheServer: a document within the request limit reaches
+// the API's extraction as the contract's document value, which the
+// generated server reads from the form's values.
+func TestCaptureReachesTheServer(t *testing.T) {
+	x := &recordingExtractor{}
+	f := fixture.New(t, "payables.invoice.capture")
+	f.API = apitest.NewWith(t, func(c *app.Config) { c.Extractor = x })
+	srv := httptest.NewServer(f.API.Handler)
+	t.Cleanup(srv.Close)
+	c := &apitools.Client{BaseURL: srv.URL, Token: f.API.Issuer.Token(t, f.Tenant.ID, f.Tenant.Human.Subject, nil)}
+	doc := []byte("%PDF-1.4 an invoice")
+	_, err := capture(context.Background(), c, map[string]string{"legal_entity_id": f.DE.String()}, doc)
+	if err == nil {
+		t.Fatal("got no error, want the extraction's refusal")
+	}
+	if string(x.got) != string(doc) {
+		t.Errorf("extracted: got %q (%v), want the document", x.got, err)
+	}
+}

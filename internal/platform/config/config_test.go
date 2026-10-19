@@ -91,6 +91,7 @@ func TestDefaults(t *testing.T) {
 		{"RequestTimeout", c.RequestTimeout, 30 * time.Second},
 		{"DBMaxConns", c.DBMaxConns, int32(0)},
 		{"DevIssuer", c.DevIssuer, false},
+		{"EvalCell", c.EvalCell, false},
 		{"Objects enabled", c.Objects.Enabled(), false},
 		{"Objects region", c.Objects.Region, "us-east-1"},
 		{"Objects retention", c.Objects.Retention, 87600 * time.Hour},
@@ -221,9 +222,10 @@ func TestEveryProblemIsReported(t *testing.T) {
 		"ERP_CELL": "EU-1", "ERP_OIDC_ISSUERS": "[]", "ERP_PAGE_TOKEN_KEY": "c2hvcnQ=", "ERP_FIELD_KEY": "c2hvcnQ=",
 		"ERP_MIGRATE_ON_START": "maybe", "ERP_LOG_LEVEL": "loud", "ERP_SHUTDOWN_TIMEOUT": "-1s", "ERP_BANK_OUTBOX_DIR": "/no/such/dir", "ERP_EXTRACT_DIR": "/no/such/dir",
 		"ERP_REQUEST_TIMEOUT": "0", "ERP_DB_MAX_CONNS": "-1", "ERP_RATE_LIMIT_TENANT": "fast", "ERP_RATE_LIMIT_PRINCIPAL": "1/0", "ERP_DEV_ISSUER": "maybe",
+		"ERP_EVAL_CELL": "maybe",
 	}))
 	for _, want := range []string{"DATABASE_URL", "ERP_CELL", "ERP_OIDC_ISSUERS", "ERP_PAGE_TOKEN_KEY", "ERP_FIELD_KEY", "ERP_BANK_OUTBOX_DIR", "ERP_EXTRACT_DIR", "ERP_MIGRATE_ON_START", "ERP_LOG_LEVEL", "ERP_SHUTDOWN_TIMEOUT",
-		"ERP_REQUEST_TIMEOUT", "ERP_DB_MAX_CONNS", "ERP_RATE_LIMIT_TENANT", "ERP_RATE_LIMIT_PRINCIPAL", "ERP_DEV_ISSUER"} {
+		"ERP_REQUEST_TIMEOUT", "ERP_DB_MAX_CONNS", "ERP_RATE_LIMIT_TENANT", "ERP_RATE_LIMIT_PRINCIPAL", "ERP_DEV_ISSUER", "ERP_EVAL_CELL"} {
 		pgtest.CheckErr(t, err, want)
 	}
 }
@@ -648,6 +650,8 @@ func TestProductionFailsClosed(t *testing.T) {
 		{"production issuers for every tenant", prod(map[string]string{"ERP_OIDC_ISSUERS": `[{"issuer":"https://idp.example.com","audience":"erp-api"}]`}), []string{sharedRefused}},
 		{"production without operators", prod(map[string]string{"ERP_OPERATOR_ISSUERS": ""}), []string{operatorsRequired}},
 		{"production dev issuer", prod(map[string]string{"ERP_DEV_ISSUER": "true"}), []string{devRefused}},
+		{"development evaluation cell", map[string]string{"ERP_ENV": "development", "ERP_EVAL_CELL": "true"}, nil},
+		{"production evaluation cell", prod(map[string]string{"ERP_EVAL_CELL": "true"}), []string{"ERP_EVAL_CELL must not be set with ERP_ENV=production"}},
 		{"production engine without codec", prod(map[string]string{"ERP_TEMPORAL_ADDRESS": "localhost:7233"}), []string{codecRefused}},
 		{"production both", prod(map[string]string{"ERP_DEV_ISSUER": "true", "ERP_TEMPORAL_ADDRESS": "localhost:7233"}), []string{devRefused, codecRefused}},
 		{"production without object storage", prod(map[string]string{"ERP_OBJECT_S3_ENDPOINT": "", "ERP_OBJECT_S3_BUCKET": ""}), []string{storeRefused}},

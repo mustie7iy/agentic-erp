@@ -37,6 +37,29 @@ type Operation struct {
 	Reads bool
 }
 
+// Autonomy levels (ADR-0036): what an agent of the level performs beyond
+// its permissions.
+const (
+	LevelReads    = 0 // reads
+	LevelProposes = 1 // also the operations that only propose (x-autonomy: propose)
+	LevelWrites   = 2 // any write its permissions allow; 3 is reserved and acts as 2
+)
+
+// Level is the autonomy level an agent needs for the operation: GET, HEAD
+// and OPTIONS run read-only and x-autonomy: read changes no business data;
+// x-autonomy: propose only proposes; every other operation writes. Authz
+// refuses an agent below it, and agents are offered only the tools their
+// level performs.
+func (o Operation) Level() int {
+	switch {
+	case o.Method == "GET" || o.Method == "HEAD" || o.Method == "OPTIONS" || o.Reads:
+		return LevelReads
+	case o.Proposes:
+		return LevelProposes
+	}
+	return LevelWrites
+}
+
 // Operations returns every operation in the contract by operationId.
 func Operations() (map[string]Operation, error) {
 	return parseOperations(openapiYAML, true)

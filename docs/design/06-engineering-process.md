@@ -204,7 +204,7 @@ environment.
 | Contract tests | Handlers against `openapi.yaml` examples and schemas | Running service |
 | End-to-end | Procure-to-pay through the public API, as UI and agents use it | Full stack in containers |
 | Non-functional | Performance budgets, load, soak, resilience, security (authz matrix, tenant isolation) | Full stack |
-| Agent evaluations | Agent behaviour on recorded scenarios, with the LLM stubbed in CI and live in nightly evals | `llmtest` stubs / Claude API |
+| Agent evaluations | Suites per agent (ADR-0039): cases on throwaway tenants with deterministic checks, replayed with the scripted model in CI and run live on demand (`make eval AGENT=…`), never per change | `internal/eval`, `llmtest` / the cell's gateway |
 
 Tests never use mocks for PostgreSQL. A rule enforced by the database is
 tested against the database.

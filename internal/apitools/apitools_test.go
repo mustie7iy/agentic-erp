@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -277,5 +279,42 @@ func TestRun(t *testing.T) {
 	r := srv.Runner()
 	if _, err := apitools.Run(ctx, r, s, nil, r.Params("system", anthropic.NewBetaTextBlock("go")), 2); err == nil {
 		t.Fatal("ended an ended session")
+	}
+}
+
+// TestRunOffersTheToolsOfTheLevel: an agent's model is offered only the
+// operations its autonomy level performs (ADR-0036): reads at 0, proposals
+// from 1, other writes from 2. The session says the level the API gave.
+func TestRunOffersTheToolsOfTheLevel(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	for _, c := range []struct {
+		level int
+		want  []string
+	}{
+		{0, []string{"listConnectors"}},
+		{1, []string{"listConnectors", "createRecommendation"}},
+		{2, []string{"listConnectors", "createRecommendation", "createConnector"}},
+		{3, []string{"listConnectors", "createRecommendation", "createConnector"}},
+	} {
+		t.Run(fmt.Sprint("level ", c.level), func(t *testing.T) {
+			s, err := apitools.StartSession(ctx, e.agent, "Run", "claude-opus-5-5")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if s.Level != 2 {
+				t.Fatalf("session level: got %d, want the test agent's 2", s.Level)
+			}
+			s.Level = c.level
+			srv := llmtest.New(t, llmtest.Final("done"))
+			tools, _ := apitools.Tools(e.agent, s, "listConnectors", "createRecommendation", "createConnector")
+			r := srv.Runner()
+			if _, err := apitools.Run(ctx, r, s, tools, r.Params("system", anthropic.NewBetaTextBlock("go")), 2); err != nil {
+				t.Fatal(err)
+			}
+			if got := srv.ToolNames(); !slices.Equal(got, c.want) {
+				t.Errorf("offered: got %v, want %v", got, c.want)
+			}
+		})
 	}
 }

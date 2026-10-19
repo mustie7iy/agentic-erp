@@ -12,6 +12,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/autonomy"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/modelalias"
@@ -34,6 +35,7 @@ const (
 // AgentProfile is the settings row of an agent.
 type AgentProfile struct {
 	AutonomyLevel  int16
+	AgentType      *string // its type, whose certification bounds its level (ADR-0039); nil: none named
 	Model          string
 	Description    string
 	MonthlyBudget  *money.Minor // in BudgetCurrency; nil: unlimited
@@ -64,7 +66,7 @@ type Principal struct {
 
 const principalSelect = `SELECT p.id, p.kind, p.external_subject, p.external_issuer, p.display_name, p.email, p.all_companies, p.status, p.version,
 		p.created_at, p.created_by, p.updated_at, p.updated_by,
-		ap.principal_id IS NOT NULL, coalesce(ap.autonomy_level, 0), coalesce(ap.model, ''), coalesce(ap.description, ''),
+		ap.principal_id IS NOT NULL, coalesce(ap.autonomy_level, 0), ap.agent_type, coalesce(ap.model, ''), coalesce(ap.description, ''),
 		ap.monthly_budget, ap.budget_currency, coalesce(c.exponent, 0)
 	FROM identity.principal p
 	LEFT JOIN identity.agent_profile ap ON ap.tenant_id = p.tenant_id AND ap.principal_id = p.id
@@ -77,7 +79,7 @@ func scanPrincipal(row pgx.Row) (Principal, error) {
 	var exponent int16
 	err := row.Scan(&p.ID, &p.Kind, &p.ExternalSubject, &p.ExternalIssuer, &p.DisplayName, &p.Email, &p.AllCompanies, &p.Status, &p.Version,
 		&p.CreatedAt, &p.CreatedBy, &p.UpdatedAt, &p.UpdatedBy,
-		&hasProfile, &ap.AutonomyLevel, &ap.Model, &ap.Description, &ap.MonthlyBudget, &ap.BudgetCurrency, &exponent)
+		&hasProfile, &ap.AutonomyLevel, &ap.AgentType, &ap.Model, &ap.Description, &ap.MonthlyBudget, &ap.BudgetCurrency, &exponent)
 	if err != nil {
 		return p, errs.Wrapf(err, "scan principal")
 	}
@@ -108,6 +110,7 @@ func getPrincipal(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Prin
 // ProfileInput is an agent profile as the API sends it.
 type ProfileInput struct {
 	AutonomyLevel int16
+	AgentType     *string
 	Model         string
 	Description   string
 	Budget        *Budget
@@ -116,12 +119,16 @@ type ProfileInput struct {
 // profile converts the input, parsing the budget as an API amount: exactly
 // the currency's minor-unit digits (ADR-0005).
 func profile(ctx context.Context, tx pgx.Tx, in ProfileInput) (AgentProfile, error) {
-	ap := AgentProfile{AutonomyLevel: in.AutonomyLevel, Model: in.Model, Description: in.Description}
+	ap := AgentProfile{AutonomyLevel: in.AutonomyLevel, AgentType: in.AgentType, Model: in.Model, Description: in.Description}
 	// An agent runs on a model alias, which the gateway routes (ADR-0036);
 	// a model named outright would bypass the tenant's routing.
 	if !modelalias.Known(in.Model) {
 		return ap, problem.Unprocessable("identity.unknown_model_alias", "An agent runs on a model alias: "+strings.Join(modelalias.Aliases, ", ")+".",
 			problem.FieldError{Field: "agent_profile.model", Code: "unknown", Message: strings.Join(modelalias.Aliases, ", ")})
+	}
+	if in.AgentType != nil && !autonomy.KnownType(*in.AgentType) {
+		return ap, problem.Unprocessable("identity.unknown_agent_type", "An agent's type is one of: "+strings.Join(autonomy.Types, ", ")+".",
+			problem.FieldError{Field: "agent_profile.agent_type", Code: "unknown", Message: strings.Join(autonomy.Types, ", ")})
 	}
 	if in.Budget == nil {
 		return ap, nil
@@ -156,8 +163,9 @@ func invalidKind() error {
 		problem.FieldError{Field: "kind", Code: "unknown", Message: "human, agent or service"})
 }
 
-// CreatePrincipal inserts an active principal; agents get their profile.
-func CreatePrincipal(ctx context.Context, in NewPrincipal) (Principal, error) {
+// CreatePrincipal inserts an active principal; agents get their profile,
+// at a level their type is certified for (cert, ADR-0039).
+func CreatePrincipal(ctx context.Context, cert Certifications, in NewPrincipal) (Principal, error) {
 	tx, actor, err := reqctx.Request(ctx)
 	if err != nil {
 		return Principal{}, err
@@ -197,12 +205,15 @@ func CreatePrincipal(ctx context.Context, in NewPrincipal) (Principal, error) {
 		if err != nil {
 			return Principal{}, err
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO identity.agent_profile (tenant_id, principal_id, autonomy_level, model, monthly_budget, budget_currency,
-			description, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
-			actor.TenantID, id, ap.AutonomyLevel, ap.Model, ap.MonthlyBudget, ap.BudgetCurrency, ap.Description, actor.ID); err != nil {
+		if err := certified(ctx, tx, cert, nil, ap); err != nil {
+			return Principal{}, err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO identity.agent_profile (tenant_id, principal_id, autonomy_level, agent_type, model, monthly_budget, budget_currency,
+			description, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
+			actor.TenantID, id, ap.AutonomyLevel, ap.AgentType, ap.Model, ap.MonthlyBudget, ap.BudgetCurrency, ap.Description, actor.ID); err != nil {
 			return Principal{}, fmt.Errorf("identity: insert agent profile of principal %s: %w", id, err)
 		}
-		events = append(events, profileEvent(id, "created", []string{"autonomy_level", "model", "description", "monthly_budget"}, in.Profile))
+		events = append(events, profileEvent(id, "created", []string{"autonomy_level", "agent_type", "model", "description", "monthly_budget"}, in.Profile))
 	}
 	p, err := getPrincipal(ctx, tx, id, false)
 	if err != nil {
@@ -221,7 +232,7 @@ func profileEvent(id uuid.UUID, change string, fields []string, in *ProfileInput
 	}
 	return outbox.Event{Context: "identity", Name: "agent_profile_changed", AggregateType: "identity.agent_profile", AggregateID: id,
 		Payload: map[string]any{"principal_id": id, "change": change, "changed_fields": fields, "autonomy_level": in.AutonomyLevel,
-			"model": in.Model, "description": in.Description, "monthly_budget": budget}}
+			"agent_type": in.AgentType, "model": in.Model, "description": in.Description, "monthly_budget": budget}}
 }
 
 // PrincipalChange is a merge patch of a principal.
@@ -232,8 +243,9 @@ type PrincipalChange struct {
 	Profile      *ProfileInput // replaces the whole profile (agents only)
 }
 
-// UpdatePrincipal changes a principal and, for agents, its profile.
-func UpdatePrincipal(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, ch PrincipalChange) (Principal, error) {
+// UpdatePrincipal changes a principal and, for agents, its profile, at a
+// level its type is certified for (cert, ADR-0039).
+func UpdatePrincipal(ctx context.Context, cert Certifications, id uuid.UUID, ifMatch func(int32) error, ch PrincipalChange) (Principal, error) {
 	tx, actor, err := reqctx.Request(ctx)
 	if err != nil {
 		return Principal{}, err
@@ -266,21 +278,12 @@ func UpdatePrincipal(ctx context.Context, id uuid.UUID, ifMatch func(int32) erro
 	fields := changedFields(p.DisplayName != name, "display_name", !same(p.Email, email), "email", p.AllCompanies != all, "all_companies")
 	var events []outbox.Event
 	if ch.Profile != nil {
-		ap, err := profile(ctx, tx, *ch.Profile)
+		changed, err := updateProfile(ctx, tx, cert, actor.ID, id, *p.Profile, ch.Profile)
 		if err != nil {
 			return Principal{}, err
 		}
-		old := *p.Profile
-		profileFields := changedFields(old.AutonomyLevel != ap.AutonomyLevel, "autonomy_level", old.Model != ap.Model, "model",
-			old.Description != ap.Description, "description",
-			!same(old.MonthlyBudget, ap.MonthlyBudget) || !same(old.BudgetCurrency, ap.BudgetCurrency), "monthly_budget")
-		if len(profileFields) > 0 {
-			if _, err := tx.Exec(ctx, `UPDATE identity.agent_profile SET autonomy_level = $2, model = $3, description = $4, monthly_budget = $5,
-				budget_currency = $6, version = version + 1, updated_by = $7 WHERE principal_id = $1`,
-				id, ap.AutonomyLevel, ap.Model, ap.Description, ap.MonthlyBudget, ap.BudgetCurrency, actor.ID); err != nil {
-				return Principal{}, fmt.Errorf("identity: update agent profile of principal %s: %w", id, err)
-			}
-			events = append(events, profileEvent(id, "updated", profileFields, ch.Profile))
+		if len(changed) > 0 {
+			events = append(events, profileEvent(id, "updated", changed, ch.Profile))
 			fields = append(fields, "agent_profile")
 		}
 	}
@@ -289,6 +292,30 @@ func UpdatePrincipal(ctx context.Context, id uuid.UUID, ifMatch func(int32) erro
 		return Principal{}, err
 	}
 	return updated, audit.Record(ctx, "identity.principal.update", "identity.principal", id, map[string]any{"changed_fields": fields}, events...)
+}
+
+// updateProfile replaces the agent's profile old with in, at a level its
+// type is certified for, and names the fields that changed.
+func updateProfile(ctx context.Context, tx pgx.Tx, cert Certifications, actor, id uuid.UUID, old AgentProfile, in *ProfileInput) ([]string, error) {
+	ap, err := profile(ctx, tx, *in)
+	if err != nil {
+		return nil, err
+	}
+	changed := changedFields(old.AutonomyLevel != ap.AutonomyLevel, "autonomy_level", !same(old.AgentType, ap.AgentType), "agent_type",
+		old.Model != ap.Model, "model", old.Description != ap.Description, "description",
+		!same(old.MonthlyBudget, ap.MonthlyBudget) || !same(old.BudgetCurrency, ap.BudgetCurrency), "monthly_budget")
+	if len(changed) == 0 {
+		return nil, nil
+	}
+	if err := certified(ctx, tx, cert, &old, ap); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE identity.agent_profile SET autonomy_level = $2, agent_type = $3, model = $4, description = $5, monthly_budget = $6,
+		budget_currency = $7, version = version + 1, updated_by = $8 WHERE principal_id = $1`,
+		id, ap.AutonomyLevel, ap.AgentType, ap.Model, ap.Description, ap.MonthlyBudget, ap.BudgetCurrency, actor); err != nil {
+		return nil, fmt.Errorf("identity: update agent profile of principal %s: %w", id, err)
+	}
+	return changed, nil
 }
 
 // BlockPrincipal blocks an active principal; the pipeline refuses its

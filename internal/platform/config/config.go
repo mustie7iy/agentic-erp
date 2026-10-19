@@ -59,6 +59,7 @@ type Config struct {
 	TenantQuota     ratelimit.Quota // ERP_RATE_LIMIT_TENANT, requests per second[/burst] per tenant, or off (default 2000/10000, 04 §4.11)
 	PrincipalQuota  ratelimit.Quota // ERP_RATE_LIMIT_PRINCIPAL, the same per principal (default 50/100)
 	DevIssuer       bool            // ERP_DEV_ISSUER: mint tokens on the admin listener for local development; makes ERP_OIDC_ISSUERS optional
+	EvalCell        bool            // ERP_EVAL_CELL: the cell runs live evaluations, and agents' levels are not bound by their type's certification (ADR-0039)
 	Objects         Objects         // ERP_OBJECT_DIR or ERP_OBJECT_S3_*: object storage for documents, bank files and audit anchors; neither leaves it off (refused in production)
 	OffboardGrace   time.Duration   // ERP_OFFBOARD_GRACE: how long an offboarded tenant's data stays in the cell after its export before it is erased (default 720h; ADR-0021)
 	AuditVerify     time.Duration   // ERP_AUDIT_VERIFY_INTERVAL: how often every tenant's audit chain is verified against its anchors (default 1h; 0 disables the worker, refused in production)
@@ -387,6 +388,9 @@ func (l *loader) issuers(c *Config) {
 		l.errs = append(l.errs, errors.New("ERP_DEV_ISSUER must be true or false"))
 	}
 	c.DevIssuer = dev
+	if c.EvalCell, err = strconv.ParseBool(l.get("ERP_EVAL_CELL", "false")); err != nil {
+		l.errs = append(l.errs, errors.New("ERP_EVAL_CELL must be true or false"))
+	}
 	if raw := getenv("ERP_OIDC_ISSUERS"); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &c.Issuers); err != nil || len(c.Issuers) == 0 {
 			l.errs = append(l.errs, errors.New(`ERP_OIDC_ISSUERS must be a JSON list of {"issuer", "audience", "tenant_claim"} when set`))
@@ -660,6 +664,9 @@ func checkEnvironment(c Config) []error {
 	var errs []error
 	if c.DevIssuer {
 		errs = append(errs, errors.New("ERP_DEV_ISSUER must not be set with ERP_ENV=production: it mints tokens for any subject of any tenant"))
+	}
+	if c.EvalCell {
+		errs = append(errs, errors.New("ERP_EVAL_CELL must not be set with ERP_ENV=production: it lets agents act above the level their type is certified for (ADR-0039)"))
 	}
 	if len(c.Issuers) > 0 {
 		errs = append(errs, errors.New("ERP_OIDC_ISSUERS must not be set with ERP_ENV=production: it trusts its issuers for every tenant; register each tenant's identity provider instead (ADR-0031)"))

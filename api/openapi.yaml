@@ -9870,7 +9870,7 @@ paths:
       tags:
         - agents
       summary: Update the tenant's AI policy
-      description: "Changes the policy. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` removes the monthly cap, `routes` and `allowed_models` are replaced as a whole. `enabled: false` is the tenant's kill switch: the model gateway refuses every call (403 `agents.ai_disabled`) and agents' requests are refused, while people and services work on. The platform's operators can suspend a tenant's AI too, which wins over `enabled`; only they lift it. The cap is in USD, the prices' currency. Every alias must route, under the policy, to a model it allows and that has a recorded price, and `routes` may name only the platform's aliases (422 `agents.invalid_policy`). Human-only. Recorded in the audit trail and published as `AiPolicyChanged`."
+      description: "Changes the policy. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` removes the monthly cap, `routes` and `allowed_models` are replaced as a whole. `enabled: false` is the tenant's kill switch: the model gateway refuses every call (403 `agents.ai_disabled`) and agents' requests are refused, while people and services work on. The platform's operators can suspend a tenant's AI too, which wins over `enabled`; only they lift it. The cap is in USD, the prices' currency. Every alias must route, under the policy, to a model it allows and that has a recorded price, and `routes` may name only the platform's aliases (422 `agents.invalid_policy`). A route may not move an alias to a model on which one of the tenant's agents on it, above level 0, is not certified for its level (ADR-0039), unless its type has never been certified (422 `agents.uncertified_route`). Human-only. Recorded in the audit trail and published as `AiPolicyChanged`."
       x-permission: agents.ai_policy.manage
       x-agent: false
       parameters:
@@ -10495,6 +10495,13 @@ components:
         cost:
           $ref: "#/components/schemas/Money"
           description: Cost of the session, once ended.
+          readOnly: true
+        autonomy_level:
+          type: integer
+          format: int32
+          description: "On the response that starts the session: the agent's autonomy level then (ADR-0036). An agent offers its model only the operations its level performs (GET and `x-autonomy: read` at every level, `x-autonomy: propose` from level 1, other writes from level 2); the API refuses the others with 403 `identity.autonomy_insufficient` anyway."
+          minimum: 0
+          maximum: 3
           readOnly: true
         started_at:
           type: string
@@ -11644,9 +11651,19 @@ components:
         autonomy_level:
           type: integer
           format: int32
-          description: Autonomy level 0 (suggest only) to 3.
+          description: "Autonomy level 0 (suggest only) to 3. Above 0 the agent's type must be certified for the level on the concrete model its alias routes to under the tenant's AI policy (ADR-0039), or a change that raises the level, or names another type or alias, is 422 `identity.autonomy_uncertified`. An agent whose type has never been certified keeps the level it has, as the agents from before certification do, but is raised by none."
           minimum: 0
           maximum: 3
+        agent_type:
+          type: string
+          description: "What the agent is, whose evaluation suite certifies its autonomy (ADR-0039). The profile is replaced as a whole, so leaving it out clears it: an agent with none stays at level 0 (one from before certification, which never had one, keeps its level), and clearing or changing the type of an agent above level 0 is checked as a raise. Another value is 422 `identity.unknown_agent_type`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - ap_exceptions
+            - configuration
+            - migration
+            - test
+            - analytics
+          maxLength: 50
         model:
           type: string
           description: "The model alias the agent runs on, which the model gateway routes under the tenant's AI policy (ADR-0036): `erp-default`, `erp-extraction` or `erp-analytics`; another value is 422 `identity.unknown_model_alias`. Profiles that named a Claude model before were moved to `erp-default`."
@@ -11662,6 +11679,7 @@ components:
           maxLength: 2000
       examples:
         - autonomy_level: 1
+          agent_type: ap_exceptions
           model: erp-default
           description: Office chairs, ergonomic
     Principal:

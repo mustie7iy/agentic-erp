@@ -44,7 +44,7 @@ func (e *Endpoints) UpdateAiPolicy(ctx context.Context, req *gen.AiPolicyUpdate,
 	if err != nil {
 		return nil, err
 	}
-	p, err := UpdatePolicy(ctx, tx, actor.ID, etag.IfMatch(params.IfMatch), ch)
+	p, err := UpdatePolicy(ctx, tx, actor.ID, etag.IfMatch(params.IfMatch), ch, e.Certifications)
 	if err != nil {
 		return nil, err
 	}

@@ -61,15 +61,12 @@ const policyColumns = `enabled, suspended, suspended_reason, monthly_cap, routes
 
 // ReadPolicy reads the tenant's policy, the defaults when it has none.
 func ReadPolicy(ctx context.Context, tx pgx.Tx) (Policy, error) {
-	return readPolicy(ctx, tx, false)
+	return readPolicy(ctx, tx, "")
 }
 
-func readPolicy(ctx context.Context, tx pgx.Tx, lock bool) (Policy, error) {
-	sql := `SELECT ` + policyColumns + ` FROM agents.ai_policy`
-	if lock {
-		sql += ` FOR UPDATE`
-	}
-	p, err := scanPolicy(tx.QueryRow(ctx, sql))
+// readPolicy reads the policy, with lock ("", FOR UPDATE or FOR SHARE).
+func readPolicy(ctx context.Context, tx pgx.Tx, lock string) (Policy, error) {
+	p, err := scanPolicy(tx.QueryRow(ctx, `SELECT `+policyColumns+` FROM agents.ai_policy `+lock))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return defaultPolicy(), nil
 	}
@@ -110,14 +107,19 @@ func (ch PolicyChange) Fields() []string {
 
 // UpdatePolicy changes the tenant's policy, guarded by ifMatch, its row
 // held FOR UPDATE. Routes name only the platform's aliases and models with
-// a recorded price, within the allowed models.
-func UpdatePolicy(ctx context.Context, tx pgx.Tx, actor uuid.UUID, ifMatch func(int32) error, ch PolicyChange) (Policy, error) {
-	p, err := lockPolicy(ctx, tx, ifMatch)
+// a recorded price, within the allowed models, and move no alias to a
+// model on which one of its agents above level 0 is not certified (c,
+// ADR-0039).
+func UpdatePolicy(ctx context.Context, tx pgx.Tx, actor uuid.UUID, ifMatch func(int32) error, ch PolicyChange, c Certifications) (Policy, error) {
+	before, err := lockPolicy(ctx, tx, ifMatch)
 	if err != nil {
+		return before, err
+	}
+	p := ch.apply(before)
+	if err := validRouting(ctx, tx, p); err != nil {
 		return p, err
 	}
-	p = ch.apply(p)
-	if err := validRouting(ctx, tx, p); err != nil {
+	if err := c.checkRoutes(ctx, tx, before, p); err != nil {
 		return p, err
 	}
 	return writePolicy(ctx, tx, actor, p)
@@ -149,17 +151,22 @@ func Resume(ctx context.Context, tx pgx.Tx, actor uuid.UUID, ifMatch func(int32)
 	return writePolicy(ctx, tx, actor, p)
 }
 
-// lockPolicy creates the tenant's row with the defaults when it has none,
-// so there is a row to lock, and reads it FOR UPDATE.
+// lockPolicy reads the tenant's policy FOR UPDATE, guarded by ifMatch.
 func lockPolicy(ctx context.Context, tx pgx.Tx, ifMatch func(int32) error) (Policy, error) {
-	if _, err := tx.Exec(ctx, `INSERT INTO agents.ai_policy (tenant_id) VALUES (platform.current_tenant()) ON CONFLICT DO NOTHING`); err != nil {
-		return Policy{}, fmt.Errorf("agents: create the AI policy: %w", err)
-	}
-	p, err := readPolicy(ctx, tx, true)
+	p, err := heldPolicy(ctx, tx, `FOR UPDATE`)
 	if err != nil {
 		return p, err
 	}
 	return p, ifMatch(p.Version)
+}
+
+// heldPolicy creates the tenant's row with the defaults when it has none,
+// so there is a row to lock, and reads it with lock.
+func heldPolicy(ctx context.Context, tx pgx.Tx, lock string) (Policy, error) {
+	if _, err := tx.Exec(ctx, `INSERT INTO agents.ai_policy (tenant_id) VALUES (platform.current_tenant()) ON CONFLICT DO NOTHING`); err != nil {
+		return Policy{}, fmt.Errorf("agents: create the AI policy: %w", err)
+	}
+	return readPolicy(ctx, tx, lock)
 }
 
 func writePolicy(ctx context.Context, tx pgx.Tx, actor uuid.UUID, p Policy) (Policy, error) {

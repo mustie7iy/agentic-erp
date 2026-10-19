@@ -42,6 +42,7 @@ func day(offset int) string { return time.Now().UTC().AddDate(0, 0, offset).Form
 
 func TestPrincipals(t *testing.T) {
 	c, ten := admin(t)
+	pgtest.Route(t, ten.ID, "erp-default", pgtest.Certify(t, "ap_exceptions", 2)) // the AP agent's type, for the levels it is given
 	s := &principals{c: c, ten: ten}
 	if !t.Run("create", s.createPrincipals) {
 		t.FailNow()
@@ -82,7 +83,7 @@ func (s *principals) createPrincipals(t *testing.T) {
 		t.Errorf("human ETag: got %s, want \"1\"", tag)
 	}
 	agent, _ := c.Must(201, "POST", "/v1/principals", `{"kind": "agent", "display_name": "AP agent", "all_companies": true,
-		"agent_profile": {"autonomy_level": 1, "model": "erp-default", "description": "Invoice exceptions",
+		"agent_profile": {"autonomy_level": 1, "agent_type": "ap_exceptions", "model": "erp-default", "description": "Invoice exceptions",
 		"monthly_budget": {"amount": "5000.00", "currency": "EUR"}}}`, "")
 	profile := agent["agent_profile"].(map[string]any)
 	if agent["all_companies"] != true {
@@ -130,6 +131,7 @@ func (s *principals) createPrincipals(t *testing.T) {
 		"bad budget":            {`{"kind": "agent", "display_name": "A", "agent_profile": {"autonomy_level": 0, "model": "erp-default", "description": "d", "monthly_budget": {"amount": "5.001", "currency": "EUR"}}}`, 422, "request.invalid_amount"},
 		"budget too few digits": {`{"kind": "agent", "display_name": "A", "agent_profile": {"autonomy_level": 0, "model": "erp-default", "description": "d", "monthly_budget": {"amount": "5.0", "currency": "EUR"}}}`, 422, "request.invalid_amount"},
 		"a model, not an alias": {`{"kind": "agent", "display_name": "A", "agent_profile": {"autonomy_level": 0, "model": "claude-opus-5-5", "description": "d"}}`, 422, "identity.unknown_model_alias"},
+		"unknown agent type":    {`{"kind": "agent", "display_name": "A", "agent_profile": {"autonomy_level": 0, "agent_type": "capture", "model": "erp-default", "description": "d"}}`, 422, "identity.unknown_agent_type"},
 		"unknown currency":      {`{"kind": "agent", "display_name": "A", "agent_profile": {"autonomy_level": 0, "model": "erp-default", "description": "d", "monthly_budget": {"amount": "5.00", "currency": "XXQ"}}}`, 422, "identity.unknown_currency"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -181,7 +183,7 @@ func (s *principals) readAndUpdatePrincipals(t *testing.T) {
 	c.Problem(412, "request.version_mismatch", "PATCH", "/v1/principals/"+id(human), `{}`, `"1"`)
 	c.Problem(422, "identity.agent_profile", "PATCH", "/v1/principals/"+id(human), `{"agent_profile": {"autonomy_level": 0, "model": "erp-default", "description": "d"}}`, `"3"`)
 	c.Problem(404, "request.not_found", "PATCH", "/v1/principals/"+uuid.NewString(), `{}`, `"1"`)
-	got, _ = c.Must(200, "PATCH", "/v1/principals/"+id(agent), `{"agent_profile": {"autonomy_level": 2, "model": "erp-default", "description": "Invoice exceptions"}}`, `"1"`)
+	got, _ = c.Must(200, "PATCH", "/v1/principals/"+id(agent), `{"agent_profile": {"autonomy_level": 2, "agent_type": "ap_exceptions", "model": "erp-default", "description": "Invoice exceptions"}}`, `"1"`)
 	p := got["agent_profile"].(map[string]any)
 	if p["autonomy_level"] != float64(2) {
 		t.Errorf("profile autonomy level: got %v, want 2", p["autonomy_level"])
@@ -189,8 +191,11 @@ func (s *principals) readAndUpdatePrincipals(t *testing.T) {
 	if p["monthly_budget"] != nil {
 		t.Errorf("profile monthly budget: got %v, want none", p["monthly_budget"])
 	}
+	if p["agent_type"] != "ap_exceptions" {
+		t.Errorf("profile agent type: got %v, want ap_exceptions", p["agent_type"])
+	}
 	// The same profile again changes nothing in it.
-	c.Must(200, "PATCH", "/v1/principals/"+id(agent), `{"agent_profile": {"autonomy_level": 2, "model": "erp-default", "description": "Invoice exceptions"}}`, `"2"`)
+	c.Must(200, "PATCH", "/v1/principals/"+id(agent), `{"agent_profile": {"autonomy_level": 2, "agent_type": "ap_exceptions", "model": "erp-default", "description": "Invoice exceptions"}}`, `"2"`)
 	changes := events(t, ten, "agent_profile_changed")
 	if len(changes) != 2 {
 		t.Fatalf("profile events: got %d, want 2: %v", len(changes), changes)

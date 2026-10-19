@@ -138,8 +138,10 @@ func capture(ctx context.Context, c *apitools.Client, fields map[string]string, 
 		_ = w.WriteField(k, v)
 	}
 	if document != nil {
-		part, _ := w.CreateFormFile("document", "document")
-		_, _ = part.Write(document)
+		// A value, not a file part: the contract's document is a string of
+		// bytes (contentMediaType), which the server reads from the form's
+		// values.
+		_ = w.WriteField("document", string(document))
 	}
 	_ = w.Close()
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.BaseURL, "/")+"/v1/supplier-invoices:capture", &body) // a fixed method and URL always parse
@@ -160,7 +162,9 @@ func capture(ctx context.Context, c *apitools.Client, fields map[string]string, 
 		return nil, fmt.Errorf("the API answered %d with a body that is not JSON", resp.StatusCode)
 	}
 	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("%d %v: %v", resp.StatusCode, m["code"], m["detail"])
+		code, _ := m["code"].(string)
+		detail, _ := m["detail"].(string)
+		return nil, &apitools.Error{Status: resp.StatusCode, Code: code, Detail: detail}
 	}
 	return m, nil
 }

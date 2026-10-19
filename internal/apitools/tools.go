@@ -39,6 +39,7 @@ type Tool struct {
 	name, description string
 	schema            anthropic.BetaToolInputSchemaParam
 	op                operation
+	level             int // the autonomy level that performs the operation (api.Operation.Level)
 	client            *Client
 	session           *Session
 	guard             func(map[string]any) error
@@ -390,7 +391,9 @@ func (c contract) operation(id string, forPeople bool) (*Tool, error) {
 // become the properties of one input object.
 func (c contract) buildTool(id, method, path string, op map[string]any) (*Tool, error) {
 	at := "paths." + path + "." + method
-	t := &Tool{name: id, op: operation{id: id, method: strings.ToUpper(method), path: path}}
+	autonomy, _ := op["x-autonomy"].(string)
+	level := api.Operation{Method: strings.ToUpper(method), Proposes: autonomy == "propose", Reads: autonomy == "read"}.Level()
+	t := &Tool{name: id, level: level, op: operation{id: id, method: strings.ToUpper(method), path: path}}
 	summary, _ := op["summary"].(string)
 	desc, _ := op["description"].(string)
 	t.description = summary + ". " + desc

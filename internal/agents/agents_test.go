@@ -39,6 +39,14 @@ func TestSessionsAndRecommendations(t *testing.T) {
 	if s["status"] != "running" {
 		t.Errorf("started status: got %v, want running", s["status"])
 	}
+	// The start says the agent's level, for it to offer its model the
+	// tools of that level (ADR-0036); a read later does not.
+	if s["autonomy_level"] != float64(2) {
+		t.Errorf("started autonomy_level: got %v, want the test agent's 2", s["autonomy_level"])
+	}
+	if got, _ := agent.Must(200, "GET", path, "", ""); got["autonomy_level"] != nil {
+		t.Errorf("read autonomy_level: got %v, want none", got["autonomy_level"])
+	}
 	if want := agent.As.ID.String(); s["agent_id"] != want {
 		t.Errorf("started agent_id: got %v, want %s", s["agent_id"], want)
 	}

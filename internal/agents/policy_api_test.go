@@ -8,6 +8,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/agents"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -115,7 +116,10 @@ func TestAIPolicyAPIDatabaseFailures(t *testing.T) {
 	priced(t, "claude-opus-5-5")
 	person, _ := policyAdmin(t)
 	capped(t, person.Tenant, 100) // a cap, so that reading it fails too
-	h := &agents.Endpoints{}
+	// A typed agent above level 0, whose certification a route change reads.
+	certified := pgtest.Certify(t, "ap_exceptions", 2)
+	pgtest.Exec(t, `UPDATE identity.agent_profile SET agent_type = 'ap_exceptions', version = version + 1 WHERE principal_id = $1`, person.Tenant.Agent.ID)
+	h := &agents.Endpoints{Certifications: agents.Certifications{Agents: identity.AutonomousAgents}}
 	for name, call := range map[string]func(ctx context.Context) error{
 		"get": func(ctx context.Context) error {
 			_, err := h.GetAiPolicy(ctx)
@@ -124,6 +128,11 @@ func TestAIPolicyAPIDatabaseFailures(t *testing.T) {
 		"update": func(ctx context.Context) error {
 			_, err := h.UpdateAiPolicy(ctx, &gen.AiPolicyUpdate{Enabled: gen.NewOptBool(false),
 				MonthlyCap: gen.NewOptNilAiPolicyUpdateMonthlyCap(gen.AiPolicyUpdateMonthlyCap{Amount: "1.00", Currency: "USD"})},
+				gen.UpdateAiPolicyParams{IfMatch: "*"})
+			return err
+		},
+		"move a route": func(ctx context.Context) error {
+			_, err := h.UpdateAiPolicy(ctx, &gen.AiPolicyUpdate{Routes: gen.NewOptAiPolicyUpdateRoutes(gen.AiPolicyUpdateRoutes{"erp-default": certified})},
 				gen.UpdateAiPolicyParams{IfMatch: "*"})
 			return err
 		},

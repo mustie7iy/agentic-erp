@@ -101,26 +101,11 @@ func (a *Authorizer) Authorize(ctx context.Context, operationID string) error {
 	return checkSoD(ctx, tx, op.Permission, set)
 }
 
-// Autonomy levels (ADR-0036): what an agent may do beyond its permissions.
-const (
-	readOnly = 0 // reads
-	proposes = 1 // also the operations that only propose (x-autonomy: propose)
-	writes   = 2 // any write its permissions allow; 3 is reserved and acts as 2
-)
-
 // withinAutonomy refuses an agent an operation above its autonomy level,
 // read from its profile; an agent without one is at level 0.
 func withinAutonomy(ctx context.Context, tx pgx.Tx, agent uuid.UUID, op api.Operation) error {
-	need := writes
-	switch {
-	// GET, HEAD and OPTIONS run read-only; x-autonomy: read changes no
-	// business data.
-	case op.Method == "GET" || op.Method == "HEAD" || op.Method == "OPTIONS" || op.Reads:
-		need = readOnly
-	case op.Proposes:
-		need = proposes
-	}
-	if need == readOnly {
+	need := op.Level()
+	if need == api.LevelReads {
 		return nil
 	}
 	return atLevel(ctx, tx, agent, need, "the operation")
@@ -141,16 +126,26 @@ func RequireWrites(ctx context.Context, what string) error {
 	if p.Kind != reqctx.KindAgent {
 		return nil
 	}
-	return atLevel(ctx, tx, p.ID, writes, what)
+	return atLevel(ctx, tx, p.ID, api.LevelWrites, what)
+}
+
+// Level is agent's autonomy level, read from its profile in tx; an agent
+// without one is at level 0.
+func Level(ctx context.Context, tx pgx.Tx, agent uuid.UUID) (int32, error) {
+	var level int32
+	if err := tx.QueryRow(ctx, `SELECT coalesce((SELECT autonomy_level FROM identity.agent_profile WHERE principal_id = $1), 0)`, agent).Scan(&level); err != nil {
+		return 0, fmt.Errorf("authz: autonomy level: %w", err)
+	}
+	return level, nil
 }
 
 // atLevel refuses an agent whose level is below need.
 func atLevel(ctx context.Context, tx pgx.Tx, agent uuid.UUID, need int, what string) error {
-	var level int
-	if err := tx.QueryRow(ctx, `SELECT coalesce((SELECT autonomy_level FROM identity.agent_profile WHERE principal_id = $1), 0)`, agent).Scan(&level); err != nil {
-		return fmt.Errorf("authz: autonomy level: %w", err)
+	level, err := Level(ctx, tx, agent)
+	if err != nil {
+		return err
 	}
-	if level < need {
+	if int(level) < need {
 		return problem.Forbidden("identity.autonomy_insufficient",
 			fmt.Sprintf("This agent's autonomy level is %d; %s needs %d (an administrator raises it in the agent's profile).", level, what, need))
 	}

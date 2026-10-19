@@ -153,13 +153,23 @@ client certificates in production (ADR-0033). Today:
     Payment run proposals reserve items and stay at level 2, as does
     cancelling a purchase order, which cancels released orders too, and
     T47's purchase order changes (create, update, cancel) and contract
-    renewal (PO, 2026-10-18; revisited with T43's evaluations), and
-    clearing an invoice's down payments, which posts journal entries
-    (PO, 2026-10-19).
+    renewal (PO, 2026-10-18), and clearing an invoice's down payments,
+    which posts journal entries (PO, 2026-10-19). Revisited with T43's
+    evaluations (T43f, PO 2026-10-19): they stay at level 2 until
+    evaluation evidence exists. Such an operation moves to `x-autonomy:
+    propose` only with a certification run (ADR-0039) that proves, at
+    level 1, the agent type that would call it: its suite gains cases for
+    the operation, a report of that type certifying level 1 is committed
+    and loaded, and the marker changes in the same release. A marker is
+    not changed on argument alone.
     `x-autonomy: read` marks an operation that changes no business data though it
     runs by POST (the audit chain's verification): every level performs
-    it. An agent is offered every tool its permissions allow; those above
-    its level answer 403 (filtering them by level is tracked).
+    it. An agent is offered only the tools its level performs (T43f): the
+    response that starts its session (`startAgentSession`) carries its
+    `autonomy_level`, and the tool runner (`apitools.Run`) leaves out the
+    operations above it, by the same rule authz applies
+    (`api.Operation.Level`). The 403 stays the backstop for a level
+    lowered during a session and for clients that do not filter.
 
 ## Alternatives
 - **A global gateway service:** one place for keys and prices, but tenant

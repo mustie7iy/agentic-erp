@@ -97,6 +97,15 @@ FUZZ_TARGETS = money:FuzzParseDecimal money:FuzzConvert config:FuzzParseValidate
 	bankfile:FuzzPain001Text bankfile:FuzzValidIBAN sap:FuzzODataValue sap:FuzzODataString \
 	platform/redact:FuzzText
 
+# Evaluate one agent live (ADR-0039): make eval AGENT=ap_exceptions (the
+# migration suite needs the cell started with ERP_EXTRACT_DIR=evals/migration). It
+# spends model money on the local cell's gateway (ERP_CONTROL_URL,
+# ERP_API_URL, ERP_ADMIN_URL with ERP_DEV_ISSUER), so it runs on demand and
+# never in CI, which replays the suites with the scripted model instead.
+eval:
+	@test -n "$(AGENT)" || { echo "make eval AGENT=<agent type>"; exit 2; }
+	go run ./cmd/erp eval run -suite evals/$(AGENT)/suite.yaml
+
 # Fuzz every untrusted-input parser for FUZZTIME each. A run that fails
 # without saving a failing input under testdata/fuzz is the fuzz engine
 # timing out as its budget ends ("context deadline exceeded"), not a
