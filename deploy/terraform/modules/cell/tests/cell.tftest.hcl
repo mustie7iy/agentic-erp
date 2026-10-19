@@ -29,6 +29,9 @@ mock_provider "aws" {
   mock_resource "aws_iam_role" {
     defaults = { arn = "arn:aws:iam::222222222222:role/mock" }
   }
+  mock_data "aws_servicequotas_service_quota" {
+    defaults = { quota_code = "L-0000TEST", value = 100 }
+  }
   mock_resource "aws_backup_vault" {
     defaults = { arn = "arn:aws:backup:eu-west-1:222222222222:backup-vault:erp-dev1-dr" }
   }
@@ -406,6 +409,18 @@ run "a_production_cell_copies_its_backups_and_objects_to_the_dr_region" {
   assert {
     condition     = one(one(aws_backup_plan.cell["dr"].rule).copy_action).destination_vault_arn == aws_backup_vault.dr["dr"].arn && one(one(one(aws_backup_plan.cell["dr"].rule).copy_action).lifecycle).delete_after == 7
     error_message = "every snapshot is copied to the DR vault and kept there 7 days"
+  }
+  assert {
+    condition     = aws_servicequotas_service_quota.cluster_snapshots["dr"].region == "eu-west-1" && aws_servicequotas_service_quota.cluster_snapshots["dr"].value >= 24 * 7 && aws_servicequotas_service_quota.cluster_snapshots["home"].value >= 24
+    error_message = "the snapshot quota holds a week of hourly copies in the DR region (the default, 100, does not)"
+  }
+  assert {
+    condition     = length(setintersection(toset(jsondecode(aws_iam_role_policy.workload["server"].policy).Statement[0].Action), toset(["s3:PutObjectRetention", "s3:GetObjectRetention"]))) == 2
+    error_message = "the server sets the compliance retention of audit anchors and exports (ADR-0016, ADR-0021)"
+  }
+  assert {
+    condition     = aws_backup_selection.database["dr"].iam_role_arn == aws_iam_role.backup["dr"].arn
+    error_message = "the plan runs as the backup role"
   }
   assert {
     condition     = tolist(aws_backup_selection.database["dr"].resources) == tolist([aws_rds_cluster.cell[0].arn])

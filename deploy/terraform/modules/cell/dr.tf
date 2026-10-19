@@ -75,6 +75,32 @@ resource "aws_backup_plan" "cell" {
   }
 }
 
+# AWS Backup's RDS snapshots count as manual DB cluster snapshots, whose
+# default quota (100 a region) the copies would pass in four days: 24 a day
+# kept 7 days in the DR region, 24 kept a day at home. Both regions' quota
+# is raised; the name is looked up, so no quota code is guessed.
+locals {
+  cluster_snapshot_quota = 250
+  snapshot_quota_regions = var.dr_region == null ? {} : { home = null, dr = var.dr_region }
+}
+
+data "aws_servicequotas_service_quota" "cluster_snapshots" {
+  for_each     = local.snapshot_quota_regions
+  region       = each.value
+  service_code = "rds"
+  quota_name   = "Manual DB cluster snapshots"
+}
+
+resource "aws_servicequotas_service_quota" "cluster_snapshots" {
+  for_each     = local.snapshot_quota_regions
+  region       = each.value
+  service_code = "rds"
+  quota_code   = data.aws_servicequotas_service_quota.cluster_snapshots[each.key].quota_code
+  value        = max(local.cluster_snapshot_quota, data.aws_servicequotas_service_quota.cluster_snapshots[each.key].value)
+}
+
+# AWS's managed policy for backup jobs: the baseline AWS Backup documents,
+# kept rather than a copy that would fall behind the services it covers.
 resource "aws_iam_role" "backup" {
   for_each = local.dr
   name     = "${local.prefix}-backup"

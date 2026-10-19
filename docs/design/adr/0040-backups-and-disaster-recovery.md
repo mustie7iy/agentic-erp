@@ -45,7 +45,11 @@ lost, so their RPO is the hour, not the minute. The bucket replicates to a
 bucket in the disaster-recovery region, encrypted with that key, keeping versions and
 delete markers, so a deletion in the home region is a noncurrent version in
 both. The replica keeps noncurrent versions 35 days too, so both
-expire at the same age.
+expire at the same age. Replication covers objects written after it is
+enabled: the objects already in a bucket are copied once by an S3 Batch
+Replication job when it is turned on. AWS Backup's snapshots count as
+manual DB cluster snapshots, whose default quota (100 a region) a week of
+hourly copies passes; the module raises it to 250 in both regions.
 
 **Region failover: a pilot light (T41b2).** A production cell has, in its
 disaster-recovery region, a cross-region read replica of its database and a

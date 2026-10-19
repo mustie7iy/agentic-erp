@@ -20,7 +20,7 @@ locals {
     # The API server and its workers: objects, field-key wrapping.
     server = {
       statements = [
-        { Sid = "Objects", Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"], Resource = "${aws_s3_bucket.objects.arn}/*" },
+        { Sid = "Objects", Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload", "s3:PutObjectRetention", "s3:GetObjectRetention"], Resource = "${aws_s3_bucket.objects.arn}/*" },
         { Sid = "ListObjects", Effect = "Allow", Action = "s3:ListBucket", Resource = aws_s3_bucket.objects.arn },
         { Sid = "ObjectKey", Effect = "Allow", Action = ["kms:Decrypt", "kms:GenerateDataKey"], Resource = aws_kms_key.data.arn },
       ]
