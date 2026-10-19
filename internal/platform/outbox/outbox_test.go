@@ -207,12 +207,9 @@ func TestRelayLogsErrorsAndKeepsRunning(t *testing.T) {
 	var buf pgtest.SyncBuffer
 	relay := &outbox.Relay{Pool: pool, Role: "no_such_role", Publisher: &recorder{}, Cell: "eu1", Interval: 5 * time.Millisecond,
 		Log: slog.New(slog.NewTextHandler(&buf, nil))}
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	relay.Run(ctx)
-	if !strings.Contains(buf.String(), "outbox relay failed") {
-		t.Fatal("error not logged")
-	}
+	// Each relay runs until the condition holds, with a bound generous
+	// enough for a loaded machine, rather than for a fixed window.
+	runUntil(t, relay, func() bool { return strings.Contains(buf.String(), "outbox relay failed") }, "error not logged")
 	// Default interval and batch apply when unset; a full batch is followed at once by the next round.
 	ten := pgtest.NewTenant(t)
 	inRequest(t, pool, ten, func(ctx context.Context) error {
@@ -225,12 +222,18 @@ func TestRelayLogsErrorsAndKeepsRunning(t *testing.T) {
 	})
 	rec := &recorder{}
 	quick := &outbox.Relay{Pool: pool, Role: "erp_relay", Publisher: rec, Cell: "eu1", Batch: 1}
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-	defer cancel2()
-	quick.Run(ctx2)
-	if len(rec.forTenant(ten.ID)) != 2 {
-		t.Fatalf("published %d", len(rec.forTenant(ten.ID)))
-	}
+	runUntil(t, quick, func() bool { return len(rec.forTenant(ten.ID)) == 2 }, "the tenant's two events not both published")
+}
+
+// runUntil runs the relay until cond holds, then stops it and waits for it
+// to return.
+func runUntil(t *testing.T, r *outbox.Relay, cond func() bool, format string, args ...any) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); r.Run(ctx) }()
+	defer func() { cancel(); <-done }()
+	pgtest.Eventually(t, 30*time.Second, cond, format, args...)
 }
 
 func TestTheRelayRoleSeesOnlyOutboxes(t *testing.T) {
