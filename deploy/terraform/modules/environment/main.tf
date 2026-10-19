@@ -111,6 +111,12 @@ variable "dr_availability_zones" {
   default     = []
 }
 
+variable "replica_lag_alarm_actions" {
+  description = "SNS topics of dr_region the pilot light's replica-lag alarm notifies."
+  type        = list(string)
+  default     = []
+}
+
 variable "node_scaling" {
   description = "The home cell's node count bounds."
   type = object({
@@ -160,6 +166,7 @@ module "cell" {
   pilot_light               = var.pilot_light
   dr_cidr                   = var.dr_cidr
   dr_availability_zones     = var.dr_availability_zones
+  replica_lag_alarm_actions = var.replica_lag_alarm_actions
   # The home cell: the router runs on its cluster (the erp-global chart).
   global_secrets = module.global.external_secrets
 }

@@ -39,9 +39,14 @@ variable "dr_availability_zones" {
 }
 
 variable "replica_lag_alarm_actions" {
-  description = "Where the replica-lag alarm notifies (SNS topic ARNs of dr_region)."
+  description = "Where the replica-lag alarm notifies (SNS topic ARNs of dr_region); required with pilot_light."
   type        = list(string)
   default     = []
+  validation {
+    # An alarm nobody hears is no RPO guard: fail closed.
+    condition     = !var.pilot_light || length(var.replica_lag_alarm_actions) > 0
+    error_message = "a pilot light's replica-lag alarm needs somewhere to notify"
+  }
 }
 
 locals {
@@ -140,26 +145,30 @@ resource "aws_db_parameter_group" "dr" {
 }
 
 resource "aws_db_instance" "dr" {
-  for_each                        = local.pilot
-  region                          = var.dr_region
-  identifier                      = "${local.prefix}-dr"
-  replicate_source_db             = aws_rds_cluster.cell[0].arn
-  instance_class                  = local.database_class
-  storage_type                    = "gp3"
-  iops                            = var.database_iops
-  db_subnet_group_name            = aws_db_subnet_group.dr[each.key].name
-  vpc_security_group_ids          = [aws_security_group.dr_database[each.key].id]
-  parameter_group_name            = aws_db_parameter_group.dr[each.key].name
-  storage_encrypted               = true
-  kms_key_id                      = aws_kms_key.dr[each.key].arn
-  backup_retention_period         = var.backup_retention_days
-  copy_tags_to_snapshot           = true
-  deletion_protection             = true
+  for_each                = local.pilot
+  region                  = var.dr_region
+  identifier              = "${local.prefix}-dr"
+  replicate_source_db     = aws_rds_cluster.cell[0].arn
+  instance_class          = local.database_class
+  storage_type            = "gp3"
+  iops                    = var.database_iops
+  db_subnet_group_name    = aws_db_subnet_group.dr[each.key].name
+  vpc_security_group_ids  = [aws_security_group.dr_database[each.key].id]
+  parameter_group_name    = aws_db_parameter_group.dr[each.key].name
+  storage_encrypted       = true
+  kms_key_id              = aws_kms_key.dr[each.key].arn
+  backup_retention_period = var.backup_retention_days
+  copy_tags_to_snapshot   = true
+  deletion_protection     = true
+  # Refused for a replica's deletion, which deletion_protection and
+  # prevent_destroy forbid anyway; right once the replica is promoted.
   final_snapshot_identifier       = "${local.prefix}-dr-final"
   performance_insights_enabled    = true
   performance_insights_kms_key_id = aws_kms_key.dr[each.key].arn
-  auto_minor_version_upgrade      = false
-  apply_immediately               = false
+  # The replica follows the cluster's engine version (a replica may not
+  # run older than its source): the runbook upgrades it first.
+  auto_minor_version_upgrade = false
+  apply_immediately          = false
   lifecycle {
     prevent_destroy = true
   }

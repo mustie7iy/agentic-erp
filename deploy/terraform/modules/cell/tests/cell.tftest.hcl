@@ -470,11 +470,12 @@ run "a_production_cell_keeps_a_pilot_light_in_the_dr_region" {
   command   = apply
   state_key = "pilot"
   variables {
-    backup_retention_days = 35
-    dr_region             = "eu-west-1"
-    pilot_light           = true
-    dr_cidr               = "10.65.0.0/16"
-    dr_availability_zones = ["eu-west-1a", "eu-west-1b", "eu-west-1c"]
+    backup_retention_days     = 35
+    dr_region                 = "eu-west-1"
+    pilot_light               = true
+    dr_cidr                   = "10.65.0.0/16"
+    dr_availability_zones     = ["eu-west-1a", "eu-west-1b", "eu-west-1c"]
+    replica_lag_alarm_actions = ["arn:aws:sns:eu-west-1:222222222222:erp-oncall"]
   }
 
   assert {
@@ -490,7 +491,7 @@ run "a_production_cell_keeps_a_pilot_light_in_the_dr_region" {
     error_message = "the replica requires TLS 1.3 as the primary does"
   }
   assert {
-    condition     = aws_cloudwatch_metric_alarm.replica_lag["dr"].metric_name == "ReplicaLag" && aws_cloudwatch_metric_alarm.replica_lag["dr"].threshold == 60 && aws_cloudwatch_metric_alarm.replica_lag["dr"].region == "eu-west-1"
+    condition     = aws_cloudwatch_metric_alarm.replica_lag["dr"].alarm_actions == toset(["arn:aws:sns:eu-west-1:222222222222:erp-oncall"]) && aws_cloudwatch_metric_alarm.replica_lag["dr"].metric_name == "ReplicaLag" && aws_cloudwatch_metric_alarm.replica_lag["dr"].threshold == 60 && aws_cloudwatch_metric_alarm.replica_lag["dr"].region == "eu-west-1"
     error_message = "an alarm when the replica is more than the RPO (60 s) behind"
   }
   assert {
@@ -520,7 +521,7 @@ run "a_cell_without_a_pilot_light_has_none" {
   }
 
   assert {
-    condition     = length(aws_db_instance.dr) == 0 && length(aws_eks_cluster.dr) == 0 && length(module.dr_network) == 0 && !aws_kms_key.fields.multi_region
+    condition     = length(aws_db_instance.dr) == 0 && length(aws_eks_cluster.dr) == 0 && length(module.dr_network) == 0 && !aws_kms_key.fields.multi_region && length(aws_kms_replica_key.fields) == 0 && alltrue([for s in aws_secretsmanager_secret.cell : length(s.replica) == 0])
     error_message = "staging has the backup copies only"
   }
 }
@@ -541,5 +542,5 @@ run "a_pilot_light_without_its_network_is_refused" {
     pilot_light = true
     dr_region   = "eu-west-1"
   }
-  expect_failures = [var.dr_cidr, var.dr_availability_zones]
+  expect_failures = [var.dr_cidr, var.dr_availability_zones, var.replica_lag_alarm_actions]
 }
