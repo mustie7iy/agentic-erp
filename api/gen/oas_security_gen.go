@@ -199,6 +199,7 @@ var operationRolesOidc = map[string][]string{
 	PostJournalEntryOperation:                 []string{},
 	PostParkedJournalEntryOperation:           []string{},
 	PostSupplierInvoiceOperation:              []string{},
+	PreviewRevaluationOperation:               []string{},
 	ProposePaymentRunOperation:                []string{},
 	ReconcileMigrationRunOperation:            []string{},
 	RecordAgentToolCallOperation:              []string{},

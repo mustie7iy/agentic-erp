@@ -1057,6 +1057,25 @@ type Invoker interface {
 	//
 	// POST /v1/supplier-invoices/{id}:post
 	PostSupplierInvoice(ctx context.Context, request OptSupplierInvoicePost, params PostSupplierInvoiceParams) (PostSupplierInvoiceRes, error)
+	// PreviewRevaluation invokes previewRevaluation operation.
+	//
+	// Values, without posting, what a revaluation run of a legal entity and ledger at a key date would
+	// value (ADR-0042, T48): the open items on supplier and customer reconciliation accounts on the key
+	// date (posted on or before it and not cleared by a clearing dated on or before it) and, per currency,
+	// the balance of each G/L account flagged `revalue_foreign_currency`, in every currency other than
+	// local currency. Down payments (special G/L items) and the GR/IR account are not revalued. Each item
+	// is valued at the legal entity's valuation rate type valid on the key date, rounded once: `valued_lc`
+	// = amount × rate; the difference to the booked local amount is an unrealised gain when positive and
+	// a loss when negative, and its group currency amount follows from local at the key date's average
+	// rate, as a posting's would. The key date is the last day of a posting period of the ledger (422
+	// `ledger.key_date_not_period_end`); a rate valid from before that period is stale (422
+	// `ledger.rate_stale`) and a missing one is refused (422 `ledger.no_exchange_rate`); an account with
+	// items in scope and no active valuation accounts fails the preview (422
+	// `ledger.revaluation_account_missing`, naming the account). Reads only; every agent autonomy level
+	// may call it.
+	//
+	// POST /v1/revaluation-runs/preview
+	PreviewRevaluation(ctx context.Context, request *RevaluationPreviewRequest, params PreviewRevaluationParams) (PreviewRevaluationRes, error)
 	// ProposePaymentRun invokes proposePaymentRun operation.
 	//
 	// Creates a run in status `proposing` (the Operation's `resource` points to it from the start), then
@@ -26523,6 +26542,149 @@ func (c *Client) sendPostSupplierInvoice(ctx context.Context, request OptSupplie
 
 	stage = "DecodeResponse"
 	result, err := decodePostSupplierInvoiceResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// PreviewRevaluation invokes previewRevaluation operation.
+//
+// Values, without posting, what a revaluation run of a legal entity and ledger at a key date would
+// value (ADR-0042, T48): the open items on supplier and customer reconciliation accounts on the key
+// date (posted on or before it and not cleared by a clearing dated on or before it) and, per currency,
+// the balance of each G/L account flagged `revalue_foreign_currency`, in every currency other than
+// local currency. Down payments (special G/L items) and the GR/IR account are not revalued. Each item
+// is valued at the legal entity's valuation rate type valid on the key date, rounded once: `valued_lc`
+// = amount × rate; the difference to the booked local amount is an unrealised gain when positive and
+// a loss when negative, and its group currency amount follows from local at the key date's average
+// rate, as a posting's would. The key date is the last day of a posting period of the ledger (422
+// `ledger.key_date_not_period_end`); a rate valid from before that period is stale (422
+// `ledger.rate_stale`) and a missing one is refused (422 `ledger.no_exchange_rate`); an account with
+// items in scope and no active valuation accounts fails the preview (422
+// `ledger.revaluation_account_missing`, naming the account). Reads only; every agent autonomy level
+// may call it.
+//
+// POST /v1/revaluation-runs/preview
+func (c *Client) PreviewRevaluation(ctx context.Context, request *RevaluationPreviewRequest, params PreviewRevaluationParams) (PreviewRevaluationRes, error) {
+	res, err := c.sendPreviewRevaluation(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendPreviewRevaluation(ctx context.Context, request *RevaluationPreviewRequest, params PreviewRevaluationParams) (res PreviewRevaluationRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("previewRevaluation"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/revaluation-runs/preview"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, PreviewRevaluationOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/revaluation-runs/preview"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodePreviewRevaluationRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, PreviewRevaluationOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodePreviewRevaluationResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

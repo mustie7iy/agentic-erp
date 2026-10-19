@@ -1485,6 +1485,28 @@ func (UnimplementedHandler) PostSupplierInvoice(ctx context.Context, req OptSupp
 	return r, ht.ErrNotImplemented
 }
 
+// PreviewRevaluation implements previewRevaluation operation.
+//
+// Values, without posting, what a revaluation run of a legal entity and ledger at a key date would
+// value (ADR-0042, T48): the open items on supplier and customer reconciliation accounts on the key
+// date (posted on or before it and not cleared by a clearing dated on or before it) and, per currency,
+// the balance of each G/L account flagged `revalue_foreign_currency`, in every currency other than
+// local currency. Down payments (special G/L items) and the GR/IR account are not revalued. Each item
+// is valued at the legal entity's valuation rate type valid on the key date, rounded once: `valued_lc`
+// = amount × rate; the difference to the booked local amount is an unrealised gain when positive and
+// a loss when negative, and its group currency amount follows from local at the key date's average
+// rate, as a posting's would. The key date is the last day of a posting period of the ledger (422
+// `ledger.key_date_not_period_end`); a rate valid from before that period is stale (422
+// `ledger.rate_stale`) and a missing one is refused (422 `ledger.no_exchange_rate`); an account with
+// items in scope and no active valuation accounts fails the preview (422
+// `ledger.revaluation_account_missing`, naming the account). Reads only; every agent autonomy level
+// may call it.
+//
+// POST /v1/revaluation-runs/preview
+func (UnimplementedHandler) PreviewRevaluation(ctx context.Context, req *RevaluationPreviewRequest, params PreviewRevaluationParams) (r PreviewRevaluationRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ProposePaymentRun implements proposePaymentRun operation.
 //
 // Creates a run in status `proposing` (the Operation's `resource` points to it from the start), then

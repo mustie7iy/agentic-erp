@@ -593,6 +593,10 @@ type PostSupplierInvoiceRes interface {
 	postSupplierInvoiceRes()
 }
 
+type PreviewRevaluationRes interface {
+	previewRevaluationRes()
+}
+
 type ProposePaymentRunRes interface {
 	proposePaymentRunRes()
 }

@@ -4443,6 +4443,60 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/revaluation-runs/preview:
+    post:
+      operationId: previewRevaluation
+      tags:
+        - ledger
+      summary: Preview a foreign-currency revaluation
+      description: "Values, without posting, what a revaluation run of a legal entity and ledger at a key date would value (ADR-0042, T48): the open items on supplier and customer reconciliation accounts on the key date (posted on or before it and not cleared by a clearing dated on or before it) and, per currency, the balance of each G/L account flagged `revalue_foreign_currency`, in every currency other than local currency. Down payments (special G/L items) and the GR/IR account are not revalued. Each item is valued at the legal entity's valuation rate type valid on the key date, rounded once: `valued_lc` = amount × rate; the difference to the booked local amount is an unrealised gain when positive and a loss when negative, and its group currency amount follows from local at the key date's average rate, as a posting's would. The key date is the last day of a posting period of the ledger (422 `ledger.key_date_not_period_end`); a rate valid from before that period is stale (422 `ledger.rate_stale`) and a missing one is refused (422 `ledger.no_exchange_rate`); an account with items in scope and no active valuation accounts fails the preview (422 `ledger.revaluation_account_missing`, naming the account). Reads only; every agent autonomy level may call it."
+      x-permission: ledger.entry.read
+      x-autonomy: read
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of previewRevaluation.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevaluationPreviewRequest"
+            examples:
+              monthEnd:
+                summary: Value the open items at the end of March
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  key_date: "2026-03-31"
+      responses:
+        "200":
+          description: The valued items and their totals.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevaluationPreview"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/gr-ir-balances:
     get:
       operationId: listGrIrBalances
@@ -15153,6 +15207,218 @@ components:
           format: int64
           description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
           minimum: 0
+    RevaluationPreviewRequest:
+      type: object
+      description: Parameters of a revaluation preview.
+      required:
+        - legal_entity_id
+        - key_date
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity.
+        ledger_id:
+          type: string
+          format: uuid
+          description: Ledger (default the leading ledger).
+        key_date:
+          type: string
+          format: date
+          description: "Key date: the last day of a posting period."
+      additionalProperties: false
+      examples:
+        - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          key_date: "2026-03-31"
+    RevaluationPreview:
+      type: object
+      description: What a revaluation run at the key date would value.
+      required:
+        - legal_entity_id
+        - ledger_id
+        - key_date
+        - fiscal_year
+        - fiscal_period
+        - rate_type
+        - items
+        - totals
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity.
+          readOnly: true
+        ledger_id:
+          type: string
+          format: uuid
+          description: Ledger.
+          readOnly: true
+        key_date:
+          type: string
+          format: date
+          description: Key date.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year of the period the key date ends.
+          readOnly: true
+        fiscal_period:
+          type: integer
+          format: int32
+          description: The period the key date ends.
+          readOnly: true
+        rate_type:
+          type: string
+          description: The legal entity's valuation rate type.
+          x-extensible-enum: [average, bank_buying, bank_selling, planning]
+          readOnly: true
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RevaluationPreviewItem"
+          description: "Every valued item, by account, currency and open item; one without a difference is listed too."
+          readOnly: true
+        totals:
+          type: array
+          items:
+            $ref: "#/components/schemas/RevaluationPreviewTotal"
+          description: The items with a difference summed per account, currency and direction.
+          readOnly: true
+    RevaluationPreviewItem:
+      type: object
+      description: "One valued item: an open item (a journal line on a reconciliation account) or the balance in one currency of a flagged account."
+      required:
+        - account_id
+        - amount
+        - amount_lc
+        - amount_gc
+        - rate
+        - rate_valid_from
+        - valued_lc
+        - difference_lc
+        - difference_gc
+        - direction
+      properties:
+        account_id:
+          type: string
+          format: uuid
+          description: The revalued account.
+          readOnly: true
+        partner_id:
+          type: string
+          format: uuid
+          description: "The open item's supplier or customer; absent for a balance."
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: "The open item's entry's fiscal year; absent for a balance."
+          readOnly: true
+        journal_entry_id:
+          type: string
+          format: uuid
+          description: "The open item's entry; absent for a balance."
+          readOnly: true
+        line_no:
+          type: integer
+          format: int32
+          description: "The open item's line; absent for a balance."
+          minimum: 1
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "Amount in transaction currency, signed: debit positive."
+          readOnly: true
+        amount_lc:
+          $ref: "#/components/schemas/Money"
+          description: Booked amount in local currency, signed.
+          readOnly: true
+        amount_gc:
+          $ref: "#/components/schemas/Money"
+          description: Booked amount in group currency, signed.
+          readOnly: true
+        rate:
+          $ref: "#/components/schemas/Decimal"
+          description: "Units of local currency per unit of the transaction currency on the key date, of the valuation rate type (rounded to 12 decimals when only the reverse pair is recorded)."
+          readOnly: true
+        rate_valid_from:
+          type: string
+          format: date
+          description: The rate's valid_from.
+          readOnly: true
+        valued_lc:
+          $ref: "#/components/schemas/Money"
+          description: The amount at the rate in local currency, rounded once.
+          readOnly: true
+        difference_lc:
+          $ref: "#/components/schemas/Money"
+          description: valued_lc less amount_lc.
+          readOnly: true
+        difference_gc:
+          $ref: "#/components/schemas/Money"
+          description: difference_lc in group currency at the key date's average rate.
+          readOnly: true
+        direction:
+          type: string
+          description: "gain for a positive difference, loss for a negative one, none without one."
+          x-extensible-enum: [gain, loss, none]
+          readOnly: true
+    RevaluationPreviewTotal:
+      type: object
+      description: The items of one account and currency with a gain, or with a loss, summed.
+      required:
+        - account_id
+        - currency
+        - direction
+        - item_count
+        - amount
+        - amount_lc
+        - valued_lc
+        - difference_lc
+        - difference_gc
+      properties:
+        account_id:
+          type: string
+          format: uuid
+          description: The revalued account.
+          readOnly: true
+        currency:
+          type: string
+          description: Transaction currency (ISO 4217).
+          pattern: "^[A-Z]{3}$"
+          readOnly: true
+        direction:
+          type: string
+          description: gain or loss.
+          x-extensible-enum: [gain, loss]
+          readOnly: true
+        item_count:
+          type: integer
+          format: int32
+          description: Number of items summed.
+          minimum: 1
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: Sum of the items' transaction currency amounts.
+          readOnly: true
+        amount_lc:
+          $ref: "#/components/schemas/Money"
+          description: Sum of their booked local amounts.
+          readOnly: true
+        valued_lc:
+          $ref: "#/components/schemas/Money"
+          description: Sum of their valued local amounts.
+          readOnly: true
+        difference_lc:
+          $ref: "#/components/schemas/Money"
+          description: Sum of their differences in local currency.
+          readOnly: true
+        difference_gc:
+          $ref: "#/components/schemas/Money"
+          description: Sum of their differences in group currency.
+          readOnly: true
     OpenItemPage:
       type: object
       description: One page of open items.

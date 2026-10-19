@@ -154,6 +154,7 @@ const (
 	PostJournalEntryOperation                 OperationName = "PostJournalEntry"
 	PostParkedJournalEntryOperation           OperationName = "PostParkedJournalEntry"
 	PostSupplierInvoiceOperation              OperationName = "PostSupplierInvoice"
+	PreviewRevaluationOperation               OperationName = "PreviewRevaluation"
 	ProposePaymentRunOperation                OperationName = "ProposePaymentRun"
 	ReconcileMigrationRunOperation            OperationName = "ReconcileMigrationRun"
 	RecordAgentToolCallOperation              OperationName = "RecordAgentToolCall"

@@ -529,8 +529,9 @@ func checkTaxCodes(ctx context.Context, tx pgx.Tx, le uuid.UUID, date time.Time,
 // (3,000,000,000,000.02 at 1/3) and, for a recorded rate above 2e12 whose
 // rounded reciprocal is 0, converted every amount to 0.
 type exchange struct {
-	exact *big.Rat
-	shown string
+	exact     *big.Rat
+	shown     string
+	validFrom time.Time // the recorded rate's; zero for one currency
 }
 
 // rate is the average rate from one currency to another valid on the date:
@@ -540,31 +541,42 @@ func rate(ctx context.Context, tx pgx.Tx, from, to string, date time.Time) (exch
 	if from == to {
 		return exchange{exact: big.NewRat(1, 1), shown: "1"}, nil
 	}
-	var recorded, shown string
-	var forward bool
-	err := tx.QueryRow(ctx, `SELECT rate::text, from_currency = $1, CASE WHEN from_currency = $1 THEN rate ELSE round(1 / rate, 12) END::text
-		FROM ledger.exchange_rate WHERE rate_type = 'average' AND valid_from <= $3
-			AND ((from_currency = $1 AND to_currency = $2) OR (from_currency = $2 AND to_currency = $1))
-		ORDER BY valid_from DESC, from_currency = $1 DESC LIMIT 1`, from, to, date).Scan(&recorded, &forward, &shown)
-	if errors.Is(err, pgx.ErrNoRows) {
+	x, found, err := rateOfType(ctx, tx, "average", from, to, date)
+	if err == nil && !found {
 		return exchange{}, problem.Unprocessable("ledger.no_exchange_rate",
 			fmt.Sprintf("No average exchange rate from %s to %s is valid on %s.", from, to, date.Format(time.DateOnly)),
 			problem.FieldError{Field: "posting_date", Code: "no_exchange_rate", Message: "record the rate first"})
 	}
+	return x, err
+}
+
+// rateOfType is the latest rate of a type from one currency to another
+// valid on the date, in either direction (rate), with the date it is valid
+// from; found is false when there is none.
+func rateOfType(ctx context.Context, tx pgx.Tx, rateType, from, to string, date time.Time) (x exchange, found bool, err error) {
+	var recorded string
+	var forward bool
+	err = tx.QueryRow(ctx, `SELECT rate::text, from_currency = $1, CASE WHEN from_currency = $1 THEN rate ELSE round(1 / rate, 12) END::text, valid_from
+		FROM ledger.exchange_rate WHERE rate_type = $4 AND valid_from <= $3
+			AND ((from_currency = $1 AND to_currency = $2) OR (from_currency = $2 AND to_currency = $1))
+		ORDER BY valid_from DESC, from_currency = $1 DESC LIMIT 1`, from, to, date, rateType).Scan(&recorded, &forward, &x.shown, &x.validFrom)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return exchange{}, false, nil
+	}
 	if err != nil {
-		return exchange{}, fmt.Errorf("ledger: rate %s/%s on %s: %w", from, to, date.Format(time.DateOnly), err)
+		return exchange{}, false, fmt.Errorf("ledger: %s rate %s/%s on %s: %w", rateType, from, to, date.Format(time.DateOnly), err)
 	}
 	// Read in money's plain grammar: the column's rate > 0 check lets 'NaN'
 	// through, which CreateRate never stores but a direct write could.
 	exact, err := money.ParsePlain(recorded)
 	if err != nil || exact.Sign() <= 0 {
-		return exchange{}, fmt.Errorf("ledger: rate %s/%s on %s: stored rate %q is not a positive decimal", from, to, date.Format(time.DateOnly), recorded)
+		return exchange{}, false, fmt.Errorf("ledger: %s rate %s/%s on %s: stored rate %q is not a positive decimal", rateType, from, to, date.Format(time.DateOnly), recorded)
 	}
-	x := exchange{exact: exact, shown: shown}
+	x.exact = exact
 	if !forward {
 		x.exact.Inv(x.exact) // never zero: checked above
 	}
-	return x, nil
+	return x, true, nil
 }
 
 // postingRates are the rates a posting converts at, from its transaction

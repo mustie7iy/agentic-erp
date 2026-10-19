@@ -2794,6 +2794,7 @@ func (*BadRequestHeaders) postGoodsReceiptRes()                 {}
 func (*BadRequestHeaders) postJournalEntryRes()                 {}
 func (*BadRequestHeaders) postParkedJournalEntryRes()           {}
 func (*BadRequestHeaders) postSupplierInvoiceRes()              {}
+func (*BadRequestHeaders) previewRevaluationRes()               {}
 func (*BadRequestHeaders) proposePaymentRunRes()                {}
 func (*BadRequestHeaders) reconcileMigrationRunRes()            {}
 func (*BadRequestHeaders) recordAgentToolCallRes()              {}
@@ -6640,6 +6641,7 @@ func (*ConflictHeaders) postGoodsReceiptRes()                 {}
 func (*ConflictHeaders) postJournalEntryRes()                 {}
 func (*ConflictHeaders) postParkedJournalEntryRes()           {}
 func (*ConflictHeaders) postSupplierInvoiceRes()              {}
+func (*ConflictHeaders) previewRevaluationRes()               {}
 func (*ConflictHeaders) proposePaymentRunRes()                {}
 func (*ConflictHeaders) reconcileMigrationRunRes()            {}
 func (*ConflictHeaders) recordAgentToolCallRes()              {}
@@ -10067,6 +10069,7 @@ func (*ForbiddenHeaders) postGoodsReceiptRes()                 {}
 func (*ForbiddenHeaders) postJournalEntryRes()                 {}
 func (*ForbiddenHeaders) postParkedJournalEntryRes()           {}
 func (*ForbiddenHeaders) postSupplierInvoiceRes()              {}
+func (*ForbiddenHeaders) previewRevaluationRes()               {}
 func (*ForbiddenHeaders) proposePaymentRunRes()                {}
 func (*ForbiddenHeaders) reconcileMigrationRunRes()            {}
 func (*ForbiddenHeaders) recordAgentToolCallRes()              {}
@@ -20550,6 +20553,7 @@ func (*PreconditionRequiredHeaders) postGoodsReceiptRes()                 {}
 func (*PreconditionRequiredHeaders) postJournalEntryRes()                 {}
 func (*PreconditionRequiredHeaders) postParkedJournalEntryRes()           {}
 func (*PreconditionRequiredHeaders) postSupplierInvoiceRes()              {}
+func (*PreconditionRequiredHeaders) previewRevaluationRes()               {}
 func (*PreconditionRequiredHeaders) proposePaymentRunRes()                {}
 func (*PreconditionRequiredHeaders) reconcileMigrationRunRes()            {}
 func (*PreconditionRequiredHeaders) recordAgentToolCallRes()              {}
@@ -24338,6 +24342,497 @@ func (s *RequisitionUpdate) SetExtensions(val OptExtensions) {
 	s.Extensions = val
 }
 
+// What a revaluation run at the key date would value.
+// Ref: #/components/schemas/RevaluationPreview
+type RevaluationPreview struct {
+	// Legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// Key date.
+	KeyDate time.Time `json:"key_date"`
+	// Fiscal year of the period the key date ends.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The period the key date ends.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The legal entity's valuation rate type.
+	RateType string `json:"rate_type"`
+	// Every valued item, by account, currency and open item; one without a difference is listed too.
+	Items []RevaluationPreviewItem `json:"items"`
+	// The items with a difference summed per account, currency and direction.
+	Totals []RevaluationPreviewTotal `json:"totals"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *RevaluationPreview) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *RevaluationPreview) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetKeyDate returns the value of KeyDate.
+func (s *RevaluationPreview) GetKeyDate() time.Time {
+	return s.KeyDate
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *RevaluationPreview) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *RevaluationPreview) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetRateType returns the value of RateType.
+func (s *RevaluationPreview) GetRateType() string {
+	return s.RateType
+}
+
+// GetItems returns the value of Items.
+func (s *RevaluationPreview) GetItems() []RevaluationPreviewItem {
+	return s.Items
+}
+
+// GetTotals returns the value of Totals.
+func (s *RevaluationPreview) GetTotals() []RevaluationPreviewTotal {
+	return s.Totals
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *RevaluationPreview) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *RevaluationPreview) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetKeyDate sets the value of KeyDate.
+func (s *RevaluationPreview) SetKeyDate(val time.Time) {
+	s.KeyDate = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *RevaluationPreview) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *RevaluationPreview) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetRateType sets the value of RateType.
+func (s *RevaluationPreview) SetRateType(val string) {
+	s.RateType = val
+}
+
+// SetItems sets the value of Items.
+func (s *RevaluationPreview) SetItems(val []RevaluationPreviewItem) {
+	s.Items = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *RevaluationPreview) SetTotals(val []RevaluationPreviewTotal) {
+	s.Totals = val
+}
+
+// RevaluationPreviewHeaders wraps RevaluationPreview with response headers.
+type RevaluationPreviewHeaders struct {
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           RevaluationPreview
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *RevaluationPreviewHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *RevaluationPreviewHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *RevaluationPreviewHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *RevaluationPreviewHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *RevaluationPreviewHeaders) GetResponse() RevaluationPreview {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *RevaluationPreviewHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *RevaluationPreviewHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *RevaluationPreviewHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *RevaluationPreviewHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RevaluationPreviewHeaders) SetResponse(val RevaluationPreview) {
+	s.Response = val
+}
+
+func (*RevaluationPreviewHeaders) previewRevaluationRes() {}
+
+// One valued item: an open item (a journal line on a reconciliation account) or the balance in one
+// currency of a flagged account.
+// Ref: #/components/schemas/RevaluationPreviewItem
+type RevaluationPreviewItem struct {
+	// The revalued account.
+	AccountID uuid.UUID `json:"account_id"`
+	// The open item's supplier or customer; absent for a balance.
+	PartnerID OptUUID `json:"partner_id"`
+	// The open item's entry's fiscal year; absent for a balance.
+	FiscalYear OptInt32 `json:"fiscal_year"`
+	// The open item's entry; absent for a balance.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The open item's line; absent for a balance.
+	LineNo OptInt32 `json:"line_no"`
+	// Amount in transaction currency, signed: debit positive.
+	Amount Money `json:"amount"`
+	// Booked amount in local currency, signed.
+	AmountLc Money `json:"amount_lc"`
+	// Booked amount in group currency, signed.
+	AmountGc Money `json:"amount_gc"`
+	// Units of local currency per unit of the transaction currency on the key date, of the valuation rate
+	// type (rounded to 12 decimals when only the reverse pair is recorded).
+	Rate Decimal `json:"rate"`
+	// The rate's valid_from.
+	RateValidFrom time.Time `json:"rate_valid_from"`
+	// The amount at the rate in local currency, rounded once.
+	ValuedLc Money `json:"valued_lc"`
+	// Valued_lc less amount_lc.
+	DifferenceLc Money `json:"difference_lc"`
+	// Difference_lc in group currency at the key date's average rate.
+	DifferenceGc Money `json:"difference_gc"`
+	// Gain for a positive difference, loss for a negative one, none without one.
+	Direction string `json:"direction"`
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *RevaluationPreviewItem) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetPartnerID returns the value of PartnerID.
+func (s *RevaluationPreviewItem) GetPartnerID() OptUUID {
+	return s.PartnerID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *RevaluationPreviewItem) GetFiscalYear() OptInt32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *RevaluationPreviewItem) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *RevaluationPreviewItem) GetLineNo() OptInt32 {
+	return s.LineNo
+}
+
+// GetAmount returns the value of Amount.
+func (s *RevaluationPreviewItem) GetAmount() Money {
+	return s.Amount
+}
+
+// GetAmountLc returns the value of AmountLc.
+func (s *RevaluationPreviewItem) GetAmountLc() Money {
+	return s.AmountLc
+}
+
+// GetAmountGc returns the value of AmountGc.
+func (s *RevaluationPreviewItem) GetAmountGc() Money {
+	return s.AmountGc
+}
+
+// GetRate returns the value of Rate.
+func (s *RevaluationPreviewItem) GetRate() Decimal {
+	return s.Rate
+}
+
+// GetRateValidFrom returns the value of RateValidFrom.
+func (s *RevaluationPreviewItem) GetRateValidFrom() time.Time {
+	return s.RateValidFrom
+}
+
+// GetValuedLc returns the value of ValuedLc.
+func (s *RevaluationPreviewItem) GetValuedLc() Money {
+	return s.ValuedLc
+}
+
+// GetDifferenceLc returns the value of DifferenceLc.
+func (s *RevaluationPreviewItem) GetDifferenceLc() Money {
+	return s.DifferenceLc
+}
+
+// GetDifferenceGc returns the value of DifferenceGc.
+func (s *RevaluationPreviewItem) GetDifferenceGc() Money {
+	return s.DifferenceGc
+}
+
+// GetDirection returns the value of Direction.
+func (s *RevaluationPreviewItem) GetDirection() string {
+	return s.Direction
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *RevaluationPreviewItem) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetPartnerID sets the value of PartnerID.
+func (s *RevaluationPreviewItem) SetPartnerID(val OptUUID) {
+	s.PartnerID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *RevaluationPreviewItem) SetFiscalYear(val OptInt32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *RevaluationPreviewItem) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *RevaluationPreviewItem) SetLineNo(val OptInt32) {
+	s.LineNo = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *RevaluationPreviewItem) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetAmountLc sets the value of AmountLc.
+func (s *RevaluationPreviewItem) SetAmountLc(val Money) {
+	s.AmountLc = val
+}
+
+// SetAmountGc sets the value of AmountGc.
+func (s *RevaluationPreviewItem) SetAmountGc(val Money) {
+	s.AmountGc = val
+}
+
+// SetRate sets the value of Rate.
+func (s *RevaluationPreviewItem) SetRate(val Decimal) {
+	s.Rate = val
+}
+
+// SetRateValidFrom sets the value of RateValidFrom.
+func (s *RevaluationPreviewItem) SetRateValidFrom(val time.Time) {
+	s.RateValidFrom = val
+}
+
+// SetValuedLc sets the value of ValuedLc.
+func (s *RevaluationPreviewItem) SetValuedLc(val Money) {
+	s.ValuedLc = val
+}
+
+// SetDifferenceLc sets the value of DifferenceLc.
+func (s *RevaluationPreviewItem) SetDifferenceLc(val Money) {
+	s.DifferenceLc = val
+}
+
+// SetDifferenceGc sets the value of DifferenceGc.
+func (s *RevaluationPreviewItem) SetDifferenceGc(val Money) {
+	s.DifferenceGc = val
+}
+
+// SetDirection sets the value of Direction.
+func (s *RevaluationPreviewItem) SetDirection(val string) {
+	s.Direction = val
+}
+
+// Parameters of a revaluation preview.
+// Ref: #/components/schemas/RevaluationPreviewRequest
+type RevaluationPreviewRequest struct {
+	// Legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Ledger (default the leading ledger).
+	LedgerID OptUUID `json:"ledger_id"`
+	// Key date: the last day of a posting period.
+	KeyDate time.Time `json:"key_date"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *RevaluationPreviewRequest) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *RevaluationPreviewRequest) GetLedgerID() OptUUID {
+	return s.LedgerID
+}
+
+// GetKeyDate returns the value of KeyDate.
+func (s *RevaluationPreviewRequest) GetKeyDate() time.Time {
+	return s.KeyDate
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *RevaluationPreviewRequest) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *RevaluationPreviewRequest) SetLedgerID(val OptUUID) {
+	s.LedgerID = val
+}
+
+// SetKeyDate sets the value of KeyDate.
+func (s *RevaluationPreviewRequest) SetKeyDate(val time.Time) {
+	s.KeyDate = val
+}
+
+// The items of one account and currency with a gain, or with a loss, summed.
+// Ref: #/components/schemas/RevaluationPreviewTotal
+type RevaluationPreviewTotal struct {
+	// The revalued account.
+	AccountID uuid.UUID `json:"account_id"`
+	// Transaction currency (ISO 4217).
+	Currency string `json:"currency"`
+	// Gain or loss.
+	Direction string `json:"direction"`
+	// Number of items summed.
+	ItemCount int32 `json:"item_count"`
+	// Sum of the items' transaction currency amounts.
+	Amount Money `json:"amount"`
+	// Sum of their booked local amounts.
+	AmountLc Money `json:"amount_lc"`
+	// Sum of their valued local amounts.
+	ValuedLc Money `json:"valued_lc"`
+	// Sum of their differences in local currency.
+	DifferenceLc Money `json:"difference_lc"`
+	// Sum of their differences in group currency.
+	DifferenceGc Money `json:"difference_gc"`
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *RevaluationPreviewTotal) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetCurrency returns the value of Currency.
+func (s *RevaluationPreviewTotal) GetCurrency() string {
+	return s.Currency
+}
+
+// GetDirection returns the value of Direction.
+func (s *RevaluationPreviewTotal) GetDirection() string {
+	return s.Direction
+}
+
+// GetItemCount returns the value of ItemCount.
+func (s *RevaluationPreviewTotal) GetItemCount() int32 {
+	return s.ItemCount
+}
+
+// GetAmount returns the value of Amount.
+func (s *RevaluationPreviewTotal) GetAmount() Money {
+	return s.Amount
+}
+
+// GetAmountLc returns the value of AmountLc.
+func (s *RevaluationPreviewTotal) GetAmountLc() Money {
+	return s.AmountLc
+}
+
+// GetValuedLc returns the value of ValuedLc.
+func (s *RevaluationPreviewTotal) GetValuedLc() Money {
+	return s.ValuedLc
+}
+
+// GetDifferenceLc returns the value of DifferenceLc.
+func (s *RevaluationPreviewTotal) GetDifferenceLc() Money {
+	return s.DifferenceLc
+}
+
+// GetDifferenceGc returns the value of DifferenceGc.
+func (s *RevaluationPreviewTotal) GetDifferenceGc() Money {
+	return s.DifferenceGc
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *RevaluationPreviewTotal) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *RevaluationPreviewTotal) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetDirection sets the value of Direction.
+func (s *RevaluationPreviewTotal) SetDirection(val string) {
+	s.Direction = val
+}
+
+// SetItemCount sets the value of ItemCount.
+func (s *RevaluationPreviewTotal) SetItemCount(val int32) {
+	s.ItemCount = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *RevaluationPreviewTotal) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetAmountLc sets the value of AmountLc.
+func (s *RevaluationPreviewTotal) SetAmountLc(val Money) {
+	s.AmountLc = val
+}
+
+// SetValuedLc sets the value of ValuedLc.
+func (s *RevaluationPreviewTotal) SetValuedLc(val Money) {
+	s.ValuedLc = val
+}
+
+// SetDifferenceLc sets the value of DifferenceLc.
+func (s *RevaluationPreviewTotal) SetDifferenceLc(val Money) {
+	s.DifferenceLc = val
+}
+
+// SetDifferenceGc sets the value of DifferenceGc.
+func (s *RevaluationPreviewTotal) SetDifferenceGc(val Money) {
+	s.DifferenceGc = val
+}
+
 // ReverseGoodsReceiptOKHeaders wraps GoodsReceipt with response headers.
 type ReverseGoodsReceiptOKHeaders struct {
 	ETag               OptString
@@ -27487,6 +27982,7 @@ func (*TooManyRequestsHeaders) postGoodsReceiptRes()                 {}
 func (*TooManyRequestsHeaders) postJournalEntryRes()                 {}
 func (*TooManyRequestsHeaders) postParkedJournalEntryRes()           {}
 func (*TooManyRequestsHeaders) postSupplierInvoiceRes()              {}
+func (*TooManyRequestsHeaders) previewRevaluationRes()               {}
 func (*TooManyRequestsHeaders) proposePaymentRunRes()                {}
 func (*TooManyRequestsHeaders) reconcileMigrationRunRes()            {}
 func (*TooManyRequestsHeaders) recordAgentToolCallRes()              {}
@@ -27738,6 +28234,7 @@ func (*UnauthorizedHeaders) postGoodsReceiptRes()                 {}
 func (*UnauthorizedHeaders) postJournalEntryRes()                 {}
 func (*UnauthorizedHeaders) postParkedJournalEntryRes()           {}
 func (*UnauthorizedHeaders) postSupplierInvoiceRes()              {}
+func (*UnauthorizedHeaders) previewRevaluationRes()               {}
 func (*UnauthorizedHeaders) proposePaymentRunRes()                {}
 func (*UnauthorizedHeaders) reconcileMigrationRunRes()            {}
 func (*UnauthorizedHeaders) recordAgentToolCallRes()              {}
@@ -27892,6 +28389,7 @@ func (*UnprocessableHeaders) postGoodsReceiptRes()                 {}
 func (*UnprocessableHeaders) postJournalEntryRes()                 {}
 func (*UnprocessableHeaders) postParkedJournalEntryRes()           {}
 func (*UnprocessableHeaders) postSupplierInvoiceRes()              {}
+func (*UnprocessableHeaders) previewRevaluationRes()               {}
 func (*UnprocessableHeaders) proposePaymentRunRes()                {}
 func (*UnprocessableHeaders) reconcileMigrationRunRes()            {}
 func (*UnprocessableHeaders) recordAgentToolCallRes()              {}

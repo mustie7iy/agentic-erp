@@ -1024,9 +1024,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Valuation engine and preview (open to agents): open items of reconciliation accounts and balances of flagged accounts at the key date's rate; stale rate refused (ledger.rate_stale)",
-        "r": "T48b",
+        "r": "POST /v1/revaluation-runs/preview (x-autonomy: read) · ledger.valueRevaluation · key date a period end · account without valuation fails closed (ledger.revaluation_account_missing) · budget 10,000 open items p95 1 s · T48b",
         "c": []
        },
        {
