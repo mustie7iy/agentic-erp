@@ -44,7 +44,8 @@ the copies are the fallback when the region and the replica are both
 lost, so their RPO is the hour, not the minute. The bucket replicates to a
 bucket in the disaster-recovery region, encrypted with that key, keeping versions and
 delete markers, so a deletion in the home region is a noncurrent version in
-both.
+both. The replica keeps noncurrent versions 35 days too, so both
+expire at the same age.
 
 **Region failover: a pilot light (T41b2).** A production cell has, in its
 disaster-recovery region, a cross-region read replica of its database and a
@@ -111,7 +112,10 @@ with the old database's where it is kept (a restore in place), and the RPO and
 RTO from markers written before the incident and read after the restore.
 
 **Drills (T41e).** Staging's drill cell restores itself to a point in time
-and fails over to its disaster-recovery region; each run is appended to
+and restores from its copies in the disaster-recovery region (staging has
+the copies, not the replica and pilot light, which production alone pays
+for; where the region failover itself is rehearsed is an open decision for
+the PO before the pilot); each run is appended to
 `deploy/environments/staging/stg1/drills/restore.json` (who, when, restore
 point, RPO and RTO measured, verification result), which only grows. The
 promotion checks (ADR-0035) refuse a production promotion when the last
@@ -178,7 +182,7 @@ exactly that, weekly (`make failover`).
    are not replayed (ADR-0029 imports no outbox).
 
 ## Alternatives
-- **Region option (b): backups only in the second region.** Cheaper, but a
+- **Backups only in the second region, without a replica or pilot light.** Cheaper, but a
   restore from copied snapshots and a cluster built from nothing exceeds
   30 minutes, and the RPO is the copy interval, not one minute.
 - **Active-active cells in two regions.** Meets both targets with margin;

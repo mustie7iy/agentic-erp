@@ -5176,7 +5176,7 @@
        },
        {
         "s": "T",
-        "t": "Restore verified: migration version, audit hash chains, balanced journal and trial balances, fingerprints against the directory, RPO/RTO markers; tenants the directory records as erased erased again (the directory records erasure first)",
+        "t": "Restore verified: migration version, audit hash chains, balanced journal and trial balances, fingerprints (ADR-0030) against the old database's where it is kept, RPO/RTO markers; tenants the directory records as offboarded or erased offboarded and erased again (the directory records them first)",
         "r": "T41d",
         "c": []
        }
@@ -5195,7 +5195,7 @@
        },
        {
         "s": "T",
-        "t": "Restore drills recorded append-only in deploy/environments/staging/stg1/drills/restore.json; a production promotion refused when the last passed restore drill is older than 90 days",
+        "t": "Restore drills (point in time, and from the DR-region copies) recorded append-only in deploy/environments/staging/stg1/drills/restore.json (scripts/promotion-checks.sh accepts it beside the release drills); a production promotion refused when the last passed restore drill is older than 90 days",
         "r": "T41e",
         "c": []
        }
