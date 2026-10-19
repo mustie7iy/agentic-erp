@@ -88,6 +88,10 @@ case_ by-tag refused "not a sha256 digest" 'put "$(env_file dev/dev1)" "$(releas
 case_ foreign-repository refused "repository" 'put "$(env_file dev/dev1)" "$(release v1.3.0 4 | sed "s|amazonaws.com/erp-nats|amazonaws.com/nats|")" p'
 case_ missing-image refused "images must be exactly" 'put "$(env_file dev/dev1)" "$(release v1.3.0 4 | python3 -c "import json,sys; d=json.load(sys.stdin); del d[\"images\"][\"temporal\"]; print(json.dumps(d))")" p'
 case_ short-commit refused "full commit" 'put "$(env_file dev/dev1)" "$(release v1.3.0 4 | sed "s/\"commit\": \"4*\"/\"commit\": \"4444\"/")" p'
+case_ cell-values ok "changes the values" 'put deploy/environments/dev/dev1/cell.json "{\"environment\": \"dev\", \"cell\": \"dev1\"}" p'
+case_ cell-values-of-another-cell refused "naming its cell" 'put deploy/environments/dev/dev1/cell.json "{\"environment\": \"dev\", \"cell\": \"dev2\"}" p'
+case_ cell-values-with-images refused "pins no image" 'put deploy/environments/dev/dev1/cell.json "{\"environment\": \"dev\", \"cell\": \"dev1\", \"erpCell\": {\"images\": {}}}" p'
+case_ cell-values-and-release refused "one cell" 'put deploy/environments/dev/dev1/cell.json "{\"environment\": \"dev\", \"cell\": \"dev1\"}" p && put "$(env_file dev/dev1)" "$(release v1.3.0 4)" q'
 case_ unknown-file refused "only cells" 'put deploy/environments/notes.txt hello p'
 case_ off-the-path refused "not on" 'put "$(env_file sandbox/sbx1)" "$(release v1.2.0 3)" p'
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Checks the cluster's Helm content without a cluster (ADR-0035), as CI's
 # deploy workflow runs it:
-#   - each add-on in deploy/helm/addons/charts.txt is pulled at its pinned
-#     version and refused unless its archive has the pinned SHA-256, then
+#   - each add-on in deploy/helm/erp-delivery/addons.txt is pulled at its
+#     pinned version and refused unless its archive has the pinned SHA-256, then
 #     rendered with its values and an environment's (addons/testdata) and
 #     validated with kubeconform; the service account its IRSA role trusts
 #     (deploy/terraform/modules/cell/irsa.tf) must be the one it runs as,
@@ -16,6 +16,12 @@
 #   - deploy/helm/erp-global likewise, its router reading the PROXY header
 #     from, and taking public connections from, the load balancer's
 #     subnets alone, ready only once the load balancer finds it healthy;
+#   - deploy/helm/erp-delivery likewise: the cell's Argo CD Applications,
+#     one per add-on of addons.txt in its order, then erp-cluster, erp-cell
+#     and (on the home cell alone) erp-global with the cell's release.json;
+#     the hooks erp-cell's hook Jobs mount are hooks of a lower weight that
+#     Argo CD keeps until its sync ends, and Argo CD's sync limit is above
+#     the Jobs' deadline;
 #   - scripts/admission-checks.sh then runs its policies against signed
 #     images and certificates.
 # HELM, KUBECONFORM and CONFTEST (which turns YAML into JSON here) name the
@@ -128,7 +134,7 @@ while read -r -u 3 name namespace repository chart version sha256; do
       exit 1
     fi
   fi
-done 3<deploy/helm/addons/charts.txt
+done 3<deploy/helm/erp-delivery/addons.txt
 
 echo "== erp-cluster"
 chart=deploy/helm/erp-cluster
@@ -286,5 +292,120 @@ done
 echo "helm-checks: erp-global refuses to render without each value it requires, with an image not by digest, or no load balancer subnets"
 rotating "$work/erp-cell.json" "$work/erp-global.json"
 echo "helm-checks: every rotating password is refreshed within five minutes"
+
+# hooks JSON: each hook Job's secrets and config maps come from hooks of a
+# lower weight for the same events, deleted at most when the hooks
+# succeeded: Helm deletes those after its last hook, Argo CD once its whole
+# sync has, so they outlive the Jobs that mount them. Anything else would
+# not exist yet on a first install, or be gone when the Job starts.
+hooks() {
+  python3 - "$1" <<'PY'
+import json, sys
+docs = [d for d in json.load(open(sys.argv[1])) if d]
+def hook(d):
+    a = d["metadata"].get("annotations", {})
+    return a.get("helm.sh/hook"), int(a.get("helm.sh/hook-weight", "0")), set(filter(None, a.get("helm.sh/hook-delete-policy", "").split(",")))
+made = {}
+for d in docs:
+    events, weight, policy = hook(d)
+    if not events or d["kind"] == "Job":
+        continue
+    if d["kind"] == "ExternalSecret":
+        made[("secret", d["spec"]["target"]["name"])] = (events, weight, policy, d["metadata"]["name"])
+    elif d["kind"] in ("Secret", "ConfigMap"):
+        made[(d["kind"].lower(), d["metadata"]["name"])] = (events, weight, policy, d["metadata"]["name"])
+jobs = 0
+for d in docs:
+    events, weight, _ = hook(d)
+    if d["kind"] != "Job" or not events:
+        continue
+    jobs += 1
+    for v in d["spec"]["template"]["spec"].get("volumes", []):
+        if "secret" in v:
+            key = ("secret", v["secret"]["secretName"])
+        elif "configMap" in v:
+            key = ("configmap", v["configMap"]["name"])
+        else:
+            continue
+        if key not in made:
+            sys.exit("helm-checks: hook Job %s mounts %s %s, which no hook makes" % (d["metadata"]["name"], key[0], key[1]))
+        e, w, policy, name = made[key]
+        if e != events or w >= weight or not policy <= {"before-hook-creation", "hook-succeeded"}:
+            sys.exit("helm-checks: hook Job %s mounts %s, a hook (%s, weight %d, deleted %s) that is not of its events, of a lower weight than %d, and kept until the hooks succeeded"
+                     % (d["metadata"]["name"], name, e, w, ",".join(sorted(policy)) or "never", weight))
+if not jobs:
+    sys.exit("helm-checks: no hook Job: the check judged nothing")
+PY
+}
+hooks "$work/erp-cell.json"
+echo "helm-checks: erp-cell's hook Jobs mount only hooks of a lower weight, kept until the hooks succeeded"
+
+echo "== erp-delivery"
+chart=deploy/helm/erp-delivery
+values="$chart/tests/cell.json"
+"$HELM" lint --strict "$chart" -f "$values"
+"$HELM" template erp-delivery "$chart" --namespace argocd -f "$values" >"$work/erp-delivery.yaml"
+validate "$work/erp-delivery.yaml"
+"$CONFTEST" parse --parser yaml "$work/erp-delivery.yaml" >"$work/erp-delivery.json"
+"$HELM" template erp-delivery "$chart" --namespace argocd -f "$values" --set home=false >"$work/erp-delivery-other.yaml"
+"$CONFTEST" parse --parser yaml "$work/erp-delivery-other.yaml" >"$work/erp-delivery-other.json"
+"$CONFTEST" parse --parser yaml --combine deploy/helm/addons/values/argo-cd.yaml deploy/helm/erp-cell/values.yaml >"$work/limits.json"
+python3 - "$work/erp-delivery.json" "$work/erp-delivery-other.json" "$chart/addons.txt" "$work/limits.json" <<'PY'
+import json, sys
+def fail(msg):
+    sys.exit("helm-checks: erp-delivery: " + msg)
+def apps(path):
+    """The child Applications, in the order rendered (the root left out)."""
+    return [d for d in json.load(open(path)) if d and d["kind"] == "Application" and d["metadata"]["name"] != "erp-delivery"]
+pins = [l.split() for l in open(sys.argv[3]) if l.strip() and not l.lstrip().startswith("#")]
+home, other = apps(sys.argv[1]), apps(sys.argv[2])
+want = [p[0] for p in pins] + ["erp-cluster", "erp-cell", "erp-global"]
+if [a["metadata"]["name"] for a in home] != want:
+    fail("the home cell's Applications are %s, want %s" % ([a["metadata"]["name"] for a in home], want))
+if [a["metadata"]["name"] for a in other] != want[:-1]:
+    fail("a cell other than the home cell runs erp-global")
+waves = [int(a["metadata"]["annotations"]["argocd.argoproj.io/sync-wave"]) for a in home]
+addons, cluster, platform = waves[:len(pins)], waves[len(pins)], waves[len(pins) + 1:]
+if addons != sorted(set(addons)) or max(addons) >= cluster or cluster >= min(platform):
+    fail("the waves %s do not run the add-ons in order, then erp-cluster, then the platform" % waves)
+for p, a in zip(pins, home):
+    s = a["spec"]["sources"][0]
+    if (a["spec"]["destination"]["namespace"], s["repoURL"], s["chart"], s["targetRevision"]) != tuple(p[1:5]):
+        fail("%s is not installed as addons.txt pins it" % p[0])
+for a in home:
+    name, spec = a["metadata"]["name"], a["spec"]
+    if spec["destination"].get("server") != "https://kubernetes.default.svc" or spec["project"] != "erp":
+        fail("%s deploys elsewhere than the cell's own cluster, in project erp" % name)
+    if not spec["syncPolicy"]["automated"].get("selfHeal") or "finalizers" in a["metadata"]:
+        fail("%s must self-heal, and its deletion must leave what it deployed" % name)
+    if name in ("erp-cell", "erp-global") and spec["source"]["helm"]["valueFiles"] != ["../../../deploy/environments/dev/dev1/release.json"]:
+        fail("%s does not take the cell's release.json" % name)
+project = next(d for d in json.load(open(sys.argv[1])) if d and d["kind"] == "AppProject")
+if any(d.get("server") != "https://kubernetes.default.svc" for d in project["spec"]["destinations"]):
+    fail("the project reaches a cluster other than the cell's own")
+limits = json.load(open(sys.argv[4]))
+argo, cell = limits[0]["contents"], limits[1]["contents"]
+limit, deadline = int(argo["configs"]["params"]["controller.sync.timeout.seconds"]), int(cell["migrations"]["deadlineSeconds"])
+if limit <= deadline:
+    fail("Argo CD's sync limit (%ds) is not above the migrations Jobs' deadline (%ds)" % (limit, deadline))
+PY
+for value in environment cell; do
+  if "$HELM" template erp-delivery "$chart" -f "$values" --set "$value=null" >/dev/null 2>"$work/err"; then
+    echo "helm-checks: erp-delivery rendered without $value" >&2
+    exit 1
+  fi
+  if ! grep -q "$value" "$work/err"; then
+    cat "$work/err" >&2
+    echo "helm-checks: rendering erp-delivery without $value failed for another reason" >&2
+    exit 1
+  fi
+done
+for bad in 'cell=dev-1' 'environment=sandbox' 'erpCell.images.server.digest=sha256:1' 'erpGlobal.images.router.digest=sha256:1'; do
+  if "$HELM" template erp-delivery "$chart" -f "$values" --set "$bad" >/dev/null 2>&1; then
+    echo "helm-checks: erp-delivery took $bad" >&2
+    exit 1
+  fi
+done
+echo "helm-checks: erp-delivery installs the add-ons in order, then the platform at the cell's release, on the cell's own cluster"
 
 CRDS="$work/crds.yaml" HELM="$HELM" CONFTEST="$CONFTEST" ./scripts/admission-checks.sh

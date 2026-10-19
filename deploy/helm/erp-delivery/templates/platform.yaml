@@ -1,0 +1,49 @@
+# The platform: erp-cluster once the add-ons are healthy, then erp-cell
+# and, on the home cell, erp-global, with the cell's release.json (the
+# images, which promotions pin) and the rest of their values from
+# cell.json. erp-cell's migrations Jobs are PreSync hooks (Helm's
+# pre-install and pre-upgrade): Argo CD runs them before the release's
+# other resources, by weight, and deletes the succeeded ones only once the
+# whole sync has, so the wave -10 secrets and certificates outlive the
+# Jobs that mount them; the sync's own limit (values/argo-cd.yaml) is
+# above the Jobs' deadline.
+{{- $path := include "erp-delivery.cellPath" . }}
+{{- range $c := list .Values.erpCell .Values.erpGlobal }}
+{{- if hasKey $c "images" }}
+{{- fail "erpCell and erpGlobal take no images: the cell's release.json pins them" }}
+{{- end }}
+{{- end }}
+{{- $apps := list (dict "name" "erp-cluster" "namespace" "kube-system" "wave" "-10" "values" .Values.erpCluster "release" false) }}
+{{- $apps = append $apps (dict "name" "erp-cell" "namespace" "erp" "wave" "0" "values" .Values.erpCell "release" true) }}
+{{- if .Values.home }}
+{{- $apps = append $apps (dict "name" "erp-global" "namespace" "erp-global" "wave" "0" "values" .Values.erpGlobal "release" true) }}
+{{- end }}
+{{- range $apps }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ .name }}
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .wave | quote }}
+spec:
+  source:
+    repoURL: {{ $.Values.repository }}
+    targetRevision: {{ $.Values.revision }}
+    path: deploy/helm/{{ .name }}
+    helm:
+      releaseName: {{ .name }}
+      {{- if .release }}
+      valueFiles:
+        - ../../../{{ $path }}/release.json
+      {{- end }}
+      {{- with .values }}
+      valuesObject:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .namespace }}
+  {{- include "erp-delivery.sync" (dict "options" (list)) | nindent 2 }}
+{{- end }}

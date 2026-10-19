@@ -19,7 +19,8 @@ path; T40 builds them in four steps.
 a `tooling` account and one account per environment: `dev`, `test`,
 `staging`, `production`. Tooling holds what every environment trusts or
 pulls: the release signing key, the roles GitHub Actions assumes, the image
-registry, the root certificate authority and, from T40d, Argo CD. A cell is
+registry and the root certificate authority. Argo CD runs in each cell
+(T40d, product owner), not in tooling. A cell is
 a VPC and an EKS cluster in its environment's account and region; a
 dedicated cell may get an account of its own.
 
@@ -277,8 +278,10 @@ Kubernetes' restricted Pod Security profile):
   provenance once T39's release and T40 meet. The script refuses an index,
   another platform, a source that serves another manifest and a release
   tag that names another image.
-- The migrations' time is bounded by the installer's timeout (Helm's
-  `--timeout`, Argo CD's sync in T40d) as much as by the Job's deadline.
+- The migrations' time is bounded by the installer's timeout as much as
+  by the Job's deadline: Helm's `--timeout`, or Argo CD's sync limit of
+  90 minutes, which `helm-checks.sh` holds above the Jobs' deadline
+  (`migrations.deadlineSeconds`, an hour).
 
 `scripts/helm-checks.sh` renders it, validates it against the add-ons'
 CRDs, refuses a render missing any value it requires or naming an image by
@@ -328,10 +331,10 @@ checks that the PROXY sources, the public listener's network policy and
 the readiness gate agree with the load balancer's subnets and the binding,
 and has Kyverno admit the router and its certificate.
 
-**Cluster add-ons and policies (T40c2).** Each cell runs five upstream
+**Cluster add-ons and policies (T40c2).** Each cell runs upstream
 charts, pinned by version and by their archive's SHA-256 in
-`deploy/helm/addons/charts.txt`, each a release of its own in its
-namespace: cert-manager, aws-privateca-issuer, the External Secrets
+`deploy/helm/erp-delivery/addons.txt`, each a release of its own in its
+namespace: Argo CD (T40d3), cert-manager, aws-privateca-issuer, the External Secrets
 Operator, the AWS Load Balancer Controller (for TargetGroupBinding only:
 it registers targets and creates no load balancer, listener or security
 group rule) and Kyverno. Each runs as an IRSA role of the cell
@@ -406,7 +409,7 @@ model the ephemeral-container subresource, so the twins are checked to
 be the same policies), and judge certificates and requests, each case
 differing from an admitted one in one respect.
 
-**Delivery (T40d).** Argo CD in tooling pulls `deploy/`. A release is
+**Delivery (T40d).** Each cell's own Argo CD pulls `deploy/`. A release is
 promoted by a pull request that pins its image digests per environment:
 dev, test, staging, a production canary cell, then all cells (06 §6.9). A
 promotion merges only after `verify-image.sh` checks the digests against
@@ -415,6 +418,39 @@ the release's commit. Production promotions need a second approver
 production: deploy N, deploy N+1, revert to N, smoke tests and readiness
 with N's code on N+1's schema, which expand, migrate, contract (§6.4) makes
 safe. Rollback in production is the same revert, per cell.
+
+*Argo CD (T40d3, product owner).* One Argo CD per cell, installed as one
+of its add-ons, pulls the cell's pinned release from `deploy/` and
+deploys to its own cluster alone: no central Argo CD, no other cluster
+registered, so nothing holds access to a cell's cluster API from another
+account. It has no accounts, Dex or ingress of its own; operators work
+through the cell's Kubernetes API with their own access (`kubectl`,
+`argocd --core`). It reads the repository with the cell's read-only deploy
+key, `erp/<cell>/argocd-repository`, which the bootstrap loads and the
+External Secrets Operator's role cannot read. The `erp-delivery` chart is
+the cell's app of apps: its root Application renders the chart with the
+cell's own values, `deploy/environments/<env>/<cell>/cell.json` (written
+from the cell's Terraform outputs, changed by a pull request of their own,
+holding no image), into one Application per add-on of `addons.txt` in its
+order (one sync wave each; an Application is healthy once what it deploys
+is, so each wave waits for the one before), then `erp-cluster`, then
+`erp-cell` and, on the environment's home cell, `erp-global`, these two
+with the cell's `release.json` as a values file. Every Application is in
+one project whose only destination is the cell's own cluster, syncs
+automatically with pruning and self-healing, retries twice, and has no
+resources finalizer, so deleting one leaves what it deployed (the NATS
+volumes among it). Argo CD fetches an add-on chart by its version; the
+archive's SHA-256 is checked by `helm-checks.sh`, not at sync.
+Under Argo CD erp-cell's Helm hooks are PreSync hooks run by weight: the
+wave -10 secrets (an ExternalSecret is complete once ready) and the RDS
+bundle exist before the Jobs of weight 0 start, and Argo CD deletes the
+succeeded hooks only once the whole sync has succeeded, so they outlive the
+Jobs that mount them. `helm-checks.sh` holds every hook Job to mounting
+only hooks of a lower weight deleted at most on success. PreSync hooks run
+on every sync, a self-heal's too; the migrations and the engine's schema
+Job are idempotent, so such a sync costs their run and changes nothing.
+`helm-checks.sh` renders the chart and holds it to the order, the pins,
+the destination and the release files.
 
 *Promotions (T40d2).* Each cell's release is a file,
 `deploy/environments/<env>/<cell>/release.json`: the release's version and
@@ -486,6 +522,24 @@ which the state bucket refuses.
    account and region sets
    `manage_ebs_defaults = false`: EBS encryption by default is a setting of
    the account and region, which only one cell owns.
+6. Bootstrap each cell's delivery, in the cell's account with access to
+   its cluster (`aws eks update-kubeconfig`):
+   - write `deploy/environments/<env>/<cell>/cell.json` from the root's
+     outputs (`cell`, `global`; the add-ons' values as
+     `deploy/helm/addons/testdata` shows) and merge it by a pull request;
+   - create a read-only deploy key of the repository for the cell, store
+     its private half in `erp/<cell>/argocd-repository`, and load it:
+     `kubectl create namespace argocd`, then
+     `kubectl -n argocd create secret generic erp-repository --from-literal=type=git --from-literal=url=<repository> --from-file=sshPrivateKey=<(aws secretsmanager get-secret-value --secret-id erp/<cell>/argocd-repository --query SecretString --output text)`
+     and `kubectl -n argocd label secret erp-repository argocd.argoproj.io/secret-type=repository`;
+   - install Argo CD from its pinned archive, checked against `addons.txt`:
+     `helm pull argo-cd --repo https://argoproj.github.io/argo-helm --version <version>`,
+     `shasum -a 256` it, then
+     `helm install argo-cd argo-cd-<version>.tgz -n argocd -f deploy/helm/addons/values/argo-cd.yaml`;
+   - apply the project and the root Application:
+     `helm template erp-delivery deploy/helm/erp-delivery -f deploy/environments/<env>/<cell>/cell.json --show-only templates/project.yaml --show-only templates/root.yaml | kubectl apply -f -`.
+   Argo CD then installs the add-ons, itself included, and the platform at
+   the cell's release. A new deploy key is loaded the same way.
 
 ## Alternatives
 - **One account for everything, environments by VPC.** Cheaper and simpler,
@@ -512,9 +566,12 @@ which the state bucket refuses.
   signatures stored as OCI referrers is checked on the first release by
   verifying the replicated digest in another region.
 - Infrastructure changes are checked without credentials in CI (deploy
-  workflow); plans and applies against the accounts run by hand or, from
-  T40d, through Argo CD's and Terraform's own pipelines, never from a pull
-  request.
+  workflow); plans and applies against the accounts run by hand, never
+  from a pull request. Releases reach the clusters only through each
+  cell's Argo CD pulling from the repository.
+- Each cell runs and upgrades an Argo CD of its own: more to run than one
+  central instance, in exchange for no cross-account access to any
+  cluster's API and a cell that delivers without the others.
 - The steps: T40a (this record, accounts, state, the signing key, the
   release and delivery roles, ECR, the root CA, the encryption policy),
   T40b (cell and global Terraform), T40c (Helm, migrations Job, Kyverno,

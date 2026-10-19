@@ -1,0 +1,34 @@
+# The add-ons, one Application each, in addons.txt's order (one sync wave
+# each), with their values in the repository and the cell's from cell.json.
+# No resources finalizer: deleting an Application leaves what it deployed.
+{{- $root := . }}
+{{- range $i, $a := include "erp-delivery.addons" . | fromJsonArray }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ $a.name }}
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ sub $i 20 | quote }}
+spec:
+  sources:
+    - repoURL: {{ $a.repository }}
+      chart: {{ $a.chart }}
+      targetRevision: {{ $a.version }}
+      helm:
+        releaseName: {{ $a.name }}
+        valueFiles:
+          - $values/deploy/helm/addons/values/{{ $a.name }}.yaml
+        {{- with index $root.Values.addons $a.name }}
+        valuesObject:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+    - repoURL: {{ $root.Values.repository }}
+      targetRevision: {{ $root.Values.revision }}
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $a.namespace }}
+  {{- include "erp-delivery.sync" (dict "options" (list "CreateNamespace=true")) | nindent 2 }}
+{{- end }}

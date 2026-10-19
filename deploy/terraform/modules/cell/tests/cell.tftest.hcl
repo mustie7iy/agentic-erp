@@ -285,6 +285,15 @@ run "secrets_and_objects_are_encrypted_with_the_data_key" {
     error_message = "the cell's secrets are under erp/<cell>/ and encrypted with its data key"
   }
   assert {
+    condition     = contains(keys(aws_secretsmanager_secret.cell), "argocd-repository")
+    error_message = "the cell's Argo CD has a secret for its deploy key"
+  }
+  assert {
+    # The mock gives every secret one ARN: the statement names all but one.
+    condition     = length([for r in jsondecode(aws_iam_role_policy.workload["external_secrets"].policy).Statement[0].Resource : r if r == aws_secretsmanager_secret.cell["argocd-repository"].arn]) == length(aws_secretsmanager_secret.cell) - 1
+    error_message = "the External Secrets Operator cannot read the deploy key"
+  }
+  assert {
     condition     = one(one(aws_s3_bucket_server_side_encryption_configuration.objects.rule).apply_server_side_encryption_by_default).sse_algorithm == "aws:kms"
     error_message = "objects are encrypted with KMS"
   }

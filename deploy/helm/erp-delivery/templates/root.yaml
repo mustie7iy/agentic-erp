@@ -1,0 +1,21 @@
+# The root Application: this chart with the cell's cell.json, so a change
+# to the cell's values or to this chart reaches the cell from the
+# repository alone. The bootstrap applies it once (ADR-0035).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: erp-delivery
+  namespace: argocd
+spec:
+  source:
+    repoURL: {{ .Values.repository }}
+    targetRevision: {{ .Values.revision }}
+    path: deploy/helm/erp-delivery
+    helm:
+      releaseName: erp-delivery
+      valueFiles:
+        - ../../../{{ include "erp-delivery.cellPath" . }}/cell.json
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  {{- include "erp-delivery.sync" (dict "options" (list)) | nindent 2 }}

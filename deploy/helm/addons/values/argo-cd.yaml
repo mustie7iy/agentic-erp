@@ -1,0 +1,51 @@
+# Argo CD, one per cell (ADR-0035, T40d): it pulls the cell's pinned
+# release from deploy/ (the erp-delivery chart) and reaches no other
+# cluster, so no cluster API is reachable across accounts. It has no
+# accounts of its own: no admin, no Dex, no ingress; operators work through
+# the cell's Kubernetes API with their own access (kubectl, argocd --core).
+# The repository is read with the cell's deploy key, which the bootstrap
+# loads from erp/<cell>/argocd-repository (ADR-0035, Bootstrap runbook).
+fullnameOverride: argocd
+crds:
+  install: true
+  keep: true
+dex:
+  enabled: false
+notifications:
+  enabled: false
+configs:
+  cm:
+    admin.enabled: false
+    application.resourceTrackingMethod: annotation
+    # An Application is healthy once what it deploys is, so the
+    # erp-delivery chart's waves (the add-ons, erp-cluster, the platform)
+    # wait for each other; Argo CD no longer assesses Applications itself.
+    resource.customizations.health.argoproj.io_Application: |
+      hs = {}
+      hs.status = "Progressing"
+      hs.message = ""
+      if obj.status ~= nil and obj.status.health ~= nil then
+        hs.status = obj.status.health.status
+        if obj.status.health.message ~= nil then
+          hs.message = obj.status.health.message
+        end
+      end
+      return hs
+  params:
+    # A sync ends after 90 minutes: more than erp-cell's migrations Jobs
+    # may take (migrations.deadlineSeconds, 3600, which helm-checks.sh
+    # holds below it) and the rollout after them. A sync without a limit
+    # would hold the cell's deliveries behind a hung one.
+    controller.sync.timeout.seconds: "5400"
+controller:
+  replicas: 1
+repoServer:
+  replicas: 2
+  pdb:
+    enabled: true
+    minAvailable: 1
+server:
+  replicas: 2
+  pdb:
+    enabled: true
+    minAvailable: 1

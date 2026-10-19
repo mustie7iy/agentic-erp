@@ -13,6 +13,9 @@
 #     runs at BASE (dev takes any), every production cell after the canary
 #     taking what the canary runs; or a release the cell ran before (a
 #     rollback, which is a revert);
+#   - a cell's own values, <env>/<cell>/cell.json (the erp-delivery chart's,
+#     from its Terraform outputs), change in a pull request of their own
+#     and name that cell, and no image: release.json pins those;
 #   - a release reaches production only after its rollback drill in
 #     staging passed for that very commit: <drill cell>/drills/<version>.json
 #     at BASE records it ({"release", "commit", "rolled_back_to", "result",
@@ -91,10 +94,19 @@ path, drill_cell = order["path"], order["drill"]
 everything = git("diff", "--no-renames", "--name-only", "%s...%s" % (base, head)).split()
 changed = [p for p in everything if p.startswith(root + "/")]
 releases = [p for p in changed if re.fullmatch(root + r"/[a-z]+/[a-z][a-z0-9]{1,19}/release\.json", p)]
+cells = [p for p in changed if re.fullmatch(root + r"/[a-z]+/[a-z][a-z0-9]{1,19}/cell\.json", p)]
 drills = [p for p in changed if re.fullmatch(re.escape("%s/%s/drills/" % (root, drill_cell)) + r"v\d+\.\d+\.\d+\.json", p)]
-others = [p for p in changed if p not in releases and p not in drills and p != root + "/path.json"]
+others = [p for p in changed if p not in releases and p not in cells and p not in drills and p != root + "/path.json"]
 if others:
-    fail("only cells' release.json, the drills' records and path.json live under %s, not %s" % (root, ", ".join(others)))
+    fail("only cells' release.json and cell.json, the drills' records and path.json live under %s, not %s" % (root, ", ".join(others)))
+for p in cells:
+    env, name = p[len(root) + 1:].split("/")[:2]
+    d = load(at(head, p) or fail("%s is removed: a cell's values are replaced, never removed" % p), p)
+    if not isinstance(d, dict) or d.get("environment") != env or d.get("cell") != name:
+        fail('%s must be an object naming its cell: "environment": "%s", "cell": "%s"' % (p, env, name))
+    if any(isinstance(d.get(c), dict) and "images" in d[c] for c in ("erpCell", "erpGlobal")):
+        fail("%s pins no image: the cell's release.json does" % p)
+    print("promotion-checks: %s changes the values of %s/%s" % (p, env, name))
 if root + "/path.json" in changed:
     new = load(at(head, root + "/path.json") or fail("%s/path.json is removed" % root), "path.json")
     if not isinstance(new.get("path"), list) or not new["path"] or not all(isinstance(c, str) for c in new["path"]) \

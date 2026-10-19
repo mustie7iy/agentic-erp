@@ -1,0 +1,12 @@
+{
+  "_comment": "A cell's cell.json for the checks (scripts/helm-checks.sh): a home cell, its values a few of what Terraform's outputs give a real one.",
+  "environment": "dev",
+  "cell": "dev1",
+  "home": true,
+  "addons": {
+    "external-secrets": {"serviceAccount": {"annotations": {"eks.amazonaws.com/role-arn": "arn:aws:iam::222222222222:role/erp-dev1-external-secrets"}}}
+  },
+  "erpCluster": {"region": "eu-central-1"},
+  "erpCell": {"cell": "dev1", "region": "eu-central-1"},
+  "erpGlobal": {"trustDomain": "dev.erp.example"}
+}
