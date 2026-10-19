@@ -55,8 +55,16 @@ which would make a cell's series grow with its customers. T54 closes this.
   rolled back after publishing and relayed again counts once, matching the
   bus's de-duplication (ADR-0007).
 - **Business gauges** (T54b) are read on scrape from the database, as the
-  backlog gauges are, and aggregate across tenants: documents by status,
-  open amounts by currency.
+  backlog gauges are, and aggregate across tenants, unlabelled: supplier
+  invoices on hold, and entered over 7 days ago and still parked; payment
+  runs proposed and not decided, and failed in the last 24 hours; bank
+  files transmitted and not acknowledged (count and oldest age), and
+  rejected in the last 24 hours; approval requests pending (count and
+  oldest age); normal periods past their end and still open. Terminal
+  states count over a day so a gauge falls once failures stop. The worker
+  role reads them through column grants (000091), each from a partial
+  index of the rows it watches (000092–000095). Bank-file gauges for T44's
+  worker statuses and webhook delivery gauges (T50) follow those steps.
 - **Agent telemetry** (T54c): tokens, cost, latency and outcomes by
   `agent_kind` and `alias`. The **override rate** is the share of
   agent-raised proposals that a human rejected, or modified before

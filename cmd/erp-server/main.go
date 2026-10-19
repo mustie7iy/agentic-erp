@@ -491,6 +491,7 @@ func (s *server) collaborators() {
 func newMetrics(pool *database.Pool, cfg config.Config, log *slog.Logger) *telemetry.Metrics {
 	m := telemetry.NewMetrics()
 	backlogs(pool, cfg, m)
+	businessGauges(pool, cfg, m)
 	atRest(cfg.AtRest, m, log)
 	operationClasses(m)
 	return m
@@ -956,16 +957,7 @@ func maintain(ctx context.Context, interval time.Duration, job func(context.Cont
 // since they are the operators' view of the cell, read-only, and change
 // with the queues they watch.
 func backlogs(pool *database.Pool, cfg config.Config, m *telemetry.Metrics) {
-	//nolint:forbidigo // a row count read as a Prometheus gauge value, which is float64; no amount or quantity
-	count := func(role, sql string, args ...any) func(context.Context) (float64, error) {
-		return func(ctx context.Context) (float64, error) {
-			var n float64
-			err := pool.InTx(ctx, database.Scope{Role: role, ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
-				return tx.QueryRow(ctx, sql, args...).Scan(&n)
-			})
-			return n, err
-		}
-	}
+	count := reader(pool)
 	var parts, oldest []string
 	for _, c := range outbox.Contexts {
 		parts = append(parts, "SELECT count(*) FROM "+pgx.Identifier{c, "outbox"}.Sanitize()+" WHERE published_at IS NULL")

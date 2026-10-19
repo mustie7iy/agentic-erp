@@ -5077,9 +5077,21 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Business gauges per context, cell-wide: invoices on hold, and entered over 7 days ago and still parked, payment runs proposed and failed in 24 h, bank files unacknowledged (count, oldest age) and rejected in 24 h, approvals pending (count, oldest age), periods past their end still open",
+        "r": "cmd/erp-server/gauges.go · db/migrations/000091-000095 · ADR-0043 · T54b",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Business metrics per context",
-        "r": "T54",
+        "t": "Bank file gauges for the transmission worker's statuses (to_send, sending, failed) once T44 merges",
+        "r": "T44",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Webhook delivery gauges (pending, failing, oldest age) once T50 merges",
+        "r": "T50",
         "c": []
        },
        {
