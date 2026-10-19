@@ -94,7 +94,7 @@ event version breaks someone else's system.
   routes tenant data to a new endpoint); reads and the ping are
   `x-autonomy: read`. Every change writes an audit record (ADR-0011).
 - **Contract and schema (T50c):** `integration.webhook_subscription` and
-  `integration.webhook_delivery` (migration 000090), permissions
+  `integration.webhook_delivery` (migration 000091), permissions
   `integration.webhook.read` and `.manage`. Deleting a subscription sets
   status `deleted` (nothing is deleted, 03 §3.1); the limit of 20 counts
   the subscriptions not deleted and is the application's. Events of the
