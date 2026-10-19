@@ -2783,3 +2783,42 @@ func TestDownPaymentPayments(t *testing.T) {
 			"journal_entry_id = gen_random_uuid()")), "down_payment_request_fixed")
 	})
 }
+
+// TestWithholdingTaxCodes: a legal entity's withholding tax code has a
+// code of 1-4 upper-case letters or digits, a rate above 0 and below 100,
+// a base of net or gross, a posting at invoice or payment and an account
+// of the legal entity; a supplier's code belongs to its company data
+// (T46e).
+func TestWithholdingTaxCodes(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	code := func(c string, rate int, base, posting string, account uuid.UUID) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO ledger.withholding_tax_code (tenant_id, legal_entity_id, code, description, rate_pct, base, account_id, posting,
+				created_by, updated_by) VALUES ($1, $2, $3, 'WHT', $4, $5, $6, $7, $8, $8)`, f.tenant, f.entity, c, rate, base, account, posting, f.actor)
+		}
+	}
+	mustApp(t, f.tenant, code("W1", 10, "net", "invoice", f.ap))
+	for _, c := range []struct {
+		name   string
+		insert func(tx pgx.Tx) error
+		fails  string
+	}{
+		{"a lower-case code", code("w2", 10, "net", "invoice", f.ap), "withholding_tax_code_code_check"},
+		{"a rate of 0", code("W2", 0, "net", "invoice", f.ap), "withholding_tax_code_rate_pct_check"},
+		{"a rate of 100", code("W2", 100, "net", "invoice", f.ap), "withholding_tax_code_rate_pct_check"},
+		{"another base", code("W2", 10, "tax", "invoice", f.ap), "withholding_tax_code_base_check"},
+		{"another posting", code("W2", 10, "net", "order", f.ap), "withholding_tax_code_posting_check"},
+		{"an account of no company", code("W2", 10, "net", "invoice", id()), "withholding_tax_code_tenant_id_legal_entity_id_account_id_fkey"},
+		{"a supplier without company data", func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO partner.supplier_withholding (tenant_id, partner_id, legal_entity_id, code, created_by, updated_by)
+				VALUES ($1, $2, $3, 'W1', $4, $4)`, f.tenant, id(), f.entity, f.actor)
+		}, "supplier_withholding_tenant_id_partner_id_legal_entity_id_fkey"},
+		{"a supplier's lower-case code", func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO partner.supplier_withholding (tenant_id, partner_id, legal_entity_id, code, created_by, updated_by)
+				VALUES ($1, $2, $3, 'w1', $4, $4)`, f.tenant, id(), f.entity, f.actor)
+		}, "supplier_withholding_code_check"},
+	} {
+		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, c.insert), c.fails) })
+	}
+}

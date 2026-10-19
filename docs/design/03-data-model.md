@@ -448,6 +448,13 @@ the configuration cannot hold, or that counts in months or fixed days
 (ZMONA, ZFAEL), is drafted to fail validation with a note until a reviewer
 sets it.
 
+A supplier's company data names the withholding taxes deducted from it in
+that legal entity (`supplier_withholding`, SAP LFBW; T46e): active codes of
+the legal entity's `ledger.withholding_tax_code`, each once, replaced as a
+whole by a partner change (codes taken off are deactivated, never deleted).
+A configuration that takes a code away from a company while a supplier has
+it is refused (`partner.WithholdingCodes`).
+
 ## 3.7 General ledger (`ledger`)
 
 ```mermaid
@@ -701,7 +708,12 @@ items that named it before stay as they are, and posting them is refused;
 and for down payments (T46, ADR-0037) `down_payment`, the alternative
 reconciliation account of special G/L items: an asset that is a vendor
 reconciliation account, fixed once determined),
-`tax_code` (rate, account, direction).
+`tax_code` (rate, account, direction), `withholding_tax_code` (T46e: the
+configuration's `companies[].withholding_tax_codes`, SAP T059P/T059Z, kept
+by the setup per legal entity: a rate above 0 and below 100% of the
+invoice's net, the default, or gross, deducted at invoice or at payment, to
+a liability that reconciles no supplier, the withholding tax payable; a code
+the document no longer has is deactivated).
 
 An open item on a supplier reconciliation account keeps the payment terms
 it was posted with (`open_item_terms`, migration 000068, T36b), as SAP

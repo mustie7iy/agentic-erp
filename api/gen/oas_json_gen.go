@@ -35653,14 +35653,25 @@ func (s *SupplierCompany) encodeFields(e *jx.Encoder) {
 		e.FieldStart("is_payment_blocked")
 		e.Bool(s.IsPaymentBlocked)
 	}
+	{
+		if s.WithholdingTaxCodes != nil {
+			e.FieldStart("withholding_tax_codes")
+			e.ArrStart()
+			for _, elem := range s.WithholdingTaxCodes {
+				e.Str(elem)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfSupplierCompany = [5]string{
+var jsonFieldsNameOfSupplierCompany = [6]string{
 	0: "legal_entity_id",
 	1: "reconciliation_account_id",
 	2: "payment_term_code",
 	3: "is_posting_blocked",
 	4: "is_payment_blocked",
+	5: "withholding_tax_codes",
 }
 
 // Decode decodes SupplierCompany from json.
@@ -35731,6 +35742,25 @@ func (s *SupplierCompany) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"is_payment_blocked\"")
+			}
+		case "withholding_tax_codes":
+			if err := func() error {
+				s.WithholdingTaxCodes = make([]string, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem string
+					v, err := d.Str()
+					elem = string(v)
+					if err != nil {
+						return err
+					}
+					s.WithholdingTaxCodes = append(s.WithholdingTaxCodes, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"withholding_tax_codes\"")
 			}
 		default:
 			return d.Skip()
@@ -35809,12 +35839,23 @@ func (s *SupplierCompanyInput) encodeFields(e *jx.Encoder) {
 		e.FieldStart("payment_term_code")
 		e.Str(s.PaymentTermCode)
 	}
+	{
+		if s.WithholdingTaxCodes != nil {
+			e.FieldStart("withholding_tax_codes")
+			e.ArrStart()
+			for _, elem := range s.WithholdingTaxCodes {
+				e.Str(elem)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfSupplierCompanyInput = [3]string{
+var jsonFieldsNameOfSupplierCompanyInput = [4]string{
 	0: "legal_entity_id",
 	1: "reconciliation_account_id",
 	2: "payment_term_code",
+	3: "withholding_tax_codes",
 }
 
 // Decode decodes SupplierCompanyInput from json.
@@ -35861,6 +35902,25 @@ func (s *SupplierCompanyInput) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"payment_term_code\"")
+			}
+		case "withholding_tax_codes":
+			if err := func() error {
+				s.WithholdingTaxCodes = make([]string, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem string
+					v, err := d.Str()
+					elem = string(v)
+					if err != nil {
+						return err
+					}
+					s.WithholdingTaxCodes = append(s.WithholdingTaxCodes, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"withholding_tax_codes\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)

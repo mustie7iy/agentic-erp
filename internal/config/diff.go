@@ -64,6 +64,8 @@ var tierRules = []struct {
 	{rx(`^companies\[\*\]\.chart_of_accounts`), TierStructural},
 	{rx(`^companies\[\*\]\.(name|country)$`), TierCosmetic},
 	{rx(`^companies\[\*\]\.tax_codes\[\*\]\.description$`), TierCosmetic},
+	{rx(`^companies\[\*\]\.withholding_tax_codes\[\*\]\.description$`), TierCosmetic},
+	{rx(`^companies\[\*\]\.withholding_tax_codes`), TierPostingRelated},
 	{rx(`^companies\[\*\]\.(account_determination|tax_codes|auto_post_limit|manual_entry_approval_limit|house_bank)`), TierPostingRelated},
 	{rx(`^companies\[\*\]\.(invoice_tolerance|gr_over_delivery_percent)`), TierOperational},
 	{rx(`^payment_terms\[\*\]\.description$`), TierCosmetic},
@@ -98,7 +100,7 @@ func classify(path string) Tier {
 // listKeys names the identity field of each list, so items are compared by
 // identity instead of position.
 var listKeys = map[string]string{
-	"companies": "code", "chart_of_accounts": "number", "tax_codes": "code",
+	"companies": "code", "chart_of_accounts": "number", "tax_codes": "code", "withholding_tax_codes": "code",
 	"payment_terms": "key",
 	"number_ranges": "company,document_type,fiscal_year",
 }

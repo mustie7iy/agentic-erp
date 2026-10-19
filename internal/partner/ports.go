@@ -9,7 +9,9 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // Postings answers the ledger's question whether a partner may be posted
@@ -123,6 +125,9 @@ type Supplier struct {
 	PaymentTermCode  string
 	IsPostingBlocked bool
 	IsPaymentBlocked bool
+	// WithholdingTaxCodes are the supplier's withholding tax codes in the
+	// legal entity (T46e).
+	WithholdingTaxCodes []string
 }
 
 // Usable reports why the supplier cannot be ordered from or invoiced in
@@ -154,10 +159,13 @@ func (Suppliers) Supplier(ctx context.Context, partnerID, legalEntity uuid.UUID)
 	var posting, payment *bool
 	err = tx.QueryRow(ctx, `SELECT p.number, p.name, p.country_code, p.status,
 			EXISTS (SELECT FROM partner.partner_role r WHERE r.tenant_id = p.tenant_id AND r.partner_id = p.id AND r.role = 'supplier'),
-			sc.reconciliation_account_id, sc.payment_term_code, sc.is_posting_blocked, sc.is_payment_blocked
+			sc.reconciliation_account_id, sc.payment_term_code, sc.is_posting_blocked, sc.is_payment_blocked,
+			coalesce((SELECT array_agg(w.code ORDER BY w.code) FROM partner.supplier_withholding w WHERE w.tenant_id = p.tenant_id AND w.partner_id = p.id
+				AND w.legal_entity_id = $2 AND w.is_active), '{}')
 		FROM partner.business_partner p
 		LEFT JOIN partner.supplier_company sc ON sc.tenant_id = p.tenant_id AND sc.partner_id = p.id AND sc.legal_entity_id = $2
-		WHERE p.id = $1`, partnerID, legalEntity).Scan(&s.Number, &s.Name, &s.CountryCode, &s.Status, &s.IsSupplier, &recon, &term, &posting, &payment)
+		WHERE p.id = $1`, partnerID, legalEntity).Scan(&s.Number, &s.Name, &s.CountryCode, &s.Status, &s.IsSupplier, &recon, &term, &posting, &payment,
+		&s.WithholdingTaxCodes)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Supplier{}, false, nil
 	}
@@ -223,4 +231,101 @@ func (Suppliers) PaymentTermExists(ctx context.Context, code string) (bool, erro
 		return ok, fmt.Errorf("partner: find payment term %s: %w", code, err)
 	}
 	return ok, nil
+}
+
+// WithholdingCodes is the configuration section of suppliers' withholding
+// tax codes (T46e): the codes themselves are the ledger's, kept from the
+// document by ledger.Setup. A document that takes away a code a supplier
+// has, or that a pending partner change gives one, is refused when it is
+// submitted (Check) and again when it is activated (Apply), under the
+// tenant's withholding lock, which a partner change giving codes takes too
+// (lockWithholding), so neither slips past the other.
+type WithholdingCodes struct {
+	LegalEntities interface {
+		EntityByCode(ctx context.Context, code string) (tenancy.Entity, bool, error)
+	}
+}
+
+// Check reports each company of the proposed document whose suppliers, or
+// pending partner changes, have a withholding tax code it does not.
+func (w WithholdingCodes) Check(ctx context.Context, base, proposed *config.Config) ([]config.Finding, error) {
+	if base == nil {
+		return nil, nil
+	}
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	used, err := w.taken(ctx, tx, proposed)
+	if err != nil {
+		return nil, err
+	}
+	var out []config.Finding
+	for _, u := range used {
+		out = append(out, config.Finding{Severity: config.SevError, Path: "companies[" + u[0] + "].withholding_tax_codes[" + u[1] + "]",
+			Message: "suppliers have this withholding tax code, or a pending partner change gives it; take it off them first"})
+	}
+	return out, nil
+}
+
+// Apply refuses to activate a document that takes away a code suppliers
+// have (409 partner.withholding_tax_code_in_use): the activation rolls back.
+func (w WithholdingCodes) Apply(ctx context.Context, doc *config.Config) error {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return err
+	}
+	used, err := w.taken(ctx, tx, doc)
+	if err != nil || len(used) == 0 {
+		return err
+	}
+	return problem.Conflict("partner.withholding_tax_code_in_use", "Suppliers of company "+used[0][0]+" have withholding tax code "+used[0][1]+
+		", or a pending partner change gives it, which the configuration no longer has; take it off them first.")
+}
+
+// taken are the company and code pairs suppliers have, or pending partner
+// changes give them, that the document's companies do not have, under the
+// withholding lock.
+func (w WithholdingCodes) taken(ctx context.Context, tx pgx.Tx, doc *config.Config) ([][2]string, error) {
+	if err := lockWithholding(ctx, tx); err != nil {
+		return nil, err
+	}
+	var out [][2]string
+	for _, co := range doc.Companies {
+		le, ok, err := w.LegalEntities.EntityByCode(ctx, co.Code)
+		if err != nil {
+			return nil, fmt.Errorf("partner: legal entity of company %s: %w", co.Code, err)
+		}
+		if !ok {
+			continue
+		}
+		kept := make([]string, 0, len(co.WithholdingTaxCodes))
+		for _, c := range co.WithholdingTaxCodes {
+			kept = append(kept, c.Code)
+		}
+		rows, _ := tx.Query(ctx, `SELECT DISTINCT code FROM (
+				SELECT code FROM partner.supplier_withholding WHERE legal_entity_id = $1 AND is_active
+				UNION SELECT jsonb_array_elements_text(sc->'withholding_tax_codes') FROM partner.partner_change c, jsonb_array_elements(CASE WHEN jsonb_typeof(c.payload->'supplier_companies') = 'array'
+					THEN c.payload->'supplier_companies' ELSE '[]' END) sc
+				WHERE c.status = 'pending' AND sc->>'legal_entity_id' = $1::text) x
+			WHERE code <> ALL($2) ORDER BY code`, le.ID, kept)
+		codes, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			return nil, fmt.Errorf("partner: withholding tax codes in use in %s: %w", co.Code, err)
+		}
+		for _, c := range codes {
+			out = append(out, [2]string{co.Code, c})
+		}
+	}
+	return out, nil
+}
+
+// lockWithholding takes the tenant's withholding lock until the
+// transaction ends: a configuration taking codes away and a partner change
+// giving them wait for each other, and then see what the other committed.
+func lockWithholding(ctx context.Context, tx pgx.Tx) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('partner.withholding.' || platform.require_tenant()::text, 0))`); err != nil {
+		return fmt.Errorf("partner: lock the withholding tax codes: %w", err)
+	}
+	return nil
 }

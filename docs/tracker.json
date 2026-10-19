@@ -458,10 +458,29 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Withholding tax",
       "r": "T46",
-      "c": []
+      "c": [
+       {
+        "s": "D",
+        "t": "Withholding tax codes per company (rate, base net or gross, at invoice or payment, payable account) and suppliers' codes per company, checked against them; a code a supplier has is not removed",
+        "r": "db/migrations/000080 · companies[].withholding_tax_codes · ledger.withholding_tax_code · partner.supplier_withholding · T46e",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Withholding tax computed by the supplier's codes and posted at invoice or at payment as each code says (none on down payments)",
+        "r": "T46f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "SAP load of withholding tax codes (T059P/T059Z) and suppliers' codes (LFBW)",
+        "r": "follow-up of the SAP load",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",

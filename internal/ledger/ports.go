@@ -317,3 +317,39 @@ func (c Calendar) FiscalYear(ctx context.Context, legalEntity uuid.UUID, date ti
 	}
 	return year, nil
 }
+
+// WithholdingTaxCode is a legal entity's active withholding tax code
+// (T46e): a rate of the invoice's net or gross, deducted when the invoice
+// posts or when it is paid, owed on the account.
+type WithholdingTaxCode struct {
+	Code      string
+	RatePct   string // decimal, e.g. "15.000"
+	Base      string // config.WithholdingNet or config.WithholdingGross
+	AccountID uuid.UUID
+	Posting   string // config.WithholdingAtInvoice or config.WithholdingAtPayment
+}
+
+// WithholdingTaxCode returns the legal entity's active withholding tax code.
+func (Accounts) WithholdingTaxCode(ctx context.Context, legalEntity uuid.UUID, code string) (WithholdingTaxCode, bool, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return WithholdingTaxCode{}, false, err
+	}
+	w := WithholdingTaxCode{Code: code}
+	err = tx.QueryRow(ctx, `SELECT rate_pct::text, base, account_id, posting FROM ledger.withholding_tax_code
+		WHERE legal_entity_id = $1 AND code = $2 AND is_active`, legalEntity, code).Scan(&w.RatePct, &w.Base, &w.AccountID, &w.Posting)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return WithholdingTaxCode{}, false, nil
+	}
+	if err != nil {
+		return WithholdingTaxCode{}, false, fmt.Errorf("ledger: withholding tax code %s in %s: %w", code, legalEntity, err)
+	}
+	return w, true, nil
+}
+
+// IsWithholdingTaxCode reports whether the code is an active withholding
+// tax code of the legal entity (the partner context's check, T46e).
+func (a Accounts) IsWithholdingTaxCode(ctx context.Context, legalEntity uuid.UUID, code string) (bool, error) {
+	_, ok, err := a.WithholdingTaxCode(ctx, legalEntity, code)
+	return ok, err
+}

@@ -33,7 +33,11 @@ import (
 //   - tax codes (input tax, decided in T4) are valid from the start of the
 //     company's first fiscal year; a changed rate or account ends the
 //     current one and starts the new one on the activation day, and a
-//     removed code ends on that day.
+//     removed code ends on that day;
+//   - withholding tax codes (T46e) are kept per legal entity, changed in
+//     place (what an invoice withheld is kept with its entry, T46f) and
+//     deactivated when removed, which the partner context refuses while a
+//     supplier has the code (partner.WithholdingCodes).
 type Setup struct {
 	LegalEntities LegalEntities
 }
@@ -246,7 +250,39 @@ func (s Setup) applyCompany(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	if err := s.calendar(ctx, tx, p, le.FiscalCalendarID, le.ID, co, doc); err != nil {
 		return err
 	}
-	return taxCodes(ctx, tx, p, le.ID, le.FiscalCalendarID, chart, co)
+	if err := taxCodes(ctx, tx, p, le.ID, le.FiscalCalendarID, chart, co); err != nil {
+		return err
+	}
+	return withholdingTaxCodes(ctx, tx, p, le.ID, chart, co)
+}
+
+// withholdingTaxCodes makes the legal entity's withholding tax codes the
+// company's (T46e): new ones inserted, changed ones updated, and those the
+// document no longer has deactivated, never deleted (the partner context
+// refuses removing a code a supplier has, partner.WithholdingCodes).
+func withholdingTaxCodes(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, chart uuid.UUID, co config.Company) error {
+	n := len(co.WithholdingTaxCodes)
+	codes, descriptions, rates, bases, numbers, postings := make([]string, n), make([]string, n), make([]string, n), make([]string, n), make([]string, n), make([]string, n)
+	for i, w := range co.WithholdingTaxCodes {
+		codes[i], descriptions[i], rates[i], bases[i], numbers[i], postings[i] = w.Code, w.Description, w.RatePercent, w.BaseOrNet(), w.Account, w.Posting
+	}
+	if _, err := tx.Exec(ctx, `UPDATE ledger.withholding_tax_code SET is_active = false, version = version + 1, updated_by = $3
+		WHERE legal_entity_id = $1 AND is_active AND code <> ALL($2)`, le, codes, p.ID); err != nil {
+		return fmt.Errorf("ledger: deactivate withholding tax codes of %s: %w", le, err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO ledger.withholding_tax_code AS w (tenant_id, legal_entity_id, code, description, rate_pct, base, account_id, posting,
+			created_by, updated_by)
+		SELECT $1, $2, d.code, d.description, d.rate::numeric, d.base, g.id, d.posting, $3, $3
+		FROM unnest($4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[]) AS d(code, description, rate, base, number, posting)
+		JOIN ledger.gl_account g ON g.chart_id = $10 AND g.number = d.number
+		ON CONFLICT (tenant_id, legal_entity_id, code) DO UPDATE SET description = EXCLUDED.description, rate_pct = EXCLUDED.rate_pct, base = EXCLUDED.base,
+			account_id = EXCLUDED.account_id, posting = EXCLUDED.posting, is_active = true, version = w.version + 1, updated_by = $3
+		WHERE (w.description, w.rate_pct, w.base, w.account_id, w.posting, w.is_active)
+			IS DISTINCT FROM (EXCLUDED.description, EXCLUDED.rate_pct, EXCLUDED.base, EXCLUDED.account_id, EXCLUDED.posting, true)`,
+		p.TenantID, le, p.ID, codes, descriptions, rates, bases, numbers, postings, chart); err != nil {
+		return fmt.Errorf("ledger: withholding tax codes of %s: %w", le, err)
+	}
+	return nil
 }
 
 // applyAccounts makes the chart's accounts those of the document,

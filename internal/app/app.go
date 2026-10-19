@@ -163,7 +163,7 @@ func New(cfg Config) (http.Handler, error) {
 func Configuration(cfg Config) configuration.Dependencies {
 	return configuration.Dependencies{
 		LegalEntities: tenancy.Directory{},
-		Sections: []configuration.Section{ledger.Setup{LegalEntities: tenancy.Directory{}}, partner.PaymentTerms{},
+		Sections: []configuration.Section{ledger.Setup{LegalEntities: tenancy.Directory{}}, partner.PaymentTerms{}, partner.WithholdingCodes{LegalEntities: tenancy.Directory{}},
 			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys}},
 		Approvals: opener(),
 		Simulator: payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},

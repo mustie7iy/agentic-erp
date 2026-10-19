@@ -25914,6 +25914,9 @@ type SupplierCompany struct {
 	IsPostingBlocked bool `json:"is_posting_blocked"`
 	// Payments to this supplier are blocked in this legal entity.
 	IsPaymentBlocked bool `json:"is_payment_blocked"`
+	// The withholding taxes deducted from the supplier in this legal entity (SAP LFBW; T46e): codes of the
+	// company's `withholding_tax_codes` in the configuration.
+	WithholdingTaxCodes []string `json:"withholding_tax_codes"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -25941,6 +25944,11 @@ func (s *SupplierCompany) GetIsPaymentBlocked() bool {
 	return s.IsPaymentBlocked
 }
 
+// GetWithholdingTaxCodes returns the value of WithholdingTaxCodes.
+func (s *SupplierCompany) GetWithholdingTaxCodes() []string {
+	return s.WithholdingTaxCodes
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *SupplierCompany) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -25966,6 +25974,11 @@ func (s *SupplierCompany) SetIsPaymentBlocked(val bool) {
 	s.IsPaymentBlocked = val
 }
 
+// SetWithholdingTaxCodes sets the value of WithholdingTaxCodes.
+func (s *SupplierCompany) SetWithholdingTaxCodes(val []string) {
+	s.WithholdingTaxCodes = val
+}
+
 // Company-specific supplier data to set up.
 // Ref: #/components/schemas/SupplierCompanyInput
 type SupplierCompanyInput struct {
@@ -25975,6 +25988,10 @@ type SupplierCompanyInput struct {
 	ReconciliationAccountID uuid.UUID `json:"reconciliation_account_id"`
 	// Payment terms.
 	PaymentTermCode string `json:"payment_term_code"`
+	// The withholding taxes to deduct from the supplier in this legal entity (T46e): active codes of the
+	// company's configuration, each once. The list replaces the supplier's codes in the legal entity:
+	// leaving it out takes every code off the supplier there, as the other company data is replaced too.
+	WithholdingTaxCodes []string `json:"withholding_tax_codes"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -25992,6 +26009,11 @@ func (s *SupplierCompanyInput) GetPaymentTermCode() string {
 	return s.PaymentTermCode
 }
 
+// GetWithholdingTaxCodes returns the value of WithholdingTaxCodes.
+func (s *SupplierCompanyInput) GetWithholdingTaxCodes() []string {
+	return s.WithholdingTaxCodes
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *SupplierCompanyInput) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -26005,6 +26027,11 @@ func (s *SupplierCompanyInput) SetReconciliationAccountID(val uuid.UUID) {
 // SetPaymentTermCode sets the value of PaymentTermCode.
 func (s *SupplierCompanyInput) SetPaymentTermCode(val string) {
 	s.PaymentTermCode = val
+}
+
+// SetWithholdingTaxCodes sets the value of WithholdingTaxCodes.
+func (s *SupplierCompanyInput) SetWithholdingTaxCodes(val []string) {
+	s.WithholdingTaxCodes = val
 }
 
 // Merged schema.

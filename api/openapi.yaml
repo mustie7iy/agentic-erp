@@ -12997,6 +12997,13 @@ components:
         is_payment_blocked:
           type: boolean
           description: Payments to this supplier are blocked in this legal entity.
+        withholding_tax_codes:
+          type: array
+          description: "The withholding taxes deducted from the supplier in this legal entity (SAP LFBW; T46e): codes of the company's `withholding_tax_codes` in the configuration."
+          maxItems: 10
+          items:
+            type: string
+            pattern: "^[A-Z0-9]{1,4}$"
       examples:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
           reconciliation_account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dca"
@@ -13024,6 +13031,13 @@ components:
           description: Payment terms.
           pattern: "^[A-Z0-9_/]{1,10}$"
           example: NT30
+        withholding_tax_codes:
+          type: array
+          description: "The withholding taxes to deduct from the supplier in this legal entity (T46e): active codes of the company's configuration, each once. The list replaces the supplier's codes in the legal entity: leaving it out takes every code off the supplier there, as the other company data is replaced too."
+          maxItems: 10
+          items:
+            type: string
+            pattern: "^[A-Z0-9]{1,4}$"
       additionalProperties: false
       examples:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
