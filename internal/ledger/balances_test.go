@@ -144,6 +144,12 @@ func TestBalancesAndProjector(t *testing.T) {
 func TestProjectorRuns(t *testing.T) {
 	e := setup(t)
 	bank, revenue := e.account(t, "2000", "100000"), e.account(t, "2000", "400000")
+	// The queue is the package database's, shared with every earlier test
+	// (and earlier -count run), which leave their entries unprojected. Drain
+	// it in full batches first, so the batches of one below project only
+	// this test's three entries rather than the whole backlog, one
+	// transaction each, against the wait's deadline.
+	project(t)
 	for range 3 {
 		e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "1.00", ""}, line{revenue, "-1.00", ""}), "")
 	}
