@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -2005,10 +2006,6 @@ func TestEngineOverMutualTLS(t *testing.T) {
 	}
 }
 
-// TestAtRestStatedAndChecked: with ERP_AT_REST the cell logs how each
-// store encrypts at rest and exports it as erp_at_rest_info; with
-// objects=sse-kms it asks for KMS encryption on every write and starts
-// only on a bucket whose default encryption is KMS (ADR-0033).
 // TestMetricsCatalog: every metric the cell registers passes the catalog
 // of ADR-0043, and the enumerations its labels take fit their bounds.
 func TestMetricsCatalog(t *testing.T) {
@@ -2021,13 +2018,26 @@ func TestMetricsCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for label, n := range map[string]int{"operation": len(api.MustOperations()) + len(control) + 1, "class": len(api.Classes), "context": len(outbox.Contexts)} {
+	contract, err := os.ReadFile("../../api/asyncapi.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := map[string]bool{}
+	for _, m := range regexp.MustCompile(`com\.example\.erp\.[a-z_]+\.([a-z_]+)\.v[0-9]+`).FindAllSubmatch(contract, -1) {
+		events[string(m[1])] = true
+	}
+	for label, n := range map[string]int{"operation": len(api.MustOperations()) + len(control) + 1, "class": len(api.Classes),
+		"context": len(outbox.Contexts), "event": len(events)} {
 		if n > telemetry.Labels[label] {
 			t.Errorf("label %s: got %d values, want at most %d", label, n, telemetry.Labels[label])
 		}
 	}
 }
 
+// TestAtRestStatedAndChecked: with ERP_AT_REST the cell logs how each
+// store encrypts at rest and exports it as erp_at_rest_info; with
+// objects=sse-kms it asks for KMS encryption on every write and starts
+// only on a bucket whose default encryption is KMS (ADR-0033).
 func TestAtRestStatedAndChecked(t *testing.T) {
 	s3 := blobstoretest.New(t)
 	ten := pgtest.NewTenant(t)

@@ -334,7 +334,9 @@ func TestRelayWaitsForTheContextLock(t *testing.T) {
 func TestRelayRepublishesWhenMarkingFails(t *testing.T) {
 	pool := pgtest.Pool(t)
 	ten := pgtest.NewTenant(t)
-	// An event name of its own, so other tests' events do not add to its count.
+	// An event name of its own, so other tests' events do not add to its
+	// count; digits become letters because the outbox's CHECK allows only
+	// [a-z_] in a name.
 	event := "marked_" + strings.Map(func(r rune) rune {
 		if r >= '0' && r <= '9' {
 			return 'g' + (r - '0')

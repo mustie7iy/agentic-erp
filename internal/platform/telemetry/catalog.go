@@ -57,6 +57,12 @@ func (m *Metrics) counterVec(name, help string, labels ...string) *prometheus.Co
 	return c
 }
 
+func (m *Metrics) histogramVec(name, help string, buckets []float64, labels ...string) *prometheus.HistogramVec {
+	h := prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: name, Help: help, Buckets: buckets}, labels)
+	m.register(h, family{name: name, help: help, kind: dto.MetricType_HISTOGRAM, labels: labels, buckets: len(buckets)})
+	return h
+}
+
 // series is the most series the family exposes: every label at its bound,
 // and for a histogram each bucket, +Inf, _sum and _count.
 func (f family) series() int {

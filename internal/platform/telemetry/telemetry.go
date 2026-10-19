@@ -21,7 +21,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	dto "github.com/prometheus/client_model/go"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
@@ -54,7 +53,9 @@ func Tracing(ctx context.Context, otlpEndpoint string) (*sdktrace.TracerProvider
 }
 
 // Metrics are the process's metrics, in their own registry. Every metric
-// is registered through Metrics, so the catalog knows them all.
+// is registered through Metrics, so the catalog knows them all; Check, run
+// over the cell's metrics by cmd/erp-server's TestMetricsCatalog, holds
+// them to it.
 type Metrics struct {
 	registry   *prometheus.Registry
 	families   []family
@@ -73,11 +74,7 @@ var latencyBuckets = []float64{.005, .01, .025, .05, .1, .15, .2, .3, .4, .5, 1,
 func NewMetrics() *Metrics {
 	m := &Metrics{registry: prometheus.NewRegistry()}
 	m.requests = m.counterVec("erp_http_requests_total", "HTTP requests by operation and status code.", "operation", "code")
-	m.duration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Name: "erp_http_request_duration_seconds", Help: "HTTP request latency by operation.", Buckets: latencyBuckets,
-	}, []string{"operation"})
-	m.register(m.duration, family{name: "erp_http_request_duration_seconds", help: "HTTP request latency by operation.",
-		kind: dto.MetricType_HISTOGRAM, labels: []string{"operation"}, buckets: len(latencyBuckets)})
+	m.duration = m.histogramVec("erp_http_request_duration_seconds", "HTTP request latency by operation.", latencyBuckets, "operation")
 	m.events = m.counterVec("erp_events_published_total", "Business events the outbox relay published and committed, by context and event.", "context", "event")
 	return m
 }
