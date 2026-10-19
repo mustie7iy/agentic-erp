@@ -19,11 +19,13 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/autonomy"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/modelalias"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
 )
 
 // The model gateway (api/model.yaml, ADR-0036): every model call an agent
@@ -86,7 +88,16 @@ type Gateway struct {
 	// Countries reads the tenant's countries, whose tax identifiers are
 	// redacted (tenancy.Countries); nil: IBANs and card numbers only.
 	Countries Countries
+	// AgentKind reads what metrics call an agent (identity.AgentKind);
+	// nil: every agent is untyped.
+	AgentKind AgentKind
+	// Metrics count each recorded call (ADR-0043); nil: none.
+	Metrics *telemetry.Metrics
 }
+
+// AgentKind reads the agent kind of a principal in tx: a bounded label,
+// never its id (identity.AgentKind, identity's published read).
+type AgentKind func(ctx context.Context, tx pgx.Tx, principal uuid.UUID) (string, error)
 
 // inTx runs fn in a transaction of the caller's tenant.
 type inTx func(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) error
@@ -122,6 +133,7 @@ type request struct {
 	body         []byte // with the model in place of the alias, once routed, and redacted once screened
 	maxTokens    int64
 	redactions   int
+	agentKind    string // the caller's, for the metrics
 }
 
 // route sets the model the request goes to, in place of its alias.
@@ -157,6 +169,7 @@ func (g *Gateway) serve(ctx context.Context, p reqctx.Principal, c call) (answer
 	}); err != nil {
 		return answer{}, err
 	}
+	g.observe(req.agentKind, rec)
 	switch {
 	case sendErr != nil:
 		return answer{}, problem.New(http.StatusBadGateway, "agents.model_unreachable", "Model unreachable", "The model provider did not answer; try again.").WithCause(sendErr)
@@ -190,6 +203,9 @@ func (g *Gateway) admit(ctx context.Context, p reqctx.Principal, c call, req *re
 		if err := ownSession(ctx, tx, p, c.session); err != nil {
 			return err
 		}
+		if req.agentKind, err = g.kindOf(ctx, tx, p); err != nil {
+			return err
+		}
 		if err := routeUnder(pol, req); err != nil {
 			return err
 		}
@@ -207,6 +223,31 @@ func (g *Gateway) admit(ctx context.Context, p reqctx.Principal, c call, req *re
 		err = refused
 	}
 	return pr, res, err
+}
+
+// kindOf is p's agent kind: autonomy.NotAgent for a person or service.
+func (g *Gateway) kindOf(ctx context.Context, tx pgx.Tx, p reqctx.Principal) (string, error) {
+	switch {
+	case p.Kind != reqctx.KindAgent:
+		return autonomy.NotAgent, nil
+	case g.AgentKind == nil:
+		return autonomy.Untyped, nil
+	}
+	kind, err := g.AgentKind(ctx, tx, p.ID)
+	if err != nil {
+		return "", fmt.Errorf("agents: read the kind of agent %s: %w", p.ID, err)
+	}
+	return kind, nil
+}
+
+// observe counts a recorded call once its ledger row is committed: the
+// series are trends, the ledger the exact figures.
+func (g *Gateway) observe(agentKind string, r row) {
+	if g.Metrics == nil {
+		return
+	}
+	g.Metrics.ModelCalled(telemetry.ModelCall{AgentKind: agentKind, Alias: r.alias, Status: r.status, Duration: r.duration,
+		Input: r.input, Output: r.output, CacheRead: r.read, CacheWrite: r.write, CostMicro: int64(r.cost), Currency: r.currency})
 }
 
 // MaxInputTokens bounds a call's input estimate: no model takes more,

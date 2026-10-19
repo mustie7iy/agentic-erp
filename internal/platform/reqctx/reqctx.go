@@ -177,6 +177,38 @@ func InfoFrom(ctx context.Context) *Info {
 	return &Info{}
 }
 
+// Commit holds what runs once the unit of work's transaction has
+// committed: effects the outbox does not carry that must not happen for a
+// request rolled back, such as counting a decision in a metric (ADR-0043).
+type Commit struct{ fns []func() }
+
+type commitKey struct{}
+
+// WithCommit attaches an empty Commit, which the unit of work runs after
+// its commit.
+func WithCommit(ctx context.Context) (context.Context, *Commit) {
+	c := &Commit{}
+	return context.WithValue(ctx, commitKey{}, c), c
+}
+
+// OnCommit adds fn to the request's Commit. Work outside an API request's
+// unit of work (a worker's uow.Act, whose caller commits) has no Commit,
+// and fn is not run there: such work is not observed this way.
+func OnCommit(ctx context.Context, fn func()) {
+	if c, ok := ctx.Value(commitKey{}).(*Commit); ok {
+		c.fns = append(c.fns, fn)
+	}
+}
+
+// Run runs what was added, once.
+func (c *Commit) Run() {
+	fns := c.fns
+	c.fns = nil
+	for _, fn := range fns {
+		fn()
+	}
+}
+
 // ErrOutsideRequest means a handler or context function ran without the
 // transaction and principal the unit of work provides.
 var ErrOutsideRequest = errors.New("reqctx: no transaction and principal in context (outside a unit of work)")

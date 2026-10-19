@@ -5115,8 +5115,14 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "Agent telemetry by agent kind: erp_model_tokens_total, erp_model_cost_micro_total, erp_model_call_duration_seconds at the gateway; erp_agent_proposals_decided_total{decision=approved|rejected|modified} counted after commit; override rate recording rule in ADR-0043",
+      "r": "telemetry/agents.go · agents.Gateway.Metrics · approvals.Decider.observe · identity.AgentKind · reqctx.OnCommit · ADR-0043 · T54c",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "Agent telemetry: tokens, cost, latency, override rate per agent",
+      "t": "Count modified-then-approved agent proposals: an owning context whose objects a person may change while their approval waits implements approvals.Modifier",
       "r": "T54",
       "c": []
      }

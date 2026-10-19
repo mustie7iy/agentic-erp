@@ -44,12 +44,14 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
+	"github.com/mustie7iy/agentic-erp/internal/platform/autonomy"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt/kmstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
+	"github.com/mustie7iy/agentic-erp/internal/platform/modelalias"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus/natstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -2027,7 +2029,8 @@ func TestMetricsCatalog(t *testing.T) {
 		events[string(m[1])] = true
 	}
 	for label, n := range map[string]int{"operation": len(api.MustOperations()) + len(control) + 1, "class": len(api.Classes),
-		"context": len(outbox.Contexts), "event": len(events)} {
+		"context": len(outbox.Contexts), "event": len(events), "agent_kind": len(autonomy.Kinds), "alias": len(modelalias.Aliases),
+		"decision": len(telemetry.Decisions)} {
 		if n > telemetry.Labels[label] {
 			t.Errorf("label %s: got %d values, want at most %d", label, n, telemetry.Labels[label])
 		}

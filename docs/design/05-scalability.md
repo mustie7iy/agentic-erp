@@ -214,4 +214,7 @@ Latency objectives (01 §1.3) are evaluated per class: every operation is
 `read`, `list`, `write`, `approval` or `report` (`erp_operation_info`), and
 the request histogram has a bucket at each threshold. Business events are
 counted as the relay commits them (`erp_events_published_total`); backlog
-and lag gauges are read from the database on scrape.
+and lag gauges are read from the database on scrape. Agents are measured
+by kind, never by principal: tokens, cost and latency at the model
+gateway, and decisions on their proposals, whose override rate (rejected
+or modified before approval) is a recording rule (ADR-0043).

@@ -472,9 +472,10 @@ func modelClient(cfg config.Config) *http.Client {
 // collaborators sets up the optional outside services (document extraction,
 // the bank connector) and the metrics with the queues' backlogs.
 func (s *server) collaborators() {
+	s.metrics = newMetrics(s.pool, s.cfg, s.log) // first: the gateway counts its calls in them
 	if s.cfg.Model.Enabled() {
 		s.gateway = &agents.Gateway{Provider: agents.Anthropic{Endpoint: s.cfg.Model.Endpoint, Key: s.cfg.Model.APIKey, Client: modelClient(s.cfg)},
-			Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log, Timeout: modelTimeout, AgentBudget: identity.AgentBudget,
+			Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log, Timeout: modelTimeout, AgentBudget: identity.AgentBudget, AgentKind: identity.AgentKind, Metrics: s.metrics,
 			Countries: tenancy.Countries}
 		// Capture's model calls go through the gateway too, in the
 		// request's unit of work (ADR-0036).
@@ -483,7 +484,6 @@ func (s *server) collaborators() {
 	if s.cfg.BankOutboxDir != "" {
 		s.connector = payments.DirConnector{Dir: s.cfg.BankOutboxDir}
 	}
-	s.metrics = newMetrics(s.pool, s.cfg, s.log)
 }
 
 // newMetrics registers the cell's metrics, all of them held to the catalog

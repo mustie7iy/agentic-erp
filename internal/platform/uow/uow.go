@@ -175,11 +175,15 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 		ctx = reqctx.WithReadOnly(ctx)
 	}
 	ctx, buf := audit.WithBuffer(ctx)
+	ctx, committed := reqctx.WithCommit(ctx)
 	rec := &recorder{header: http.Header{}, status: http.StatusOK}
 	next.ServeHTTP(rec, r.WithContext(ctx))
 
 	if err := m.finish(ctx, tx, principal, req, rec, buf); err != nil {
 		return err
+	}
+	if rec.status < http.StatusBadRequest { // finish committed the request's work
+		committed.Run()
 	}
 	rec.send(w)
 	return nil

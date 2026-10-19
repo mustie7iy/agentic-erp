@@ -22,12 +22,13 @@ var Labels = map[string]int{
 	"gauge":      64,  // names of the gauges a process registers
 	"store":      8,   // stores whose encryption at rest is stated
 	"encryption": 8,   // how a store encrypts at rest
-	// Business and agent metrics (T54b, T54c).
-	"status":     16,  // a document's or run's state
-	"outcome":    8,   // how a decision ended: approved, rejected, modified …
-	"agent_kind": 32,  // agent types
-	"alias":      32,  // model aliases (ADR-0036)
+	// Agent metrics (T54c).
+	"agent_kind": 16,  // autonomy.Kinds: an agent's type, "untyped" or "none", never a principal id
+	"alias":      8,   // model aliases (modelalias.Aliases, ADR-0036)
+	"kind":       4,   // ModelCall token kinds: input, output, cache_read, cache_write
+	"status":     4,   // how a model call ended: succeeded, failed, refused
 	"currency":   200, // ISO 4217 codes
+	"decision":   4,   // ProposalDecided decisions: approved, rejected, modified
 }
 
 // MaxSeries is the most series one process may expose when every label

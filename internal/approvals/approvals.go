@@ -39,10 +39,12 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/autonomy"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
 )
 
 // Object types.
@@ -115,6 +117,18 @@ type Handler interface {
 	Rejected(ctx context.Context, objectID, requestID uuid.UUID, comment string) error
 	Cancelled(ctx context.Context, objectID, requestID uuid.UUID, comment string) error
 }
+
+// Modifier is a Handler whose objects a person may change while their
+// request is pending. Modified reports whether one did, so that an agent's
+// proposal approved after a person changed it counts as an override
+// (ADR-0043). A Handler that is not one has objects nobody changes while
+// they wait.
+type Modifier interface {
+	Modified(ctx context.Context, objectID, requestID uuid.UUID) (bool, error)
+}
+
+// AgentKind reads what metrics call a principal (identity.AgentKind).
+type AgentKind func(ctx context.Context, tx pgx.Tx, principal uuid.UUID) (string, error)
 
 // Step is one approval step of a request.
 type Step struct {
@@ -466,6 +480,10 @@ func record(ctx context.Context, action string, r Request, detail map[string]any
 type Decider struct {
 	Roles    Roles
 	Handlers map[string]Handler
+	// AgentKind and Metrics count decisions on agents' proposals
+	// (erp_agent_proposals_decided_total, ADR-0043); either nil: none.
+	AgentKind AgentKind
+	Metrics   *telemetry.Metrics
 }
 
 // decide loads a pending request for a decision by the caller and checks
@@ -529,6 +547,34 @@ func (d Decider) notify(r Request, call func(Handler) error) error {
 	return call(h)
 }
 
+// observe counts a request an agent raised and a person completed, once
+// the decision commits: approved, rejected, or approved after a person
+// modified its object (the override rate, ADR-0043). Requests people
+// raised are not counted.
+func (d Decider) observe(ctx context.Context, tx pgx.Tx, r Request, decision string) error {
+	if d.AgentKind == nil || d.Metrics == nil {
+		return nil
+	}
+	kind, err := d.AgentKind(ctx, tx, r.RequesterID)
+	if err != nil {
+		return fmt.Errorf("approvals: read the requester of request %s: %w", r.ID, err)
+	}
+	if kind == autonomy.NotAgent {
+		return nil
+	}
+	if m, ok := d.Handlers[r.ObjectType].(Modifier); ok && decision == telemetry.DecisionApproved {
+		changed, err := m.Modified(ctx, r.ObjectID, r.ID)
+		if err != nil {
+			return fmt.Errorf("approvals: was %s %s modified: %w", r.ObjectType, r.ObjectID, err)
+		}
+		if changed {
+			decision = telemetry.DecisionModified
+		}
+	}
+	reqctx.OnCommit(ctx, func() { d.Metrics.ProposalDecided(kind, decision) })
+	return nil
+}
+
 // Approve records the caller's approval for the current step. When the
 // step has its approvals the request moves to the next step, or is
 // approved after the last one and the owning context moves the object on.
@@ -559,6 +605,9 @@ func (d Decider) Approve(ctx context.Context, id uuid.UUID, ifMatch func(int32) 
 		if err := d.notify(r, func(h Handler) error { return h.Approved(ctx, r.ObjectID, id) }); err != nil {
 			return Request{}, err
 		}
+		if err := d.observe(ctx, tx, r, telemetry.DecisionApproved); err != nil {
+			return Request{}, err
+		}
 	}
 	updated, err := getRequest(ctx, tx, id, false)
 	if err != nil {
@@ -580,6 +629,9 @@ func (d Decider) Reject(ctx context.Context, id uuid.UUID, ifMatch func(int32) e
 		return Request{}, err
 	}
 	if err := d.notify(r, func(h Handler) error { return h.Rejected(ctx, r.ObjectID, id, comment) }); err != nil {
+		return Request{}, err
+	}
+	if err := d.observe(ctx, tx, r, telemetry.DecisionRejected); err != nil {
 		return Request{}, err
 	}
 	return getRequest(ctx, tx, id, false)

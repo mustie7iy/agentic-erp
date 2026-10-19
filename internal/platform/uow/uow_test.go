@@ -41,6 +41,7 @@ type app struct {
 	release chan struct{} // closed to let /slow finish
 	entered chan struct{} // closed when a request enters /slow: it holds its idempotency key
 	slow    atomic.Int32  // requests that entered /slow
+	commits atomic.Int32  // creates whose commit ran their OnCommit
 }
 
 func newApp(t *testing.T, pool *database.Pool, also ...*authntest.Issuer) *app {
@@ -60,6 +61,7 @@ func newApp(t *testing.T, pool *database.Pool, also ...*authntest.Issuer) *app {
 		tx, _ := reqctx.TxFrom(r.Context())
 		p, _ := reqctx.PrincipalFrom(r.Context())
 		id := uuid.Must(uuid.NewV7())
+		reqctx.OnCommit(r.Context(), func() { a.commits.Add(1) })
 		_, err := tx.Exec(r.Context(), `INSERT INTO platform.operation (tenant_id, id, kind, status, created_by, updated_by)
 			VALUES ($1, $2, 'test.create', 'queued', $3, $3)`, p.TenantID, id, p.ID)
 		return id, err
@@ -325,6 +327,24 @@ func TestErrorsKeepTheAnswerNotTheChanges(t *testing.T) {
 	}
 	if got := r.Header().Get("Idempotent-Replayed"); got != "" {
 		t.Fatalf("corrected retry Idempotent-Replayed: got %q, want empty", got)
+	}
+}
+
+// TestOnCommit: what a request adds with reqctx.OnCommit runs once its
+// work commits, and not for a 4xx or 5xx whose changes are undone.
+func TestOnCommit(t *testing.T) {
+	a := newApp(t, pgtest.Pool(t))
+	ten := pgtest.NewTenant(t)
+	for _, c := range []struct {
+		path string
+		want int32
+	}{{"/conflict", 0}, {"/crash", 0}, {"/create", 1}} {
+		t.Run(c.path, func(t *testing.T) {
+			a.in(t).do(call{method: "POST", path: c.path, key: "key-commit" + strings.ReplaceAll(c.path, "/", "-"), tenant: ten.ID, subject: ten.Human.Subject})
+			if got := a.commits.Load(); got != c.want {
+				t.Errorf("commit hooks run: got %d, want %d", got, c.want)
+			}
+		})
 	}
 }
 

@@ -63,6 +63,7 @@ type Metrics struct {
 	duration   *prometheus.HistogramVec
 	events     *prometheus.CounterVec
 	readErrors *prometheus.CounterVec // created by the first Gauge
+	agents     agentMetrics
 }
 
 // latencyBuckets hold every p95 and p99 objective of 01-requirements §1.3
@@ -70,12 +71,13 @@ type Metrics struct {
 // latency SLO counts requests within its threshold exactly (ADR-0043).
 var latencyBuckets = []float64{.005, .01, .025, .05, .1, .15, .2, .3, .4, .5, 1, 2.5, 3, 5}
 
-// NewMetrics registers the request and event metrics.
+// NewMetrics registers the request, event and agent metrics.
 func NewMetrics() *Metrics {
 	m := &Metrics{registry: prometheus.NewRegistry()}
 	m.requests = m.counterVec("erp_http_requests_total", "HTTP requests by operation and status code.", "operation", "code")
 	m.duration = m.histogramVec("erp_http_request_duration_seconds", "HTTP request latency by operation.", latencyBuckets, "operation")
 	m.events = m.counterVec("erp_events_published_total", "Business events the outbox relay published and committed, by context and event.", "context", "event")
+	m.registerAgents()
 	return m
 }
 

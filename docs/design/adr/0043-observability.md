@@ -19,7 +19,7 @@ which would make a cell's series grow with its customers. T54 closes this.
   receivers are decided later; until then the routes end at a placeholder
   receiver.
 - **Labels are bounded enumerations.** A metric's labels are only
-  `context`, `operation`, `class`, `event`, `status`/`outcome`,
+  `context`, `operation`, `class`, `event`, `status`, `decision`, `kind`,
   `agent_kind`, `alias`, `currency` and the operational ones already there
   (`code`, `gauge`, `store`, `encryption`), each with a ceiling on its
   values. No tenant, company, principal or document id is ever a label:
@@ -65,11 +65,37 @@ which would make a cell's series grow with its customers. T54 closes this.
   role reads them through column grants (000091), each from a partial
   index of the rows it watches (000092–000095). Bank-file gauges for T44's
   worker statuses and webhook delivery gauges (T50) follow those steps.
-- **Agent telemetry** (T54c): tokens, cost, latency and outcomes by
-  `agent_kind` and `alias`. The **override rate** is the share of
-  agent-raised proposals that a human rejected, or modified before
-  approving; approved unchanged is the only outcome that is not an
-  override.
+- **Agent telemetry** (T54c). `agent_kind` is the agent's type
+  (`autonomy.Types`), `untyped` for an agent whose profile names none it
+  knows, or `none` for a person or service: never a principal id
+  (`autonomy.Kinds`, read through `identity.AgentKind`). The model
+  gateway counts each call once its ledger row commits:
+  `erp_model_tokens_total{agent_kind,alias,kind}` (kind: input, output,
+  cache_read, cache_write), `erp_model_cost_micro_total{agent_kind,currency}`
+  in millionths of the currency, and
+  `erp_model_call_duration_seconds{agent_kind,alias,status}` (succeeded,
+  failed, refused; buckets from 0.5 s to 10 min). The cost series is a
+  trend, a float that drifts: exact cost stays in the call ledger and
+  `getAiUsage` (ADR-0036). Calls refused before the provider are not
+  calls and are not counted.
+  `erp_agent_proposals_decided_total{agent_kind,decision}` counts the
+  approval requests an agent raised that a person approved, rejected, or
+  approved after changing its object (`modified`), once the decision
+  commits (`reqctx.OnCommit`, run by the unit of work after its commit);
+  a withdrawn request is not decided. An owning context whose objects a
+  person may change while their request waits says so by implementing
+  `approvals.Modifier`; none does yet, because no such change exists
+  today. The **override rate** is the share of agent-raised proposals
+  that a person rejected, or modified before approving; approved
+  unchanged is the only outcome that is not an override. T54e records it
+  as:
+
+  ```yaml
+  - record: erp:agent_override_rate:ratio_rate1d
+    expr: |
+      sum by (agent_kind) (rate(erp_agent_proposals_decided_total{decision=~"rejected|modified"}[1d]))
+      / sum by (agent_kind) (rate(erp_agent_proposals_decided_total[1d]))
+  ```
 - **SLOs and alerts** (T54e) are multi-window burn-rate rules on the
   availability (99.95%) and latency objectives, with promtool unit tests.
   **Dashboards** (T54f) are code: Grafana JSON in the repository, whose
