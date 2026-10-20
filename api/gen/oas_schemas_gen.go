@@ -24533,9 +24533,17 @@ type RevaluationPreviewItem struct {
 	ValuedLc Money `json:"valued_lc"`
 	// Valued_lc less amount_lc.
 	DifferenceLc Money `json:"difference_lc"`
-	// Difference_lc in group currency at the key date's average rate.
+	// Units of group currency per unit of the transaction currency on the key date, of the valuation rate
+	// type; 1 when the transaction currency is the group's.
+	RateGc Decimal `json:"rate_gc"`
+	// Rate_gc's valid_from; absent when the transaction currency is the group's.
+	RateGcValidFrom OptDate `json:"rate_gc_valid_from"`
+	// The amount at rate_gc in group currency, rounded once.
+	ValuedGc Money `json:"valued_gc"`
+	// Valued_gc less amount_gc.
 	DifferenceGc Money `json:"difference_gc"`
-	// Gain for a positive difference, loss for a negative one, none without one.
+	// Gain for a positive local difference, loss for a negative one; without one, as the group
+	// difference's sign says; none when neither differs.
 	Direction string `json:"direction"`
 }
 
@@ -24597,6 +24605,21 @@ func (s *RevaluationPreviewItem) GetValuedLc() Money {
 // GetDifferenceLc returns the value of DifferenceLc.
 func (s *RevaluationPreviewItem) GetDifferenceLc() Money {
 	return s.DifferenceLc
+}
+
+// GetRateGc returns the value of RateGc.
+func (s *RevaluationPreviewItem) GetRateGc() Decimal {
+	return s.RateGc
+}
+
+// GetRateGcValidFrom returns the value of RateGcValidFrom.
+func (s *RevaluationPreviewItem) GetRateGcValidFrom() OptDate {
+	return s.RateGcValidFrom
+}
+
+// GetValuedGc returns the value of ValuedGc.
+func (s *RevaluationPreviewItem) GetValuedGc() Money {
+	return s.ValuedGc
 }
 
 // GetDifferenceGc returns the value of DifferenceGc.
@@ -24669,6 +24692,21 @@ func (s *RevaluationPreviewItem) SetDifferenceLc(val Money) {
 	s.DifferenceLc = val
 }
 
+// SetRateGc sets the value of RateGc.
+func (s *RevaluationPreviewItem) SetRateGc(val Decimal) {
+	s.RateGc = val
+}
+
+// SetRateGcValidFrom sets the value of RateGcValidFrom.
+func (s *RevaluationPreviewItem) SetRateGcValidFrom(val OptDate) {
+	s.RateGcValidFrom = val
+}
+
+// SetValuedGc sets the value of ValuedGc.
+func (s *RevaluationPreviewItem) SetValuedGc(val Money) {
+	s.ValuedGc = val
+}
+
 // SetDifferenceGc sets the value of DifferenceGc.
 func (s *RevaluationPreviewItem) SetDifferenceGc(val Money) {
 	s.DifferenceGc = val
@@ -24739,6 +24777,10 @@ type RevaluationPreviewTotal struct {
 	ValuedLc Money `json:"valued_lc"`
 	// Sum of their differences in local currency.
 	DifferenceLc Money `json:"difference_lc"`
+	// Sum of their booked group amounts.
+	AmountGc Money `json:"amount_gc"`
+	// Sum of their valued group amounts.
+	ValuedGc Money `json:"valued_gc"`
 	// Sum of their differences in group currency.
 	DifferenceGc Money `json:"difference_gc"`
 }
@@ -24781,6 +24823,16 @@ func (s *RevaluationPreviewTotal) GetValuedLc() Money {
 // GetDifferenceLc returns the value of DifferenceLc.
 func (s *RevaluationPreviewTotal) GetDifferenceLc() Money {
 	return s.DifferenceLc
+}
+
+// GetAmountGc returns the value of AmountGc.
+func (s *RevaluationPreviewTotal) GetAmountGc() Money {
+	return s.AmountGc
+}
+
+// GetValuedGc returns the value of ValuedGc.
+func (s *RevaluationPreviewTotal) GetValuedGc() Money {
+	return s.ValuedGc
 }
 
 // GetDifferenceGc returns the value of DifferenceGc.
@@ -24826,6 +24878,16 @@ func (s *RevaluationPreviewTotal) SetValuedLc(val Money) {
 // SetDifferenceLc sets the value of DifferenceLc.
 func (s *RevaluationPreviewTotal) SetDifferenceLc(val Money) {
 	s.DifferenceLc = val
+}
+
+// SetAmountGc sets the value of AmountGc.
+func (s *RevaluationPreviewTotal) SetAmountGc(val Money) {
+	s.AmountGc = val
+}
+
+// SetValuedGc sets the value of ValuedGc.
+func (s *RevaluationPreviewTotal) SetValuedGc(val Money) {
+	s.ValuedGc = val
 }
 
 // SetDifferenceGc sets the value of DifferenceGc.

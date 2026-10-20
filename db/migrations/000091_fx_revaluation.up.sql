@@ -193,8 +193,12 @@ SELECT platform.secure_table('ledger.revaluation_run'::regclass);
 
 -- What a run valued: an open item (a journal line on a reconciliation
 -- account) or the balance of a flagged account in one currency, its
--- transaction-currency amount and booked local amount, the rate of the key
--- date and the local amount at that rate. Insert-only.
+-- transaction-currency amount and booked local and group amounts, and the
+-- key date's rates into local and into group currency with the amounts at
+-- them: group currency is valued on its own (SAP parallel-currency
+-- valuation), not translated from the local difference. A balance whose
+-- transaction-currency amount is zero is valued while its local or group
+-- amount is not: that residual is what the run corrects. Insert-only.
 CREATE TABLE ledger.revaluation_item (
   tenant_id         uuid NOT NULL,
   run_id            uuid NOT NULL,
@@ -205,16 +209,23 @@ CREATE TABLE ledger.revaluation_item (
   journal_entry_id  uuid,
   line_no           integer,
   currency_tc       char(3) NOT NULL REFERENCES ref.currency,
-  amount_tc         bigint NOT NULL CHECK (amount_tc <> 0),
+  amount_tc         bigint NOT NULL,
   amount_lc         bigint NOT NULL,              -- booked, before this run
+  amount_gc         bigint NOT NULL,              -- booked, before this run
   rate              numeric(28,12) NOT NULL CHECK (rate > 0),
   rate_valid_from   date NOT NULL,
   valued_lc         bigint NOT NULL,              -- amount_tc at rate
+  rate_gc           numeric(28,12) NOT NULL CHECK (rate_gc > 0),
+  rate_gc_valid_from date,                        -- none when the item's currency is the group's (rate 1)
+  valued_gc         bigint NOT NULL,              -- amount_tc at rate_gc
   PRIMARY KEY (tenant_id, run_id, item_no),
   FOREIGN KEY (tenant_id, run_id) REFERENCES ledger.revaluation_run (tenant_id, id),
   CONSTRAINT revaluation_item_open_item FOREIGN KEY (tenant_id, fiscal_year, journal_entry_id, line_no) REFERENCES ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no),
   CONSTRAINT revaluation_item_kind CHECK (num_nulls(fiscal_year, journal_entry_id, line_no) IN (0, 3)
-    AND (journal_entry_id IS NOT NULL OR partner_id IS NULL))
+    AND (journal_entry_id IS NOT NULL OR partner_id IS NULL)),
+  -- An open item has an amount in its currency; a balance has one in some
+  -- currency.
+  CONSTRAINT revaluation_item_amount CHECK (amount_tc <> 0 OR (journal_entry_id IS NULL AND (amount_lc <> 0 OR amount_gc <> 0)))
 );
 CREATE UNIQUE INDEX revaluation_item_line ON ledger.revaluation_item (tenant_id, run_id, fiscal_year, journal_entry_id, line_no)
   WHERE journal_entry_id IS NOT NULL;

@@ -774,8 +774,12 @@ of its legal entity and ledger and no other run's (`revaluation_run_entries`,
 key date (`revaluation_run_posted`). `revaluation_item`, insert-only, is
 what a run valued: an open item (a journal line, with its partner) or a
 flagged account's balance in one currency (`revaluation_item_kind`), each
-once per run, with its transaction and booked local amounts, the rate and
-its validity, and the local amount at that rate.
+once per run, with its transaction and booked local and group amounts and,
+for local and for group currency each, the rate, its validity (none for
+the group's own currency) and the amount at that rate: group currency is
+valued on its own. An open item has a transaction-currency amount; a
+balance may be zero in it while its local or group balance is not, the
+residual a run corrects (`revaluation_item_amount`).
 
 ## 3.8 Procurement (`procurement`)
 

@@ -1491,14 +1491,17 @@ func (UnimplementedHandler) PostSupplierInvoice(ctx context.Context, req OptSupp
 // value (ADR-0042, T48): the open items on supplier and customer reconciliation accounts on the key
 // date (posted on or before it and not cleared by a clearing dated on or before it) and, per currency,
 // the balance of each G/L account flagged `revalue_foreign_currency`, in every currency other than
-// local currency. Down payments (special G/L items) and the GR/IR account are not revalued. Each item
-// is valued at the legal entity's valuation rate type valid on the key date, rounded once: `valued_lc`
-// = amount × rate; the difference to the booked local amount is an unrealised gain when positive and
-// a loss when negative, and its group currency amount follows from local at the key date's average
-// rate, as a posting's would. The key date is the last day of a posting period of the ledger (422
-// `ledger.key_date_not_period_end`); a rate valid from before that period is stale (422
-// `ledger.rate_stale`) and a missing one is refused (422 `ledger.no_exchange_rate`); an account with
-// items in scope and no active valuation accounts fails the preview (422
+// local currency. Down payments (special G/L items) and the GR/IR account are not revalued. A flagged
+// account's balance that is zero in its currency but not in local or group currency is valued too, at
+// zero: that residual is what revaluation corrects. Each item is valued in local and, on its own, in
+// group currency at the legal entity's valuation rate type valid on the key date, each rounded once:
+// `valued_lc` = amount × rate and `valued_gc` = amount × rate_gc (SAP's parallel-currency valuation,
+// not the local difference translated); the differences to the booked amounts are an unrealised gain
+// when positive and a loss when negative, by the local difference's sign, or the group one's when
+// local does not differ. The key date is the last day of a posting period of the ledger (422
+// `ledger.key_date_not_period_end`); a rate into local or group currency valid from before that period
+// is stale (422 `ledger.rate_stale`) and a missing one is refused (422 `ledger.no_exchange_rate`); an
+// account with items in scope and no active valuation accounts fails the preview (422
 // `ledger.revaluation_account_missing`, naming the account). Reads only; every agent autonomy level
 // may call it.
 //

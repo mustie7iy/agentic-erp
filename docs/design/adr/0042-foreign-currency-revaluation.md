@@ -63,12 +63,24 @@ posting.
   before it and neither cleared by a clearing nor reversed by a reversal
   dated on or before it; only
   items in a currency other than local currency are valued, and a flagged
-  account's balance only where its transaction-currency balance is not
-  zero. Each is valued `round(amount_tc × rate)` against its booked local
-  amount, rounded once; a positive difference is a gain, a negative one a
-  loss, and its group currency amount is the local difference at the key
-  date's average rate, the rate the valuation entry posts at (not checked
-  for staleness, unlike the valuation rate). The key date must be the last day of a (non-special)
+  account's balance per currency where it is not zero in transaction,
+  local or group currency: a balance zero in its currency with a local or
+  group residual is valued at zero, and the residual is exactly what the
+  run corrects. Each is valued `round(amount_tc × rate)` against its
+  booked local amount, rounded once; a positive difference is a gain, a
+  negative one a loss.
+- **Group currency is valued on its own (product owner 2026-10-19).** As
+  SAP's parallel-currency valuation does, an item's group difference is
+  `round(amount_tc × rate tc→gc)` less its booked group amount, at the
+  key date's rate of the same valuation rate type, with the same checks
+  (missing: `ledger.no_exchange_rate`; valid from before the key date's
+  period: `ledger.rate_stale`; zero to 12 decimals:
+  `ledger.rate_not_recordable`), and rate 1 when the item's currency is
+  the group's. It is not the local difference translated: the two
+  currencies' rates move independently, so the differences can differ in
+  size and sign. The local difference's sign picks the gain or loss
+  account, the group one's only where local does not differ; a group
+  difference of the other sign posts to the same account. The key date must be the last day of a (non-special)
   posting period of the ledger (422 `ledger.key_date_not_period_end`). An
   account with items in scope and no active valuation fails the run and
   the preview closed (422 `ledger.revaluation_account_missing`, naming
@@ -87,9 +99,6 @@ posting.
   posting, is open to agents. Each run and cancellation writes an audit
   record (ADR-0011) and publishes `RevaluationRunPosted` or
   `RevaluationRunCancelled` through the outbox (ADR-0007).
-- **Valuation in local currency.** The run values local currency; the
-  valuation entry's group currency amounts follow from local at the
-  posting's rate, as for every posting.
 
 ## Out of scope
 - Delta mode (valuing against the previous run instead of resetting).

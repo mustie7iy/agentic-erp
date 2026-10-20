@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 
@@ -34,30 +35,42 @@ type Revaluation struct {
 	Items                    []RevaluedItem
 }
 
-// RevaluedItem is one valued open item or flagged account balance.
+// RevaluedItem is one valued open item or flagged account balance. Local
+// and group currency are each valued from the transaction-currency amount
+// at the key date's rate into them (SAP's parallel-currency valuation), so
+// their differences can differ in size and sign.
 type RevaluedItem struct {
-	AccountID     uuid.UUID
-	PartnerID     *uuid.UUID
-	Line          *ItemRef // the open item; nil for a balance
-	CurrencyTC    string
-	ExpTC         int
-	AmountTC      money.Minor
-	AmountLC      money.Minor // booked
-	AmountGC      money.Minor // booked
-	Rate          string      // shown, to 12 decimals
-	RateValidFrom time.Time
-	ValuedLC      money.Minor // AmountTC at the rate, rounded once
-	DifferenceLC  money.Minor
-	DifferenceGC  money.Minor // DifferenceLC at the key date's average rate
+	AccountID       uuid.UUID
+	PartnerID       *uuid.UUID
+	Line            *ItemRef // the open item; nil for a balance
+	CurrencyTC      string
+	ExpTC           int
+	AmountTC        money.Minor
+	AmountLC        money.Minor // booked
+	AmountGC        money.Minor // booked
+	Rate            string      // into local currency, shown to 12 decimals
+	RateValidFrom   time.Time
+	ValuedLC        money.Minor // AmountTC at Rate, rounded once
+	DifferenceLC    money.Minor
+	RateGC          string    // into group currency, "1" when CurrencyTC is the group's
+	RateGCValidFrom time.Time // zero when CurrencyTC is the group's
+	ValuedGC        money.Minor
+	DifferenceGC    money.Minor
 }
 
-// Direction is gain for a positive difference, loss for a negative one and
-// none without one.
+// Direction is gain for a positive local difference, loss for a negative
+// one, and, without one, as the group difference's sign says; none when
+// neither currency differs. The direction picks the gain or loss account,
+// so a group difference of the other sign posts to the local one's.
 func (it RevaluedItem) Direction() string {
+	d := it.DifferenceLC
+	if d == 0 {
+		d = it.DifferenceGC
+	}
 	switch {
-	case it.DifferenceLC > 0:
+	case d > 0:
 		return "gain"
-	case it.DifferenceLC < 0:
+	case d < 0:
 		return "loss"
 	}
 	return "none"
@@ -72,7 +85,7 @@ type RevaluationTotal struct {
 	Direction                                  string
 	Count                                      int32
 	AmountTC, AmountLC, ValuedLC, DifferenceLC money.Minor
-	DifferenceGC                               money.Minor
+	AmountGC, ValuedGC, DifferenceGC           money.Minor
 }
 
 // revaluationScope reads what a run values at a key date, both kinds in
@@ -82,8 +95,10 @@ type RevaluationTotal struct {
 // reversed by a reversal dated on or before it (a reversal cancels its
 // entry's items, and its own, without clearing them), down payments
 // (special G/L) excluded; balances are of flagged accounts other
-// than the GR/IR account, per currency, where the transaction currency
-// balance is not zero. Each row says whether its account has an active
+// than the GR/IR account, per currency, where the balance is not zero in
+// one of the three currencies: a balance cleared to zero in its currency
+// whose local or group balance is not is valued at zero, its residual
+// being what the run corrects. Each row says whether its account has an active
 // valuation (fx_valuation_account), so a run without one fails closed. The
 // account, partner and line of an item are the journal line's own. $1
 // legal entity; $2 ledger; $3 key date; $4 its fiscal year, which prunes
@@ -115,7 +130,7 @@ const revaluationScope = `WITH scope AS MATERIALIZED (
 			AND NOT EXISTS (SELECT FROM ledger.account_determination d WHERE d.tenant_id = l.tenant_id AND d.legal_entity_id = l.legal_entity_id
 				AND d.key = 'gr_ir' AND d.account_id = l.account_id)
 		GROUP BY l.tenant_id, l.account_id, e.currency_tc
-		HAVING sum(l.amount_tc) <> 0
+		HAVING sum(l.amount_tc) <> 0 OR sum(l.amount_lc) <> 0 OR sum(l.amount_gc) <> 0
 	)
 	SELECT s.account_id, s.partner_id, s.fiscal_year, s.journal_entry_id, s.line_no, s.currency_tc, c.exponent, s.amount_tc, s.amount_lc, s.amount_gc,
 		g.number, v.account_id IS NOT NULL
@@ -127,10 +142,10 @@ const revaluationScope = `WITH scope AS MATERIALIZED (
 
 // valueRevaluation values what a run of the legal entity and ledger at the
 // key date would value, without writing anything. The key date is the last
-// day of a posting period of the ledger; every currency is valued at the
-// latest rate of the legal entity's rate type valid on it, one valid from
-// before the key date's period being stale; and every account with items
-// in scope has an active valuation.
+// day of a posting period of the ledger; every currency is valued into
+// local and into group currency at the latest rate of the legal entity's
+// rate type valid on it, one valid from before the key date's period being
+// stale; and every account with items in scope has an active valuation.
 func valueRevaluation(ctx context.Context, tx pgx.Tx, le tenancy.Entity, ledgerID uuid.UUID, group string, keyDate time.Time) (Revaluation, error) {
 	r := Revaluation{LegalEntityID: le.ID, LedgerID: ledgerID, KeyDate: keyDate, CurrencyLC: le.LocalCurrency, CurrencyGC: group}
 	var start time.Time
@@ -153,24 +168,23 @@ func valueRevaluation(ctx context.Context, tx pgx.Tx, le tenancy.Entity, ledgerI
 		return Revaluation{}, err
 	}
 	r.ExpLC, r.ExpGC = exps[le.LocalCurrency], exps[group]
-	toGC, err := rate(ctx, tx, le.LocalCurrency, group, keyDate)
-	if err != nil {
-		return Revaluation{}, err
-	}
 	if r.Items, err = revaluationItems(ctx, tx, r, keyDate); err != nil {
 		return Revaluation{}, err
 	}
-	rates := map[string]exchange{}
+	rates := map[string][2]exchange{}
 	for i := range r.Items {
 		it := &r.Items[i]
 		x, ok := rates[it.CurrencyTC]
 		if !ok {
-			if x, err = valuationRate(ctx, tx, r, it.CurrencyTC, start); err != nil {
+			if x[0], err = valuationRate(ctx, tx, r, it.CurrencyTC, r.CurrencyLC, start); err != nil {
+				return Revaluation{}, err
+			}
+			if x[1], err = valuationRate(ctx, tx, r, it.CurrencyTC, r.CurrencyGC, start); err != nil {
 				return Revaluation{}, err
 			}
 			rates[it.CurrencyTC] = x
 		}
-		if err := it.value(x, toGC, r.ExpLC, r.ExpGC); err != nil {
+		if err := it.value(x[0], x[1], r.ExpLC, r.ExpGC); err != nil {
 			return Revaluation{}, err
 		}
 	}
@@ -218,49 +232,61 @@ func revaluationItems(ctx context.Context, tx pgx.Tx, r Revaluation, keyDate tim
 	return items, nil
 }
 
-// valuationRate is the rate a currency is valued at: the latest of the
-// run's rate type valid on the key date, refused when there is none or it
-// is valid from before the key date's period (start), and when its 12
-// decimals, what a revaluation item records, are zero.
-func valuationRate(ctx context.Context, tx pgx.Tx, r Revaluation, currency string, start time.Time) (exchange, error) {
-	x, found, err := rateOfType(ctx, tx, r.RateType, currency, r.CurrencyLC, r.KeyDate)
+// valuationRate is the rate a currency is valued at into local or group
+// currency (to): 1 into itself, else the latest of the run's rate type
+// valid on the key date, refused when there is none or it is valid from
+// before the key date's period (start), and when its 12 decimals, what a
+// revaluation item records, are zero.
+func valuationRate(ctx context.Context, tx pgx.Tx, r Revaluation, currency, to string, start time.Time) (exchange, error) {
+	if currency == to {
+		return exchange{exact: big.NewRat(1, 1), shown: "1"}, nil
+	}
+	x, found, err := rateOfType(ctx, tx, r.RateType, currency, to, r.KeyDate)
 	switch {
 	case err != nil:
 		return exchange{}, err
 	case !found:
 		return exchange{}, problem.Unprocessable("ledger.no_exchange_rate",
-			fmt.Sprintf("No %s exchange rate from %s to %s is valid on %s.", r.RateType, currency, r.CurrencyLC, r.KeyDate.Format(time.DateOnly)),
+			fmt.Sprintf("No %s exchange rate from %s to %s is valid on %s.", r.RateType, currency, to, r.KeyDate.Format(time.DateOnly)),
 			problem.FieldError{Field: "key_date", Code: "no_exchange_rate", Message: "record the " + r.RateType + " rate of the key date first"})
 	case x.validFrom.Before(start):
 		return exchange{}, problem.Unprocessable("ledger.rate_stale",
 			fmt.Sprintf("The latest %s exchange rate from %s to %s on %s is valid from %s, before the key date's period starts on %s.", r.RateType, currency,
-				r.CurrencyLC, r.KeyDate.Format(time.DateOnly), x.validFrom.Format(time.DateOnly), start.Format(time.DateOnly)),
+				to, r.KeyDate.Format(time.DateOnly), x.validFrom.Format(time.DateOnly), start.Format(time.DateOnly)),
 			problem.FieldError{Field: "key_date", Code: "rate_stale", Message: "record a " + r.RateType + " rate valid from within the key date's period"})
 	case money.ParseRat(x.shown).Sign() == 0:
 		return exchange{}, problem.Unprocessable("ledger.rate_not_recordable",
 			fmt.Sprintf("The %s rate from %s to %s, the reciprocal of the recorded %s/%s rate, is zero to the 12 decimals a revaluation records.",
-				r.RateType, currency, r.CurrencyLC, r.CurrencyLC, currency),
-			problem.FieldError{Field: "key_date", Code: "rate_not_recordable", Message: "record a " + currency + "/" + r.CurrencyLC + " rate"})
+				r.RateType, currency, to, to, currency),
+			problem.FieldError{Field: "key_date", Code: "rate_not_recordable", Message: "record a " + currency + "/" + to + " rate"})
 	}
 	return x, nil
 }
 
-// value values the item at the rate into local currency, rounded once,
-// and its difference into group currency at toGC, as a posting of it
-// would convert; an amount out of range refuses the run.
-func (it *RevaluedItem) value(x, toGC exchange, expLC, expGC int) error {
-	it.Rate, it.RateValidFrom = x.shown, x.validFrom
+// value values the item from its transaction-currency amount into local
+// currency at toLC and into group currency at toGC, each rounded once, and
+// its differences to the booked amounts; an amount out of range refuses
+// the run.
+func (it *RevaluedItem) value(toLC, toGC exchange, expLC, expGC int) error {
+	it.Rate, it.RateValidFrom, it.RateGC, it.RateGCValidFrom = toLC.shown, toLC.validFrom, toGC.shown, toGC.validFrom
 	var err error
-	if it.ValuedLC, err = money.ConvertAt(it.AmountTC, x.exact, it.ExpTC, expLC); err != nil {
-		return errTotalTooLarge("key_date")
+	if it.ValuedLC, it.DifferenceLC, err = valued(it.AmountTC, it.AmountLC, toLC, it.ExpTC, expLC); err != nil {
+		return err
 	}
-	if it.DifferenceLC, err = money.Diff(it.ValuedLC, it.AmountLC); err != nil {
-		return errTotalTooLarge("key_date")
+	it.ValuedGC, it.DifferenceGC, err = valued(it.AmountTC, it.AmountGC, toGC, it.ExpTC, expGC)
+	return err
+}
+
+// valued is an amount at a rate, rounded once, and its difference to what
+// was booked.
+func valued(tc, booked money.Minor, x exchange, expTC, exp int) (at, diff money.Minor, err error) {
+	if at, err = money.ConvertAt(tc, x.exact, expTC, exp); err != nil {
+		return 0, 0, errTotalTooLarge("key_date")
 	}
-	if it.DifferenceGC, err = money.ConvertAt(it.DifferenceLC, toGC.exact, expLC, expGC); err != nil {
-		return errTotalTooLarge("key_date")
+	if diff, err = money.Diff(at, booked); err != nil {
+		return 0, 0, errTotalTooLarge("key_date")
 	}
-	return nil
+	return at, diff, nil
 }
 
 // Totals sums the items with a difference per account, currency and
@@ -285,8 +311,8 @@ func (r Revaluation) Totals() ([]RevaluationTotal, error) {
 		for _, s := range []struct {
 			sum *money.Minor
 			add money.Minor
-		}{{&t.AmountTC, it.AmountTC}, {&t.AmountLC, it.AmountLC},
-			{&t.ValuedLC, it.ValuedLC}, {&t.DifferenceLC, it.DifferenceLC}, {&t.DifferenceGC, it.DifferenceGC}} {
+		}{{&t.AmountTC, it.AmountTC}, {&t.AmountLC, it.AmountLC}, {&t.ValuedLC, it.ValuedLC}, {&t.DifferenceLC, it.DifferenceLC},
+			{&t.AmountGC, it.AmountGC}, {&t.ValuedGC, it.ValuedGC}, {&t.DifferenceGC, it.DifferenceGC}} {
 			if *s.sum, err = money.Sum(*s.sum, s.add); err != nil {
 				return nil, errTotalTooLarge("key_date")
 			}
@@ -347,7 +373,11 @@ func revaluationToAPI(r Revaluation, totals []RevaluationTotal) gen.RevaluationP
 	for i, it := range r.Items {
 		item := gen.RevaluationPreviewItem{AccountID: it.AccountID, Amount: apitypes.Money(it.AmountTC, it.CurrencyTC, it.ExpTC), AmountLc: lc(it.AmountLC),
 			AmountGc: gc(it.AmountGC), Rate: gen.Decimal(it.Rate), RateValidFrom: it.RateValidFrom, ValuedLc: lc(it.ValuedLC),
-			DifferenceLc: lc(it.DifferenceLC), DifferenceGc: gc(it.DifferenceGC), Direction: it.Direction()}
+			DifferenceLc: lc(it.DifferenceLC), RateGc: gen.Decimal(it.RateGC), ValuedGc: gc(it.ValuedGC), DifferenceGc: gc(it.DifferenceGC),
+			Direction: it.Direction()}
+		if !it.RateGCValidFrom.IsZero() {
+			item.RateGcValidFrom.SetTo(it.RateGCValidFrom)
+		}
 		if it.PartnerID != nil {
 			item.PartnerID.SetTo(*it.PartnerID)
 		}
@@ -361,7 +391,7 @@ func revaluationToAPI(r Revaluation, totals []RevaluationTotal) gen.RevaluationP
 	for i, t := range totals {
 		out.Totals[i] = gen.RevaluationPreviewTotal{AccountID: t.AccountID, Currency: t.CurrencyTC, Direction: t.Direction, ItemCount: t.Count,
 			Amount: apitypes.Money(t.AmountTC, t.CurrencyTC, t.ExpTC), AmountLc: lc(t.AmountLC), ValuedLc: lc(t.ValuedLC),
-			DifferenceLc: lc(t.DifferenceLC), DifferenceGc: gc(t.DifferenceGC)}
+			DifferenceLc: lc(t.DifferenceLC), AmountGc: gc(t.AmountGC), ValuedGc: gc(t.ValuedGC), DifferenceGc: gc(t.DifferenceGC)}
 	}
 	return out
 }

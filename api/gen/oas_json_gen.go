@@ -33873,6 +33873,20 @@ func (s *RevaluationPreviewItem) encodeFields(e *jx.Encoder) {
 		s.DifferenceLc.Encode(e)
 	}
 	{
+		e.FieldStart("rate_gc")
+		s.RateGc.Encode(e)
+	}
+	{
+		if s.RateGcValidFrom.Set {
+			e.FieldStart("rate_gc_valid_from")
+			s.RateGcValidFrom.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		e.FieldStart("valued_gc")
+		s.ValuedGc.Encode(e)
+	}
+	{
 		e.FieldStart("difference_gc")
 		s.DifferenceGc.Encode(e)
 	}
@@ -33882,7 +33896,7 @@ func (s *RevaluationPreviewItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfRevaluationPreviewItem = [14]string{
+var jsonFieldsNameOfRevaluationPreviewItem = [17]string{
 	0:  "account_id",
 	1:  "partner_id",
 	2:  "fiscal_year",
@@ -33895,8 +33909,11 @@ var jsonFieldsNameOfRevaluationPreviewItem = [14]string{
 	9:  "rate_valid_from",
 	10: "valued_lc",
 	11: "difference_lc",
-	12: "difference_gc",
-	13: "direction",
+	12: "rate_gc",
+	13: "rate_gc_valid_from",
+	14: "valued_gc",
+	15: "difference_gc",
+	16: "direction",
 }
 
 // Decode decodes RevaluationPreviewItem from json.
@@ -33904,7 +33921,7 @@ func (s *RevaluationPreviewItem) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode RevaluationPreviewItem to nil")
 	}
-	var requiredBitSet [2]uint8
+	var requiredBitSet [3]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -34032,8 +34049,38 @@ func (s *RevaluationPreviewItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"difference_lc\"")
 			}
-		case "difference_gc":
+		case "rate_gc":
 			requiredBitSet[1] |= 1 << 4
+			if err := func() error {
+				if err := s.RateGc.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"rate_gc\"")
+			}
+		case "rate_gc_valid_from":
+			if err := func() error {
+				s.RateGcValidFrom.Reset()
+				if err := s.RateGcValidFrom.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"rate_gc_valid_from\"")
+			}
+		case "valued_gc":
+			requiredBitSet[1] |= 1 << 6
+			if err := func() error {
+				if err := s.ValuedGc.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"valued_gc\"")
+			}
+		case "difference_gc":
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				if err := s.DifferenceGc.Decode(d); err != nil {
 					return err
@@ -34043,7 +34090,7 @@ func (s *RevaluationPreviewItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"difference_gc\"")
 			}
 		case "direction":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				v, err := d.Str()
 				s.Direction = string(v)
@@ -34063,9 +34110,10 @@ func (s *RevaluationPreviewItem) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [2]uint8{
+	for i, mask := range [3]uint8{
 		0b11100001,
-		0b00111111,
+		0b11011111,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -34283,21 +34331,31 @@ func (s *RevaluationPreviewTotal) encodeFields(e *jx.Encoder) {
 		s.DifferenceLc.Encode(e)
 	}
 	{
+		e.FieldStart("amount_gc")
+		s.AmountGc.Encode(e)
+	}
+	{
+		e.FieldStart("valued_gc")
+		s.ValuedGc.Encode(e)
+	}
+	{
 		e.FieldStart("difference_gc")
 		s.DifferenceGc.Encode(e)
 	}
 }
 
-var jsonFieldsNameOfRevaluationPreviewTotal = [9]string{
-	0: "account_id",
-	1: "currency",
-	2: "direction",
-	3: "item_count",
-	4: "amount",
-	5: "amount_lc",
-	6: "valued_lc",
-	7: "difference_lc",
-	8: "difference_gc",
+var jsonFieldsNameOfRevaluationPreviewTotal = [11]string{
+	0:  "account_id",
+	1:  "currency",
+	2:  "direction",
+	3:  "item_count",
+	4:  "amount",
+	5:  "amount_lc",
+	6:  "valued_lc",
+	7:  "difference_lc",
+	8:  "amount_gc",
+	9:  "valued_gc",
+	10: "difference_gc",
 }
 
 // Decode decodes RevaluationPreviewTotal from json.
@@ -34397,8 +34455,28 @@ func (s *RevaluationPreviewTotal) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"difference_lc\"")
 			}
-		case "difference_gc":
+		case "amount_gc":
 			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				if err := s.AmountGc.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"amount_gc\"")
+			}
+		case "valued_gc":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				if err := s.ValuedGc.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"valued_gc\"")
+			}
+		case "difference_gc":
+			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
 				if err := s.DifferenceGc.Decode(d); err != nil {
 					return err
@@ -34418,7 +34496,7 @@ func (s *RevaluationPreviewTotal) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11111111,
-		0b00000001,
+		0b00000111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

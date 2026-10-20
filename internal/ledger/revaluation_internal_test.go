@@ -23,7 +23,8 @@ func TestRevaluationOutOfRange(t *testing.T) {
 	}{
 		{"valued", RevaluedItem{ExpTC: 2, AmountTC: math.MaxInt64/2 + 1}, two, one},
 		{"difference", RevaluedItem{ExpTC: 2, AmountTC: math.MaxInt64, AmountLC: -1}, one, one},
-		{"group difference", RevaluedItem{ExpTC: 2, AmountTC: math.MaxInt64/2 + 1, AmountLC: 0}, one, two},
+		{"group value", RevaluedItem{ExpTC: 2, AmountTC: math.MaxInt64/2 + 1, AmountLC: 0}, one, two},
+		{"group difference", RevaluedItem{ExpTC: 2, AmountTC: math.MaxInt64, AmountGC: -1}, one, one},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var p *problem.Problem
@@ -40,12 +41,15 @@ func TestRevaluationOutOfRange(t *testing.T) {
 		}
 	})
 	t.Run("no difference", func(t *testing.T) {
-		it := RevaluedItem{ExpTC: 2, AmountTC: 100, AmountLC: 100}
+		it := RevaluedItem{ExpTC: 2, AmountTC: 100, AmountLC: 100, AmountGC: 100}
 		if err := it.value(one, one, 2, 2); err != nil {
 			t.Fatal(err)
 		}
 		if d := it.Direction(); d != "none" {
 			t.Errorf("direction: got %s, want none", d)
+		}
+		if d := (RevaluedItem{DifferenceGC: 1}).Direction(); d != "gain" {
+			t.Errorf("direction of a group difference alone: got %s, want gain", d)
 		}
 		totals, err := (Revaluation{Items: []RevaluedItem{it}}).Totals()
 		if err != nil || len(totals) != 0 {

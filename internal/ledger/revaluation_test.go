@@ -78,8 +78,7 @@ func preview(le uuid.UUID, keyDate string) string {
 // date (ADR-0042): items posted after it, cleared or reversed on or
 // before it, in local currency or down payments are not valued; an item
 // cleared or reversed after it is; the rate is the legal entity's rate
-// type's; group currency differences follow from local at the average
-// rate; and a key date that is not a period end, a missing, stale or
+// type's; group currency is valued on its own; and a key date that is not a period end, a missing, stale or
 // unrecordable rate and an account without a valuation are refused.
 func TestRevaluationPreview(t *testing.T) {
 	e := setup(t)
@@ -163,11 +162,15 @@ func TestRevaluationPreview(t *testing.T) {
 			t.Errorf("totals:\ngot  %s\nwant %s", strings.Join(totals, "\n     "), strings.Join(wantTotals, "\n     "))
 		}
 	})
-	t.Run("group currency from local at the average rate", func(t *testing.T) {
+	t.Run("group currency valued on its own", func(t *testing.T) {
+		// In the group's currency the item is worth what it was booked at,
+		// whatever local currency's rate did.
 		got, _ := e.in(t).Must(200, "POST", path, preview(e.us, "2026-03-31"), "")
 		it := got["items"].([]any)[0].(map[string]any)
-		s := fmt.Sprint(it["rate"], " ", it["amount_gc"], " ", it["valued_lc"], " ", it["difference_lc"], " ", it["difference_gc"], " ", it["partner_id"] == e.supplier.String())
-		if want := "1.111111111111 map[amount:-100.00 currency:EUR] map[amount:-111.11 currency:USD] map[amount:13.89 currency:USD] map[amount:11.11 currency:EUR] true"; s != want {
+		s := fmt.Sprint(it["rate"], " ", it["amount_gc"], " ", it["valued_lc"], " ", it["difference_lc"], " ", it["rate_gc"], " ", it["rate_gc_valid_from"], " ",
+			it["valued_gc"], " ", it["difference_gc"], " ", it["partner_id"] == e.supplier.String())
+		if want := "1.111111111111 map[amount:-100.00 currency:EUR] map[amount:-111.11 currency:USD] map[amount:13.89 currency:USD] 1 <nil> " +
+			"map[amount:-100.00 currency:EUR] map[amount:0.00 currency:EUR] true"; s != want {
 			t.Errorf("item of 1000: got %s, want %s", s, want)
 		}
 	})
@@ -298,5 +301,89 @@ func TestRevaluationPreviewBudget(t *testing.T) {
 	t.Logf("revaluation preview over 10,000 open items: median %v, p95 %v", times[len(times)/2], p95)
 	if budget := nfr.Budget(time.Second); p95 > budget {
 		t.Errorf("revaluation preview: p95 %v exceeds the %v budget (1 s scaled by ERP_BUDGET_SCALE)", p95, budget)
+	}
+}
+
+// TestRevaluationGroupCurrency values group currency on its own (ADR-0042,
+// SAP's parallel-currency valuation) in company 1000, local USD and group
+// EUR: a GBP item whose local value falls while its group value rises is a
+// loss by its local difference, a CHF item whose local value holds is one
+// by its group difference, and the rate into group currency is refused
+// when missing or stale as the local one is.
+func TestRevaluationGroupCurrency(t *testing.T) {
+	e := setup(t)
+	revaluationSetup(t, e, true)
+	settleRate(t, e, "USD", "2026-01-01", "0.8")
+	average := func(from, to, rate string) {
+		pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
+			VALUES ($1, gen_random_uuid(), 'average', $2, $3, '2026-01-01', $4, 'ECB', $5)`, e.ten.ID, from, to, rate, e.ten.Human.ID)
+	}
+	average("GBP", "USD", "1.25")
+	average("CHF", "USD", "1")
+	expense, ap := settleAccount(t, e, "1000", "520000"), settleAccount(t, e, "1000", "211000")
+	for _, currency := range []string{"GBP", "CHF"} {
+		revaluationPost(t, e, e.us, "2026-03-02", currency, ledger.PostingLine{AccountID: expense, Amount: 10000},
+			ledger.PostingLine{AccountID: ap, Amount: -10000, PartnerID: &e.supplier})
+	}
+	revaluationRate(t, e, "GBP", "USD", "2026-03-15", "1.3")
+	revaluationRate(t, e, "CHF", "USD", "2026-03-15", "1")
+	revaluationRate(t, e, "CHF", "EUR", "2026-03-15", "0.9")
+	path := "/v1/revaluation-runs/preview"
+	t.Run("no group rate", func(t *testing.T) {
+		e.in(t).Problem(422, "ledger.no_exchange_rate", "POST", path, preview(e.us, "2026-03-31"), "")
+	})
+	revaluationRate(t, e, "GBP", "EUR", "2026-02-15", "0.95")
+	t.Run("a stale group rate", func(t *testing.T) {
+		e.in(t).Problem(422, "ledger.rate_stale", "POST", path, preview(e.us, "2026-03-31"), "")
+	})
+	revaluationRate(t, e, "GBP", "EUR", "2026-03-20", "0.95")
+	got, _ := e.in(t).Must(200, "POST", path, preview(e.us, "2026-03-31"), "")
+	amount := func(m map[string]any, k string) any { return m[k].(map[string]any)["amount"] }
+	var items []string
+	for _, x := range got["items"].([]any) {
+		it := x.(map[string]any)
+		items = append(items, fmt.Sprintf("%v %v %v %v %v %v %v %v %v", amount(it, "amount"), amount(it, "amount_lc"), amount(it, "valued_lc"),
+			amount(it, "difference_lc"), amount(it, "amount_gc"), it["rate_gc"], amount(it, "valued_gc"), amount(it, "difference_gc"), it["direction"]))
+	}
+	want := []string{
+		"-100.00 -100.00 -100.00 0.00 -80.00 0.900000000000 -90.00 -10.00 loss",
+		"-100.00 -125.00 -130.00 -5.00 -100.00 0.950000000000 -95.00 5.00 loss",
+	}
+	if strings.Join(items, "\n") != strings.Join(want, "\n") {
+		t.Errorf("items:\ngot  %s\nwant %s", strings.Join(items, "\n     "), strings.Join(want, "\n     "))
+	}
+	var totals []string
+	for _, x := range got["totals"].([]any) {
+		s := x.(map[string]any)
+		totals = append(totals, fmt.Sprintf("%v %v %v %v %v", s["currency"], s["direction"], amount(s, "amount_gc"), amount(s, "valued_gc"), amount(s, "difference_gc")))
+	}
+	if g, w := strings.Join(totals, ", "), "CHF loss -80.00 -90.00 -10.00, GBP loss -100.00 -95.00 5.00"; g != w {
+		t.Errorf("totals: got %s, want %s", g, w)
+	}
+}
+
+// TestRevaluationResidual: a flagged account whose balance in a currency
+// is zero but whose local and group balances are not is valued at zero,
+// and its residual is the difference (ADR-0042): USD in at 0.8 and out at
+// 0.85 leaves -25.00 EUR on the bank account of company 2000.
+func TestRevaluationResidual(t *testing.T) {
+	e := setup(t)
+	revaluationSetup(t, e, true)
+	settleRate(t, e, "USD", "2026-01-01", "0.8")
+	settleRate(t, e, "USD", "2026-03-10", "0.85")
+	revaluationRate(t, e, "USD", "EUR", "2026-03-15", "0.9")
+	expense, bank := settleAccount(t, e, "2000", "520000"), settleAccount(t, e, "2000", "100000")
+	revaluationPost(t, e, e.de, "2026-03-02", "USD", ledger.PostingLine{AccountID: bank, Amount: 50000}, ledger.PostingLine{AccountID: expense, Amount: -50000})
+	revaluationPost(t, e, e.de, "2026-03-12", "USD", ledger.PostingLine{AccountID: expense, Amount: 50000}, ledger.PostingLine{AccountID: bank, Amount: -50000})
+	got, _ := e.in(t).Must(200, "POST", "/v1/revaluation-runs/preview", preview(e.de, "2026-03-31"), "")
+	items := got["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("items: got %d, want the bank's USD balance", len(items))
+	}
+	it := items[0].(map[string]any)
+	amount := func(k string) any { return it[k].(map[string]any)["amount"] }
+	if g, w := fmt.Sprintf("%v %v %v %v %v %v", amount("amount"), amount("amount_lc"), amount("valued_lc"), amount("difference_lc"), amount("difference_gc"), it["direction"]),
+		"0.00 -25.00 0.00 25.00 25.00 gain"; g != w {
+		t.Errorf("residual: got %s, want %s", g, w)
 	}
 }

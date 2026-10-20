@@ -4449,7 +4449,7 @@ paths:
       tags:
         - ledger
       summary: Preview a foreign-currency revaluation
-      description: "Values, without posting, what a revaluation run of a legal entity and ledger at a key date would value (ADR-0042, T48): the open items on supplier and customer reconciliation accounts on the key date (posted on or before it and not cleared by a clearing dated on or before it) and, per currency, the balance of each G/L account flagged `revalue_foreign_currency`, in every currency other than local currency. Down payments (special G/L items) and the GR/IR account are not revalued. Each item is valued at the legal entity's valuation rate type valid on the key date, rounded once: `valued_lc` = amount × rate; the difference to the booked local amount is an unrealised gain when positive and a loss when negative, and its group currency amount follows from local at the key date's average rate, as a posting's would. The key date is the last day of a posting period of the ledger (422 `ledger.key_date_not_period_end`); a rate valid from before that period is stale (422 `ledger.rate_stale`) and a missing one is refused (422 `ledger.no_exchange_rate`); an account with items in scope and no active valuation accounts fails the preview (422 `ledger.revaluation_account_missing`, naming the account). Reads only; every agent autonomy level may call it."
+      description: "Values, without posting, what a revaluation run of a legal entity and ledger at a key date would value (ADR-0042, T48): the open items on supplier and customer reconciliation accounts on the key date (posted on or before it and not cleared by a clearing dated on or before it) and, per currency, the balance of each G/L account flagged `revalue_foreign_currency`, in every currency other than local currency. Down payments (special G/L items) and the GR/IR account are not revalued. A flagged account's balance that is zero in its currency but not in local or group currency is valued too, at zero: that residual is what revaluation corrects. Each item is valued in local and, on its own, in group currency at the legal entity's valuation rate type valid on the key date, each rounded once: `valued_lc` = amount × rate and `valued_gc` = amount × rate_gc (SAP's parallel-currency valuation, not the local difference translated); the differences to the booked amounts are an unrealised gain when positive and a loss when negative, by the local difference's sign, or the group one's when local does not differ. The key date is the last day of a posting period of the ledger (422 `ledger.key_date_not_period_end`); a rate into local or group currency valid from before that period is stale (422 `ledger.rate_stale`) and a missing one is refused (422 `ledger.no_exchange_rate`); an account with items in scope and no active valuation accounts fails the preview (422 `ledger.revaluation_account_missing`, naming the account). Reads only; every agent autonomy level may call it."
       x-permission: ledger.entry.read
       x-autonomy: read
       parameters:
@@ -15297,6 +15297,8 @@ components:
         - rate_valid_from
         - valued_lc
         - difference_lc
+        - rate_gc
+        - valued_gc
         - difference_gc
         - direction
       properties:
@@ -15355,13 +15357,26 @@ components:
           $ref: "#/components/schemas/Money"
           description: valued_lc less amount_lc.
           readOnly: true
+        rate_gc:
+          $ref: "#/components/schemas/Decimal"
+          description: "Units of group currency per unit of the transaction currency on the key date, of the valuation rate type; 1 when the transaction currency is the group's."
+          readOnly: true
+        rate_gc_valid_from:
+          type: string
+          format: date
+          description: "rate_gc's valid_from; absent when the transaction currency is the group's."
+          readOnly: true
+        valued_gc:
+          $ref: "#/components/schemas/Money"
+          description: The amount at rate_gc in group currency, rounded once.
+          readOnly: true
         difference_gc:
           $ref: "#/components/schemas/Money"
-          description: difference_lc in group currency at the key date's average rate.
+          description: valued_gc less amount_gc.
           readOnly: true
         direction:
           type: string
-          description: "gain for a positive difference, loss for a negative one, none without one."
+          description: "gain for a positive local difference, loss for a negative one; without one, as the group difference's sign says; none when neither differs."
           x-extensible-enum: [gain, loss, none]
           readOnly: true
     RevaluationPreviewTotal:
@@ -15376,6 +15391,8 @@ components:
         - amount_lc
         - valued_lc
         - difference_lc
+        - amount_gc
+        - valued_gc
         - difference_gc
       properties:
         account_id:
@@ -15414,6 +15431,14 @@ components:
         difference_lc:
           $ref: "#/components/schemas/Money"
           description: Sum of their differences in local currency.
+          readOnly: true
+        amount_gc:
+          $ref: "#/components/schemas/Money"
+          description: Sum of their booked group amounts.
+          readOnly: true
+        valued_gc:
+          $ref: "#/components/schemas/Money"
+          description: Sum of their valued group amounts.
           readOnly: true
         difference_gc:
           $ref: "#/components/schemas/Money"

@@ -27352,6 +27352,28 @@ func (s *RevaluationPreviewItem) Validate() error {
 		})
 	}
 	if err := func() error {
+		if err := s.RateGc.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "rate_gc",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ValuedGc.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "valued_gc",
+			Error: err,
+		})
+	}
+	if err := func() error {
 		if err := s.DifferenceGc.Validate(); err != nil {
 			return err
 		}
@@ -27459,6 +27481,28 @@ func (s *RevaluationPreviewTotal) Validate() error {
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
 			Name:  "difference_lc",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.AmountGc.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "amount_gc",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ValuedGc.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "valued_gc",
 			Error: err,
 		})
 	}
