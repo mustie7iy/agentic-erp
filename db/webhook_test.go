@@ -170,7 +170,7 @@ func TestWebhookIsolation(t *testing.T) {
 	})
 }
 
-// TestWebhookWorkerGrants: the delivery worker's role (000092) finds and
+// TestWebhookWorkerGrants: the delivery worker's role (000106) finds and
 // deletes deliveries across tenants but reads no body, URL or secret.
 func TestWebhookWorkerGrants(t *testing.T) {
 	need(t)
@@ -216,7 +216,7 @@ func TestWebhookWorkerGrants(t *testing.T) {
 	}
 }
 
-// TestWebhookBookkeeping (000092): failing_since alone moves without the
+// TestWebhookBookkeeping (000106): failing_since alone moves without the
 // version, any other change of a subscription still needs it; a delivery
 // dropped unsent needs no attempt; a ping is the one type outside the
 // contract.
