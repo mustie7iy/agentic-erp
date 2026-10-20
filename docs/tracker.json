@@ -5079,7 +5079,7 @@
        {
         "s": "D",
         "t": "Business gauges per context, cell-wide: invoices on hold, and entered over 7 days ago and still parked, payment runs proposed and failed in 24 h, bank files unacknowledged (count, oldest age) and rejected in 24 h, approvals pending (count, oldest age), periods past their end still open",
-        "r": "cmd/erp-server/gauges.go · db/migrations/000091-000095 · ADR-0043 · T54b",
+        "r": "cmd/erp-server/gauges.go · db/migrations/000108-000112 · ADR-0043 · T54b",
         "c": []
        },
        {

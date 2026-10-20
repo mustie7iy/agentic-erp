@@ -82,8 +82,8 @@ which would make a cell's series grow with its customers. T54 closes this.
   rejected in the last 24 hours; approval requests pending (count and
   oldest age); normal periods past their end and still open. Terminal
   states count over a day so a gauge falls once failures stop. The worker
-  role reads them through column grants (000091), each from a partial
-  index of the rows it watches (000092–000095). Bank-file gauges for T44's
+  role reads them through column grants (000108), each from a partial
+  index of the rows it watches (000109–000112). Bank-file gauges for T44's
   worker statuses and webhook delivery gauges (T50) follow those steps;
   `status` and `kind` are held at 4 values for the model call (T54c), so
   those gauges name labels of their own within the series ceiling.

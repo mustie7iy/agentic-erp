@@ -32,8 +32,8 @@ func reader(pool *database.Pool) func(role, sql string, args ...any) func(contex
 // read on each scrape (ADR-0043, T54b): no tenant, company or document is a
 // label, so the series stay fixed however many customers the cell holds;
 // which tenant's work waits is found in the database, under RLS. Each query
-// reads a partial index of the rows it watches (000092–000095), as the
-// worker role, through the columns 000091 grants it, which is the accepted
+// reads a partial index of the rows it watches (000109–000112), as the
+// worker role, through the columns 000108 grants it, which is the accepted
 // exception to reading through the owning context that backlogs describes.
 // Terminal states (a failed run, a rejected file) count over the last day,
 // so the gauge falls again once the failures stop.
