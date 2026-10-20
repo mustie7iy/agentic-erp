@@ -10,6 +10,11 @@
 #   - the monitoring add-on (kube-prometheus-stack) keeps 15 days on
 #     encrypted gp3 as an HA pair, reads only its own two secrets through
 #     its own store and role, and Grafana signs in through OIDC alone;
+#   - the logs add-on (fluent-bit) ships every container's lines, parsed,
+#     to the log group Terraform made, creating none; the traces add-on
+#     (opentelemetry-collector) takes OTLP/HTTP from the server alone and
+#     sends 5% of traces and every failed one to X-Ray; neither makes
+#     metrics of what it ships;
 #   - deploy/helm/erp-cluster and erp-cell are linted, rendered and
 #     validated against the pinned add-ons' own CRDs, and must refuse to
 #     render without each value they require; erp-cell's workloads must
@@ -56,6 +61,8 @@ service_account() {
     external-secrets) echo external-secrets/external-secrets ;;
     aws-load-balancer-controller) echo kube-system/aws-load-balancer-controller ;;
     kyverno) echo kyverno/kyverno-admission-controller ;;
+    fluent-bit) echo logging/erp-logging ;;
+    opentelemetry-collector) echo tracing/erp-tracing ;;
     *) echo "" ;;
   esac
 }
@@ -97,7 +104,8 @@ PY
 }
 
 # runs_as JSON NAMESPACE NAME: the documents of JSON hold that service
-# account, annotated with an IRSA role, and a Deployment running as it.
+# account, annotated with an IRSA role, and a Deployment or DaemonSet
+# running as it.
 runs_as() {
   python3 - "$@" <<'PY'
 import json, sys
@@ -110,9 +118,9 @@ for d in docs:
         break
 else:
     sys.exit("helm-checks: no ServiceAccount %s/%s, the one its IRSA role trusts" % (namespace, name))
-if not any(d and d.get("kind") == "Deployment" and d["metadata"].get("namespace") == namespace
+if not any(d and d.get("kind") in ("Deployment", "DaemonSet") and d["metadata"].get("namespace") == namespace
            and d["spec"]["template"]["spec"].get("serviceAccountName") == name for d in docs):
-    sys.exit("helm-checks: no Deployment in %s runs as %s, the service account its IRSA role trusts" % (namespace, name))
+    sys.exit("helm-checks: no Deployment or DaemonSet in %s runs as %s, the service account its IRSA role trusts" % (namespace, name))
 PY
 }
 
@@ -217,6 +225,87 @@ if grep -qiE '(admin_?password|password[[:space:]]*[:=])' deploy/helm/addons/val
 fi
 echo "helm-checks: the monitoring add-on keeps 15 days on encrypted gp3, reads its own two secrets, and signs in through the identity provider alone"
 
+# The logs and traces add-ons (ADR-0043, T54g): what they ship and where,
+# and that neither turns a log field or a span attribute (a tenant's id
+# among them) into a metric: no log_to_metrics filter, no connector.
+logs() {
+  python3 - "$1" <<'PY'
+import json, re, sys
+docs = [d for d in json.load(open(sys.argv[1])) if d]
+def fail(msg):
+    sys.exit("helm-checks: fluent-bit: " + msg)
+def one(kind, name):
+    found = [d for d in docs if d["kind"] == kind and d["metadata"]["name"] == name]
+    if len(found) != 1:
+        fail("renders %d %s %s, want one" % (len(found), kind, name))
+    return found[0]
+conf = one("ConfigMap", "erp-logging")["data"]["fluent-bit.conf"]
+sections = []
+for line in conf.splitlines():
+    line = line.strip()
+    if not line or line.startswith("#"):
+        continue
+    if line.startswith("["):
+        sections.append((line.strip("[]"), {}))
+    else:
+        key, _, value = line.partition(" ")
+        sections[-1][1][key.lower()] = value.strip()
+def of(kind):
+    return [s for k, s in sections if k == kind]
+outputs = [(o.get("name"), o.get("match"), o.get("log_group_name"), o.get("auto_create_group"), o.get("log_retention_days")) for o in of("OUTPUT")]
+if outputs != [("cloudwatch_logs", "kube.*", "/erp/dev1/containers", "Off", None)]:
+    fail("its one output must send every container's lines to /erp/dev1/containers, creating no group and setting no retention (Terraform's): %s" % outputs)
+if [(i.get("name"), i.get("path")) for i in of("INPUT")] != [("tail", "/var/log/containers/*.log")]:
+    fail("its one input must tail every container's log")
+filters = of("FILTER")
+if [(f.get("name"), f.get("merge_log")) for f in filters] != [("kubernetes", "On")]:
+    fail("its one filter must be kubernetes, parsing the server's JSON lines into fields (tenant_id stays a field, never a metric): %s" % filters)
+if one("DaemonSet", "erp-logging")["spec"]["template"]["spec"].get("tolerations") != [{"operator": "Exists"}]:
+    fail("it must run on every node, the tainted ones too")
+PY
+}
+traces() {
+  python3 - "$1" "$work/relay.yaml" <<'PY'
+import json, sys
+docs = [d for d in json.load(open(sys.argv[1])) if d]
+relay = [d for d in docs if d["kind"] == "ConfigMap" and d["metadata"]["name"] == "erp-tracing"]
+if len(relay) != 1:
+    sys.exit("helm-checks: opentelemetry-collector: renders %d ConfigMap erp-tracing, want one" % len(relay))
+open(sys.argv[2], "w").write(relay[0]["data"]["relay"])
+deploy = [d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"] == "erp-tracing"]
+if len(deploy) != 1 or deploy[0]["spec"]["replicas"] != 1:
+    sys.exit("helm-checks: opentelemetry-collector: one Deployment of one replica, so each trace's spans meet in one place for tail sampling")
+policy = [d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == "erp-tracing"]
+if len(policy) != 1 or [([p["port"] for p in r["ports"]], r["from"]) for r in policy[0]["spec"]["ingress"]] != [([4318], [
+        {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "erp"}}, "podSelector": {"matchLabels": {"app.kubernetes.io/name": "erp-server"}}}])]:
+    sys.exit("helm-checks: opentelemetry-collector: its policy must admit the erp namespace's server to 4318 alone")
+PY
+  "$CONFTEST" parse --parser yaml "$work/relay.yaml" >"$work/relay.json"
+  python3 - "$work/relay.json" <<'PY'
+import json, sys
+c = json.load(open(sys.argv[1]))
+def fail(msg):
+    sys.exit("helm-checks: opentelemetry-collector: " + msg)
+pipelines = c["service"]["pipelines"]
+if pipelines != {"traces": {"receivers": ["otlp"], "processors": ["memory_limiter", "tail_sampling", "batch"], "exporters": ["awsxray"]}}:
+    fail("its one pipeline must take OTLP traces, limit memory, sample and batch, and send them to X-Ray: %s" % pipelines)
+if c.get("connectors") or set(c["receivers"]) != {"otlp"} or set(c["receivers"]["otlp"]["protocols"]) != {"http"} or set(c["exporters"]) != {"awsxray"}:
+    fail("receives OTLP/HTTP and exports to X-Ray only, with no connector (spans make no metrics)")
+if c["exporters"]["awsxray"].get("skip_timestamp_validation") is not True:
+    fail("its X-Ray exporter must accept the server's W3C trace ids (skip_timestamp_validation), or it drops every span")
+policies = c["processors"]["tail_sampling"]["policies"]
+if sorted((p["type"], json.dumps(p.get(p["type"]), sort_keys=True)) for p in policies) != [
+        ("probabilistic", '{"sampling_percentage": 5}'), ("status_code", '{"status_codes": ["ERROR"]}')]:
+    fail("must keep 5%% of traces and every failed one: %s" % policies)
+PY
+}
+logs "$work/fluent-bit.json"
+traces "$work/opentelemetry-collector.json"
+for sa in 'logging +=.*namespace = "logging", name = "erp-logging"' 'tracing +=.*namespace = "tracing", name = "erp-tracing"'; do
+  grep -qE "^ +$sa" deploy/terraform/modules/cell/irsa.tf || { echo "helm-checks: irsa.tf trusts no ${sa%% *} service account" >&2; exit 1; }
+done
+echo "helm-checks: container logs go to their log group, traces sampled to X-Ray, and neither makes a metric"
+
 echo "== erp-cluster"
 chart=deploy/helm/erp-cluster
 values="$chart/tests/values.yaml"
@@ -285,6 +374,15 @@ if not scrape or [(f["namespaceSelector"]["matchLabels"], f["podSelector"]["matc
                   for r in scrape[0]["spec"]["ingress"] for f in r["from"]] \
         != [({"kubernetes.io/metadata.name": "monitoring"}, {"operator.prometheus.io/name": "erp-monitoring-prometheus"}, [9090])]:
     sys.exit("helm-checks: erp-cell's erp-server-metrics policy must admit the monitoring namespace's Prometheus to 9090 alone")
+# The server sends its spans to the cell's collector (T54g), and may.
+server = [d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"] == "erp-server"][0]
+env = {e["name"]: e.get("value") for c in server["spec"]["template"]["spec"]["containers"] for e in c.get("env", [])}
+if env.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") != "http://erp-tracing.tracing.svc:4318/v1/traces":
+    sys.exit("helm-checks: erp-cell's server must send its spans to the cell's collector, erp-tracing.tracing.svc:4318")
+egress = [d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == "erp-server"][0]["spec"]["egress"]
+if not any([p["port"] for p in r["ports"]] == [4318] and r.get("to") == [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "tracing"}},
+        "podSelector": {"matchLabels": {"app.kubernetes.io/name": "opentelemetry-collector", "app.kubernetes.io/instance": "opentelemetry-collector"}}}] for r in egress):
+    sys.exit("helm-checks: erp-cell's erp-server policy must let the server reach the tracing namespace's collector on 4318")
 # The SLO rules as the cell's Prometheus gets them, for promtool.
 rules = [d for d in docs if d["kind"] == "PrometheusRule" and d["metadata"]["name"] == "erp-slo"]
 if len(rules) != 1:
@@ -320,7 +418,7 @@ required() {
     fi
   done
 }
-required cell region trustDomain vpcCidr monitoringNamespace trust.caBundle secrets.prefix \
+required cell region trustDomain vpcCidr monitoringNamespace tracingNamespace server.otlpEndpoint trust.caBundle secrets.prefix \
   images.server.repository images.server.digest images.pgbouncer.repository images.pgbouncer.digest \
   images.nats.repository images.nats.digest images.temporal.repository images.temporal.digest \
   server.roleArn server.operatorIssuers server.objectBucket server.fieldKmsKeyArn \

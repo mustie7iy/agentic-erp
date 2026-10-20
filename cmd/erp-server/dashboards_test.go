@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -40,6 +41,24 @@ var grafanaVars = strings.NewReplacer("$__rate_interval", "2m", "$__interval", "
 // datasource is a dashboard naming its datasource.
 var datasource = regexp.MustCompile(`"datasource"`)
 
+// stackSeries are the monitoring add-on's own series a dashboard may read
+// besides the cell's: CPU and memory against what each container of the
+// cell requested and may use, from the kubelet's cAdvisor and
+// kube-state-metrics (ADR-0043). Only Kubernetes knows a container's
+// requests and limits, so the server exports no process collectors of
+// its own. Their labels are Kubernetes' (stackLabels), bounded by the
+// cell's Pods, never a tenant's.
+var stackSeries = map[string][]string{
+	"container_cpu_usage_seconds_total":        {"namespace", "pod", "container"},
+	"container_memory_working_set_bytes":       {"namespace", "pod", "container"},
+	"kube_pod_container_resource_requests":     {"namespace", "pod", "container", "resource"},
+	"kube_pod_container_resource_limits":       {"namespace", "pod", "container", "resource"},
+	"kube_pod_container_status_restarts_total": {"namespace", "pod", "container"},
+}
+
+// stackLabels are the labels of stackSeries, which are not the catalog's.
+var stackLabels = []string{"namespace", "pod", "container", "resource"}
+
 // labelValues are the catalog labels whose values are a closed list: a
 // panel matching any other value would show nothing.
 func labelValues() map[string][]string {
@@ -53,6 +72,10 @@ func labelValues() map[string][]string {
 		"status":   agents.CallStatuses,
 		"kind":     telemetry.TokenKinds,
 		"decision": telemetry.Decisions,
+		// The stack's: the cell's namespace (erp-delivery's platform.yaml)
+		// and the resources a container requests.
+		"namespace": {"erp"},
+		"resource":  {"cpu", "memory"},
 	}
 }
 
@@ -60,9 +83,9 @@ func labelValues() map[string][]string {
 // (deploy/helm/erp-cell/dashboards, ADR-0043, T54f) has a stable UID of
 // its file's name, names no datasource (Grafana's default, the cell's
 // Prometheus, serves it), and each panel's PromQL parses and names only
-// series the cell exports or the SLO rules record, matches only labels
-// those series carry (and values the catalog knows), and groups by only
-// catalog labels.
+// series the cell exports, the SLO rules record or the stack's saturation
+// series (stackSeries), matches only labels those series carry (and
+// values the catalog knows), and groups by only catalog or stack labels.
 func TestDashboardsUseCatalog(t *testing.T) {
 	files, err := filepath.Glob("../../deploy/helm/erp-cell/dashboards/*.json")
 	if err != nil {
@@ -72,6 +95,7 @@ func TestDashboardsUseCatalog(t *testing.T) {
 		t.Errorf("dashboards: got %d, want 8 (overview, SLOs, five contexts and agents)", len(files))
 	}
 	series := newMetrics(pgtest.Pool(t), config.Config{}, quiet()).Series()
+	maps.Copy(series, stackSeries)
 	for _, name := range recorded(t) {
 		series[name] = nil // a recorded series: its labels are checked against the catalog
 	}
@@ -116,8 +140,9 @@ func TestDashboardsUseCatalog(t *testing.T) {
 // TestDashboardLintRefuses: the lint finds each way a query can go wrong.
 func TestDashboardLintRefuses(t *testing.T) {
 	series := map[string][]string{
-		"erp_events_published_total": {"context", "event"},
-		"erp:recorded":               nil,
+		"erp_events_published_total":         {"context", "event"},
+		"erp:recorded":                       nil,
+		"container_memory_working_set_bytes": stackSeries["container_memory_working_set_bytes"],
 	}
 	for name, query := range map[string]string{
 		"not PromQL":         `sum(rate(erp_events_published_total[5m])`,
@@ -128,6 +153,8 @@ func TestDashboardLintRefuses(t *testing.T) {
 		"matching label":     `erp_events_published_total * on (tenant) erp_events_published_total`,
 		"included label":     `erp_events_published_total * on (event) group_left (tenant) erp_events_published_total`,
 		"recorded, no label": `erp:recorded{tenant="a"}`,
+		"stack label":        `erp_events_published_total{pod="a"}`,
+		"other namespace":    `container_memory_working_set_bytes{namespace="kube-system"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got := lintQuery(query, series); len(got) != 1 {
@@ -137,6 +164,9 @@ func TestDashboardLintRefuses(t *testing.T) {
 	}
 	if got := lintQuery(`sum by (event) (rate(erp_events_published_total{context=~"ledger|payments"}[5m]))`, series); len(got) != 0 {
 		t.Errorf("a query in the catalog: got %q, want no problem", got)
+	}
+	if got := lintQuery(`max by (container) (container_memory_working_set_bytes{namespace="erp", container!=""})`, series); len(got) != 0 {
+		t.Errorf("a stack series: got %q, want no problem", got)
 	}
 }
 
@@ -188,7 +218,7 @@ func lintQuery(query string, series map[string][]string) []string {
 func lintSelector(sel *parser.VectorSelector, series map[string][]string) []string {
 	carried, ok := series[sel.Name]
 	if !ok {
-		return []string{sel.Name + " is not a series the cell exports or the SLO rules record"}
+		return []string{sel.Name + " is not a series the cell exports, the SLO rules record or the stack's saturation series"}
 	}
 	var problems []string
 	values := labelValues()
@@ -215,11 +245,12 @@ func lintSelector(sel *parser.VectorSelector, series map[string][]string) []stri
 	return problems
 }
 
-// lintLabels: each label is in the catalog (le is a histogram's own).
+// lintLabels: each label is in the catalog (le is a histogram's own) or
+// one of the stack's Kubernetes labels.
 func lintLabels(names []string) []string {
 	var problems []string
 	for _, l := range names {
-		if _, ok := telemetry.Labels[l]; !ok && l != "le" {
+		if _, ok := telemetry.Labels[l]; !ok && l != "le" && !slices.Contains(stackLabels, l) {
 			problems = append(problems, "label "+l+" is not in the catalog")
 		}
 	}

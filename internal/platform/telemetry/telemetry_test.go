@@ -14,6 +14,9 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -89,6 +92,64 @@ func TestPanicsBecomeProblems(t *testing.T) {
 	if rec.Code != 202 {
 		t.Fatal(rec.Code)
 	}
+}
+
+// TestFailedRequestsMarkTheirSpan: a 5xx or a panic marks the request's
+// span failed, which the cell's collector keeps whatever its sampling
+// (ADR-0043); a client error does not.
+func TestFailedRequestsMarkTheirSpan(t *testing.T) {
+	for name, tc := range map[string]struct {
+		handler http.HandlerFunc
+		want    codes.Code
+	}{
+		"ok":           {func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) }, codes.Unset},
+		"client error": {func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(404) }, codes.Unset},
+		"server error": {func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(503) }, codes.Error},
+		"panic":        {func(http.ResponseWriter, *http.Request) { panic("boom") }, codes.Error},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := tracetest.NewSpanRecorder()
+			tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
+			Middleware(NewLogger(&bytes.Buffer{}, slog.LevelInfo), NewMetrics(), tp)(tc.handler).
+				ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/x", nil))
+			spans := rec.Ended()
+			if len(spans) != 1 {
+				t.Fatalf("spans: got %d, want 1", len(spans))
+			}
+			if got := spans[0].Status().Code; got != tc.want {
+				t.Errorf("span status: got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestUnsampledCallersAreRecorded: a caller's traceparent with the sampled
+// flag off does not stop a failed request's span from being recorded.
+func TestUnsampledCallersAreRecorded(t *testing.T) {
+	tp, err := Tracing(context.Background(), "http://collector.invalid:4318/v1/traces")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := tracetest.NewSpanRecorder()
+	tp.RegisterSpanProcessor(rec)
+	r := httptest.NewRequest("GET", "/x", nil)
+	r.Header.Set("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00")
+	Middleware(NewLogger(&bytes.Buffer{}, slog.LevelInfo), NewMetrics(), tp)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(503)
+	})).ServeHTTP(httptest.NewRecorder(), r)
+	spans := rec.Ended()
+	if len(spans) != 1 {
+		t.Fatalf("spans: got %d, want 1", len(spans))
+	}
+	if got := spans[0].Status().Code; got != codes.Error {
+		t.Errorf("span status: got %v, want %v", got, codes.Error)
+	}
+	tp.UnregisterSpanProcessor(rec)
+	// The batcher holds the span for an endpoint that does not resolve:
+	// shutting down with a cancelled context drops it without I/O.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = tp.Shutdown(ctx) // its error is the cancelled context's, which is the point
 }
 
 func TestOTLPExport(t *testing.T) {

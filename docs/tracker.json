@@ -5109,6 +5109,12 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "Logs and traces leave the cell: Fluent Bit (0.58.3, SHA-256 pinned) ships every container's lines, parsed (tenant_id a field, never a label), to /erp/<cell>/containers through the logs VPC endpoint as its own IRSA role (that group's streams alone); Terraform keeps the group 90 days, encrypted with the cluster key. An OpenTelemetry Collector (0.175.1, contrib) takes OTLP/HTTP from the server alone and tail-samples 5% of traces plus every failed one (5xx, panic: the span's status) to X-Ray through the X-Ray VPC endpoint as its own role; the server's OTLP endpoint in erp-cell's values; neither add-on makes metrics (helm-checks refuses log_to_metrics and connectors)",
+      "r": "addons.txt · addons/values/fluent-bit.yaml, opentelemetry-collector.yaml · cell logs.tf, irsa.tf logging, tracing · network xray endpoint · erp-cell server.otlpEndpoint, network-policy · telemetry.Middleware span status · scripts/helm-checks.sh · ADR-0043 · T54g",
+      "c": []
+     },
+     {
       "s": "P",
       "t": "Dashboards and alerting (Grafana)",
       "r": "T54",
@@ -5132,9 +5138,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "CPU and memory saturation on the cell overview: the catalog has no process or container series (the add-on's own Kubernetes dashboards show them); export process metrics or admit kube-state/cAdvisor series to the dashboard lint",
-        "r": "ADR-0043 · T54f",
+        "s": "D",
+        "t": "CPU and memory saturation on the cell overview from the stack: CPU used of requested and working set of the memory limit per container (cAdvisor over kube-state-metrics), restarts; no process collectors in the server; the dashboard lint admits those five series by name with their Kubernetes labels, namespace closed to erp and resource to cpu|memory",
+        "r": "cell-overview.json · cmd/erp-server/dashboards_test.go stackSeries · ADR-0043 · T54g",
         "c": []
        },
        {

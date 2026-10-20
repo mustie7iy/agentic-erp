@@ -1,0 +1,8 @@
+# An environment's values for the checks (scripts/helm-checks.sh): what
+# Terraform's outputs give a real one.
+erp:
+  region: eu-central-1
+  logGroup: /erp/dev1/containers
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::222222222222:role/erp-dev1-logging

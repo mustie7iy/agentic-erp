@@ -50,6 +50,9 @@ mock_provider "aws" {
       master_user_secret = [{ secret_arn = "arn:aws:secretsmanager:eu-central-1:222222222222:secret:rds!db-1", kms_key_id = "k", secret_status = "active" }]
     }
   }
+  mock_resource "aws_cloudwatch_log_group" {
+    defaults = { arn = "arn:aws:logs:eu-central-1:222222222222:log-group:/erp/dev1/containers" }
+  }
   mock_resource "aws_secretsmanager_secret" {
     defaults = { arn = "arn:aws:secretsmanager:eu-central-1:222222222222:secret:erp/dev1/x" }
   }
@@ -173,6 +176,35 @@ run "the_controllers_may_do_what_the_charts_need_only" {
   assert {
     condition     = jsondecode(aws_eks_addon.vpc_cni.configuration_values).enableNetworkPolicy == "true"
     error_message = "the VPC CNI enforces network policies"
+  }
+}
+
+run "logs_and_traces_leave_through_roles_of_their_own" {
+  command = apply
+
+  assert {
+    condition     = aws_cloudwatch_log_group.containers.name == "/erp/dev1/containers" && aws_cloudwatch_log_group.containers.retention_in_days == 90 && aws_cloudwatch_log_group.containers.kms_key_id == aws_kms_key.cluster.arn
+    error_message = "the containers' logs are kept 90 days, encrypted with the cluster key"
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.workload["logging"].policy).Statement == [{ Sid = "ContainerLogs", Effect = "Allow", Action = ["logs:CreateLogStream", "logs:PutLogEvents"], Resource = ["arn:aws:logs:eu-central-1:222222222222:log-group:/erp/dev1/containers", "arn:aws:logs:eu-central-1:222222222222:log-group:/erp/dev1/containers:log-stream:*"] }]
+    error_message = "Fluent Bit writes streams of its log group and nothing else: no group, retention or key change"
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role.workload["logging"].assume_role_policy).Statement[0].Condition.StringEquals["oidc.eks.eu-central-1.amazonaws.com/id/ABC:sub"] == "system:serviceaccount:logging:erp-logging"
+    error_message = "the logging role trusts Fluent Bit's service account alone"
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.workload["tracing"].policy).Statement == [{ Sid = "Traces", Effect = "Allow", Action = ["xray:PutTraceSegments", "xray:PutTelemetryRecords"], Resource = "*" }]
+    error_message = "the collector writes traces to X-Ray and does nothing else"
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role.workload["tracing"].assume_role_policy).Statement[0].Condition.StringEquals["oidc.eks.eu-central-1.amazonaws.com/id/ABC:sub"] == "system:serviceaccount:tracing:erp-tracing"
+    error_message = "the tracing role trusts the collector's service account alone"
+  }
+  assert {
+    condition     = output.container_log_group == "/erp/dev1/containers"
+    error_message = "the log group is an output, for the fluent-bit add-on's values"
   }
 }
 

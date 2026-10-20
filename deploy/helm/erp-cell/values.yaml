@@ -15,6 +15,9 @@ routerNamespace: erp-global
 # The cell's monitoring add-on (kube-prometheus-stack, ADR-0043), whose
 # Prometheus scrapes the server's admin /metrics.
 monitoringNamespace: monitoring
+# The cell's traces add-on (opentelemetry-collector, ADR-0043), which the
+# server sends its spans to.
+tracingNamespace: tracing
 # The cell's VPC CIDR (cell.cidr): the database and the AWS endpoints.
 vpcCidr: ""
 
@@ -64,6 +67,10 @@ server:
   # Connections each replica opens to PgBouncer.
   dbMaxConns: 20
   logLevel: info
+  # OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: the cell's collector (the
+  # opentelemetry-collector add-on's erp-tracing Service, T54g), which
+  # samples the spans and sends them to X-Ray.
+  otlpEndpoint: http://erp-tracing.tracing.svc:4318/v1/traces
   resources:
     requests: {cpu: 500m, memory: 512Mi}
     limits: {memory: 1Gi}

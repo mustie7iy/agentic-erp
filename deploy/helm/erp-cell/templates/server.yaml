@@ -92,6 +92,10 @@ spec:
             - {name: ERP_TEMPORAL_SERVER_NAME, value: {{ printf "erp-temporal.%s.svc" .Release.Namespace | quote }}}
             - {name: ERP_TEMPORAL_NAMESPACE, value: {{ .Values.temporal.namespace | quote }}}
             - {name: ERP_TEMPORAL_CODEC_KEY, value: file:/etc/erp/secrets/temporal-codec-key}
+            # Every request's spans to the cell's collector, which keeps 5%
+            # and every failed one for X-Ray (ADR-0043).
+            - {name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT, value: {{ required "server.otlpEndpoint is required" .Values.server.otlpEndpoint | quote }}}
+            - {name: OTEL_SERVICE_NAME, value: erp-server}
             {{- with .Values.directory.endpoint }}
             # The global directory over verified TLS as its master user,
             # whose rotating password is read again for each connection;

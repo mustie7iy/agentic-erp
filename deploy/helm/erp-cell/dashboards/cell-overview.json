@@ -1,7 +1,7 @@
 {
   "uid": "erp-cell-overview",
   "title": "ERP cell overview",
-  "description": "The cell's golden signals: traffic, errors, latency per class, saturation and the outbox's and projectors' lag (ADR-0043).",
+  "description": "The cell's golden signals: traffic, errors, latency per class, saturation (429s, work waiting, CPU and memory against requests and limits) and the outbox's and projectors' lag (ADR-0043).",
   "tags": [
     "erp"
   ],
@@ -390,6 +390,81 @@
         }
       ],
       "description": "A gauge whose query failed on scrape reports nothing; this counts the failures."
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "CPU used of requested",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 44
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (container) (rate(container_cpu_usage_seconds_total{namespace=\"erp\", container!=\"\"}[$__rate_interval])) / sum by (container) (kube_pod_container_resource_requests{namespace=\"erp\", resource=\"cpu\"})",
+          "legendFormat": "{{container}}"
+        }
+      ],
+      "description": "Saturation: each container's CPU (cAdvisor, all its Pods) over what it requested (kube-state-metrics). The cell sets no CPU limits, so above 1 it borrows idle CPU from the node and is the first to slow when the node is busy."
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Memory used of limit",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 44
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (container) (container_memory_working_set_bytes{namespace=\"erp\", container!=\"\"} / on (namespace, pod, container) kube_pod_container_resource_limits{namespace=\"erp\", resource=\"memory\"})",
+          "legendFormat": "{{container}}"
+        }
+      ],
+      "description": "Saturation: the fullest Pod's working set over its memory limit, per container; at 1 the kernel kills it (OOM)."
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Container restarts (1h)",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 44
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (container) (increase(kube_pod_container_status_restarts_total{namespace=\"erp\"}[1h]))",
+          "legendFormat": "{{container}}"
+        }
+      ],
+      "description": "Restarts of the cell's containers over the last hour: OOM kills and failed probes among them."
     }
   ]
 }

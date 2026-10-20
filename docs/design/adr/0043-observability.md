@@ -162,15 +162,61 @@ which would make a cell's series grow with its customers. T54 closes this.
   catalog does not hold, and a value outside a closed list (contexts,
   classes, statuses, token kinds, decisions), so a panel cannot name a
   metric or label that does not exist.
+- **Saturation of CPU and memory** (T54g) comes from the stack, not the
+  server: the cell overview divides each container's CPU (cAdvisor's
+  `container_cpu_usage_seconds_total`) by what it requested and its
+  working set by its memory limit (kube-state-metrics'
+  `kube_pod_container_resource_requests` and `_limits`), and counts its
+  restarts. Only Kubernetes knows a container's requests and limits, so
+  the server registers no process or Go runtime collectors (which would
+  add series to every scrape and still not know the limit). The dashboard
+  lint admits those five series by name with their Kubernetes labels
+  (`namespace` closed to `erp`, `resource` to `cpu` and `memory`), and no
+  other of the stack's.
 - **Logs and traces** (T54g): logs to CloudWatch, kept 90 days; traces to
-  X-Ray, 5% of requests sampled plus every request that failed.
+  X-Ray, 5% of requests sampled plus every request that failed. As built:
+  - *Logs.* The `fluent-bit` add-on (chart 0.58.3, pinned by SHA-256 in
+    `addons.txt`) runs on every node, tails every container's log and
+    sends it, parsed (the server's JSON lines become fields, so a
+    request's `tenant_id` and `principal_id` are searchable in Logs
+    Insights), to `/erp/<cell>/containers` through the logs VPC endpoint.
+    Terraform makes that group (`logs.tf`), keeps it `log_retention_days`
+    (90) and encrypts it with the cluster key; Fluent Bit creates no group
+    and sets no retention. It runs as its own IRSA role (`logging`), which
+    may create and write that group's streams and nothing else. Chunks are
+    buffered on the node's disk (1 GiB at most) while CloudWatch is
+    unreachable.
+  - *Traces.* The `opentelemetry-collector` add-on (chart 0.175.1, the
+    contrib image) takes OTLP/HTTP from the cell's server alone (its
+    NetworkPolicy, and the server's egress rule in erp-cell) and sends to
+    X-Ray, through the X-Ray VPC endpoint, as its own IRSA role
+    (`tracing`: `xray:PutTraceSegments` and `PutTelemetryRecords`, which
+    take no narrower resource). The server records every request
+    (erp-cell's `server.otlpEndpoint`, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`)
+    whatever the caller's `traceparent` says (its sampler always samples,
+    so an unsampled flag cannot hide a failure; a caller's trace id is
+    kept and only moves it in or out of the 5%), and marks a request's
+    span failed on a 5xx or a panic; the collector's
+    tail sampling keeps a trace whose id hashes into 5% (the choice head
+    sampling at 5% would make) or any of whose spans failed. Tail sampling
+    needs a trace's spans in one place, so the collector is one replica;
+    a restart loses the traces it was holding, nothing else. X-Ray indexes
+    `erp.operation`, and the exporter accepts the server's W3C trace ids
+    (`skip_timestamp_validation`).
+  - *Tenant ids stay in fields.* Neither add-on makes metrics of what it
+    ships: Fluent Bit has no `log_to_metrics` filter and the collector no
+    connector (spanmetrics), which `scripts/helm-checks.sh` refuses, so a
+    tenant id in a log line or a span attribute never becomes a label.
+  - The OTLP hop inside the cluster is plain HTTP: spans carry the
+    operation, method, path and status, never a tenant, a principal or a
+    payload, and the two NetworkPolicies bound who sends and receives.
 
 ## Steps
 T54a conventions (this ADR, the catalog test, events published, the
 buckets, `erp_operation_info`) · T54b business gauges · T54c agent
 telemetry · T54d the stack add-on · T54e SLOs and burn-rate alerts with
 promtool tests · T54f dashboards as code with PromQL lint · T54g logs and
-traces.
+traces, and CPU and memory saturation.
 
 ## Consequences
 - A cell's monitoring keeps working when the cell is isolated and holds no

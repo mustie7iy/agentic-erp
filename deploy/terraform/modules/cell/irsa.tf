@@ -15,6 +15,8 @@ locals {
     load_balancer    = { namespace = "kube-system", name = "aws-load-balancer-controller" }
     kyverno          = { namespace = "kyverno", name = "kyverno-admission-controller" }
     monitoring       = { namespace = "monitoring", name = "erp-monitoring-secrets" }
+    logging          = { namespace = "logging", name = "erp-logging" }
+    tracing          = { namespace = "tracing", name = "erp-tracing" }
   }
 
   # The monitoring add-on's secrets (ADR-0043): read through its own
@@ -88,6 +90,22 @@ locals {
       statements = [
         { Sid = "Secrets", Effect = "Allow", Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], Resource = [for name in local.monitoring_secrets : aws_secretsmanager_secret.cell[name].arn] },
         { Sid = "SecretsKey", Effect = "Allow", Action = "kms:Decrypt", Resource = aws_kms_key.data.arn, Condition = local.secrets_key_via },
+      ]
+    }
+    # Fluent Bit (T54g): the cell's container logs into their log group,
+    # whose streams it creates; not the group itself, its retention or its
+    # key, which are Terraform's (logs.tf). CloudWatch Logs encrypts with
+    # the cluster key under the key's own policy, so no KMS permission.
+    logging = {
+      statements = [
+        { Sid = "ContainerLogs", Effect = "Allow", Action = ["logs:CreateLogStream", "logs:PutLogEvents"], Resource = [aws_cloudwatch_log_group.containers.arn, "${aws_cloudwatch_log_group.containers.arn}:log-stream:*"] },
+      ]
+    }
+    # The OpenTelemetry Collector (T54g): the sampled traces into X-Ray,
+    # whose two write actions take no resource narrower than "*".
+    tracing = {
+      statements = [
+        { Sid = "Traces", Effect = "Allow", Action = ["xray:PutTraceSegments", "xray:PutTelemetryRecords"], Resource = "*" },
       ]
     }
   }

@@ -4,9 +4,10 @@
 #   from the router and the global plane's namespace only, and the admin
 #   listener from the cell's Prometheus (monitoring.yaml); kubelet's
 #   probes are not subject to policies.
-# - The server reaches PgBouncer, NATS, the workflow engine, on the home
-#   cell the global directory in the VPC and, on 443, the AWS endpoints in
-#   the VPC and the tenants' identity providers outside it.
+# - The server reaches PgBouncer, NATS, the workflow engine, the cell's
+#   trace collector (OTLP/HTTP), on the home cell the global directory in
+#   the VPC and, on 443, the AWS endpoints in the VPC and the tenants'
+#   identity providers outside it.
 # - NATS takes clients from the server and routes from its own nodes.
 # - The workflow engine's frontend takes the server and the engine's own
 #   nodes; its other services and membership ports, its nodes alone. It
@@ -74,6 +75,16 @@ spec:
               {{- include "erp-cell.selector" (dict "root" . "component" "erp-temporal") | nindent 14 }}
       ports:
         - {protocol: TCP, port: 7233}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ required "tracingNamespace is required" .Values.tracingNamespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-collector
+              app.kubernetes.io/instance: opentelemetry-collector
+      ports:
+        - {protocol: TCP, port: 4318}
     {{- if .Values.directory.endpoint }}
     # The global directory, in the home cell's VPC. The rule admits the
     # VPC's 5432, the writer's too, which the server could then reach past

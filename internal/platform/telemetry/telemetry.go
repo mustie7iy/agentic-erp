@@ -22,6 +22,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -49,7 +50,10 @@ func Tracing(ctx context.Context, otlpEndpoint string) (*sdktrace.TracerProvider
 		return nil, fmt.Errorf("telemetry: OTLP endpoint %q must be an http(s) URL", otlpEndpoint)
 	}
 	exp, _ := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(otlpEndpoint)) // the HTTP client starts without I/O and cannot fail
-	return sdktrace.NewTracerProvider(sdktrace.WithBatcher(exp)), nil
+	// Every request is recorded whatever its traceparent says: sampling
+	// is the cell's collector's alone (5% and every failed trace, ADR-0043),
+	// so a caller's unsampled flag cannot hide a failure from it.
+	return sdktrace.NewTracerProvider(sdktrace.WithBatcher(exp), sdktrace.WithSampler(sdktrace.AlwaysSample())), nil
 }
 
 // Metrics are the process's metrics, in their own registry. Every metric
@@ -152,6 +156,11 @@ func Middleware(log *slog.Logger, m *Metrics, tp trace.TracerProvider) func(http
 				m.requests.WithLabelValues(op, strconv.Itoa(sw.status)).Inc()
 				m.duration.WithLabelValues(op).Observe(elapsed.Seconds())
 				span.SetAttributes(attribute.String("erp.operation", op), attribute.Int("http.response.status_code", sw.status))
+				// A server span fails on a 5xx alone (OpenTelemetry's HTTP
+				// conventions): the cell's collector keeps every failed trace.
+				if sw.status >= http.StatusInternalServerError {
+					span.SetStatus(codes.Error, http.StatusText(sw.status))
+				}
 				span.End()
 				log.InfoContext(ctx, "request", "method", r.Method, "path", r.URL.Path, "status", sw.status,
 					"duration_ms", elapsed.Milliseconds(), "operation", op, "trace_id", traceID,

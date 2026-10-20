@@ -337,7 +337,8 @@ charts, pinned by version and by their archive's SHA-256 in
 namespace: Argo CD (T40d3), cert-manager, aws-privateca-issuer, the External Secrets
 Operator, the AWS Load Balancer Controller (for TargetGroupBinding only:
 it registers targets and creates no load balancer, listener or security
-group rule) and Kyverno. Each runs as an IRSA role of the cell
+group rule), Kyverno and the observability add-ons of ADR-0043
+(kube-prometheus-stack, Fluent Bit, the OpenTelemetry Collector). Each runs as an IRSA role of the cell
 (`workload_role_arns`) trusting exactly its service account; the EBS CSI
 driver is an EKS add-on with its role. The `erp-cluster` chart, installed
 after them, holds the cell's own resources: the `AWSPCAClusterIssuer` on
