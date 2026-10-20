@@ -159,6 +159,8 @@ grafana:
     dashboards:
       skipReload: true
       initDashboards: false
+      # erp-cell's ConfigMaps live in the cell's namespace, not this one.
+      searchNamespace: ALL
     datasources:
       skipReload: true
       initDatasources: true

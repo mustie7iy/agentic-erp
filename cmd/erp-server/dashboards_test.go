@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/promql/parser"
 
 	"github.com/mustie7iy/agentic-erp/api"
@@ -36,6 +36,9 @@ type dashboard struct {
 // grafanaVars are the interval variables Grafana substitutes before it
 // sends a query; the lint parses the query Prometheus would get.
 var grafanaVars = strings.NewReplacer("$__rate_interval", "2m", "$__interval", "1m", "$__range", "6h")
+
+// datasource is a dashboard naming its datasource.
+var datasource = regexp.MustCompile(`"datasource"`)
 
 // labelValues are the catalog labels whose values are a closed list: a
 // panel matching any other value would show nothing.
@@ -79,7 +82,7 @@ func TestDashboardsUseCatalog(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if regexp.MustCompile(`"datasource"`).Match(raw) {
+			if datasource.Match(raw) {
 				t.Errorf("names a datasource: panels use Grafana's default")
 			}
 			var d dashboard
@@ -190,7 +193,7 @@ func lintSelector(sel *parser.VectorSelector, series map[string][]string) []stri
 	var problems []string
 	values := labelValues()
 	for _, m := range sel.LabelMatchers {
-		if m.Name == labels.MetricName {
+		if m.Name == model.MetricNameLabel {
 			continue
 		}
 		if carried != nil && !slices.Contains(carried, m.Name) {
@@ -201,6 +204,8 @@ func lintSelector(sel *parser.VectorSelector, series map[string][]string) []stri
 		if !closed {
 			continue
 		}
+		// A closed label is matched by literal alternatives only: a pattern
+		// such as "pay.*" is refused, which errs on the strict side.
 		for _, v := range strings.Split(m.Value, "|") {
 			if !slices.Contains(known, v) {
 				problems = append(problems, fmt.Sprintf("%s{%s}: value %q is not one the catalog knows %v", sel.Name, m.Name, v, known))
