@@ -22,7 +22,7 @@ import (
 type Violation struct {
 	Rule    string
 	Message string
-	failure string // a held write's rule that could not be evaluated: the kind of failure
+	failure string // set by Hold only: the kind of failure of a rule that could not be evaluated
 }
 
 // Check evaluates every rule of the set against a row and its extensions

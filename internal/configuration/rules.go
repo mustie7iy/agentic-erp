@@ -93,6 +93,9 @@ func replaySummary(r rules.Replay) string {
 		refused, passing, failing = refused+x.NewlyRefused, passing+x.NewlyPassing, failing+x.Unevaluable
 	}
 	s := fmt.Sprintf("Rules on %s, %d recent rows: %d newly refused, %d newly passing, %d historical, unaffected.", r.Entity, r.Rows, refused, passing, r.Historical)
+	if r.Historical == r.Rows {
+		s += " No row in the sample can still be written: the replay shows nothing of the rules' effect."
+	}
 	if failing > 0 {
 		s += fmt.Sprintf(" %d evaluations failed or exceeded a limit: the rules cannot activate.", failing)
 	}
@@ -136,7 +139,10 @@ func readByRules(path string, proposed *config.Config) bool {
 	if strings.HasPrefix(path, "rules.") {
 		return true
 	}
-	entity, ok := strings.CutPrefix(path, "extensions.")
-	entity, _, _ = strings.Cut(entity, ".")
-	return ok && proposed.ReadByRules(entity)
+	rest, ok := strings.CutPrefix(path, "extensions.")
+	if !ok {
+		return false
+	}
+	entity, _, _ := strings.Cut(rest, ".")
+	return proposed.ReadByRules(entity)
 }

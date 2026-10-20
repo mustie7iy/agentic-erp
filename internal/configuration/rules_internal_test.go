@@ -3,6 +3,7 @@ package configuration
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
@@ -43,6 +44,26 @@ func TestRequireRulesSimulated(t *testing.T) {
 			var p *problem.Problem
 			if got := errors.As(err, &p) && p.Code == "config.rules_not_simulated"; got != c.refused {
 				t.Errorf("refused: got %v, want %t", err, c.refused)
+			}
+		})
+	}
+}
+
+// TestReplaySummary: a sample with no writable row says the replay shows
+// nothing, so that "0 newly refused" does not read as harmless.
+func TestReplaySummary(t *testing.T) {
+	for name, c := range map[string]struct {
+		r       rules.Replay
+		nothing bool
+	}{
+		"all historical": {rules.Replay{Entity: "supplier_invoice", Rows: 2, Historical: 2}, true},
+		"empty":          {rules.Replay{Entity: "supplier_invoice"}, true},
+		"some writable":  {rules.Replay{Entity: "supplier_invoice", Rows: 2, Historical: 1}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := replaySummary(c.r)
+			if got := strings.Contains(s, "shows nothing"); got != c.nothing {
+				t.Errorf("summary %q says nothing was shown: got %t, want %t", s, got, c.nothing)
 			}
 		})
 	}

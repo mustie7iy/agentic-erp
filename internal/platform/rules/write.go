@@ -88,7 +88,8 @@ func (w Writes) Check(ctx context.Context, wr Write) error {
 func (w Writes) Hold(ctx context.Context, wr Write) (string, error) {
 	vs, version, err := w.violations(ctx, wr)
 	if u := (*UnevaluableError)(nil); errors.As(err, &u) {
-		vs, err = []Violation{{Rule: u.Rule, Message: "the rule " + failure(u.Err) + "; have the rule corrected", failure: failure(u.Err)}}, nil
+		f := failure(u.Err)
+		vs, err = []Violation{{Rule: u.Rule, Message: "the rule " + f + "; have the rule corrected", failure: f}}, nil
 	}
 	if err != nil || len(vs) == 0 {
 		return "", err
