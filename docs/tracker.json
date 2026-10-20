@@ -3673,9 +3673,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Field schemas in the configuration document: compiled with the restrictions, validated on proposal, tier 1 to add optional fields, tier 2 to require, narrow, remove or reclassify, immutable versions",
-        "r": "T58b",
+        "r": "internal/platform/extensions · Compile, Narrows, FuzzCompile · config.ExtensionTransitions · T58b",
         "c": []
        },
        {

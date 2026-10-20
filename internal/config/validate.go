@@ -71,6 +71,7 @@ func Validate(c *Config, exponents currency.Exponents) []Finding {
 	v.payments(c)
 	v.numberRanges(c)
 	v.journalRanges(c)
+	v.extensions(c)
 	switch c.Output.PurchaseOrderChannel {
 	case "email", "edi", "print":
 	default:

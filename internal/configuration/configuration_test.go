@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -572,4 +573,44 @@ func TestVersionAndRangeLists(t *testing.T) {
 	all, _ := e.Must(200, "GET", "/v1/number-ranges", "", "")
 	agent.Problem(404, "request.not_found", "GET", "/v1/number-ranges/"+all["items"].([]any)[0].(map[string]any)["id"].(string), "", "")
 	e.Problem(404, "request.not_found", "GET", "/v1/number-ranges/"+uuid.NewString(), "", "")
+}
+
+// Custom field schemas (ADR-0046): adding an optional field is approved on
+// submission (tier 1), requiring one opens an approval (tier 2), and a
+// changed schema must carry the next version.
+func TestCustomFieldSchemas(t *testing.T) {
+	e := setup(t, false)
+	field := func(c *config.Config, version int, required ...string) *config.Config {
+		no := false
+		c.Extensions = map[string]extensions.Schema{"supplier_invoice": {Version: version, Type: "object", AdditionalProperties: &no,
+			Required: required, Properties: map[string]extensions.Property{"project": {Type: "string", MaxLength: 20, PII: extensions.PIINone}}}}
+		return c
+	}
+	for name, c := range map[string]struct {
+		doc          *config.Config
+		status, tier any
+	}{
+		"optional field": {field(document(t), 1), "approved", float64(1)},
+		"required field": {field(document(t), 1, "project"), "pending_approval", float64(2)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			code, m := e.transition(t, e.propose(t, 1, c.doc), "submit")
+			if code != 200 {
+				t.Fatalf("submit: got %d %v, want 200", code, m)
+			}
+			if m["status"] != c.status {
+				t.Errorf("status: got %v, want %v", m["status"], c.status)
+			}
+			if m["tier"] != c.tier {
+				t.Errorf("tier: got %v, want %v", m["tier"], c.tier)
+			}
+		})
+	}
+	code, m := e.transition(t, e.propose(t, 1, field(document(t), 2)), "submit")
+	if code != 422 {
+		t.Fatalf("first version numbered 2: got %d %v, want 422", code, m)
+	}
+	if !strings.Contains(fmt.Sprint(m["errors"]), "proposed.extensions.supplier_invoice.version") {
+		t.Errorf("first version numbered 2: got errors %v, want one at proposed.extensions.supplier_invoice.version", m["errors"])
+	}
 }

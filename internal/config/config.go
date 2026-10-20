@@ -13,6 +13,8 @@ import (
 	"os"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 )
 
 type Config struct {
@@ -23,6 +25,8 @@ type Config struct {
 	Payments     Payments      `yaml:"payments" json:"payments"`
 	Output       Output        `yaml:"output" json:"output"`
 	NumberRanges []NumberRange `yaml:"number_ranges,omitempty" json:"number_ranges,omitempty"`
+	// Extensions are the tenant's custom field schemas by entity (ADR-0046).
+	Extensions map[string]extensions.Schema `yaml:"extensions,omitempty" json:"extensions,omitempty"`
 }
 
 // NumberRange is a document number interval for one company, document type
@@ -271,6 +275,9 @@ func Parse(b []byte) (*Config, error) {
 	}
 	if err := notWhole(b); err != nil {
 		return nil, err
+	}
+	if n := extensionFloat(b); n != nil {
+		return nil, fmt.Errorf("configuration: line %d: %s: custom field schemas have no floating-point numbers", n.Line, n.Value)
 	}
 	return &c, nil
 }
