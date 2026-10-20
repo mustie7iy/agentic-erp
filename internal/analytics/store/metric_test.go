@@ -162,10 +162,12 @@ func values(res map[string]any) [][]any {
 
 // disclosed: a reader of the change request is shown the simulated values
 // of their own companies alone, whatever the requester's access: a reader
-// of 1000 its values, one of 2000 its, one of no company none.
+// of 1000 its values, one of 2000 its, one of no company none; and the
+// summary counts those alone, so a reader of 2000 (whose values do not
+// move) is not told that 1000's do.
 func (p parity) disclosed(t *testing.T, path string) {
 	t.Helper()
-	for _, company := range []string{"1000", "2000", ""} {
+	for company, summary := range map[string]string{"1000": "3 of 3 values", "2000": "0 of 3 values", "": "0 of 0 values"} {
 		t.Run("reader of "+company, func(t *testing.T) {
 			companies := []string{}
 			if company != "" {
@@ -174,8 +176,14 @@ func (p parity) disclosed(t *testing.T, path string) {
 			got, _ := p.As(p.person(t, "", companies)).In(t).Must(200, "GET", path, "", "")
 			shown := map[string]int{}
 			for _, e := range apitest.List(t, got, "evidence") {
-				detail := e.(map[string]any)["detail"].(map[string]any)
-				for _, mc := range apitest.List(t, detail, "metrics") {
+				e := e.(map[string]any)
+				if e["kind"] != "simulation" {
+					continue
+				}
+				if !strings.Contains(e["summary"].(string), summary) {
+					t.Errorf("summary: got %q, want it to count %s", e["summary"], summary)
+				}
+				for _, mc := range apitest.List(t, e["detail"].(map[string]any), "metrics") {
 					for _, v := range apitest.List(t, mc.(map[string]any), "values") {
 						shown[v.(map[string]any)["company"].(string)]++
 					}

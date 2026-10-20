@@ -556,8 +556,11 @@ company sees no value, a value of no company (a metric not broken down
 by company) is shown to a reader of every company alone, and a detail
 that does not read fails the read (and so, on a change request's
 submit, withdraw or activate, the action whose answer it is: a company
-directory that cannot answer holds those back too). The summary keeps its counts over the
-requester's companies (counts, not values). *The store alone (decided
+directory that cannot answer holds those back too). The summary is
+recorded with no count (it reaches the operation's result too), and each
+reader is shown counts over the values shown to them alone, so a reader
+of narrower access cannot learn that other companies' values changed
+(T55g review, 2026-10-20). *The store alone (decided
 2026-10-20).* The simulation reads the analytical store only: the database path reads
 the API with a request's credentials, which a queued simulation does not
 have, so a store that cannot answer (none configured, stale) records a

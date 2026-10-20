@@ -2,7 +2,6 @@ package configuration
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -47,10 +46,11 @@ type Simulator interface {
 // Disclosure limits what the reader of a change request is shown of its
 // evidence: a context whose simulation records values the reader may not
 // see (the analytics context's metric values of companies they may not
-// access) withholds them, in the reader's request. It returns the detail
-// to show; an error fails the read rather than show the detail whole.
+// access) withholds them, in the reader's request, and so does any count
+// over them in the summary. It returns the evidence to show; an error
+// fails the read rather than show the evidence whole.
 type Disclosure interface {
-	Disclose(ctx context.Context, kind string, detail json.RawMessage) (json.RawMessage, error)
+	Disclose(ctx context.Context, e Evidence) (Evidence, error)
 }
 
 // disclosed is the change request as its reader is shown it.
@@ -58,11 +58,11 @@ func (d Dependencies) disclosed(ctx context.Context, c ChangeRequest) (ChangeReq
 	evidence := slices.Clone(c.Evidence)
 	for i := range evidence {
 		for _, dis := range d.Disclosures {
-			detail, err := dis.Disclose(ctx, evidence[i].Kind, evidence[i].Detail)
+			shown, err := dis.Disclose(ctx, evidence[i])
 			if err != nil {
 				return ChangeRequest{}, fmt.Errorf("configuration: the %s evidence of change request %s: %w", evidence[i].Kind, c.ID, err)
 			}
-			evidence[i].Detail = detail
+			evidence[i] = shown
 		}
 	}
 	c.Evidence = evidence

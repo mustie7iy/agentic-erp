@@ -236,7 +236,6 @@ func cells(res *analytics.Result) map[cell]string {
 // side by side. It passes: the values are for the approvers to judge.
 func compare(affected []string, was, is map[string]map[cell]string, year int) configuration.Simulation {
 	changes := make([]MetricChange, 0, len(affected))
-	total, differ := 0, 0
 	for _, name := range affected {
 		mc := MetricChange{Metric: name, Values: []Value{}}
 		keys := map[cell]bool{}
@@ -255,12 +254,17 @@ func compare(affected []string, was, is map[string]map[cell]string, year int) co
 			}
 			mc.Values = append(mc.Values, v)
 		}
-		total, differ = total+len(mc.Values), differ+mc.Changed
 		changes = append(changes, mc)
 	}
-	summary := fmt.Sprintf("Metric definitions change for %s: %d of %d values by company and fiscal year since %d differ.",
-		strings.Join(affected, ", "), differ, total, year-1)
-	return configuration.Simulation{Passed: true, Summary: summary, Detail: map[string]any{"metrics": changes}}
+	return configuration.Simulation{Passed: true, Summary: recorded(affected, year-1), Detail: map[string]any{"metrics": changes, "metrics_since": year - 1}}
+}
+
+// recorded is the simulation's summary as recorded: no count, since the
+// counts over the requester's companies would tell a narrower reader that
+// other companies' values changed; each reader is shown the counts over
+// their own (Disclosure).
+func recorded(metrics []string, since int) string {
+	return fmt.Sprintf("Metric definitions change for %s: values by company and fiscal year since %d.", strings.Join(metrics, ", "), since)
 }
 
 // Disclosure shows the reader of a change request the simulated metric
@@ -268,45 +272,70 @@ func compare(affected []string, was, is map[string]map[cell]string, year int) co
 // the simulation computed them as the person who asked for it, whose
 // access may be wider. It fails closed: a reader of no company sees no
 // value, and a value of no company (a metric not broken down by company)
-// is shown only to a reader of every company.
+// is shown only to a reader of every company. The summary's counts are
+// over the values shown, so they tell nothing of the others.
 type Disclosure struct {
 	Endpoints *Endpoints
 }
 
+// simulated is the analytics simulation's detail.
+type simulated struct {
+	Metrics []MetricChange `json:"metrics"`
+	Since   int            `json:"metrics_since"`
+}
+
 // Disclose implements configuration.Disclosure.
-func (d Disclosure) Disclose(ctx context.Context, kind string, detail json.RawMessage) (json.RawMessage, error) {
-	if kind != "simulation" {
-		return detail, nil
+func (d Disclosure) Disclose(ctx context.Context, e configuration.Evidence) (configuration.Evidence, error) {
+	if e.Kind != "simulation" {
+		return e, nil
 	}
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(detail, &fields); err != nil {
-		return nil, fmt.Errorf("analytics: simulated values: %w", err)
+	if err := json.Unmarshal(e.Detail, &fields); err != nil {
+		return configuration.Evidence{}, fmt.Errorf("analytics: simulated values: %w", err)
 	}
 	if fields["metrics"] == nil {
-		return detail, nil
+		return e, nil
 	}
-	var changes []MetricChange
-	if err := json.Unmarshal(fields["metrics"], &changes); err != nil {
-		return nil, fmt.Errorf("analytics: simulated values: %w", err)
+	var sim simulated
+	if err := json.Unmarshal(e.Detail, &sim); err != nil {
+		return configuration.Evidence{}, fmt.Errorf("analytics: simulated values: %w", err)
 	}
 	p, err := d.Endpoints.principal(ctx, nil)
 	if err != nil {
-		return nil, err
+		return configuration.Evidence{}, err
 	}
+	shown, differ, total := shownTo(sim.Metrics, p.Companies)
+	// Structs of strings and the fields just read marshal without fail.
+	fields["metrics"], _ = json.Marshal(shown)
+	e.Detail, _ = json.Marshal(fields)
+	names := make([]string, len(shown))
+	for i, mc := range shown {
+		names[i] = mc.Metric
+	}
+	// A summary not recorded as this simulation records it carries no
+	// count of ours, so it is shown as it is.
+	e.Summary = strings.Replace(e.Summary, recorded(names, sim.Since), fmt.Sprintf(
+		"Metric definitions change for %s: %d of %d values by company and fiscal year since %d differ.",
+		strings.Join(names, ", "), differ, total, sim.Since), 1)
+	return e, nil
+}
+
+// shownTo are the values of companies a reader may access (nil: every
+// company), with the values shown and those of them that differ counted.
+func shownTo(changes []MetricChange, companies []string) (shown []MetricChange, differ, total int) {
+	shown = make([]MetricChange, len(changes))
 	for i, mc := range changes {
-		changes[i] = MetricChange{Metric: mc.Metric, Values: []Value{}}
+		shown[i] = MetricChange{Metric: mc.Metric, Values: []Value{}}
 		for _, v := range mc.Values {
-			if p.Companies != nil && (v.Company == "" || !slices.Contains(p.Companies, v.Company)) {
+			if companies != nil && (v.Company == "" || !slices.Contains(companies, v.Company)) {
 				continue
 			}
-			changes[i].Values = append(changes[i].Values, v)
+			shown[i].Values = append(shown[i].Values, v)
 			if v.Before != v.After {
-				changes[i].Changed++
+				shown[i].Changed++
 			}
 		}
+		differ, total = differ+shown[i].Changed, total+len(shown[i].Values)
 	}
-	// Structs of strings and the fields just read marshal without fail.
-	fields["metrics"], _ = json.Marshal(changes)
-	shown, _ := json.Marshal(fields)
-	return shown, nil
+	return shown, differ, total
 }

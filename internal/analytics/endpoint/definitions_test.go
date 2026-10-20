@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/analytics/extract"
 	"github.com/mustie7iy/agentic-erp/internal/analytics/wire"
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -164,8 +165,11 @@ func TestSimulation(t *testing.T) {
 		fresh(t, ctx)
 		zero := reader{rows: []wire.Row{{By: []string{"2000", "2026"}, Currency: "EUR", Exponent: 2}}}
 		got, err := sim(zero).Simulate(ctx, nil, margin)
-		if err != nil || !got.Passed || !strings.Contains(got.Summary, "operating_margin: 0 of 1 values") {
-			t.Errorf("a ratio over zero: got %+v, %v; want blank values that do not differ", got, err)
+		if err != nil || !got.Passed || got.Summary != "Metric definitions change for operating_margin: values by company and fiscal year since 2025." {
+			t.Errorf("a ratio over zero: got %+v, %v; want a summary of no count", got, err)
+		}
+		if values := got.Detail["metrics"].([]MetricChange)[0].Values; len(values) != 1 || values[0].Before != "" || values[0].After != "" {
+			t.Errorf("a ratio over zero: got %+v, want one blank value on both sides", values)
 		}
 		added := section(t, func(a *config.Analytics) {
 			a.Metrics = append(a.Metrics, config.Metric{Name: "aa_total", Type: analytics.Money, Source: "gl_lines", Aggregate: "sum"})
@@ -182,32 +186,66 @@ func errOf(_ any, err error) error { return err }
 
 // TestDisclosure: a reader of company 2000 is shown its simulated values
 // alone (not 1000's, nor one of no company), with the differences
-// recounted; other evidence and a simulation without values are shown
+// recounted and the summary's counts over them; a reader of every company
+// is shown every value, a reader of none none; other evidence, a
+// simulation without values and a summary recorded otherwise are shown
 // whole; a detail that does not read or a reader whose companies cannot be
 // named fails the read.
 func TestDisclosure(t *testing.T) {
-	detail := `{"invoices": 3, "metrics": [{"metric": "revenue", "changed": 3, "values": [
+	detail := `{"invoices": 3, "metrics_since": 2025, "metrics": [{"metric": "revenue", "changed": 3, "values": [
 		{"company": "1000", "fiscal_year": "2026", "before": "1", "after": "2"},
 		{"company": "2000", "fiscal_year": "2025", "before": "1", "after": "1"},
 		{"company": "2000", "fiscal_year": "2026", "before": "1", "after": "2"},
 		{"company": "", "fiscal_year": "2026", "before": "3", "after": "4"}]}]}`
+	evidence := configuration.Evidence{Kind: "simulation", Detail: json.RawMessage(detail),
+		Summary: "3 invoices replayed. " + recorded([]string{"revenue"}, 2025)}
 	d := Disclosure{Endpoints: &Endpoints{Companies: codes{}}}
 	inRequest(t, 0, func(ctx context.Context) {
-		got, err := d.Disclose(ctx, "simulation", json.RawMessage(detail))
+		got, err := d.Disclose(ctx, evidence)
+		if err != nil {
+			t.Fatal(err)
+		}
 		want := `{"invoices":3,"metrics":[{"metric":"revenue","changed":1,"values":[` +
-			`{"company":"2000","fiscal_year":"2025","before":"1","after":"1"},{"company":"2000","fiscal_year":"2026","before":"1","after":"2"}]}]}`
-		if err != nil || string(got) != want {
-			t.Errorf("reader of 2000: got %s, %v; want %s", got, err, want)
+			`{"company":"2000","fiscal_year":"2025","before":"1","after":"1"},{"company":"2000","fiscal_year":"2026","before":"1","after":"2"}]}],"metrics_since":2025}`
+		if string(got.Detail) != want {
+			t.Errorf("reader of 2000: got %s, want %s", got.Detail, want)
+		}
+		if want := "3 invoices replayed. Metric definitions change for revenue: 1 of 2 values by company and fiscal year since 2025 differ."; got.Summary != want {
+			t.Errorf("summary for a reader of 2000: got %q, want %q", got.Summary, want)
+		}
+		other := evidence
+		other.Summary = "Recorded otherwise."
+		if got, err := d.Disclose(ctx, other); err != nil || got.Summary != other.Summary {
+			t.Errorf("a summary recorded otherwise: got %q, %v; want it as it is", got.Summary, err)
 		}
 		for kind, whole := range map[string]string{"regression": `[1]`, "simulation": `{"metrics_not_computed": ["revenue"]}`} {
-			if got, err := d.Disclose(ctx, kind, json.RawMessage(whole)); err != nil || string(got) != whole {
-				t.Errorf("%s %s: got %s, %v; want it whole", kind, whole, got, err)
+			e := configuration.Evidence{Kind: kind, Summary: "s", Detail: json.RawMessage(whole)}
+			if got, err := d.Disclose(ctx, e); err != nil || string(got.Detail) != whole || got.Summary != "s" {
+				t.Errorf("%s %s: got %+v, %v; want it whole", kind, whole, got, err)
 			}
 		}
 		for _, bad := range []string{`[1]`, `{"metrics": ["revenue"]}`} {
-			pgtest.CheckErr(t, errOf(d.Disclose(ctx, "simulation", json.RawMessage(bad))), "simulated values")
+			pgtest.CheckErr(t, errOf(d.Disclose(ctx, configuration.Evidence{Kind: "simulation", Detail: json.RawMessage(bad)})), "simulated values")
 		}
 		failing := Disclosure{Endpoints: &Endpoints{Companies: codes{errors.New("directory down")}}}
-		pgtest.CheckErr(t, errOf(failing.Disclose(ctx, "simulation", json.RawMessage(detail))), "directory down")
+		pgtest.CheckErr(t, errOf(failing.Disclose(ctx, evidence)), "directory down")
 	})
+	var sim simulated
+	if err := json.Unmarshal([]byte(detail), &sim); err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		companies     []string
+		differ, total int
+	}{
+		"every company": {nil, 3, 4},
+		"1000 alone":    {[]string{"1000"}, 1, 1},
+		"no company":    {[]string{}, 0, 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, differ, total := shownTo(sim.Metrics, tc.companies); differ != tc.differ || total != tc.total {
+				t.Errorf("counted: got %d of %d, want %d of %d", differ, total, tc.differ, tc.total)
+			}
+		})
+	}
 }

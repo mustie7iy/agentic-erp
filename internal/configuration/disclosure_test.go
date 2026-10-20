@@ -14,21 +14,22 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
-// disclosure shows every simulation's detail as {"shown": true}, or fails.
+// disclosure shows every simulation's detail as {"shown": true} and its
+// summary as "Shown.", or fails.
 type disclosure struct{ err error }
 
-func (d disclosure) Disclose(_ context.Context, kind string, detail json.RawMessage) (json.RawMessage, error) {
+func (d disclosure) Disclose(_ context.Context, e configuration.Evidence) (configuration.Evidence, error) {
 	if d.err != nil {
-		return nil, d.err
+		return configuration.Evidence{}, d.err
 	}
-	if kind != "simulation" {
-		return detail, nil
+	if e.Kind == "simulation" {
+		e.Summary, e.Detail = "Shown.", json.RawMessage(`{"shown": true}`)
 	}
-	return json.RawMessage(`{"shown": true}`), nil
+	return e, nil
 }
 
 // TestDisclosure: a change request's reader is shown each evidence's
-// detail as the disclosures leave it, on every read that returns the
+// summary and detail as the disclosures leave them, on every read that returns the
 // request; a disclosure that fails fails the read rather than show the
 // detail whole.
 func TestDisclosure(t *testing.T) {
@@ -47,8 +48,12 @@ func TestDisclosure(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if got := string(res.(*gen.GetChangeRequestOKHeaders).Response.Evidence[0].Detail["shown"]); got != "true" {
+		shown := res.(*gen.GetChangeRequestOKHeaders).Response.Evidence[0]
+		if got := string(shown.Detail["shown"]); got != "true" {
 			t.Errorf("detail shown: got %q, want the disclosure's", got)
+		}
+		if shown.Summary != "Shown." {
+			t.Errorf("summary shown: got %q, want the disclosure's", shown.Summary)
 		}
 		return nil
 	}); err != nil {
