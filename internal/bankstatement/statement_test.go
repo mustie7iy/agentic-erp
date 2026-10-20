@@ -116,6 +116,7 @@ func TestCamtEntries(t *testing.T) {
 		{"AE charges code", a[1].TransactionCode, "ACMT-MDOP-CHRG"},
 		{"AE receipt value date", a[2].ValueDate, day("2026-10-21")},
 		{"AE receipt debtor IBAN", a[2].Details[0].Counterparty.IBAN, "AE210030000123456789012"},
+		{"AE receipt in USD read in AED", a[2].Details[0].Amount, money.Minor(1800000)},
 		{"AE reversal", a[3].Reversal, true},
 		{"AE reversal batch", a[3].Details[0].PaymentInfoID, "PAY-00000040-T"},
 		{"AE reversal batch amount", a[3].Details[0].Amount, money.Minor(50000)},
@@ -176,6 +177,7 @@ func TestMT940Entries(t *testing.T) {
 		{"AE reversal of a debit credits", [2]any{a[3].Amount, a[3].Reversal}, [2]any{money.Minor(50000), true}},
 		{"CA account number", ca[0].Account, Account{Number: "00021/1234567"}},
 		{"CA funds code", c[0].Amount, money.Minor(25000)},
+		{"CA reference with slashes", [2]string{c[0].OwnerReference, c[0].BankReference}, [2]string{"INV/2026/1", "BK0001"}},
 		{"CA booked in the old year", [2]time.Time{c[1].BookingDate, c[1].ValueDate}, [2]time.Time{day("2026-12-31"), day("2027-01-02")}},
 	}
 	for _, ch := range checks {
@@ -220,6 +222,19 @@ func TestMT940Details(t *testing.T) {
 	})
 }
 
+// TestMT940LongField: a field of very many lines is read in linear time;
+// joining them one by one would take minutes for an uploaded file.
+func TestMT940LongField(t *testing.T) {
+	info := strings.Repeat("x\n", 200000)
+	s, err := ParseMT940([]byte(":20:S1\n:25:1\n:28C:1\n:60F:C261231EUR1,00\n:61:261231D1,00NTRF\n:86:"+info+":62F:C261231EUR0,00\n"), currency.Seeded())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(s[0].Entries[0].Text); got != 2*200000-1 {
+		t.Errorf("text length: got %d, want %d", got, 2*200000-1)
+	}
+}
+
 // TestMalformed: each file is refused with ErrMalformed.
 func TestMalformed(t *testing.T) {
 	ca, ae := string(sample(t, "camt053_ca_v02.xml")), string(sample(t, "camt053_ae_v08.xml"))
@@ -231,6 +246,10 @@ func TestMalformed(t *testing.T) {
 		return func() error { _, err := ParseMT940([]byte(s), currency.Seeded()); return err }
 	}
 	cases := map[string]func() error{
+		"comma in a camt amount":      camt(strings.Replace(ca, ">15.00<", ">15,00<", 1)),
+		"references too long":         mt940(strings.Replace(mt, "NMSCE2E-CA-9//BK0002", "NMSCE2E-CA-9-0123456789//BK0002", 1)),
+		"second opening":              mt940(strings.Replace(mt, ":60F:C261230CAD10000,00\n", ":60F:C261230CAD10000,00\n:60M:C261230CAD10000,00\n", 1)),
+		"closing before the opening":  mt940(":20:X\n:25:1\n:28C:1\n:62F:C270102USD9040,05\n:60F:C261231CAD9050,00\n"),
 		"not XML":                     camt("<Document"),
 		"another version":             camt(strings.Replace(ca, `xsd:camt.053.001.02"`, `xsd:camt.053.001.04"`, 1)),
 		"no statement":                camt(`<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02"><BkToCstmrStmt/></Document>`),

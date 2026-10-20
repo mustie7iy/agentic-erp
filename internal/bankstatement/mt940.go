@@ -13,14 +13,15 @@ import (
 // lines of a multi-line value joined by "\n".
 type mtField struct {
 	tag, value string
+	lines      []string // the value's lines, joined once into value
 }
 
 var (
 	mtTag     = regexp.MustCompile(`^:([0-9]{2}[A-Z]?):(.*)$`)
 	mtBalance = regexp.MustCompile(`^([CD])([0-9]{6})([A-Z]{3})([0-9]{1,15},[0-9]{0,15})$`)
-	// :61: value date, entry date, mark, funds code, amount, type, the
-	// reference for the account owner, the bank's reference.
-	mtLine = regexp.MustCompile(`^([0-9]{6})([0-9]{4})?(R?[CD])([A-Z])?([0-9]{1,15},[0-9]{0,15})([NSF][A-Z0-9]{3})([^/]{0,16})(?://(.{0,16}))?$`)
+	// :61: value date, entry date, mark, funds code, amount, type, and the
+	// references (mtReferences).
+	mtLine = regexp.MustCompile(`^([0-9]{6})([0-9]{4})?(R?[CD])([A-Z])?([0-9]{1,15},[0-9]{0,15})([NSF][A-Z0-9]{3})(.*)$`)
 )
 
 // ParseMT940 reads the statements of an MT940 file, with or without the
@@ -64,13 +65,18 @@ func mtFields(text string) ([]mtField, error) {
 			continue
 		}
 		if m := mtTag.FindStringSubmatch(line); m != nil {
-			out = append(out, mtField{tag: m[1], value: m[2]})
+			out = append(out, mtField{tag: m[1], lines: []string{m[2]}})
 			continue
 		}
 		if len(out) == 0 {
 			return nil, malformed("mt940: text before the first field")
 		}
-		out[len(out)-1].value += "\n" + line
+		// Lines are collected and joined once: appending to the value would
+		// copy it for every line, quadratic in an uploaded file.
+		out[len(out)-1].lines = append(out[len(out)-1].lines, line)
+	}
+	for i := range out {
+		out[i].value, out[i].lines = strings.Join(out[i].lines, "\n"), nil
 	}
 	return out, nil
 }
@@ -78,7 +84,7 @@ func mtFields(text string) ([]mtField, error) {
 // mtStatement reads the fields of one statement, from :20: to the next.
 func mtStatement(fields []mtField, exps currency.Exponents) (Statement, error) {
 	s := Statement{Format: MT940}
-	var opening, closing bool
+	var closing bool
 	for i, f := range fields {
 		var err error
 		switch f.tag {
@@ -88,12 +94,8 @@ func mtStatement(fields []mtField, exps currency.Exponents) (Statement, error) {
 			s.Account = mtAccount(f.value)
 		case "28C":
 			s.Sequence = strings.TrimSpace(f.value)
-		case "60F", "60M":
-			s.Opening, s.Currency, err = mtBalanceOf(f.value, "", exps)
-			opening = true
-		case "62F", "62M":
-			s.Closing, _, err = mtBalanceOf(f.value, s.Currency, exps)
-			closing = true
+		case "60F", "60M", "62F", "62M":
+			err = mtBalanceField(&s, f, exps, &closing)
 		case "61":
 			var e Entry
 			if e, err = mtEntry(f.value, s.Currency, exps); err == nil {
@@ -107,10 +109,29 @@ func mtStatement(fields []mtField, exps currency.Exponents) (Statement, error) {
 			return Statement{}, err
 		}
 	}
-	if !opening || !closing || s.Sequence == "" {
+	if s.Currency == "" || !closing || s.Sequence == "" {
 		return Statement{}, malformed("mt940 statement %q: :28C:, :60F: or :62F: missing, or :61: before :60F:", s.ID)
 	}
 	return s, s.check()
+}
+
+// mtBalanceField reads the statement's one opening balance (:60a:), which
+// sets its currency, or its closing balance (:62a:) after it.
+func mtBalanceField(s *Statement, f mtField, exps currency.Exponents, closing *bool) error {
+	opening := s.Currency != ""
+	var err error
+	switch {
+	case f.tag[:2] == "60" && opening:
+		return malformed("mt940 statement %q: a second opening balance", s.ID)
+	case f.tag[:2] == "60":
+		s.Opening, s.Currency, err = mtBalanceOf(f.value, "", exps)
+	case !opening:
+		return malformed("mt940 statement %q: closing balance before the opening", s.ID)
+	default:
+		s.Closing, _, err = mtBalanceOf(f.value, s.Currency, exps)
+		*closing = true
+	}
+	return err
 }
 
 // mtAccount reads :25:, the account: an IBAN, or the bank's account
@@ -141,7 +162,7 @@ func mtBalanceOf(v, ccy string, exps currency.Exponents) (Balance, string, error
 	if err != nil {
 		return Balance{}, "", err
 	}
-	amt, err := amount(m[4], m[3], exps, m[1] == "D")
+	amt, err := amount(m[4], m[3], exps, true, m[1] == "D")
 	if err != nil {
 		return Balance{}, "", err
 	}
@@ -167,16 +188,31 @@ func mtEntry(v, ccy string, exps currency.Exponents) (Entry, error) {
 		}
 	}
 	// RD reverses a debit, so credits the account; RC debits it.
-	amt, err := amount(m[5], ccy, exps, m[3] == "D" || m[3] == "RC")
+	amt, err := amount(m[5], ccy, exps, true, m[3] == "D" || m[3] == "RC")
 	if err != nil {
 		return Entry{}, err
 	}
-	owner := strings.TrimSpace(m[7])
+	owner, bank, err := mtReferences(m[7])
+	if err != nil {
+		return Entry{}, err
+	}
+	return Entry{Amount: amt, Reversal: m[3][0] == 'R', BookingDate: booked, ValueDate: value, TransactionCode: m[6],
+		OwnerReference: owner, BankReference: bank, Text: strings.TrimSpace(details)}, nil
+}
+
+// mtReferences reads the end of a :61: line: the reference for the account
+// owner (16x, which may hold "/" but not "//"), and after "//" the bank's
+// (16x). NONREF is no reference.
+func mtReferences(rest string) (owner, bank string, err error) {
+	owner, bank, _ = strings.Cut(rest, "//")
+	owner, bank = strings.TrimSpace(owner), strings.TrimSpace(bank)
+	if len(owner) > 16 || len(bank) > 16 {
+		return "", "", malformed("mt940: references %q longer than 16 characters", rest)
+	}
 	if owner == "NONREF" {
 		owner = ""
 	}
-	return Entry{Amount: amt, Reversal: m[3][0] == 'R', BookingDate: booked, ValueDate: value, TransactionCode: m[6],
-		OwnerReference: owner, BankReference: strings.TrimSpace(m[8]), Text: strings.TrimSpace(details)}, nil
+	return owner, bank, nil
 }
 
 // mtDate reads a YYMMDD date; SWIFT years are of this century.
@@ -215,7 +251,9 @@ var mtSubfields = map[string]bool{"EREF": true, "PREF": true, "IREF": true, "NAM
 // with the references and counterparty it names.
 func mtInformation(e *Entry, v string) {
 	text := strings.ReplaceAll(v, "\n", "")
-	e.Text = strings.TrimSpace(strings.Join([]string{e.Text, strings.ReplaceAll(v, "\n", " ")}, " "))
+	// The text keeps the bank's lines: SWIFT wraps at 65 characters, inside
+	// words or between them, so no one join is right for free text.
+	e.Text = strings.TrimSpace(e.Text + "\n" + v)
 	if !strings.HasPrefix(text, "/") {
 		return
 	}

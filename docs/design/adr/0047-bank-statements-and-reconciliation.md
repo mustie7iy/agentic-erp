@@ -34,7 +34,11 @@ Canadian bank may only offer BAI2.
   the account servicer's references, and the counterparty's name, IBAN and
   BIC (`internal/bankstatement`, T49b). Only booked entries are read,
   and a statement whose entries do not take its opening balance to its
-  closing balance, in its one currency, is refused. Every parser has a
+  closing balance, in its one currency, is refused. A transaction's
+  amount is read only in the statement's currency (the counter value
+  where the bank instructed another). Files are read as UTF-8: MT940
+  bytes that are not become U+FFFD and a camt.053 declaring another
+  encoding is refused, until a pilot bank needs ISO-8859-1. Every parser has a
   fuzz target in `make fuzz`; no new per-PR CI.
   BAI2 comes later as its own small step, and only if the Canadian pilot
   bank cannot send camt.053.

@@ -88,6 +88,7 @@ type (
 		EndToEndID string     `xml:"Refs>EndToEndId"`
 		Amt        camtAmount `xml:"Amt"`
 		TxAmt      camtAmount `xml:"AmtDtls>TxAmt>Amt"`
+		CntrValAmt camtAmount `xml:"AmtDtls>CntrValAmt>Amt"`
 		Ind        string     `xml:"CdtDbtInd"`
 		TxCd       camtTxCode `xml:"BkTxCd"`
 		Dbtr       camtParty  `xml:"RltdPties>Dbtr"`
@@ -144,20 +145,9 @@ func ParseCamt053(b []byte, exps currency.Exponents) ([]Statement, error) {
 func camtStatement(st camtStmt, exps currency.Exponents) (Statement, error) {
 	s := Statement{ID: strings.TrimSpace(st.ID), Sequence: strings.TrimSpace(firstOf(st.ElctrncSeq, st.LglSeq)),
 		Account: Account{IBAN: strings.TrimSpace(st.IBAN), Number: strings.TrimSpace(st.Other), BIC: firstOf(st.BIC, st.BICFI)}}
-	var opening, closing bool
-	for _, b := range st.Bals {
-		bal, err := camtBalanceOf(b, exps)
-		if err != nil {
-			return Statement{}, err
-		}
-		switch b.Code {
-		case "OPBD", "PRCD": // opening booked, or the previous statement's closing: the first given
-			if !opening {
-				s.Opening, s.Currency, opening = bal, b.Amt.Ccy, true
-			}
-		case "CLBD":
-			s.Closing, closing = bal, true
-		}
+	opening, closing, err := camtBalances(st, &s, exps)
+	if err != nil {
+		return Statement{}, err
 	}
 	if !opening || !closing {
 		return Statement{}, malformed("camt.053 statement %q: no opening (OPBD, PRCD) or closing (CLBD) booked balance", s.ID)
@@ -176,6 +166,29 @@ func camtStatement(st camtStmt, exps currency.Exponents) (Statement, error) {
 		s.Entries = append(s.Entries, e)
 	}
 	return s, s.check()
+}
+
+// camtBalances reads the statement's opening and closing booked balances
+// into s, and reports whether it has each.
+func camtBalances(st camtStmt, s *Statement, exps currency.Exponents) (opening, closing bool, err error) {
+	for _, b := range st.Bals {
+		if b.Code != "OPBD" && b.Code != "PRCD" && b.Code != "CLBD" {
+			continue // available and interim balances are not read
+		}
+		bal, err := camtBalanceOf(b, exps)
+		if err != nil {
+			return false, false, err
+		}
+		switch b.Code {
+		case "OPBD", "PRCD": // opening booked, or the previous statement's closing: the first given
+			if !opening {
+				s.Opening, s.Currency, opening = bal, b.Amt.Ccy, true
+			}
+		case "CLBD":
+			s.Closing, closing = bal, true
+		}
+	}
+	return opening, closing, nil
 }
 
 // camtCurrencies is the currency of the opening and closing balances, or
@@ -212,7 +225,7 @@ func camtSigned(a camtAmount, ind string, exps currency.Exponents) (money.Minor,
 	if ind != "CRDT" && ind != "DBIT" {
 		return 0, malformed("credit or debit indicator %q", ind)
 	}
-	return amount(strings.TrimSpace(a.Value), a.Ccy, exps, ind == "DBIT")
+	return amount(strings.TrimSpace(a.Value), a.Ccy, exps, false, ind == "DBIT")
 }
 
 // camtEntryOf reads a booked entry in the statement's currency.
@@ -236,7 +249,7 @@ func camtEntryOf(n camtEntry, ccy string, exps currency.Exponents) (Entry, error
 		}
 	}
 	for _, tx := range n.Txs {
-		d, err := camtDetail(tx, n.Ind, exps)
+		d, err := camtDetail(tx, n.Ind, ccy, exps)
 		if err != nil {
 			return Entry{}, err
 		}
@@ -258,8 +271,9 @@ func camtEntryOf(n camtEntry, ccy string, exps currency.Exponents) (Entry, error
 }
 
 // camtDetail reads a transaction of an entry; ind is the entry's credit or
-// debit indicator, which .001.02 does not repeat on the transaction.
-func camtDetail(tx camtTx, ind string, exps currency.Exponents) (Detail, error) {
+// debit indicator, which .001.02 does not repeat on the transaction, and
+// ccy the statement's currency.
+func camtDetail(tx camtTx, ind, ccy string, exps currency.Exponents) (Detail, error) {
 	d := Detail{MessageID: strings.TrimSpace(tx.MsgID), PaymentInfoID: strings.TrimSpace(tx.PmtInfID),
 		InstructionID: strings.TrimSpace(tx.InstrID), EndToEndID: strings.TrimSpace(tx.EndToEndID), TransactionCode: tx.TxCd.code(),
 		Remittance: strings.TrimSpace(strings.Join(append(tx.Ustrd, tx.StrdRef...), " "))}
@@ -272,18 +286,19 @@ func camtDetail(tx camtTx, ind string, exps currency.Exponents) (Detail, error) 
 	}
 	d.Counterparty = Party{Name: strings.TrimSpace(firstOf(party.Nm, party.PtyNm)), IBAN: strings.TrimSpace(acct.IBAN),
 		Account: strings.TrimSpace(acct.Other), BIC: firstOf(agent.BIC, agent.BICFI)}
-	a := tx.Amt
-	if a.Value == "" {
-		a = tx.TxAmt
-	}
-	if a.Value == "" {
+	// Only an amount in the statement's currency is the transaction's:
+	// Amt and TxAmt may be the instructed amount in another.
+	for _, a := range []camtAmount{tx.Amt, tx.TxAmt, tx.CntrValAmt} {
+		if a.Value == "" || a.Ccy != ccy {
+			continue
+		}
+		amt, err := camtSigned(a, firstOf(tx.Ind, ind), exps)
+		if err != nil {
+			return Detail{}, err
+		}
+		d.Amount = amt
 		return d, nil
 	}
-	amt, err := camtSigned(a, firstOf(tx.Ind, ind), exps)
-	if err != nil {
-		return Detail{}, err
-	}
-	d.Amount = amt
 	return d, nil
 }
 

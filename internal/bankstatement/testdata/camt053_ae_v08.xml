@@ -39,7 +39,8 @@
         <AcctSvcrRef>EB26102000125</AcctSvcrRef>
         <BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>RCDT</Cd><SubFmlyCd>DMCT</SubFmlyCd></Fmly></Domn></BkTxCd>
         <NtryDtls><TxDtls>
-          <Amt Ccy="AED">18000.00</Amt><CdtDbtInd>CRDT</CdtDbtInd>
+          <Amt Ccy="USD">4901.43</Amt><CdtDbtInd>CRDT</CdtDbtInd>
+          <AmtDtls><InstdAmt><Amt Ccy="USD">4901.43</Amt></InstdAmt><CntrValAmt><Amt Ccy="AED">18000.00</Amt></CntrValAmt></AmtDtls>
           <RltdPties><Dbtr><Pty><Nm>Al Noor Trading</Nm></Pty></Dbtr><DbtrAcct><Id><IBAN>AE210030000123456789012</IBAN></Id></DbtrAcct></RltdPties>
           <RmtInf><Ustrd>INV 2026-201</Ustrd></RmtInf>
         </TxDtls></NtryDtls>

@@ -142,16 +142,16 @@ var (
 	swiftAmount = regexp.MustCompile(`^[0-9]{1,15},[0-9]{0,15}$`)
 )
 
-// amount reads an unsigned amount of the currency, with "." (camt) or ","
-// (MT940) before its decimals, and signs it.
-func amount(s, ccy string, exps currency.Exponents, debit bool) (money.Minor, error) {
+// amount reads an unsigned amount of the currency, with "." (camt) or,
+// for swift, "," (MT940) before its decimals, and signs it.
+func amount(s, ccy string, exps currency.Exponents, swift, debit bool) (money.Minor, error) {
 	digits, ok := exps[ccy]
 	if !ok {
 		return 0, malformed("currency %q is not in the currency reference data", ccy)
 	}
 	switch {
-	case isoAmount.MatchString(s):
-	case swiftAmount.MatchString(s):
+	case !swift && isoAmount.MatchString(s):
+	case swift && swiftAmount.MatchString(s):
 		s = strings.Replace(s, ",", ".", 1)
 	default:
 		return 0, malformed("amount %q is not a plain decimal", s)
