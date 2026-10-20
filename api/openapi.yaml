@@ -18938,6 +18938,8 @@ components:
               readOnly: true
     StatementMatch:
       description: "What a bank statement line clears (ADR-0047): found by a matching rule, decided by a person, or (later) proposed by the reconciliation agent."
+      examples:
+        - {id: 0192a000-0000-7000-8000-000000000b40, version: 1, created_at: "2026-10-20T11:00:00Z", created_by: 0192a000-0000-7000-8000-000000000105, updated_at: "2026-10-20T11:00:00Z", updated_by: 0192a000-0000-7000-8000-000000000105, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, kind: rule, rule: end_to_end_id, reason: "End-to-end ids 2000-PR100000-000001: 1 of 1 are payments, paying 100.00 of 100.00.", status: matched, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c01}]}
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
@@ -18983,6 +18985,10 @@ components:
         items:
           type: array
           items: {$ref: "#/components/schemas/StatementMatch"}
+          examples:
+            - [{id: 0192a000-0000-7000-8000-000000000b40, version: 1, created_at: "2026-10-20T11:00:00Z", created_by: 0192a000-0000-7000-8000-000000000105, updated_at: "2026-10-20T11:00:00Z", updated_by: 0192a000-0000-7000-8000-000000000105, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, kind: rule, rule: end_to_end_id, reason: "End-to-end ids 2000-PR100000-000001: 1 of 1 are payments, paying 100.00 of 100.00.", status: matched, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c01}]}]
+      examples:
+        - {items: [{id: 0192a000-0000-7000-8000-000000000b40, version: 1, created_at: "2026-10-20T11:00:00Z", created_by: 0192a000-0000-7000-8000-000000000105, updated_at: "2026-10-20T11:00:00Z", updated_by: 0192a000-0000-7000-8000-000000000105, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, kind: rule, rule: end_to_end_id, reason: "End-to-end ids 2000-PR100000-000001: 1 of 1 are payments, paying 100.00 of 100.00.", status: matched, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c01}]}]}
     StatementLineMatchInput:
       type: object
       description: "A person's match of a line: the payments it clears or a posting rule, not both, and why."
@@ -18995,6 +19001,8 @@ components:
           maxItems: 1000
           uniqueItems: true
           description: The payments the line clears.
+          examples:
+            - [0192a000-0000-7000-8000-000000000c01]
         posting_rule:
           type: string
           minLength: 1
@@ -19006,6 +19014,8 @@ components:
           minLength: 1
           maxLength: 2000
       additionalProperties: false
+      examples:
+        - {payment_ids: [0192a000-0000-7000-8000-000000000c01], reason: "The remittance names INV-3."}
     BankStatementLine:
       type: object
       description: One booking on the account.

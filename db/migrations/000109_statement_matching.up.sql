@@ -20,7 +20,13 @@ ALTER TABLE payments.bank_statement_line DROP CONSTRAINT bank_statement_line_sta
     CHECK (status IN ('unmatched', 'proposed', 'matched', 'excluded', 'pending_approval', 'posted'));
 
 -- 000106's statement_match was never written (matching starts here), so it
--- is replaced rather than altered column by column.
+-- is replaced rather than altered column by column; a row there stops the
+-- migration rather than being lost.
+DO $$ BEGIN
+  IF EXISTS (SELECT FROM payments.statement_match) THEN
+    RAISE EXCEPTION 'payments.statement_match has rows; 000109 replaces it only while it is empty';
+  END IF;
+END $$;
 DROP TABLE payments.statement_match;
 CREATE TABLE payments.statement_match (
   tenant_id     uuid NOT NULL,

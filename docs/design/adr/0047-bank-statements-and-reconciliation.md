@@ -188,8 +188,11 @@ Canadian bank may only offer BAI2.
   hash. A file that holds other content when read again (the bank rewrote
   it) is not moved: its record becomes `changed_after_import`, with the new
   content's hash as the reason, `BankStatementFileChanged` is published,
-  and the next fetch imports the new content as a new file (coordinator
-  2026-10-20); a rewrite between that read and the move is not seen. What became of
+  and the next fetch takes the new content as a new file (coordinator
+  2026-10-20): imported when its statements are new, refused as
+  `payments.statement_conflict` and left for a person when the bank kept
+  the statement id and sequence. A rewrite between that read and the move
+  is not seen. What became of
   each file is recorded once per house bank and content
   (`payments.statement_fetch`: `imported`, `archived`, `refused` with the
   import's reason), so a file imported and not yet moved when a fetch was
