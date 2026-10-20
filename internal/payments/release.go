@@ -22,6 +22,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -160,9 +161,7 @@ func (e *Endpoints) PostPayment(ctx context.Context, r Run, pay uuid.UUID) (post
 	if len(unpayable) > 0 {
 		return false, e.dropPayment(ctx, tx, actor, r, p, unpayable)
 	}
-	// The run's house bank exists: payment_run has a foreign key to it
-	// (migration 000008), so the found flag is always true here.
-	hb, _, err := loadHouseBank(ctx, tx, r.HouseBankID)
+	hb, err := payingBank(ctx, tx, r, p)
 	if err != nil {
 		return false, err
 	}
@@ -301,13 +300,7 @@ func (e *Endpoints) FinishRelease(ctx context.Context, r Run) (Run, error) {
 	if tag.RowsAffected() != 1 {
 		return Run{}, fmt.Errorf("payments: complete the release of run %s: the run is no longer releasing", r.ID)
 	}
-	// The run's house bank exists: payment_run has a foreign key to it
-	// (migration 000008), so the found flag is always true here.
-	hb, _, err := loadHouseBank(ctx, tx, r.HouseBankID)
-	if err != nil {
-		return Run{}, err
-	}
-	file, err := e.createFile(ctx, tx, p, r, hb, pays)
+	files, err := e.createFiles(ctx, tx, p, r, pays)
 	if err != nil {
 		return Run{}, err
 	}
@@ -315,15 +308,24 @@ func (e *Endpoints) FinishRelease(ctx context.Context, r Run) (Run, error) {
 	if err != nil {
 		return Run{}, err
 	}
+	// bank_file_id, the first file, stays for clients from before a run
+	// had a file per house bank and method (T45c).
+	ids := make([]uuid.UUID, len(files))
+	events := make([]outbox.Event, 0, len(files)+1)
+	for i, f := range files {
+		ids[i] = f.ID
+		events = append(events, fileEvent(f, "bank_file_created", map[string]any{"format": f.Format, "sha256": hex.EncodeToString(f.SHA256), "status": f.Status,
+			"house_bank_id": f.HouseBankID, "payment_method": f.Method}))
+	}
 	if _, err := operations.Succeed(ctx, *r.ReleaseOpID, "/v1/payment-runs/"+r.ID.String(), map[string]any{"payment_run_id": r.ID, "status": Released,
-		"payment_count": len(pays), "bank_file_id": file.ID, "total_amount": money.EventAmount(released.Total, released.Currency, released.Exponent)}); err != nil {
+		"payment_count": len(pays), "bank_file_id": ids[0], "bank_file_ids": ids,
+		"total_amount": money.EventAmount(released.Total, released.Currency, released.Exponent)}); err != nil {
 		return Run{}, err
 	}
-	return released, record(ctx, "payments.payment_run.complete", r.ID, map[string]any{"payments": len(pays), "bank_file_id": file.ID},
-		fileEvent(file, "bank_file_created", map[string]any{"format": file.Format, "sha256": hex.EncodeToString(file.SHA256), "status": file.Status}),
-		runEvent(released, "payment_run_released", map[string]any{"house_bank_id": released.HouseBankID, "run_date": released.RunDate.Format(time.DateOnly),
+	return released, record(ctx, "payments.payment_run.complete", r.ID, map[string]any{"payments": len(pays), "bank_file_ids": ids},
+		append(events, runEvent(released, "payment_run_released", map[string]any{"house_bank_id": released.HouseBankID, "run_date": released.RunDate.Format(time.DateOnly),
 			"total_amount": money.EventAmount(released.Total, released.Currency, released.Exponent), "payment_count": len(pays), "workflow_request_id": nil,
-			"released_at": released.DecidedAt.UTC().Format(time.RFC3339Nano)}))
+			"released_at": released.DecidedAt.UTC().Format(time.RFC3339Nano)}))...)
 }
 
 // FailRelease records a release that could not be done: the operation fails
@@ -505,6 +507,8 @@ type BankFile struct {
 	ID            uuid.UUID
 	RunID         uuid.UUID
 	LegalEntityID uuid.UUID
+	HouseBankID   uuid.UUID // whose account it pays from: its own, or its run's
+	Method        *string   // the payment method of its payments, nil in a run proposed for one bank (T45c)
 	Format        string
 	ObjectRef     string
 	SHA256        []byte
@@ -515,34 +519,123 @@ type BankFile struct {
 	UpdatedAt     time.Time
 }
 
-const fileSelect = `SELECT f.id, f.payment_run_id, r.legal_entity_id, f.format, f.object_ref, f.sha256, f.status, f.version, f.created_at,
-		f.created_by, f.updated_at
+const fileSelect = `SELECT f.id, f.payment_run_id, r.legal_entity_id, coalesce(f.house_bank_id, r.house_bank_id), f.payment_method, f.format, f.object_ref,
+		f.sha256, f.status, f.version, f.created_at, f.created_by, f.updated_at
 	FROM payments.bank_file f JOIN payments.payment_run r ON r.tenant_id = f.tenant_id AND r.id = f.payment_run_id`
 
 func scanFile(row pgx.Row) (BankFile, error) {
 	var f BankFile
-	err := row.Scan(&f.ID, &f.RunID, &f.LegalEntityID, &f.Format, &f.ObjectRef, &f.SHA256, &f.Status, &f.Version, &f.CreatedAt, &f.CreatedBy, &f.UpdatedAt)
+	err := row.Scan(&f.ID, &f.RunID, &f.LegalEntityID, &f.HouseBankID, &f.Method, &f.Format, &f.ObjectRef, &f.SHA256, &f.Status, &f.Version, &f.CreatedAt,
+		&f.CreatedBy, &f.UpdatedAt)
 	return f, errs.Wrapf(err, "scan bank file")
 }
 
-// createFile renders the run's pain.001 file and records it with its hash.
+// fileGroup is what one bank file pays: the payments of one house bank and
+// payment method, in end-to-end id order. v is how the payments name them:
+// nil for a run proposed for one bank, whose one file has neither.
+type fileGroup struct {
+	bank houseBank
+	v    via
+	pays []Payment
+}
+
+// key is the file's object key: the run's for its one file in a run
+// proposed for one bank, as before T45c, else the run's with the bank and
+// method, one per group.
+func (g fileGroup) key(tenant uuid.UUID, r Run) string {
+	name := r.ID.String()
+	if g.v.method != nil {
+		name += "-" + g.bank.Code + "-" + *g.v.method
+	}
+	return blobstore.Key(tenant, blobstore.KindBankFiles, name+".xml")
+}
+
+// maxMessageID is the longest message id a file of a run with a file per
+// group takes: pain.001 holds 35 characters, and its payment information id
+// adds "-1" (bankfile.Pain001).
+const maxMessageID = 33
+
+// messageID is the file's pain.001 message id, unique per file: the run's,
+// with the bank and method when the run has a file per group. bankfile
+// clips ids to 35 characters, which would cut the bank and method that tell
+// a run's files apart, so a longer one keeps them: the run's part is
+// shortened and followed by a hash of it, which keeps runs apart.
+func (g fileGroup) messageID(entityCode string, r Run) string {
+	id := entityCode + "-" + r.DocumentNumber
+	if g.v.method == nil {
+		return id
+	}
+	suffix := "-" + g.bank.Code + "-" + *g.v.method
+	if len(id)+len(suffix) <= maxMessageID {
+		return id + suffix
+	}
+	sum := sha256.Sum256([]byte(id))
+	hash := "-" + hex.EncodeToString(sum[:4])
+	return id[:maxMessageID-len(hash)-len(suffix)] + hash + suffix
+}
+
+// fileGroups splits a run's payments by the house bank and method that pay
+// them, in the order of their first payments.
+func fileGroups(ctx context.Context, tx pgx.Tx, r Run, pays []Payment) ([]fileGroup, error) {
+	type key struct {
+		bank   uuid.UUID // zero for the run's bank
+		method string
+	}
+	var groups []fileGroup
+	at := map[key]int{}
+	for _, pay := range pays {
+		k := key{method: methodOf(pay.Method)}
+		if pay.HouseBankID != nil {
+			k.bank = *pay.HouseBankID
+		}
+		i, ok := at[k]
+		if !ok {
+			hb, err := payingBank(ctx, tx, r, pay)
+			if err != nil {
+				return nil, err
+			}
+			i, at[k] = len(groups), len(groups)
+			groups = append(groups, fileGroup{bank: hb, v: via{bank: pay.HouseBankID, method: pay.Method}})
+		}
+		groups[i].pays = append(groups[i].pays, pay)
+	}
+	return groups, nil
+}
+
+// createFiles writes one bank file per house bank and payment method of
+// the run's payments (ADR-0038), in the order of their first payments.
+func (e *Endpoints) createFiles(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run, pays []Payment) ([]BankFile, error) {
+	groups, err := fileGroups(ctx, tx, r, pays)
+	if err != nil {
+		return nil, err
+	}
+	files := make([]BankFile, len(groups))
+	for i, g := range groups {
+		if files[i], err = e.createFile(ctx, tx, p, r, g); err != nil {
+			return nil, err
+		}
+	}
+	return files, nil
+}
+
+// createFile renders a group's pain.001 file and records it with its hash.
 // The file is stamped with its creation time, which becomes the record's
 // creation time, so it can be rendered again byte for byte. With object
-// storage the file is kept under the run's key (one file per run), and the
-// record refers to it; without, the reference is the hash alone.
-func (e *Endpoints) createFile(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run, hb houseBank, pays []Payment) (BankFile, error) {
+// storage the file is kept under its key (fileGroup.key), and the record
+// refers to it; without, the reference is the hash alone.
+func (e *Endpoints) createFile(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run, g fileGroup) (BankFile, error) {
 	var created time.Time
 	if err := tx.QueryRow(ctx, `SELECT now()`).Scan(&created); err != nil {
 		return BankFile{}, fmt.Errorf("payments: read the time of the bank file of run %s: %w", r.ID, err)
 	}
-	content, err := e.render(ctx, p.TenantID, r, hb, pays, created)
+	content, err := e.render(ctx, p.TenantID, r, g, created)
 	if err != nil {
 		return BankFile{}, err
 	}
 	var ref string
 	if e.Objects != nil {
-		ref = blobstore.Key(p.TenantID, blobstore.KindBankFiles, r.ID.String()+".xml")
-		if content, created, err = e.keep(ctx, p.TenantID, r, hb, pays, ref, content, created); err != nil {
+		ref = g.key(p.TenantID, r)
+		if content, created, err = e.keep(ctx, p.TenantID, r, g, ref, content, created); err != nil {
 			return BankFile{}, err
 		}
 	}
@@ -552,10 +645,11 @@ func (e *Endpoints) createFile(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 	}
 	id := uuid.Must(uuid.NewV7())
 	f, err := scanFile(tx.QueryRow(ctx, `WITH f AS (
-			INSERT INTO payments.bank_file (tenant_id, id, payment_run_id, format, object_ref, sha256, status, created_at, created_by)
-			VALUES ($1, $2, $3, $4, $5, $6, 'created', $7, $8) RETURNING *
-		) SELECT f.id, f.payment_run_id, $9::uuid, f.format, f.object_ref, f.sha256, f.status, f.version, f.created_at, f.created_by, f.updated_at FROM f`,
-		p.TenantID, id, r.ID, Format, ref, sum[:], created, p.ID, r.LegalEntityID))
+			INSERT INTO payments.bank_file (tenant_id, id, payment_run_id, format, object_ref, sha256, status, created_at, created_by, house_bank_id, payment_method)
+			VALUES ($1, $2, $3, $4, $5, $6, 'created', $7, $8, $10, $11) RETURNING *
+		) SELECT f.id, f.payment_run_id, $9::uuid, $12::uuid, f.payment_method, f.format, f.object_ref, f.sha256, f.status, f.version, f.created_at,
+			f.created_by, f.updated_at FROM f`,
+		p.TenantID, id, r.ID, Format, ref, sum[:], created, p.ID, r.LegalEntityID, g.v.bank, g.v.method, g.bank.ID))
 	if err != nil {
 		return BankFile{}, fmt.Errorf("payments: record the bank file of run %s: %w", r.ID, err)
 	}
@@ -573,7 +667,7 @@ func (e *Endpoints) createFile(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 // while a file that pays other amounts or accounts is refused (409
 // payments.bank_file_changed). The store not answering is the machinery's
 // failure (503), which the release retries.
-func (e *Endpoints) keep(ctx context.Context, tenant uuid.UUID, r Run, hb houseBank, pays []Payment, key string, content []byte,
+func (e *Endpoints) keep(ctx context.Context, tenant uuid.UUID, r Run, g fileGroup, key string, content []byte,
 	created time.Time) ([]byte, time.Time, error) {
 	err := e.Objects.Put(ctx, key, content, blobstore.PutOptions{ContentType: "application/xml"})
 	if err == nil {
@@ -595,7 +689,7 @@ func (e *Endpoints) keep(ctx context.Context, tenant uuid.UUID, r Run, hb houseB
 	if err != nil {
 		return nil, time.Time{}, changed
 	}
-	again, err := e.render(ctx, tenant, r, hb, pays, at)
+	again, err := e.render(ctx, tenant, r, g, at)
 	if err != nil {
 		return nil, time.Time{}, err
 	}
@@ -638,10 +732,11 @@ func sameTransfer(a, b transfer) bool {
 	return a.MessageID == b.MessageID && a.Debtor == b.Debtor && slices.Equal(a.Payments, b.Payments)
 }
 
-// render writes the run's payments as a pain.001.001.03 credit transfer
-// from the house bank, in end-to-end id order, each telling the supplier
+// render writes a group's payments as a pain.001.001.03 credit transfer
+// from its house bank, in end-to-end id order, each telling the supplier
 // the references of the items it settles.
-func (e *Endpoints) render(ctx context.Context, tenant uuid.UUID, r Run, hb houseBank, pays []Payment, created time.Time) ([]byte, error) {
+func (e *Endpoints) render(ctx context.Context, tenant uuid.UUID, r Run, g fileGroup, created time.Time) ([]byte, error) {
+	hb, pays := g.bank, g.pays
 	// errNoEntity stays an error: the release activity leaves it to its
 	// retries (nothing is written), and the download answers 500.
 	le, err := e.entityOf(ctx, r)
@@ -667,7 +762,7 @@ func (e *Endpoints) render(ctx context.Context, tenant uuid.UUID, r Run, hb hous
 	if err != nil {
 		return nil, err
 	}
-	b := bankfile.Batch{MessageID: le.Code + "-" + r.DocumentNumber, InitiatorName: le.Name, DebtorName: le.Name, DebtorIBAN: iban, DebtorBIC: hb.BIC,
+	b := bankfile.Batch{MessageID: g.messageID(le.Code, r), InitiatorName: le.Name, DebtorName: le.Name, DebtorIBAN: iban, DebtorBIC: hb.BIC,
 		Currency: r.Currency, Decimals: r.Exponent, ExecutionDate: r.RunDate.Format(time.DateOnly), Created: created}
 	for _, pay := range pays {
 		remittance, err := e.remittance(ctx, pay, refs)
@@ -728,15 +823,18 @@ func (e *Endpoints) rendered(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, f
 	if err != nil {
 		return nil, err
 	}
-	// The run's house bank exists: payment_run has a foreign key to it
-	// (migration 000008), so the found flag is always true here.
-	hb, _, err := loadHouseBank(ctx, tx, r.HouseBankID)
-	if err != nil {
-		return nil, err
-	}
 	pays, err := paymentsOf(ctx, tx, r.ID)
 	if err != nil {
 		return nil, err
 	}
-	return e.render(ctx, tenant, r, hb, pays, f.CreatedAt)
+	groups, err := fileGroups(ctx, tx, r, pays)
+	if err != nil {
+		return nil, err
+	}
+	for _, g := range groups {
+		if g.bank.ID == f.HouseBankID && methodOf(g.v.method) == methodOf(f.Method) {
+			return e.render(ctx, tenant, r, g, f.CreatedAt)
+		}
+	}
+	return nil, fmt.Errorf("payments: run %s pays nothing through bank file %s", r.ID, f.ID)
 }

@@ -63,6 +63,13 @@ type Company struct {
 	ManualEntryApprovalLimit string    `yaml:"manual_entry_approval_limit" json:"manual_entry_approval_limit"`
 	OverDeliveryPercent      int       `yaml:"gr_over_delivery_percent" json:"gr_over_delivery_percent"`
 	HouseBank                HouseBank `yaml:"house_bank" json:"house_bank"`
+	// HouseBanks are the company's further house banks (SAP T012K), each
+	// with its own ledger account (ADR-0038).
+	HouseBanks []HouseBank `yaml:"house_banks,omitempty" json:"house_banks,omitempty"`
+	// PaymentMethods are the ways the company pays suppliers (SAP T042Z),
+	// each ranking per currency the house banks that pay with it (SAP
+	// T042E/T042I; ADR-0038).
+	PaymentMethods []PaymentMethod `yaml:"payment_methods,omitempty" json:"payment_methods,omitempty"`
 }
 
 // AccountType classifies an account for the balance sheet and the income
@@ -159,6 +166,45 @@ type HouseBank struct {
 	Name string `yaml:"name" json:"name"`
 	IBAN string `yaml:"iban" json:"iban"`
 	BIC  string `yaml:"bic" json:"bic"`
+	// GLAccount is the bank's own ledger account, a bank clearing account
+	// (ADR-0038). The main house bank may leave it empty and keeps the
+	// account determination's bank account, as documents before it did;
+	// a further house bank must name one.
+	GLAccount string `yaml:"gl_account,omitempty" json:"gl_account,omitempty"`
+	// Connector is the name of the bank connector the bank's files are
+	// transmitted through (ADR-0038, T44b); without one they go to the
+	// server's directory, which a transfer agent collects from.
+	Connector string `yaml:"connector,omitempty" json:"connector,omitempty"`
+}
+
+// AllHouseBanks is the main house bank followed by the further ones.
+func (c *Company) AllHouseBanks() []HouseBank {
+	return append([]HouseBank{c.HouseBank}, c.HouseBanks...)
+}
+
+// HouseBankAccount is the number of the house bank's ledger account: its
+// own, or for the main bank without one the account determination's bank.
+func (c *Company) HouseBankAccount(hb HouseBank) string {
+	if hb.GLAccount == "" {
+		return c.AccountDetermination.Bank
+	}
+	return hb.GLAccount
+}
+
+// PaymentMethod is a way of paying suppliers, such as a SEPA credit
+// transfer, identified by a one-character code as in SAP (ZLSCH). A
+// supplier's company data lists the methods it may be paid by, in order.
+type PaymentMethod struct {
+	Code        string        `yaml:"code" json:"code"`
+	Description string        `yaml:"description" json:"description"`
+	Ranking     []BankRanking `yaml:"ranking" json:"ranking"`
+}
+
+// BankRanking is, for payments in a currency, the house banks that pay
+// with a method, the first one preferred (SAP T042I).
+type BankRanking struct {
+	Currency   string   `yaml:"currency" json:"currency"`
+	HouseBanks []string `yaml:"house_banks" json:"house_banks"`
 }
 
 type PaymentTerm struct {

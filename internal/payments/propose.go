@@ -16,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -37,12 +38,19 @@ const (
 	// code is not valid on the run date (T46c); the supplier's items may
 	// still be paid.
 	TaxCodeInvalid = "tax_code_invalid"
+	// NoHouseBank leaves out, in a run proposed without a house bank, a
+	// supplier's items or request when none of its payment methods has a
+	// house bank ranked for the run currency (T45c, ADR-0038).
+	NoHouseBank = "no_house_bank"
 )
 
-// Proposal is what a client asks to pay.
+// Proposal is what a client asks to pay: from one house bank, or without
+// one (nil) in Currency, each supplier through the bank its payment methods
+// rank (ADR-0038).
 type Proposal struct {
 	LegalEntityID uuid.UUID
-	HouseBankID   uuid.UUID
+	HouseBankID   *uuid.UUID
+	Currency      string // required without a house bank; with one, only its currency
 	RunDate       time.Time
 	DueBy         time.Time
 }
@@ -67,15 +75,9 @@ func (e *Endpoints) ProposeRun(ctx context.Context, in Proposal) (operations.Ope
 	if le.Status != "active" {
 		return operations.Operation{}, problem.Unprocessable("payments.legal_entity_not_active", "The legal entity is "+le.Status+"; payment runs need it active.")
 	}
-	hb, ok, err := loadHouseBank(ctx, tx, in.HouseBankID)
-	switch {
-	case err != nil:
+	runCcy, err := runCurrency(ctx, tx, le.ID, in)
+	if err != nil {
 		return operations.Operation{}, err
-	case !ok || hb.LegalEntityID != le.ID:
-		return operations.Operation{}, problem.ReferenceNotFound("house_bank_id", "house bank of the legal entity", "no house bank of the legal entity with this id that you can access")
-	case hb.Status != "active":
-		return operations.Operation{}, problem.Unprocessable("payments.house_bank_inactive", "House bank "+hb.Code+" is inactive.",
-			problem.FieldError{Field: "house_bank_id", Code: "inactive", Message: "an active house bank"})
 	}
 	year, err := e.Calendar.FiscalYear(ctx, le.ID, in.RunDate)
 	if err != nil {
@@ -86,7 +88,7 @@ func (e *Endpoints) ProposeRun(ctx context.Context, in Proposal) (operations.Ope
 		return operations.Operation{}, err
 	}
 	id := uuid.Must(uuid.NewV7())
-	op, err := operations.StartFor(ctx, ProposeKind, map[string]any{"legal_entity_id": le.ID, "house_bank_id": hb.ID,
+	op, err := operations.StartFor(ctx, ProposeKind, map[string]any{"legal_entity_id": le.ID, "house_bank_id": in.HouseBankID, "currency": runCcy,
 		"run_date": in.RunDate.Format(time.DateOnly), "due_by": in.DueBy.Format(time.DateOnly)}, "/v1/payment-runs/"+id.String())
 	if err != nil {
 		return operations.Operation{}, err
@@ -94,12 +96,40 @@ func (e *Endpoints) ProposeRun(ctx context.Context, in Proposal) (operations.Ope
 	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment_run (tenant_id, id, document_number, legal_entity_id, house_bank_id, run_date, due_by,
 			currency, total_amount, status, proposed_by, operation_id, created_by, updated_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 'proposing', $9, $10, $9, $9)`,
-		p.TenantID, id, number, le.ID, hb.ID, in.RunDate, in.DueBy, hb.Currency, p.ID, op.ID); err != nil {
+		p.TenantID, id, number, le.ID, in.HouseBankID, in.RunDate, in.DueBy, runCcy, p.ID, op.ID); err != nil {
 		return operations.Operation{}, fmt.Errorf("payments: insert run %s: %w", id, err)
 	}
 	return op, audit.Add(ctx, audit.Entry{Action: "payments.payment_run.propose", ObjectType: "payments.payment_run", ObjectID: id, Outcome: "succeeded",
 		Detail: map[string]any{"document_number": number, "operation_id": op.ID, "run_date": in.RunDate.Format(time.DateOnly),
 			"due_by": in.DueBy.Format(time.DateOnly)}})
+}
+
+// runCurrency is the currency of the run proposed: its house bank's, which
+// must be an active bank of the legal entity, or without one the currency
+// asked for, which is required and must exist.
+func runCurrency(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, in Proposal) (string, error) {
+	if in.HouseBankID == nil {
+		if in.Currency == "" {
+			return "", problem.Unprocessable("payments.currency_required", "A run proposed without a house bank names its currency.",
+				problem.FieldError{Field: "currency", Code: "required", Message: "the run currency"})
+		}
+		_, err := currency.Exponent(ctx, tx, in.Currency, problem.ReferenceNotFound("currency", "currency", "a known ISO 4217 currency"))
+		return in.Currency, err
+	}
+	hb, ok, err := loadHouseBank(ctx, tx, *in.HouseBankID)
+	switch {
+	case err != nil:
+		return "", err
+	case !ok || hb.LegalEntityID != legalEntity:
+		return "", problem.ReferenceNotFound("house_bank_id", "house bank of the legal entity", "no house bank of the legal entity with this id that you can access")
+	case hb.Status != "active":
+		return "", problem.Unprocessable("payments.house_bank_inactive", "House bank "+hb.Code+" is inactive.",
+			problem.FieldError{Field: "house_bank_id", Code: "inactive", Message: "an active house bank"})
+	case in.Currency != "" && in.Currency != hb.Currency:
+		return "", problem.Unprocessable("payments.currency_mismatch", "House bank "+hb.Code+" pays in "+hb.Currency+", not "+in.Currency+".",
+			problem.FieldError{Field: "currency", Code: "mismatch", Message: "the house bank's currency, or none"})
+	}
+	return hb.Currency, nil
 }
 
 // candidate is a supplier's due items not in another live run.
@@ -303,8 +333,9 @@ func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r 
 
 // paymentsFor computes a run's payments and exclusions: of the suppliers'
 // due items and of the due down payment requests, those whose tax code is
-// not valid on the run date left out (invalidTaxCodes), refused when the
-// legal entity lacks an account the payments post to.
+// not valid on the run date left out (invalidTaxCodes), each paid through
+// the house bank and method its router chooses, refused when the legal
+// entity lacks an account the payments post to.
 func (e *Endpoints) paymentsFor(ctx context.Context, tx pgx.Tx, r Run, entityCode string, holdDays int) (proposal, error) {
 	requests, err := e.dueRequests(ctx, tx, r)
 	if err != nil {
@@ -314,8 +345,12 @@ func (e *Endpoints) paymentsFor(ctx context.Context, tx pgx.Tx, r Run, entityCod
 	if err != nil {
 		return proposal{}, err
 	}
-	pr, err := propose(cands, payees, r, entityCode, holdDays)
+	route, err := routerFor(ctx, tx, r)
 	if err != nil {
+		return proposal{}, err
+	}
+	pr := proposal{route: route}
+	if err := pr.propose(cands, payees, r, entityCode, holdDays); err != nil {
 		return proposal{}, err
 	}
 	invalid, err := e.invalidTaxCodes(ctx, r, requests)
@@ -396,6 +431,9 @@ type proposal struct {
 	itemDue                               []time.Time
 	untils                                []*time.Time
 	total, discount, withheld             money.Minor
+	houseBanks                            []*uuid.UUID // the bank that pays a payment, or nil for the run's (via)
+	methods                               []*string
+	route                                 router
 }
 
 // dueDate is when an open item is due: an invoice (a credit on the supplier
@@ -422,35 +460,40 @@ func dueDate(it ledger.PayableItem, payee partner.Payee) time.Time {
 // propose pays each candidate supplier its open items in one payment, or
 // excludes it with the reason; a supplier is paid what its items owe after
 // their cash discounts, and one owed nothing after them is excluded with
-// its debit balance. Totals out of range fail the proposal (errTooLarge).
-func propose(cands []candidate, payees map[uuid.UUID]partner.Payee, r Run, entityCode string, holdDays int) (proposal, error) {
-	var pr proposal
+// its debit balance, one no ranked house bank can pay with NoHouseBank.
+// Totals out of range fail the proposal (errTooLarge).
+func (pr *proposal) propose(cands []candidate, payees map[uuid.UUID]partner.Payee, r Run, entityCode string, holdDays int) error {
 	for _, c := range cands {
 		if err := c.takeDiscounts(r.RunDate); err != nil {
-			return proposal{}, err
+			return err
 		}
 		total, err := c.total()
 		if err != nil {
-			return proposal{}, errTooLarge("supplier " + c.supplier.String())
+			return errTooLarge("supplier " + c.supplier.String())
 		}
 		payee, found := payees[c.supplier]
 		reason := exclusion(payee, found, r.RunDate, holdDays)
 		if reason == "" && total <= 0 {
 			reason = DebitBalance
 		}
+		v, routed := pr.route.route(payee)
+		if reason == "" && !routed {
+			reason = NoHouseBank
+		}
 		if reason != "" {
 			pr.exclude(c.supplier, nil, reason, total)
 			continue
 		}
-		if err := pr.pay(c, *payee.BankAccountID, total, r, entityCode); err != nil {
-			return proposal{}, err
+		if err := pr.pay(c, *payee.BankAccountID, v, total, r, entityCode); err != nil {
+			return err
 		}
 	}
-	return pr, nil
+	return nil
 }
 
-// pay adds the payment of a candidate supplier's items to the proposal.
-func (pr *proposal) pay(c candidate, bank uuid.UUID, total money.Minor, r Run, entityCode string) error {
+// pay adds the payment of a candidate supplier's items, through v, to the
+// proposal.
+func (pr *proposal) pay(c candidate, bank uuid.UUID, v via, total money.Minor, r Run, entityCode string) error {
 	discount, withholding, err := c.deductions()
 	if err != nil {
 		return errTooLarge("supplier " + c.supplier.String())
@@ -464,7 +507,7 @@ func (pr *proposal) pay(c candidate, bank uuid.UUID, total money.Minor, r Run, e
 	if err != nil {
 		return errTooLarge("the run")
 	}
-	id := pr.payment(c.supplier, bank, [3]money.Minor{total, discount, withholding}, KindItems, nil, r, entityCode)
+	id := pr.payment(c.supplier, bank, v, [3]money.Minor{total, discount, withholding}, KindItems, nil, r, entityCode)
 	var until *time.Time
 	for _, it := range c.items {
 		if it.until != nil && (until == nil || it.until.Before(*until)) {
@@ -479,9 +522,10 @@ func (pr *proposal) pay(c candidate, bank uuid.UUID, total money.Minor, r Run, e
 }
 
 // payment adds a payment to the proposal, of its amount, discount and
-// withholding, and returns its id.
-func (pr *proposal) payment(supplier, bank uuid.UUID, amounts [3]money.Minor, kind string, request *uuid.UUID, r Run, entityCode string) uuid.UUID {
+// withholding, through v, and returns its id.
+func (pr *proposal) payment(supplier, bank uuid.UUID, v via, amounts [3]money.Minor, kind string, request *uuid.UUID, r Run, entityCode string) uuid.UUID {
 	id := uuid.Must(uuid.NewV7())
+	pr.houseBanks, pr.methods = append(pr.houseBanks, v.bank), append(pr.methods, v.method)
 	pr.payIDs, pr.suppliers, pr.banks, pr.amounts = append(pr.payIDs, id), append(pr.suppliers, supplier), append(pr.banks, bank), append(pr.amounts, amounts[0])
 	pr.discounts, pr.withholding = append(pr.discounts, amounts[1]), append(pr.withholding, amounts[2])
 	pr.e2e = append(pr.e2e, fmt.Sprintf("%s-%s-%06d", entityCode, r.DocumentNumber, len(pr.payIDs)))
@@ -507,12 +551,12 @@ func owner(r Run) ledger.Owner {
 // insert stores the proposal's payments, items and exclusions.
 func (pr *proposal) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment (tenant_id, id, payment_run_id, supplier_id, bank_account_id, amount, discount_amount,
-			discount_until, currency, end_to_end_id, created_by, kind, down_payment_request_id, withholding_amount)
-		SELECT $1, i, $2, s, b, a, d, u, $3, x, $4, k, q, w
-		FROM unnest($5::uuid[], $6::uuid[], $7::uuid[], $8::bigint[], $9::bigint[], $10::date[], $11::text[], $12::text[], $13::uuid[], $14::bigint[])
-			AS t(i, s, b, a, d, u, x, k, q, w)`,
+			discount_until, currency, end_to_end_id, created_by, kind, down_payment_request_id, withholding_amount, house_bank_id, payment_method)
+		SELECT $1, i, $2, s, b, a, d, u, $3, x, $4, k, q, w, h, m
+		FROM unnest($5::uuid[], $6::uuid[], $7::uuid[], $8::bigint[], $9::bigint[], $10::date[], $11::text[], $12::text[], $13::uuid[], $14::bigint[],
+			$15::uuid[], $16::text[]) AS t(i, s, b, a, d, u, x, k, q, w, h, m)`,
 		p.TenantID, r.ID, r.Currency, p.ID, pr.payIDs, pr.suppliers, pr.banks, pr.amounts, pr.discounts, pr.untils, pr.e2e, pr.kinds, pr.requests,
-		pr.withholding); err != nil {
+		pr.withholding, pr.houseBanks, pr.methods); err != nil {
 		return fmt.Errorf("payments: insert the payments of run %s: %w", r.ID, err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment_item (tenant_id, payment_id, item_fiscal_year, item_entry_id, item_line_no, amount,

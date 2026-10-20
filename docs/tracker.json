@@ -627,8 +627,57 @@
      {
       "s": "P",
       "t": "Bank transmission (EBICS, SFTP, host-to-host)",
-      "r": "payments.Connector · DirConnector drops files for a transfer agent; EBICS and SFTP connectors to come · T44",
-      "c": []
+      "r": "payments.Connector · DirConnector drops files for a transfer agent · ADR-0038 · T44 (split T44a-T44f, after T45c)",
+      "c": [
+       {
+        "s": "D",
+        "t": "SFTP transport: upload to a pinned host key with key authentication (no passwords), complete or not at all (hidden name, then rename); bank_sftp connector settings validated (host, port, user, host_key, absolute directory; the private key by secret_ref)",
+        "r": "internal/platform/sftpclient · github.com/pkg/sftp · integration.checkSFTPSettings · T44a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A house bank's channel: each house bank names its bank connector; transmission resolves it per bank (secret resolved through the secrets path, failing closed), connector_id on bank_file_transmitted; DirConnector stays the server-wide fallback",
+        "r": "house_bank.connector · payments.house_bank.connector_id (000099) · integration.BankChannels · payments.SFTPConnector · sftptest · T44b",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Duplicate detection by content hash: a file whose hash was already sent through the bank's channel counts as sent, recorded where a lost acknowledgement cannot lose it",
+        "r": "payments.sent_bank_file (000100), written in its own transaction after the upload · payments.SentFiles · duplicate on bank_file_transmitted · T44c",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "EBICS connector, built and refused in production: bank_ebics settings checked; in production the API refuses to create or enable one and the server refuses to start while one is active, until certified with a bank; erp-server disable-connector disables one without a running server, audited, the remedy for a cell that refuses to start",
+        "r": "integration.BankEBICS · integration.ActiveEBICSConnectors (erp_control, 000101) · integration.ebics_not_certified · erp-server refuseEBICS · erp-server disable-connector · T44d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Deferred until a pilot in an EBICS country (product owner, 2026-10-19; the pilots are Canada and the UAE). EBICS key initialisation: INI (A006) and HIA (X002, E002) sent, the bank's keys (HPB) fetched and pinned against the hashes the bank gave, the subscriber's key state kept per connector",
+        "r": "T44d2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Deferred until a pilot in an EBICS country (product owner, 2026-10-19; the pilots are Canada and the UAE). EBICS upload: BTU (EBICS 3.0, H005) of a pain.001 signed with A006 and encrypted with E002, over HTTPS, against an in-process stand-in bank; bank_ebics a bank channel behind payments.Connector",
+        "r": "T44d3",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Transmission out of the request transaction: the request marks the file to send and a platform/worker job uploads it (outbox-style), so no database connection is held during the upload; retries with backoff (1, 5, 15 min, 1 h, 4 h; failed after the sixth attempt, with bank_file_transmission_failed) and the sweep that queues files whose claim lapsed again",
+        "r": "payments.Transmitter · bank_file to_send/sending/failed, attempts, next_attempt_at (000102-000104) · bank_file_transmission_failed · T44e",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The sweep that removes bank files a cancelled release left in object storage",
+        "r": "T44f",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",
@@ -637,10 +686,29 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Multiple house banks and payment methods",
-      "r": "T45",
-      "c": []
+      "r": "ADR-0038 · T45 (split T45a, T45b, T45c; then T44)",
+      "c": [
+       {
+        "s": "D",
+        "t": "Several house banks per company (companies[].house_banks), each on its own ledger account, a bank clearing account no other house bank of the company uses; the main bank keeps the account determination's bank account unless it names one; SAP T012K rows beyond the first become further house banks",
+        "r": "companies[].house_banks · house_bank.gl_account · payments.HouseBanks · sapconfig T012K · T45a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Payment methods: per method and currency the ranked house banks in configuration; suppliers' payment methods in their company data, in order, active methods of the company that a configuration cannot take away while a supplier or a pending change has them",
+        "r": "companies[].payment_methods · payments.PaymentMethods (payment_method, bank_ranking) · supplier_companies[].payment_methods · partner.PaymentMethodCodes · 000091-000092 · T45b",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Proposals without a house bank, in a currency, pay each supplier (items and down payment requests) through its first method a ranked active bank in the run currency can pay (a ranked bank in another currency is skipped), else exclude it with no_house_bank; a run without a bank must name its currency (payments.currency_required) and a run for one bank refuses another currency (payments.currency_mismatch); payments post to their bank's account; one bank file per house bank and method; payment_run.house_bank_id nullable (breaking change accepted); at most one active house bank per ledger account in the schema (house_bank_account_once, a deferrable unique constraint attached to a concurrently built index; ADR-0038)",
+        "r": "db/migrations/000093-000098 · payments.router · payment.house_bank_id/payment_method · bank_file_once_per_bank · house_bank_account_once · T45c",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",
@@ -5946,6 +6014,12 @@
       "s": "D",
       "t": "Balances mode (opening balances plus open items)",
       "r": "",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "SAP payment methods and bank ranking (T042Z, T042E/T042I) mapped to companies[].payment_methods in sapconfig, and suppliers' methods (LFB1-ZWELS) to their company data in the partner migration",
+      "r": "follow-up of the SAP load · delivery/sapconfig · ADR-0038 · after T45c",
       "c": []
      },
      {

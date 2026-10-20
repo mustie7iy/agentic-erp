@@ -118,7 +118,7 @@ func TestDownPaymentPayments(t *testing.T) {
 	}
 	checkDownPaymentEntry(t, e, paid["journal_entry_id"].(string))
 	files, _ := e.Must(200, "GET", "/v1/bank-files?payment_run_id="+id(run), "", "")
-	e.Must(202, "POST", "/v1/bank-files/"+id(files["items"].([]any)[0].(map[string]any))+":transmit", "", `"1"`)
+	e.transmit(t, id(files["items"].([]any)[0].(map[string]any)), `"1"`)
 	if want := "<Ustrd>Down payment " + paid["document_number"].(string) + " AB-17</Ustrd>"; !strings.Contains(string(e.connector.files[0].Content), want) {
 		t.Errorf("bank file: got\n%s\nwant it to contain %s", e.connector.files[0].Content, want)
 	}

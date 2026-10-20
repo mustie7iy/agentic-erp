@@ -34,6 +34,7 @@ func HasErrors(fs []Finding) bool {
 var (
 	currencyRe = regexp.MustCompile(`^[A-Z]{3}$`)
 	wthCodeRe  = regexp.MustCompile(`^[A-Z0-9]{1,4}$`)
+	methodRe   = regexp.MustCompile(`^[A-Z0-9]$`)
 	countryRe  = regexp.MustCompile(`^[A-Z]{2}$`)
 	bicRe      = regexp.MustCompile(`^[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$`)
 	accountRe  = regexp.MustCompile(`^[0-9A-Za-z]{1,10}$`)
@@ -175,11 +176,58 @@ func (v *validator) company(p string, co *Company) {
 	if co.OverDeliveryPercent < 0 || co.OverDeliveryPercent > 100 {
 		v.err(p+".gr_over_delivery_percent", "must be 0-100")
 	}
-	if !ValidIBAN(co.HouseBank.IBAN) {
-		v.err(p+".house_bank.iban", "IBAN %q fails the ISO 13616 check", co.HouseBank.IBAN)
+	v.houseBanks(p, co)
+	v.paymentMethods(p, co)
+}
+
+// isTaxAccount reports whether the account is the input tax account or a
+// tax code's.
+func (c *Company) isTaxAccount(number string) bool {
+	if number != "" && number == c.AccountDetermination.InputTax {
+		return true
 	}
-	if !bicRe.MatchString(co.HouseBank.BIC) {
-		v.err(p+".house_bank.bic", "BIC %q is not a valid SWIFT code", co.HouseBank.BIC)
+	return slices.ContainsFunc(c.TaxCodes, func(t TaxCode) bool { return number != "" && t.Account == number })
+}
+
+// houseBanks checks each house bank's IBAN and BIC and that its code is
+// unique in the company, and that each has its own ledger account
+// (ADR-0038) that takes no tax: a further bank names one, a plain asset
+// account of the chart that no other house bank of the company uses; the
+// main bank without one keeps the account determination's bank account,
+// whose type is checked there.
+func (v *validator) houseBanks(p string, co *Company) {
+	codes := map[string]bool{}
+	accounts := map[string]string{}
+	for i, hb := range co.AllHouseBanks() {
+		hp := p + ".house_bank"
+		if i > 0 {
+			hp = fmt.Sprintf("%s.house_banks[%s]", p, hb.Name)
+		}
+		if codes[hb.Name] {
+			v.err(hp+".name", "duplicate house bank")
+		}
+		codes[hb.Name] = true
+		if !ValidIBAN(hb.IBAN) {
+			v.err(hp+".iban", "IBAN %q fails the ISO 13616 check", hb.IBAN)
+		}
+		if !bicRe.MatchString(hb.BIC) {
+			v.err(hp+".bic", "BIC %q is not a valid SWIFT code", hb.BIC)
+		}
+		if i > 0 && hb.GLAccount == "" {
+			v.err(hp+".gl_account", "is required: each further house bank has its own ledger account")
+			continue
+		}
+		if hb.GLAccount != "" {
+			v.account(hp+".gl_account", co, hb.GLAccount, Asset, false)
+		}
+		if number := co.HouseBankAccount(hb); co.isTaxAccount(number) {
+			v.err(hp+".gl_account", "account %s takes input tax, not a bank's payments", number)
+		}
+		number := co.HouseBankAccount(hb)
+		if other, taken := accounts[number]; taken {
+			v.err(hp+".gl_account", "account %s is already the ledger account of house bank %s", number, other)
+		}
+		accounts[number] = hb.Name
 	}
 }
 
@@ -218,6 +266,74 @@ func (v *validator) chartOfAccounts(p string, co *Company) {
 	}
 }
 
+// paymentMethods checks the company's payment methods (ADR-0038): unique
+// one-character codes of an upper-case letter or digit, each described and
+// ranking house banks for at least one currency, each currency once, and
+// each ranking naming house banks of the company, each once.
+func (v *validator) paymentMethods(p string, co *Company) {
+	banks := map[string]bool{}
+	for _, hb := range co.AllHouseBanks() {
+		banks[hb.Name] = true
+	}
+	codes := map[string]bool{}
+	for _, m := range co.PaymentMethods {
+		mp := fmt.Sprintf("%s.payment_methods[%s]", p, m.Code)
+		if !methodRe.MatchString(m.Code) || codes[m.Code] {
+			v.err(mp, "a payment method's code is one upper-case letter or digit, unique in the company")
+		}
+		codes[m.Code] = true
+		if strings.TrimSpace(m.Description) == "" {
+			v.err(mp+".description", "is required")
+		}
+		if len(m.Ranking) == 0 {
+			v.err(mp+".ranking", "rank the house banks that pay with the method for at least one currency")
+		}
+		currencies := map[string]bool{}
+		for _, r := range m.Ranking {
+			rp := fmt.Sprintf("%s.ranking[%s]", mp, r.Currency)
+			if _, known := v.exponents[r.Currency]; !known || currencies[r.Currency] {
+				v.err(rp, "a currency of the currency reference data, each once in the method's ranking")
+			}
+			currencies[r.Currency] = true
+			v.rankedBanks(rp, banks, r.HouseBanks)
+		}
+	}
+}
+
+// rankedBanks checks that a ranking names at least one house bank, each a
+// house bank of the company and named once.
+func (v *validator) rankedBanks(rp string, banks map[string]bool, ranked []string) {
+	if len(ranked) == 0 {
+		v.err(rp+".house_banks", "rank at least one house bank")
+	}
+	seen := map[string]bool{}
+	for _, name := range ranked {
+		if !banks[name] || seen[name] {
+			v.err(rp+".house_banks", "house bank %s: a house bank of the company, each once", name)
+		}
+		seen[name] = true
+	}
+}
+
+// account checks that the account is in the chart with the type its use
+// needs, a vendor reconciliation account where the use is one and no other
+// account.
+func (v *validator) account(path string, co *Company, number string, want AccountType, recon bool) {
+	a := co.Account(number)
+	switch {
+	case number == "":
+		v.err(path, "is required")
+	case a == nil:
+		v.err(path, "account %s is not in the chart of accounts", number)
+	case a.Type != want:
+		v.err(path, "account %s is %s, expected %s", number, a.Type, want)
+	case recon && !a.VendorReconciliation:
+		v.err(path, "account %s is not a vendor reconciliation account", number)
+	case !recon && a.VendorReconciliation:
+		v.err(path, "account %s is a vendor reconciliation account, posted only through the supplier's items", number)
+	}
+}
+
 // accountDetermination checks that each determined account is in the chart
 // with the type its use needs, a vendor reconciliation account where the
 // use is one and no other account; the FX accounts are optional, the
@@ -228,19 +344,7 @@ func (v *validator) chartOfAccounts(p string, co *Company) {
 func (v *validator) accountDetermination(p string, co *Company) {
 	ad := co.AccountDetermination
 	check := func(field, number string, want AccountType, recon bool) {
-		a := co.Account(number)
-		switch {
-		case number == "":
-			v.err(p+".account_determination."+field, "is required")
-		case a == nil:
-			v.err(p+".account_determination."+field, "account %s is not in the chart of accounts", number)
-		case a.Type != want:
-			v.err(p+".account_determination."+field, "account %s is %s, expected %s", number, a.Type, want)
-		case recon && !a.VendorReconciliation:
-			v.err(p+".account_determination."+field, "account %s is not a vendor reconciliation account", number)
-		case !recon && a.VendorReconciliation:
-			v.err(p+".account_determination."+field, "account %s is a vendor reconciliation account, posted only through the supplier's items", number)
-		}
+		v.account(p+".account_determination."+field, co, number, want, recon)
 	}
 	check("ap_reconciliation", ad.APReconciliation, Liability, true)
 	check("input_tax", ad.InputTax, Asset, false)

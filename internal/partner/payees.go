@@ -33,6 +33,9 @@ type Payee struct {
 	// the partner was created, which starts the payment hold.
 	BankChanged       bool
 	BankChangePending bool
+	// PaymentMethods are the methods it may be paid by in the legal entity,
+	// in order of preference (SAP LFB1-ZWELS; ADR-0038).
+	PaymentMethods []string
 }
 
 // Payees returns the partners that are suppliers set up in the legal
@@ -44,7 +47,8 @@ func (Payees) Payees(ctx context.Context, legalEntity uuid.UUID, partners []uuid
 	}
 	rows, _ := tx.Query(ctx, `SELECT p.id, p.status, sc.is_posting_blocked, sc.is_payment_blocked, t.net_days, b.id, b.valid_from,
 			coalesce(c.kind <> 'create', false),
-			EXISTS (SELECT FROM partner.partner_change pc WHERE pc.tenant_id = p.tenant_id AND pc.partner_id = p.id AND pc.kind = 'bank_change' AND pc.status = 'pending')
+			EXISTS (SELECT FROM partner.partner_change pc WHERE pc.tenant_id = p.tenant_id AND pc.partner_id = p.id AND pc.kind = 'bank_change' AND pc.status = 'pending'),
+			sc.payment_methods
 		FROM partner.business_partner p
 		JOIN partner.supplier_company sc ON sc.tenant_id = p.tenant_id AND sc.partner_id = p.id AND sc.legal_entity_id = $2
 		JOIN partner.payment_term t ON t.tenant_id = sc.tenant_id AND t.code = sc.payment_term_code
@@ -57,7 +61,7 @@ func (Payees) Payees(ctx context.Context, legalEntity uuid.UUID, partners []uuid
 	var p Payee
 	var validFrom *time.Time
 	_, err = pgx.ForEachRow(rows, []any{&id, &p.Status, &p.PostingBlocked, &p.PaymentBlocked, &p.NetDays, &p.BankAccountID, &validFrom,
-		&p.BankChanged, &p.BankChangePending}, func() error {
+		&p.BankChanged, &p.BankChangePending, &p.PaymentMethods}, func() error {
 		if validFrom != nil {
 			p.BankValidFrom = *validFrom
 		}

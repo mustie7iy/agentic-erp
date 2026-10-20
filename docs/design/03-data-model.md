@@ -398,7 +398,8 @@ erDiagram
     uuid reconciliation_account_id "ledger"
     text payment_term_code
     bool is_posting_blocked
-    bool is_payment_blocked }
+    bool is_payment_blocked
+    text_array payment_methods "in order; T45b" }
   bank_account { uuid id PK
     uuid partner_id
     bytea account_cipher
@@ -1229,10 +1230,18 @@ erDiagram
   payment ||--|{ payment_item : settles
   payment_run ||--o{ payment_exclusion : excludes
   payment_run ||--o{ bank_file : produces
+  payment_method ||--o{ bank_ranking : "ranks banks per currency"
+  payment_method { uuid legal_entity_id PK
+    text code PK "one character; T45b"
+    text description
+    bool is_active }
+  bank_ranking { text method PK
+    char currency PK
+    text_array house_banks "house bank codes, first preferred" }
   payment_run { uuid id PK
     text document_number
     uuid legal_entity_id
-    uuid house_bank_id
+    uuid house_bank_id "null: each payment names its bank (T45c)"
     date run_date
     text status "proposing | proposed | releasing | released | rejected | failed"
     uuid proposed_by
@@ -1245,6 +1254,8 @@ erDiagram
     uuid bank_account_id
     bigint amount
     char currency
+    uuid house_bank_id "null: the run's (T45c)"
+    text payment_method "null in a run proposed for one bank"
     uuid journal_entry_id }
   payment_item { uuid payment_id PK
     smallint item_fiscal_year PK
@@ -1259,13 +1270,68 @@ erDiagram
     uuid legal_entity_id
     bytea iban_cipher
     text bic
-    uuid gl_account_id }
+    uuid gl_account_id
+    uuid active_gl_account_id "gl_account_id while active; unique per legal entity"
+    uuid connector_id "its channel, an integration connector; null: the server's directory (T44b)" }
+  sent_bank_file { uuid house_bank_id PK
+    bytea sha256 PK
+    uuid bank_file_id
+    uuid connector_id "null: the server's directory" }
   bank_file { uuid id PK
-    uuid payment_run_id "unique per run"
+    uuid payment_run_id "unique per run, house bank and method"
+    uuid house_bank_id "null: the run's (T45c)"
+    text payment_method
     text format "pain.001.001.03"
     text object_ref
     bytea sha256 }
 ```
+
+A company has a main house bank and further ones (ADR-0038), each on its
+own ledger account, a bank clearing account no other house bank of the
+company uses; a house bank the configuration no longer lists becomes
+inactive, and its code never takes other bank details. A house bank may
+name the bank connector its files are transmitted through
+(`connector_id`, the integration context's, so no foreign key; T44b);
+without one they go to the server's directory. Each file a house bank
+accepted is recorded by its content hash (`payments.sent_bank_file`,
+insert-only, unique per house bank and hash; T44c, 000100), in the
+transaction that marks the file transmitted after the upload: a file whose
+hash its bank already took counts as sent and is not uploaded again.
+Transmission runs outside the request (T44e, 000102-000104): a file asked
+for is `to_send` with its operation (`transmit_operation_id`), who asked
+(`transmit_requested_by`), its `attempts` and when it is due
+(`next_attempt_at`); the transmitter claims it as `sending`, its
+`next_attempt_at` then when the claim lapses, and ends it `transmitted` or
+`failed` (`last_error`, the problem code). A file to send or in flight
+names its request and due time (`bank_file_transmission`); the partial
+index `bank_file_due` holds the queue, and `erp_worker` reads only a
+file's tenant, status and due time.
+EBICS connectors (`integration.connector` of kind `bank_ebics`) are refused
+in production until EBICS is certified with a bank (T44d): the control role
+`erp_control` reads every tenant's connectors' kind and status, never their
+settings or secret reference (000101), and a production cell refuses to
+start while one is active; disabling it is the remedy.
+
+A company's payment methods (`payments.payment_method`, SAP T042Z) rank,
+per currency, the house banks that pay with them, first preferred
+(`payments.bank_ranking.house_banks`, codes of the company's house banks;
+SAP T042E/T042I). A supplier's company data lists the methods it may be
+paid by, in order (`partner.supplier_company.payment_methods`, SAP
+LFB1-ZWELS): active methods of its company, which the configuration cannot
+take away while a supplier, or a pending partner change, has them (T45b).
+
+A run is proposed for one house bank, which pays every supplier, or without
+one in a currency (T45c): then each supplier, its items and its down
+payment requests, is paid through the first of its methods whose ranking
+for the currency names an active house bank, the first such bank; a
+supplier none can pay is excluded with `no_house_bank`. The payment names
+the bank and method (`payment.house_bank_id`, `payment_method`; null in a
+run proposed for one bank, whose bank pays), posts to that bank's account,
+and the release writes one bank file per house bank and method. At most one
+active house bank of a legal entity is on a ledger account
+(`house_bank_account_once`, a deferrable unique constraint on
+`active_gl_account_id`, checked at commit so banks may swap accounts;
+000093-000098).
 
 A proposal pays each supplier its open items due by the run's due date,
 netted in one payment: an invoice is due on the net due date of the terms
@@ -1474,11 +1540,13 @@ operation, `release_operation_id`, and posts one payment per transaction;
 the run is `released` when its bank file is written. Its rules, each held by
 the database or by a row lock:
 
-- **One bank file per run.** A unique index on `bank_file (tenant_id,
-  payment_run_id)` (migration 000033, built concurrently) refuses a second
-  file, so a release step run again or two overlapping releases cannot pay
-  the suppliers twice. In object storage the file is kept under the run's
-  key (`tenants/<tenant>/bank-files/<run id>.xml`, write-once), so a
+- **One bank file per run, house bank and method.** A unique index on
+  `bank_file (tenant_id, payment_run_id, house_bank_id, payment_method)
+  NULLS NOT DISTINCT` (000095, built concurrently; it replaced 000033's per
+  run) refuses a second file, so a release step run again or two
+  overlapping releases cannot pay the suppliers twice. In object storage the
+  file is kept under its key (`tenants/<tenant>/bank-files/<run id>.xml`,
+  with `-<bank>-<method>` for a run proposed without a bank; write-once), so a
   FinishRelease retried after the store took the file but its transaction
   was lost writes no second object: it finds the key taken, checks that the
   stored file is the run's file as rendered at the creation time it carries,

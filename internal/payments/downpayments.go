@@ -46,7 +46,9 @@ func (e *Endpoints) dueRequests(ctx context.Context, tx pgx.Tx, r Run) ([]DownPa
 // a bank change) is left out with that reason, and one whose tax code is
 // not valid on the run date (invalid) with tax_code_invalid, each in an
 // exclusion row of its own, apart from the supplier's items (a debit
-// balance of those does not stop its requests).
+// balance of those does not stop its requests); one no ranked house bank
+// can pay with NoHouseBank. It goes through the bank and method its
+// supplier's items would (router).
 func (pr *proposal) payRequests(requests []DownPayment, invalid map[uuid.UUID]bool, payees map[uuid.UUID]partner.Payee, r Run, entityCode string, holdDays int) error {
 	for _, d := range requests {
 		request := d.ID
@@ -54,6 +56,10 @@ func (pr *proposal) payRequests(requests []DownPayment, invalid map[uuid.UUID]bo
 		reason := exclusion(payee, found, r.RunDate, holdDays)
 		if reason == "" && invalid[d.ID] {
 			reason = TaxCodeInvalid
+		}
+		v, routed := pr.route.route(payee)
+		if reason == "" && !routed {
+			reason = NoHouseBank
 		}
 		if reason != "" {
 			pr.exclude(d.SupplierID, &request, reason, d.Amount)
@@ -64,7 +70,7 @@ func (pr *proposal) payRequests(requests []DownPayment, invalid map[uuid.UUID]bo
 			return errTooLarge("the run")
 		}
 		pr.total = total
-		pr.payment(d.SupplierID, *payee.BankAccountID, [3]money.Minor{d.Amount, 0, 0}, KindDownPayment, &request, r, entityCode)
+		pr.payment(d.SupplierID, *payee.BankAccountID, v, [3]money.Minor{d.Amount, 0, 0}, KindDownPayment, &request, r, entityCode)
 	}
 	return nil
 }
@@ -86,9 +92,7 @@ func (e *Endpoints) postDownPayment(ctx context.Context, tx pgx.Tx, r Run, p Pay
 	if err != nil {
 		return err
 	}
-	// The run's house bank exists: payment_run has a foreign key to it
-	// (migration 000008), so the found flag is always true here.
-	hb, _, err := loadHouseBank(ctx, tx, r.HouseBankID)
+	hb, err := payingBank(ctx, tx, r, p)
 	if err != nil {
 		return err
 	}

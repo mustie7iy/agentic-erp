@@ -5982,6 +5982,18 @@ func (s *BankFile) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.PaymentRunID)
 	}
 	{
+		if s.HouseBankID.Set {
+			e.FieldStart("house_bank_id")
+			s.HouseBankID.Encode(e)
+		}
+	}
+	{
+		if s.PaymentMethod.Set {
+			e.FieldStart("payment_method")
+			s.PaymentMethod.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("format")
 		e.Str(s.Format)
 	}
@@ -5991,16 +6003,18 @@ func (s *BankFile) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfBankFile = [9]string{
-	0: "id",
-	1: "version",
-	2: "created_at",
-	3: "created_by",
-	4: "updated_at",
-	5: "updated_by",
-	6: "payment_run_id",
-	7: "format",
-	8: "status",
+var jsonFieldsNameOfBankFile = [11]string{
+	0:  "id",
+	1:  "version",
+	2:  "created_at",
+	3:  "created_by",
+	4:  "updated_at",
+	5:  "updated_by",
+	6:  "payment_run_id",
+	7:  "house_bank_id",
+	8:  "payment_method",
+	9:  "format",
+	10: "status",
 }
 
 // Decode decodes BankFile from json.
@@ -6094,8 +6108,28 @@ func (s *BankFile) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"payment_run_id\"")
 			}
+		case "house_bank_id":
+			if err := func() error {
+				s.HouseBankID.Reset()
+				if err := s.HouseBankID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"house_bank_id\"")
+			}
+		case "payment_method":
+			if err := func() error {
+				s.PaymentMethod.Reset()
+				if err := s.PaymentMethod.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"payment_method\"")
+			}
 		case "format":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				v, err := d.Str()
 				s.Format = string(v)
@@ -6107,7 +6141,7 @@ func (s *BankFile) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"format\"")
 			}
 		case "status":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
 				v, err := d.Str()
 				s.Status = string(v)
@@ -6128,8 +6162,8 @@ func (s *BankFile) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
-		0b11011111,
-		0b00000001,
+		0b01011111,
+		0b00000110,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -25938,6 +25972,18 @@ func (s *Payment) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.HouseBankID.Set {
+			e.FieldStart("house_bank_id")
+			s.HouseBankID.Encode(e)
+		}
+	}
+	{
+		if s.PaymentMethod.Set {
+			e.FieldStart("payment_method")
+			s.PaymentMethod.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("items")
 		e.ArrStart()
 		for _, elem := range s.Items {
@@ -25947,7 +25993,7 @@ func (s *Payment) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPayment = [15]string{
+var jsonFieldsNameOfPayment = [17]string{
 	0:  "id",
 	1:  "created_at",
 	2:  "created_by",
@@ -25962,7 +26008,9 @@ var jsonFieldsNameOfPayment = [15]string{
 	11: "journal_entry_id",
 	12: "kind",
 	13: "down_payment_request_id",
-	14: "items",
+	14: "house_bank_id",
+	15: "payment_method",
+	16: "items",
 }
 
 // Decode decodes Payment from json.
@@ -25970,7 +26018,7 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode Payment to nil")
 	}
-	var requiredBitSet [2]uint8
+	var requiredBitSet [3]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -26128,8 +26176,28 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"down_payment_request_id\"")
 			}
+		case "house_bank_id":
+			if err := func() error {
+				s.HouseBankID.Reset()
+				if err := s.HouseBankID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"house_bank_id\"")
+			}
+		case "payment_method":
+			if err := func() error {
+				s.PaymentMethod.Reset()
+				if err := s.PaymentMethod.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"payment_method\"")
+			}
 		case "items":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				s.Items = make([]PaymentItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -26155,9 +26223,10 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [2]uint8{
+	for i, mask := range [3]uint8{
 		0b01111111,
-		0b01000100,
+		0b00000100,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -26885,8 +26954,10 @@ func (s *PaymentRun) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.LegalEntityID)
 	}
 	{
-		e.FieldStart("house_bank_id")
-		json.EncodeUUID(e, s.HouseBankID)
+		if s.HouseBankID.Set {
+			e.FieldStart("house_bank_id")
+			s.HouseBankID.Encode(e)
+		}
 	}
 	{
 		e.FieldStart("run_date")
@@ -27059,11 +27130,9 @@ func (s *PaymentRun) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"legal_entity_id\"")
 			}
 		case "house_bank_id":
-			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
-				v, err := json.DecodeUUID(d)
-				s.HouseBankID = v
-				if err != nil {
+				s.HouseBankID.Reset()
+				if err := s.HouseBankID.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -27179,7 +27248,7 @@ func (s *PaymentRun) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [3]uint8{
 		0b11011111,
-		0b00111111,
+		0b00111110,
 		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
@@ -27380,8 +27449,16 @@ func (s *PaymentRunPropose) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.LegalEntityID)
 	}
 	{
-		e.FieldStart("house_bank_id")
-		json.EncodeUUID(e, s.HouseBankID)
+		if s.HouseBankID.Set {
+			e.FieldStart("house_bank_id")
+			s.HouseBankID.Encode(e)
+		}
+	}
+	{
+		if s.Currency.Set {
+			e.FieldStart("currency")
+			s.Currency.Encode(e)
+		}
 	}
 	{
 		e.FieldStart("run_date")
@@ -27393,11 +27470,12 @@ func (s *PaymentRunPropose) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPaymentRunPropose = [4]string{
+var jsonFieldsNameOfPaymentRunPropose = [5]string{
 	0: "legal_entity_id",
 	1: "house_bank_id",
-	2: "run_date",
-	3: "due_by",
+	2: "currency",
+	3: "run_date",
+	4: "due_by",
 }
 
 // Decode decodes PaymentRunPropose from json.
@@ -27422,19 +27500,27 @@ func (s *PaymentRunPropose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"legal_entity_id\"")
 			}
 		case "house_bank_id":
-			requiredBitSet[0] |= 1 << 1
 			if err := func() error {
-				v, err := json.DecodeUUID(d)
-				s.HouseBankID = v
-				if err != nil {
+				s.HouseBankID.Reset()
+				if err := s.HouseBankID.Decode(d); err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"house_bank_id\"")
 			}
+		case "currency":
+			if err := func() error {
+				s.Currency.Reset()
+				if err := s.Currency.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"currency\"")
+			}
 		case "run_date":
-			requiredBitSet[0] |= 1 << 2
+			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.RunDate = v
@@ -27446,7 +27532,7 @@ func (s *PaymentRunPropose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"run_date\"")
 			}
 		case "due_by":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.DueBy = v
@@ -27467,7 +27553,7 @@ func (s *PaymentRunPropose) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00001111,
+		0b00011001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -35731,15 +35817,26 @@ func (s *SupplierCompany) encodeFields(e *jx.Encoder) {
 			e.ArrEnd()
 		}
 	}
+	{
+		if s.PaymentMethods != nil {
+			e.FieldStart("payment_methods")
+			e.ArrStart()
+			for _, elem := range s.PaymentMethods {
+				e.Str(elem)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfSupplierCompany = [6]string{
+var jsonFieldsNameOfSupplierCompany = [7]string{
 	0: "legal_entity_id",
 	1: "reconciliation_account_id",
 	2: "payment_term_code",
 	3: "is_posting_blocked",
 	4: "is_payment_blocked",
 	5: "withholding_tax_codes",
+	6: "payment_methods",
 }
 
 // Decode decodes SupplierCompany from json.
@@ -35830,6 +35927,25 @@ func (s *SupplierCompany) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"withholding_tax_codes\"")
 			}
+		case "payment_methods":
+			if err := func() error {
+				s.PaymentMethods = make([]string, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem string
+					v, err := d.Str()
+					elem = string(v)
+					if err != nil {
+						return err
+					}
+					s.PaymentMethods = append(s.PaymentMethods, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"payment_methods\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -35917,13 +36033,24 @@ func (s *SupplierCompanyInput) encodeFields(e *jx.Encoder) {
 			e.ArrEnd()
 		}
 	}
+	{
+		if s.PaymentMethods != nil {
+			e.FieldStart("payment_methods")
+			e.ArrStart()
+			for _, elem := range s.PaymentMethods {
+				e.Str(elem)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfSupplierCompanyInput = [4]string{
+var jsonFieldsNameOfSupplierCompanyInput = [5]string{
 	0: "legal_entity_id",
 	1: "reconciliation_account_id",
 	2: "payment_term_code",
 	3: "withholding_tax_codes",
+	4: "payment_methods",
 }
 
 // Decode decodes SupplierCompanyInput from json.
@@ -35989,6 +36116,25 @@ func (s *SupplierCompanyInput) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"withholding_tax_codes\"")
+			}
+		case "payment_methods":
+			if err := func() error {
+				s.PaymentMethods = make([]string, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem string
+					v, err := d.Str()
+					elem = string(v)
+					if err != nil {
+						return err
+					}
+					s.PaymentMethods = append(s.PaymentMethods, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"payment_methods\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)

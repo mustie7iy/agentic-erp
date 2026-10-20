@@ -175,7 +175,7 @@ func TestBankFilesAreKept(t *testing.T) {
 	}
 	// Bank details are inside: agents never read it; the file is transmitted from the store.
 	e.As(e.Tenant.Agent).Problem(403, "identity.agent_not_allowed", "GET", "/v1/bank-files/"+id(file)+"/content", "", "")
-	e.Must(202, "POST", "/v1/bank-files/"+id(file)+":transmit", "", `"1"`)
+	e.transmit(t, id(file), `"1"`)
 	if len(e.connector.files) != 1 || string(e.connector.files[0].Content) != string(stored) {
 		t.Fatalf("transmitted: %v", e.connector.files)
 	}
@@ -192,7 +192,7 @@ func TestBankFilesAreKept(t *testing.T) {
 		t.Fatalf("tamper with the bank file: %v", err)
 	}
 	e.Problem(409, "payments.bank_file_changed", "GET", "/v1/bank-files/"+id(file)+"/content", "", "")
-	e.Problem(409, "payments.bank_file_changed", "POST", "/v1/bank-files/"+id(file)+":transmit", "", `"1"`)
+	e.failedWith(t, e.transmit(t, id(file), `"1"`), "payments.bank_file_changed")
 	if err := os.Remove(path); err != nil {
 		t.Fatalf("remove the bank file: %v", err)
 	}

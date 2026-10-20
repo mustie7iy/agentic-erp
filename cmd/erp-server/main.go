@@ -35,6 +35,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/controlplane"
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
+	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
@@ -99,12 +100,14 @@ func cli(ctx context.Context, args []string, getenv func(string) string, stdout,
 			return importCmd(ctx, args[1:], cfg, stdout, stderr)
 		case "register-provider":
 			return registerProviderCmd(ctx, args[1:], cfg, stdout, stderr)
+		case "disable-connector":
+			return disableConnectorCmd(ctx, args[1:], cfg, stdout, stderr)
 		case "prices":
 			return pricesCmd(ctx, args[1:], cfg, stdout, stderr)
 		case "certify":
 			return certifyCmd(ctx, args[1:], cfg, stdout, stderr)
 		}
-		fmt.Fprintf(stderr, "erp-server: unknown command %q (the server takes no arguments; erp-server provision creates a tenant, erp-server rewrap moves tenant keys onto the current master, erp-server import brings an exported tenant in, erp-server register-provider registers a tenant's identity provider, erp-server migrate applies the pending migrations, erp-server prices load records models' prices, erp-server certify load records an evaluation's certification, erp-server dr verify and reconcile check a restored cell)\n", args[0])
+		fmt.Fprintf(stderr, "erp-server: unknown command %q (the server takes no arguments; erp-server provision creates a tenant, erp-server rewrap moves tenant keys onto the current master, erp-server import brings an exported tenant in, erp-server register-provider registers a tenant's identity provider, erp-server disable-connector disables a tenant's connector, erp-server migrate applies the pending migrations, erp-server prices load records models' prices, erp-server certify load records an evaluation's certification, erp-server dr verify and reconcile check a restored cell)\n", args[0])
 		return 2
 	}
 	if err := run(ctx, cfg, log, started); err != nil {
@@ -185,6 +188,9 @@ func (s *server) prepare(ctx context.Context) error {
 		return err
 	}
 	if err := s.requireProviders(ctx); err != nil {
+		return err
+	}
+	if err := s.refuseEBICS(ctx); err != nil {
 		return err
 	}
 	return s.authenticate(ctx)
@@ -300,6 +306,35 @@ func (s *server) requireProviders(ctx context.Context) error {
 			"register one with erp-server register-provider -tenant <id> -issuer <url> -audience <aud>, which needs no running server, then start again", strings.Join(without, ", "))
 	}
 	return nil
+}
+
+// refuseEBICS refuses, in production, to start while a tenant has an active
+// bank_ebics connector: EBICS is refused there until it has been certified
+// with a bank (ADR-0038, T44d), and failing closed keeps a channel the
+// API would refuse from going unnoticed. Disabling it is the remedy, by
+// erp-server disable-connector, which needs no running server.
+func (s *server) refuseEBICS(ctx context.Context) error {
+	if s.cfg.Environment != config.Production {
+		return nil
+	}
+	tx, err := database.BeginOr(ctx, s.pool, s.beginCheck, database.Scope{Role: s.cfg.ControlRole, ReadOnly: true})
+	if err != nil {
+		return fmt.Errorf("erp-server: check EBICS connectors: %w", err)
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	cs, err := integration.ActiveEBICSConnectors(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if len(cs) == 0 {
+		return nil
+	}
+	named := make([]string, len(cs))
+	for i, c := range cs {
+		named[i] = "tenant " + c.TenantID.String() + " connector " + c.ID.String()
+	}
+	return fmt.Errorf("erp-server: ERP_ENV=production: EBICS is refused until it has been certified with a bank, and these bank_ebics connectors are active: %s; "+
+		"disable each with erp-server disable-connector -tenant <id> -connector <id> -by <operator> -reason <text>, which needs no running server, then start again", strings.Join(named, ", "))
 }
 
 // authenticate sets up who the API trusts (the configured issuers and the
@@ -506,6 +541,7 @@ func (s *server) newAPI() error {
 		Limits: ratelimit.New(cfg.TenantQuota, cfg.PrincipalQuota), RequestTimeout: cfg.RequestTimeout,
 		Metrics: s.metrics, Tracer: s.tp, Meter: otel.GetMeterProvider(), Now: time.Now,
 		RequireBoundAgents: cfg.Environment == config.Production, EvalCell: cfg.EvalCell,
+		RefuseEBICS: cfg.Environment == config.Production,
 	}
 	if s.gateway != nil {
 		s.apiCfg.Model = s.gateway
@@ -541,11 +577,15 @@ func (s *server) startProjections(runCtx context.Context) {
 	}
 }
 
-// startOperations starts what runs queued operations: the in-process
-// payment workers, or the workflow worker and the dispatcher that hands it
-// the queued operations.
+// startOperations starts what runs queued operations: the bank file
+// transmitter, and the in-process payment workers or the workflow worker
+// and the dispatcher that hands it the queued operations.
 func (s *server) startOperations(runCtx context.Context) {
 	cfg, pool, log, apiCfg, engine := s.cfg, s.pool, s.log, s.apiCfg, s.engine
+	// Bank files are sent by a worker of every replica, with or without the
+	// workflow engine: the outbox of their transmission (T44e, ADR-0038).
+	transmitter := &payments.Transmitter{Endpoints: app.Payments(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
+	s.spawn("bank file transmitter", func() { transmitter.Run(runCtx) })
 	if engine == nil {
 		proposer := &payments.Proposer{Endpoints: app.Payments(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
 		s.spawn("proposer", func() { proposer.Run(runCtx) })

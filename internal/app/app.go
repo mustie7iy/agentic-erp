@@ -109,6 +109,9 @@ type Config struct {
 	// RequireBoundAgents accepts agents' tokens only bound to their client
 	// certificates (production, ADR-0033).
 	RequireBoundAgents bool
+	// RefuseEBICS refuses bank_ebics connectors until EBICS is certified
+	// with a bank (production, ADR-0038).
+	RefuseEBICS bool
 	// Model is the model gateway (agents.Gateway, ADR-0036); nil answers 503.
 	Model http.Handler
 	// EvalCell lifts the bound of agents' autonomy by their type's
@@ -132,7 +135,7 @@ func New(cfg Config) (http.Handler, error) {
 		identityAPI:   &identity.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Certifications: certifications(cfg)},
 		configAPI:     &configuration.Endpoints{Pages: cfg.Pages, Dependencies: Configuration(cfg)},
 		partnerAPI: &partner.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys,
-			Approvals: opener()},
+			PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, Approvals: opener()},
 		ledgerAPI: &ledger.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{},
 			Numbers: configuration.Numbers{}, Approvals: opener()},
 		workflowAPI: &approvals.Endpoints{Pages: cfg.Pages, Decider: approvals.Decider{Roles: identity.Directory{}, Handlers: map[string]approvals.Handler{
@@ -174,7 +177,9 @@ func Configuration(cfg Config) configuration.Dependencies {
 	return configuration.Dependencies{
 		LegalEntities: tenancy.Directory{},
 		Sections: []configuration.Section{ledger.Setup{LegalEntities: tenancy.Directory{}}, partner.PaymentTerms{}, partner.WithholdingCodes{LegalEntities: tenancy.Directory{}},
-			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys}},
+			partner.PaymentMethodCodes{LegalEntities: tenancy.Directory{}},
+			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Channels: integration.BankChannels{}, Keys: cfg.FieldKeys},
+			payments.PaymentMethods{LegalEntities: tenancy.Directory{}}},
 		Approvals: opener(),
 		Simulator: payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
 		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
@@ -189,17 +194,19 @@ func Payments(cfg Config) *payments.Endpoints {
 		Postings: postings(),
 		Payees:   partner.Payees{Keys: cfg.FieldKeys}, Numbers: configuration.Numbers{}, Calendar: calendar(),
 		Settings: configuration.Settings{}, Actors: identity.Actors{}, Keys: cfg.FieldKeys, Connector: cfg.Connector, Objects: cfg.Objects,
+		Channels: integration.BankChannels{Secrets: resolver(cfg.Secrets)},
 		Accounts: ledger.Accounts{}, DownPayments: downPayments{}, Now: cfg.Now}
 }
 
 // Integration is the integration context as the API wires it: migration
 // runs load through the same endpoints the API serves, built the same way.
 func Integration(cfg Config) *integration.Endpoints {
-	partners := partner.Ports{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys}
+	partners := partner.Ports{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys,
+		PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}}
 	return &integration.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Settings: configuration.Settings{},
 		Partners: partner.Migration{Ports: partners}, Suppliers: partner.Suppliers{}, Orders: procurementEndpoints(cfg), OrderValues: procurement.Orders{},
 		Invoices: payablesEndpoints(cfg, uploads(cfg)), InvoiceCounts: payables.Invoices{}, Postings: postings(), Reports: ledger.Reports{},
-		Secrets: resolver(cfg.Secrets), ExtractDir: cfg.ExtractDir, Workflows: cfg.Workflows != nil}
+		Secrets: resolver(cfg.Secrets), ExtractDir: cfg.ExtractDir, Workflows: cfg.Workflows != nil, RefuseEBICS: cfg.RefuseEBICS}
 }
 
 // procurementEndpoints is the procurement context as the API wires it.

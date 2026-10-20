@@ -1,6 +1,7 @@
 package sapconfig
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -235,6 +236,53 @@ func TestGRIRFromT030(t *testing.T) {
 	}
 	if fs := config.Validate(c, currency.Seeded()); config.HasErrors(fs) {
 		t.Fatalf("draft with GR/IR does not validate: %v", fs)
+	}
+}
+
+// TestFurtherHouseBanks: a company's first T012K row is its main house
+// bank; each further one is a house bank on its own G/L account.
+func TestFurtherHouseBanks(t *testing.T) {
+	e := sap.GenerateMock(42, "2026")
+	e.SKB1 = append(e.SKB1, sap.SKB1{BUKRS: "1000", SAKNR: "0000101000", TXT50: "Bank clearing - DB"})
+	e.T012K = append(e.T012K, sap.T012K{BUKRS: "1000", HBKID: "DB", HKONT: "0000101000", IBAN: "DE02120300000000202051", SWIFT: "DEUTDEFFXXX"},
+		sap.T012K{BUKRS: "1000", HBKID: "DB", HKONT: "0000102000", IBAN: "DE89370400440532013000", SWIFT: "DEUTDEFFXXX"})
+	c, notes := Generate(e, DefaultOptions())
+	if !strings.Contains(notesText(notes), "house bank DB has several accounts") {
+		t.Errorf("a second account of DB: got notes %s, want one on it", notesText(notes))
+	}
+	co := c.Company("1000")
+	if co.HouseBank.Name != "MAIN" {
+		t.Errorf("main house bank: got %q, want MAIN", co.HouseBank.Name)
+	}
+	want := []config.HouseBank{{Name: "DB", IBAN: "DE02120300000000202051", BIC: "DEUTDEFFXXX", GLAccount: "101000"}}
+	if !slices.Equal(co.HouseBanks, want) {
+		t.Errorf("further house banks: got %+v, want %+v", co.HouseBanks, want)
+	}
+	if fs := config.Validate(c, currency.Seeded()); config.HasErrors(fs) {
+		t.Fatalf("draft with a further house bank does not validate: %v", fs)
+	}
+}
+
+// TestMainHouseBankOnItsOwnAccount: where T030 names another bank
+// account than the first T012K row's, the main house bank keeps its own.
+func TestMainHouseBankOnItsOwnAccount(t *testing.T) {
+	e := sap.GenerateMock(42, "2026")
+	e.SKB1 = append(e.SKB1, sap.SKB1{BUKRS: "1000", SAKNR: "0000101000", TXT50: "Bank clearing - MAIN"})
+	for i := range e.T012K {
+		if e.T012K[i].BUKRS == "1000" {
+			e.T012K[i].HKONT = "0000101000"
+		}
+	}
+	c, _ := Generate(e, DefaultOptions())
+	co := c.Company("1000")
+	if co.HouseBank.GLAccount != "101000" {
+		t.Errorf("main house bank account: got %q, want 101000", co.HouseBank.GLAccount)
+	}
+	if co.AccountDetermination.Bank != "100000" {
+		t.Errorf("bank account from T030: got %q, want 100000", co.AccountDetermination.Bank)
+	}
+	if fs := config.Validate(c, currency.Seeded()); config.HasErrors(fs) {
+		t.Fatalf("draft does not validate: %v", fs)
 	}
 }
 

@@ -125,6 +125,7 @@ type Endpoints struct {
 	ExtractDir    string       // sap_file connectors read extracts below it; empty: they cannot be used
 	HTTP          *http.Client // for sap_odata connectors; nil: the reader's default
 	Workflows     bool         // runs leave the request and run as workflows (ADR-0012); false: they complete within it
+	RefuseEBICS   bool         // production: bank_ebics connectors cannot be created or enabled (ADR-0038, T44d)
 }
 
 // record publishes the events and adds the audit entry of a change; the

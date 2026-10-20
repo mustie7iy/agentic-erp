@@ -3672,6 +3672,11 @@ type BankFile struct {
 	UpdatedBy OptUUID `json:"updated_by"`
 	// Payment run.
 	PaymentRunID uuid.UUID `json:"payment_run_id"`
+	// House bank whose account the file pays from; a run writes one file per house bank and payment method
+	// (T45c).
+	HouseBankID OptUUID `json:"house_bank_id"`
+	// Payment method of the file's payments; absent for a run proposed for one house bank.
+	PaymentMethod OptString `json:"payment_method"`
 	// ISO 20022 message format. Open enumeration: clients must accept and preserve values not listed here;
 	// values may be added within /v1.
 	Format string `json:"format"`
@@ -3713,6 +3718,16 @@ func (s *BankFile) GetUpdatedBy() OptUUID {
 // GetPaymentRunID returns the value of PaymentRunID.
 func (s *BankFile) GetPaymentRunID() uuid.UUID {
 	return s.PaymentRunID
+}
+
+// GetHouseBankID returns the value of HouseBankID.
+func (s *BankFile) GetHouseBankID() OptUUID {
+	return s.HouseBankID
+}
+
+// GetPaymentMethod returns the value of PaymentMethod.
+func (s *BankFile) GetPaymentMethod() OptString {
+	return s.PaymentMethod
 }
 
 // GetFormat returns the value of Format.
@@ -3758,6 +3773,16 @@ func (s *BankFile) SetUpdatedBy(val OptUUID) {
 // SetPaymentRunID sets the value of PaymentRunID.
 func (s *BankFile) SetPaymentRunID(val uuid.UUID) {
 	s.PaymentRunID = val
+}
+
+// SetHouseBankID sets the value of HouseBankID.
+func (s *BankFile) SetHouseBankID(val OptUUID) {
+	s.HouseBankID = val
+}
+
+// SetPaymentMethod sets the value of PaymentMethod.
+func (s *BankFile) SetPaymentMethod(val OptString) {
+	s.PaymentMethod = val
 }
 
 // SetFormat sets the value of Format.
@@ -6679,7 +6704,13 @@ type Connector struct {
 	Kind string `json:"kind"`
 	// Name, unique per tenant.
 	Name string `json:"name"`
-	// Connector settings (endpoints, formats); never secrets.
+	// Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port`
+	// (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory`
+	// (absolute); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A
+	// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
+	// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
+	// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
+	// `integration.ebics_not_certified`.
 	Settings ConnectorSettings `json:"settings"`
 	// Vault path of the credentials.
 	SecretRef OptString `json:"secret_ref"`
@@ -6806,7 +6837,13 @@ type ConnectorCreate struct {
 	Kind string `json:"kind"`
 	// Name, unique per tenant.
 	Name string `json:"name"`
-	// Connector settings; never secrets.
+	// Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22),
+	// `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory` (absolute);
+	// its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics`
+	// connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS
+	// 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified
+	// with a bank: creating or enabling a `bank_ebics` connector there answers 422
+	// `integration.ebics_not_certified`.
 	Settings ConnectorCreateSettings `json:"settings"`
 	// Vault path of the credentials.
 	SecretRef OptString `json:"secret_ref"`
@@ -6852,7 +6889,13 @@ func (s *ConnectorCreate) SetSecretRef(val OptString) {
 	s.SecretRef = val
 }
 
-// Connector settings; never secrets.
+// Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22),
+// `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory` (absolute);
+// its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics`
+// connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS
+// 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified
+// with a bank: creating or enabling a `bank_ebics` connector there answers 422
+// `integration.ebics_not_certified`.
 type ConnectorCreateSettings map[string]jx.Raw
 
 func (s *ConnectorCreateSettings) init() ConnectorCreateSettings {
@@ -7039,7 +7082,13 @@ func (s *ConnectorPageHeaders) SetResponse(val ConnectorPage) {
 
 func (*ConnectorPageHeaders) listConnectorsRes() {}
 
-// Connector settings (endpoints, formats); never secrets.
+// Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port`
+// (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory`
+// (absolute); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A
+// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
+// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
+// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
+// `integration.ebics_not_certified`.
 type ConnectorSettings map[string]jx.Raw
 
 func (s *ConnectorSettings) init() ConnectorSettings {
@@ -7056,7 +7105,13 @@ func (s *ConnectorSettings) init() ConnectorSettings {
 type ConnectorUpdate struct {
 	// Name.
 	Name OptString `json:"name"`
-	// Connector settings; replaced as a whole.
+	// Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22),
+	// `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory` (absolute);
+	// its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics`
+	// connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS
+	// 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified
+	// with a bank: creating or enabling a `bank_ebics` connector there answers 422
+	// `integration.ebics_not_certified`.
 	Settings OptConnectorUpdateSettings `json:"settings"`
 	// Vault path of the credentials. Send null to clear.
 	SecretRef OptNilString `json:"secret_ref"`
@@ -7092,7 +7147,13 @@ func (s *ConnectorUpdate) SetSecretRef(val OptNilString) {
 	s.SecretRef = val
 }
 
-// Connector settings; replaced as a whole.
+// Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22),
+// `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory` (absolute);
+// its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics`
+// connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS
+// 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified
+// with a bank: creating or enabling a `bank_ebics` connector there answers 422
+// `integration.ebics_not_certified`.
 type ConnectorUpdateSettings map[string]jx.Raw
 
 func (s *ConnectorUpdateSettings) init() ConnectorUpdateSettings {
@@ -19282,6 +19343,11 @@ type Payment struct {
 	Kind OptString `json:"kind"`
 	// The down payment request a payment of kind `down_payment` pays.
 	DownPaymentRequestID OptUUID `json:"down_payment_request_id"`
+	// House bank that pays it: the run's, or for a run proposed without one, the first ranked for its
+	// payment method and currency (T45c).
+	HouseBankID OptUUID `json:"house_bank_id"`
+	// Payment method it is paid by (SAP ZLSCH); absent in a run proposed for one house bank.
+	PaymentMethod OptString `json:"payment_method"`
 	// Settled open items; none on a down payment's payment.
 	Items []PaymentItem `json:"items"`
 }
@@ -19354,6 +19420,16 @@ func (s *Payment) GetKind() OptString {
 // GetDownPaymentRequestID returns the value of DownPaymentRequestID.
 func (s *Payment) GetDownPaymentRequestID() OptUUID {
 	return s.DownPaymentRequestID
+}
+
+// GetHouseBankID returns the value of HouseBankID.
+func (s *Payment) GetHouseBankID() OptUUID {
+	return s.HouseBankID
+}
+
+// GetPaymentMethod returns the value of PaymentMethod.
+func (s *Payment) GetPaymentMethod() OptString {
+	return s.PaymentMethod
 }
 
 // GetItems returns the value of Items.
@@ -19431,6 +19507,16 @@ func (s *Payment) SetDownPaymentRequestID(val OptUUID) {
 	s.DownPaymentRequestID = val
 }
 
+// SetHouseBankID sets the value of HouseBankID.
+func (s *Payment) SetHouseBankID(val OptUUID) {
+	s.HouseBankID = val
+}
+
+// SetPaymentMethod sets the value of PaymentMethod.
+func (s *Payment) SetPaymentMethod(val OptString) {
+	s.PaymentMethod = val
+}
+
 // SetItems sets the value of Items.
 func (s *Payment) SetItems(val []PaymentItem) {
 	s.Items = val
@@ -19446,7 +19532,9 @@ type PaymentExclusion struct {
 	// `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid.
 	// `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run
 	// date (T46c); a request's exclusion names it (`down_payment_request_id`), and the supplier's items
-	// may still be paid.
+	// may still be paid. `no_house_bank` leaves out a supplier, or a request, of a run proposed without a
+	// house bank when none of the supplier's payment methods has a house bank ranked for the run currency
+	// (T45c).
 	ReasonCode string `json:"reason_code"`
 	// The down payment request left out, when the exclusion is a request's (T46c): a run lists one
 	// exclusion per supplier for its items and one per request left out, so a supplier may appear more
@@ -19805,8 +19893,9 @@ type PaymentRun struct {
 	DocumentNumber string `json:"document_number"`
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// House bank paying.
-	HouseBankID uuid.UUID `json:"house_bank_id"`
+	// House bank paying, for a run proposed for one bank; absent when each payment names the bank that
+	// pays it (T45c).
+	HouseBankID OptUUID `json:"house_bank_id"`
 	// Run (payment) date.
 	RunDate time.Time `json:"run_date"`
 	// Items due on or before this date are included.
@@ -19870,7 +19959,7 @@ func (s *PaymentRun) GetLegalEntityID() uuid.UUID {
 }
 
 // GetHouseBankID returns the value of HouseBankID.
-func (s *PaymentRun) GetHouseBankID() uuid.UUID {
+func (s *PaymentRun) GetHouseBankID() OptUUID {
 	return s.HouseBankID
 }
 
@@ -19960,7 +20049,7 @@ func (s *PaymentRun) SetLegalEntityID(val uuid.UUID) {
 }
 
 // SetHouseBankID sets the value of HouseBankID.
-func (s *PaymentRun) SetHouseBankID(val uuid.UUID) {
+func (s *PaymentRun) SetHouseBankID(val OptUUID) {
 	s.HouseBankID = val
 }
 
@@ -20167,8 +20256,14 @@ func (*PaymentRunPageHeaders) listPaymentRunsRes() {}
 type PaymentRunPropose struct {
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// House bank to pay from; its currency is the run currency.
-	HouseBankID uuid.UUID `json:"house_bank_id"`
+	// House bank to pay every supplier from; its currency is the run currency. Without it, each supplier
+	// is paid through the first of its payment methods that a house bank ranked for the method and the run
+	// currency pays with (ADR-0038), and suppliers no ranked bank can pay are excluded with
+	// `no_house_bank`.
+	HouseBankID OptUUID `json:"house_bank_id"`
+	// The run currency (ISO 4217), required without `house_bank_id`; with it, it may only repeat the house
+	// bank's currency.
+	Currency OptString `json:"currency"`
 	// Payment date.
 	RunDate time.Time `json:"run_date"`
 	// Include open items due on or before this date.
@@ -20181,8 +20276,13 @@ func (s *PaymentRunPropose) GetLegalEntityID() uuid.UUID {
 }
 
 // GetHouseBankID returns the value of HouseBankID.
-func (s *PaymentRunPropose) GetHouseBankID() uuid.UUID {
+func (s *PaymentRunPropose) GetHouseBankID() OptUUID {
 	return s.HouseBankID
+}
+
+// GetCurrency returns the value of Currency.
+func (s *PaymentRunPropose) GetCurrency() OptString {
+	return s.Currency
 }
 
 // GetRunDate returns the value of RunDate.
@@ -20201,8 +20301,13 @@ func (s *PaymentRunPropose) SetLegalEntityID(val uuid.UUID) {
 }
 
 // SetHouseBankID sets the value of HouseBankID.
-func (s *PaymentRunPropose) SetHouseBankID(val uuid.UUID) {
+func (s *PaymentRunPropose) SetHouseBankID(val OptUUID) {
 	s.HouseBankID = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *PaymentRunPropose) SetCurrency(val OptString) {
+	s.Currency = val
 }
 
 // SetRunDate sets the value of RunDate.
@@ -25982,6 +26087,9 @@ type SupplierCompany struct {
 	// The withholding taxes deducted from the supplier in this legal entity (SAP LFBW; T46e): codes of the
 	// company's `withholding_tax_codes` in the configuration.
 	WithholdingTaxCodes []string `json:"withholding_tax_codes"`
+	// The methods the supplier may be paid by in this legal entity, in order of preference (SAP
+	// LFB1-ZWELS; ADR-0038): codes of the company's `payment_methods` in the configuration.
+	PaymentMethods []string `json:"payment_methods"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -26014,6 +26122,11 @@ func (s *SupplierCompany) GetWithholdingTaxCodes() []string {
 	return s.WithholdingTaxCodes
 }
 
+// GetPaymentMethods returns the value of PaymentMethods.
+func (s *SupplierCompany) GetPaymentMethods() []string {
+	return s.PaymentMethods
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *SupplierCompany) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -26044,6 +26157,11 @@ func (s *SupplierCompany) SetWithholdingTaxCodes(val []string) {
 	s.WithholdingTaxCodes = val
 }
 
+// SetPaymentMethods sets the value of PaymentMethods.
+func (s *SupplierCompany) SetPaymentMethods(val []string) {
+	s.PaymentMethods = val
+}
+
 // Company-specific supplier data to set up.
 // Ref: #/components/schemas/SupplierCompanyInput
 type SupplierCompanyInput struct {
@@ -26057,6 +26175,12 @@ type SupplierCompanyInput struct {
 	// company's configuration, each once. The list replaces the supplier's codes in the legal entity:
 	// leaving it out takes every code off the supplier there, as the other company data is replaced too.
 	WithholdingTaxCodes []string `json:"withholding_tax_codes"`
+	// The methods the supplier may be paid by in this legal entity, in order of preference (ADR-0038):
+	// active payment methods of the company's configuration, each once. A payment proposal pays the
+	// supplier through the first method a ranked house bank can pay. The list replaces the supplier's
+	// methods in the legal entity: leaving it out takes every method off the supplier there, as the other
+	// company data is replaced too.
+	PaymentMethods []string `json:"payment_methods"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -26079,6 +26203,11 @@ func (s *SupplierCompanyInput) GetWithholdingTaxCodes() []string {
 	return s.WithholdingTaxCodes
 }
 
+// GetPaymentMethods returns the value of PaymentMethods.
+func (s *SupplierCompanyInput) GetPaymentMethods() []string {
+	return s.PaymentMethods
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *SupplierCompanyInput) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -26097,6 +26226,11 @@ func (s *SupplierCompanyInput) SetPaymentTermCode(val string) {
 // SetWithholdingTaxCodes sets the value of WithholdingTaxCodes.
 func (s *SupplierCompanyInput) SetWithholdingTaxCodes(val []string) {
 	s.WithholdingTaxCodes = val
+}
+
+// SetPaymentMethods sets the value of PaymentMethods.
+func (s *SupplierCompanyInput) SetPaymentMethods(val []string) {
+	s.PaymentMethods = val
 }
 
 // Merged schema.

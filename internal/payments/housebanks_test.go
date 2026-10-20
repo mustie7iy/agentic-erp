@@ -10,6 +10,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
@@ -18,7 +19,12 @@ import (
 )
 
 func houseBanks() payments.HouseBanks {
-	return payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: apitest.FieldKeys()}
+	return payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Channels: integration.BankChannels{}, Keys: apitest.FieldKeys()}
+}
+
+// further is a further house bank of company 2000 on its clearing account.
+func further(name string) config.HouseBank {
+	return config.HouseBank{Name: name, IBAN: "DE02120300000000202051", BIC: "DEUTDEFFXXX", GLAccount: "101000"}
 }
 
 type bankRow struct {
@@ -82,6 +88,10 @@ func TestHouseBanks(t *testing.T) {
 		t.Fatalf("new name: %v", f)
 	}
 
+	if f := check(func(c *config.Config) { c.Companies[1].HouseBanks = []config.HouseBank{further("db-1")} }); len(f) != 1 || f[0].Path != "companies[2000].house_banks[db-1].name" {
+		t.Fatalf("bad further name: %v", f)
+	}
+
 	apply := func(doc *config.Config) error {
 		return apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error { return h.Apply(ctx, doc) })
 	}
@@ -109,6 +119,33 @@ func TestHouseBanks(t *testing.T) {
 	}
 	if got["MAIN"].status != "active" {
 		t.Errorf("back to MAIN, MAIN status: got %s, want active", got["MAIN"].status)
+	}
+
+	// A further house bank pays from its own ledger account; dropped from
+	// the document, it becomes inactive.
+	doc = fixture.Document(t)
+	doc.Companies[1].HouseBanks = []config.HouseBank{further("DB")}
+	if err := apply(doc); err != nil {
+		t.Fatal(err)
+	}
+	got = banksOf(t, e.DE)
+	if want := (bankRow{"DB", "2051", "EUR", "active", e.Account(t, "2000", "101000")}); got["DB"] != want {
+		t.Errorf("further bank: got %+v, want %+v", got["DB"], want)
+	}
+	if got["MAIN"].status != "active" {
+		t.Errorf("with a further bank, MAIN status: got %s, want active", got["MAIN"].status)
+	}
+	if err := apply(fixture.Document(t)); err != nil {
+		t.Fatal(err)
+	}
+	if got := banksOf(t, e.DE)["DB"].status; got != "inactive" {
+		t.Errorf("dropped further bank status: got %s, want inactive", got)
+	}
+	doc = fixture.Document(t)
+	doc.Companies[1].HouseBanks = []config.HouseBank{further("DB")}
+	doc.Companies[1].HouseBanks[0].GLAccount = "109999"
+	if err := apply(doc); err == nil {
+		t.Fatal("applied a house bank on an account the legal entity does not have")
 	}
 
 	// A company without a legal entity, or without a bank account, cannot be applied.

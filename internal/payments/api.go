@@ -21,7 +21,7 @@ import (
 
 func runToAPI(r Run) gen.PaymentRun {
 	out := gen.PaymentRun{ID: r.ID, Version: r.Version, CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy, UpdatedAt: r.UpdatedAt,
-		UpdatedBy: gen.NewOptUUID(r.UpdatedBy), DocumentNumber: r.DocumentNumber, LegalEntityID: r.LegalEntityID, HouseBankID: r.HouseBankID,
+		UpdatedBy: gen.NewOptUUID(r.UpdatedBy), DocumentNumber: r.DocumentNumber, LegalEntityID: r.LegalEntityID, HouseBankID: apitypes.OptUUID(r.HouseBankID),
 		RunDate: r.RunDate, DueBy: r.DueBy, TotalAmount: apitypes.Money(r.Total, r.Currency, r.Exponent), Status: r.Status, ProposedBy: r.ProposedBy,
 		DecidedBy: apitypes.OptUUID(r.DecidedBy), OperationID: apitypes.OptUUID(r.OperationID), ReleaseOperationID: apitypes.OptUUID(r.ReleaseOpID)}
 	if r.DecidedAt != nil {
@@ -34,11 +34,20 @@ func runOK(r Run) *gen.RejectPaymentRunOKHeaders {
 	return &gen.RejectPaymentRunOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: runToAPI(r)}
 }
 
-func paymentToAPI(p Payment, currency string, exp int) gen.Payment {
+// paymentToAPI is payment p of run r; a payment that names no house bank
+// is paid by its run's.
+func paymentToAPI(p Payment, r Run) gen.Payment {
+	currency, exp := r.Currency, r.Exponent
 	out := gen.Payment{ID: p.ID, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, PaymentRunID: p.RunID, SupplierID: p.SupplierID,
 		BankAccountID: p.BankAccountID, Amount: apitypes.Money(p.Amount, currency, exp), DiscountAmount: gen.NewOptMoney(apitypes.Money(p.Discount, currency, exp)),
 		WithholdingAmount: gen.NewOptMoney(apitypes.Money(p.Withholding, currency, exp)), EndToEndID: p.EndToEndID, JournalEntryID: apitypes.OptUUID(p.JournalEntryID), Kind: gen.NewOptString(p.Kind),
-		DownPaymentRequestID: apitypes.OptUUID(p.RequestID), Items: make([]gen.PaymentItem, len(p.Items))}
+		DownPaymentRequestID: apitypes.OptUUID(p.RequestID), HouseBankID: apitypes.OptUUID(p.HouseBankID), Items: make([]gen.PaymentItem, len(p.Items))}
+	if p.HouseBankID == nil {
+		out.HouseBankID = apitypes.OptUUID(r.HouseBankID)
+	}
+	if p.Method != nil {
+		out.PaymentMethod.SetTo(*p.Method)
+	}
 	if p.DiscountUntil != nil {
 		out.DiscountUntil.SetTo(*p.DiscountUntil)
 	}
@@ -51,13 +60,18 @@ func paymentToAPI(p Payment, currency string, exp int) gen.Payment {
 }
 
 func fileToAPI(f BankFile) gen.BankFile {
-	return gen.BankFile{ID: f.ID, Version: f.Version, CreatedAt: f.CreatedAt, CreatedBy: f.CreatedBy, UpdatedAt: f.UpdatedAt,
-		PaymentRunID: f.RunID, Format: f.Format, Status: f.Status}
+	out := gen.BankFile{ID: f.ID, Version: f.Version, CreatedAt: f.CreatedAt, CreatedBy: f.CreatedBy, UpdatedAt: f.UpdatedAt,
+		PaymentRunID: f.RunID, HouseBankID: gen.NewOptUUID(f.HouseBankID), Format: f.Format, Status: f.Status}
+	if f.Method != nil {
+		out.PaymentMethod.SetTo(*f.Method)
+	}
+	return out
 }
 
 // ProposePaymentRun implements POST /v1/payment-runs:propose.
 func (e *Endpoints) ProposePaymentRun(ctx context.Context, req *gen.PaymentRunPropose, _ gen.ProposePaymentRunParams) (gen.ProposePaymentRunRes, error) {
-	op, err := e.ProposeRun(ctx, Proposal{LegalEntityID: req.LegalEntityID, HouseBankID: req.HouseBankID, RunDate: req.RunDate, DueBy: req.DueBy})
+	op, err := e.ProposeRun(ctx, Proposal{LegalEntityID: req.LegalEntityID, HouseBankID: apitypes.Ptr[uuid.UUID](req.HouseBankID), Currency: req.Currency.Value,
+		RunDate: req.RunDate, DueBy: req.DueBy})
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +171,7 @@ func (e *Endpoints) ListPayments(ctx context.Context, params gen.ListPaymentsPar
 		return nil, fmt.Errorf("payments: list payments of run %s: %w", r.ID, err)
 	}
 	items, next := apitypes.PageOf(ks, pays, idKey(func(p Payment) uuid.UUID { return p.ID }),
-		func(p Payment) gen.Payment { return paymentToAPI(p, r.Currency, r.Exponent) })
+		func(p Payment) gen.Payment { return paymentToAPI(p, r) })
 	return &gen.PaymentPageHeaders{Response: gen.PaymentPage{Items: items, NextPageToken: next}}, nil
 }
 

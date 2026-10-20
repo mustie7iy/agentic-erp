@@ -277,16 +277,43 @@ func (g *gen) company(t sap.T001) config.Company {
 		}
 	}
 	co.InvoiceTolerance = g.invoiceTolerance(p, t.BUKRS)
-	for _, b := range g.e.T012K {
-		if b.BUKRS == t.BUKRS {
-			co.HouseBank = config.HouseBank{Name: b.HBKID, IBAN: b.IBAN, BIC: b.SWIFT}
-			if co.AccountDetermination.Bank == "" {
-				co.AccountDetermination.Bank = sap.Alpha(b.HKONT)
-			}
-			break
-		}
-	}
+	co.HouseBank, co.HouseBanks = g.houseBanks(p, t.BUKRS, &co.AccountDetermination)
 	return co
+}
+
+// houseBanks is the company's main house bank, its first T012K row, and
+// the further ones, each on its own G/L account (ADR-0038). The main bank
+// gives the account determination its bank account where T030 has none,
+// and keeps its own G/L account where T030 names another. SAP keeps
+// several accounts under one house bank (HKTID, not in the extract); only
+// the first is taken, with a note.
+func (g *gen) houseBanks(p, company string, ad *config.AccountDetermination) (config.HouseBank, []config.HouseBank) {
+	var main config.HouseBank
+	var further []config.HouseBank
+	seen := map[string]bool{}
+	for _, b := range g.e.T012K {
+		if b.BUKRS != company {
+			continue
+		}
+		hb := config.HouseBank{Name: b.HBKID, IBAN: b.IBAN, BIC: b.SWIFT, GLAccount: sap.Alpha(b.HKONT)}
+		switch {
+		case seen[b.HBKID]:
+			g.note(p+".house_banks["+b.HBKID+"]", "house bank "+b.HBKID+" has several accounts in T012K; only the first is taken")
+			continue
+		case len(seen) > 0:
+			further = append(further, hb)
+		case ad.Bank == "":
+			ad.Bank, hb.GLAccount = hb.GLAccount, ""
+			main = hb
+		default:
+			if hb.GLAccount == ad.Bank {
+				hb.GLAccount = ""
+			}
+			main = hb
+		}
+		seen[b.HBKID] = true
+	}
+	return main, further
 }
 
 // chartOfAccounts is the company's G/L accounts; an account whose type the

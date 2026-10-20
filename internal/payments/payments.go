@@ -64,6 +64,9 @@ const (
 // Bank file statuses.
 const (
 	FileCreated      = "created"
+	FileToSend       = "to_send" // asked for, waiting for the transmitter (T44e)
+	FileSending      = "sending" // claimed by the transmitter, the upload under way
+	FileFailed       = "failed"  // refused, or out of attempts; may be asked for again
 	FileTransmitted  = "transmitted"
 	FileAcknowledged = "acknowledged"
 	FileRejected     = "rejected"
@@ -82,6 +85,9 @@ const (
 	// ReleaseKind is the operation of a release: one posting per payment,
 	// then the bank file (T27, ADR-0012).
 	ReleaseKind = "payments.release"
+	// TransmitKind is the operation of a bank file's transmission, which
+	// the transmitter completes (T44e).
+	TransmitKind = "payments.transmit"
 )
 
 // LegalEntities is what payments reads about legal entities (tenancy context).
@@ -145,7 +151,8 @@ type Endpoints struct {
 	Settings      Settings
 	Actors        Actors
 	Keys          *fieldcrypt.Keyring // opens house bank IBANs
-	Connector     Connector           // transmits bank files; nil: transmission answers 503
+	Connector     Connector           // transmits the files of house banks without a channel; nil: those answer 503
+	Channels      BankChannels        // house banks' own channels (T44b)
 	Objects       blobstore.Store     // keeps bank files as written at release; nil: files are rendered again when needed
 	Accounts      Accounts            // the cash discount account a run with discounts posts to
 	DownPayments  DownPayments        // the down payment requests runs pay (T46c)
@@ -187,7 +194,7 @@ type Run struct {
 	ID             uuid.UUID
 	DocumentNumber string
 	LegalEntityID  uuid.UUID
-	HouseBankID    uuid.UUID
+	HouseBankID    *uuid.UUID // the bank of a run proposed for one; nil when each payment names its own (T45c)
 	RunDate        time.Time
 	DueBy          time.Time
 	Currency       string
@@ -294,6 +301,11 @@ type Payment struct {
 	Excluded         bool       // dropped by the release (dropPayment): the supplier is excluded with the reason
 	Kind             string     // KindItems or KindDownPayment (T46c)
 	RequestID        *uuid.UUID // the down payment request a KindDownPayment payment pays
+	// HouseBankID and Method are the house bank that pays it and the
+	// payment method, in a run proposed without a house bank (T45c); nil
+	// in one proposed for a bank, whose bank pays it (payingBank).
+	HouseBankID *uuid.UUID
+	Method      *string
 }
 
 // Payment kinds: a supplier's open items, netted, or one down payment
@@ -323,13 +335,13 @@ const paymentSelect = `SELECT p.id, p.payment_run_id, p.supplier_id, p.bank_acco
 			'is_active', i.is_active)
 			ORDER BY i.item_fiscal_year, i.item_entry_id, i.item_line_no)
 		 FROM payments.payment_item i WHERE i.tenant_id = p.tenant_id AND i.payment_id = p.id), p.created_at, p.created_by,
-		` + dropped + ` AS is_dropped, p.kind, p.down_payment_request_id
+		` + dropped + ` AS is_dropped, p.kind, p.down_payment_request_id, p.house_bank_id, p.payment_method
 	FROM payments.payment p`
 
 func scanPayment(row pgx.Row) (Payment, error) {
 	var p Payment
 	err := row.Scan(&p.ID, &p.RunID, &p.SupplierID, &p.BankAccountID, &p.Amount, &p.Discount, &p.Withholding, &p.DiscountUntil, &p.EndToEndID, &p.JournalEntryYear, &p.JournalEntryID,
-		&p.Items, &p.CreatedAt, &p.CreatedBy, &p.Excluded, &p.Kind, &p.RequestID)
+		&p.Items, &p.CreatedAt, &p.CreatedBy, &p.Excluded, &p.Kind, &p.RequestID, &p.HouseBankID, &p.Method)
 	return p, errs.Wrapf(err, "scan payment")
 }
 
