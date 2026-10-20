@@ -13,7 +13,16 @@ while read -r name module; do
   # A stamp beside each binary names the module and version it was built
   # from, so a version changed here rebuilds it even in a warm directory.
   if [ ! -x "$DIR/$name" ] || [ "$(cat "$DIR/.$name.version" 2>/dev/null || true)" != "$module" ]; then
-    GOBIN="$DIR" go install "$module"
+    # Building fetches and verifies hundreds of modules against
+    # sum.golang.org, whose HTTP/2 streams GitHub's runners sometimes see
+    # reset mid-download (2026-10-20, twice in a row on #41); a retry fetches
+    # only what is still missing.
+    for attempt in 1 2 3; do
+      GOBIN="$DIR" go install "$module" && break
+      [ "$attempt" -lt 3 ] || exit 1
+      echo "ci-tools: $name build failed (attempt $attempt); retrying" >&2
+      sleep $((attempt * 10))
+    done
     echo "$module" >"$DIR/.$name.version"
   fi
 done <<'EOF'
@@ -23,5 +32,6 @@ govulncheck golang.org/x/vuln/cmd/govulncheck@v1.9.0
 gosec github.com/securego/gosec/v2/cmd/gosec@v2.29.0
 vacuum github.com/daveshanley/vacuum@v0.32.0
 oasdiff github.com/oasdiff/oasdiff@v1.33.0
+grype github.com/anchore/grype/cmd/grype@v0.120.1
 EOF
 echo "$DIR"
