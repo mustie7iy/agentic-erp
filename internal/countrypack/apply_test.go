@@ -212,7 +212,10 @@ func TestApplyRefuses(t *testing.T) {
 			}
 		})
 	}
-	_, _, err := Apply(adopted(config.PackAdoption{Company: "C1", Country: "ZZ", Version: "2026.3", AppliedOn: "2026-01-01"}), lib.Get("ZZ", "2026.2"), lib, Options{Company: "C1"})
+	if _, _, err := Apply(testDoc(), lib.Get("ZZ", "2026.2"), lib, Options{Company: "C1"}); err == nil {
+		t.Error("Apply without a date and fiscal year: got nil, want an error")
+	}
+	_, _, err := Apply(adopted(config.PackAdoption{Company: "C1", Country: "ZZ", Version: "2026.3", AppliedOn: "2026-01-01"}), lib.Get("ZZ", "2026.2"), lib, Options{Company: "C1", On: day("2026-10-20"), FiscalYear: 2026})
 	if !errors.Is(err, ErrDowngrade) {
 		t.Errorf("downgrade: got %v, want ErrDowngrade", err)
 	}
@@ -235,5 +238,32 @@ func TestUpgradeSameYear(t *testing.T) {
 	}
 	if last := got.NumberRanges[0].Last; last != 9999999 {
 		t.Errorf("supplier invoice range: got last %d, want 9999999", last)
+	}
+}
+
+// A range the document has keeps everything but a raised upper limit.
+func TestIssuedRangesStay(t *testing.T) {
+	cur := []config.NumberRange{{Company: "C1", DocumentType: "a", FiscalYear: 2026, First: 1, Last: 10}}
+	tests := []struct {
+		name   string
+		merged config.NumberRange
+		want   int64 // the resulting Last
+		noted  bool
+	}{
+		{"raised", config.NumberRange{Company: "C1", DocumentType: "a", FiscalYear: 2026, First: 1, Last: 20}, 20, false},
+		{"lowered", config.NumberRange{Company: "C1", DocumentType: "a", FiscalYear: 2026, First: 1, Last: 5}, 10, true},
+		{"prefix changed", config.NumberRange{Company: "C1", DocumentType: "a", FiscalYear: 2026, Prefix: "X", First: 1, Last: 20}, 10, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &merger{}
+			got := issuedStay(m, cur, []config.NumberRange{tt.merged, {Company: "C1", DocumentType: "b", FiscalYear: 2026, First: 1, Last: 9}})
+			if got[0].Last != tt.want {
+				t.Errorf("last: got %d, want %d", got[0].Last, tt.want)
+			}
+			if noted := len(m.notes) == 1; noted != tt.noted {
+				t.Errorf("noted: got %v, want %v", noted, tt.noted)
+			}
+		})
 	}
 }

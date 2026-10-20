@@ -31,6 +31,9 @@ var ErrDowngrade = errors.New("countrypack: the company adopted a newer version"
 // document's packs section says the company adopted (from lib), empty on
 // first adoption. cur is not changed.
 func Apply(cur *config.Config, next *Pack, lib *Library, o Options) (*config.Config, []config.Note, error) {
+	if o.On.IsZero() || o.FiscalYear < 1900 {
+		return nil, nil, fmt.Errorf("countrypack: the date of application and the fiscal year are required")
+	}
 	draft := *cur
 	draft.Companies = slices.Clone(cur.Companies)
 	draft.Packs = slices.Clone(cur.Packs)
@@ -56,6 +59,7 @@ func Apply(cur *config.Config, next *Pack, lib *Library, o Options) (*config.Con
 	co.TaxCodes = merge3(m, p+".tax_codes", baseCodes, co.TaxCodes, nextCodes, func(t config.TaxCode) string { return t.Code })
 	draft.NumberRanges = merge3(m, "number_ranges", adoptedRanges(base, cur, o), cur.NumberRanges, numberRanges(next, o),
 		func(n config.NumberRange) string { return n.Key() })
+	draft.NumberRanges = issuedStay(m, cur.NumberRanges, draft.NumberRanges)
 	draft.PaymentTerms = merge3(m, "payment_terms", base.Payments.PaymentTerms, cur.PaymentTerms, next.Payments.PaymentTerms,
 		func(t config.PaymentTerm) string { return t.Key })
 	adopt(&draft, next, o)
@@ -166,6 +170,23 @@ func adoptedRanges(base *Pack, cur *config.Config, o Options) []config.NumberRan
 		}
 	}
 	return out
+}
+
+// issuedStay keeps a range the document already has where the merge
+// would change more than raise its last number: numbers issued from it must
+// stay valid, so submission refuses any other change (config §3.5).
+func issuedStay(m *merger, cur, merged []config.NumberRange) []config.NumberRange {
+	had := index(cur, func(n config.NumberRange) string { return n.Key() })
+	for i, n := range merged {
+		old, ok := had[n.Key()]
+		raised := old
+		raised.Last = n.Last
+		if ok && n != old && (n != raised || n.Last < old.Last) {
+			m.note("number_ranges["+n.Key()+"]", "the pack changes more than the upper limit of this range, which issued numbers forbid; kept, the pack has %+v", n)
+			merged[i] = old
+		}
+	}
+	return merged
 }
 
 // field is one account determination setting, merged like a list item.
