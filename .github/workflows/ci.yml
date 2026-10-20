@@ -95,10 +95,11 @@ jobs:
       - name: Free disk for the image build
         run: ./scripts/free-disk.sh
       - name: Signing round trip
-        # One platform on pull requests, to fit the runner's disk; the
-        # weekly run signs and verifies both platforms and their indexes.
+        # One platform, to fit the runner: building both on main had the
+        # runner shut down mid-build on every push (2026-10-20). The weekly
+        # run signs and verifies both platforms and their indexes.
         env:
-          KO_PLATFORMS: ${{ github.event_name == 'pull_request' && 'linux/amd64' || '' }}
+          KO_PLATFORMS: linux/amd64
         run: |
           make signing-roundtrip SIGNING_REGISTRY=localhost:5000/erp
           df -h / | tail -1
