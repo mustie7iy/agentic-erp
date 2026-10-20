@@ -17,6 +17,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -602,11 +603,14 @@ func CreatePartner(ctx context.Context, ports Ports, in NewPartner) (Partner, Ch
 	if err != nil {
 		return Partner{}, Change{}, err
 	}
+	created := map[string]any{"partner_id": id, "number": number, "kind": in.Kind, "name": in.Name, "country_code": in.CountryCode,
+		"roles": bp.Roles, "status": Pending, "partner_change_id": c.ID}
+	if err := ports.extensions().Event(ctx, created, bp.Extensions, bp.ExtensionsSchema); err != nil {
+		return Partner{}, Change{}, err
+	}
 	return bp, c, audit.Record(ctx, "partner.business_partner.create", "partner.business_partner", id,
 		map[string]any{"number": number, "partner_change_id": c.ID, "warnings": len(warns)},
-		event("business_partner_created", id, "partner.business_partner", map[string]any{
-			"partner_id": id, "number": number, "kind": in.Kind, "name": in.Name, "country_code": in.CountryCode, "roles": bp.Roles,
-			"status": Pending, "partner_change_id": c.ID}))
+		event("business_partner_created", id, "partner.business_partner", created))
 }
 
 // checkNewPartner requires a known partner kind and known roles; the
@@ -890,8 +894,9 @@ func pendingChange(ctx context.Context, tx pgx.Tx, id uuid.UUID, action string) 
 }
 
 // ApplyChange applies an approved pending change. The workflow context
-// calls it when the change's approval request is approved (T4).
-func ApplyChange(ctx context.Context, id uuid.UUID) (Change, error) {
+// calls it when the change's approval request is approved (T4); schemas
+// mask the custom fields of the events it publishes (ADR-0046).
+func ApplyChange(ctx context.Context, schemas extensions.Schemas, id uuid.UUID) (Change, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Change{}, err
@@ -913,7 +918,7 @@ func ApplyChange(ctx context.Context, id uuid.UUID) (Change, error) {
 	case KindCreate:
 		events, err = applyCreate(ctx, tx, p, c, bp, day)
 	case KindUpdate:
-		events, err = applyUpdate(ctx, tx, p, c, bp, day)
+		events, err = applyUpdate(ctx, tx, p, c, bp, day, Ports{Schemas: schemas}.extensions())
 	case KindBankChange:
 		events, err = applyBankChange(ctx, tx, p, c, day)
 	default: // unblock; blocks are applied when requested
@@ -997,7 +1002,7 @@ func applyCreate(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, b
 	return events, nil
 }
 
-func applyUpdate(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, bp Partner, day time.Time) ([]outbox.Event, error) {
+func applyUpdate(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, bp Partner, day time.Time, w extensions.Writes) ([]outbox.Event, error) {
 	var pl updatePayload
 	decode(c.Payload, &pl)
 	payload := map[string]any{"partner_id": bp.ID, "partner_change_id": c.ID}
@@ -1053,6 +1058,20 @@ func applyUpdate(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, b
 		fields = append(fields, "tax_identifier."+t.Scheme)
 	}
 	payload["changed_fields"] = fields
+	return updated(ctx, w, bp, pl.ExtensionsSchema, ext, payload)
+}
+
+// updated is BusinessPartnerUpdated: the changed facts, and the partner's
+// custom fields as the update leaves them, masked. The version is the
+// change's, or, for a change requested before T58c, the partner's, as the
+// update keeps it.
+func updated(ctx context.Context, w extensions.Writes, bp Partner, version *int, ext, payload map[string]any) ([]outbox.Event, error) {
+	if version == nil {
+		version = bp.ExtensionsSchema
+	}
+	if err := w.Event(ctx, payload, ext, version); err != nil {
+		return nil, err
+	}
 	return []outbox.Event{event("business_partner_updated", bp.ID, "partner.business_partner", payload)}, nil
 }
 

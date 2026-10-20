@@ -130,7 +130,7 @@ func TestDatabaseFailures(t *testing.T) {
 	}
 	for kind, change := range map[string]map[string]any{"create": create, "update": update, "bank add": bankAdd, "bank end": bankEnd, "unblock": unblock} {
 		calls["apply "+kind] = func(ctx context.Context) error {
-			_, err := partner.ApplyChange(ctx, u(change))
+			_, err := partner.ApplyChange(ctx, configuration.Settings{}, u(change))
 			return err
 		}
 	}

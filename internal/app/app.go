@@ -140,7 +140,7 @@ func New(cfg Config) (http.Handler, error) {
 			Numbers: configuration.Numbers{}, Approvals: opener()},
 		workflowAPI: &approvals.Endpoints{Pages: cfg.Pages, Decider: approvals.Decider{Roles: identity.Directory{}, Handlers: map[string]approvals.Handler{
 			approvals.Requisition:      procurement.Approvals{},
-			approvals.PartnerChange:    partner.Approvals{},
+			approvals.PartnerChange:    partner.Approvals{Schemas: configuration.Settings{}},
 			approvals.ConfigChange:     configuration.Approvals{},
 			approvals.InvoiceException: payables.Approvals{},
 			approvals.PeriodUnlock:     ledger.PeriodUnlocks{},

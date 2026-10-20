@@ -3691,9 +3691,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Events carry extensions and the extensions_schema version, personal and sensitive values masked",
-        "r": "T58e",
+        "r": "extensions.Writes.Event · Compiled.Mask · apitest.NeverPublished · EventExtensions (asyncapi) · TestEventsMaskCustomFields · T58e",
         "c": []
        }
       ]

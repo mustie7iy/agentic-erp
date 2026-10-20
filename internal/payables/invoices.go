@@ -78,10 +78,14 @@ func (e *Endpoints) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, i
 		s := hex.EncodeToString(in.sha)
 		sha = &s
 	}
-	events := []outbox.Event{event(v, "supplier_invoice_captured", map[string]any{"document_number": v.DocumentNumber, "supplier_reference": v.SupplierReference,
+	captured := map[string]any{"document_number": v.DocumentNumber, "supplier_reference": v.SupplierReference,
 		"invoice_date": v.InvoiceDate.Format(time.DateOnly), "gross_amount": money.EventAmount(signed(v, v.Gross), v.Currency, v.Exponent),
 		"tax_amount": money.EventAmount(signed(v, v.Tax), v.Currency, v.Exponent), "purchase_order_id": v.PurchaseOrderID, "source": v.Source,
-		"capture_sha256": sha, "status": v.Status, "kind": v.Kind, "reference_invoice_id": v.ReferenceInvoiceID})}
+		"capture_sha256": sha, "status": v.Status, "kind": v.Kind, "reference_invoice_id": v.ReferenceInvoiceID}
+	if err := e.extensions().Event(ctx, captured, v.Extensions, v.ExtensionsSchema); err != nil {
+		return Invoice{}, err
+	}
+	events := []outbox.Event{event(v, "supplier_invoice_captured", captured)}
 	if v.Status == OnHold {
 		events = append(events, heldEvent(v))
 	}

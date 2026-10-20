@@ -78,17 +78,20 @@ func Document(tb testing.TB) *config.Config {
 }
 
 // Schemas are the custom field schemas of the prototype's configuration:
-// optional strings on each first entity (ADR-0046), version 1.
+// optional strings on each first entity (ADR-0046), version 1. The last
+// key of each is personal or sensitive, so events mask it.
 func Schemas() map[string]extensions.Schema {
-	schema := func(keys ...string) extensions.Schema {
+	schema := func(private string, pii extensions.PII, keys ...string) extensions.Schema {
 		s := extensions.Schema{Version: 1, Type: "object", AdditionalProperties: new(bool), Properties: map[string]extensions.Property{}}
 		for _, k := range keys {
 			s.Properties[k] = extensions.Property{Type: "string", PII: extensions.PIINone}
 		}
+		s.Properties[private] = extensions.Property{Type: "string", PII: pii}
 		return s
 	}
-	return map[string]extensions.Schema{"business_partner": schema("cost_object_hint", "segment", "routing"),
-		"purchase_order": schema("cost_center", "project"), "supplier_invoice": schema("cost_center", "channel")}
+	return map[string]extensions.Schema{"business_partner": schema("routing", extensions.PIISensitive, "cost_object_hint", "segment"),
+		"purchase_order":   schema("project", extensions.PIIPersonal, "cost_center"),
+		"supplier_invoice": schema("channel", extensions.PIIPersonal, "cost_center")}
 }
 
 // rates converts document amounts into their company's currency, as the

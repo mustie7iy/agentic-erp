@@ -83,7 +83,7 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Invoice{}, err
 	}
-	return posted, recordPosted(ctx, posted, entry)
+	return posted, e.recordPosted(ctx, posted, entry)
 }
 
 // posting is the entry an invoice posts, with the payment terms it posts
@@ -130,15 +130,19 @@ func markPosted(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Invoice, e
 }
 
 // recordPosted audits a posted invoice and publishes SupplierInvoicePosted,
-// with its amounts signed by its kind.
-func recordPosted(ctx context.Context, posted Invoice, entry ledger.Entry) error {
+// with its amounts signed by its kind and its custom fields masked.
+func (e *Endpoints) recordPosted(ctx context.Context, posted Invoice, entry ledger.Entry) error {
+	payload := map[string]any{"document_number": posted.DocumentNumber, "supplier_reference": posted.SupplierReference,
+		"invoice_date": posted.InvoiceDate.Format(time.DateOnly), "posting_date": posted.PostingDate.Format(time.DateOnly),
+		"gross_amount": money.EventAmount(signed(posted, posted.Gross), posted.Currency, posted.Exponent),
+		"tax_amount":   money.EventAmount(signed(posted, posted.Tax), posted.Currency, posted.Exponent), "kind": posted.Kind,
+		"purchase_order_id": posted.PurchaseOrderID, "journal_entry_id": entry.ID, "journal_entry_year": entry.FiscalYear, "status": Posted,
+		"payment_terms": termsEvent(posted.Terms)}
+	if err := e.extensions().Event(ctx, payload, posted.Extensions, posted.ExtensionsSchema); err != nil {
+		return err
+	}
 	return record(ctx, "payables.supplier_invoice.post", posted.ID, map[string]any{"journal_entry_id": entry.ID, "document_number": entry.DocumentNumber},
-		event(posted, "supplier_invoice_posted", map[string]any{"document_number": posted.DocumentNumber, "supplier_reference": posted.SupplierReference,
-			"invoice_date": posted.InvoiceDate.Format(time.DateOnly), "posting_date": posted.PostingDate.Format(time.DateOnly),
-			"gross_amount": money.EventAmount(signed(posted, posted.Gross), posted.Currency, posted.Exponent),
-			"tax_amount":   money.EventAmount(signed(posted, posted.Tax), posted.Currency, posted.Exponent), "kind": posted.Kind,
-			"purchase_order_id": posted.PurchaseOrderID, "journal_entry_id": entry.ID, "journal_entry_year": entry.FiscalYear, "status": Posted,
-			"payment_terms": termsEvent(posted.Terms)}))
+		event(posted, "supplier_invoice_posted", payload))
 }
 
 // invoicePosting is the journal entry's header for invoice id of its

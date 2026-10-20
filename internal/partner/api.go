@@ -129,7 +129,7 @@ func (e *Endpoints) CreateBusinessPartner(ctx context.Context, req *gen.Business
 	if err != nil {
 		return nil, err
 	}
-	if _, err := RequestApproval(ctx, e.Approvals, c); err != nil {
+	if _, err := RequestApproval(ctx, e.Approvals, e.Schemas, c); err != nil {
 		return nil, err
 	}
 	if p, err = getPartner(ctx, tx, p.ID, false); err != nil {
@@ -218,7 +218,7 @@ func (e *Endpoints) BlockBusinessPartner(ctx context.Context, req *gen.ReasonInp
 func (e *Endpoints) UnblockBusinessPartner(ctx context.Context, req *gen.ReasonInput, params gen.UnblockBusinessPartnerParams) (gen.UnblockBusinessPartnerRes, error) {
 	c, err := Unblock(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
 	if err == nil {
-		c, err = RequestApproval(ctx, e.Approvals, c)
+		c, err = RequestApproval(ctx, e.Approvals, e.Schemas, c)
 	}
 	if err != nil {
 		return nil, err
@@ -237,7 +237,7 @@ func (e *Endpoints) CreatePartnerChange(ctx context.Context, req *gen.PartnerCha
 		Extensions: apitypes.DecodeObject(pl.Extensions.Or(nil))}
 	c, err := RequestUpdate(ctx, e.ports(), req.PartnerID, ch, req.Reason)
 	if err == nil {
-		c, err = RequestApproval(ctx, e.Approvals, c)
+		c, err = RequestApproval(ctx, e.Approvals, e.Schemas, c)
 	}
 	if err != nil {
 		return nil, err
@@ -292,7 +292,7 @@ func (e *Endpoints) RequestBankAccountChange(ctx context.Context, req *gen.BankC
 		AccountScheme: req.AccountScheme, BIC: apitypes.Ptr[string](req.Bic), BankCountryCode: req.BankCountryCode, HolderName: req.HolderName,
 		ValidFrom: req.ValidFrom}, req.Reason)
 	if err == nil {
-		c, err = RequestApproval(ctx, e.Approvals, c)
+		c, err = RequestApproval(ctx, e.Approvals, e.Schemas, c)
 	}
 	if err != nil {
 		return nil, err
@@ -305,7 +305,7 @@ func (e *Endpoints) RequestBankAccountEnd(ctx context.Context, req *gen.BankAcco
 	c, err := RequestBankAccountEnd(ctx, params.ID, params.BankAccountID, func(b BankAccount) error { return etag.Match(params.IfMatch, bankTag(b)) },
 		req.ValidTo, req.Reason)
 	if err == nil {
-		c, err = RequestApproval(ctx, e.Approvals, c)
+		c, err = RequestApproval(ctx, e.Approvals, e.Schemas, c)
 	}
 	if err != nil {
 		return nil, err

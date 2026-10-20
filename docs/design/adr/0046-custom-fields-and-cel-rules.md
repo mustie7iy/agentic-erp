@@ -79,7 +79,18 @@ needs.
   per offending key (`extensions.<key>`).
 - **Events.** Events of an extensible entity carry its `extensions` and
   the `extensions_schema` version they were written under, with personal
-  and sensitive values masked.
+  and sensitive values masked. They are BusinessPartnerCreated and
+  BusinessPartnerUpdated, PurchaseOrderReleased and PurchaseOrderChanged,
+  SupplierInvoiceCaptured and SupplierInvoicePosted: the events that carry
+  the entity's facts; the others name it by id. Masking reads the active
+  schema and shows only fields it declares `x-pii: none`; every other
+  value, a key the schema does not declare included (written before it, or
+  under an older version), is the string `[MASKED]`, so a value is never
+  shown unless the schema classifies it as public. The fields are optional
+  in the contract, an additive change. Webhooks (T50) deliver these events
+  and so inherit the masking; they must never read the row's extensions
+  in its place. Logs and traces carry no event payloads or extensions, and
+  a refusal's messages repeat no value.
 - **Not yet.** Custom fields do not join the analytics extraction (T55)
   now; that is a later step, and personal and sensitive fields never will.
 

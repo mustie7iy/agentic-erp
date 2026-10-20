@@ -42,19 +42,22 @@ type PurchaseOrder struct {
 	// release, one more for each change applied.
 	Revision   int32
 	Extensions map[string]any
-	Items      []Item
-	Version    int32
-	CreatedAt  time.Time
-	CreatedBy  uuid.UUID
-	UpdatedAt  time.Time
-	UpdatedBy  uuid.UUID
+	// The custom field schema version the extensions were written under
+	// (ADR-0046), or nil.
+	ExtensionsSchema *int
+	Items            []Item
+	Version          int32
+	CreatedAt        time.Time
+	CreatedBy        uuid.UUID
+	UpdatedAt        time.Time
+	UpdatedBy        uuid.UUID
 }
 
 // Total is the value of the live items.
 func (o PurchaseOrder) Total() money.Minor { return total(o.Items) }
 
 const orderSelect = `SELECT o.id, o.document_number, o.legal_entity_id, o.purchasing_org_id, o.supplier_id, o.currency, c.exponent, o.order_date,
-		o.payment_term_code, o.requisition_id, o.contract_id, o.status, o.valuation, o.release_request_id, o.revision, o.extensions, o.version, o.created_at, o.created_by, o.updated_at, o.updated_by,
+		o.payment_term_code, o.requisition_id, o.contract_id, o.status, o.valuation, o.release_request_id, o.revision, o.extensions, o.extensions_schema, o.version, o.created_at, o.created_by, o.updated_at, o.updated_by,
 		coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'material_id', i.material_id, 'description', i.description,
 			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code, 'unit_price', i.unit_price, 'price_unit', i.price_unit,
 			'account_id', i.account_id, 'over_delivery_pct', trim_scale(i.over_delivery_pct)::text, 'tax_code', i.tax_code,
@@ -67,7 +70,7 @@ const orderSelect = `SELECT o.id, o.document_number, o.legal_entity_id, o.purcha
 func scanOrder(row pgx.Row) (PurchaseOrder, error) {
 	var o PurchaseOrder
 	if err := row.Scan(&o.ID, &o.DocumentNumber, &o.LegalEntityID, &o.PurchasingOrgID, &o.SupplierID, &o.Currency, &o.Exponent, &o.OrderDate,
-		&o.PaymentTermCode, &o.RequisitionID, &o.ContractID, &o.Status, &o.Valuation, &o.ReleaseRequestID, &o.Revision, &o.Extensions, &o.Version, &o.CreatedAt, &o.CreatedBy, &o.UpdatedAt,
+		&o.PaymentTermCode, &o.RequisitionID, &o.ContractID, &o.Status, &o.Valuation, &o.ReleaseRequestID, &o.Revision, &o.Extensions, &o.ExtensionsSchema, &o.Version, &o.CreatedAt, &o.CreatedBy, &o.UpdatedAt,
 		&o.UpdatedBy, &o.Items); err != nil {
 		return PurchaseOrder{}, fmt.Errorf("scan purchase order: %w", err)
 	}
@@ -646,11 +649,15 @@ func (e *Endpoints) release(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
+	payload := orderEvent(o, map[string]any{"purchasing_org_id": o.PurchasingOrgID,
+		"order_date": o.OrderDate.Format(time.DateOnly), "payment_term_code": o.PaymentTermCode, "requisition_id": o.RequisitionID,
+		"contract_id": o.ContractID, "valuation": valuation, "total_amount": money.EventAmount(value, o.Currency, o.Exponent),
+		"items": releasedItems(o)})
+	if err := e.extensions().Event(ctx, payload, o.Extensions, o.ExtensionsSchema); err != nil {
+		return PurchaseOrder{}, err
+	}
 	return released, audit.Record(ctx, "procurement.purchase_order.release", "procurement.purchase_order", o.ID, map[string]any{"value": value},
-		event("purchase_order_released", "purchase_order", o.ID, orderEvent(o, map[string]any{"purchasing_org_id": o.PurchasingOrgID,
-			"order_date": o.OrderDate.Format(time.DateOnly), "payment_term_code": o.PaymentTermCode, "requisition_id": o.RequisitionID,
-			"contract_id": o.ContractID, "valuation": valuation, "total_amount": money.EventAmount(value, o.Currency, o.Exponent),
-			"items": releasedItems(o)})))
+		event("purchase_order_released", "purchase_order", o.ID, payload))
 }
 
 // consumeContract records the release's consumption of the order's

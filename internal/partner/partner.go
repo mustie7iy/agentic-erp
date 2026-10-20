@@ -181,6 +181,7 @@ type Partner struct {
 	Language          *string
 	Status            string
 	Extensions        map[string]any
+	ExtensionsSchema  *int // the custom field schema version the extensions were written under (ADR-0046)
 	Roles             []string
 	SupplierCompanies []SupplierCompany
 	Addresses         []Address
@@ -192,7 +193,7 @@ type Partner struct {
 	UpdatedBy         uuid.UUID
 }
 
-const partnerSelect = `SELECT p.id, p.number, p.kind, p.name, p.legal_name, p.country_code, p.language, p.status, p.extensions,
+const partnerSelect = `SELECT p.id, p.number, p.kind, p.name, p.legal_name, p.country_code, p.language, p.status, p.extensions, p.extensions_schema,
 		p.version, p.created_at, p.created_by, p.updated_at, p.updated_by,
 		coalesce((SELECT array_agg(r.role ORDER BY r.role) FROM partner.partner_role r WHERE r.tenant_id = p.tenant_id AND r.partner_id = p.id), '{}'),
 		coalesce((SELECT json_agg(json_build_object('legal_entity_id', s.legal_entity_id, 'reconciliation_account_id', s.reconciliation_account_id,
@@ -209,7 +210,7 @@ const partnerSelect = `SELECT p.id, p.number, p.kind, p.name, p.legal_name, p.co
 
 func scanPartner(row pgx.Row) (Partner, error) {
 	var p Partner
-	err := row.Scan(&p.ID, &p.Number, &p.Kind, &p.Name, &p.LegalName, &p.CountryCode, &p.Language, &p.Status, &p.Extensions,
+	err := row.Scan(&p.ID, &p.Number, &p.Kind, &p.Name, &p.LegalName, &p.CountryCode, &p.Language, &p.Status, &p.Extensions, &p.ExtensionsSchema,
 		&p.Version, &p.CreatedAt, &p.CreatedBy, &p.UpdatedAt, &p.UpdatedBy, &p.Roles, &p.SupplierCompanies, &p.Addresses, &p.TaxIdentifiers)
 	return p, errs.Wrapf(err, "scan business partner")
 }
