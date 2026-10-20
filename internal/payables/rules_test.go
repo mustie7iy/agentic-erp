@@ -4,11 +4,13 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
@@ -52,6 +54,32 @@ func TestRulesSeeThePostingDateOfThePost(t *testing.T) {
 	posted, _ := e.Must(200, "POST", path, `{"posting_date": "2026-03-21"}`, tag)
 	if posted["status"] != "posted" {
 		t.Errorf("status: got %v, want posted", posted["status"])
+	}
+}
+
+// TestRuleSamplesHistorical: a simulation's sample marks an invoice no
+// write reaches any more (here a posted one) historical, and a parked one
+// not: only the latter's next write is judged by the rules.
+func TestRuleSamplesHistorical(t *testing.T) {
+	e := setup(t)
+	parked, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "OPEN", "100.00", "0.00", accountItem(e.expense, "100.00")), "")
+	done, tag := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "DONE", "100.00", "0.00", accountItem(e.expense, "100.00")), "")
+	e.Must(200, "POST", "/v1/supplier-invoices/"+id(done)+":post", `{"posting_date": "2026-03-21"}`, tag)
+	var got []rules.Sample
+	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
+		got, err = payables.RuleSamples{}.Sample(ctx, time.Time{}, 10)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{id(parked): false, id(done): true}
+	if len(got) != len(want) {
+		t.Fatalf("samples: got %d, want %d", len(got), len(want))
+	}
+	for _, sm := range got {
+		if h, ok := want[sm.ID.String()]; !ok || sm.Historical != h {
+			t.Errorf("sample %s: got historical %t, want %t (known %t)", sm.Reference, sm.Historical, h, ok)
+		}
 	}
 }
 
@@ -156,6 +184,32 @@ func TestCaptureHeldByRule(t *testing.T) {
 			refusedBy(t, e.Problem(422, "request.rule_refused", "POST", path+":post", "", tag), "gross_limit", "Invoices above 1000.00 need a contract.")
 		})
 	}
+}
+
+// A captured invoice whose rule cannot be evaluated is held naming the
+// rule, audited, rather than refused: a captured document is never lost.
+// Other writes keep the 422 request.rule_unevaluable.
+func TestCaptureHeldByUnevaluableRule(t *testing.T) {
+	e := setup(t)
+	e.order(t, e.Supplier, "PO-1")
+	// Divides by zero on the captured invoice's 157.80 only.
+	version := fixture.ActivateRules(t, e.Tenant.ID, "supplier_invoice", map[string]rules.Rule{"odd": {
+		Expression: `100 / (row.gross_amount.minor - 15780) >= 0`, Message: "Odd.",
+		Cases: []rules.Case{{Row: row("1000.00"), Valid: true}, {Row: row("157.79"), Valid: false}}}})
+	path := captured(t, e, false, "unevaluable")
+	held, _ := e.Must(200, "GET", path, "", "")
+	if held["status"] != "on_hold" {
+		t.Errorf("status: got %v, want on_hold", held["status"])
+	}
+	if want := "Rule odd cannot be evaluated on it: the rule fails to evaluate on this input; have the rule corrected."; held["hold_reason"] != want {
+		t.Errorf("hold reason: got %v, want %q", held["hold_reason"], want)
+	}
+	got := fixture.RuleAudits(t, e.Tenant.ID, "payables.supplier_invoice.create")
+	if len(got) != 1 {
+		t.Fatalf("audit records: got %v, want one", got)
+	}
+	invID := uuid.MustParse(strings.TrimPrefix(path, "/v1/supplier-invoices/"))
+	fixture.WantRuleAudit(t, got[0], fixture.RuleAudit{ObjectType: "payables.supplier_invoice", Outcome: "held", Rule: "odd", ObjectID: &invID, ConfigVersion: version})
 }
 
 // captureLimit is gross_limit at 100.00, below the captured invoice's

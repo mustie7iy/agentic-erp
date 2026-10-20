@@ -150,7 +150,7 @@ func (RuleSamples) Sample(ctx context.Context, since time.Time, limit int) ([]ru
 		return nil, fmt.Errorf("partner: sample business partners for rules: %w", err)
 	}
 	out := make([]rules.Sample, len(ps))
-	for i, bp := range ps {
+	for i, bp := range ps { // a partner of any status can be changed: none is historical
 		out[i] = rules.Sample{ID: bp.ID, Reference: bp.Number, Row: ruleRow(bp), Extensions: bp.Extensions}
 	}
 	return out, nil

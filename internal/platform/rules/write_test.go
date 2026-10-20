@@ -97,9 +97,10 @@ func TestWritesHold(t *testing.T) {
 }
 
 // TestWritesUnevaluable: a rule that fails on a real input (here an index
-// its cases never miss) refuses the write, held or not, with 422
-// request.rule_unevaluable naming the rule, never a pass and never a 500,
-// and is counted and logged for operations.
+// its cases never miss) refuses the write with 422 request.rule_unevaluable
+// naming the rule, never a pass and never a 500; a write that lands held
+// is held naming the rule instead, audited. Both are counted and logged
+// for operations.
 func TestWritesUnevaluable(t *testing.T) {
 	roles := func(r ...any) map[string]any { p := partner("DE"); p["roles"] = r; return p }
 	a := Active{ConfigVersion: 9, Rules: map[string]Rule{"second_role": {Expression: `row.roles[1] != "x"`, Message: "m",
@@ -111,26 +112,35 @@ func TestWritesUnevaluable(t *testing.T) {
 	w := Writes{Entity: "business_partner", Source: source{a: a}}
 	before := unevaluableCount(t)
 	ctx, buf := inRequest(t)
-	_, held := w.Hold(ctx, write("DE"))
-	for name, err := range map[string]error{"check": w.Check(ctx, write("DE")), "hold": held} {
-		t.Run(name, func(t *testing.T) {
-			var p *problem.Problem
-			if !errors.As(err, &p) || p.Status != 422 || p.Code != "request.rule_unevaluable" {
-				t.Fatalf("got %v, want 422 request.rule_unevaluable", err)
-			}
-			if len(p.Errors) != 1 || p.Errors[0].Field != "rules.second_role" {
-				t.Errorf("field errors: got %v, want one on rules.second_role", p.Errors)
-			}
-		})
-	}
+	t.Run("check", func(t *testing.T) {
+		var p *problem.Problem
+		if err := w.Check(ctx, write("DE")); !errors.As(err, &p) || p.Status != 422 || p.Code != "request.rule_unevaluable" {
+			t.Fatalf("got %v, want 422 request.rule_unevaluable", err)
+		}
+		if len(p.Errors) != 1 || p.Errors[0].Field != "rules.second_role" {
+			t.Errorf("field errors: got %v, want one on rules.second_role", p.Errors)
+		}
+		if buf.Len() != 0 {
+			t.Errorf("audit: got %d entries, want none", buf.Len())
+		}
+	})
+	t.Run("hold", func(t *testing.T) {
+		reason, err := w.Hold(ctx, write("DE"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := "Rule second_role cannot be evaluated on it: the rule fails to evaluate on this input; have the rule corrected."; reason != want {
+			t.Errorf("reason: got %q, want %q", reason, want)
+		}
+		if buf.Len() != 1 {
+			t.Errorf("audit of the hold: got %d entries, want 1", buf.Len())
+		}
+	})
 	if got := unevaluableCount(t) - before; got != 2 {
 		t.Errorf("counted: got %v, want 2", got)
 	}
 	if !strings.Contains(logs.String(), "rule=second_role") || !strings.Contains(logs.String(), "config_version=9") {
 		t.Errorf("log: got %q, want the rule and the configuration version", logs.String())
-	}
-	if buf.Len() != 0 {
-		t.Errorf("audit: got %d entries, want none", buf.Len())
 	}
 }
 

@@ -92,7 +92,7 @@ func replaySummary(r rules.Replay) string {
 	for _, x := range r.Rules {
 		refused, passing, failing = refused+x.NewlyRefused, passing+x.NewlyPassing, failing+x.Unevaluable
 	}
-	s := fmt.Sprintf("Rules on %s, %d recent rows: %d newly refused, %d newly passing.", r.Entity, r.Rows, refused, passing)
+	s := fmt.Sprintf("Rules on %s, %d recent rows: %d newly refused, %d newly passing, %d historical, unaffected.", r.Entity, r.Rows, refused, passing, r.Historical)
 	if failing > 0 {
 		s += fmt.Sprintf(" %d evaluations failed or exceeded a limit: the rules cannot activate.", failing)
 	}
@@ -106,12 +106,13 @@ func proposalHash(proposed json.RawMessage) string {
 	return hex.EncodeToString(h[:])
 }
 
-// requireRulesSimulated refuses to activate a change of rules without a
-// passed simulation of this exact proposal (ADR-0046, T58h). A change
-// request's proposal is fixed once submitted, so this holds by its
+// requireRulesSimulated refuses to activate a change of what rules read,
+// their own items or the custom field schema of an entity they judge,
+// without a passed simulation of this exact proposal (ADR-0046, T58h). A
+// change request's proposal is fixed once submitted, so this holds by its
 // lifecycle; checking it here keeps it so should the lifecycle change.
-func requireRulesSimulated(c ChangeRequest) error {
-	if !slices.ContainsFunc(c.Items, func(i Item) bool { return strings.HasPrefix(i.Path, "rules.") }) {
+func requireRulesSimulated(c ChangeRequest, proposed *config.Config) error {
+	if !slices.ContainsFunc(c.Items, func(i Item) bool { return readByRules(i.Path, proposed) }) {
 		return nil
 	}
 	want := proposalHash(c.Proposed)
@@ -125,5 +126,17 @@ func requireRulesSimulated(c ChangeRequest) error {
 		}
 	}
 	return problem.Conflict("config.rules_not_simulated",
-		"The change adds or changes validation rules and has no passed simulation of this proposal; simulate it before it activates.")
+		"The change adds or changes validation rules, or the custom fields they read, and has no passed simulation of this proposal; simulate it before it activates.")
+}
+
+// readByRules reports whether a change item is a rule, or a custom field
+// schema item of an entity the proposal's rules judge. Removing an
+// entity's rules is a rules item itself.
+func readByRules(path string, proposed *config.Config) bool {
+	if strings.HasPrefix(path, "rules.") {
+		return true
+	}
+	entity, ok := strings.CutPrefix(path, "extensions.")
+	entity, _, _ = strings.Cut(entity, ".")
+	return ok && proposed.ReadByRules(entity)
 }

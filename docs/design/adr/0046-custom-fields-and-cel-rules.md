@@ -50,7 +50,9 @@ needs.
   more enum values, a wider integer range) and changing titles and
   descriptions are tier 1. Adding a required field, making a field
   required, narrowing or retyping a field, removing a field, and any change
-  of `x-pii` are tier 2.
+  of `x-pii` are tier 2. Any change of the schema of an entity that has
+  validation rules, in the base or the proposal, is tier 3, as the rules
+  are: it changes what they refuse (T58h).
 - **Indexes.** Only by a governed platform operation: an expression index,
   built concurrently per partition. Never from a configuration change.
 - **Which schema.** A write validates against the schema of the
@@ -142,10 +144,14 @@ needs.
   worker) on the entity's recent rows: those changed in the last 30 days,
   newest first, at most 200 per entity, so the evaluations do not grow
   with the tenant's history (the read of the sample does, until
-  `updated_at` is indexed; it runs in the simulation worker, not on a
-  request). Each context that owns an entity reads them
-  (`rules.Sampler`) as its writes present them to the rules. Every row is
-  judged by the active and the proposed rules, each rule on its own; the
+  `updated_at` is indexed, T58j; it runs in the simulation worker, not on
+  a request). Each context that owns an entity reads them
+  (`rules.Sampler`) as its writes present them to the rules, and marks a
+  row no write reaches any more historical (a posted, rejected, cancelled
+  or reversed invoice, a closed or cancelled order; a partner never is):
+  it is counted apart as unaffected and not judged, since no write of it
+  remains for a rule to refuse (coordinator, 2026-10-20). Every other row
+  is judged by the active and the proposed rules, each rule on its own; the
   evidence (`detail.rules`) lists per rule the rows it would newly refuse
   and newly pass, with counts and up to 20 examples each, named by id and
   number with their custom fields masked per `x-pii` (header fields are
@@ -158,7 +164,11 @@ needs.
   evidence carries the SHA-256 of the proposal it judged, and activation
   refuses a rules change (409 `config.rules_not_simulated`) without a
   passed simulation of that exact proposal: a proposal is fixed once
-  submitted, and the check keeps it so should that change. Agents may
+  submitted, and the check keeps it so should that change. The hash is of
+  the whole proposal, so it covers every item a proposed rule reads: the
+  rules and the custom field schema of the entities they judge. A change
+  of only that schema is a rules change too: tier 3, simulated, and held
+  to the same check at activation (coordinator, 2026-10-20). Agents may
   propose and simulate (`x-autonomy: propose`) but never approve or
   activate (`x-agent: false`).
 - **On write (T58g).** Every create, update and change request of the
@@ -174,8 +184,10 @@ needs.
   since its rules may read the field. A rule that fails on a real input,
   or exceeds its cost or its time, fails the write closed: 422
   `request.rule_unevaluable` with a field error `rules.<name>` naming the
-  rule (a captured invoice alike), never a pass and not a 500, since the
-  rule, not the system, must be fixed; each one is logged with the tenant,
+  rule, never a pass and not a 500, since the rule, not the system, must
+  be fixed. A captured invoice is held instead, the hold reason naming the
+  rule and audited `held` with the kind of failure: a captured document is
+  never lost (coordinator, 2026-10-20); each one is logged with the tenant,
   rule and configuration version and counted in
   `erp_rules_unevaluable_total` by entity, so operations see it
   (coordinator, 2026-10-20). At posting, an invoice's rules read the

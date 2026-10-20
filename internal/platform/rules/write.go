@@ -62,6 +62,9 @@ type Write struct {
 // rolls back; the audit is kept (audit.Refuse).
 func (w Writes) Check(ctx context.Context, wr Write) error {
 	vs, version, err := w.violations(ctx, wr)
+	if u := (*UnevaluableError)(nil); errors.As(err, &u) {
+		return unevaluableProblem(u)
+	}
 	if err != nil || len(vs) == 0 {
 		return err
 	}
@@ -78,9 +81,15 @@ func (w Writes) Check(ctx context.Context, wr Write) error {
 // Hold evaluates the rules on a write that lands held rather than refused,
 // such as a captured document a person completes later. It returns the
 // hold reason naming the refusing rules, "" when none refuses, and audits
-// each refusal as held, in the write's transaction.
+// each refusal as held, in the write's transaction. A rule that cannot be
+// evaluated holds the write too, naming the rule, rather than refuse it:
+// a captured document is never lost (coordinator, 2026-10-20); it is
+// logged and counted as on any write.
 func (w Writes) Hold(ctx context.Context, wr Write) (string, error) {
 	vs, version, err := w.violations(ctx, wr)
+	if u := (*UnevaluableError)(nil); errors.As(err, &u) {
+		vs, err = []Violation{{Rule: u.Rule, Message: "the rule " + failure(u.Err) + "; have the rule corrected", failure: failure(u.Err)}}, nil
+	}
 	if err != nil || len(vs) == 0 {
 		return "", err
 	}
@@ -89,15 +98,23 @@ func (w Writes) Hold(ctx context.Context, wr Write) (string, error) {
 	}
 	reasons := make([]string, len(vs))
 	for i, v := range vs {
-		reasons[i] = fmt.Sprintf("Rule %s refuses it: %s", v.Rule, strings.TrimSuffix(v.Message, "."))
+		verb := "refuses it"
+		if v.failure != "" {
+			verb = "cannot be evaluated on it"
+		}
+		reasons[i] = fmt.Sprintf("Rule %s %s: %s", v.Rule, verb, strings.TrimSuffix(v.Message, "."))
 	}
 	return strings.Join(reasons, ". ") + ".", nil
 }
 
 func record(ctx context.Context, add func(context.Context, audit.Entry) error, wr Write, outcome string, vs []Violation, version int32) error {
 	for _, v := range vs {
+		detail := map[string]any{"source": "rule", "rule": v.Rule, "config_version": version}
+		if v.failure != "" {
+			detail["failure"] = v.failure
+		}
 		if err := add(ctx, audit.Entry{Action: wr.Action, ObjectType: cmp.Or(wr.ObjectType, audit.ObjectTypeOf(wr.Action)), ObjectID: wr.ID, Outcome: outcome,
-			Detail: map[string]any{"source": "rule", "rule": v.Rule, "config_version": version}}); err != nil {
+			Detail: detail}); err != nil {
 			return fmt.Errorf("rules: audit %s refused by %s: %w", wr.Action, v.Rule, err)
 		}
 	}
@@ -105,7 +122,8 @@ func record(ctx context.Context, add func(context.Context, audit.Entry) error, w
 }
 
 // violations returns the rules that refuse the write and the version of
-// the configuration that holds them.
+// the configuration that holds them; a rule that cannot be evaluated is an
+// *UnevaluableError, logged and counted here, with the version.
 func (w Writes) violations(ctx context.Context, wr Write) ([]Violation, int32, error) {
 	if w.Source == nil { // fails closed: wiring that forgot the reader must not skip the rules
 		return nil, 0, fmt.Errorf("rules: no rule reader for %s", w.Entity)
@@ -127,7 +145,8 @@ func (w Writes) violations(ctx context.Context, wr Write) ([]Violation, int32, e
 	}
 	vs, err := s.Check(ctx, wr.Row, wr.Extensions)
 	if u := (*UnevaluableError)(nil); errors.As(err, &u) {
-		return nil, 0, unevaluable(ctx, p.TenantID, a.ConfigVersion, u)
+		unevaluable(ctx, p.TenantID, a.ConfigVersion, u)
+		return nil, a.ConfigVersion, u
 	}
 	if err != nil {
 		return nil, 0, fmt.Errorf("rules: configuration version %d: %w", a.ConfigVersion, err)
@@ -135,22 +154,26 @@ func (w Writes) violations(ctx context.Context, wr Write) ([]Violation, int32, e
 	return vs, a.ConfigVersion, nil
 }
 
-// Unevaluable counts the writes refused because a rule could not be
-// evaluated, by entity; the process registers it with its metrics. The
+// Unevaluable counts the writes refused or held because a rule could not
+// be evaluated, by entity; the process registers it with its metrics. The
 // rule and the tenant are in the log line, not labels, so the series stay
 // few however many rules tenants write.
 var Unevaluable = prometheus.NewCounterVec(prometheus.CounterOpts{
-	Name: "erp_rules_unevaluable_total", Help: "Writes refused because a tenant's validation rule could not be evaluated, by entity.",
+	Name: "erp_rules_unevaluable_total", Help: "Writes refused or held because a tenant's validation rule could not be evaluated, by entity.",
 }, []string{"entity"})
 
-// unevaluable fails a write closed on a rule that failed or exceeded a
-// limit on its input (ADR-0046): neither a pass nor a 500, but 422
-// request.rule_unevaluable naming the rule, so the caller knows which rule
-// to have fixed; it is logged and counted so that operations see it.
-func unevaluable(ctx context.Context, tenant uuid.UUID, version int32, u *UnevaluableError) error {
+// unevaluable logs and counts a rule that failed or exceeded a limit on a
+// write's input (ADR-0046), so that operations see it.
+func unevaluable(ctx context.Context, tenant uuid.UUID, version int32, u *UnevaluableError) {
 	Unevaluable.WithLabelValues(u.Entity).Inc()
-	slog.WarnContext(ctx, "a validation rule could not be evaluated; the write is refused", "tenant_id", tenant,
+	slog.WarnContext(ctx, "a validation rule could not be evaluated on a write", "tenant_id", tenant,
 		"entity", u.Entity, "rule", u.Rule, "config_version", version, "failure", failure(u.Err))
+}
+
+// unevaluableProblem fails a write closed on a rule that cannot be
+// evaluated: neither a pass nor a 500, but 422 request.rule_unevaluable
+// naming the rule, so the caller knows which rule to have fixed.
+func unevaluableProblem(u *UnevaluableError) error {
 	return problem.Unprocessable("request.rule_unevaluable", "A validation rule of the tenant cannot be evaluated on the write.",
 		problem.FieldError{Field: "rules." + u.Rule, Code: "rule_unevaluable", Message: "The rule " + failure(u.Err) + "; have the rule corrected."})
 }

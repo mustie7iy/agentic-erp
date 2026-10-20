@@ -31,20 +31,23 @@ func countryRule(refused string) Rule {
 // TestSimulate: per rule, the rows the proposal newly refuses and newly
 // passes, with personal custom fields masked; a rule whose outcome does
 // not change is not listed; a proposed rule that fails on a row fails the
-// replay, a base rule that fails does not.
+// replay, a base rule that fails does not. A historical row is counted
+// apart, as unaffected, and not judged.
 func TestSimulate(t *testing.T) {
 	failing := Rule{Expression: `row.roles[1] != "x"`, Message: "m",
 		Cases: []Case{{Row: map[string]any{"kind": "k", "name": "n", "country_code": "DE", "roles": []any{"a", "b"}}, Valid: true},
 			{Row: map[string]any{"kind": "k", "name": "n", "country_code": "DE", "roles": []any{"a", "x"}}, Valid: false}}}
 	base := Active{ConfigVersion: 4, Schema: simSchema(), Rules: map[string]Rule{"same": countryRule("IT"), "changed": countryRule("FR"), "broken": failing}}
 	proposed := Active{Schema: simSchema(), Rules: map[string]Rule{"same": countryRule("IT"), "changed": countryRule("DE")}}
-	samples := []Sample{sample(1, "DE"), sample(2, "FR"), sample(3, "IT")}
+	done := sample(4, "DE") // historical: neither refused nor failed, only counted
+	done.Historical = true
+	samples := []Sample{sample(1, "DE"), sample(2, "FR"), sample(3, "IT"), done}
 	got, err := Simulate(context.Background(), "business_partner", base, proposed, samples)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.Passed || got.Rows != 3 || got.Entity != "business_partner" {
-		t.Errorf("replay: got passed %t, rows %d, entity %s, want true, 3, business_partner", got.Passed, got.Rows, got.Entity)
+	if !got.Passed || got.Rows != 4 || got.Historical != 1 || got.Entity != "business_partner" {
+		t.Errorf("replay: got passed %t, rows %d, historical %d, entity %s, want true, 4, 1, business_partner", got.Passed, got.Rows, got.Historical, got.Entity)
 	}
 	if len(got.Rules) != 1 {
 		t.Fatalf("rules listed: got %+v, want only changed", got.Rules)

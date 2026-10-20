@@ -127,7 +127,8 @@ func (RuleSamples) Sample(ctx context.Context, since time.Time, limit int) ([]ru
 	}
 	out := make([]rules.Sample, len(os))
 	for i, o := range os {
-		out[i] = rules.Sample{ID: o.ID, Reference: o.DocumentNumber, Row: ruleRow(o), Extensions: o.Extensions}
+		historical := o.Status == Closed || o.Status == Cancelled // no update or change request reaches it
+		out[i] = rules.Sample{ID: o.ID, Reference: o.DocumentNumber, Row: ruleRow(o), Extensions: o.Extensions, Historical: historical}
 	}
 	return out, nil
 }

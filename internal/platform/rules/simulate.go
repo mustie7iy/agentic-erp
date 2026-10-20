@@ -27,11 +27,14 @@ const (
 // Sample is a stored row of an entity as its rules read it: its header
 // fields in the inputs' shapes and its custom fields, with the id and the
 // reference (document or partner number) a report names it by.
+// Historical is a row no write can change any more (a posted or cancelled
+// invoice, a closed order): rules never judge it again.
 type Sample struct {
 	ID         uuid.UUID
 	Reference  string
 	Row        map[string]any
 	Extensions map[string]any
+	Historical bool
 }
 
 // Sampler reads an entity's recent rows for a simulation, in the
@@ -51,7 +54,9 @@ type Sampler interface {
 // A row whose stored custom fields the proposed schema does not accept
 // (a key written before T58c, a value of a narrowed field) is skipped:
 // its next write is refused by the custom field check before any rule
-// reads it. Skipped counts them, with examples.
+// reads it. Skipped counts them, with examples. A historical row is not
+// replayed: no write of it remains for a rule to refuse or let pass, so
+// Historical only counts it, as unaffected (coordinator, 2026-10-20).
 type Replay struct {
 	Entity      string       `json:"entity"`
 	Rows        int          `json:"rows"`
@@ -59,6 +64,7 @@ type Replay struct {
 	Rules       []RuleReplay `json:"rules"`
 	Skipped     int          `json:"skipped"`
 	SkippedRows []SampleRef  `json:"skipped_rows,omitempty"`
+	Historical  int          `json:"historical"`
 }
 
 // RuleReplay is one rule's outcome on the sample; only rules whose outcome
@@ -110,6 +116,10 @@ func Simulate(ctx context.Context, entity string, base, proposed Active, samples
 	}
 	out := Replay{Entity: entity, Rows: len(samples), Passed: true, Rules: []RuleReplay{}}
 	for _, sm := range samples {
+		if sm.Historical {
+			out.Historical++
+			continue
+		}
 		ref := SampleRef{ID: sm.ID, Reference: sm.Reference, Extensions: mask(schema, sm.Extensions)}
 		is, err := after.verdicts(ctx, sm)
 		if err != nil {

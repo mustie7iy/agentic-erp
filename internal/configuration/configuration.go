@@ -538,9 +538,6 @@ func ActivateChangeRequest(ctx context.Context, deps Dependencies, id uuid.UUID,
 	if err := requireStatus(c, "activate", Approved); err != nil {
 		return ChangeRequest{}, err
 	}
-	if err := requireRulesSimulated(c); err != nil {
-		return ChangeRequest{}, err
-	}
 	current, err := activeVersion(ctx, tx)
 	if err != nil {
 		return ChangeRequest{}, err
@@ -553,6 +550,9 @@ func ActivateChangeRequest(ctx context.Context, deps Dependencies, id uuid.UUID,
 	// does not know refuses the activation, which would drop it.
 	doc, err := storedProposal(c.Proposed)
 	if err != nil {
+		return ChangeRequest{}, err
+	}
+	if err := requireRulesSimulated(c, doc); err != nil {
 		return ChangeRequest{}, err
 	}
 	v, err := activate(ctx, tx, deps, actor, doc, &current, "change_request", &id)

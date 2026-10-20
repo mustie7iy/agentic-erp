@@ -1,12 +1,14 @@
 package config
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 )
 
 const withExtensions = `
@@ -181,6 +183,45 @@ func TestExtensionTiers(t *testing.T) {
 			got := changeAt(changes, c.path)
 			if got == nil {
 				t.Fatalf("got changes %v, want one at %s", changes, c.path)
+			}
+			if got.Tier != c.tier {
+				t.Errorf("got %v, want %v", got.Tier, c.tier)
+			}
+		})
+	}
+}
+
+// A change of an entity's custom fields that its rules read is tier 3,
+// like a change of the rules: it changes what they refuse. Rules on
+// either side count, and another entity's rules do not.
+func TestExtensionTiersReadByRules(t *testing.T) {
+	ruled := map[string]rules.Rule{"r": {Expression: "true"}}
+	for name, c := range map[string]struct {
+		entity    string
+		base, new bool // the entity has rules in the base, in the proposal
+		tier      Tier
+	}{
+		"rules in both":     {"supplier_invoice", true, true, TierPostingRelated},
+		"rules in the base": {"supplier_invoice", true, false, TierPostingRelated},
+		"rules proposed":    {"supplier_invoice", false, true, TierPostingRelated},
+		"another's rules":   {"purchase_order", true, true, TierCosmetic},
+	} {
+		t.Run(name, func(t *testing.T) {
+			base, proposed := withSchema(t), withSchema(t)
+			s := proposed.Extensions["supplier_invoice"]
+			s.Properties = maps.Clone(s.Properties)
+			s.Properties["note"] = extensions.Property{Type: "string", PII: "none"}
+			proposed.Extensions["supplier_invoice"] = s
+			if c.base {
+				base.Rules = map[string]map[string]rules.Rule{c.entity: ruled}
+			}
+			if c.new {
+				proposed.Rules = map[string]map[string]rules.Rule{c.entity: ruled}
+			}
+			changes, _ := Diff(base, proposed) // never fails
+			got := changeAt(changes, "extensions.supplier_invoice.properties.note")
+			if got == nil {
+				t.Fatalf("got changes %v, want the field added", changes)
 			}
 			if got.Tier != c.tier {
 				t.Errorf("got %v, want %v", got.Tier, c.tier)

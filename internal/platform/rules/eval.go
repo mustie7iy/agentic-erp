@@ -22,6 +22,7 @@ import (
 type Violation struct {
 	Rule    string
 	Message string
+	failure string // a held write's rule that could not be evaluated: the kind of failure
 }
 
 // Check evaluates every rule of the set against a row and its extensions
@@ -40,7 +41,7 @@ func (s *Set) Check(ctx context.Context, row, ext map[string]any) ([]Violation, 
 			return nil, &UnevaluableError{Entity: s.Entity, Rule: r.name, Err: err}
 		}
 		if !ok {
-			out = append(out, Violation{r.name, r.message})
+			out = append(out, Violation{Rule: r.name, Message: r.message})
 		}
 	}
 	return out, nil

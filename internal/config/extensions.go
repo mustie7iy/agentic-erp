@@ -78,7 +78,8 @@ func sameSchema(a, b extensions.Schema) bool {
 // extensionChanges lists the custom field changes of a diff, one per field,
 // with the tier ADR-0046 gives it: adding an optional field and widening
 // one are tier 1; adding a required or sensitive field, narrowing,
-// retyping, reclassifying or removing one are tier 2.
+// retyping, reclassifying or removing one are tier 2; any change of an
+// entity whose rules read its fields is tier 3.
 func extensionChanges(old, new *Config) []Change {
 	var a, b map[string]extensions.Schema
 	if old != nil {
@@ -96,9 +97,23 @@ func extensionChanges(old, new *Config) []Change {
 	slices.Sort(entities)
 	var out []Change
 	for _, entity := range entities {
-		out = append(out, schemaChanges(entity, a[entity], b[entity])...)
+		changes := schemaChanges(entity, a[entity], b[entity])
+		if old.ReadByRules(entity) || new.ReadByRules(entity) {
+			// What a rule reads changes what it refuses: tier 3, with the
+			// simulation of rules (ADR-0046, coordinator 2026-10-20).
+			for i := range changes {
+				changes[i].Tier = TierPostingRelated
+			}
+		}
+		out = append(out, changes...)
 	}
 	return out
+}
+
+// ReadByRules reports whether validation rules read the entity's custom
+// fields: whether it has rules.
+func (c *Config) ReadByRules(entity string) bool {
+	return c != nil && len(c.Rules[entity]) > 0
 }
 
 func schemaChanges(entity string, a, b extensions.Schema) []Change {

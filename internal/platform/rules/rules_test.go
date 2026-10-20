@@ -58,7 +58,7 @@ func TestCheck(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := fmt.Sprint([]Violation{{"credit", "credit beyond 90 days, or for a partner that is not vip"}, {"vat", "a German partner needs a VAT id"}})
+	want := fmt.Sprint([]Violation{{Rule: "credit", Message: "credit beyond 90 days, or for a partner that is not vip"}, {Rule: "vat", Message: "a German partner needs a VAT id"}})
 	if fmt.Sprint(got) != want {
 		t.Errorf("got %v, want %v", got, want)
 	}

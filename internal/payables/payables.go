@@ -397,7 +397,9 @@ func (RuleSamples) Sample(ctx context.Context, since time.Time, limit int) ([]ru
 	out := make([]rules.Sample, len(vs))
 	for i, v := range vs {
 		w := storedRuleWrite("", v, Change{})
-		out[i] = rules.Sample{ID: v.ID, Reference: v.DocumentNumber, Row: w.Row, Extensions: w.Extensions}
+		// Only a parked or held invoice is written again (changed, released, posted).
+		historical := v.Status != Parked && v.Status != OnHold
+		out[i] = rules.Sample{ID: v.ID, Reference: v.DocumentNumber, Row: w.Row, Extensions: w.Extensions, Historical: historical}
 	}
 	return out, nil
 }

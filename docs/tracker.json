@@ -3711,14 +3711,20 @@
        },
        {
         "s": "D",
-        "t": "Validation rules on every create, update and change request of the three entities, after the schema check: 422 request.rule_refused naming the rule, refusals audited with source: rule, the rule and the configuration version, kept although the write rolls back; captured invoices held naming the rule and judged again at posting, on the posting date the post uses; a rule that fails or exceeds a limit on a real input refuses with 422 request.rule_unevaluable naming it, logged and counted (erp_rules_unevaluable_total); money inputs carry minor units",
-        "r": "rules.Writes · rules.Money · configuration.Settings.Rules · audit.Refuse · TestRulesOnInvoiceWrites · TestCaptureHeldByRule · TestRulesOnOrderWrites · TestRulesOnPartnerWrites · TestWritesUnevaluable · TestRulesSeeThePostingDateOfThePost · T58g",
+        "t": "Validation rules on every create, update and change request of the three entities, after the schema check: 422 request.rule_refused naming the rule, refusals audited with source: rule, the rule and the configuration version, kept although the write rolls back; captured invoices held naming the rule and judged again at posting, on the posting date the post uses; a rule that fails or exceeds a limit on a real input refuses with 422 request.rule_unevaluable naming it (a captured invoice is held naming it instead, audited), logged and counted (erp_rules_unevaluable_total); money inputs carry minor units",
+        "r": "rules.Writes · rules.Money · configuration.Settings.Rules · audit.Refuse · TestRulesOnInvoiceWrites · TestCaptureHeldByRule · TestCaptureHeldByUnevaluableRule · TestRulesOnOrderWrites · TestRulesOnPartnerWrites · TestWritesUnevaluable · TestRulesSeeThePostingDateOfThePost · T58g",
         "c": []
        },
        {
         "s": "D",
-        "t": "Rules simulated before activation: :simulate replays the last 30 days of each changed entity (at most 200 rows) under the active and proposed rules; per rule the rows newly refused and newly passing (custom fields masked per x-pii), unevaluable rows fail the simulation; activation needs a passed simulation of the exact proposal (409 config.rules_not_simulated); agents propose, never activate",
-        "r": "rules.Simulate · rules.Sampler · RuleSamples (payables, procurement, partner) · configuration.requireRulesSimulated · TestRulesSimulatedBeforeActivation · TestSimulate · T58h",
+        "t": "Rules simulated before activation: :simulate replays the last 30 days of each changed entity (at most 200 rows) under the active and proposed rules; per rule the rows newly refused and newly passing among those still writable (custom fields masked per x-pii), historical rows (posted or cancelled invoices, closed or cancelled orders) counted apart as unaffected, unevaluable rows fail the simulation; a change of the custom fields an entity's rules read is tier 3 like the rules; activation needs a passed simulation of the exact proposal (409 config.rules_not_simulated); agents propose, never activate",
+        "r": "rules.Simulate · rules.Sampler · RuleSamples (payables, procurement, partner) · configuration.requireRulesSimulated · Config.ReadByRules · TestRulesSimulatedBeforeActivation · TestSimulate · TestRuleSamplesHistorical · TestExtensionTiersReadByRules · T58h",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Index (tenant_id, updated_at) on supplier invoices, purchase orders and business partners, by a concurrent migration, if the simulation's sample read gets slow",
+        "r": "ADR-0046 · T58j",
         "c": []
        },
        {

@@ -12,7 +12,9 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
@@ -48,7 +50,15 @@ func (s sim) rulesChange(t *testing.T, name string, r rules.Rule) (string, uuid.
 	t.Helper()
 	doc := fixture.Document(t)
 	doc.Rules = map[string]map[string]rules.Rule{"business_partner": {name: r}}
-	cr, _ := s.Must(201, "POST", "/v1/change-requests", fmt.Sprintf(`{"title": "Rule %s", "rationale": "Policy", "base_version": 1, "proposed": %s}`, name, jsonOf(t, doc)), "")
+	return s.tier3Change(t, 1, doc)
+}
+
+// tier3Change proposes a document on a version, submits it, wants it
+// tier 3, and asks for its simulation; it returns the change request's
+// path and the operation's id.
+func (s sim) tier3Change(t *testing.T, base int, doc *config.Config) (string, uuid.UUID) {
+	t.Helper()
+	cr, _ := s.Must(201, "POST", "/v1/change-requests", fmt.Sprintf(`{"title": "Rules", "rationale": "Policy", "base_version": %d, "proposed": %s}`, base, jsonOf(t, doc)), "")
 	path := "/v1/change-requests/" + apitest.String(t, cr, "id")
 	got, tag := s.Must(200, "POST", path+":submit", "", `"1"`)
 	if got["status"] != "awaiting_evidence" || got["tier"] != float64(3) {
@@ -146,13 +156,39 @@ func TestRulesSimulatedBeforeActivation(t *testing.T) {
 	if ref := refused[0].(map[string]any)["reference"]; ref != "BP90000001" && ref != "BP90000002" {
 		t.Errorf("refused row: got %v, want a partner's number", ref)
 	}
+	s.activateSimulated(t, path)
+
+	// A change of only the custom fields the active rules read is a rules
+	// change too: tier 3, simulated, and activated on that evidence only.
+	doc := fixture.Document(t)
+	doc.Rules = map[string]map[string]rules.Rule{"business_partner": {"no_us": noUS()}}
+	schema := doc.Extensions["business_partner"]
+	schema.Version++
+	schema.Properties = maps.Clone(schema.Properties)
+	schema.Properties["region"] = extensions.Property{Type: "string", MaxLength: 10, PII: "none"}
+	doc.Extensions["business_partner"] = schema
+	s.suite(t) // on version 2
+	path, op = s.tier3Change(t, 2, doc)
+	if did, err := w.Simulate(ctx, s.Tenant.ID, op); !did || err != nil {
+		t.Fatalf("simulate the schema change: got %t %v, want one run", did, err)
+	}
+	s.activateSimulated(t, path)
+}
+
+// activateSimulated approves a simulated change and activates it, after
+// showing that evidence of another proposal does not vouch for it.
+func (s sim) activateSimulated(t *testing.T, path string) {
+	t.Helper()
+	got := s.status(t, path)
+	if got["status"] != "pending_approval" {
+		t.Fatalf("status: got %v, want pending_approval (evidence %v)", got["status"], got["evidence"])
+	}
+	hash := apitest.Object(t, evidenceOf(t, got, "simulation"), "detail")["proposal_sha256"]
 	s.Approve(t, strings.TrimPrefix(path, "/v1/change-requests/"))
 	_, tag := s.Must(200, "GET", path, "", "")
-	// Evidence of another proposal does not vouch for this one.
-	hash := apitest.Object(t, e, "detail")["proposal_sha256"]
 	setHash := func(h any) {
 		pgtest.Unguarded(t, `UPDATE config.evidence SET detail = jsonb_set(detail, '{proposal_sha256}', to_jsonb($2::text))
-			WHERE tenant_id = $1 AND kind = 'simulation'`, s.Tenant.ID, h)
+			WHERE tenant_id = $1 AND kind = 'simulation' AND change_request_id = $3`, s.Tenant.ID, h, strings.TrimPrefix(path, "/v1/change-requests/"))
 	}
 	setHash("another")
 	s.Problem(409, "config.rules_not_simulated", "POST", path+":activate", "", tag)
