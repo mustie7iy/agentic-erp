@@ -148,6 +148,8 @@ func TestSimulation(t *testing.T) {
 		if err != nil || got.Passed || !strings.Contains(got.Summary, "operating_margin could not be computed") {
 			t.Errorf("no store: got %+v, %v; want a failed simulation", got, err)
 		}
+		failing := Simulation{Endpoints: &Endpoints{Companies: codes{errors.New("directory down")}}}
+		pgtest.CheckErr(t, errOf(failing.Simulate(ctx, nil, margin)), "directory down")
 		if problem.From(errOf(sim(reader{}).Simulate(ctx, nil, invoices))).Status != 403 {
 			t.Error("invoices without payables.invoice.read: want 403")
 		}
