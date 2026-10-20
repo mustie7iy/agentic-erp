@@ -224,7 +224,7 @@ func importStatement(ctx context.Context, tx pgx.Tx, p reqctx.Principal, bank st
 	if err := recordStatement(ctx, id, bank, sum, s, exp, status, prevID); err != nil {
 		return err
 	}
-	return relinkNext(ctx, tx, p, bank, id, s)
+	return relinkNext(ctx, tx, p, bank, id, prevID, s)
 }
 
 // insertLines inserts the statement's lines in the bank's order.
@@ -264,21 +264,25 @@ func lineDetails(ds []bankstatement.Detail) []LineDetail {
 // relinkNext makes the statement just imported the previous statement of
 // the bank's next one, when it comes between that one and its previous
 // statement (a missing statement, or an older one imported later), and
-// compares their balances again: the next statement is in gap exactly when
+// compares their balances again. The next statement starts no earlier than
+// the new one closes and ends after it, and is never the new one's own
+// previous statement, so statements of one day never point at each other.
+// The next statement is in gap exactly when
 // its opening balance is not the new closing balance (a reconciled one
 // stays reconciled).
-func relinkNext(ctx context.Context, tx pgx.Tx, p reqctx.Principal, bank statementBank, id uuid.UUID, s bankstatement.Statement) error {
+func relinkNext(ctx context.Context, tx pgx.Tx, p reqctx.Principal, bank statementBank, id uuid.UUID, prev *uuid.UUID, s bankstatement.Statement) error {
 	var next uuid.UUID
 	var was, now string
 	err := tx.QueryRow(ctx, `WITH next AS (
 			SELECT n.id, n.status FROM payments.bank_statement n
 			LEFT JOIN payments.bank_statement pr ON pr.tenant_id = n.tenant_id AND pr.id = n.previous_statement_id
-			WHERE n.house_bank_id = $1 AND n.id <> $2 AND n.opening_date >= $3 AND (pr.id IS NULL OR pr.closing_date <= $3)
+			WHERE n.house_bank_id = $1 AND n.id <> $2 AND n.id IS DISTINCT FROM $6 AND n.opening_date >= $3
+				AND (n.opening_date > $7 OR n.closing_date > $3) AND (pr.id IS NULL OR pr.closing_date <= $7)
 			ORDER BY n.opening_date, n.id LIMIT 1)
 		UPDATE payments.bank_statement b SET previous_statement_id = $2, version = b.version + 1, updated_by = $5,
 			status = CASE WHEN b.status = 'reconciled' THEN b.status WHEN b.opening_balance = $4 THEN 'imported' ELSE 'gap' END
 		FROM next WHERE b.id = next.id
-		RETURNING b.id, next.status, b.status`, bank.ID, id, s.Closing.Date, s.Closing.Amount, p.ID).Scan(&next, &was, &now)
+		RETURNING b.id, next.status, b.status`, bank.ID, id, s.Closing.Date, s.Closing.Amount, p.ID, prev, s.Opening.Date).Scan(&next, &was, &now)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}

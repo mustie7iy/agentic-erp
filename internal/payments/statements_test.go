@@ -154,6 +154,12 @@ func TestStatementGaps(t *testing.T) {
 	if n := len(events(t, e.Tenant, "bank_statement_gap_found")); n != 1 {
 		t.Errorf("gap found events: got %d, want 1", n)
 	}
+	// A second statement of the same day comes after the first and leaves it.
+	d1 := e.imported(t, "mt940", mtStatement("D1", "1", "300,00", "261201", "300,00", "261201"))[0].(map[string]any)
+	d2 := e.imported(t, "mt940", mtStatement("D2", "2", "300,00", "261201", "300,00", "261201"))[0].(map[string]any)
+	if again, _ := e.Must(200, "GET", "/v1/bank-statements/"+id(d1), "", ""); again["version"] != float64(1) || d2["previous_statement_id"] != d1["id"] {
+		t.Errorf("statements of one day: got first %v and second after %v, want the first unchanged and the second after it", again, d2["previous_statement_id"])
+	}
 	// One that leads to it keeps it imported.
 	e.imported(t, "mt940", mtStatement("H0", "0", "200,00", "261102", "200,00", "261102"))
 	h1 := e.imported(t, "mt940", mtStatement("H1", "1", "200,00", "261105", "200,00", "261105"))[0].(map[string]any)
