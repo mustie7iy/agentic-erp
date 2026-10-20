@@ -94,7 +94,7 @@ event version breaks someone else's system.
   routes tenant data to a new endpoint), and so are redelivery, replay
   and the ping (T50g); reads are GETs, allowed at every autonomy level. Every change writes an audit record (ADR-0011).
 - **Contract and schema (T50c):** `integration.webhook_subscription` and
-  `integration.webhook_delivery` (migration 000091), permissions
+  `integration.webhook_delivery` (migration 000105), permissions
   `integration.webhook.read` and `.manage`. Deleting a subscription sets
   status `deleted` (nothing is deleted, 03 §3.1); the limit of 20 counts
   the subscriptions not deleted and is the application's. Events of the
@@ -159,7 +159,7 @@ event version breaks someone else's system.
   out in order while within the 30-day retention. `disabled` (5 days of
   failures or a 410) drops: its pending deliveries become `dropped`, are
   never sent, also after a resume, and the retention removes them. The dispatcher (`integration.Dispatcher`, one
-  per replica) works in rounds: the worker role (migration 000092 grants
+  per replica) works in rounds: the worker role (migration 000106 grants
   it the delivery columns it needs, never a body, URL or secret) finds the
   due deliveries that are the earliest pending of their subscription and
   subject, every tenant's first before any tenant's second and at most 10
@@ -231,7 +231,7 @@ event version breaks someone else's system.
   paused or disabled (not deleted), makes one attempt (anything but a
   2xx is `dead`), leaves `failing_since` and the status alone (a 410 to a
   ping disables nothing) and does not drop it on disabling. The ping type
-  is the one the delivery table allows outside the contract (000092).
+  is the one the delivery table allows outside the contract (000106).
   Redelivering a ping is refused for a disabled subscription like any
   delivery (a new `:ping` is not); a ping pending when its subscription
   is deleted is never sent and the retention removes it. Recording an

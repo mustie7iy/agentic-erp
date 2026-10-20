@@ -4783,7 +4783,7 @@
        {
         "s": "D",
         "t": "Webhook subscription and delivery schema, permissions, and x-webhook events (no bank or personal data) checked by a test",
-        "r": "db/migrations/000091 · api/asyncapi.yaml · T50c",
+        "r": "db/migrations/000105 · api/asyncapi.yaml · T50c",
         "c": []
        },
        {
@@ -4801,13 +4801,13 @@
        {
         "s": "D",
         "t": "Delivery: due deliveries claimed per tenant (10 in flight, 50/s per subscription), signed and sent through egress, retried 30 s to 12 h for 3 days then dead lettered, in event order per resource; webhook-id is the event id; 410 or 5 days failing disables and drops pending; pause holds and stops the failing clock (failing_since cleared), resume releases or re-enables",
-        "r": "internal/integration/dispatch.go · db/migrations/000092 · T50f",
+        "r": "internal/integration/dispatch.go · db/migrations/000106 · T50f",
         "c": []
        },
        {
         "s": "D",
         "t": "Operations: deliveries listed and read; :redeliver and :replay (since at most 30 days, dead and dropped too) requeue in event order; :ping queues a signed webhook.ping the dispatcher sends once, paused or disabled too; retention in batches of 1000",
-        "r": "internal/integration/deliveries.go · api/openapi.yaml · db/migrations/000092 · T50g",
+        "r": "internal/integration/deliveries.go · api/openapi.yaml · db/migrations/000106 · T50g",
         "c": []
        }
       ]
