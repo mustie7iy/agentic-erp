@@ -629,7 +629,9 @@ which the state bucket refuses.
      `<root_url>/login/generic_oauth`) and store its secret in
      `erp/<cell>/grafana-oidc`; store Alertmanager's receivers, a YAML list,
      in `erp/<cell>/alertmanager-receivers`, `- name: erp-alerts` (which
-     notifies no one) until the receivers are decided;
+     notifies no one) until the receivers are decided: a block list, each
+     entry starting `- ` at column 0, and no receiver named `erp-null`,
+     which the routes keep for the always-firing alerts;
    - install Argo CD from its pinned archive, checked against `addons.txt`:
      `helm pull argo-cd --repo https://argoproj.github.io/argo-helm --version <version>`,
      `shasum -a 256` it, then
