@@ -351,8 +351,14 @@ func TestRevaluationRunCancel(t *testing.T) {
 		return rec.Code, apitest.JSON(t, rec), rec.Header().Get("ETag"), rec.Header().Get("Idempotent-Replayed")
 	}
 	code, cancelled, cancelledTag, _ := call()
-	if code != 200 || cancelled["status"] != "cancelled" || len(apitest.List(t, cancelled, "items")) != 2 || cancelledTag == tag {
-		t.Fatalf("cancel: got %d %v ETag %s, want 200 cancelled with its 2 items and a new ETag", code, cancelled, cancelledTag)
+	if code != 200 {
+		t.Fatalf("cancel: got %d %v, want 200", code, cancelled)
+	}
+	if g := fmt.Sprint(cancelled["status"], len(apitest.List(t, cancelled, "items"))); g != "cancelled2" {
+		t.Errorf("cancelled run: got %s, want cancelled with its 2 items", g)
+	}
+	if cancelledTag == tag {
+		t.Errorf("ETag: got %s again, want a new one", tag)
 	}
 	t.Run("reversals", func(t *testing.T) {
 		reversed := apitest.Published(t, e.ten, outbox.Event{Context: "ledger", Name: "journal_entry_reversed"})
@@ -366,9 +372,14 @@ func TestRevaluationRunCancel(t *testing.T) {
 	})
 	t.Run("event and audit", func(t *testing.T) {
 		got := apitest.Published(t, e.ten, outbox.Event{Context: "ledger", Name: "revaluation_run_cancelled"})
-		if len(got) != 1 || got[0]["run_id"] != id || got[0]["reason"] != "The USD rate was keyed wrongly." || got[0]["valuation_reversal_entry_id"] == nil ||
-			got[0]["reset_reversal_entry_id"] == nil {
-			t.Errorf("RevaluationRunCancelled: got %v, want one of run %s with its reason and both reversals", got, id)
+		if len(got) != 1 {
+			t.Fatalf("RevaluationRunCancelled: got %d, want 1", len(got))
+		}
+		if g, w := fmt.Sprint(got[0]["run_id"], " ", got[0]["reason"]), id+" The USD rate was keyed wrongly."; g != w {
+			t.Errorf("RevaluationRunCancelled: got %s, want %s", g, w)
+		}
+		if got[0]["valuation_reversal_entry_id"] == nil || got[0]["reset_reversal_entry_id"] == nil {
+			t.Errorf("RevaluationRunCancelled: got %v, want both reversals", got[0])
 		}
 		var audits int
 		count(t, &audits, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'ledger.revaluation_run.cancel' AND object_id = $2`, e.ten.ID, id)
@@ -378,8 +389,8 @@ func TestRevaluationRunCancel(t *testing.T) {
 	})
 	t.Run("replayed", func(t *testing.T) {
 		code, again, _, replayed := call()
-		if code != 200 || again["status"] != "cancelled" || replayed != "true" {
-			t.Errorf("replay: got %d %v replayed %q, want 200 cancelled replayed", code, again["status"], replayed)
+		if g := fmt.Sprint(code, again["status"], replayed); g != "200cancelledtrue" {
+			t.Errorf("replay: got %s, want 200 cancelled, replayed", g)
 		}
 	})
 	t.Run("cancelled twice", func(t *testing.T) {

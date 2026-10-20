@@ -499,6 +499,12 @@ func (e *Endpoints) reverseRevaluationEntries(ctx context.Context, tx pgx.Tx, p 
 		if err := recordReversal(ctx, tx, p, orig, rev); err != nil {
 			return nil, err
 		}
+		// As every reversal, so the entry's audit trail shows it reversed.
+		if err := audit.Add(ctx, audit.Entry{Action: "ledger.journal_entry.reverse", ObjectType: "ledger.journal_entry", ObjectID: orig.ID,
+			Outcome: "succeeded", Detail: map[string]any{"reversal_entry_id": rev.ID, "reversal_document_number": rev.DocumentNumber,
+				"revaluation_run_id": run.ID}}); err != nil {
+			return nil, err
+		}
 		reversals = append(reversals, rev)
 	}
 	return reversals, nil

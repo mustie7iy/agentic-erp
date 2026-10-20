@@ -226,7 +226,7 @@ CREATE TABLE ledger.revaluation_item (
   -- An open item has an amount in its currency; a balance has one in some
   -- currency.
   -- Only the group's own currency is valued at 1 without a recorded rate.
-  CONSTRAINT revaluation_item_rate_gc CHECK (rate_gc_valid_from IS NOT NULL OR rate_gc = 1 OR rate_gc IS NULL),
+  CONSTRAINT revaluation_item_rate_gc CHECK (rate_gc_valid_from IS NOT NULL OR rate_gc = 1),
   -- A balance zero in its currency is worth zero at any rate, so it is
   -- valued without one (a rate no longer kept does not stop the run); every
   -- other item has both rates.

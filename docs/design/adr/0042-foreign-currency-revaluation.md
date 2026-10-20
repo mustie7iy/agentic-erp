@@ -69,7 +69,8 @@ posting.
   run corrects. Such a balance is worth zero at any rate, so it is valued
   without one (coordinator 2026-10-19): no rate is looked up or checked
   for it, its difference is `0 −` its booked local and group amounts, and
-  its item records no rates (`revaluation_item_rates`). Every other item is valued `round(amount_tc × rate)` against its
+  its item records no rates (`revaluation_item_rates`). Every other item
+  is valued `round(amount_tc × rate)` against its
   booked local amount, rounded once; a positive difference is a gain, a
   negative one a loss.
 - **Group currency is valued on its own (product owner 2026-10-19).** As
@@ -106,7 +107,8 @@ posting.
   posting's; the header's local-to-group rate is the posting date's
   average rate, for the record only, so a run fails without one as any
   posting would. A run's entries are not reversed one by one
-  (`ledger.entry_owned_elsewhere`); cancelling the run reverses both. The reset entry, dated the next day,
+  (`ledger.entry_owned_elsewhere`); cancelling the run reverses both. The
+  reset entry, dated the next day,
   has the same lines negated. Both periods must be open
   (`ledger.period_not_open`), also for a run without differences, which
   is recorded with its items and no entries. Running needs
