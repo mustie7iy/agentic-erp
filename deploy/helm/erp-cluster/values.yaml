@@ -13,6 +13,14 @@ subordinateCaArn: ""
 # volumes are encrypted with it.
 clusterKmsKeyArn: ""
 
+# The cell's VPC CIDR (cell.cidr): the AWS endpoints and the cluster's
+# private API endpoint, which the logs add-on may reach and nothing else.
+vpcCidr: ""
+
+# The logs add-on's namespace (fluent-bit, deploy/helm/erp-delivery/addons.txt),
+# held to default deny by logging-network-policy.yaml.
+loggingNamespace: logging
+
 # The SPIFFE trust domain of the environment (ERP_TRUST_DOMAIN, ADR-0033).
 trustDomain: ""
 

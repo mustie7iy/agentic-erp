@@ -185,7 +185,12 @@ which would make a cell's series grow with its customers. T54 closes this.
     and sets no retention. It runs as its own IRSA role (`logging`), which
     may create and write that group's streams and nothing else. Chunks are
     buffered on the node's disk (1 GiB at most) while CloudWatch is
-    unreachable.
+    unreachable. Its namespace is default deny (erp-cluster's `erp-logging`
+    policy): no ingress, and egress to the cluster's DNS and to 443 in the
+    VPC alone (the logs and STS endpoints, and the private API endpoint,
+    which the kubernetes filter reads as `Kube_URL` from
+    `cell.cluster_endpoint`, since the `kubernetes` Service's address is
+    outside the VPC). erp-cluster takes `vpcCidr` (`cell.cidr`) for it.
   - *Traces.* The `opentelemetry-collector` add-on (chart 0.175.1, the
     contrib image) takes OTLP/HTTP from the cell's server alone (its
     NetworkPolicy, and the server's egress rule in erp-cell) and sends to

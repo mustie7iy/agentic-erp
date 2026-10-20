@@ -14,7 +14,8 @@
 #     to the log group Terraform made, creating none; the traces add-on
 #     (opentelemetry-collector) takes OTLP/HTTP from the server alone and
 #     sends 5% of traces and every failed one to X-Ray; neither makes
-#     metrics of what it ships;
+#     metrics of what it ships; the logging namespace is default deny,
+#     reaching DNS and 443 in the VPC alone (erp-cluster);
 #   - deploy/helm/erp-cluster and erp-cell are linted, rendered and
 #     validated against the pinned add-ons' own CRDs, and must refuse to
 #     render without each value they require; erp-cell's workloads must
@@ -260,6 +261,8 @@ if [(i.get("name"), i.get("path")) for i in of("INPUT")] != [("tail", "/var/log/
 filters = of("FILTER")
 if [(f.get("name"), f.get("merge_log")) for f in filters] != [("kubernetes", "On")]:
     fail("its one filter must be kubernetes, parsing the server's JSON lines into fields (tenant_id stays a field, never a metric): %s" % filters)
+if filters[0].get("kube_url") != "https://0123456789ABCDEF0123456789ABCDEF.gr7.eu-central-1.eks.amazonaws.com":
+    fail("its kubernetes filter must read the cluster's private endpoint (erp.kubeURL), in the VPC, which its namespace's policy admits; the kubernetes Service's address is not")
 if one("DaemonSet", "erp-logging")["spec"]["template"]["spec"].get("tolerations") != [{"operator": "Exists"}]:
     fail("it must run on every node, the tainted ones too")
 PY
@@ -314,7 +317,7 @@ values="$chart/tests/values.yaml"
 validate "$work/erp-cluster.yaml"
 # Each value the chart requires, removed in turn, fails the render and
 # names the value.
-for value in region subordinateCaArn clusterKmsKeyArn trustDomain release.publicKey release.registries namespaces; do
+for value in region subordinateCaArn clusterKmsKeyArn trustDomain vpcCidr loggingNamespace release.publicKey release.registries namespaces; do
   if "$HELM" template erp-cluster "$chart" -f "$values" --set "$value=null" >/dev/null 2>"$work/err"; then
     echo "helm-checks: erp-cluster rendered without $value" >&2
     exit 1
@@ -330,6 +333,19 @@ if "$HELM" template erp-cluster "$chart" -f "$values" --set 'release.registries[
   exit 1
 fi
 echo "helm-checks: erp-cluster refuses to render without each value it requires"
+"$CONFTEST" parse --parser yaml "$work/erp-cluster.yaml" >"$work/erp-cluster.json"
+python3 - "$work/erp-cluster.json" <<'PY'
+import json, sys
+docs = [d for d in json.load(open(sys.argv[1])) if d and d.get("kind") == "NetworkPolicy"]
+want = [{"metadata": {"name": "erp-logging", "namespace": "logging"}, "spec": {
+    "podSelector": {}, "policyTypes": ["Ingress", "Egress"], "egress": [
+        {"to": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}}, "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}}}],
+         "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}]},
+        {"to": [{"ipBlock": {"cidr": "10.16.0.0/16"}}], "ports": [{"protocol": "TCP", "port": 443}]}]}}]
+if [{"metadata": {k: d["metadata"].get(k) for k in ("name", "namespace")}, "spec": d["spec"]} for d in docs] != want:
+    sys.exit("helm-checks: erp-cluster's erp-logging policy must deny the logging namespace every ingress and every egress but DNS and 443 in the VPC: %s" % docs)
+PY
+echo "helm-checks: the logging namespace takes no connections and reaches DNS and the VPC's 443 alone"
 
 echo "== erp-cell"
 chart=deploy/helm/erp-cell

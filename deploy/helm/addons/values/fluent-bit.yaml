@@ -16,8 +16,13 @@
 # addons.fluent-bit):
 #   erp.region                   the cell's region
 #   erp.logGroup                 cell.container_log_group
+#   erp.kubeURL                  cell.cluster_endpoint (the private
+#                                endpoint, in the VPC: its namespace's
+#                                policy admits no Service address)
 #   serviceAccount.annotations   eks.amazonaws.com/role-arn:
 #                                cell.workload_role_arns.logging
+# Its namespace's traffic is erp-cluster's (logging-network-policy.yaml):
+# no ingress, DNS and 443 in the VPC only.
 # Sized per node: 50m and 64 MiB requested, at most 128 MiB.
 fullnameOverride: erp-logging
 testFramework:
@@ -45,6 +50,7 @@ securityContext:
 erp:
   region: ""
   logGroup: ""
+  kubeURL: ""
 
 # Containerd's logs only (EKS runs no Docker): the docker hostPath of the
 # chart's defaults is left out.
@@ -98,6 +104,7 @@ config:
     [FILTER]
         Name kubernetes
         Match kube.*
+        Kube_URL {{ required "erp.kubeURL is required: cell.cluster_endpoint" .Values.erp.kubeURL }}
         Merge_Log On
         Keep_Log Off
         Annotations Off

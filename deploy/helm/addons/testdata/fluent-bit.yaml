@@ -3,6 +3,7 @@
 erp:
   region: eu-central-1
   logGroup: /erp/dev1/containers
+  kubeURL: https://0123456789ABCDEF0123456789ABCDEF.gr7.eu-central-1.eks.amazonaws.com
 serviceAccount:
   annotations:
     eks.amazonaws.com/role-arn: arn:aws:iam::222222222222:role/erp-dev1-logging
