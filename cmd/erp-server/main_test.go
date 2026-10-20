@@ -2048,9 +2048,6 @@ func TestRulesUseCatalog(t *testing.T) {
 	}
 	src := regexp.MustCompile(`(?m)^\s*#.*$`).ReplaceAllString(string(rules), "")
 	series := newMetrics(pgtest.Pool(t), config.Config{}, quiet()).Series()
-	if n := strings.Count(src, "record: erp:http_latency_slow:ratio_rate"); n != 7 {
-		t.Errorf("latency rules: got %d, want one per window (7)", n)
-	}
 	// Labels a rule makes itself (label_replace) are its own to group on.
 	made := map[string]bool{"le": true, "__name__": true}
 	for _, m := range regexp.MustCompile(`label_replace\([^,]*,\s*"([a-z_]+)"`).FindAllStringSubmatch(src, -1) {
@@ -2081,7 +2078,11 @@ func TestRulesUseCatalog(t *testing.T) {
 	}
 	// Each latency rule gives every class its threshold: a class without
 	// one would have a denominator and no ratio.
-	for _, rule := range regexp.MustCompile(`(?s)record: erp:http_latency_slow:ratio_rate\w+\n.*?(?:\n      - |\n  - )`).FindAllString(src, -1) {
+	latency := regexp.MustCompile(`(?s)record: erp:http_latency_slow:ratio_rate\w+\n.*?(?:\n      - |\n  - )`).FindAllString(src, -1)
+	if len(latency) != 7 {
+		t.Errorf("latency rules: got %d, want one per window (7)", len(latency))
+	}
+	for _, rule := range latency {
 		for _, class := range api.Classes {
 			if !regexp.MustCompile(`class=~?"(?:[a-z|]*\|)?` + class + `(?:\|[a-z|]*)?"`).MatchString(rule) {
 				t.Errorf("%s: no threshold for class %s", strings.SplitN(rule, "\n", 2)[0], class)
