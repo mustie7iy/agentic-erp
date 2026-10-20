@@ -3662,16 +3662,66 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Custom fields",
-      "r": "T58",
-      "c": []
+      "r": "ADR-0046 · T58",
+      "c": [
+       {
+        "s": "D",
+        "t": "Custom fields and CEL rules decided: supplier invoice, purchase order and business partner first; one jsonb column; a JSON Schema subset we compile; typed, flat, at most 50 fields and 16 KiB per row; PII classified per field; tiers; events masked; agents only propose",
+        "r": "ADR-0046 · T58a",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Field schemas in the configuration document: compiled with the restrictions, validated on proposal, tier 1 to add optional fields, tier 2 to require, narrow, remove or reclassify, immutable versions",
+        "r": "T58b",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Writes of the supplier invoice, purchase order and business partner validate extensions (422 request.invalid_extension per key)",
+        "r": "T58c",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The tenant's schema at GET /v1/schemas/{entity}, ETag the configuration version",
+        "r": "T58d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Events carry extensions and the extensions_schema version, personal and sensitive values masked",
+        "r": "T58e",
+        "c": []
+       }
+      ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Custom rules",
-      "r": "T58",
-      "c": []
+      "r": "ADR-0046 · T58",
+      "c": [
+       {
+        "s": "T",
+        "t": "CEL engine: cost and compile-size limits, 10 ms timeout, at most 20 rules per entity, inputs the row and its extensions",
+        "r": "T58f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Validation rules on write, versioned in configuration, tier 3, refusals audited with source: rule",
+        "r": "T58g",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Rules simulated against recent writes (:simulate evidence)",
+        "r": "T58h",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",

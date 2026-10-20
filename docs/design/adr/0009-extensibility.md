@@ -1,6 +1,8 @@
 # ADR-0009: Governed custom fields in jsonb
 
-**Status:** proposed
+**Status:** accepted (product owner, 2026-10-19), amended by ADR-0046,
+which decides the entities, the schema subset, types, limits, privacy,
+tiers, events and CEL rules.
 
 ## Context
 Every ERP customer adds fields (SAP append structures, CI_ includes). Schema

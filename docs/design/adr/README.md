@@ -13,7 +13,7 @@ new record. Status values: proposed, accepted, superseded.
 | [0006](0006-append-only-ledger.md) | Append-only ledger, derived balances, partitioning by fiscal year | proposed |
 | [0007](0007-events-and-outbox.md) | Domain events via transactional outbox, CloudEvents | proposed |
 | [0008](0008-concurrency-and-idempotency.md) | Optimistic locking and idempotency keys | proposed |
-| [0009](0009-extensibility.md) | Governed custom fields in jsonb | proposed |
+| [0009](0009-extensibility.md) | Governed custom fields in jsonb | accepted (amended by 0046) |
 | [0010](0010-authentication-authorization.md) | OIDC authentication; permission, company and SoD authorization | proposed |
 | [0011](0011-audit-trail.md) | Hash-chained audit events in the same transaction | proposed |
 | [0012](0012-long-running-operations.md) | Long-running work as Temporal workflows behind API operations: multi-step, cross-module, human waits, timers and batches; postings stay one ACID activity; ids from business keys | accepted |
@@ -45,3 +45,4 @@ new record. Status values: proposed, accepted, superseded.
 | [0038](0038-house-banks-payment-methods-and-transmission.md) | Several house banks per company, each on its own bank clearing account; payment methods from the supplier's company data, house banks ranked per method and currency in configuration, one bank file per bank and method; SFTP and EBICS connectors per house bank, EBICS refused in production, a file whose hash was sent counts as sent | accepted |
 | [0039](0039-agent-evaluations-and-certification.md) | Agent evaluation suites with deterministic checks, run three times on throwaway tenants, live on demand and replayed in CI; reports committed per model; certification per agent type and model gates autonomy and routes | accepted |
 | [0040](0040-backups-and-disaster-recovery.md) | PITR 35 days in production, copies and the bucket replicated to a DR region; production cells fail over to a cross-region replica and a pilot-light region; JetStream rebuilt from the outboxes; per-tenant restore by export and import; restores verified and drilled every 90 days | accepted |
+| [0046](0046-custom-fields-and-cel-rules.md) | Custom fields on the supplier invoice, purchase order and business partner in one jsonb column, declared per tenant in a JSON Schema subset we compile (typed, flat, limited, PII-classified, immutable versions, tier 1 to add optional fields, tier 2 to require, narrow or remove); CEL validation rules on write only, bounded, tier 3 with simulation | accepted |
