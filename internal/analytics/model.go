@@ -84,7 +84,7 @@ func (m *Model) governed() error {
 		if met.Type != Money && met.Type != Count && met.Type != Ratio {
 			return fmt.Errorf("semantic model: %s has unknown type %q", met.Name, met.Type)
 		}
-		if met.Source != "" && !slices.ContainsFunc(FactDatasets, func(d struct{ Dataset, Permission string }) bool { return d.Dataset == met.Source }) {
+		if met.Source != "" && !slices.ContainsFunc(FactDatasets, func(d FactDataset) bool { return d.Dataset == met.Source }) {
 			return fmt.Errorf("semantic model: %s reads unknown dataset %q", met.Name, met.Source)
 		}
 	}

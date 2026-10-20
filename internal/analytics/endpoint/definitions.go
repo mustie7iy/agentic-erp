@@ -85,10 +85,10 @@ func (Section) Apply(context.Context, *config.Config) error { return nil }
 // fiscal year, for the current and the previous fiscal year, under the
 // base and under the proposed definitions (configuration.Simulator). It
 // reads the analytical store as the person who asked for the simulation
-// (who must hold analytics.query.run), within what they may read; the database path reads the API with a
-// request's credentials, which a queued simulation has not, so a store
-// that cannot answer fails the simulation, to be run again once the
-// store is current (ADR-0044).
+// (who must hold analytics.query.run), within what they may read; the
+// database path reads the API with a request's credentials, which a
+// queued simulation has not, so a store that cannot answer fails the
+// simulation, to be run again once the store is current (ADR-0044).
 type Simulation struct {
 	Endpoints *Endpoints
 	Now       func() time.Time

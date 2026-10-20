@@ -494,7 +494,10 @@ model must read, with no metric derived from itself, every source a fact
 dataset and every type known), and the
 endpoint reads the active version's model in each request
 (`configuration.Settings.Document`); the answer names it in
-`config_version`.
+`config_version`. The analytics context now imports `config` (the
+document's types) and `configuration`'s published ports (`Section`,
+`Simulator`, `Simulation`), as payables does; configuration imports no
+analytics, and erp-server wires the two, so no dependency turns around.
 
 *Tiers and evidence.* A metric's or dimension's label, description and
 synonyms are tier 1 (no value moves); anything else in the section is

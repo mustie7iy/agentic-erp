@@ -46,7 +46,7 @@ var testSupport = map[string]bool{
 // is no longer made fails it too, so the list stays exact.
 var allowed = map[string][]string{
 	"agent":                   {"apitools", "llm"},
-	"analytics":               {"apitools"},
+	"analytics":               {"apitools", "config", "configuration"},
 	"apitools":                {"llm"},
 	"approvals":               {"config"},
 	"audit":                   {"operations"},

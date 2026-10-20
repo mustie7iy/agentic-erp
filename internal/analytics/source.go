@@ -44,11 +44,14 @@ func (s Source) Permissions() []string {
 	return out
 }
 
+// FactDataset is a fact table and the permission that reads it.
+type FactDataset struct{ Dataset, Permission string }
+
 // FactDatasets are the fact tables a metric reads, in the order Facts
 // builds them, and the permission that reads each through the API: the
 // endpoint refuses a query over one the caller does not read, and a
 // governed model names no other (FromConfig).
-var FactDatasets = []struct{ Dataset, Permission string }{
+var FactDatasets = []FactDataset{
 	{"gl_lines", "ledger.entry.read"}, {"po_lines", "procurement.order.read"}, {"ap_invoices", "payables.invoice.read"},
 }
 
