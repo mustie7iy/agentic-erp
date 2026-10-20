@@ -573,6 +573,10 @@ func CreatePartner(ctx context.Context, ports Ports, in NewPartner) (Partner, Ch
 	if err := checkAddresses(day, in.Addresses, false); err != nil {
 		return Partner{}, Change{}, err
 	}
+	if err := ports.checkRules(ctx, "partner.business_partner.create", "", uuid.Nil, Partner{Kind: in.Kind, Name: in.Name, LegalName: in.LegalName,
+		CountryCode: in.CountryCode, Language: in.Language, Roles: in.Roles, Extensions: in.Extensions}); err != nil {
+		return Partner{}, Change{}, err
+	}
 	taxes, err := sealTaxes(ctx, ports.Keys, p.TenantID, in.TaxIdentifiers)
 	if err != nil {
 		return Partner{}, Change{}, err
@@ -785,6 +789,9 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 	if err := checkAddresses(day, ch.Addresses, true); err != nil {
 		return Change{}, err
 	}
+	if err := ports.checkRules(ctx, "partner.change.request", "partner.business_partner", partnerID, requested(bp, ch, all)); err != nil {
+		return Change{}, err
+	}
 	taxes, err := sealTaxes(ctx, ports.Keys, p.TenantID, ch.TaxIdentifiers)
 	if err != nil {
 		return Change{}, err
@@ -800,6 +807,22 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 		return Change{}, err
 	}
 	return c, audit.Record(ctx, "partner.change.request", "partner.partner_change", c.ID, map[string]any{"kind": c.Kind, "partner_id": partnerID})
+}
+
+// requested is the partner as an update change leaves its header: what
+// the rules judge (ADR-0046).
+func requested(bp Partner, ch Changes, roles []string) Partner {
+	if ch.Name != nil {
+		bp.Name = *ch.Name
+	}
+	if ch.LegalName != nil {
+		bp.LegalName = *ch.LegalName
+	}
+	if ch.Language != nil {
+		bp.Language = *ch.Language
+	}
+	bp.Roles, bp.Extensions = roles, mergepatch.Apply(bp.Extensions, ch.Extensions)
+	return bp
 }
 
 // updatedRoles is the partner's set of roles after a change, which may

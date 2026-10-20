@@ -9,10 +9,15 @@
 // gives the same result. Time, if a rule ever needs it, arrives as an input
 // field. In Phase 2 a rule only validates: it evaluates to true, or to false
 // and its message refuses the write. An expression of any other type (a
-// derived value, a route) is refused when compiled.
+// derived value, a route) is refused when compiled. Writes evaluates an
+// entity's active rules on its writes and audits their refusals.
 package rules
 
-import "time"
+import (
+	"time"
+
+	"github.com/mustie7iy/agentic-erp/internal/money"
+)
 
 // The limits of ADR-0046: what one tenant's rules may cost a write.
 const (
@@ -52,8 +57,20 @@ const (
 	tInt                // whole numbers
 	tBool               // booleans
 	tStrings            // a list of strings
-	tMoney              // {"amount": "12.50", "currency": "EUR"}
+	tMoney              // Money
 )
+
+// Money is a money input as a rule reads it, the CEL object rules.Money:
+// the API's decimal string and currency, and the amount in the currency's
+// minor units, so that a rule compares sizes exactly
+// (row.gross_amount.minor >= 1000000) and never through a float
+// (ADR-0005). The amount compares only as a string (equality, sign); its
+// size is minor's, within one currency.
+type Money struct {
+	Amount   string      `cel:"amount"`
+	Currency string      `cel:"currency"`
+	Minor    money.Minor `cel:"minor"`
+}
 
 // input is one variable a rule may read: row.<field> or ext.<key>. An
 // optional input is a CEL optional (ext.x.hasValue(), ext.x.orValue("")),

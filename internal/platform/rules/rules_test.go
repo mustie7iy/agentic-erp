@@ -117,8 +117,8 @@ func TestCompileRefuses(t *testing.T) {
 		"duration":           {expr(`duration("1s") == duration("1s")`), "vat.expression", "undeclared reference"},
 		"year":               {expr(`dyn(row.name).getFullYear() == 2026`), "vat.expression", "undeclared reference"},
 		"double":             {expr(`double(ext.credit_days.orValue(0)) * 1.5 > 2.0`), "vat.expression", "no floating-point"},
-		"double of amount":   {expr(`double(ext.limit.orValue({"amount": "0"})["amount"]) > 1.0`), "vat.expression", "no floating-point"},
-		"map comprehension":  {expr(`ext.limit.orValue({}).map(k, k)[0] == "amount"`), "vat.expression", "range over lists only"},
+		"double of amount":   {expr(`double(ext.limit.orValue(rules.Money{}).minor) > 1.0`), "vat.expression", "no floating-point"},
+		"map comprehension":  {expr(`{"amount": ext.limit.orValue(rules.Money{}).amount}.map(k, k)[0] == "amount"`), "vat.expression", "range over lists only"},
 		"map literal":        {expr(`{"a": 1, "b": 2}.filter(k, k != "")[0] == "a"`), "vat.expression", "range over lists only"},
 		"dyn comprehension":  {expr(`dyn({"a": 1}).exists(k, k == "a")`), "vat.expression", "range over lists only"},
 		"derivation":         {expr(`row.name + "!"`), "vat.expression", "must be boolean, not string"},
@@ -213,6 +213,9 @@ func TestConvert(t *testing.T) {
 		"money amount":    {tMoney, map[string]any{"amount": 1, "currency": "EUR"}, false},
 		"money extra key": {tMoney, map[string]any{"amount": "1", "currency": "EUR", "x": "y"}, false},
 		"money not a map": {tMoney, "1 EUR", false},
+		"money parsed":    {tMoney, Money{Amount: "1.00", Currency: "EUR", Minor: 100}, true},
+		"money digits":    {tMoney, map[string]any{"amount": "1.0", "currency": "EUR"}, false},
+		"money currency":  {tMoney, map[string]any{"amount": "1.00", "currency": "XXQ"}, false},
 		"string":          {tString, "a", true},
 		"string from int": {tString, 1, false},
 		"date":            {tString, time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC), true},
@@ -221,21 +224,23 @@ func TestConvert(t *testing.T) {
 		"bool":            {tBool, true, true},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, ok := convert(c.t, c.v); ok != c.want {
+			if _, ok := convert(mustCompile(t, nil).adapter, c.t, c.v); ok != c.want {
 				t.Errorf("got %t, want %t", ok, c.want)
 			}
 		})
 	}
 }
 
-// Money and the optional standard fields read as rules expect.
+// Money, its minor units included, and the optional standard fields read
+// as rules expect.
 func TestInvoiceInputs(t *testing.T) {
 	money := func(a string) map[string]any { return map[string]any{"amount": a, "currency": "EUR"} }
 	inv := func(tax string) map[string]any {
 		return map[string]any{"legal_entity_id": "le", "supplier_id": "s", "supplier_reference": "r", "invoice_date": "2026-10-20",
 			"gross_amount": money("100.00"), "tax_amount": money(tax), "posting_date": "2026-10-21"}
 	}
-	r := Rule{Expression: `row.tax_amount.currency == row.gross_amount.currency && row.tax_amount.amount != "0.00" && row.posting_date.orValue(row.invoice_date) >= row.invoice_date`,
+	r := Rule{Expression: `row.tax_amount.currency == row.gross_amount.currency && row.tax_amount.amount != "0.00" && row.posting_date.orValue(row.invoice_date) >= row.invoice_date &&
+		row.tax_amount.minor * 10 < row.gross_amount.minor * 3`,
 		Message: "tax is missing", Cases: []Case{{Row: inv("19.00"), Valid: true}, {Row: inv("0.00"), Valid: false}}}
 	if _, issues := Compile("supplier_invoice", nil, map[string]Rule{"tax": r}); len(issues) > 0 {
 		t.Errorf("got issues %v, want none", issues)

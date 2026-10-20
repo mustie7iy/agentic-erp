@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"cel.dev/cel-go/common/ast"
 	"cel.dev/cel-go/common/env"
 	"cel.dev/cel-go/common/types"
+	"cel.dev/cel-go/ext"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 )
@@ -27,6 +29,9 @@ var timeFunctions = []string{
 	"getDayOfYear", "getHours", "getMinutes", "getSeconds", "getMilliseconds",
 }
 
+// moneyType is Money's name in CEL.
+const moneyType = "rules.Money"
+
 func baseOptions() []cel.EnvOption {
 	subset := env.NewLibrarySubset()
 	for _, f := range timeFunctions {
@@ -35,6 +40,7 @@ func baseOptions() []cel.EnvOption {
 	return []cel.EnvOption{
 		cel.StdLib(cel.StdLibSubset(subset)),
 		cel.OptionalTypes(),
+		ext.NativeTypes(reflect.TypeFor[Money](), ext.ParseStructTags(true)),
 		cel.ParserExpressionSizeLimit(MaxExpressionLength),
 		cel.ParserRecursionLimit(maxDepth),
 		cel.ASTValidators(exact{}),
@@ -66,6 +72,7 @@ type Set struct {
 	SchemaVersion int // the custom field schema the rules were checked against; 0 without one
 	inputs        []input
 	rules         []compiled
+	adapter       types.Adapter // makes a Money the CEL object rules.Money
 }
 
 type compiled struct {
@@ -96,6 +103,7 @@ func Compile(entity string, schema *extensions.Compiled, rs map[string]Rule) (*S
 	// The library options are fixed and variables are only declared, so
 	// the environment cannot fail to build.
 	e, _ := cel.NewCustomEnv(append(baseOptions(), variables(s.inputs)...)...)
+	s.adapter = e.CELTypeAdapter()
 	for _, name := range slices.Sorted(maps.Keys(rs)) {
 		if r, ok := c.rule(e, s, name, rs[name]); ok {
 			s.rules = append(s.rules, r)
@@ -130,7 +138,7 @@ func variables(in []input) []cel.EnvOption {
 
 var celTypes = map[typ]*cel.Type{
 	tString: cel.StringType, tInt: cel.IntType, tBool: cel.BoolType,
-	tStrings: cel.ListType(cel.StringType), tMoney: cel.MapType(cel.StringType, cel.StringType),
+	tStrings: cel.ListType(cel.StringType), tMoney: cel.ObjectType(moneyType),
 }
 
 type compiler struct{ issues []extensions.Issue }

@@ -115,12 +115,16 @@ needs.
   20), run whenever the rule is compiled. The inputs are `row.<field>`, the
   header fields of the entity's create request, and `ext.<key>`, the custom
   fields of the schema in the same document; a field that may be absent is
-  a CEL optional (`ext.x.orValue("")`), dates are `YYYY-MM-DD` strings and
-  money is `{amount, currency}` of strings (an unquoted date in a case is
-  read as the date). No value may be floating-point (ADR-0005), so in
-  Phase 2 a rule compares amounts and decimals only as strings (equality,
-  currency, sign), never by size; ordered comparison of amounts needs them
-  as minor units, decided with T58g. Comprehensions range over lists only:
+  a CEL optional (`ext.x.orValue("")`), dates are `YYYY-MM-DD` strings (an
+  unquoted date in a case is read as the date) and money is the object
+  `rules.Money{amount, currency, minor}`: the API's decimal string, the
+  currency, and the amount in the currency's minor units as an integer
+  (T58g), so `row.gross_amount.minor >= 1000000` compares sizes exactly
+  within a currency. A case gives money as `{amount, currency}` with
+  exactly the currency's minor-unit digits, and its minor units are read
+  from the reference currencies. No value may be floating-point
+  (ADR-0005): amounts compare by size only through `minor`, and decimals
+  only as strings (equality, sign). Comprehensions range over lists only:
   a map's iteration order is not fixed, so `map` or `filter` over one would
   not be deterministic. The expression must be boolean;
   any other type (a derived value, a route) is refused. The standard
@@ -133,9 +137,31 @@ needs.
 - **Governance.** Rules are versioned in configuration, compiled when
   proposed (a rule that does not compile is a validation finding), and are
   tier 3 changes, so `:simulate` evidence is mandatory before approval.
-- **Audit.** Rule outcomes are audited with `source: rule`, naming the rule
-  and its version. A refused write rolls its transaction back, so the
-  audit record of a refusal is committed in a transaction of its own.
+- **On write (T58g).** Every create, update and change request of the
+  supplier invoice, purchase order and business partner evaluates the
+  entity's active rules after its fields and custom fields pass their own
+  checks, against the header as the write leaves it (an update or change
+  request: the row with the change applied). Item lines are not inputs in
+  Phase 2 (T58i). A refusal is 422 `request.rule_refused` with one field
+  error per refusing rule, `rules.<name>` with the rule's message. A
+  captured invoice is not refused: it lands held, the hold reason naming
+  each refusing rule and its message, like a missing required field; one
+  held for a missing required field is judged when a person completes it,
+  since its rules may read the field. A rule that fails to evaluate, or
+  exceeds a limit, is an internal error, never a pass. Rules compile once
+  per tenant, configuration version and entity (versions are immutable),
+  in a bounded cache.
+- **Audit.** Rule outcomes are audited with `source: rule`, the rule's
+  name and the configuration version: rules have no version of their own,
+  the configuration version names them. A refusal's record (outcome
+  `refused`, on the action the write would have audited) is kept although
+  the write rolls back: the unit of work rolls the request back to its
+  savepoint and commits only the idempotency key, the stored answer and the
+  refusal (`audit.Refuse`), so the refusal is committed apart from the
+  write, once, and a retry with the same key gets the stored answer without
+  a second record. A captured invoice held by a rule is audited `held` in
+  its own transaction. Work a caller discards as though it never ran (a
+  migration rehearsal) discards its refusals with it.
 
 ### Agents
 Agents may propose custom fields and rules as change requests. They never

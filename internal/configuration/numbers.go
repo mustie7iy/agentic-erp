@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 )
 
 // Numbers issues document numbers from the tenant's number ranges to other
@@ -74,6 +75,22 @@ func (Settings) Schema(ctx context.Context, entity string) (*extensions.Schema, 
 		return nil, nil
 	}
 	return &s, nil
+}
+
+// Rules returns the entity's validation rules in the active configuration
+// (rules.Source), with the entity's custom field schema they read and the
+// configuration's version, which names them; a tenant without a
+// configuration has none.
+func (Settings) Rules(ctx context.Context, entity string) (rules.Active, error) {
+	c, n, err := active(ctx)
+	if err != nil || c == nil {
+		return rules.Active{}, err
+	}
+	a := rules.Active{ConfigVersion: n, Rules: c.Rules[entity]}
+	if s, ok := c.Extensions[entity]; ok {
+		a.Schema = &s
+	}
+	return a, nil
 }
 
 // active reads the active configuration and its version number, nil for a

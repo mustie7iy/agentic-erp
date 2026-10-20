@@ -154,6 +154,9 @@ func (e *Endpoints) createChange(ctx context.Context, order uuid.UUID, in Change
 	if err != nil {
 		return PurchaseOrderChange{}, err
 	}
+	if err := e.checkRules(ctx, "procurement.purchase_order_change.create", "procurement.purchase_order", o.ID, proposed.apply(o)); err != nil {
+		return PurchaseOrderChange{}, err
+	}
 	before, err := documentTotal(o.Items)
 	if err != nil {
 		return PurchaseOrderChange{}, err
@@ -198,6 +201,9 @@ func (e *Endpoints) updateChange(ctx context.Context, order, id uuid.UUID, ifMat
 	}
 	proposed, after, err := e.proposal(ctx, tx, o, ch.Proposed, in)
 	if err != nil {
+		return PurchaseOrderChange{}, err
+	}
+	if err := e.checkRules(ctx, "procurement.purchase_order_change.update", "", id, proposed.apply(o)); err != nil {
 		return PurchaseOrderChange{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order_change SET reason = $2, proposed = $3, total_after = $4, version = version + 1,
@@ -296,6 +302,13 @@ func (e *Endpoints) proposal(ctx context.Context, tx pgx.Tx, o PurchaseOrder, ba
 	}
 	after, err := documentTotal(pr.Items)
 	return pr, after, err
+}
+
+// apply is the order's header as the change leaves it: what the rules
+// judge (ADR-0046).
+func (pr ChangeProposal) apply(o PurchaseOrder) PurchaseOrder {
+	o.OrderDate, o.PaymentTermCode, o.Extensions = pr.OrderDate, pr.PaymentTermCode, pr.Extensions
+	return o
 }
 
 // removedItems are the order's removed items, which an item added back

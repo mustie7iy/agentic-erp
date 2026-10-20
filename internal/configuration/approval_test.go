@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 )
 
 // TestApprovalDecisions follows tier 2 changes through their approval
@@ -195,6 +196,28 @@ func TestSettings(t *testing.T) {
 	}
 	apitest.EveryFailure(t, f.Tenant, f.Tenant.Human, "schema", func(ctx context.Context) error {
 		_, err := configuration.Settings{}.Schema(ctx, "purchase_order")
+		return err
+	})
+	// The rules: the entity's in the active document with its schema and
+	// the version that names them, none without configuration.
+	activeRules := func(ten pgtest.Tenant, a pgtest.Actor) (r rules.Active) {
+		t.Helper()
+		if err := apitest.InRequest(t, ten, a, func(ctx context.Context) (err error) {
+			r, err = configuration.Settings{}.Rules(ctx, "purchase_order")
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	if r := activeRules(f.Tenant, f.Tenant.Human); r.ConfigVersion != 1 || r.Schema == nil || r.Schema.Version != 1 || len(r.Rules) != 0 {
+		t.Errorf("purchase order rules: got %+v, want version 1 with the schema and no rules", r)
+	}
+	if r := activeRules(bare.ten, bare.ten.Human); r.ConfigVersion != 0 || r.Schema != nil {
+		t.Errorf("tenant without configuration: got %+v, want none", r)
+	}
+	apitest.EveryFailure(t, f.Tenant, f.Tenant.Human, "rules", func(ctx context.Context) error {
+		_, err := configuration.Settings{}.Rules(ctx, "purchase_order")
 		return err
 	})
 	ranges, _ := f.Must(200, "GET", "/v1/number-ranges", "", "")

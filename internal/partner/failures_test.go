@@ -23,8 +23,8 @@ import (
 
 func endpoints() *partner.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	return &partner.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: apitest.FieldKeys(), Approvals: fixture.Approvals(),
-		PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, Schemas: configuration.Settings{}}
+	return &partner.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: apitest.FieldKeys(), Approvals: fixture.Approvals(), Schemas: configuration.Settings{}, Rules: configuration.Settings{},
+		PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}}
 }
 
 // TestDatabaseFailures calls every handler and context function outside a

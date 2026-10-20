@@ -27,6 +27,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -83,9 +84,25 @@ type Endpoints struct {
 	Settings      Settings
 	Schemas       extensions.Schemas    // the tenant's custom field schemas (configuration context)
 	References    extensions.References // what custom fields refer to (partner context)
+	Rules         rules.Source          // the tenant's validation rules (configuration context)
 	Approvals     Opener
 	Invoices      Invoices
 	Postings      Postings
+}
+
+// checkRules evaluates the tenant's validation rules on a purchase order's
+// header as a write leaves it (ADR-0046); the write's audit names the
+// object. Item lines are not inputs in Phase 2.
+func (e *Endpoints) checkRules(ctx context.Context, action, objectType string, id uuid.UUID, o PurchaseOrder) error {
+	var term *string
+	if o.PaymentTermCode != "" {
+		term = &o.PaymentTermCode
+	}
+	row := map[string]any{"legal_entity_id": o.LegalEntityID.String(), "purchasing_org_id": rules.ID(o.PurchasingOrgID),
+		"supplier_id": o.SupplierID.String(), "currency": o.Currency, "order_date": o.OrderDate.Format(time.DateOnly),
+		"payment_term_code": rules.Text(term), "requisition_id": rules.ID(o.RequisitionID), "contract_id": rules.ID(o.ContractID)}
+	return rules.Writes{Entity: "purchase_order", Source: e.Rules}.Check(ctx,
+		rules.Write{Action: action, ObjectType: objectType, ID: id, Row: row, Extensions: o.Extensions})
 }
 
 // extensions checks a purchase order's custom fields (ADR-0046).

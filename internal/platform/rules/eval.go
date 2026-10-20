@@ -13,6 +13,9 @@ import (
 	"cel.dev/cel-go/common/types"
 	"cel.dev/cel-go/common/types/ref"
 	"cel.dev/cel-go/interpreter"
+
+	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 )
 
 // Violation is a rule that refused a row.
@@ -71,7 +74,7 @@ func (s *Set) bind(row, ext map[string]any) (interpreter.Activation, error) {
 	for _, in := range s.inputs {
 		v, ok := given[in.name]
 		delete(given, in.name)
-		val, err := value(in, v, ok && v != nil)
+		val, err := value(s.adapter, in, v, ok && v != nil)
 		if err != nil {
 			return nil, err
 		}
@@ -93,14 +96,14 @@ func (in inputs) ResolveName(name string) (any, bool) {
 
 func (inputs) Parent() interpreter.Activation { return nil }
 
-func value(in input, v any, present bool) (ref.Val, error) {
+func value(a types.Adapter, in input, v any, present bool) (ref.Val, error) {
 	if !present {
 		if in.optional {
 			return types.OptionalNone, nil
 		}
 		return nil, fmt.Errorf("%s is required", in.name)
 	}
-	val, ok := convert(in.t, v)
+	val, ok := convert(a, in.t, v)
 	if !ok {
 		return nil, fmt.Errorf("%s: want %s", in.name, typeNames[in.t])
 	}
@@ -112,11 +115,12 @@ func value(in input, v any, present bool) (ref.Val, error) {
 
 var typeNames = map[typ]string{
 	tString: "a string", tInt: "a whole number", tBool: "a boolean",
-	tStrings: "a list of strings", tMoney: `{"amount": "<decimal>", "currency": "<code>"}`,
+	tStrings: "a list of strings", tMoney: `{"amount": "<decimal>", "currency": "<code>"} with the currency's minor-unit digits`,
 }
 
-// convert reads a decoded JSON or YAML value as the input's type.
-func convert(t typ, v any) (ref.Val, bool) {
+// convert reads a decoded JSON or YAML value as the input's type; a
+// adapts a Money to its CEL object.
+func convert(a types.Adapter, t typ, v any) (ref.Val, bool) {
 	switch t {
 	case tInt:
 		n, ok := whole(v)
@@ -128,8 +132,8 @@ func convert(t typ, v any) (ref.Val, bool) {
 		l, ok := strings_(v)
 		return types.NewStringList(types.DefaultTypeAdapter, l), ok
 	case tMoney:
-		m, ok := money(v)
-		return types.NewStringStringMap(types.DefaultTypeAdapter, m), ok
+		m, ok := moneyOf(v)
+		return a.NativeToValue(m), ok
 	default:
 		if d, ok := v.(time.Time); ok && d.Equal(d.Truncate(24*time.Hour)) && d.Location() == time.UTC {
 			return types.String(d.Format(time.DateOnly)), true // yaml reads an unquoted date in a case so
@@ -169,12 +173,26 @@ func strings_(v any) ([]string, bool) {
 	}
 }
 
-func money(v any) (map[string]string, bool) {
+// moneyOf reads a money input: a Money a write path built from the amount
+// it parsed, or the API's {"amount", "currency"} of a case or a custom
+// field, whose minor units come from the currency's exponent. An amount
+// without exactly the currency's minor-unit digits, or a currency the
+// reference data does not hold, is refused: the minor units would be
+// wrong.
+func moneyOf(v any) (Money, bool) {
+	if m, ok := v.(Money); ok {
+		return m, true
+	}
 	m, ok := v.(map[string]any)
 	if !ok || len(m) != 2 {
-		return nil, false
+		return Money{}, false
 	}
 	amount, okA := m["amount"].(string)
 	code, okC := m["currency"].(string)
-	return map[string]string{"amount": amount, "currency": code}, okA && okC
+	exp, okE := currency.SeededExponent(code)
+	if !okA || !okC || !okE {
+		return Money{}, false
+	}
+	minor, err := money.ParseAmount(amount, exp)
+	return Money{Amount: amount, Currency: code, Minor: minor}, err == nil
 }

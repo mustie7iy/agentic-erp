@@ -75,7 +75,7 @@ func TestRequestApproval(t *testing.T) {
 	f := fixture.New(t, perms...)
 	var c partner.Change
 	err := apitest.Committed(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) (err error) {
-		_, c, err = partner.CreatePartner(ctx, partner.Ports{LegalEntities: nil, Keys: apitest.FieldKeys(), Schemas: configuration.Settings{}},
+		_, c, err = partner.CreatePartner(ctx, partner.Ports{LegalEntities: nil, Keys: apitest.FieldKeys(), Schemas: configuration.Settings{}, Rules: configuration.Settings{}},
 			partner.NewPartner{Kind: "person", Name: "Instant", CountryCode: "DE", Roles: []string{"customer"}, Reason: "r"})
 		return err
 	})

@@ -42,6 +42,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -172,6 +173,7 @@ type Endpoints struct {
 	Settings      Settings
 	Schemas       extensions.Schemas    // the tenant's custom field schemas (configuration context)
 	References    extensions.References // what custom fields refer to (partner context)
+	Rules         rules.Source          // the tenant's validation rules (configuration context)
 	Rates         Rates
 	Approvals     Opener
 	Payments      Payments
@@ -330,6 +332,9 @@ type Input struct {
 	// are (CheckHeld), against the schema version extensionsSchema.
 	held             bool
 	extensionsSchema *int
+	// incomplete: a captured invoice lacks required custom fields, which
+	// its rules read; they run when a person completes it (ADR-0046).
+	incomplete bool
 }
 
 // checked is an input that passed validation.
@@ -347,6 +352,23 @@ type checked struct {
 // extensions checks a supplier invoice's custom fields (ADR-0046).
 func (e *Endpoints) extensions() extensions.Writes {
 	return extensions.Writes{Entity: "supplier_invoice", Schemas: e.Schemas, References: e.References}
+}
+
+// ruleWrites evaluates a supplier invoice's validation rules (ADR-0046).
+func (e *Endpoints) ruleWrites() rules.Writes {
+	return rules.Writes{Entity: "supplier_invoice", Source: e.Rules}
+}
+
+// ruleWrite is a checked invoice as its rules read it: the header of its
+// create request, amounts in minor units too.
+func ruleWrite(action string, id uuid.UUID, in Input, c checked, source string) rules.Write {
+	row := map[string]any{"legal_entity_id": in.LegalEntityID.String(), "supplier_id": in.SupplierID.String(),
+		"supplier_reference": in.SupplierReference, "invoice_date": in.InvoiceDate.Format(time.DateOnly),
+		"gross_amount": rules.Money{Amount: in.Gross.Value, Currency: c.currency, Minor: c.gross},
+		"tax_amount":   rules.Money{Amount: in.Tax.Value, Currency: c.currency, Minor: c.tax},
+		"posting_date": rules.Date(in.PostingDate), "purchase_order_id": rules.ID(c.purchaseOrder), "kind": c.kind,
+		"reference_invoice_id": rules.ID(in.ReferenceInvoiceID), "source": source}
+	return rules.Write{Action: action, ID: id, Row: row, Extensions: in.Extensions}
 }
 
 func invalid(code, field, message string) error {

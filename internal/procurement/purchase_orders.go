@@ -356,6 +356,11 @@ func (e *Endpoints) createOrder(ctx context.Context, in NewOrder) (PurchaseOrder
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
+	if err := e.checkRules(ctx, "procurement.purchase_order.create", "", uuid.Nil, PurchaseOrder{LegalEntityID: le.ID,
+		PurchasingOrgID: in.PurchasingOrgID, SupplierID: in.SupplierID, Currency: in.Currency, OrderDate: in.OrderDate, PaymentTermCode: term,
+		RequisitionID: in.RequisitionID, ContractID: in.ContractID, Extensions: in.Extensions}); err != nil {
+		return PurchaseOrder{}, err
+	}
 	number, err := e.number(ctx, le.ID, "purchase_order", in.OrderDate)
 	if err != nil {
 		return PurchaseOrder{}, err
@@ -478,6 +483,12 @@ func (e *Endpoints) updateOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	}
 	items, err := e.orderItems(ctx, h, in)
 	if err != nil {
+		return PurchaseOrder{}, err
+	}
+	after := o
+	after.PurchasingOrgID, after.SupplierID, after.Currency, after.OrderDate, after.PaymentTermCode, after.ContractID, after.Extensions =
+		org, supplier, currency, orderDate, term, contract, ext
+	if err := e.checkRules(ctx, "procurement.purchase_order.update", "", id, after); err != nil {
 		return PurchaseOrder{}, err
 	}
 	if err := writeOrderItems(ctx, tx, p.TenantID, id, items, false); err != nil {

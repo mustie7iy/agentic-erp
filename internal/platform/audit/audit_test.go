@@ -319,6 +319,55 @@ func TestRecord(t *testing.T) {
 	})
 }
 
+// TestRefusals: a refusal outlives the request's work: FlushRefusals
+// writes it alone. Discard drops it with the work it discards.
+func TestRefusals(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ten := pgtest.NewTenant(t)
+	err := asApp(t, pool, ten.ID, func(ctx context.Context, tx pgx.Tx) error {
+		ctx, buf := audit.WithBuffer(reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), actor(ten)))
+		work := audit.Entry{Action: "test.thing.create", ObjectType: "test.thing", Outcome: "succeeded"}
+		refusal := audit.Entry{Action: "test.thing.create", ObjectType: "test.thing", Outcome: "refused", Detail: map[string]any{"source": "rule"}}
+		if err := audit.Add(ctx, work); err != nil {
+			return err
+		}
+		if err := audit.Refuse(ctx, refusal); err != nil {
+			return err
+		}
+		audit.Discard(ctx)
+		if buf.Len() != 0 {
+			t.Errorf("after discard: got %d entries, want none", buf.Len())
+		}
+		if err := audit.Add(ctx, work); err != nil {
+			return err
+		}
+		if err := audit.Refuse(ctx, refusal); err != nil {
+			return err
+		}
+		if err := buf.FlushRefusals(ctx, tx, actor(ten), "", time.Now()); err != nil {
+			return err
+		}
+		rows, _ := tx.Query(ctx, `SELECT outcome FROM audit.audit_event WHERE tenant_id = $1 AND action = 'test.thing.create'`, ten.ID)
+		outcomes, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			return err
+		}
+		if len(outcomes) != 1 || outcomes[0] != "refused" {
+			t.Errorf("written: got %v, want the refusal alone", outcomes)
+		}
+		if buf.Len() != 0 {
+			t.Errorf("after the flush: got %d entries, want none", buf.Len())
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := audit.Refuse(context.Background(), audit.Entry{}); !errors.Is(err, audit.ErrNoBuffer) {
+		t.Errorf("outside a unit of work: got %v, want %v", err, audit.ErrNoBuffer)
+	}
+}
+
 // TestObjectTypeOf: the action without its verb; an action without one is
 // its own type.
 func TestObjectTypeOf(t *testing.T) {

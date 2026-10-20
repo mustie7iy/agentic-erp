@@ -29,6 +29,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -101,6 +102,7 @@ type Endpoints struct {
 	Keys           *fieldcrypt.Keyring
 	Approvals      Opener
 	Schemas        extensions.Schemas // the tenant's custom field schemas (configuration context)
+	Rules          rules.Source       // the tenant's validation rules (configuration context)
 }
 
 // Ports are the other contexts and keys requests are checked and sealed with.
@@ -110,10 +112,20 @@ type Ports struct {
 	PaymentMethods PaymentMethods
 	Keys           *fieldcrypt.Keyring
 	Schemas        extensions.Schemas
+	Rules          rules.Source
 }
 
 func (e *Endpoints) ports() Ports {
-	return Ports{LegalEntities: e.LegalEntities, Accounts: e.Accounts, PaymentMethods: e.PaymentMethods, Keys: e.Keys, Schemas: e.Schemas}
+	return Ports{LegalEntities: e.LegalEntities, Accounts: e.Accounts, PaymentMethods: e.PaymentMethods, Keys: e.Keys, Schemas: e.Schemas, Rules: e.Rules}
+}
+
+// checkRules evaluates the tenant's validation rules on a business partner
+// as a write leaves it (ADR-0046); the write's audit names the object.
+func (p Ports) checkRules(ctx context.Context, action, objectType string, id uuid.UUID, bp Partner) error {
+	row := map[string]any{"kind": bp.Kind, "name": bp.Name, "legal_name": rules.Text(bp.LegalName), "country_code": bp.CountryCode,
+		"language": rules.Text(bp.Language), "roles": bp.Roles}
+	return rules.Writes{Entity: "business_partner", Source: p.Rules}.Check(ctx,
+		rules.Write{Action: action, ObjectType: objectType, ID: id, Row: row, Extensions: bp.Extensions})
 }
 
 // extensions checks a business partner's custom fields; the partners they

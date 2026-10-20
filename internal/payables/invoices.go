@@ -38,6 +38,10 @@ func (e *Endpoints) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, i
 	if err != nil {
 		return Invoice{}, err
 	}
+	id := uuid.Must(uuid.NewV7())
+	if err := e.insertRules(ctx, &in, id, c); err != nil {
+		return Invoice{}, err
+	}
 	year, err := e.Calendar.FiscalYear(ctx, in.LegalEntityID, in.InvoiceDate)
 	if err != nil {
 		return Invoice{}, err
@@ -57,7 +61,6 @@ func (e *Endpoints) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, i
 		}
 		ref = &r
 	}
-	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO payables.supplier_invoice (tenant_id, id, document_number, legal_entity_id, supplier_id, supplier_reference,
 			invoice_date, posting_date, currency, gross_amount, tax_amount, purchase_order_id, status, hold_reason, source, capture_object_ref,
 			capture_sha256, extensions, created_by, updated_by, kind, reference_invoice_id, extensions_schema)
@@ -90,6 +93,29 @@ func (e *Endpoints) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, i
 		events = append(events, heldEvent(v))
 	}
 	return v, record(ctx, "payables.supplier_invoice.create", id, map[string]any{"document_number": v.DocumentNumber, "source": v.Source}, events...)
+}
+
+// insertRules evaluates the tenant's rules on a new invoice. A refusal is
+// 422, except for a captured invoice, which lands held naming the rules,
+// as it does without a required custom field, for a person to complete;
+// its audit names the invoice id. An invoice held for a missing required
+// field is not judged until it is completed: the rules may read the field.
+func (e *Endpoints) insertRules(ctx context.Context, in *newInvoice, id uuid.UUID, c checked) error {
+	if in.incomplete {
+		return nil
+	}
+	if !in.held {
+		return e.ruleWrites().Check(ctx, ruleWrite("payables.supplier_invoice.create", uuid.Nil, in.Input, c, in.source))
+	}
+	reason, err := e.ruleWrites().Hold(ctx, ruleWrite("payables.supplier_invoice.create", id, in.Input, c, in.source))
+	if err != nil || reason == "" {
+		return err
+	}
+	if in.holdReason != nil {
+		reason = *in.holdReason + " " + reason
+	}
+	in.status, in.holdReason = OnHold, &reason
+	return nil
 }
 
 // CreateInvoice enters a parked invoice.
@@ -144,6 +170,9 @@ func (e *Endpoints) UpdateInvoice(ctx context.Context, id uuid.UUID, ifMatch fun
 	in := changed(v, ch)
 	c, err := e.validate(ctx, tx, in)
 	if err != nil {
+		return Invoice{}, err
+	}
+	if err := e.ruleWrites().Check(ctx, ruleWrite("payables.supplier_invoice.update", id, in, c, v.Source)); err != nil {
 		return Invoice{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET supplier_reference = $2, invoice_date = $3, posting_date = $4, currency = $5,

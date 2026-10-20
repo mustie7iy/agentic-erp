@@ -307,7 +307,7 @@ func (e *Endpoints) capturedExtensions(ctx context.Context, in *Input, held stri
 	if err != nil {
 		return "", err
 	}
-	in.held, in.extensionsSchema = true, schema
+	in.held, in.extensionsSchema, in.incomplete = true, schema, len(missing) > 0
 	if len(missing) > 0 {
 		held = strings.TrimSpace(held + " Required custom fields are missing: " + strings.Join(missing, ", ") + ".")
 	}

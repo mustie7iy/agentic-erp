@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
@@ -29,6 +30,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -279,4 +281,53 @@ func (e Env) SupplierWithholding(tb testing.TB, supplier uuid.UUID, codes ...str
 		pgtest.Exec(tb, `INSERT INTO partner.supplier_withholding (tenant_id, partner_id, legal_entity_id, code, created_by, updated_by)
 			VALUES ($1, $2, $3, $4, $5, $5)`, e.Tenant.ID, supplier, e.DE, c, e.Tenant.Human.ID)
 	}
+}
+
+// ActivateRules makes the tenant's active configuration a new version
+// whose validation rules of entity are rs (ADR-0046), as an approved
+// change would leave it, and returns the version's number.
+func ActivateRules(tb testing.TB, tenant uuid.UUID, entity string, rs map[string]rules.Rule) int32 {
+	tb.Helper()
+	b, err := json.Marshal(rs)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	pgtest.Exec(tb, `INSERT INTO config.config_version (tenant_id, id, number, document, hash, source, restored_from, activated_by)
+		SELECT v.tenant_id, gen_random_uuid(), v.number + 1,
+			v.document || jsonb_build_object('rules', coalesce(v.document->'rules', '{}') || jsonb_build_object($2::text, $3::jsonb)),
+			v.hash, 'rollback', v.number, v.activated_by
+		FROM config.config_version v JOIN config.active_version a ON a.tenant_id = v.tenant_id AND a.number = v.number WHERE v.tenant_id = $1`,
+		tenant, entity, string(b))
+	pgtest.Exec(tb, `UPDATE config.active_version SET number = number + 1, version = version + 1 WHERE tenant_id = $1`, tenant)
+	var n int32
+	pgtest.Scan(tb, `SELECT number FROM config.active_version WHERE tenant_id = $1`, []any{tenant}, &n)
+	return n
+}
+
+// RuleAudit is an audit record of a write a validation rule refused or
+// held.
+type RuleAudit struct {
+	ObjectType, Outcome, Rule string
+	ObjectID                  *uuid.UUID // nil for a create refused
+	ConfigVersion             int32
+}
+
+// RuleAudits are the tenant's audit records of action with source rule,
+// in the order they were written.
+func RuleAudits(tb testing.TB, tenant uuid.UUID, action string) []RuleAudit {
+	tb.Helper()
+	rows, err := pgtest.Admin(tb).Query(context.Background(), `SELECT object_type, outcome, detail->>'rule', object_id, (detail->>'config_version')::int
+		FROM audit.audit_event WHERE tenant_id = $1 AND action = $2 AND detail->>'source' = 'rule' ORDER BY seq`, tenant, action)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	var out []RuleAudit
+	var a RuleAudit
+	if _, err := pgx.ForEachRow(rows, []any{&a.ObjectType, &a.Outcome, &a.Rule, &a.ObjectID, &a.ConfigVersion}, func() error {
+		out = append(out, a)
+		return nil
+	}); err != nil {
+		tb.Fatal(err)
+	}
+	return out
 }

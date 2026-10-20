@@ -3710,15 +3710,21 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Validation rules on write, versioned in configuration, tier 3, refusals audited with source: rule",
-        "r": "T58g",
+        "s": "D",
+        "t": "Validation rules on every create, update and change request of the three entities, after the schema check: 422 request.rule_refused naming the rule, refusals audited with source: rule, the rule and the configuration version, kept although the write rolls back; captured invoices held naming the rule; money inputs carry minor units",
+        "r": "rules.Writes · rules.Money · configuration.Settings.Rules · audit.Refuse · TestRulesOnInvoiceWrites · TestCaptureHeldByRule · TestRulesOnOrderWrites · TestRulesOnPartnerWrites · T58g",
         "c": []
        },
        {
         "s": "T",
         "t": "Rules simulated against recent writes (:simulate evidence)",
         "r": "T58h",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Rule inputs from item lines (Phase 2 reads header fields only)",
+        "r": "ADR-0046 · T58i",
         "c": []
        }
       ]
