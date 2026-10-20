@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
@@ -158,7 +159,7 @@ func packProblem(err error) error {
 	switch {
 	case errors.Is(err, countrypack.ErrNotApplicable):
 		return problem.Unprocessable("config.pack_not_applicable", "The country pack does not apply to this company.",
-			problem.FieldError{Field: "company", Code: "not_applicable", Message: err.Error()})
+			problem.FieldError{Field: "company", Code: "not_applicable", Message: strings.TrimPrefix(err.Error(), countrypack.ErrNotApplicable.Error()+": ")})
 	case errors.Is(err, countrypack.ErrDowngrade):
 		return problem.Conflict("config.pack_downgrade", "The company adopted a newer version of this country pack; a pack is never downgraded.")
 	}

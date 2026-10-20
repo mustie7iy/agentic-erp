@@ -28,7 +28,7 @@ import (
 // Endpoints implements the configuration part of the generated API.
 type Endpoints struct {
 	Pages *pagination.Codec
-	Packs *countrypack.Library // the country packs in the image (ADR-0048)
+	Packs *countrypack.Library // the country packs in the image (ADR-0048); required by the country pack operations
 	Dependencies
 }
 

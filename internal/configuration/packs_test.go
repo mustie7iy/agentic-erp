@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
@@ -172,6 +174,25 @@ func TestApplyCountryPack(t *testing.T) {
 	if _, present := plain["notes"]; present {
 		t.Errorf("plain request notes: got %v, want none", plain["notes"])
 	}
+	// The previous version inserts no notes; the column's default is an
+	// empty list, which reads as none.
+	old := uuid.Must(uuid.NewV7())
+	pgtest.Exec(t, `INSERT INTO config.change_request (tenant_id, id, number, title, author_id, base_version, proposed, tier, status, created_by, updated_by)
+		VALUES ($1, $2, 'CR-OLD', 'Old', $3, 1, '{}', 1, 'draft', $3, $3)`, e.ten.ID, old, e.ten.Human.ID)
+	if got, _ := e.Must(200, "GET", "/v1/change-requests/"+old.String(), "", ""); got["notes"] != nil {
+		t.Errorf("request of the previous version: got notes %v, want none", got["notes"])
+	}
+	t.Run("replayed", func(t *testing.T) {
+		req := apitest.Req{Method: "POST", Path: "/v1/country-pack-applications", Tenant: e.ten.ID, As: e.ten.Human, Key: apitest.NewKey(),
+			Body: apply("2026.1", "1000")}
+		first, again := apitest.JSON(t, e.API.Do(req)), e.API.Do(req)
+		if got := apitest.JSON(t, again)["id"]; got != first["id"] {
+			t.Errorf("replayed id: got %v, want %v", got, first["id"])
+		}
+		if got := again.Header().Get("Idempotent-Replayed"); got != "true" {
+			t.Errorf("Idempotent-Replayed: got %q, want true", got)
+		}
+	})
 }
 
 // An upgrade merges from the adopted version and notes the conflicts and
@@ -216,6 +237,12 @@ func TestApplyCountryPackRefusals(t *testing.T) {
 			e.In(t).Problem(tt.status, tt.code, "POST", "/v1/country-pack-applications", tt.body, "")
 		})
 	}
+	t.Run("why not applicable", func(t *testing.T) {
+		m := e.In(t).Problem(422, "config.pack_not_applicable", "POST", "/v1/country-pack-applications", apply("2026.1", "2000"), "")
+		if got := apitest.List(t, m, "errors")[0].(map[string]any)["message"]; got != `company 2000 is in "DE", the pack is for US` {
+			t.Errorf("field message: got %v, want the reason without the package's prefix", got)
+		}
+	})
 	t.Run("company outside access", func(t *testing.T) {
 		// The agent may propose (level 2) but has no company access.
 		agent := e.In(t)
