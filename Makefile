@@ -94,7 +94,7 @@ coverage:
 
 FUZZTIME ?= 15s
 FUZZ_TARGETS = money:FuzzParseDecimal money:FuzzConvert config:FuzzParseValidateDiff analytics:FuzzNarrative \
-	bankfile:FuzzPain001Text bankfile:FuzzValidIBAN sap:FuzzODataValue sap:FuzzODataString \
+	bankfile:FuzzPain001Text bankfile:FuzzValidIBAN bankstatement:FuzzParseCamt053 bankstatement:FuzzParseMT940 sap:FuzzODataValue sap:FuzzODataString \
 	platform/redact:FuzzText
 
 # Evaluate one agent live (ADR-0039): make eval AGENT=ap_exceptions (the

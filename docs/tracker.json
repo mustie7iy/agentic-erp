@@ -857,9 +857,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "camt.053 (.001.02, .001.08) and MT940 parsers into one statement model, fuzzed",
-        "r": "internal/bankstatement · T49b",
+        "s": "D",
+        "t": "camt.053 (.001.02, .001.08) and MT940 parsers into one statement model (signed minor units, booking and value dates, transaction codes, references, counterparties, batches, reversals), each statement held to its balances; samples modelled on Canadian and UAE banks' files; fuzzed in make fuzz",
+        "r": "internal/bankstatement · ParseCamt053 · ParseMT940 · FuzzParseCamt053 · FuzzParseMT940 · T49b",
         "c": []
        },
        {

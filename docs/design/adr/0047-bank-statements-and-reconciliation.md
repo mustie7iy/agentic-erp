@@ -32,7 +32,10 @@ Canadian bank may only offer BAI2.
   the bank's proprietary code; MT940 the `:61:` type such as `NCHG`), the
   end-to-end id, the payment information and message ids, the bank's and
   the account servicer's references, and the counterparty's name, IBAN and
-  BIC. Every parser has a fuzz target in `make fuzz`; no new per-PR CI.
+  BIC (`internal/bankstatement`, T49b). Only booked entries are read,
+  and a statement whose entries do not take its opening balance to its
+  closing balance, in its one currency, is refused. Every parser has a
+  fuzz target in `make fuzz`; no new per-PR CI.
   BAI2 comes later as its own small step, and only if the Canadian pilot
   bank cannot send camt.053.
 - **Idempotency.** A file is imported once per tenant, house bank and
