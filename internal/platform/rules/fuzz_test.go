@@ -25,8 +25,7 @@ func FuzzCompile(f *testing.F) {
 		first, err1 := s.Check(context.Background(), row, ext)
 		again, err2 := s.Check(context.Background(), row, ext)
 		if err1 == nil && err2 == nil && fmt.Sprint(first) != fmt.Sprint(again) { // an error may be the clock's timeout
-
-			t.Errorf("%q: got %v %v then %v %v, want one result", expr, first, err1, again, err2)
+			t.Errorf("%q: got %v then %v, want one result", expr, first, again)
 		}
 	})
 }

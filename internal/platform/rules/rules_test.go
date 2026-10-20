@@ -71,7 +71,7 @@ func TestCheck(t *testing.T) {
 	}
 }
 
-// The same input gives the same result, even where CEL iterates a map.
+// The same input gives the same result, even where a rule filters a list.
 func TestDeterministic(t *testing.T) {
 	r := vat()
 	r.Expression = `["DE", "A", "FR"].filter(k, k != row.country_code)[0] == "DE" || ` + vatRule
