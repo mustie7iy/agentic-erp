@@ -500,7 +500,9 @@ document's types) and `configuration`'s published ports (`Section`,
 analytics, and erp-server wires the two, so no dependency turns around.
 
 *Tiers and evidence.* A metric's or dimension's label, description and
-synonyms are tier 1 (no value moves); anything else in the section is
+synonyms are tier 1 (no value moves; decided 2026-10-20: a description
+steers how agents use a metric, but approving tier 1 is the review it
+gets); anything else in the section is
 tier 2 (process owner) and needs a simulation before approval whatever
 its tier (`config.Evidence`), since a definition changes every report
 computing it. The change request's simulation runs the payables
@@ -514,15 +516,26 @@ the person who asked for the simulation (who must hold
 `analytics.query.run`), within their companies and permissions. A metric
 the semantic layer refuses on the data (amounts of two currencies summed)
 fails the simulation's operation with 422 `analytics.invalid_query`, never
-retried. The values are evidence anyone who reads the change request
-sees, whatever their own company access: an open point for the product
-owner. It reads the analytical store only: the database path reads
+retried. *Each reader sees their own companies' values (decided
+2026-10-20).* The values were computed with the requester's access, which
+may be wider than a reader's, so every read of a change request passes
+its evidence through the contexts' disclosures
+(`configuration.Disclosure`): `endpoint.Disclosure` keeps, in the
+reader's request, the values of the companies the reader may access
+alone and recounts the differences. It fails closed: a reader of no
+company sees no value, a value of no company (a metric not broken down
+by company) is shown to a reader of every company alone, and a detail
+that does not read fails the read. The summary keeps its counts over the
+requester's companies (counts, not values). *The store alone (decided
+2026-10-20).* The simulation reads the analytical store only: the database path reads
 the API with a request's credentials, which a queued simulation does not
 have, so a store that cannot answer (none configured, stale) records a
 failed simulation that names the metrics, to be simulated again once the
-store is current; a cell without erp-analytics cannot change metric
-definitions until it has one (T55o). The analytics agent and the CLI still
-describe the seed's metrics to the model (T55n).
+store is current. Every cell runs erp-analytics (T55h), so no database
+path for a queued simulation is built. The analytics agent's tool
+descriptions and the CLI still describe the seed's metrics to the model;
+T55n makes them describe the tenant's active metrics (from the active
+configuration version through the endpoint), not the defaults.
 
 *Agents propose, people activate.* An agent may create, submit and
 simulate a change request (`x-autonomy: propose`); activation is

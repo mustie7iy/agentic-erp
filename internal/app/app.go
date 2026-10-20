@@ -222,8 +222,9 @@ func Configuration(cfg Config) configuration.Dependencies {
 		Approvals: opener(),
 		Simulator: configuration.Simulators{payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
 			endpoint.Simulation{Endpoints: analyticsEndpoints(cfg, nil), Now: cfg.Now}},
-		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
-		Actors:    identity.Actors{},
+		Regressor:   payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
+		Actors:      identity.Actors{},
+		Disclosures: []configuration.Disclosure{endpoint.Disclosure{Endpoints: analyticsEndpoints(cfg, nil)}},
 	}
 }
 

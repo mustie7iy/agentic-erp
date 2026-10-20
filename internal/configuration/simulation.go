@@ -2,6 +2,7 @@ package configuration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -41,6 +42,31 @@ type Simulation struct {
 // writing nothing (the payables context implements it).
 type Simulator interface {
 	Simulate(ctx context.Context, base, proposed *config.Config) (Simulation, error)
+}
+
+// Disclosure limits what the reader of a change request is shown of its
+// evidence: a context whose simulation records values the reader may not
+// see (the analytics context's metric values of companies they may not
+// access) withholds them, in the reader's request. It returns the detail
+// to show; an error fails the read rather than show the detail whole.
+type Disclosure interface {
+	Disclose(ctx context.Context, kind string, detail json.RawMessage) (json.RawMessage, error)
+}
+
+// disclosed is the change request as its reader is shown it.
+func (d Dependencies) disclosed(ctx context.Context, c ChangeRequest) (ChangeRequest, error) {
+	evidence := slices.Clone(c.Evidence)
+	for i := range evidence {
+		for _, dis := range d.Disclosures {
+			detail, err := dis.Disclose(ctx, evidence[i].Kind, evidence[i].Detail)
+			if err != nil {
+				return ChangeRequest{}, fmt.Errorf("configuration: the %s evidence of change request %s: %w", evidence[i].Kind, c.ID, err)
+			}
+			evidence[i].Detail = detail
+		}
+	}
+	c.Evidence = evidence
+	return c, nil
 }
 
 // Simulators simulates one change in several contexts (the payables

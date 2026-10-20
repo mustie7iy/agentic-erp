@@ -67,6 +67,7 @@ func (p parity) metricChange(t *testing.T) {
 		t.Fatalf("simulated: got status %v, want %s: %v", got["status"], configuration.PendingApproval, got)
 	}
 	p.simulated(t, apitest.List(t, got, "evidence"))
+	p.disclosed(t, path)
 	agent.Problem(403, "identity.agent_not_allowed", "POST", path+":activate", "", tag)
 	env := p.Env
 	env.Client = human
@@ -157,4 +158,36 @@ func values(res map[string]any) [][]any {
 		out = append(out, cells)
 	}
 	return out
+}
+
+// disclosed: a reader of the change request is shown the simulated values
+// of their own companies alone, whatever the requester's access: a reader
+// of 1000 its values, one of 2000 its, one of no company none.
+func (p parity) disclosed(t *testing.T, path string) {
+	t.Helper()
+	for _, company := range []string{"1000", "2000", ""} {
+		t.Run("reader of "+company, func(t *testing.T) {
+			companies := []string{}
+			if company != "" {
+				companies = append(companies, company)
+			}
+			got, _ := p.As(p.person(t, "", companies)).In(t).Must(200, "GET", path, "", "")
+			shown := map[string]int{}
+			for _, e := range apitest.List(t, got, "evidence") {
+				detail := e.(map[string]any)["detail"].(map[string]any)
+				for _, mc := range apitest.List(t, detail, "metrics") {
+					for _, v := range apitest.List(t, mc.(map[string]any), "values") {
+						shown[v.(map[string]any)["company"].(string)]++
+					}
+				}
+			}
+			want := map[string]int{}
+			if company != "" {
+				want[company] = 3 // expenses, operating_margin and operating_profit in 2026
+			}
+			if !reflect.DeepEqual(shown, want) {
+				t.Errorf("values shown by company: got %v, want %v", shown, want)
+			}
+		})
+	}
 }

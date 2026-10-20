@@ -1,7 +1,9 @@
 package endpoint
 
 import (
+	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -85,7 +87,8 @@ func (Section) Apply(context.Context, *config.Config) error { return nil }
 // fiscal year, for the current and the previous fiscal year, under the
 // base and under the proposed definitions (configuration.Simulator). It
 // reads the analytical store as the person who asked for the simulation
-// (who must hold analytics.query.run), within what they may read; the
+// (who must hold analytics.query.run), within what they may read, and each
+// reader is shown the values of their own companies alone (Disclosure); the
 // database path reads the API with a request's credentials, which a
 // queued simulation has not, so a store that cannot answer fails the
 // simulation, to be run again once the store is current (ADR-0044).
@@ -145,7 +148,7 @@ func (s Simulation) Simulate(ctx context.Context, base, proposed *config.Config)
 	year := clock.Now(s.Now).Year()
 	was, err := s.values(ctx, before, p, affected, year)
 	if err == nil {
-		var is map[string]map[string]string
+		var is map[string]map[cell]string
 		if is, err = s.values(ctx, after, p, affected, year); err == nil {
 			return compare(affected, was, is, year), nil
 		}
@@ -155,13 +158,13 @@ func (s Simulation) Simulate(ctx context.Context, base, proposed *config.Config)
 	}
 	return configuration.Simulation{Summary: "The values of metrics " + strings.Join(affected, ", ") +
 		" could not be computed: the analytical store is not current. Simulate again once it is.",
-		Detail: map[string]any{"metrics": affected}}, nil
+		Detail: map[string]any{"metrics_not_computed": affected}}, nil
 }
 
 // values are each metric's values under m, keyed by metric and then
 // company and fiscal year, from fiscal year year-1 on.
-func (s Simulation) values(ctx context.Context, m *analytics.Model, p analytics.Principal, metrics []string, year int) (map[string]map[string]string, error) {
-	out := map[string]map[string]string{}
+func (s Simulation) values(ctx context.Context, m *analytics.Model, p analytics.Principal, metrics []string, year int) (map[string]map[cell]string, error) {
+	out := map[string]map[cell]string{}
 	for _, name := range metrics {
 		if m.Metric(name) == nil {
 			continue
@@ -204,42 +207,49 @@ func recent(m *analytics.Model, name string, year int) analytics.Query {
 	return q
 }
 
-// cells are a result's measure by its dimensions' values ("company/year").
-func cells(res *analytics.Result) map[string]string {
-	out := map[string]string{}
+// cell is a value's company and fiscal year; "" for a breakdown the
+// metric does not allow.
+type cell struct{ Company, FiscalYear string }
+
+// cells are a result's measure by company and fiscal year.
+func cells(res *analytics.Result) map[cell]string {
+	out := map[cell]string{}
 	for _, row := range res.Rows {
-		var key []string
+		var at cell
 		value := ""
 		for i, c := range res.Columns {
 			switch {
-			case c.Kind == "dimension":
-				key = append(key, fmt.Sprint(row[i]))
-			case row[i] != nil:
+			case c.Name == "company":
+				at.Company = fmt.Sprint(row[i])
+			case c.Name == "fiscal_year":
+				at.FiscalYear = fmt.Sprint(row[i])
+			case c.Kind == "measure" && row[i] != nil:
 				value = fmt.Sprint(row[i])
 			}
 		}
-		out[strings.Join(key, "/")] = value
+		out[at] = value
 	}
 	return out
 }
 
 // compare is the simulation's evidence: every affected metric's values
 // side by side. It passes: the values are for the approvers to judge.
-func compare(affected []string, was, is map[string]map[string]string, year int) configuration.Simulation {
+func compare(affected []string, was, is map[string]map[cell]string, year int) configuration.Simulation {
 	changes := make([]MetricChange, 0, len(affected))
 	total, differ := 0, 0
 	for _, name := range affected {
 		mc := MetricChange{Metric: name, Values: []Value{}}
-		keys := map[string]bool{}
+		keys := map[cell]bool{}
 		for k := range was[name] {
 			keys[k] = true
 		}
 		for k := range is[name] {
 			keys[k] = true
 		}
-		for _, k := range slices.Sorted(maps.Keys(keys)) {
-			company, fy, _ := strings.Cut(k, "/")
-			v := Value{Company: company, FiscalYear: fy, Before: was[name][k], After: is[name][k]}
+		for _, k := range slices.SortedFunc(maps.Keys(keys), func(a, b cell) int {
+			return cmp.Or(cmp.Compare(a.Company, b.Company), cmp.Compare(a.FiscalYear, b.FiscalYear))
+		}) {
+			v := Value{Company: k.Company, FiscalYear: k.FiscalYear, Before: was[name][k], After: is[name][k]}
 			if v.Before != v.After {
 				mc.Changed++
 			}
@@ -251,4 +261,52 @@ func compare(affected []string, was, is map[string]map[string]string, year int) 
 	summary := fmt.Sprintf("Metric definitions change for %s: %d of %d values by company and fiscal year since %d differ.",
 		strings.Join(affected, ", "), differ, total, year-1)
 	return configuration.Simulation{Passed: true, Summary: summary, Detail: map[string]any{"metrics": changes}}
+}
+
+// Disclosure shows the reader of a change request the simulated metric
+// values of the companies they may access alone (configuration.Disclosure):
+// the simulation computed them as the person who asked for it, whose
+// access may be wider. It fails closed: a reader of no company sees no
+// value, and a value of no company (a metric not broken down by company)
+// is shown only to a reader of every company.
+type Disclosure struct {
+	Endpoints *Endpoints
+}
+
+// Disclose implements configuration.Disclosure.
+func (d Disclosure) Disclose(ctx context.Context, kind string, detail json.RawMessage) (json.RawMessage, error) {
+	if kind != "simulation" {
+		return detail, nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(detail, &fields); err != nil {
+		return nil, fmt.Errorf("analytics: simulated values: %w", err)
+	}
+	if fields["metrics"] == nil {
+		return detail, nil
+	}
+	var changes []MetricChange
+	if err := json.Unmarshal(fields["metrics"], &changes); err != nil {
+		return nil, fmt.Errorf("analytics: simulated values: %w", err)
+	}
+	p, err := d.Endpoints.principal(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	for i, mc := range changes {
+		changes[i] = MetricChange{Metric: mc.Metric, Values: []Value{}}
+		for _, v := range mc.Values {
+			if p.Companies != nil && (v.Company == "" || !slices.Contains(p.Companies, v.Company)) {
+				continue
+			}
+			changes[i].Values = append(changes[i].Values, v)
+			if v.Before != v.After {
+				changes[i].Changed++
+			}
+		}
+	}
+	// Structs of strings and the fields just read marshal without fail.
+	fields["metrics"], _ = json.Marshal(changes)
+	shown, _ := json.Marshal(fields)
+	return shown, nil
 }

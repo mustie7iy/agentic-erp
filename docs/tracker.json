@@ -3339,8 +3339,8 @@
      },
      {
       "s": "D",
-      "t": "Metric changes through the configuration approval loop: the semantic model is the configuration document's analytics section (semantic.yaml the seed until a change adds it), checked on submission (no metric derived from itself); words tier 1, definitions tier 2 with a simulation of the affected metrics (config.Evidence) by company and fiscal year before and after, read from the store as the requester (a store that cannot answer fails the simulation); the endpoint answers under the active version and names it (config_version), or under an earlier version when asked (audit); agents propose, never activate",
-      "r": "config.Analytics · analytics.FromConfig · analytics.Affected · endpoint.Section · endpoint.Simulation · configuration.Simulators · configuration.Settings.Version · api/openapi.yaml AnalyticsQuery.config_version · ADR-0044 · T55g",
+      "t": "Metric changes through the configuration approval loop: the semantic model is the configuration document's analytics section (semantic.yaml the seed until a change adds it), checked on submission (no metric derived from itself); words tier 1, definitions tier 2 with a simulation of the affected metrics (config.Evidence) by company and fiscal year before and after, read from the store as the requester (a store that cannot answer fails the simulation), each reader of the change request shown the values of their own companies alone (configuration.Disclosure, fail closed); the endpoint answers under the active version and names it (config_version), or under an earlier version when asked (audit); agents propose, never activate",
+      "r": "config.Analytics · analytics.FromConfig · analytics.Affected · endpoint.Section · endpoint.Simulation · configuration.Simulators · configuration.Disclosure · endpoint.Disclosure · configuration.Settings.Version · api/openapi.yaml AnalyticsQuery.config_version · ADR-0044 · T55g",
       "c": []
      }
     ]
@@ -3441,14 +3441,14 @@
        },
        {
         "s": "T",
-        "t": "The analytics agent, erp ask and erp query read the tenant's active semantic model through the API (a read of the analytics section) instead of the built-in seed, so a metric a change request added is offered",
+        "t": "The analytics agent's tool descriptions, erp ask and erp query describe the tenant's active metrics (the active configuration version's analytics section, read through the endpoint) instead of the built-in defaults, so a metric a change request added is offered and a changed definition described as it now is",
         "r": "T55n",
         "c": []
        },
        {
-        "s": "T",
-        "t": "Metric-change simulation where the store cannot answer (a cell without erp-analytics): the database path for a queued simulation, which has no request credentials (product owner decision)",
-        "r": "T55o",
+        "s": "D",
+        "t": "Decided (coordinator, 2026-10-20): a metric-change simulation reads the analytical store alone; every cell runs erp-analytics (T55h), so no database path for a queued simulation is built",
+        "r": "ADR-0044 · T55o",
         "c": []
        }
       ]

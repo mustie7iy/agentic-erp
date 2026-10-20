@@ -327,16 +327,25 @@ func (p parity) permissions(t *testing.T) {
 // perm.
 func (p parity) lacking(t *testing.T, perm string) pgtest.Actor {
 	t.Helper()
+	return p.person(t, perm, nil)
+}
+
+// person is a person holding the parity permissions but lacking: of every
+// company when companies is nil, else of those companies' legal entities.
+func (p parity) person(t *testing.T, lacking string, companies []string) pgtest.Actor {
+	t.Helper()
 	a := pgtest.Actor{ID: uuid.Must(uuid.NewV7()), Kind: "human"}
 	a.Subject = "human|" + a.ID.String()
 	role := uuid.New()
 	pgtest.Exec(t, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, all_companies, status, created_by, updated_by)
-		VALUES ($1, $2, 'human', $3, $4, 'Lacking', true, 'active', $2, $2)`, p.Tenant.ID, a.ID, pgtest.Issuer(t), a.Subject)
-	pgtest.Exec(t, `INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1, $2, $3, 'Lacking', 'active', $4, $4)`,
-		p.Tenant.ID, role, "lacking_"+strings.ReplaceAll(perm, ".", "_"), a.ID)
+		VALUES ($1, $2, 'human', $3, $4, 'Person', $5, 'active', $2, $2)`, p.Tenant.ID, a.ID, pgtest.Issuer(t), a.Subject, companies == nil)
+	pgtest.Exec(t, `INSERT INTO identity.company_access (tenant_id, id, principal_id, legal_entity_id, valid_from, created_by)
+		SELECT $1, gen_random_uuid(), $2, le.id, current_date - 1, $2 FROM tenancy.legal_entity le WHERE le.tenant_id = $1 AND le.code = ANY($3)`, p.Tenant.ID, a.ID, companies)
+	pgtest.Exec(t, `INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1, $2, $3, 'Person', 'active', $4, $4)`,
+		p.Tenant.ID, role, "person_"+a.ID.String()[24:], a.ID)
 	pgtest.Exec(t, `INSERT INTO identity.role_permission (tenant_id, id, role_id, permission_code, valid_from, created_by)
 		SELECT $1, gen_random_uuid(), $2, code, current_date - 1, $3 FROM unnest($4::text[]) code WHERE code <> $5`,
-		p.Tenant.ID, role, a.ID, parityPerms, perm)
+		p.Tenant.ID, role, a.ID, parityPerms, lacking)
 	pgtest.Exec(t, `INSERT INTO identity.principal_role (tenant_id, id, principal_id, role_id, valid_from, created_by) VALUES ($1, gen_random_uuid(), $2, $3, current_date - 1, $2)`,
 		p.Tenant.ID, a.ID, role)
 	return a

@@ -2,6 +2,7 @@ package endpoint
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -178,3 +179,35 @@ func TestSimulation(t *testing.T) {
 
 // errOf is a simulation's error.
 func errOf(_ any, err error) error { return err }
+
+// TestDisclosure: a reader of company 2000 is shown its simulated values
+// alone (not 1000's, nor one of no company), with the differences
+// recounted; other evidence and a simulation without values are shown
+// whole; a detail that does not read or a reader whose companies cannot be
+// named fails the read.
+func TestDisclosure(t *testing.T) {
+	detail := `{"invoices": 3, "metrics": [{"metric": "revenue", "changed": 3, "values": [
+		{"company": "1000", "fiscal_year": "2026", "before": "1", "after": "2"},
+		{"company": "2000", "fiscal_year": "2025", "before": "1", "after": "1"},
+		{"company": "2000", "fiscal_year": "2026", "before": "1", "after": "2"},
+		{"company": "", "fiscal_year": "2026", "before": "3", "after": "4"}]}]}`
+	d := Disclosure{Endpoints: &Endpoints{Companies: codes{}}}
+	inRequest(t, 0, func(ctx context.Context) {
+		got, err := d.Disclose(ctx, "simulation", json.RawMessage(detail))
+		want := `{"invoices":3,"metrics":[{"metric":"revenue","changed":1,"values":[` +
+			`{"company":"2000","fiscal_year":"2025","before":"1","after":"1"},{"company":"2000","fiscal_year":"2026","before":"1","after":"2"}]}]}`
+		if err != nil || string(got) != want {
+			t.Errorf("reader of 2000: got %s, %v; want %s", got, err, want)
+		}
+		for kind, whole := range map[string]string{"regression": `[1]`, "simulation": `{"metrics_not_computed": ["revenue"]}`} {
+			if got, err := d.Disclose(ctx, kind, json.RawMessage(whole)); err != nil || string(got) != whole {
+				t.Errorf("%s %s: got %s, %v; want it whole", kind, whole, got, err)
+			}
+		}
+		for _, bad := range []string{`[1]`, `{"metrics": ["revenue"]}`} {
+			pgtest.CheckErr(t, errOf(d.Disclose(ctx, "simulation", json.RawMessage(bad))), "simulated values")
+		}
+		failing := Disclosure{Endpoints: &Endpoints{Companies: codes{errors.New("directory down")}}}
+		pgtest.CheckErr(t, errOf(failing.Disclose(ctx, "simulation", json.RawMessage(detail))), "directory down")
+	})
+}
