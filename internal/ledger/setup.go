@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -358,6 +359,41 @@ func applyAccounts(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, chart
 		SELECT $1, $2, id, reconciliation_kind <> 'none', $4, $4 FROM ledger.gl_account WHERE chart_id = $3 AND number = ANY($5)
 		ON CONFLICT DO NOTHING`, p.TenantID, le, chart, p.ID, numbers); err != nil {
 		return fmt.Errorf("ledger: apply company %s: company accounts: %w", co.Code, err)
+	}
+	return applyOpenItems(ctx, tx, p, le, chart, co)
+}
+
+// applyOpenItems makes the accounts the document has open-item managed
+// (ADR-0047) and refuses the activation when one of them, not yet open-item
+// managed, has postings (409 ledger.open_items_account_posted). Check
+// refuses the same on submission; an entry posted while the change awaited
+// approval is caught here, and the activation rolls back. Turning the flag
+// on locks the account's row, so a second activation waits for this one.
+func applyOpenItems(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, chart uuid.UUID, co config.Company) error {
+	var numbers []string
+	for _, a := range co.ChartOfAccounts {
+		if a.OpenItems {
+			numbers = append(numbers, a.Number)
+		}
+	}
+	rows, _ := tx.Query(ctx, `UPDATE ledger.company_account ca SET is_open_item_managed = true, version = ca.version + 1, updated_by = $4
+		FROM ledger.gl_account g WHERE g.tenant_id = ca.tenant_id AND g.id = ca.account_id AND ca.legal_entity_id = $1 AND g.chart_id = $2
+			AND g.number = ANY($3) AND NOT ca.is_open_item_managed
+		RETURNING g.number, EXISTS (SELECT FROM ledger.journal_line l WHERE l.tenant_id = ca.tenant_id AND l.legal_entity_id = $1
+			AND l.account_id = ca.account_id)`, le, chart, numbers, p.ID)
+	type turned struct {
+		Number string
+		Posted bool
+	}
+	on, err := pgx.CollectRows(rows, pgx.RowToStructByPos[turned])
+	if err != nil {
+		return fmt.Errorf("ledger: apply company %s: open-item accounts: %w", co.Code, err)
+	}
+	for _, a := range on {
+		if a.Posted {
+			return problem.Conflict("ledger.open_items_account_posted", "Account "+a.Number+" of company "+co.Code+
+				" has postings, so it cannot become open-item managed; name a new clearing account and transfer the old balance to it.")
+		}
 	}
 	return nil
 }

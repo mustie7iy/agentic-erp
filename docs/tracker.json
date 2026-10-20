@@ -853,7 +853,7 @@
        {
         "s": "D",
         "t": "ADR-0047; house banks' main bank and incoming payments accounts (000105); open-item managed clearing accounts, refused for an account with postings; posting rules by transaction code, matching rules, approval tiers with no default",
-        "r": "ADR-0047 · companies[].bank_statements · house_bank.main_gl_account/incoming_gl_account · chart_of_accounts[].open_items · ledger.Setup.Check · 000105 · T49a",
+        "r": "ADR-0047 · companies[].bank_statements · house_bank.main_gl_account/incoming_gl_account · chart_of_accounts[].open_items · ledger.Setup.Check and Apply · 000105 · T49a",
         "c": []
        },
        {
@@ -896,6 +896,12 @@
         "s": "T",
         "t": "Reconciliation report and documentation",
         "r": "T49h",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "ISO-8859-1 statement files, only if a pilot bank cannot send UTF-8 (coordinator 2026-10-20)",
+        "r": "T49",
         "c": []
        }
       ]

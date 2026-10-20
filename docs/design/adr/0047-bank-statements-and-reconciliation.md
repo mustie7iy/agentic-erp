@@ -120,14 +120,18 @@ Canadian bank may only offer BAI2.
   `companies[].bank_statements` (posting rules, matching rules, approval
   tiers); all posting-relevant changes except a posting rule's
   description (T49a).
-- The ledger keeps the open-item flag in the configuration only; posting
+- The ledger records the open-item flag on the company's account
+  (`ledger.company_account.is_open_item_managed`, shown by
+  `GET /v1/accounts/{id}`) when the configuration is activated; posting
   and clearing read it there (T49f).
 - The ledger's check that an account turned open-item managed has no
   postings runs when the change is submitted, as the GR/IR account's
-  does; activation does not repeat the sections' database checks, so an
-  entry posted to the account while the change awaits approval is not
-  caught. Running those checks again at activation is a follow-up for
-  every section, not T49's.
+  does, and again when it is activated (coordinator 2026-10-20, the
+  pattern of T46e's withholding codes): an entry posted to the account
+  while the change awaited approval refuses the activation with 409
+  `ledger.open_items_account_posted`, and the activation rolls back. An
+  entry committed while the activation itself runs is indistinguishable
+  from one posted just after it, and is an open item like it.
 - Steps: a ADR, configuration and the house bank's columns · b parsers ·
   c tables, upload, idempotency and continuity · d SFTP fetch · e rule
   matching · f posting, clearing, approval and period locks · g agent
