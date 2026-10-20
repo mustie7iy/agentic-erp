@@ -8,7 +8,7 @@ import (
 )
 
 // TestExtensionsSchemaVersion: the custom field schema version written
-// with a row (000105, ADR-0046) is a version number, 1 or more, or none.
+// with a row (000113, ADR-0046) is a version number, 1 or more, or none.
 func TestExtensionsSchemaVersion(t *testing.T) {
 	f := newFixture(t)
 	var po uuid.UUID
