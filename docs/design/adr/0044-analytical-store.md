@@ -1,7 +1,8 @@
 # ADR-0044: Analytical store
 
 **Status:** accepted (product owner, 2026-10-19, T55; amended 2026-10-19,
-T55b: one pointer row per tenant, the leading ledger by default)
+T55b: one pointer row per tenant, the leading ledger by default; T55c:
+manifests named by cutoff and digest, `checked_at`, the scheduler)
 
 ## Context
 The semantic layer (`internal/analytics`, `semantic.yaml`) answers every
@@ -50,11 +51,19 @@ database state, and the run writes one manifest naming all of them. A run the st
 conflict (`max_standby_streaming_delay`) is retried by the sweep;
 `hot_standby_feedback` stays off, so analytics never bloats the primary
 (accepted by the product owner, 2026-10-19). The
-outbox (ADR-0007) drives timing only: a consumer of the
-tenant's domain events marks the tenant changed, and the scheduler runs its
-next extract after a short debounce; an hourly sweep extracts any tenant
-whose snapshot is older than the freshness target, so a lost event delays
-data and never loses it. A reconciliation per tenant and month (rows and the
+outbox (ADR-0007) drives timing only: the relay marks a tenant changed
+(`analytics.extract_due`) in the transaction that publishes a batch of its
+events of a context a dataset reads (the `Relayed` hook), once per batch
+and never in the posting transactions, where one row per tenant would be a
+lock every writer of the tenant waits on. The scheduler claims a changed
+tenant with `FOR UPDATE SKIP LOCKED` at most once per five minutes (the
+claim is the run's lease, so a failed or crashed run is retried after it)
+and records a finished run's claim time as done; a change marked after the
+claim stays due. Marks and claims use the database's clock. A run that
+leaves journal entries above its cutoff (an open transaction holds the
+horizon) keeps the tenant due. An hourly sweep (T55f) extracts any tenant
+whose `checked_at` is older than the freshness target, so a lost event
+delays data and never loses it. A reconciliation per tenant and month (rows and the
 bigint sum of `amount_minor` against the database, like ADR-0030's
 fingerprint) runs with the sweep and re-extracts a month that disagrees.
 
@@ -106,16 +115,22 @@ each file written once through `blobstore` and never overwritten. A
 per-tenant manifest (`analytics/v1/tenant=<id>/manifest-<seq>.json`)
 lists, for each dataset, its files with size and SHA-256, the watermark,
 the row count and `as_of`; an append dataset's manifest lists its earlier
-runs' files too. A part is named by the interval it holds (the previous
-watermark and the run's cutoff), the manifest's `<seq>` by the cutoff, each
-zero-padded to 20 digits, so names sort by run and a run repeated with the
-same interval (its publication lost) writes the same bytes under the same
-keys and goes on, publishing the stored manifest's `as_of`; other bytes
-under a key stop the run, never overwrite it. A cutoff below the stored
+runs' files too. A journal part is named by the interval it holds (the previous
+watermark and the run's cutoff, each zero-padded to 20 digits), a snapshot
+dataset's file by the SHA-256 of its content (`part-<sha256>.parquet`, one
+per month of a fact dataset, one for a dimension), and the manifest by the
+cutoff and the first 16 hex digits of the SHA-256 of what it lists, as_of
+aside (`manifest-<cutoff>-<digest>.json`): two runs with one cutoff can see
+different documents, since the snapshot datasets are read as of the whole
+snapshot while the journal is read below its horizon. A run repeated with
+the same interval and content (its publication lost) writes the same bytes
+under the same keys and goes on, publishing the stored manifest's `as_of`;
+other bytes under a key stop the run, never overwrite it. An unchanged
+month or dimension keeps its file, which a run does not write again. A cutoff below the stored
 watermark (the database restored or moved under the store) stops the run
 with `ErrBehind` until the tenant's store is rebuilt: appending from the
 old watermark would skip entries for good. Table `analytics.snapshot
-(tenant_id, manifest_key, watermark, as_of, published_at)` holds **one row
+(tenant_id, manifest_key, watermark, as_of, published_at, checked_at)` holds **one row
 per tenant**, under RLS, pointing at the current manifest; a check
 constraint ties the manifest's name to the tenant and the watermark. All
 of a tenant's datasets are swapped together: a run publishes by updating
@@ -124,8 +139,13 @@ reader sees an old or a new run, never half of one, and never a fact
 dataset from one run with a dimension dataset from another. A run that
 lost the race (`ErrMoved`) leaves its files unreferenced and the sweep's
 next run starts from the newer pointer. A run that finds nothing new
-writes nothing and leaves the pointer, so running it twice leaves the
-store as one run did. The pointer is derived bookkeeping, rebuilt from the
+(no journal line, every snapshot file unchanged) writes no file and no
+manifest and records only its snapshot's time as the pointer's
+`checked_at`, so running it twice leaves the store as one run did and a
+quiet tenant is not taken for a stale one. `checked_at` is the snapshot
+time of the last run that read every dataset and left no journal entry
+above its watermark: a run with entries pending above its cutoff
+publishes what it read but does not advance it. The pointer is derived bookkeeping, rebuilt from the
 database, not a business state change: it writes no audit record
 (ADR-0011), and the manifest it names is the record of what was published. The reader takes one manifest per tenant
 and refuses (falling back to the database) a manifest whose datasets do not
@@ -168,8 +188,12 @@ and another ledger only when the question names it** (product owner,
 2026-10-19). That is a semantic-layer change, made in both paths at once in
 T55e; the datasets keep every ledger's lines and their `ledger_id`, so it
 needs no re-extract. The freshness target is p95 of
-fifteen minutes from posting to `as_of`; when a tenant's snapshot is
-missing or older than that, the semantic layer answers from PostgreSQL
+fifteen minutes from posting to `checked_at`; freshness is judged on
+`checked_at` and the watermark together (the store holds every journal
+entry below the watermark and was found equal to the database at
+`checked_at`), not on `as_of`, which a quiet tenant's store keeps from its
+last change. When a tenant's snapshot is missing or its `checked_at` older
+than the target, the semantic layer answers from PostgreSQL
 instead, and every answer's lineage names its source (`store` or
 `database`) and `as_of`.
 
@@ -188,9 +212,30 @@ second owner of that data. Parquet is written with
 `CGO_ENABLED=0`). Keys use Hive-style `name=value` segments, which
 `blobstore` accepts (`=` is percent-encoded in the signed S3 path).
 
+**Datasets and scheduler (T55c).** The run reads the five snapshot
+datasets in the journal's `REPEATABLE READ` transaction, as the semantic
+layer's `BuildFacts` derives them: order items valued with `money.Scale` of
+the decimal quantity (a value out of range stops the run), invoices at
+gross in any status, supplier open items as `/v1/open-items` returns them,
+accounts per company assignment with `vendor_recon` for supplier
+reconciliation accounts, and partners holding the supplier role. Company
+and dataset stay keys, so the reader can apply the principal's company
+access and fact types. Bank accounts and tax identifiers, which the API
+masks, are never read. Every dataset streams in month order, a month's
+file written when the next month begins, so a first run over any backlog
+holds one month in memory. The scheduler is `extract.Scheduler`
+(`erp_worker` claims; the extract itself runs as `erp_app` under the
+tenant's RLS); the server starts it, and sets the relay's hook, with the
+reader in T55e. Until the run waits for the replica to replay the WAL
+position recorded at its claim (`pg_current_wal_lsn()` on the primary
+against `pg_last_wal_replay_lsn()`, T55f), the scheduler reads on the
+primary: a lagging replica would find nothing new, record `checked_at` and
+mark the change done, and the entry would wait for the tenant's next
+change.
+
 **Steps.** T55a this ADR and the dataset contract; T55b the snapshot
 migration, extractor and Parquet writer for journal lines; T55c the other
-datasets and the scheduler; T55d `erp-analytics`, the guard and the
+datasets and the scheduler (migration 000092); T55d `erp-analytics`, the guard and the
 isolation tests; T55e the semantic layer on the store, the fallback,
 lineage and parity; T55f erasure, compaction, lifecycle, rebuild and the
 freshness alert; T55g metric changes through the configuration approval

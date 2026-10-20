@@ -51,6 +51,8 @@ func TestSnapshotPointer(t *testing.T) {
 		"other watermark's name":  {b.tenant, insert, []any{b.tenant, key(b.tenant, "00000000000000000009"), "8"}, "snapshot_manifest_key_check"},
 		"other tenant's manifest": {b.tenant, insert, []any{b.tenant, key(a.tenant, "00000000000000000008"), "8"}, "snapshot_manifest_key_check"},
 		"unpadded name":           {b.tenant, insert, []any{b.tenant, key(b.tenant, "8"), "8"}, "snapshot_manifest_key_check"},
+		"short digest":            {b.tenant, insert, []any{b.tenant, key(b.tenant, "00000000000000000008-0123"), "8"}, "snapshot_manifest_key_check"},
+		"other suffix":            {b.tenant, insert, []any{b.tenant, key(b.tenant, "00000000000000000008-0123456789abcdeg"), "8"}, "snapshot_manifest_key_check"},
 		"another tenant's row":    {b.tenant, insert, []any{a.tenant, key(a.tenant, "00000000000000000008"), "8"}, "row-level security"},
 		"delete":                  {a.tenant, `DELETE FROM analytics.snapshot`, nil, "permission denied"},
 		"move to another tenant":  {a.tenant, `UPDATE analytics.snapshot SET tenant_id = $1`, []any{b.tenant}, "permission denied"},
@@ -62,8 +64,8 @@ func TestSnapshotPointer(t *testing.T) {
 
 	t.Run("moved", func(t *testing.T) {
 		mustApp(t, a.tenant, func(tx pgx.Tx) error {
-			return exec(tx, `UPDATE analytics.snapshot SET manifest_key = $1, watermark = '8', as_of = now(), published_at = now() WHERE manifest_key = $2`,
-				key(a.tenant, "00000000000000000008"), key(a.tenant, "00000000000000000007"))
+			return exec(tx, `UPDATE analytics.snapshot SET manifest_key = $1, watermark = '8', as_of = now(), published_at = now(), checked_at = now()
+				WHERE manifest_key = $2`, key(a.tenant, "00000000000000000008-0123456789abcdef"), key(a.tenant, "00000000000000000007"))
 		})
 	})
 	t.Run("invisible to another tenant", func(t *testing.T) {
@@ -73,6 +75,71 @@ func TestSnapshotPointer(t *testing.T) {
 		})
 		if n != 0 {
 			t.Errorf("pointers seen by tenant B: got %d, want 0", n)
+		}
+	})
+}
+
+// inRole runs fn in a transaction as role, which bypasses row-level
+// security: the outbox relay's and the workers'.
+func inRole(t *testing.T, role string, fn func(tx pgx.Tx) error) error {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+role); err != nil {
+		t.Fatal(err)
+	}
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// TestExtractQueue (000092): the relay marks tenants changed, the worker
+// claims and finishes their runs, the application only reads its own row.
+func TestExtractQueue(t *testing.T) {
+	need(t)
+	a, b := newFixture(t), newFixture(t)
+	t.Cleanup(func() {
+		_, _ = testDB.Exec(context.Background(), `DELETE FROM analytics.extract_due WHERE tenant_id IN ($1, $2)`, a.tenant, b.tenant) // best effort: the rows only queue extracts
+	})
+	mark := `INSERT INTO analytics.extract_due (tenant_id, changed_at) VALUES ($1, now())`
+	if err := inRole(t, "erp_relay", func(tx pgx.Tx) error { return exec(tx, mark, a.tenant) }); err != nil {
+		t.Fatalf("relay mark: %v", err)
+	}
+	if err := inRole(t, "erp_worker", func(tx pgx.Tx) error {
+		return exec(tx, `UPDATE analytics.extract_due SET started_at = now(), done_at = now() WHERE tenant_id = $1`, a.tenant)
+	}); err != nil {
+		t.Fatalf("worker claim: %v", err)
+	}
+	for name, c := range map[string]struct {
+		role, sql string
+		want      string
+	}{
+		"application queues":    {"erp_app", mark, "permission denied"},
+		"relay claims":          {"erp_relay", `UPDATE analytics.extract_due SET started_at = now()`, "permission denied"},
+		"worker marks":          {"erp_worker", `UPDATE analytics.extract_due SET changed_at = now()`, "permission denied"},
+		"worker deletes":        {"erp_worker", `DELETE FROM analytics.extract_due`, "permission denied"},
+		"done before its claim": {"erp_worker", `UPDATE analytics.extract_due SET done_at = started_at + interval '1 second'`, "extract_due_done_at_claim"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if c.role == "erp_app" {
+				failsWith(t, asApp(t, b.tenant, func(tx pgx.Tx) error { return exec(tx, c.sql, b.tenant) }), c.want)
+				return
+			}
+			failsWith(t, inRole(t, c.role, func(tx pgx.Tx) error { return exec(tx, c.sql+` WHERE tenant_id = $1`, a.tenant) }), c.want)
+		})
+	}
+	t.Run("invisible to another tenant", func(t *testing.T) {
+		var n int
+		mustApp(t, b.tenant, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(), `SELECT count(*) FROM analytics.extract_due`).Scan(&n)
+		})
+		if n != 0 {
+			t.Errorf("queue rows seen by tenant B: got %d, want 0", n)
 		}
 	})
 }

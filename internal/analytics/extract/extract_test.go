@@ -59,12 +59,19 @@ func setup(t *testing.T) env {
 // supplier credited on its payables account.
 func (e env) post(t *testing.T, date, amount string) string {
 	t.Helper()
+	id := e.postOnly(t, date, amount)
+	e.settled(t)
+	return id
+}
+
+// postOnly posts the entry without waiting for the snapshot horizon.
+func (e env) postOnly(t *testing.T, date, amount string) string {
+	t.Helper()
 	je, _ := e.Must(201, "POST", "/v1/journal-entries", fmt.Sprintf(`{"legal_entity_id": %q, "document_date": %q, "posting_date": %q, "currency": "EUR",
 		"lines": [{"account_id": %q, "amount": {"amount": %q, "currency": "EUR"}},
 		{"account_id": %q, "amount": {"amount": "-%s", "currency": "EUR"}, "partner_id": %q}]}`,
 		e.DE, date, date, e.Account(t, "2000", "610000"), amount, e.Account(t, "2000", "211000"), amount, e.Supplier), "")
 	id, _ := je["id"].(string)
-	e.settled(t)
 	return id
 }
 
@@ -89,6 +96,17 @@ func (e env) run(t *testing.T) extract.Result {
 		t.Fatalf("run: %v", err)
 	}
 	return res
+}
+
+// checkedAt is the time the pointer records the tenant's store current.
+func (e env) checkedAt(t *testing.T) time.Time {
+	t.Helper()
+	var at *time.Time
+	pgtest.Scan(t, `SELECT checked_at FROM analytics.snapshot WHERE tenant_id = $1`, []any{e.Tenant.ID}, &at)
+	if at == nil {
+		return time.Time{}
+	}
+	return *at
 }
 
 func (e env) manifest(t *testing.T, key string) extract.Manifest {
@@ -127,8 +145,11 @@ func TestRunAppendsByWatermark(t *testing.T) {
 	if first.Lines != 2 {
 		t.Fatalf("lines: got %d, want 2", first.Lines)
 	}
-	if want := extract.ManifestKey(e.Tenant.ID, first.Watermark); first.ManifestKey != want {
-		t.Errorf("manifest key: got %s, want %s", first.ManifestKey, want)
+	if want := strings.TrimSuffix(extract.ManifestKey(e.Tenant.ID, first.Watermark, ""), ".json") + "-"; !strings.HasPrefix(first.ManifestKey, want) {
+		t.Errorf("manifest key: got %s, want under %s", first.ManifestKey, want)
+	}
+	if !first.Published || first.Pending {
+		t.Errorf("first run: got %+v, want published with nothing pending", first)
 	}
 	var key, wm string
 	pgtest.Scan(t, `SELECT manifest_key, watermark::text FROM analytics.snapshot WHERE tenant_id = $1`, []any{e.Tenant.ID}, &key, &wm)
@@ -147,9 +168,13 @@ func TestRunAppendsByWatermark(t *testing.T) {
 
 	t.Run("run twice", func(t *testing.T) {
 		keys := slices.Sorted(slices.Values(e.server.Keys()))
+		checked := e.checkedAt(t)
 		again := e.run(t)
-		if again.ManifestKey != first.ManifestKey || again.Lines != 0 {
-			t.Errorf("second run: got %+v, want manifest %s and no lines", again, first.ManifestKey)
+		if again.ManifestKey != first.ManifestKey || again.Lines != 0 || again.Published {
+			t.Errorf("second run: got %+v, want manifest %s unpublished and no lines", again, first.ManifestKey)
+		}
+		if got := e.checkedAt(t); !got.After(checked) {
+			t.Errorf("checked_at: got %v, want after %v", got, checked)
 		}
 		if got := slices.Sorted(slices.Values(e.server.Keys())); !slices.Equal(got, keys) {
 			t.Errorf("second run wrote files: got %v, want %v", got, keys)
@@ -162,7 +187,13 @@ func TestRunAppendsByWatermark(t *testing.T) {
 		if next.Lines != 2 || next.Watermark <= first.Watermark {
 			t.Fatalf("next run: got %+v, want 2 lines above %d", next, first.Watermark)
 		}
-		ds := e.manifest(t, next.ManifestKey).Datasets["gl_lines"]
+		m := e.manifest(t, next.ManifestKey)
+		for name, d := range m.Datasets {
+			if !d.AsOf.Equal(m.Datasets["gl_lines"].AsOf) || d.Watermark != next.Watermark {
+				t.Errorf("dataset %s: got as of %v at %d, want the run's", name, d.AsOf, d.Watermark)
+			}
+		}
+		ds := m.Datasets["gl_lines"]
 		if len(ds.Files) != 2 || ds.Rows != 4 {
 			t.Fatalf("manifest: got %+v, want two files of 4 rows", ds)
 		}
@@ -206,7 +237,7 @@ func TestRunBehindTheWatermark(t *testing.T) {
 	e := setup(t)
 	e.post(t, "2026-03-02", "1.00")
 	ahead := uint64(1) << 62
-	key := extract.ManifestKey(e.Tenant.ID, ahead)
+	key := extract.ManifestKey(e.Tenant.ID, ahead, "")
 	pgtest.Exec(t, `INSERT INTO analytics.snapshot (tenant_id, manifest_key, watermark, as_of) VALUES ($1, $2, $3::text::xid8, now())`,
 		e.Tenant.ID, key, fmt.Sprint(ahead))
 	if _, err := e.x.Run(context.Background(), e.Tenant.ID); !errors.Is(err, extract.ErrBehind) {
@@ -220,21 +251,28 @@ func TestRunBehindTheWatermark(t *testing.T) {
 // TestRunLosesTheRace: a pointer moved between a run's read and its
 // publication is left as the other run set it.
 func TestRunLosesTheRace(t *testing.T) {
-	for name, move := range map[string]string{
-		"first publication": `INSERT INTO analytics.snapshot (tenant_id, manifest_key, watermark, as_of) VALUES ($1, $2, '1', now())`,
-		"later publication": `UPDATE analytics.snapshot SET manifest_key = $2, watermark = '1' WHERE tenant_id = $1`,
+	move := `UPDATE analytics.snapshot SET manifest_key = $2, watermark = '1' WHERE tenant_id = $1`
+	for name, c := range map[string]struct {
+		move      string
+		prior, ok bool // a run before the race; a new entry for the racing run
+	}{
+		"first publication": {`INSERT INTO analytics.snapshot (tenant_id, manifest_key, watermark, as_of) VALUES ($1, $2, '1', now())`, false, true},
+		"later publication": {move, true, true},
+		"check":             {move, true, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := setup(t)
-			if name == "later publication" {
+			if c.prior {
 				e.post(t, "2026-03-02", "1.00")
 				e.run(t)
 			}
-			e.post(t, "2026-03-03", "2.00")
-			moved := extract.ManifestKey(e.Tenant.ID, 1)
+			if c.ok {
+				e.post(t, "2026-03-03", "2.00")
+			}
+			moved := extract.ManifestKey(e.Tenant.ID, 1, "")
 			primary := e.x.Primary
 			e.x.Primary = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-				pgtest.Exec(t, move, e.Tenant.ID, moved)
+				pgtest.Exec(t, c.move, e.Tenant.ID, moved)
 				return primary(ctx, s)
 			}
 			_, err := e.x.Run(context.Background(), e.Tenant.ID)
@@ -250,30 +288,25 @@ func TestRunLosesTheRace(t *testing.T) {
 	}
 }
 
-// failingStore fails the nth call of the named method.
+// failingStore fails the named method on the first key holding part.
 type failingStore struct {
 	blobstore.Store
-	method string
-	n      *int
+	method, part string
 }
 
-func (f failingStore) fail(method string) bool {
-	if method != f.method {
-		return false
-	}
-	*f.n--
-	return *f.n == 0
+func (f failingStore) fail(method, key string) bool {
+	return method == f.method && strings.Contains(key, f.part)
 }
 
 func (f failingStore) Put(ctx context.Context, key string, b []byte, opts blobstore.PutOptions) error {
-	if f.fail("put") {
+	if f.fail("put", key) {
 		return blobstore.ErrLocked
 	}
 	return f.Store.Put(ctx, key, b, opts)
 }
 
 func (f failingStore) Get(ctx context.Context, key string) ([]byte, string, error) {
-	if f.fail("get") {
+	if f.fail("get", key) {
 		return nil, "", blobstore.ErrNotFound
 	}
 	return f.Store.Get(ctx, key)
@@ -284,13 +317,14 @@ func TestStoreFailures(t *testing.T) {
 	e.post(t, "2026-03-02", "1.00")
 	e.run(t)
 	e.post(t, "2026-04-02", "2.00")
+	e.post(t, "2026-05-02", "3.00")
 	for name, f := range map[string]failingStore{
-		"previous manifest": {method: "get", n: new(int)},
-		"part":              {method: "put", n: new(int)},
-		"manifest":          {method: "put", n: new(int)},
+		"previous manifest": {method: "get", part: "/manifest-"},
+		"journal part":      {method: "put", part: "/gl_lines/month=2026-04/"}, // flushed when May begins
+		"snapshot file":     {method: "put", part: "/open_items/"},
+		"manifest":          {method: "put", part: "/manifest-"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			*f.n = map[string]int{"previous manifest": 1, "part": 1, "manifest": 2}[name]
 			f.Store = e.x.Store
 			x := e.x
 			x.Store = f
@@ -300,7 +334,7 @@ func TestStoreFailures(t *testing.T) {
 		})
 	}
 	t.Run("previous manifest unreadable", func(t *testing.T) {
-		key := extract.ManifestKey(e.Tenant.ID, 2)
+		key := extract.ManifestKey(e.Tenant.ID, 2, "")
 		if err := e.x.Store.Put(context.Background(), key, []byte("{"), blobstore.PutOptions{}); err != nil {
 			t.Fatal(err)
 		}
@@ -310,9 +344,10 @@ func TestStoreFailures(t *testing.T) {
 	})
 }
 
-func TestDatabaseFailures(t *testing.T) {
-	e := setup(t)
-	e.post(t, "2026-03-02", "1.00")
+// failEach runs the extract failing at each statement of its transactions
+// in turn until a run succeeds, and returns that run.
+func failEach(t *testing.T, e env) extract.Result {
+	t.Helper()
 	pool := pgtest.Pool(t)
 	for n := 1; ; n++ {
 		count := 0
@@ -322,18 +357,30 @@ func TestDatabaseFailures(t *testing.T) {
 		}
 		x := e.x
 		x.Replica, x.Primary = begin, begin
-		_, err := x.Run(context.Background(), e.Tenant.ID)
+		res, err := x.Run(context.Background(), e.Tenant.ID)
 		if err == nil {
 			if n < 4 {
 				t.Fatalf("statement %d: run succeeded, want every statement covered", n)
 			}
-			break
+			return res
 		}
 		if !errors.Is(err, pgtest.ErrInjected) {
 			t.Fatalf("statement %d: got %v, want the injected failure", n, err)
 		}
 	}
+}
+
+func TestDatabaseFailures(t *testing.T) {
+	e := setup(t)
+	e.post(t, "2026-03-02", "1.00")
+	if res := failEach(t, e); !res.Published {
+		t.Errorf("first run: got %+v, want published", res)
+	}
+	if res := failEach(t, e); res.Published {
+		t.Errorf("run with nothing new: got %+v, want a check only", res)
+	}
 	e.post(t, "2026-03-03", "1.00")
+	pool := pgtest.Pool(t)
 	x := e.x
 	x.Primary = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
 		tx, err := pool.Begin(ctx, s)

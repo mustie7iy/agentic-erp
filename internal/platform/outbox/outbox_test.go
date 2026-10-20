@@ -397,3 +397,54 @@ func TestRelayPublishesAnUnversionedType(t *testing.T) {
 		t.Errorf("ce-type: got %q, want the stored type", got)
 	}
 }
+
+// TestRelayedSeesEachBatch: the hook gets a published batch's context and
+// tenants in the transaction that marks it published, and its failure
+// leaves the batch unpublished.
+func TestRelayedSeesEachBatch(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ten := pgtest.NewTenant(t)
+	inRequest(t, pool, ten, func(ctx context.Context) error {
+		_, err := outbox.Add(ctx, outbox.Event{Context: "platform", Name: "operation_completed", AggregateID: uuid.New(), Payload: 1})
+		return err
+	})
+	unpublished := func() int {
+		var n int
+		pgtest.Scan(t, `SELECT count(*) FROM platform.outbox WHERE tenant_id = $1 AND published_at IS NULL`, []any{ten.ID}, &n)
+		return n
+	}
+	relay := &outbox.Relay{Pool: pool, Role: "erp_relay", Publisher: &recorder{}, Cell: "eu1",
+		Relayed: func(context.Context, pgx.Tx, string, []uuid.UUID) error { return errors.New("hook down") }}
+	failed := false
+	for i := 0; i < 50 && !failed; i++ { // another package's relay may hold the context's lock
+		_, err := relay.RunOnce(context.Background())
+		if err != nil {
+			pgtest.WantErr(t, err, "hook down")
+			failed = true
+		}
+	}
+	if !failed {
+		t.Fatal("hook failure: never seen, want the round to fail")
+	}
+	if got := unpublished(); got != 1 {
+		t.Fatalf("unpublished after the hook failed: got %d, want 1", got)
+	}
+	var seen []string
+	relay.Relayed = func(_ context.Context, tx pgx.Tx, schema string, tenants []uuid.UUID) error {
+		if tx == nil {
+			t.Error("hook: got no transaction")
+		}
+		if slices.Contains(tenants, ten.ID) {
+			seen = append(seen, schema)
+		}
+		return nil
+	}
+	for i := 0; i < 10 && unpublished() > 0; i++ {
+		if _, err := relay.RunOnce(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !slices.Equal(seen, []string{"platform"}) {
+		t.Errorf("batches seen with the tenant: got %v, want [platform]", seen)
+	}
+}

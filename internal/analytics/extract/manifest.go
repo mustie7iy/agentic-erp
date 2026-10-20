@@ -52,58 +52,57 @@ func tenantPrefix(tenant uuid.UUID) string { return Prefix + "/tenant=" + tenant
 // analytics.snapshot checks the manifest's name against its watermark.
 func seq(cutoff uint64) string { return fmt.Sprintf("%020d", cutoff) }
 
-// ManifestKey is the key of the manifest a run with cutoff writes.
-func ManifestKey(tenant uuid.UUID, cutoff uint64) string {
-	return tenantPrefix(tenant) + "/manifest-" + seq(cutoff) + ".json"
+// ManifestKey is the key of the manifest a run with cutoff writes, digest
+// being the first 16 hex digits of the SHA-256 of what it lists (digestOf):
+// two runs with one cutoff can see different documents (ADR-0044). An
+// empty digest gives T55b's name, which the pointer still accepts.
+func ManifestKey(tenant uuid.UUID, cutoff uint64, digest string) string {
+	if digest != "" {
+		digest = "-" + digest
+	}
+	return tenantPrefix(tenant) + "/manifest-" + seq(cutoff) + digest + ".json"
 }
 
-// write stores the new lines' files and the manifest that adds them to the
-// previous manifest's, and returns the manifest's key and as_of.
-func (x Extractor) write(ctx context.Context, tenant uuid.UUID, s snapshot) (string, time.Time, error) {
+// add sets a dataset of the run's manifest: version 1, at the run's cutoff
+// and as of its snapshot.
+func (m Manifest) add(name string, d Dataset, r *run) {
+	d.Version, d.Watermark, d.AsOf = 1, r.cutoff, r.asOf
+	m.Datasets[name] = d
+}
+
+// asOf is the database state the manifest's datasets are as of; a run gives
+// them all the same.
+func (m Manifest) asOf() time.Time { return m.Datasets[glLinesDataset].AsOf }
+
+// manifest reads the manifest the pointer names; before the first
+// publication there is none.
+func (x Extractor) manifest(ctx context.Context, tenant uuid.UUID, p pointer) (Manifest, error) {
 	m := Manifest{TenantID: tenant, Datasets: map[string]Dataset{}}
-	if s.prev.set {
-		b, _, err := x.Store.Get(ctx, s.prev.key)
-		if err != nil {
-			return "", time.Time{}, fmt.Errorf("previous manifest: %w", err)
-		}
-		if err := json.Unmarshal(b, &m); err != nil {
-			return "", time.Time{}, fmt.Errorf("previous manifest %s: %w", s.prev.key, err)
-		}
+	if !p.set {
+		return m, nil
 	}
-	ds := m.Datasets[glLinesDataset]
-	ds.Version, ds.Watermark, ds.AsOf = 1, s.cutoff, s.asOf
-	months, parts := byMonth(s.lines)
-	for _, month := range months {
-		f, err := x.part(ctx, tenant, month, s, parts[month])
-		if err != nil {
-			return "", time.Time{}, err
-		}
-		ds.Files, ds.Rows = append(ds.Files, f), ds.Rows+f.Rows
+	b, _, err := x.Store.Get(ctx, p.key)
+	if err != nil {
+		return m, fmt.Errorf("previous manifest: %w", err)
 	}
-	m.Datasets[glLinesDataset] = ds
-	key := ManifestKey(tenant, s.cutoff)
-	b, _ := json.Marshal(m) // a Manifest holds strings, numbers and times only, which always marshal
-	asOf, err := x.putManifest(ctx, key, b, m)
-	return key, asOf, err
+	if err := json.Unmarshal(b, &m); err != nil {
+		return m, fmt.Errorf("previous manifest %s: %w", p.key, err)
+	}
+	return m, nil
 }
 
-// part stores one month's lines.
-// A part is named by the interval it holds (from, cutoff), so a run on a
-// lagging replica, which read from an older watermark, never meets another
-// run's file of the same cutoff.
-func (x Extractor) part(ctx context.Context, tenant uuid.UUID, month string, s snapshot, lines []glLine) (File, error) {
-	b := encode(lines)
-	key := tenantPrefix(tenant) + "/" + glLinesDataset + "/month=" + month + "/part-" + seq(s.prev.watermark) + "-" + seq(s.cutoff) + ".parquet"
-	if err := x.putOnce(ctx, key, b, "application/vnd.apache.parquet"); err != nil {
-		return File{}, err
-	}
+// digestOf names a manifest's content apart from its as_of, which a run
+// repeated with the same files would otherwise change.
+func digestOf(m Manifest) string {
+	b, _ := json.Marshal(withoutAsOf(m)) // a Manifest holds strings, numbers and times only, which always marshal
 	sum := sha256.Sum256(b)
-	return File{Key: key, Size: int64(len(b)), SHA256: hex.EncodeToString(sum[:]), Rows: int64(len(lines))}, nil
+	return hex.EncodeToString(sum[:8])
 }
 
-// putOnce writes a file once: a run repeated with the same cutoff (its
-// publication lost) finds the same bytes there and goes on; other bytes
-// under the key are an error, never overwritten.
+// putOnce writes a file once: a run repeated with the same interval (its
+// publication lost), or a snapshot file of unchanged content, finds the
+// same bytes there and goes on; other bytes under the key are an error,
+// never overwritten.
 func (x Extractor) putOnce(ctx context.Context, key string, b []byte, contentType string) error {
 	err := x.Store.Put(ctx, key, b, blobstore.PutOptions{ContentType: contentType})
 	if !errors.Is(err, blobstore.ErrExists) {
@@ -119,28 +118,30 @@ func (x Extractor) putOnce(ctx context.Context, key string, b []byte, contentTyp
 	return nil
 }
 
-// putManifest writes the manifest once. A repeated run's manifest differs
-// from the stored one only in as_of (the transaction's time), so a stored
-// manifest listing the same files is taken as this run's, with its as_of,
-// which the pointer then carries too.
-func (x Extractor) putManifest(ctx context.Context, key string, b []byte, m Manifest) (time.Time, error) {
-	asOf := m.Datasets[glLinesDataset].AsOf
+// putManifest writes the run's manifest once and returns its key. A repeated
+// run's manifest differs from the stored one only in as_of (the
+// transaction's time), so a stored manifest listing the same files is taken
+// as this run's, with its as_of, which the pointer then carries too.
+func (x Extractor) putManifest(ctx context.Context, r *run) (string, error) {
+	key := ManifestKey(r.tenant, r.cutoff, digestOf(r.m))
+	b, _ := json.Marshal(r.m) // a Manifest holds strings, numbers and times only, which always marshal
 	err := x.Store.Put(ctx, key, b, blobstore.PutOptions{ContentType: "application/json"})
 	if !errors.Is(err, blobstore.ErrExists) {
-		return asOf, err
+		return key, err
 	}
 	got, _, err := x.Store.Get(ctx, key)
 	if err != nil {
-		return asOf, err
+		return key, err
 	}
 	var stored Manifest
 	if err := json.Unmarshal(got, &stored); err != nil {
-		return asOf, fmt.Errorf("manifest %s: %w", key, err)
+		return key, fmt.Errorf("manifest %s: %w", key, err)
 	}
-	if !reflect.DeepEqual(withoutAsOf(stored), withoutAsOf(m)) {
-		return asOf, fmt.Errorf("%s holds another manifest", key)
+	if !reflect.DeepEqual(withoutAsOf(stored), withoutAsOf(r.m)) {
+		return key, fmt.Errorf("%s holds another manifest", key)
 	}
-	return stored.Datasets[glLinesDataset].AsOf, nil
+	r.m = stored
+	return key, nil
 }
 
 // withoutAsOf is m with its datasets' as_of cleared.

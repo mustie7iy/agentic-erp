@@ -1,15 +1,14 @@
 package extract
 
 import (
-	"bytes"
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/parquet-go/parquet-go"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 )
@@ -54,52 +53,45 @@ const (
 	firstRun = `(e.posted_xid IS NULL OR e.posted_xid < $1::text::xid8) ORDER BY l.posting_date, l.journal_entry_id, l.line_no`
 )
 
-// readLines reads the journal lines above the previous watermark and below
-// the cutoff, in posting order.
-func readLines(ctx context.Context, tx pgx.Tx, prev pointer, cutoff uint64) ([]glLine, error) {
-	sql, args := glLinesSQL+firstRun, []any{strconv.FormatUint(cutoff, 10)}
-	if prev.set {
-		sql, args = glLinesSQL+nextRun, []any{strconv.FormatUint(prev.watermark, 10), args[0]}
+// glLines appends the journal lines above the previous watermark and below
+// the cutoff to the previous manifest's, one file per posting month, and
+// notes whether entries at or above the cutoff wait for a later run.
+func (r *run) glLines(ctx context.Context, tx pgx.Tx) error {
+	sql, args := glLinesSQL+firstRun, []any{strconv.FormatUint(r.cutoff, 10)}
+	if r.prev.set {
+		sql, args = glLinesSQL+nextRun, []any{strconv.FormatUint(r.prev.watermark, 10), args[0]}
 	}
+	ds := r.prevM.Datasets[glLinesDataset]
+	ds.Files = slices.Clone(ds.Files)
+	name := "part-" + seq(r.prev.watermark) + "-" + seq(r.cutoff) // the interval it holds
+	months := batcher[glLine]{flush: func(month string, lines []glLine) error {
+		f, err := put(ctx, r.x, r.key(glLinesDataset, month, name), lines)
+		if err != nil {
+			return err
+		}
+		ds.Files, ds.Rows, r.lines = append(ds.Files, f), ds.Rows+f.Rows, r.lines+len(lines)
+		return nil
+	}}
 	rows, _ := tx.Query(ctx, sql, args...)
-	var out []glLine
 	var l glLine
 	var date time.Time
 	var exponent int16
 	_, err := pgx.ForEachRow(rows, []any{&l.TenantID, &l.DocumentID, &l.LineNo, &l.LedgerID, &l.Company, &date, &l.Account, &l.DocumentType,
 		&l.Vendor, &l.AmountMinor, &l.Currency, &exponent, (*xid)(&l.PostedXID)}, func() error {
-		l.PostingDate, l.Exponent = int32(date.Unix()/86400), int32(exponent) //nolint:gosec // a date's day number and a currency's exponent (0-4) fit int32
-		out = append(out, l)
-		l.Vendor = nil // the scan may reuse a non-nil pointer, which the appended row holds
-		return nil
+		l.PostingDate, l.Exponent = days(date), int32(exponent)
+		err := months.add(date.Format(monthLayout), l)
+		l.Vendor = nil // the scan may reuse a non-nil pointer, which the batched row holds
+		return err
 	})
+	if err == nil {
+		err = months.close()
+	}
 	if err != nil {
-		return nil, fmt.Errorf("gl_lines: %w", err)
+		return fmt.Errorf("gl_lines: %w", err)
 	}
-	return out, nil
-}
-
-// byMonth splits lines into their posting months (YYYY-MM), the dataset's
-// partitions, keeping their order.
-func byMonth(lines []glLine) ([]string, map[string][]glLine) {
-	var months []string
-	parts := map[string][]glLine{}
-	for _, l := range lines {
-		m := time.Unix(int64(l.PostingDate)*86400, 0).UTC().Format("2006-01")
-		if _, ok := parts[m]; !ok {
-			months = append(months, m)
-		}
-		parts[m] = append(parts[m], l)
+	r.m.add(glLinesDataset, ds, r)
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM ledger.journal_entry WHERE posted_xid >= $1::text::xid8)`, args[len(args)-1]).Scan(&r.pending); err != nil {
+		return fmt.Errorf("gl_lines pending: %w", err)
 	}
-	return months, parts
-}
-
-// encode writes lines as one Parquet file. The same lines always give the
-// same bytes, so a run repeated with the same cutoff finds its files equal.
-func encode(lines []glLine) []byte {
-	var buf bytes.Buffer
-	// The schema is fixed (TestColumnsAreTheContract) and a bytes.Buffer
-	// never returns a write error, so the error, the writer's, cannot occur.
-	_ = parquet.Write(&buf, lines)
-	return buf.Bytes()
+	return nil
 }

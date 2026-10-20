@@ -3380,9 +3380,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Remaining datasets and the extract scheduler",
-        "r": "T55c",
+        "s": "D",
+        "t": "Remaining datasets (po_lines, ap_invoices, open_items, accounts, vendors) in the journal's REPEATABLE READ run, as BuildFacts derives them, masked fields never read; every dataset streamed per month (bounded memory over any backlog); snapshot files named by content and kept when unchanged; manifests named by cutoff and digest; checked_at on the pointer (a run with nothing new records only it; entries pending above the cutoff hold it back); relay hook marks changed tenants once per batch; scheduler claims with FOR UPDATE SKIP LOCKED at most every 5 minutes per tenant",
+        "r": "migration 000092 · internal/analytics/extract · outbox.Relay.Relayed · db/analytics_snapshot_test.go · ADR-0044 · T55c",
         "c": []
        },
        {
@@ -3393,13 +3393,13 @@
        },
        {
         "s": "T",
-        "t": "Semantic layer reads the store, with fallback, lineage and parity",
+        "t": "Semantic layer reads the store, with fallback, lineage and parity; erp-server starts the extract scheduler and sets the relay's Relayed hook; vendors carry suppliers only, so a customer line's vendor_name differs from BuildFacts unless the contract adds customers",
         "r": "T55e",
         "c": []
        },
        {
         "s": "T",
-        "t": "Erasure, compaction, lifecycle, rebuild and the freshness alert",
+        "t": "Erasure, compaction, lifecycle, rebuild, the hourly sweep of tenants whose checked_at is stale, the extract waiting for the replica to replay its claim's WAL position (the scheduler reads on the primary until then), and the freshness alert; a dedicated test database for the extract tests, so their wait for the cluster-wide snapshot horizon is short; a lagging-replica run (cutoff below the watermark) stops with ErrBehind and is retried, never published",
         "r": "T55f",
         "c": []
        }

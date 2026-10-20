@@ -6,12 +6,19 @@
 // tenant's pointer (analytics.snapshot) in one transaction guarded by the
 // manifest it replaced (ADR-0008).
 //
+// Documents and master data (purchase order items, supplier invoices, open
+// items, accounts, suppliers) are snapshots: each run reads them whole, in
+// the same transaction as the journal, and names each file by its content,
+// so an unchanged month or dimension keeps its file and a run that finds
+// nothing new writes nothing. Fields the masking policy hides (bank
+// accounts, tax identifiers) are never read.
+//
 // The journal is appended by a transaction-id watermark: a run reads the
 // entries whose posted_xid lies at or above the previous run's cutoff and
 // below its own, the xmin of its snapshot. Every transaction below xmin has
 // finished, so no entry is skipped however long its posting transaction
-// ran. A run that finds nothing new writes nothing, so running it twice
-// leaves the store as one run did.
+// ran. A run that finds nothing new writes nothing but its check time on
+// the pointer, so running it twice leaves the store as one run did.
 //
 // The extractor reads the ledger's, the directory's and the partners'
 // tables directly, read-only: it is the store's copy of what the API
@@ -29,6 +36,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
@@ -49,7 +57,8 @@ var ErrBehind = errors.New("analytics: watermark ahead of the database; rebuild 
 // Extractor extracts one tenant at a time.
 type Extractor struct {
 	// Replica begins the extract's reading transaction: the cell's read
-	// replica in production, the primary in tests.
+	// replica once the run waits for it to replay its claim's position
+	// (T55f); until then the primary, which the scheduler requires.
 	Replica database.BeginFunc
 	// Primary begins the publication, which writes the pointer.
 	Primary database.BeginFunc
@@ -58,11 +67,15 @@ type Extractor struct {
 }
 
 // Result is what a run did: the tenant's current manifest and watermark,
-// and the journal lines it appended (none when nothing was new).
+// the journal lines it appended (none when nothing was new), whether it
+// published a manifest, and whether journal entries above its cutoff wait
+// for a later run (an open transaction holds the snapshot horizon back).
 type Result struct {
 	ManifestKey string
 	Watermark   uint64
 	Lines       int
+	Published   bool
+	Pending     bool
 }
 
 // pointer is a tenant's row of analytics.snapshot; set is false before the
@@ -73,61 +86,91 @@ type pointer struct {
 	set       bool
 }
 
-// snapshot is what one reading transaction saw.
-type snapshot struct {
-	prev   pointer
-	cutoff uint64
-	asOf   time.Time
-	lines  []glLine
+// run is one extract of a tenant: what its reading transaction saw and the
+// manifest it builds from the previous one.
+type run struct {
+	x       Extractor
+	tenant  uuid.UUID
+	prev    pointer
+	prevM   Manifest
+	cutoff  uint64
+	asOf    time.Time
+	m       Manifest
+	lines   int  // journal lines appended
+	pending bool // journal entries at or above the cutoff wait for a later run
 }
 
-// Run extracts the tenant's journal lines above its watermark and publishes
-// them. Nothing new leaves the files and the pointer as they are.
+// Run extracts the tenant's datasets and publishes them. A run that finds
+// nothing new writes no file and no manifest; it records its check time on
+// the pointer unless journal entries wait above its cutoff.
 func (x Extractor) Run(ctx context.Context, tenant uuid.UUID) (Result, error) {
-	s, err := x.read(ctx, tenant)
+	r, err := x.read(ctx, tenant)
+	if err == nil && r.prev.set && r.lines == 0 && sameSnapshots(r.prevM, r.m) {
+		err = x.touch(ctx, tenant, r)
+		res := Result{ManifestKey: r.prev.key, Watermark: r.prev.watermark, Pending: r.pending}
+		return res, wrapRun(tenant, err)
+	}
+	var key string
+	if err == nil {
+		key, err = x.putManifest(ctx, r)
+	}
+	if err == nil {
+		err = x.publish(ctx, tenant, r, key)
+	}
 	if err != nil {
-		return Result{}, fmt.Errorf("analytics: extract tenant %s: %w", tenant, err)
+		return Result{}, wrapRun(tenant, err)
 	}
-	if len(s.lines) == 0 {
-		return Result{ManifestKey: s.prev.key, Watermark: s.prev.watermark}, nil
-	}
-	key, asOf, err := x.write(ctx, tenant, s)
-	if err != nil {
-		return Result{}, fmt.Errorf("analytics: extract tenant %s: %w", tenant, err)
-	}
-	s.asOf = asOf
-	if err := x.publish(ctx, tenant, s, key); err != nil {
-		return Result{}, fmt.Errorf("analytics: extract tenant %s: %w", tenant, err)
-	}
-	return Result{ManifestKey: key, Watermark: s.cutoff, Lines: len(s.lines)}, nil
+	return Result{ManifestKey: key, Watermark: r.cutoff, Lines: r.lines, Published: true, Pending: r.pending}, nil
 }
 
-// read takes the pointer, the cutoff and the new lines from one snapshot of
-// the tenant's rows.
-func (x Extractor) read(ctx context.Context, tenant uuid.UUID) (snapshot, error) {
-	var s snapshot
+func wrapRun(tenant uuid.UUID, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("analytics: extract tenant %s: %w", tenant, err)
+}
+
+// read takes the pointer, the cutoff and every dataset from one snapshot of
+// the tenant's rows, writing the files as it goes, one posting month at a
+// time, so a backlog of any length needs one month in memory.
+func (x Extractor) read(ctx context.Context, tenant uuid.UUID) (*run, error) {
+	r := &run{x: x, tenant: tenant}
 	job := uow.Job{Begin: x.Replica, Name: "analytics: read",
 		Scope: database.Scope{Role: x.Role, TenantID: tenant, ReadOnly: true, Isolation: pgx.RepeatableRead}}
 	err := job.Tx(ctx, func(ctx context.Context, tx pgx.Tx) (bool, error) {
-		var err error
-		if s.prev, err = current(ctx, tx); err != nil {
+		if err := r.start(ctx, tx); err != nil {
 			return false, err
 		}
-		if err := tx.QueryRow(ctx, `SELECT pg_snapshot_xmin(pg_current_snapshot())::text, now()`).Scan((*xid)(&s.cutoff), &s.asOf); err != nil {
-			return false, fmt.Errorf("cutoff: %w", err)
+		if err := r.glLines(ctx, tx); err != nil {
+			return false, err
 		}
-		// A cutoff at the watermark reads the empty interval. Below it, the
-		// database was restored or moved under the store: appending from the
-		// stored watermark would skip the entries posted with the transaction
-		// ids in between, so the run stops until the store is rebuilt
-		// (ADR-0044).
-		if s.prev.set && s.cutoff < s.prev.watermark {
-			return false, fmt.Errorf("%w: watermark %d, cutoff %d", ErrBehind, s.prev.watermark, s.cutoff)
-		}
-		s.lines, err = readLines(ctx, tx, s.prev, s.cutoff)
-		return false, err
+		return false, r.snapshots(ctx, tx)
 	})
-	return s, err
+	return r, err
+}
+
+// start reads the pointer, the previous manifest and the cutoff.
+func (r *run) start(ctx context.Context, tx pgx.Tx) error {
+	var err error
+	if r.prev, err = current(ctx, tx); err != nil {
+		return err
+	}
+	if err := tx.QueryRow(ctx, `SELECT pg_snapshot_xmin(pg_current_snapshot())::text, now()`).Scan((*xid)(&r.cutoff), &r.asOf); err != nil {
+		return fmt.Errorf("cutoff: %w", err)
+	}
+	// A cutoff at the watermark reads the empty interval. Below it, the
+	// database was restored or moved under the store: appending from the
+	// stored watermark would skip the entries posted with the transaction
+	// ids in between, so the run stops until the store is rebuilt
+	// (ADR-0044).
+	if r.prev.set && r.cutoff < r.prev.watermark {
+		return fmt.Errorf("%w: watermark %d, cutoff %d", ErrBehind, r.prev.watermark, r.cutoff)
+	}
+	if r.prevM, err = r.x.manifest(ctx, r.tenant, r.prev); err != nil {
+		return err
+	}
+	r.m = Manifest{TenantID: r.tenant, Datasets: map[string]Dataset{}}
+	return nil
 }
 
 // current reads the tenant's pointer.
@@ -146,21 +189,44 @@ func current(ctx context.Context, tx pgx.Tx) (pointer, error) {
 
 // publish moves the tenant's pointer to the manifest, guarded by the one the
 // run read: a run that lost the race reports ErrMoved and changes nothing.
-func (x Extractor) publish(ctx context.Context, tenant uuid.UUID, s snapshot, key string) error {
+func (x Extractor) publish(ctx context.Context, tenant uuid.UUID, r *run, key string) error {
+	return x.onPointer(ctx, tenant, func(ctx context.Context, tx pgx.Tx) (pgconn.CommandTag, error) {
+		wm := strconv.FormatUint(r.cutoff, 10)
+		if r.prev.set {
+			return tx.Exec(ctx, `UPDATE analytics.snapshot SET manifest_key = $1, watermark = $2::text::xid8, as_of = $3, published_at = now(),
+				checked_at = greatest(checked_at, $4) WHERE manifest_key = $5`, key, wm, r.m.asOf(), r.checked(), r.prev.key)
+		}
+		return tx.Exec(ctx, `INSERT INTO analytics.snapshot (tenant_id, manifest_key, watermark, as_of, checked_at)
+			VALUES (platform.current_tenant(), $1, $2::text::xid8, $3, $4) ON CONFLICT (tenant_id) DO NOTHING`, key, wm, r.m.asOf(), r.checked())
+	})
+}
+
+// touch records a run that found nothing new as the pointer's check time,
+// guarded like a publication; with entries pending it changes nothing.
+func (x Extractor) touch(ctx context.Context, tenant uuid.UUID, r *run) error {
+	if r.pending {
+		return nil
+	}
+	return x.onPointer(ctx, tenant, func(ctx context.Context, tx pgx.Tx) (pgconn.CommandTag, error) {
+		return tx.Exec(ctx, `UPDATE analytics.snapshot SET checked_at = greatest(checked_at, $1) WHERE manifest_key = $2`, r.asOf, r.prev.key)
+	})
+}
+
+// checked is the check time a publication records: none while journal
+// entries wait above the cutoff, so the tenant is not taken for current.
+func (r *run) checked() *time.Time {
+	if r.pending {
+		return nil
+	}
+	return &r.asOf
+}
+
+// onPointer runs a guarded write of the tenant's pointer on the primary;
+// one that changed no row lost the race to another run.
+func (x Extractor) onPointer(ctx context.Context, tenant uuid.UUID, write func(context.Context, pgx.Tx) (pgconn.CommandTag, error)) error {
 	job := uow.Job{Begin: x.Primary, Name: "analytics: publish", Scope: database.Scope{Role: x.Role, TenantID: tenant}}
 	return job.Tx(ctx, func(ctx context.Context, tx pgx.Tx) (bool, error) {
-		wm := strconv.FormatUint(s.cutoff, 10)
-		var sql string
-		args := []any{key, wm, s.asOf}
-		if s.prev.set {
-			sql = `UPDATE analytics.snapshot SET manifest_key = $1, watermark = $2::text::xid8, as_of = $3, published_at = now()
-				WHERE manifest_key = $4`
-			args = append(args, s.prev.key)
-		} else {
-			sql = `INSERT INTO analytics.snapshot (tenant_id, manifest_key, watermark, as_of)
-				VALUES (platform.current_tenant(), $1, $2::text::xid8, $3) ON CONFLICT (tenant_id) DO NOTHING`
-		}
-		tag, err := tx.Exec(ctx, sql, args...)
+		tag, err := write(ctx, tx)
 		if err != nil {
 			return false, fmt.Errorf("publish: %w", err)
 		}

@@ -17,35 +17,42 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
 )
 
-// TestColumnsAreTheContract: the Parquet columns are exactly the dataset
-// file's, in its order (ADR-0044: datasets are a contract).
+// TestColumnsAreTheContract: each dataset's Parquet columns are exactly its
+// contract file's, in its order (ADR-0044: datasets are a contract).
 func TestColumnsAreTheContract(t *testing.T) {
-	b, err := os.ReadFile("../../../analytics/datasets/v1/gl_lines.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var contract struct {
-		Columns []struct {
-			Name     string `yaml:"name"`
-			Nullable bool   `yaml:"nullable"`
-		} `yaml:"columns"`
-	}
-	if err := yaml.Unmarshal(b, &contract); err != nil {
-		t.Fatal(err)
-	}
-	var want, got []string
-	for _, c := range contract.Columns {
-		want = append(want, c.Name)
-	}
-	for _, f := range parquet.SchemaOf(glLine{}).Fields() {
-		got = append(got, f.Name())
-		i := slices.Index(want, f.Name())
-		if i >= 0 && f.Optional() != contract.Columns[i].Nullable {
-			t.Errorf("column %s: optional %v, want %v", f.Name(), f.Optional(), contract.Columns[i].Nullable)
-		}
-	}
-	if !slices.Equal(got, want) {
-		t.Errorf("columns: got %v, want %v", got, want)
+	for name, row := range map[string]any{
+		"gl_lines": glLine{}, "po_lines": poLine{}, "ap_invoices": apInvoice{},
+		"open_items": openItem{}, "accounts": accountRow{}, "vendors": vendorRow{},
+	} {
+		t.Run(name, func(t *testing.T) {
+			b, err := os.ReadFile("../../../analytics/datasets/v1/" + name + ".yaml")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var contract struct {
+				Columns []struct {
+					Name     string `yaml:"name"`
+					Nullable bool   `yaml:"nullable"`
+				} `yaml:"columns"`
+			}
+			if err := yaml.Unmarshal(b, &contract); err != nil {
+				t.Fatal(err)
+			}
+			var want, got []string
+			for _, c := range contract.Columns {
+				want = append(want, c.Name)
+			}
+			for _, f := range parquet.SchemaOf(row).Fields() {
+				got = append(got, f.Name())
+				i := slices.Index(want, f.Name())
+				if i >= 0 && f.Optional() != contract.Columns[i].Nullable {
+					t.Errorf("column %s: optional %v, want %v", f.Name(), f.Optional(), contract.Columns[i].Nullable)
+				}
+			}
+			if !slices.Equal(got, want) {
+				t.Errorf("columns: got %v, want %v", got, want)
+			}
+		})
 	}
 }
 
@@ -70,43 +77,48 @@ func TestWritesOnce(t *testing.T) {
 	store := blobstoretest.New(t).Store()
 	x := Extractor{Store: store}
 	stored := time.Date(2026, 10, 19, 8, 0, 0, 0, time.UTC)
-	m := Manifest{TenantID: uuid.New(), Datasets: map[string]Dataset{"gl_lines": {Version: 1, Rows: 1, AsOf: stored, Files: []File{{Key: "k"}}}}}
-	b, _ := json.Marshal(m) // a Manifest always marshals
-	for key, content := range map[string]string{"file": "abc", "manifest": string(b), "garbage": "{"} {
-		if err := store.Put(ctx, key, []byte(content), blobstore.PutOptions{}); err != nil {
+	tenant := uuid.New()
+	// runAt is a run with cutoff whose manifest lists one file, as of asOf.
+	runAt := func(cutoff uint64, asOf time.Time) *run {
+		r := &run{tenant: tenant, cutoff: cutoff, asOf: asOf, m: Manifest{TenantID: tenant, Datasets: map[string]Dataset{}}}
+		r.m.add(glLinesDataset, Dataset{Rows: 1, Files: []File{{Key: "k"}}}, r)
+		return r
+	}
+	// plant stores content under the key of the manifest of run r.
+	plant := func(r *run, content []byte) {
+		if err := store.Put(ctx, ManifestKey(tenant, r.cutoff, digestOf(r.m)), content, blobstore.PutOptions{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	other := m
-	other.TenantID = uuid.New()
-	// A repeated run's manifest is the stored one but for its later as_of,
-	// and the run takes the stored as_of.
-	again := Manifest{TenantID: m.TenantID, Datasets: map[string]Dataset{"gl_lines": m.Datasets["gl_lines"]}}
-	ds := again.Datasets["gl_lines"]
-	ds.AsOf = stored.Add(time.Minute)
-	again.Datasets["gl_lines"] = ds
+	if err := store.Put(ctx, "file", []byte("abc"), blobstore.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	first := runAt(1, stored)
+	b, _ := json.Marshal(first.m) // a Manifest always marshals
+	plant(first, b)
 	t.Run("same manifest", func(t *testing.T) {
-		asOf, err := x.putManifest(ctx, "manifest", b, again)
-		if err != nil || !asOf.Equal(stored) {
-			t.Errorf("got %v, %v, want the stored as_of %v", asOf, err, stored)
+		// A repeated run's manifest is the stored one but for its later
+		// as_of, and the run takes the stored as_of.
+		again := runAt(1, stored.Add(time.Minute))
+		if _, err := x.putManifest(ctx, again); err != nil || !again.m.asOf().Equal(stored) {
+			t.Errorf("got as_of %v, %v, want the stored as_of %v", again.m.asOf(), err, stored)
 		}
 	})
-	errOf := func(_ time.Time, err error) error { return err }
-	for name, err := range map[string]error{
-		"same file": x.putOnce(ctx, "file", []byte("abc"), ""),
-	} {
-		t.Run(name, func(t *testing.T) {
-			if err != nil {
-				t.Errorf("got %v, want nil", err)
-			}
-		})
-	}
+	t.Run("same file", func(t *testing.T) {
+		if err := x.putOnce(ctx, "file", []byte("abc"), ""); err != nil {
+			t.Errorf("got %v, want nil", err)
+		}
+	})
+	other, broken := runAt(2, stored), runAt(3, stored)
+	plant(other, []byte(`{"tenant_id": "`+uuid.NewString()+`"}`))
+	plant(broken, []byte("{"))
+	errOf := func(_ string, err error) error { return err }
 	for name, err := range map[string]error{
 		"other file":             x.putOnce(ctx, "file", []byte("abd"), ""),
 		"file unreadable":        Extractor{Store: getFails{store}}.putOnce(ctx, "file", []byte("abc"), ""),
-		"other manifest":         errOf(x.putManifest(ctx, "manifest", b, other)),
-		"manifest unreadable":    errOf(Extractor{Store: getFails{store}}.putManifest(ctx, "manifest", b, m)),
-		"stored manifest broken": errOf(x.putManifest(ctx, "garbage", b, m)),
+		"other manifest":         errOf(x.putManifest(ctx, other)),
+		"manifest unreadable":    errOf(Extractor{Store: getFails{store}}.putManifest(ctx, runAt(1, stored))),
+		"stored manifest broken": errOf(x.putManifest(ctx, broken)),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err == nil {
