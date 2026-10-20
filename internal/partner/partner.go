@@ -118,8 +118,10 @@ func (e *Endpoints) ports() Ports {
 
 // extensions checks a business partner's custom fields; the partners they
 // refer to are this context's own.
-func (p Ports) extensions() extensions.Writes {
-	return extensions.Writes{Entity: "business_partner", Schemas: p.Schemas, References: References{}}
+func (p Ports) extensions() extensions.Writes { return partnerWrites(p.Schemas) }
+
+func partnerWrites(schemas extensions.Schemas) extensions.Writes {
+	return extensions.Writes{Entity: "business_partner", Schemas: schemas, References: References{}}
 }
 
 // Date is a calendar date as PostgreSQL renders it in JSON.

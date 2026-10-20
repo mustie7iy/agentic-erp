@@ -918,7 +918,7 @@ func ApplyChange(ctx context.Context, schemas extensions.Schemas, id uuid.UUID) 
 	case KindCreate:
 		events, err = applyCreate(ctx, tx, p, c, bp, day)
 	case KindUpdate:
-		events, err = applyUpdate(ctx, tx, p, c, bp, day, Ports{Schemas: schemas}.extensions())
+		events, err = applyUpdate(ctx, tx, p, c, bp, day, partnerWrites(schemas))
 	case KindBankChange:
 		events, err = applyBankChange(ctx, tx, p, c, day)
 	default: // unblock; blocks are applied when requested

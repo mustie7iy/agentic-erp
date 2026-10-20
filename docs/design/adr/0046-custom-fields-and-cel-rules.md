@@ -86,7 +86,11 @@ needs.
   schema and shows only fields it declares `x-pii: none`; every other
   value, a key the schema does not declare included (written before it, or
   under an older version), is the string `[MASKED]`, so a value is never
-  shown unless the schema classifies it as public. The fields are optional
+  shown unless the schema classifies it as public. Key names are not
+  masked: they are schema identifiers, never personal data. Masking follows
+  the active classification, so after an approved reclassification to
+  `none` earlier values of the field appear in later events; that is
+  intended, and is why any `x-pii` change is tier 2. The fields are optional
   in the contract, an additive change. Webhooks (T50) deliver these events
   and so inherit the masking; they must never read the row's extensions
   in its place. Logs and traces carry no event payloads or extensions, and

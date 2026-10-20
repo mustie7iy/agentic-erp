@@ -95,6 +95,9 @@ func (w Writes) check(ctx context.Context, ext map[string]any, required bool) (*
 // schema compiles the entity's active schema; a tenant without one has an
 // empty schema of version 0.
 func (w Writes) schema(ctx context.Context) (*Compiled, error) {
+	if w.Schemas == nil { // fails closed: wiring that forgot the reader must not panic or skip masking
+		return nil, fmt.Errorf("extensions: no schema reader for %s", w.Entity)
+	}
 	s, err := w.Schemas.Schema(ctx, w.Entity)
 	if err != nil {
 		return nil, fmt.Errorf("extensions: read the %s schema: %w", w.Entity, err)

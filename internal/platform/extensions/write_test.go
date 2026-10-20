@@ -189,9 +189,10 @@ func TestWritesCheckFailures(t *testing.T) {
 		w   extensions.Writes
 		ext map[string]any
 	}{
-		"schema read":    {extensions.Writes{Schemas: schemas{err: boom}}, nil},
-		"schema invalid": {extensions.Writes{Entity: "supplier_invoice", Schemas: schemas{s: bad}}, nil},
-		"reference read": {extensions.Writes{Entity: "supplier_invoice", Schemas: schemas{s: every()}, References: refs{err: boom}}, map[string]any{"req": "r", "p": uuid.NewString()}},
+		"schema read":      {extensions.Writes{Schemas: schemas{err: boom}}, nil},
+		"no schema reader": {extensions.Writes{Entity: "supplier_invoice"}, nil},
+		"schema invalid":   {extensions.Writes{Entity: "supplier_invoice", Schemas: schemas{s: bad}}, nil},
+		"reference read":   {extensions.Writes{Entity: "supplier_invoice", Schemas: schemas{s: every()}, References: refs{err: boom}}, map[string]any{"req": "r", "p": uuid.NewString()}},
 		"partner outside a request": {extensions.Writes{Entity: "supplier_invoice", Schemas: schemas{s: every()}, References: partner.References{}},
 			map[string]any{"req": "r", "p": uuid.NewString()}},
 		"outside a request": {extensions.Writes{Entity: "supplier_invoice", Schemas: schemas{s: every()}}, map[string]any{"req": "r", "m": map[string]any{"amount": "1", "currency": "JPY"}}},
