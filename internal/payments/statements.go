@@ -267,9 +267,8 @@ func lineDetails(ds []bankstatement.Detail) []LineDetail {
 // compares their balances again. The next statement starts no earlier than
 // the new one closes and ends after it, and is never the new one's own
 // previous statement, so statements of one day never point at each other.
-// The next statement is in gap exactly when
-// its opening balance is not the new closing balance (a reconciled one
-// stays reconciled).
+// It is in gap exactly when its opening balance is not the new closing
+// balance; a reconciled one stays reconciled.
 func relinkNext(ctx context.Context, tx pgx.Tx, p reqctx.Principal, bank statementBank, id uuid.UUID, prev *uuid.UUID, s bankstatement.Statement) error {
 	var next uuid.UUID
 	var was, now string
