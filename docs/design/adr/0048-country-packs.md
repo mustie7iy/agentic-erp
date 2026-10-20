@@ -37,6 +37,27 @@ settings cannot simply overwrite their document.
 - **Applying a pack creates an ordinary configuration change request**: the
   applier produces a draft document and notes for the reviewers, which go
   through approval tiers and simulation like any other change (03 §3.5).
+- **The API** (T62d): `GET /v1/country-packs` lists the packs in the image
+  (country, version, the hash they were released with, the sign-off, the
+  sources and how many settings of each kind), the same for every tenant,
+  paged in country and version order (`config.change.read`).
+  `POST /v1/country-pack-applications` (`applyCountryPack`, `x-autonomy:
+  propose` like `createChangeRequest`, so an agent that may propose a change
+  may apply a pack, and `config.change.propose`) takes the pack version, the
+  company, the date of application and the fiscal year, locks the active
+  version, applies the pack to its document and stores the draft as a
+  change request in status `draft` based on it, as `createChangeRequest`
+  does (Idempotency-Key, audit `config.change_request.create` with the
+  pack, no event). The notes are stored on the change request
+  (`config.change_request.notes`, the `notes` of `ChangeRequest`), where
+  reviewers read them; they are not updated when the proposal is edited.
+  Nothing is activated: submission, evidence, approval and activation are
+  the change request's, and its tier is the draft's. The company must be
+  the code of a legal entity the caller has company access to (422
+  `config.unknown_company` otherwise, the two alike); a pack for another
+  country is 422 `config.pack_not_applicable`, an older version than the
+  adopted one 409 `config.pack_downgrade`. A pack without sign-off may be
+  applied, with its note, as the pilot gate is on the pack, not the API.
 - **Upgrades are a three-way merge**: base = the pack version the company
   adopted (empty on first adoption), the tenant's current document, and the
   new pack version, matched by account number, tax code, number range
@@ -82,6 +103,10 @@ settings cannot simply overwrite their document.
 - Holidays are dated, not recurring: a pack lists them year by year, and a
   new version that stops listing a past year's holidays leaves them in the
   calendar with a note each, so a pack keeps the years it listed.
+- Applying a pack is open to anyone who may propose a configuration
+  change, and to agents at the propose level; what it changes still needs
+  the approvals of its tier, and the company access check keeps a person
+  to the companies they work in.
 - A business day needs the company's weekend as well as its holidays
   (the UAE's differs from Canada's); it is added to the calendar, with
   its tier, by the first step that schedules by business days.

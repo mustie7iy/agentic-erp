@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/google/uuid"
@@ -154,15 +155,18 @@ type ChangeRequest struct {
 	ActivatedVersion  *int32
 	Items             []Item
 	Evidence          []Evidence
-	Version           int32
-	CreatedAt         time.Time
-	CreatedBy         uuid.UUID
-	UpdatedAt         time.Time
-	UpdatedBy         uuid.UUID
+	// Notes are for the reviewers of a generated proposal: a country pack
+	// application's (ADR-0048), as it created the request.
+	Notes     []config.Note
+	Version   int32
+	CreatedAt time.Time
+	CreatedBy uuid.UUID
+	UpdatedAt time.Time
+	UpdatedBy uuid.UUID
 }
 
 const crSelect = `SELECT c.id, c.number, c.title, c.rationale, c.author_id, c.base_version, c.proposed, c.tier, c.status,
-		c.workflow_request_id, c.activated_version, c.version, c.created_at, c.created_by, c.updated_at, c.updated_by,
+		c.workflow_request_id, c.activated_version, c.notes, c.version, c.created_at, c.created_by, c.updated_at, c.updated_by,
 		coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'path', i.path, 'old_value', i.old_value, 'new_value', i.new_value,
 			'tier', i.tier) ORDER BY i.item_no) FROM config.change_item i WHERE i.tenant_id = c.tenant_id AND i.change_request_id = c.id), '[]'),
 		coalesce((SELECT json_agg(json_build_object('kind', e.kind, 'passed', e.passed, 'summary', e.summary, 'detail', e.detail,
@@ -173,7 +177,7 @@ const crSelect = `SELECT c.id, c.number, c.title, c.rationale, c.author_id, c.ba
 func scanCR(row pgx.Row) (ChangeRequest, error) {
 	var c ChangeRequest
 	err := row.Scan(&c.ID, &c.Number, &c.Title, &c.Rationale, &c.AuthorID, &c.BaseVersion, &c.Proposed, &c.Tier, &c.Status,
-		&c.WorkflowRequestID, &c.ActivatedVersion, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy, &c.Items, &c.Evidence)
+		&c.WorkflowRequestID, &c.ActivatedVersion, &c.Notes, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy, &c.Items, &c.Evidence)
 	return c, errs.Wrapf(err, "scan change request")
 }
 
@@ -232,6 +236,12 @@ type NewChangeRequest struct {
 // CreateChangeRequest stores a draft. Its number is CR-NNNNNN, sequential
 // per tenant. Items and tier are computed on submission.
 func CreateChangeRequest(ctx context.Context, in NewChangeRequest) (ChangeRequest, error) {
+	return create(ctx, in, nil, nil)
+}
+
+// create stores a draft with the notes of the proposal that generated it
+// and audits it with the detail added.
+func create(ctx context.Context, in NewChangeRequest, notes []config.Note, detail map[string]any) (ChangeRequest, error) {
 	tx, actor, err := reqctx.Request(ctx)
 	if err != nil {
 		return ChangeRequest{}, err
@@ -240,16 +250,23 @@ func CreateChangeRequest(ctx context.Context, in NewChangeRequest) (ChangeReques
 		return ChangeRequest{}, err
 	}
 	id := uuid.Must(uuid.NewV7())
-	if _, err := tx.Exec(ctx, `INSERT INTO config.change_request (tenant_id, id, number, title, rationale, author_id, base_version, proposed, tier, status, created_by, updated_by)
-		SELECT $1, $2, 'CR-' || lpad((count(*) + 1)::text, 6, '0'), $3, $4, $5, $6, $7, 1, 'draft', $5, $5 FROM config.change_request`,
-		actor.TenantID, id, in.Title, in.Rationale, actor.ID, in.BaseVersion, in.Proposed); err != nil {
+	if notes == nil {
+		notes = []config.Note{} // the column holds an array, never JSON null
+	}
+	noted, _ := json.Marshal(notes) // notes are strings
+	if _, err := tx.Exec(ctx, `INSERT INTO config.change_request (tenant_id, id, number, title, rationale, author_id, base_version, proposed, tier, status,
+			notes, created_by, updated_by)
+		SELECT $1, $2, 'CR-' || lpad((count(*) + 1)::text, 6, '0'), $3, $4, $5, $6, $7, 1, 'draft', $8, $5, $5 FROM config.change_request`,
+		actor.TenantID, id, in.Title, in.Rationale, actor.ID, in.BaseVersion, in.Proposed, json.RawMessage(noted)); err != nil {
 		return ChangeRequest{}, fmt.Errorf("configuration: insert change request %s: %w", id, err)
 	}
 	c, err := getCR(ctx, tx, id, false)
 	if err != nil {
 		return ChangeRequest{}, err
 	}
-	return c, record(ctx, "config.change_request.create", c.ID, map[string]any{"number": c.Number, "base_version": c.BaseVersion})
+	audited := map[string]any{"number": c.Number, "base_version": c.BaseVersion}
+	maps.Copy(audited, detail)
+	return c, record(ctx, "config.change_request.create", c.ID, audited)
 }
 
 // ChangeRequestChange is a merge patch of a draft.

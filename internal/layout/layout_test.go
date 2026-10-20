@@ -46,11 +46,12 @@ var allowed = map[string][]string{
 	"agent":                   {"apitools", "llm"},
 	"analytics":               {"apitools"},
 	"apitools":                {"llm"},
+	"app":                     {"countrypack"}, // apitest releases a test's own country packs
 	"approvals":               {"config"},
 	"audit":                   {"operations"},
 	"capture":                 {"llm"},
 	"config":                  {"bankfile"},
-	"configuration":           {"approvals", "config", "operations"},
+	"configuration":           {"approvals", "config", "countrypack", "operations"},
 	"countrypack":             {"config"},
 	"controlplane":            {"agents", "audit", "config", "directory", "identity", "offboarding", "provisioning", "tenancy"},
 	"delivery/configagent":    {"apitools", "llm"},

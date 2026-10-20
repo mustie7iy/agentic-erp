@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"go.opentelemetry.io/otel/metric/noop"
@@ -85,5 +86,13 @@ func TestQuotasAndDeadlines(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "platform.unavailable") {
 		t.Errorf("expired body: got %s, want platform.unavailable", rec.Body)
+	}
+}
+
+// The server does not start on country packs that are not as released.
+func TestCountryPacksRefused(t *testing.T) {
+	_, err := New(Config{Packs: fstest.MapFS{}}) // no hash list
+	if err == nil || !strings.Contains(err.Error(), "app: country packs") {
+		t.Errorf("New: got %v, want the country packs refused", err)
 	}
 }

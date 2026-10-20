@@ -2419,6 +2419,102 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/country-packs:
+    get:
+      operationId: listCountryPacks
+      tags:
+        - configuration
+      summary: List country packs
+      description: "The released country packs in the image (ADR-0048): each country's versions with the hash they were released with, the tax specialist's sign-off and the legal sources they rest on. The same for every tenant. Ordered by country, then version."
+      x-permission: config.change.read
+      parameters:
+        - name: country
+          in: query
+          required: false
+          description: Only the packs of this country.
+          schema:
+            type: string
+            pattern: "^[A-Z]{2}$"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of country pack results.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountryPackPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/country-pack-applications:
+    post:
+      operationId: applyCountryPack
+      tags:
+        - configuration
+      summary: Apply a country pack to a company
+      description: "Merges a country pack version into the active configuration for one company (ADR-0048: three-way, from the version the company adopted) and creates the result as a change request in status `draft`, based on the active version, with the merge's notes for the reviewers. Nothing is activated: the change request is submitted, simulated, approved and activated like any other."
+      x-permission: config.change.propose
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The pack version, the company and when it is applied.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CountryPackApplication"
+      responses:
+        "201":
+          description: "Created; the new change request, with the notes of the merge."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeRequest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/regression-suites:
     get:
       operationId: listRegressionSuites
@@ -12654,6 +12750,12 @@ components:
                 $ref: "#/components/schemas/Evidence"
               description: Recorded evidence.
               readOnly: true
+            notes:
+              type: array
+              items:
+                $ref: "#/components/schemas/ChangeRequestNote"
+              description: "What reviewers should look at in a proposal that was generated (applyCountryPack): conflicts with the tenant's own settings, items kept that the source no longer has, rates that come later. Recorded when the change request is created and not updated when the proposal is edited; absent when there are none."
+              readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41"
           version: 1
@@ -12781,6 +12883,268 @@ components:
                   detail: {}
                   recorded_at: "2026-10-09T14:03:11Z"
                   recorded_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d3c"
+    ChangeRequestNote:
+      type: object
+      description: A note for the reviewers of a generated proposal, on one setting of the document.
+      required:
+        - path
+        - message
+      properties:
+        path:
+          type: string
+          description: Path of the setting in the configuration document.
+          readOnly: true
+        message:
+          type: string
+          description: What the reviewers should look at.
+          readOnly: true
+      examples:
+        - path: "calendars[1000].holidays[2026-12-25]"
+          message: "conflict: changed both here and in the pack; kept as here, the pack has {Date:2026-12-25 Name:Christmas}"
+    CountryPack:
+      type: object
+      description: "A released country pack version (ADR-0048): a country's chart of accounts, tax codes, holidays, number ranges and payment terms, with the legal sources they rest on. Released versions never change."
+      required:
+        - country
+        - version
+        - name
+        - valid_from
+        - hash
+        - signed_off
+        - sources
+        - contents
+      properties:
+        country:
+          type: string
+          description: Country (ISO 3166-1 alpha-2).
+          pattern: "^[A-Z]{2}$"
+          readOnly: true
+        version:
+          type: string
+          description: "Version `YYYY.N`."
+          pattern: "^[0-9]{4}\\.[1-9][0-9]*$"
+          readOnly: true
+        name:
+          type: string
+          description: Name of the pack.
+          readOnly: true
+        valid_from:
+          type: string
+          format: date
+          description: First day the pack's settings hold.
+          readOnly: true
+        hash:
+          type: string
+          description: "SHA-256 of the pack's directory as released (`packs/released.sha256`), hex."
+          pattern: "^[0-9a-f]{64}$"
+          readOnly: true
+        signed_off:
+          type: boolean
+          description: "Whether a tax specialist signed the pack off; required before the pilot. Applying a pack without it notes so."
+          readOnly: true
+        sign_off:
+          $ref: "#/components/schemas/CountryPackSignOff"
+          description: The tax specialist's sign-off; absent until given.
+          readOnly: true
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountryPackSource"
+          description: The laws, regulations and authority publications the pack follows.
+          readOnly: true
+        contents:
+          $ref: "#/components/schemas/CountryPackContents"
+          description: How many settings of each kind the pack has.
+          readOnly: true
+      examples:
+        - country: CA
+          version: "2026.1"
+          name: Canada
+          valid_from: "2026-01-01"
+          hash: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+          signed_off: true
+          sign_off:
+            tax_specialist: A. Specialist, Example Tax LLP
+            date: "2026-10-01"
+          sources:
+            - title: Excise Tax Act, Part IX (GST/HST)
+              url: https://laws-lois.justice.gc.ca/eng/acts/E-15/
+              retrieved: "2026-09-01"
+          contents:
+            accounts: 42
+            tax_codes: 6
+            holidays: 11
+            number_ranges: 4
+            payment_terms: 3
+    CountryPackSignOff:
+      type: object
+      description: The tax specialist who reviewed a country pack, and when.
+      required:
+        - tax_specialist
+        - date
+      properties:
+        tax_specialist:
+          type: string
+          description: Who signed the pack off.
+          readOnly: true
+        date:
+          type: string
+          description: "When, as the pack records it (`YYYY-MM-DD`)."
+          readOnly: true
+      examples:
+        - tax_specialist: A. Specialist, Example Tax LLP
+          date: "2026-10-01"
+    CountryPackSource:
+      type: object
+      description: A law, regulation or authority publication a country pack follows.
+      required:
+        - title
+        - url
+        - retrieved
+      properties:
+        title:
+          type: string
+          description: Title of the source.
+          readOnly: true
+        url:
+          type: string
+          description: Where the source is published.
+          readOnly: true
+        retrieved:
+          type: string
+          description: "When the source was read for the pack (`YYYY-MM-DD`)."
+          readOnly: true
+      examples:
+        - title: Excise Tax Act, Part IX (GST/HST)
+          url: https://laws-lois.justice.gc.ca/eng/acts/E-15/
+          retrieved: "2026-09-01"
+    CountryPackContents:
+      type: object
+      description: How many settings of each kind a country pack has.
+      required:
+        - accounts
+        - tax_codes
+        - holidays
+        - number_ranges
+        - payment_terms
+      properties:
+        accounts:
+          type: integer
+          format: int32
+          description: Accounts of the chart of accounts.
+          minimum: 0
+          readOnly: true
+        tax_codes:
+          type: integer
+          format: int32
+          description: Tax codes.
+          minimum: 0
+          readOnly: true
+        holidays:
+          type: integer
+          format: int32
+          description: Holidays.
+          minimum: 0
+          readOnly: true
+        number_ranges:
+          type: integer
+          format: int32
+          description: Number range templates, one per document type.
+          minimum: 0
+          readOnly: true
+        payment_terms:
+          type: integer
+          format: int32
+          description: Payment terms.
+          minimum: 0
+          readOnly: true
+      examples:
+        - accounts: 42
+          tax_codes: 6
+          holidays: 11
+          number_ranges: 4
+          payment_terms: 3
+    CountryPackPage:
+      type: object
+      description: One page of country packs.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountryPack"
+          description: The country packs on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items:
+            - country: CA
+              version: "2026.1"
+              name: Canada
+              valid_from: "2026-01-01"
+              hash: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+              signed_off: false
+              sources:
+                - title: Excise Tax Act, Part IX (GST/HST)
+                  url: https://laws-lois.justice.gc.ca/eng/acts/E-15/
+                  retrieved: "2026-09-01"
+              contents:
+                accounts: 42
+                tax_codes: 6
+                holidays: 11
+                number_ranges: 4
+                payment_terms: 3
+    CountryPackApplication:
+      type: object
+      description: "Apply a country pack version to a company: the change request it creates."
+      required:
+        - country
+        - version
+        - company
+        - applied_on
+        - fiscal_year
+      properties:
+        country:
+          type: string
+          description: Country of the pack.
+          pattern: "^[A-Z]{2}$"
+        version:
+          type: string
+          description: "Version of the pack (`YYYY.N`); never older than the one the company adopted."
+          pattern: "^[0-9]{4}\\.[1-9][0-9]*$"
+        company:
+          type: string
+          description: Company code of the configuration document, in the pack's country, of a legal entity the caller has access to.
+          pattern: "^[A-Z0-9]{1,10}$"
+        applied_on:
+          type: string
+          format: date
+          description: "Date of application: the tax rates in force on it are written, later ones noted, and the company's adoption records it."
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year the pack's number ranges are created for.
+          minimum: 1900
+          maximum: 9999
+        title:
+          type: string
+          description: "Title of the change request; by default it names the pack and the company."
+          minLength: 1
+          maxLength: 200
+        rationale:
+          type: string
+          description: Why the change is needed.
+          maxLength: 10000
+      additionalProperties: false
+      examples:
+        - country: CA
+          version: "2026.1"
+          company: "1000"
+          applied_on: "2026-11-01"
+          fiscal_year: 2026
     ConfigVersion:
       type: object
       description: "An immutable, activated configuration version. Insert-only; `activated_*` play the role of `created_*`."

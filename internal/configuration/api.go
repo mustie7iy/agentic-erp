@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/countrypack"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
@@ -27,6 +28,7 @@ import (
 // Endpoints implements the configuration part of the generated API.
 type Endpoints struct {
 	Pages *pagination.Codec
+	Packs *countrypack.Library // the country packs in the image (ADR-0048)
 	Dependencies
 }
 
@@ -78,6 +80,9 @@ func crToAPI(c ChangeRequest) gen.ChangeRequest {
 		out.Evidence = append(out.Evidence, gen.Evidence{Kind: e.Kind, Passed: e.Passed, Summary: e.Summary,
 			Detail: object[gen.EvidenceDetail](e.Detail), RecordedAt: e.RecordedAt, RecordedBy: e.RecordedBy})
 	}
+	for _, n := range c.Notes { // none: absent
+		out.Notes = append(out.Notes, gen.ChangeRequestNote{Path: n.Path, Message: n.Message})
+	}
 	return out
 }
 
@@ -92,8 +97,12 @@ func (e *Endpoints) CreateChangeRequest(ctx context.Context, req *gen.ChangeRequ
 	if err != nil {
 		return nil, err
 	}
+	return crCreated(c), nil
+}
+
+func crCreated(c ChangeRequest) *gen.ChangeRequestHeaders {
 	return &gen.ChangeRequestHeaders{ETag: gen.NewOptString(etag.Format(c.Version)), Location: gen.NewOptString("/v1/change-requests/" + c.ID.String()),
-		Response: crToAPI(c)}, nil
+		Response: crToAPI(c)}
 }
 
 // GetChangeRequest implements GET /v1/change-requests/{id}.

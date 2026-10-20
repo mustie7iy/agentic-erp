@@ -197,23 +197,27 @@ func TestApplyRefuses(t *testing.T) {
 		return c
 	}
 	tests := []struct {
-		name    string
-		doc     *config.Config
-		company string
-		want    string
+		name          string
+		doc           *config.Config
+		company       string
+		want          string
+		notApplicable bool // the error is ErrNotApplicable
 	}{
-		{"unknown company", testDoc(), "C9", "not in the document"},
-		{"company of another country", testDoc(), "C2", `is in "DE"`},
-		{"another country's pack adopted", adopted(config.PackAdoption{Company: "C1", Country: "CA", Version: "2026.1", AppliedOn: "2026-01-01"}), "C1", "adopted the CA pack"},
-		{"downgrade", adopted(config.PackAdoption{Company: "C1", Country: "ZZ", Version: "2026.3", AppliedOn: "2026-01-01"}), "C1", ErrDowngrade.Error()},
-		{"adopted version not in the image", adopted(config.PackAdoption{Company: "C1", Country: "ZZ", Version: "2025.1", AppliedOn: "2026-01-01"}), "C1", "not in the image"},
-		{"bad adoption date", adopted(config.PackAdoption{Company: "C1", Country: "ZZ", Version: "2026.1", AppliedOn: "soon"}), "C1", `adopted its pack on "soon"`},
+		{"unknown company", testDoc(), "C9", "not in the document", true},
+		{"company of another country", testDoc(), "C2", `is in "DE"`, true},
+		{"another country's pack adopted", adopted(config.PackAdoption{Company: "C1", Country: "CA", Version: "2026.1", AppliedOn: "2026-01-01"}), "C1", "adopted the CA pack", true},
+		{"downgrade", adopted(config.PackAdoption{Company: "C1", Country: "ZZ", Version: "2026.3", AppliedOn: "2026-01-01"}), "C1", ErrDowngrade.Error(), false},
+		{"adopted version not in the image", adopted(config.PackAdoption{Company: "C1", Country: "ZZ", Version: "2025.1", AppliedOn: "2026-01-01"}), "C1", "not in the image", false},
+		{"bad adoption date", adopted(config.PackAdoption{Company: "C1", Country: "ZZ", Version: "2026.1", AppliedOn: "soon"}), "C1", `adopted its pack on "soon"`, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, _, err := Apply(tt.doc, lib.Get("ZZ", "2026.2"), lib, Options{Company: tt.company, On: day("2026-10-20"), FiscalYear: 2026})
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("Apply: got %v, want an error containing %q", err, tt.want)
+			}
+			if got := errors.Is(err, ErrNotApplicable); got != tt.notApplicable {
+				t.Errorf("errors.Is(err, ErrNotApplicable): got %v, want %v", got, tt.notApplicable)
 			}
 		})
 	}

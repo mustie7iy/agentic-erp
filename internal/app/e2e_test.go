@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -59,5 +60,18 @@ func TestTheWholeContractIsServed(t *testing.T) {
 	api.Metrics.Handler().ServeHTTP(m, httptest.NewRequest("GET", "/metrics", nil))
 	if !strings.Contains(m.Body.String(), `operation="listMigrationRuns"`) {
 		t.Fatal("operation not measured")
+	}
+}
+
+// The API logs each country pack that no tax specialist has signed off,
+// which the pilot needs, by its directory.
+func TestCountryPacksWithoutSignOffAreLogged(t *testing.T) {
+	api := apitest.NewWith(t, func(c *app.Config) { c.Packs = apitest.Packs(t, "../configuration/testdata/packs") })
+	logs := api.Logs()
+	if !strings.Contains(logs, "us/2026.2/pack.yaml: sign_off") {
+		t.Errorf("logs: got %q, want the unsigned US 2026.2 pack", logs)
+	}
+	if strings.Contains(logs, "us/2026.1/pack.yaml") {
+		t.Errorf("logs: got %q, want nothing of the signed-off US 2026.1 pack", logs)
 	}
 }

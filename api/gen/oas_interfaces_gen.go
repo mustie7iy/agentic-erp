@@ -13,6 +13,10 @@ type ActivateOrgUnitRes interface {
 	activateOrgUnitRes()
 }
 
+type ApplyCountryPackRes interface {
+	applyCountryPackRes()
+}
+
 type ApproveApprovalRequestRes interface {
 	approveApprovalRequestRes()
 }
@@ -443,6 +447,10 @@ type ListConnectorsRes interface {
 
 type ListContractsRes interface {
 	listContractsRes()
+}
+
+type ListCountryPacksRes interface {
+	listCountryPacksRes()
 }
 
 type ListDownPaymentRequestsRes interface {

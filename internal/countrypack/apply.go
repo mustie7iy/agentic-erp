@@ -26,6 +26,11 @@ type Options struct {
 // ErrDowngrade refuses applying a version older than the one adopted.
 var ErrDowngrade = errors.New("countrypack: the company adopted a newer version")
 
+// ErrNotApplicable refuses applying a pack to a company it is not for: one
+// not in the document, in another country, or that adopted another
+// country's pack.
+var ErrNotApplicable = errors.New("countrypack: the pack does not apply to the company")
+
 // Apply merges next into a copy of cur for one company and returns the
 // draft document, with notes for the reviewers, for an ordinary change
 // request (ADR-0048). The merge is three-way: the base is the version the
@@ -42,9 +47,9 @@ func Apply(cur *config.Config, next *Pack, lib *Library, o Options) (*config.Con
 	co := draft.Company(o.Company)
 	switch {
 	case co == nil:
-		return nil, nil, fmt.Errorf("countrypack: company %q is not in the document", o.Company)
+		return nil, nil, fmt.Errorf("%w: company %q is not in the document", ErrNotApplicable, o.Company)
 	case co.Country != next.Manifest.Country:
-		return nil, nil, fmt.Errorf("countrypack: company %s is in %q, the pack is for %s", o.Company, co.Country, next.Manifest.Country)
+		return nil, nil, fmt.Errorf("%w: company %s is in %q, the pack is for %s", ErrNotApplicable, o.Company, co.Country, next.Manifest.Country)
 	}
 	base, baseOn, err := adopted(cur, next, lib, o.Company)
 	if err != nil {
@@ -81,7 +86,7 @@ func adopted(cur *config.Config, next *Pack, lib *Library, company string) (*Pac
 		return &Pack{}, time.Time{}, nil
 	}
 	if a.Country != next.Manifest.Country {
-		return nil, time.Time{}, fmt.Errorf("countrypack: company %s adopted the %s pack, not %s", company, a.Country, next.Manifest.Country)
+		return nil, time.Time{}, fmt.Errorf("%w: company %s adopted the %s pack, not %s", ErrNotApplicable, company, a.Country, next.Manifest.Country)
 	}
 	if CompareVersions(next.Manifest.Version, a.Version) < 0 {
 		return nil, time.Time{}, fmt.Errorf("%w: %s %s, not %s", ErrDowngrade, a.Country, a.Version, next.Manifest.Version)

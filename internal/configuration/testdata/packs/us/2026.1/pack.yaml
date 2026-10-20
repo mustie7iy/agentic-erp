@@ -1,0 +1,11 @@
+country: US
+version: "2026.1"
+name: United States (test)
+valid_from: 2026-01-01
+sources:
+  - title: 5 U.S.C. 6103, Holidays
+    url: https://example.org/5-usc-6103
+    retrieved: 2026-09-01
+sign_off:
+  tax_specialist: A. Specialist, Example Tax LLP
+  date: 2026-10-01
