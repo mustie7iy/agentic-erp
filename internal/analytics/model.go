@@ -195,3 +195,18 @@ func (m *Model) baseMetrics(name string) []string {
 	}
 	return append(m.baseMetrics(met.Derived.Left), m.baseMetrics(met.Derived.Right)...)
 }
+
+// BaseMetrics lists the source metrics a metric is computed from, each
+// once, in the order a derivation names them; nil for an unknown metric.
+func (m *Model) BaseMetrics(name string) []string {
+	if m.byName[name] == nil {
+		return nil
+	}
+	var out []string
+	for _, b := range m.baseMetrics(name) {
+		if !slices.Contains(out, b) {
+			out = append(out, b)
+		}
+	}
+	return out
+}

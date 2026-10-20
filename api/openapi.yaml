@@ -3857,6 +3857,7 @@ paths:
                     id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d05"
                     legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
                     ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d09"
+                    leading_ledger: true
                     fiscal_year: 2026
                     fiscal_period: 10
                     document_type: SA
@@ -4000,6 +4001,7 @@ paths:
                     id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d12"
                     legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
                     ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d09"
+                    leading_ledger: true
                     fiscal_year: 2026
                     fiscal_period: 10
                     document_type: SA
@@ -14287,6 +14289,7 @@ components:
         - id
         - legal_entity_id
         - ledger_id
+        - leading_ledger
         - fiscal_year
         - fiscal_period
         - document_type
@@ -14317,6 +14320,10 @@ components:
           type: string
           format: uuid
           description: Ledger.
+          readOnly: true
+        leading_ledger:
+          type: boolean
+          description: "Whether the entry's ledger is the tenant's leading ledger. Analytics reads the leading ledger unless a question names another (ADR-0044)."
           readOnly: true
         fiscal_year:
           type: integer

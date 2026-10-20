@@ -305,3 +305,19 @@ func TestJournalLists(t *testing.T) {
 	}
 	agent.Problem(404, "request.not_found", "GET", "/v1/journal-entries/"+ids[0], "", "")
 }
+
+// TestLeadingLedger: an entry says whether its ledger is the leading one,
+// which analytics reads by default (ADR-0044).
+func TestLeadingLedger(t *testing.T) {
+	e := setup(t)
+	je, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-20", "EUR", line{e.account(t, "2000", "100000"), "1.00", ""},
+		line{e.account(t, "2000", "400000"), "-1.00", ""}), "")
+	if je["leading_ledger"] != true {
+		t.Errorf("posted entry: got leading_ledger %v, want true", je["leading_ledger"])
+	}
+	pgtest.Exec(t, `UPDATE ledger.ledger SET is_leading = false WHERE tenant_id = $1`, e.Tenant.ID)
+	got, _ := e.Must(200, "GET", "/v1/journal-entries/"+je["id"].(string), "", "")
+	if got["leading_ledger"] != false {
+		t.Errorf("entry of a ledger no longer leading: got leading_ledger %v, want false", got["leading_ledger"])
+	}
+}

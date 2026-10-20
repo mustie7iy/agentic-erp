@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"math/big"
+	"strconv"
 	"strings"
 
 	"github.com/duckdb/duckdb-go/v2"
@@ -31,19 +32,24 @@ var connect = func() (driver.Connector, error) {
 // run answers a compiled plan in a database of its own, opened for this
 // query alone and closed after it, so nothing one query registered is seen
 // by the next.
-func (r *Reader) run(ctx context.Context, req Request, c compiled, files map[string][]string) ([]Row, error) {
+func (r *Reader) run(ctx context.Context, req Request, c compiled, files map[string][]string) ([]Row, string, error) {
 	db, cx, err := r.open(ctx, req, c, files)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer db.Close() //nolint:errcheck // an in-memory database: closing it frees memory and loses nothing
 	defer cx.Close() //nolint:errcheck // as above
+	var through string
+	if err := cx.QueryRowContext(ctx, c.through).Scan(&through); err != nil {
+		return nil, "", fmt.Errorf("reader: data through: %w", err)
+	}
 	rows, err := cx.QueryContext(ctx, c.sql, c.args...)
 	if err != nil {
-		return nil, fmt.Errorf("reader: query: %w", err)
+		return nil, "", fmt.Errorf("reader: query: %w", err)
 	}
 	defer rows.Close() //nolint:errcheck // rows.Err reports a failed read
-	return r.scan(rows, len(req.Plan.By), c.sum)
+	out, err := r.scan(rows, len(req.Plan.By), c.sum)
+	return out, through, err
 }
 
 // open is a confined database with the plan's views (setup).
@@ -80,9 +86,10 @@ type stmt struct {
 }
 
 // setup is the statements that confine a query's database: the scope's
-// tenant and companies as tables, file access limited to the files the
-// plan reads, external access off and the configuration locked, then one
-// view per dataset over its files.
+// tenant and companies as tables, its threads and memory, file access
+// limited to the files the plan reads, external access off and the
+// configuration locked, then one view per dataset over its files. The
+// limits were checked by New, so they are written as literals.
 func (r *Reader) setup(req Request, c compiled, files map[string][]string) []stmt {
 	steps := []stmt{
 		{"CREATE TEMP TABLE scope_tenant (tenant_id UUID)", nil},
@@ -97,6 +104,8 @@ func (r *Reader) setup(req Request, c compiled, files map[string][]string) []stm
 		all = append(all, files[name]...)
 	}
 	steps = append(steps,
+		stmt{"SET threads = " + strconv.Itoa(r.limits.Threads), nil},
+		stmt{"SET memory_limit = '" + r.limits.MemoryLimit + "'", nil},
 		stmt{"SET allowed_paths = " + list(all), nil},
 		stmt{"SET enable_external_access = false", nil},
 		stmt{"SET lock_configuration = true", nil})

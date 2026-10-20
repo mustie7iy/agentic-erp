@@ -57,10 +57,12 @@ type account struct {
 }
 
 type journalEntry struct {
-	ID           string
-	DocumentType string `json:"document_type"`
-	PostingDate  string `json:"posting_date"`
-	Lines        []struct {
+	ID            string
+	LedgerID      string `json:"ledger_id"`
+	LeadingLedger bool   `json:"leading_ledger"`
+	DocumentType  string `json:"document_type"`
+	PostingDate   string `json:"posting_date"`
+	Lines         []struct {
 		LineNo    int    `json:"line_no"`
 		AccountID string `json:"account_id"`
 		AmountLC  amount `json:"amount_lc"`
@@ -108,7 +110,7 @@ func (s Source) Facts(ctx context.Context, m *Model, asOf time.Time) (*Facts, er
 		return nil, err
 	}
 	b := &factBuilder{
-		f:          &Facts{Tables: map[string][]Fact{}, Companies: map[string]string{}, Exponents: map[string]int{}, AsOf: asOf},
+		f:          &Facts{Tables: map[string][]Fact{}, Companies: map[string]string{}, Exponents: map[string]int{}, Source: SourceDatabase, AsOf: asOf},
 		startMonth: m.Calendar.FiscalYearStartMonth,
 		vendors:    map[string]partner{},
 	}
@@ -205,7 +207,8 @@ func (b *factBuilder) addEntry(le legalEntity, je journalEntry, chart map[string
 		if err != nil {
 			return fmt.Errorf("journal entry %s: %w", je.ID, err)
 		}
-		b.f.Tables["gl_lines"] = append(b.f.Tables["gl_lines"], Fact{ID: je.ID, Dims: dims, Amount: amt, Currency: l.AmountLC.Currency})
+		b.f.Tables["gl_lines"] = append(b.f.Tables["gl_lines"], Fact{ID: je.ID, Dims: dims, Amount: amt, Currency: l.AmountLC.Currency,
+			Ledger: je.LedgerID, Leading: je.LeadingLedger})
 	}
 	return nil
 }

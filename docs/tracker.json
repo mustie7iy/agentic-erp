@@ -3398,9 +3398,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Semantic layer reads the store, with fallback, lineage and parity: generates reader plans from metrics (fiscal periods from the date and the calendar, cleared from open_items, leading ledger by default, which needs a ledger filter in the reader: ledger_id is a key, which plans may not name yet), per-query DuckDB threads and memory_limit and a cap on concurrent queries in erp-analytics, calls erp-analytics over mTLS with the pointer's manifest key, falls back on a refusal or a stale checked_at; erp-server starts the extract scheduler and sets the relay's Relayed hook",
-        "r": "T55e",
+        "s": "D",
+        "t": "Semantic layer reads the store (internal/analytics/store): pointer, leading ledger and freshness rule (checked_at within 15 minutes and no entry posted longer ago at or above the watermark) read under RLS in the request; one reader plan per base metric (fiscal periods from the date and the calendar, cleared from open_items, ledger required for gl_lines: the leading one unless the query names another, in both paths, with JournalEntry.leading_ledger in the API); pre-aggregated groups folded in by Execute; falls back to the database on no or stale snapshot, older than asked, a refusal, the reader busy (503 analytics.busy at its concurrent-query cap) or failing; lineage source and as_of on every result; cgo-free wire package; per-query DuckDB threads and memory_limit; mTLS client; parity test over every metric of semantic.yaml; erp-server starts the extract scheduler and sets the relay hook (primary until T55f)",
+        "r": "internal/analytics/store · internal/analytics/wire · internal/analytics/reader · cmd/erp-analytics · cmd/erp-server · api/openapi.yaml JournalEntry.leading_ledger · ADR-0044 · T55e",
         "c": []
        },
        {

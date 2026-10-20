@@ -53,6 +53,7 @@ type Entry struct {
 	ID               uuid.UUID
 	LegalEntityID    uuid.UUID
 	LedgerID         uuid.UUID
+	Leading          bool // the ledger is the tenant's leading ledger
 	FiscalYear       int16
 	FiscalPeriod     int16
 	DocumentType     string
@@ -100,7 +101,8 @@ type Line struct {
 	SpecialGL *string `json:"special_gl"`
 }
 
-const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id, e.fiscal_year, e.fiscal_period, e.document_type, e.document_number,
+const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id,
+		(SELECT g.is_leading FROM ledger.ledger g WHERE g.tenant_id = e.tenant_id AND g.id = e.ledger_id), e.fiscal_year, e.fiscal_period, e.document_type, e.document_number,
 		e.document_date, e.posting_date, e.currency_tc, e.currency_lc, e.currency_gc, e.rate_tc_lc::text, e.rate_lc_gc::text,
 		e.reference, e.header_text, e.source_context, e.source_document_id, e.reversal_of_id, e.reversal_of_year, r.reversal_entry_id,
 		e.posted_at, e.posted_by, ctc.exponent, clc.exponent, cgc.exponent,
@@ -117,7 +119,7 @@ const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id, e.fiscal_year,
 
 func scanEntry(row pgx.Row) (Entry, error) {
 	var e Entry
-	err := errs.Wrapf(row.Scan(&e.ID, &e.LegalEntityID, &e.LedgerID, &e.FiscalYear, &e.FiscalPeriod, &e.DocumentType, &e.DocumentNumber,
+	err := errs.Wrapf(row.Scan(&e.ID, &e.LegalEntityID, &e.LedgerID, &e.Leading, &e.FiscalYear, &e.FiscalPeriod, &e.DocumentType, &e.DocumentNumber,
 		&e.DocumentDate, &e.PostingDate, &e.CurrencyTC, &e.CurrencyLC, &e.CurrencyGC, &e.RateTCLC, &e.RateLCGC,
 		&e.Reference, &e.HeaderText, &e.SourceContext, &e.SourceDocumentID, &e.ReversalOfID, &e.ReversalOfYear, &e.ReversedByID,
 		&e.PostedAt, &e.PostedBy, &e.ExpTC, &e.ExpLC, &e.ExpGC, &e.Lines), "scan journal entry")

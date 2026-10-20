@@ -12869,6 +12869,9 @@ type JournalEntry struct {
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// Ledger.
 	LedgerID uuid.UUID `json:"ledger_id"`
+	// Whether the entry's ledger is the tenant's leading ledger. Analytics reads the leading ledger unless
+	// a question names another (ADR-0044).
+	LeadingLedger bool `json:"leading_ledger"`
 	// Fiscal year.
 	FiscalYear int32 `json:"fiscal_year"`
 	// Fiscal period.
@@ -12925,6 +12928,11 @@ func (s *JournalEntry) GetLegalEntityID() uuid.UUID {
 // GetLedgerID returns the value of LedgerID.
 func (s *JournalEntry) GetLedgerID() uuid.UUID {
 	return s.LedgerID
+}
+
+// GetLeadingLedger returns the value of LeadingLedger.
+func (s *JournalEntry) GetLeadingLedger() bool {
+	return s.LeadingLedger
 }
 
 // GetFiscalYear returns the value of FiscalYear.
@@ -13040,6 +13048,11 @@ func (s *JournalEntry) SetLegalEntityID(val uuid.UUID) {
 // SetLedgerID sets the value of LedgerID.
 func (s *JournalEntry) SetLedgerID(val uuid.UUID) {
 	s.LedgerID = val
+}
+
+// SetLeadingLedger sets the value of LeadingLedger.
+func (s *JournalEntry) SetLeadingLedger(val bool) {
+	s.LeadingLedger = val
 }
 
 // SetFiscalYear sets the value of FiscalYear.

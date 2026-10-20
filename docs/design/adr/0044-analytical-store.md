@@ -3,7 +3,8 @@
 **Status:** accepted (product owner, 2026-10-19, T55; amended 2026-10-19,
 T55b: one pointer row per tenant, the leading ledger by default; T55c:
 manifests named by cutoff and digest, `checked_at`, the scheduler; T55d:
-`partners` in place of `vendors`, the reader)
+`partners` in place of `vendors`, the reader; T55e: the semantic layer on
+the store, the ledger filter, the reader's limits)
 
 ## Context
 The semantic layer (`internal/analytics`, `semantic.yaml`) answers every
@@ -277,6 +278,75 @@ module without a build tag (the test job already builds with cgo for
 `bin/erp-analytics` with the host's toolchain; its image (distroless cc on
 both platforms, through the ADR-0032 gates) is T55h, since ko does not
 cross-compile cgo.
+
+**Semantic layer on the store (T55e).** The plan, scope and rows are a
+cgo-free package, `internal/analytics/wire`, which the reader aliases and
+erp-server speaks without linking DuckDB. `internal/analytics/store.Source`
+runs in a request's unit of work: it reads the tenant's pointer under RLS
+(`ReadSnapshot`), with the leading ledger and the freshness rule in the
+same statement, and generates one plan per base metric of the query's
+measures: the metric's dataset and aggregate, grouped by the query's
+breakdown, the metric's filter and the query's as `where`, the model's
+fiscal year start month and the ledger. The reader answers each with
+pre-aggregated groups, which become `Facts.Aggregated`; `analytics.Execute`
+folds them in unfiltered (the reader applied the filters, the companies and
+the ledger) and computes derived metrics, ratios, the currency guard,
+ordering and limits exactly as it does over the database's facts. A
+count's group is counted by the reader (`COUNT(DISTINCT document)` per
+group), so a count is never added across groups that share a document.
+The reader derives `fiscal_year`, `fiscal_quarter` and `fiscal_month` from
+the dataset's date and the plan's start month (the semantic layer's
+`fiscal`), takes `>=`, `<=` and `between` on them as integers, and
+answers `cleared` as `vendor_recon` and no `open_items` row of the line.
+
+*The ledger.* A plan over a dataset keyed by `ledger_id` must name one
+ledger, or the reader refuses it: a sum never covers every ledger by
+default. The semantic query's `ledger` is a ledger id in canonical form, empty for the
+leading one; the store path takes the leading ledger's id from the
+snapshot read, the database path from `leading_ledger`, a read-only field
+added to the API's `JournalEntry` (additive), so both read the same lines.
+
+*Freshness and fallback.* The store answers when the pointer exists,
+`checked_at` is within the target (fifteen minutes) of the database's
+clock, no journal entry at or above the watermark was posted longer ago
+than the target (one a long transaction committed after the run that set
+`checked_at`), and `checked_at` is not before the as-of the caller asks
+for. Otherwise, and when a plan cannot be generated, the reader refuses
+it (422), is at its cap (503 `analytics.busy`, `Retry-After: 1`), fails or
+times out, the query is answered from the database (`analytics.Source`)
+and the reason logged. The pointer read failing is an error, not a
+fallback. The store path reads `analytics.snapshot`, `ledger.ledger` and
+`ledger.journal_entry` read-only, as the extractor does (above). Every
+`Result` names its `source` (`store` or `database`) and `as_of` (the
+manifest's, or the time of the database read); `data_through` is the
+latest date of the datasets the query read.
+
+*Limits.* Each query's DuckDB is set to `threads` (default 2) and
+`memory_limit` (default 1GB) before the configuration is locked, and the
+reader runs at most `ERP_ANALYTICS_MAX_QUERIES` queries at once (default
+4): one beyond the cap is refused at once with `ErrBusy` rather than
+queued, so a burst never holds erp-server's requests behind it. Threads,
+memory (DuckDB's notation, checked by pattern since it is written into a
+`SET`) and the cap come from `ERP_ANALYTICS_THREADS`,
+`ERP_ANALYTICS_MEMORY_LIMIT` and `ERP_ANALYTICS_MAX_QUERIES`; a bad value
+fails startup.
+
+*Parity.* `internal/analytics/store`'s `TestParity` seeds one tenant
+through the API (revenue, expenses and supplier items in both companies,
+an item cleared by a reversal, a parallel ledger's entry, a customer,
+orders and invoices), extracts it, and requires equal columns, rows,
+definitions and errors from both paths for every metric of
+`semantic.yaml`, alone, by each dimension it allows and by all of them,
+filtered by fiscal period, company and date, in the parallel ledger, for
+fiscal years starting in January and in July, for every company and for
+one.
+
+*erp-server.* With an object store configured, erp-server starts
+`extract.Scheduler` and sets the relay's `Relayed` hook to
+`extract.MarkChanged`; the scheduler's extract reads on the primary until
+T55f. The semantic layer itself still runs as an API client (`erp
+analytics`); serving it from erp-server, where the store source can read
+the pointer and call erp-analytics, is a separate step.
 
 **Steps.** T55a this ADR and the dataset contract; T55b the snapshot
 migration, extractor and Parquet writer for journal lines; T55c the other

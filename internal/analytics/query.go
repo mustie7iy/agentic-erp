@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/mustie7iy/agentic-erp/internal/money"
 )
 
@@ -25,6 +27,10 @@ type Query struct {
 	OrderBy  string   `json:"order_by,omitempty"`
 	Desc     bool     `json:"desc,omitempty"`
 	Limit    int      `json:"limit,omitempty"`
+	// Ledger is the ledger journal metrics read: the leading ledger when
+	// empty, another (its id) only when the question names it, so a sum
+	// never adds a parallel ledger's lines to the leading one's (ADR-0044).
+	Ledger string `json:"ledger,omitempty"`
 }
 
 // Filter restricts a dimension. Op is one of: in, not_in, <=, >=, between.
@@ -56,10 +62,14 @@ type Column struct {
 type Row []any
 
 type Result struct {
-	ID          string          `json:"query_id"`
-	Query       Query           `json:"query"`
-	Columns     []Column        `json:"columns"`
-	Rows        []Row           `json:"rows"`
+	ID      string   `json:"query_id"`
+	Query   Query    `json:"query"`
+	Columns []Column `json:"columns"`
+	Rows    []Row    `json:"rows"`
+	// Source and AsOf are the answer's lineage: the analytical store
+	// (SourceStore) as of its manifest, or the database (SourceDatabase)
+	// as of the read.
+	Source      string          `json:"source,omitempty"`
 	AsOf        time.Time       `json:"as_of"`
 	DataThrough string          `json:"data_through"`
 	Definitions []MetricLineage `json:"definitions"`
@@ -99,7 +109,7 @@ func Execute(m *Model, f *Facts, p Principal, q Query) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	res := &Result{ID: QueryID(q, p), Query: q, AsOf: f.AsOf, DataThrough: f.DataThrough}
+	res := &Result{ID: QueryID(q, p), Query: q, Source: f.Source, AsOf: f.AsOf, DataThrough: f.DataThrough}
 	measureCol := describeColumns(m, q, res)
 	if err := fillRows(m, q, agg, res, measureCol); err != nil {
 		return nil, err
@@ -115,6 +125,10 @@ func Execute(m *Model, f *Facts, p Principal, q Query) (*Result, error) {
 func validateQuery(m *Model, q Query) error {
 	if len(q.Measures) == 0 {
 		return fmt.Errorf("query needs at least one measure")
+	}
+	// The canonical form alone, so both paths compare the same string.
+	if id, err := uuid.Parse(q.Ledger); q.Ledger != "" && (err != nil || id.String() != q.Ledger) {
+		return fmt.Errorf("ledger %q is not a ledger id", q.Ledger)
 	}
 	allowed, err := sharedDimensions(m, q.Measures)
 	if err != nil {
@@ -171,6 +185,7 @@ type aggCell struct {
 	terms      []money.Minor
 	sum        money.Minor
 	ids        map[string]bool
+	count      int64 // documents counted by the store (Facts.Aggregated)
 	currencies map[string]bool
 }
 
@@ -225,26 +240,56 @@ func (agg *aggregation) sum(b string) error {
 
 // addMetric folds the facts the principal may see and the filters select
 // into the groups of base metric b.
+// Groups the store aggregated (Facts.Aggregated) were selected by the
+// store with the same filters and scope, and are folded in as they are.
 func (agg *aggregation) addMetric(b string, met *Metric, f *Facts, p Principal, q Query) {
+	if groups, ok := f.Aggregated[b]; ok {
+		for _, g := range groups {
+			agg.add(b, met, g, q.By, true)
+		}
+		return
+	}
 	for _, fact := range f.Tables[met.Source] {
-		if !p.canSee(fact.Dims["company"]) || !matchAll(fact.Dims, met.Filter) || !matchQuery(fact.Dims, q.Where) {
+		if !p.canSee(fact.Dims["company"]) || !inLedger(fact, q.Ledger) || !matchAll(fact.Dims, met.Filter) || !matchQuery(fact.Dims, q.Where) {
 			continue
 		}
-		key := agg.group(fact, q.By)
-		c := agg.base[b][key]
-		if c == nil {
-			c = &aggCell{ids: map[string]bool{}, currencies: map[string]bool{}}
-			agg.base[b][key] = c
-		}
-		c.currencies[fact.Currency] = true
-		if met.Aggregate == "count_distinct" {
-			c.ids[fact.ID] = true
-		} else {
-			// The sign is ±1 (checkSourceMetric) and the range symmetric,
-			// so the product is an amount.
-			c.terms = append(c.terms, fact.Amount*money.Minor(met.Sign))
-		}
+		agg.add(b, met, fact, q.By, false)
 	}
+}
+
+// add folds one fact, or one group the store aggregated, into its group.
+func (agg *aggregation) add(b string, met *Metric, fact Fact, by []string, aggregated bool) {
+	key := agg.group(fact, by)
+	c := agg.base[b][key]
+	if c == nil {
+		c = &aggCell{ids: map[string]bool{}, currencies: map[string]bool{}}
+		agg.base[b][key] = c
+	}
+	c.currencies[fact.Currency] = true
+	if met.Aggregate == "count_distinct" {
+		if aggregated {
+			c.count += fact.Count
+		} else {
+			c.ids[fact.ID] = true
+		}
+		return
+	}
+	// The sign is ±1 (checkSourceMetric) and the range symmetric, so the
+	// product is an amount.
+	c.terms = append(c.terms, fact.Amount*money.Minor(met.Sign))
+}
+
+// inLedger reports whether a fact is in the query's ledger: the leading
+// one unless the query names another. A fact without a ledger (an order,
+// an invoice) is in every one.
+func inLedger(fact Fact, ledger string) bool {
+	switch {
+	case fact.Ledger == "":
+		return true
+	case ledger == "":
+		return fact.Leading
+	}
+	return fact.Ledger == ledger
 }
 
 // group registers the fact's group and returns its key.
@@ -385,7 +430,7 @@ func (ev *cellEval) eval(n string) (*big.Rat, bool) {
 		return nil, false
 	}
 	if met.Aggregate == "count_distinct" {
-		return new(big.Rat).SetInt64(int64(len(c.ids))), true
+		return new(big.Rat).SetInt64(int64(len(c.ids)) + c.count), true
 	}
 	for cur := range c.currencies {
 		ev.summed[cur] = true

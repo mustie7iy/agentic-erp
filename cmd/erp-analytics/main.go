@@ -19,6 +19,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -52,6 +53,7 @@ type settings struct {
 	store   blobstore.Store
 	level   slog.Level
 	timeout time.Duration
+	limits  reader.Limits // ERP_ANALYTICS_THREADS, ERP_ANALYTICS_MEMORY_LIMIT, ERP_ANALYTICS_MAX_QUERIES
 }
 
 var cellPattern = regexp.MustCompile(`^[a-z0-9]{1,20}$`)
@@ -69,6 +71,10 @@ func load(ctx context.Context, getenv func(string) string) (settings, error) {
 	if err := s.level.UnmarshalText([]byte(defaulted(getenv("ERP_LOG_LEVEL"), "info"))); err != nil {
 		return s, fmt.Errorf("ERP_LOG_LEVEL: %w", err)
 	}
+	var err error
+	if s.limits, err = limits(getenv); err != nil {
+		return s, err
+	}
 	domain, cell := getenv("ERP_TRUST_DOMAIN"), getenv("ERP_CELL")
 	if domain == "" || !config.ValidTrustDomain(domain) || !cellPattern.MatchString(cell) {
 		return s, fmt.Errorf("ERP_TRUST_DOMAIN %q and ERP_CELL %q must name the cell: erp-analytics admits its erp-server alone (ADR-0033)", domain, cell)
@@ -83,9 +89,26 @@ func load(ctx context.Context, getenv func(string) string) (settings, error) {
 	if err := s.tls.Refresh(ctx); err != nil {
 		return s, fmt.Errorf("ERP_TLS_CA, ERP_TLS_CERT, ERP_TLS_KEY: %w", err)
 	}
-	var err error
 	s.store, err = objects(getenv, s.tls)
 	return s, err
+}
+
+// limits reads the per-query DuckDB limits and the cap on concurrent
+// queries; unset ones take the reader's defaults.
+func limits(getenv func(string) string) (reader.Limits, error) {
+	l := reader.Limits{MemoryLimit: getenv("ERP_ANALYTICS_MEMORY_LIMIT")}
+	for name, dst := range map[string]*int{"ERP_ANALYTICS_THREADS": &l.Threads, "ERP_ANALYTICS_MAX_QUERIES": &l.MaxQueries} {
+		v := getenv(name)
+		if v == "" {
+			continue
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			return l, fmt.Errorf("%s %q: want a positive integer", name, v)
+		}
+		*dst = n
+	}
+	return l.Defaults()
 }
 
 // objects is the cell bucket, or a directory in development.
@@ -131,7 +154,7 @@ func run(ctx context.Context, s settings, log *slog.Logger, started func(net.Add
 	if err := os.MkdirAll(s.cache, 0o700); err != nil {
 		return fmt.Errorf("erp-analytics: cache: %w", err)
 	}
-	r, err := reader.New(s.store, s.cache, currency.Seeded())
+	r, err := reader.New(s.store, s.cache, currency.Seeded(), s.limits)
 	if err != nil {
 		return err
 	}

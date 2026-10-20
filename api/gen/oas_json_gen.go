@@ -17030,6 +17030,10 @@ func (s *JournalEntry) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.LedgerID)
 	}
 	{
+		e.FieldStart("leading_ledger")
+		e.Bool(s.LeadingLedger)
+	}
+	{
 		e.FieldStart("fiscal_year")
 		e.Int32(s.FiscalYear)
 	}
@@ -17125,30 +17129,31 @@ func (s *JournalEntry) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfJournalEntry = [23]string{
+var jsonFieldsNameOfJournalEntry = [24]string{
 	0:  "id",
 	1:  "legal_entity_id",
 	2:  "ledger_id",
-	3:  "fiscal_year",
-	4:  "fiscal_period",
-	5:  "document_type",
-	6:  "document_number",
-	7:  "document_date",
-	8:  "posting_date",
-	9:  "currency",
-	10: "local_currency",
-	11: "group_currency",
-	12: "rate_tc_lc",
-	13: "rate_lc_gc",
-	14: "reference",
-	15: "header_text",
-	16: "source_context",
-	17: "source_document_id",
-	18: "reversal_of_id",
-	19: "reversed_by_id",
-	20: "lines",
-	21: "posted_at",
-	22: "posted_by",
+	3:  "leading_ledger",
+	4:  "fiscal_year",
+	5:  "fiscal_period",
+	6:  "document_type",
+	7:  "document_number",
+	8:  "document_date",
+	9:  "posting_date",
+	10: "currency",
+	11: "local_currency",
+	12: "group_currency",
+	13: "rate_tc_lc",
+	14: "rate_lc_gc",
+	15: "reference",
+	16: "header_text",
+	17: "source_context",
+	18: "source_document_id",
+	19: "reversal_of_id",
+	20: "reversed_by_id",
+	21: "lines",
+	22: "posted_at",
+	23: "posted_by",
 }
 
 // Decode decodes JournalEntry from json.
@@ -17196,8 +17201,20 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"ledger_id\"")
 			}
-		case "fiscal_year":
+		case "leading_ledger":
 			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Bool()
+				s.LeadingLedger = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"leading_ledger\"")
+			}
+		case "fiscal_year":
+			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				v, err := d.Int32()
 				s.FiscalYear = int32(v)
@@ -17209,7 +17226,7 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"fiscal_year\"")
 			}
 		case "fiscal_period":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				v, err := d.Int32()
 				s.FiscalPeriod = int32(v)
@@ -17221,7 +17238,7 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"fiscal_period\"")
 			}
 		case "document_type":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.DocumentType = string(v)
@@ -17233,7 +17250,7 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"document_type\"")
 			}
 		case "document_number":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				v, err := d.Str()
 				s.DocumentNumber = string(v)
@@ -17245,7 +17262,7 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"document_number\"")
 			}
 		case "document_date":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.DocumentDate = v
@@ -17257,7 +17274,7 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"document_date\"")
 			}
 		case "posting_date":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.PostingDate = v
@@ -17269,7 +17286,7 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"posting_date\"")
 			}
 		case "currency":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
 				v, err := d.Str()
 				s.Currency = string(v)
@@ -17281,7 +17298,7 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"currency\"")
 			}
 		case "local_currency":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				v, err := d.Str()
 				s.LocalCurrency = string(v)
@@ -17293,7 +17310,7 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"local_currency\"")
 			}
 		case "group_currency":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.GroupCurrency = string(v)
@@ -17305,7 +17322,7 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"group_currency\"")
 			}
 		case "rate_tc_lc":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				if err := s.RateTcLc.Decode(d); err != nil {
 					return err
@@ -17315,7 +17332,7 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"rate_tc_lc\"")
 			}
 		case "rate_lc_gc":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				if err := s.RateLcGc.Decode(d); err != nil {
 					return err
@@ -17345,7 +17362,7 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"header_text\"")
 			}
 		case "source_context":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				v, err := d.Str()
 				s.SourceContext = string(v)
@@ -17387,7 +17404,7 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"reversed_by_id\"")
 			}
 		case "lines":
-			requiredBitSet[2] |= 1 << 4
+			requiredBitSet[2] |= 1 << 5
 			if err := func() error {
 				s.Lines = make([]JournalLine, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -17405,7 +17422,7 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"lines\"")
 			}
 		case "posted_at":
-			requiredBitSet[2] |= 1 << 5
+			requiredBitSet[2] |= 1 << 6
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.PostedAt = v
@@ -17417,7 +17434,7 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"posted_at\"")
 			}
 		case "posted_by":
-			requiredBitSet[2] |= 1 << 6
+			requiredBitSet[2] |= 1 << 7
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.PostedBy = v
@@ -17439,8 +17456,8 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [3]uint8{
 		0b11111111,
-		0b00111111,
-		0b01110001,
+		0b01111111,
+		0b11100010,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

@@ -28,6 +28,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api"
 	"github.com/mustie7iy/agentic-erp/db"
 	"github.com/mustie7iy/agentic-erp/internal/agents"
+	"github.com/mustie7iy/agentic-erp/internal/analytics/extract"
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/audit"
 	"github.com/mustie7iy/agentic-erp/internal/capture"
@@ -564,6 +565,20 @@ func (s *server) startWorkers(runCtx context.Context) {
 	s.startOperations(runCtx)
 	s.startMaintenance(runCtx)
 	s.startAudit(runCtx)
+	s.startAnalytics(runCtx)
+}
+
+// startAnalytics starts, with an object store, the analytical store's
+// extract scheduler (ADR-0044). The extract reads on the primary until it
+// waits for the replica to replay its claim's position (T55f): a lagging
+// replica would find nothing new and mark the change done.
+func (s *server) startAnalytics(runCtx context.Context) {
+	if s.store == nil {
+		return
+	}
+	scheduler := &extract.Scheduler{Extractor: extract.Extractor{Replica: s.pool.Begin, Primary: s.pool.Begin, Role: s.cfg.AppRole, Store: s.store},
+		Begin: s.pool.Begin, WorkerRole: s.cfg.WorkerRole, Log: s.log}
+	s.spawn("analytics extract", func() { scheduler.Run(runCtx) })
 }
 
 // startProjections starts the balance projector and, without a workflow
@@ -679,6 +694,11 @@ func (s *server) startRelay(ctx, runCtx context.Context, bus *natsbus.Bus) error
 		return err
 	}
 	relay := &outbox.Relay{Pool: s.pool, Role: s.cfg.RelayRole, Publisher: bus, Cell: s.cfg.Cell, Log: s.log}
+	if s.store != nil {
+		// A published batch marks its tenants due an extract, once per
+		// batch and never in the posting transactions (ADR-0044).
+		relay.Relayed = extract.MarkChanged
+	}
 	s.spawn("relay", func() { relay.Run(runCtx) })
 	return nil
 }

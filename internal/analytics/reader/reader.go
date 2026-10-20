@@ -20,53 +20,30 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/analytics/datasets"
 	"github.com/mustie7iy/agentic-erp/internal/analytics/extract"
-	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/analytics/wire"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 )
 
-// Request is one query from erp-server: the tenant, the manifest its
-// pointer names (read under the tenant's RLS), what the principal may see
-// and the plan.
-type Request struct {
-	TenantID    uuid.UUID `json:"tenant_id"`
-	ManifestKey string    `json:"manifest_key"`
-	Scope       Scope     `json:"scope"`
-	Plan        Plan      `json:"plan"`
-}
-
-// Scope is what the principal may read: every company or the ones listed,
-// and the fact datasets of the fact types it may see.
-type Scope struct {
-	AllCompanies bool     `json:"all_companies,omitempty"`
-	Companies    []string `json:"companies,omitempty"`
-	Datasets     []string `json:"datasets"`
-}
-
-// Result is a plan's rows and the database state they are as of.
-type Result struct {
-	ManifestKey string    `json:"manifest_key"`
-	AsOf        time.Time `json:"as_of"`
-	Rows        []Row     `json:"rows"`
-}
-
-// Row is one group: the plan's By values in its order, then the sum per
-// currency or the count.
-type Row struct {
-	By       []string    `json:"by"`
-	Currency string      `json:"currency,omitempty"`
-	Exponent int         `json:"exponent"` // 0 is a currency's exponent too (JPY)
-	Amount   money.Minor `json:"amount_minor"`
-	Count    int64       `json:"count"`
-}
+// The wire types, named here as the reader has always named them.
+type (
+	Request = wire.Request
+	Scope   = wire.Scope
+	Result  = wire.Result
+	Row     = wire.Row
+	Plan    = wire.Plan
+	Filter  = wire.Filter
+)
 
 // Reader reads the store.
 type Reader struct {
@@ -77,14 +54,53 @@ type Reader struct {
 	// refused (ADR-0005).
 	Exponents map[string]int
 
+	limits   Limits
+	slots    chan struct{} // one per query running
 	contract map[string]*datasets.Dataset
 }
+
+// Limits bound what queries take of the machine: each query's DuckDB
+// threads and memory, and how many run at once. A query beyond the cap is
+// refused with ErrBusy rather than queued, so a burst never holds
+// erp-server's requests behind it; the semantic layer answers it from the
+// database.
+type Limits struct {
+	Threads     int    // per query; default 2
+	MemoryLimit string // per query, DuckDB's notation ("512MB", "2GB"); default 1GB
+	MaxQueries  int    // at once; default 4
+}
+
+// memoryPattern is DuckDB's memory notation: the limit is written into a
+// SET, so nothing else may reach it.
+var memoryPattern = regexp.MustCompile(`^[0-9]{1,6}(\.[0-9]{1,3})?(B|KB|MB|GB|TB|KiB|MiB|GiB|TiB)$`)
+
+// Defaults is l with its unset limits filled, or an error for one out of
+// range.
+func (l Limits) Defaults() (Limits, error) {
+	if l.Threads == 0 {
+		l.Threads = 2
+	}
+	if l.MemoryLimit == "" {
+		l.MemoryLimit = "1GB"
+	}
+	if l.MaxQueries == 0 {
+		l.MaxQueries = 4
+	}
+	if l.Threads < 1 || l.MaxQueries < 1 || !memoryPattern.MatchString(l.MemoryLimit) {
+		return l, fmt.Errorf("reader: limits %+v: threads and queries at least 1, memory like 512MB", l)
+	}
+	return l, nil
+}
+
+// ErrBusy means the reader is running its cap of queries; the request may
+// be retried, and the semantic layer answers it from the database.
+var ErrBusy = errors.New("reader: busy")
 
 // contractV1 is the dataset contract; a variable, so a test can fail it.
 var contractV1 = datasets.V1
 
-// New is a reader over store, caching files in cache.
-func New(store blobstore.Store, cache string, exponents map[string]int) (*Reader, error) {
+// New is a reader over store, caching files in cache, within limits.
+func New(store blobstore.Store, cache string, exponents map[string]int, limits Limits) (*Reader, error) {
 	contract, err := contractV1()
 	if err != nil {
 		return nil, err
@@ -92,11 +108,20 @@ func New(store blobstore.Store, cache string, exponents map[string]int) (*Reader
 	if !filepath.IsAbs(cache) {
 		return nil, fmt.Errorf("reader: cache %q must be an absolute directory", cache)
 	}
-	return &Reader{Store: store, Cache: cache, Exponents: exponents, contract: contract}, nil
+	if limits, err = limits.Defaults(); err != nil {
+		return nil, err
+	}
+	return &Reader{Store: store, Cache: cache, Exponents: exponents, limits: limits, slots: make(chan struct{}, limits.MaxQueries), contract: contract}, nil
 }
 
 // Query answers a plan for the request's tenant.
 func (r *Reader) Query(ctx context.Context, req Request) (*Result, error) {
+	select {
+	case r.slots <- struct{}{}:
+		defer func() { <-r.slots }()
+	default:
+		return nil, fmt.Errorf("%w: %d queries running", ErrBusy, r.limits.MaxQueries)
+	}
 	if !req.Scope.AllCompanies && len(req.Scope.Companies) == 0 {
 		return nil, refused("the scope grants no company")
 	}
@@ -114,11 +139,11 @@ func (r *Reader) Query(ctx context.Context, req Request) (*Result, error) {
 			return nil, err
 		}
 	}
-	rows, err := r.run(ctx, req, c, files)
+	rows, through, err := r.run(ctx, req, c, files)
 	if err != nil {
 		return nil, err
 	}
-	return &Result{ManifestKey: req.ManifestKey, AsOf: m.Datasets[c.datasets[0]].AsOf, Rows: rows}, nil
+	return &Result{ManifestKey: req.ManifestKey, AsOf: m.Datasets[c.datasets[0]].AsOf, DataThrough: through, Rows: rows}, nil
 }
 
 // manifest reads the tenant's manifest and refuses one of another tenant

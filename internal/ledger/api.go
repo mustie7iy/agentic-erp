@@ -20,7 +20,7 @@ import (
 
 func entryToAPI(e Entry) gen.JournalEntry {
 	out := gen.JournalEntry{
-		ID: e.ID, LegalEntityID: e.LegalEntityID, LedgerID: e.LedgerID, FiscalYear: int32(e.FiscalYear), FiscalPeriod: int32(e.FiscalPeriod),
+		ID: e.ID, LegalEntityID: e.LegalEntityID, LedgerID: e.LedgerID, LeadingLedger: e.Leading, FiscalYear: int32(e.FiscalYear), FiscalPeriod: int32(e.FiscalPeriod),
 		DocumentType: e.DocumentType, DocumentNumber: e.DocumentNumber, DocumentDate: e.DocumentDate, PostingDate: e.PostingDate,
 		Currency: e.CurrencyTC, LocalCurrency: e.CurrencyLC, GroupCurrency: e.CurrencyGC, RateTcLc: gen.Decimal(e.RateTCLC),
 		RateLcGc: gen.Decimal(e.RateLCGC), Reference: apitypes.OptString(e.Reference), HeaderText: apitypes.OptString(e.HeaderText),

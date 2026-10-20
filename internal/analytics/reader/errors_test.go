@@ -32,15 +32,19 @@ func TestCompileRefuses(t *testing.T) {
 	for name, p := range map[string]Plan{
 		"unknown dataset":   {Dataset: "nope", Aggregate: "sum"},
 		"dimension dataset": {Dataset: "accounts", Aggregate: "sum"},
-		"aggregate":         {Dataset: "gl_lines", Aggregate: "avg"},
-		"unknown column":    {Dataset: "gl_lines", Aggregate: "sum", By: []string{"nope"}},
-		"a key":             {Dataset: "gl_lines", Aggregate: "sum", By: []string{"document_id"}},
-		"filter column":     {Dataset: "gl_lines", Aggregate: "sum", Where: []Filter{{Column: "amount_minor", Op: "in", Values: []string{"1"}}}},
-		"range off date":    {Dataset: "gl_lines", Aggregate: "sum", Where: []Filter{{Column: "company", Op: ">=", Values: []string{"2026-01-01"}}}},
-		"range not a date":  {Dataset: "gl_lines", Aggregate: "sum", Where: []Filter{{Column: "posting_date", Op: "<=", Values: []string{"x"}}}},
-		"range count":       {Dataset: "gl_lines", Aggregate: "sum", Where: []Filter{{Column: "posting_date", Op: "between", Values: []string{"2026-01-01"}}}},
-		"op":                {Dataset: "gl_lines", Aggregate: "sum", Where: []Filter{{Column: "company", Op: "like", Values: []string{"1%"}}}},
-		"empty in":          {Dataset: "gl_lines", Aggregate: "sum", Where: []Filter{{Column: "company", Op: "in"}}},
+		"aggregate":         {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "avg"},
+		"unknown column":    {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", By: []string{"nope"}},
+		"a key":             {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", By: []string{"document_id"}},
+		"filter column":     {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "amount_minor", Op: "in", Values: []string{"1"}}}},
+		"range off date":    {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "company", Op: ">=", Values: []string{"2026-01-01"}}}},
+		"range not a date":  {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "posting_date", Op: "<=", Values: []string{"x"}}}},
+		"range count":       {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "posting_date", Op: "between", Values: []string{"2026-01-01"}}}},
+		"op":                {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "company", Op: "like", Values: []string{"1%"}}}},
+		"empty in":          {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "company", Op: "in"}}},
+		"no ledger":         {Dataset: "gl_lines", Aggregate: "sum"},
+		"bad ledger":        {Dataset: "gl_lines", Ledger: "leading", Aggregate: "sum"},
+		"calendar":          {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", FiscalYearStartMonth: 13},
+		"fiscal range":      {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "fiscal_year", Op: ">=", Values: []string{"2026-01-01"}}}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := compile(contract, everything, p)
@@ -100,13 +104,13 @@ func FuzzManifestPath(f *testing.F) {
 }
 
 func TestNewRefuses(t *testing.T) {
-	if _, err := New(blobstore.Dir{}, "relative", nil); err == nil {
+	if _, err := New(blobstore.Dir{}, "relative", nil, Limits{}); err == nil {
 		t.Error("relative cache: got nil error, want one")
 	}
 	saved := contractV1
 	t.Cleanup(func() { contractV1 = saved })
 	contractV1 = func() (map[string]*datasets.Dataset, error) { return nil, errors.New("broken") }
-	if _, err := New(blobstore.Dir{}, t.TempDir(), nil); err == nil {
+	if _, err := New(blobstore.Dir{}, t.TempDir(), nil, Limits{}); err == nil {
 		t.Error("broken contract: got nil error, want one")
 	}
 }
@@ -126,7 +130,7 @@ func (g getFails) Get(ctx context.Context, key string) ([]byte, string, error) {
 
 func TestManifestAndFileFailures(t *testing.T) {
 	e := setup(t)
-	p := Plan{Dataset: "gl_lines", Aggregate: "sum"}
+	p := Plan{Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum"}
 	put := func(t *testing.T, b []byte) string {
 		t.Helper()
 		key := extract.ManifestKey(e.a, 9, strings.Repeat("e", 16))
@@ -189,7 +193,7 @@ func TestCacheFailures(t *testing.T) {
 
 func TestDuckFailures(t *testing.T) {
 	e := setup(t)
-	p := Plan{Dataset: "gl_lines", Aggregate: "sum"}
+	p := Plan{Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum"}
 	t.Run("connect", func(t *testing.T) {
 		saved := connect
 		t.Cleanup(func() { connect = saved })
@@ -217,6 +221,17 @@ func TestDuckFailures(t *testing.T) {
 		req.ManifestKey = e.publish(e.a, m)
 		_, err := e.r.Query(context.Background(), req)
 		refusedErr(t, err)
+	})
+	t.Run("data through", func(t *testing.T) {
+		saved := connect
+		t.Cleanup(func() { connect = saved })
+		connect = func() (driver.Connector, error) {
+			c, err := saved()
+			return throughFails{c}, err
+		}
+		if _, err := e.r.Query(context.Background(), e.request(e.a, p)); err == nil || !strings.Contains(err.Error(), "data through") {
+			t.Errorf("query: got %v, want the data through query's error", err)
+		}
 	})
 	t.Run("cancelled", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -301,6 +316,27 @@ func (c countingConnector) Connect(ctx context.Context) (driver.Conn, error) {
 	return countedConn{conn.(duckConn), c.closed}, nil
 }
 
+// throughFails is a connector whose connections fail the data-through
+// query.
+type throughFails struct{ driver.Connector }
+
+func (c throughFails) Connect(ctx context.Context) (driver.Conn, error) {
+	conn, err := c.Connector.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return throughConn{conn.(duckConn)}, nil
+}
+
+type throughConn struct{ duckConn }
+
+func (c throughConn) QueryContext(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error) {
+	if strings.Contains(q, "MAX(") {
+		return nil, errors.New("lost")
+	}
+	return c.duckConn.QueryContext(ctx, q, args)
+}
+
 // countConnections counts the connections queries open and close.
 func countConnections(t *testing.T) (opened, closed *atomic.Int32) {
 	t.Helper()
@@ -357,7 +393,7 @@ func TestHandler(t *testing.T) {
 		h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, QueryPath, strings.NewReader(body)))
 		return w
 	}
-	ok := `{"tenant_id":"` + e.a.String() + `","manifest_key":"` + e.keys[e.a] + `","scope":{"all_companies":true,"datasets":["gl_lines"]},"plan":{"dataset":"gl_lines","aggregate":"sum","by":["company"]}}`
+	ok := `{"tenant_id":"` + e.a.String() + `","manifest_key":"` + e.keys[e.a] + `","scope":{"all_companies":true,"datasets":["gl_lines"]},"plan":{"dataset":"gl_lines","aggregate":"sum","by":["company"],"ledger":"` + nilLedger + `"}}`
 	for name, tc := range map[string]struct {
 		body string
 		code int
@@ -375,5 +411,37 @@ func TestHandler(t *testing.T) {
 				t.Errorf("response: got %d %s, want %d with %q", w.Code, b, tc.code, tc.want)
 			}
 		})
+	}
+	t.Run("busy", func(t *testing.T) {
+		for range cap(e.r.slots) {
+			e.r.slots <- struct{}{} // every slot held, as by queries running
+		}
+		w := post(ok)
+		for range cap(e.r.slots) {
+			<-e.r.slots
+		}
+		b, _ := io.ReadAll(w.Body)
+		if w.Code != http.StatusServiceUnavailable || w.Header().Get("Retry-After") != "1" || !strings.Contains(string(b), "analytics.busy") {
+			t.Errorf("response: got %d %s (Retry-After %q), want 503 analytics.busy, Retry-After 1", w.Code, b, w.Header().Get("Retry-After"))
+		}
+	})
+}
+
+func TestLimits(t *testing.T) {
+	for name, l := range map[string]Limits{
+		"threads": {Threads: -1}, "queries": {MaxQueries: -2}, "memory": {MemoryLimit: "1GB'; SET x = 1"}, "unit": {MemoryLimit: "12 parsecs"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := New(blobstore.Dir{}, t.TempDir(), nil, l); err == nil {
+				t.Errorf("limits %+v: got no error, want one", l)
+			}
+		})
+	}
+	r, err := New(blobstore.Dir{}, t.TempDir(), nil, Limits{Threads: 1, MemoryLimit: "256MiB", MaxQueries: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.limits.Threads != 1 || r.limits.MemoryLimit != "256MiB" || cap(r.slots) != 2 {
+		t.Errorf("limits: got %+v (%d slots), %v, want 1 thread, 256MiB, 2 slots", r.limits, cap(r.slots), err)
 	}
 }

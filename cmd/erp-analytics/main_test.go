@@ -59,6 +59,9 @@ func TestConfigurationRefused(t *testing.T) {
 		"bad tls":      func(e map[string]string) { e["ERP_TLS_CERT"] = "file:/nonexistent" },
 		"no store":     func(e map[string]string) { delete(e, "ERP_OBJECT_DIR") },
 		"two stores":   func(e map[string]string) { e["ERP_OBJECT_S3_ENDPOINT"] = "https://s3.example" },
+		"threads":      func(e map[string]string) { e["ERP_ANALYTICS_THREADS"] = "many" },
+		"queries":      func(e map[string]string) { e["ERP_ANALYTICS_MAX_QUERIES"] = "0" },
+		"memory":       func(e map[string]string) { e["ERP_ANALYTICS_MEMORY_LIMIT"] = "all of it" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
@@ -83,6 +86,16 @@ func TestDefaultsAndS3(t *testing.T) {
 	}
 	if s3, ok := s.store.(blobstore.S3); !ok || s3.Region != "us-east-1" || s.addr != ":8443" || !filepath.IsAbs(s.cache) {
 		t.Errorf("settings: got %+v, want S3 in us-east-1 on :8443 with an absolute cache", s)
+	}
+	if want := (reader.Limits{Threads: 2, MemoryLimit: "1GB", MaxQueries: 4}); s.limits != want {
+		t.Errorf("limits: got %+v, want %+v", s.limits, want)
+	}
+	f.env["ERP_ANALYTICS_THREADS"], f.env["ERP_ANALYTICS_MAX_QUERIES"], f.env["ERP_ANALYTICS_MEMORY_LIMIT"] = "1", "8", "512MB"
+	if s, err = load(context.Background(), f.getenv); err != nil {
+		t.Fatal(err)
+	}
+	if want := (reader.Limits{Threads: 1, MemoryLimit: "512MB", MaxQueries: 8}); s.limits != want {
+		t.Errorf("limits: got %+v, want %+v", s.limits, want)
 	}
 }
 
@@ -134,7 +147,7 @@ func TestServesERPServerAlone(t *testing.T) {
 	}
 	tenant := uuid.New()
 	body := `{"tenant_id":"` + tenant.String() + `","manifest_key":"` + extract.ManifestKey(uuid.New(), 1, "") +
-		`","scope":{"all_companies":true,"datasets":["gl_lines"]},"plan":{"dataset":"gl_lines","aggregate":"sum"}}`
+		`","scope":{"all_companies":true,"datasets":["gl_lines"]},"plan":{"dataset":"gl_lines","aggregate":"sum","ledger":"` + uuid.NewString() + `"}}`
 	for name, tc := range map[string]struct {
 		cert tls.Certificate
 		code int
