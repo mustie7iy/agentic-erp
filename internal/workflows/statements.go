@@ -1,10 +1,12 @@
 package workflows
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 	"time"
 
@@ -66,8 +68,8 @@ func FetchBankStatements(ctx workflow.Context, in FetchInput) error {
 			failed = append(failed, name)
 			continue
 		}
-		if f.Status != payments.FetchImported && f.Status != payments.FetchArchived {
-			continue // refused, or another bank's: left in the directory
+		if f.Status == payments.FetchRefused || f.Status == payments.FetchSkipped {
+			continue // left in the directory: for a person, or for the bank whose it is
 		}
 		if err := workflow.ExecuteActivity(ctx, a.ArchiveStatementFile, FileInput{FetchInput: in, Name: name, SHA256: f.SHA256}).Get(ctx, nil); err != nil {
 			failed = append(failed, name)
@@ -152,9 +154,6 @@ func (s *Statements) ImportStatementFile(ctx context.Context, in FileInput) (pay
 	if err == nil || !errors.As(err, &why) || why.Status >= 500 {
 		return f, err
 	}
-	if why.Code == "payments.statement_not_of_bank" {
-		return payments.Fetched{Status: payments.FetchSkipped}, nil
-	}
 	sum := sha256.Sum256(file)
 	f = payments.Fetched{SHA256: sum[:], Status: payments.FetchRefused}
 	return f, s.as(ctx, in.FetchInput, func(ctx context.Context) error {
@@ -162,14 +161,27 @@ func (s *Statements) ImportStatementFile(ctx context.Context, in FileInput) (pay
 	})
 }
 
-// ArchiveStatementFile moves the imported file to the archive directory,
-// then records it archived. A move whose acknowledgement was lost finds
-// the file moved, and a record already made is left as it is, so running
-// it again does nothing twice.
+// ArchiveStatementFile reads the imported file again and, when it still
+// holds the content imported, moves it to the archive directory, then
+// records it archived. A file whose content changed since its import is
+// not moved: the change is recorded, and the next fetch imports the new
+// content as a new file (coordinator 2026-10-20). A move whose
+// acknowledgement was lost finds the file gone and its target there, and a
+// record already made is left as it is, so running it again does nothing
+// twice.
 func (s *Statements) ArchiveStatementFile(ctx context.Context, in FileInput) error {
 	ep, err := s.channel(ctx, in.FetchInput)
 	if err != nil {
 		return err
+	}
+	file, err := ep.Read(ctx, ep.Inbound, in.Name, payments.MaxStatementFile)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) { // gone: moved before, which Move tells
+		return fmt.Errorf("workflows: read statement file %s of house bank %s again: %w", in.Name, in.HouseBankID, err)
+	}
+	if now := sha256.Sum256(file); err == nil && !bytes.Equal(now[:], in.SHA256) {
+		return s.as(ctx, in.FetchInput, func(ctx context.Context) error {
+			return payments.ChangedFetched(ctx, in.HouseBankID, in.SHA256, now[:])
+		})
 	}
 	from, to := payments.StatementPaths(ep, in.Name, in.SHA256)
 	if err := ep.Move(ctx, from, to); err != nil {

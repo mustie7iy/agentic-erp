@@ -3207,7 +3207,7 @@ func TestBankStatementSchema(t *testing.T) {
 
 // TestStatementFetchSchema: a fetched file is recorded once per house bank
 // and content, with its name, in a known status, and a reason exactly when
-// refused (T49d, ADR-0047).
+// refused or changed after its import (T49d, ADR-0047).
 func TestStatementFetchSchema(t *testing.T) {
 	need(t)
 	f := newFixture(t)
@@ -3235,9 +3235,11 @@ func TestStatementFetchSchema(t *testing.T) {
 		{"another status", fetch(hb, strings.Repeat("cd", 32), "b.sta", "posted", nil), "statement_fetch_status_check"},
 		{"refused without a reason", fetch(hb, strings.Repeat("cd", 32), "b.sta", "refused", nil), "statement_fetch_reason"},
 		{"a reason without a refusal", fetch(hb, strings.Repeat("cd", 32), "b.sta", "archived", "x"), "statement_fetch_reason"},
+		{"changed without a reason", fetch(hb, strings.Repeat("cd", 32), "b.sta", "changed_after_import", nil), "statement_fetch_reason"},
 		{"no such house bank", fetch(id(), strings.Repeat("cd", 32), "b.sta", "imported", nil), "statement_fetch_tenant_id_house_bank_id_fkey"},
 	} {
 		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, c.write), c.fails) })
 	}
 	mustApp(t, f.tenant, fetch(hb, strings.Repeat("cd", 32), "b.sta", "refused", "unreadable"))
+	mustApp(t, f.tenant, fetch(hb, strings.Repeat("ef", 32), "c.sta", "changed_after_import", "now "+strings.Repeat("12", 32)))
 }

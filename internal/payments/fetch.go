@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -32,7 +34,8 @@ const (
 	FetchImported = "imported"
 	FetchArchived = "archived"
 	FetchRefused  = "refused"
-	FetchSkipped  = "skipped" // a statement of another house bank's account, left for that bank
+	FetchChanged  = "changed_after_import" // the file on the server no longer holds the content imported
+	FetchSkipped  = "skipped"              // a statement of another house bank's account, left for that bank
 )
 
 // FetcherActor is the principal of statement fetches, in every tenant.
@@ -132,7 +135,7 @@ func (e *Endpoints) ImportFetched(ctx context.Context, houseBank uuid.UUID, name
 		return Fetched{}, err
 	}
 	if _, _, _, err := e.importFile(ctx, tx, p, bank, statementFormat(file), file); err != nil {
-		return Fetched{}, err
+		return e.notOfBank(ctx, tx, p.TenantID, houseBank, file, err)
 	}
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO payments.statement_fetch (tenant_id, id, house_bank_id, file_sha256, file_name, status, created_by, updated_by)
@@ -140,6 +143,49 @@ func (e *Endpoints) ImportFetched(ctx context.Context, houseBank uuid.UUID, name
 		return Fetched{}, fmt.Errorf("payments: record the fetch of %s for house bank %s: %w", name, houseBank, err)
 	}
 	return f, record(ctx, "payments.statement_fetch.import", id, map[string]any{"house_bank_id": houseBank, "file_name": name, "file_sha256": sha256Hex(f.SHA256)})
+}
+
+// notOfBank tells a file of another house bank on the same channel (a
+// directory several banks share), skipped and left for that bank, from a
+// file of no house bank of the channel, which is refused as every file the
+// import refuses is: left unrecorded, it would sit in the directory unseen
+// (coordinator 2026-10-20). Any other refusal is returned as it is.
+func (e *Endpoints) notOfBank(ctx context.Context, tx pgx.Tx, tenant, houseBank uuid.UUID, file []byte, refusal error) (Fetched, error) {
+	if problem.From(refusal).Code != "payments.statement_not_of_bank" {
+		return Fetched{}, refusal
+	}
+	exps, err := currency.Load(ctx, tx)
+	if err != nil {
+		return Fetched{}, fmt.Errorf("payments: the banks of a fetched file: %w", err)
+	}
+	// The import read the file without error before it refused its
+	// account, so reading it again cannot fail.
+	parsed, _ := statementFormats[statementFormat(file)](file, exps)
+	rows, _ := tx.Query(ctx, `SELECT o.currency, o.iban_cipher FROM payments.house_bank b JOIN payments.house_bank o
+		ON o.tenant_id = b.tenant_id AND o.connector_id = b.connector_id AND o.id <> b.id AND o.status = 'active' WHERE b.id = $1`, houseBank)
+	others, err := pgx.CollectRows(rows, pgx.RowToStructByPos[sealedAccount])
+	if err != nil {
+		return Fetched{}, fmt.Errorf("payments: the house banks sharing the channel of house bank %s: %w", houseBank, err)
+	}
+	for _, o := range others {
+		iban, err := e.Keys.Open(ctx, tenant, o.IBAN)
+		if err != nil {
+			return Fetched{}, fmt.Errorf("payments: open the IBAN of a house bank sharing the channel of house bank %s: %w", houseBank, err)
+		}
+		for _, s := range parsed {
+			if fieldcrypt.Normalize(s.Account.Identifier()) == fieldcrypt.Normalize(iban) && s.Currency == o.Currency {
+				return Fetched{Status: FetchSkipped}, nil
+			}
+		}
+	}
+	return Fetched{}, problem.Unprocessable("payments.statement_of_no_bank", problem.From(refusal).Detail+" No house bank on this channel has that account.",
+		problem.FieldError{Field: "file", Code: "no_bank", Message: "a statement of a house bank on this channel"})
+}
+
+// sealedAccount is a house bank's currency and sealed IBAN.
+type sealedAccount struct {
+	Currency string
+	IBAN     []byte
 }
 
 // statementFormat tells the file's format by its content: camt.053 is XML,
@@ -198,4 +244,33 @@ func ArchivedFetched(ctx context.Context, houseBank uuid.UUID, sum []byte) error
 		return fmt.Errorf("payments: record the archiving of file %x for house bank %s: %w", sum, houseBank, err)
 	}
 	return record(ctx, "payments.statement_fetch.archive", id, map[string]any{"house_bank_id": houseBank, "file_name": name})
+}
+
+// ChangedFetched records that the imported file, read again before its
+// move to the archive, holds other content now (now is its hash): the file
+// is not archived, the change is recorded once with
+// BankStatementFileChanged, and the next fetch imports the content as a
+// new file. A file archived or recorded changed before is left as it is.
+func ChangedFetched(ctx context.Context, houseBank uuid.UUID, sum, now []byte) error {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return err
+	}
+	var id, legalEntity uuid.UUID
+	var name string
+	reason := "The file now holds content with SHA-256 " + sha256Hex(now) + "."
+	err = tx.QueryRow(ctx, `UPDATE payments.statement_fetch f SET status = 'changed_after_import', reason = $3, version = f.version + 1, updated_by = $4
+		FROM payments.house_bank b WHERE b.tenant_id = f.tenant_id AND b.id = f.house_bank_id
+			AND f.house_bank_id = $1 AND f.file_sha256 = $2 AND f.status = 'imported'
+		RETURNING f.id, f.file_name, b.legal_entity_id`, houseBank, sum, reason, p.ID).Scan(&id, &name, &legalEntity)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil // archived, or recorded changed, before
+	}
+	if err != nil {
+		return fmt.Errorf("payments: record the change of file %x for house bank %s: %w", sum, houseBank, err)
+	}
+	return record(ctx, "payments.statement_fetch.change", id, map[string]any{"house_bank_id": houseBank, "file_name": name, "reason": reason},
+		outbox.Event{Context: "payments", Name: "bank_statement_file_changed", AggregateType: "payments.statement_fetch", AggregateID: id,
+			Payload: map[string]any{"statement_fetch_id": id, "house_bank_id": houseBank, "legal_entity_id": legalEntity, "file_name": name,
+				"file_sha256": sha256Hex(sum), "current_sha256": sha256Hex(now)}})
 }

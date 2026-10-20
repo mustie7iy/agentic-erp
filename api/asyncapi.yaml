@@ -270,6 +270,7 @@ channels:
       BankStatementGapClosed: {$ref: '#/components/messages/BankStatementGapClosed'}
       BankStatementGapFound: {$ref: '#/components/messages/BankStatementGapFound'}
       BankStatementFileRefused: {$ref: '#/components/messages/BankStatementFileRefused'}
+      BankStatementFileChanged: {$ref: '#/components/messages/BankStatementFileChanged'}
   workflow:
     address: 'erp.{cell}.workflow.{tenant}.{event}'
     title: Workflow events
@@ -445,6 +446,7 @@ operations:
       - $ref: '#/channels/payments/messages/BankStatementGapClosed'
       - $ref: '#/channels/payments/messages/BankStatementGapFound'
       - $ref: '#/channels/payments/messages/BankStatementFileRefused'
+      - $ref: '#/channels/payments/messages/BankStatementFileChanged'
   publishWorkflowEvents:
     action: send
     title: Workflow publishes
@@ -1314,7 +1316,7 @@ components:
       name: BankStatementFileRefused
       title: Bank statement file refused
       summary: A statement file fetched from the bank's channel was not imported.
-      description: "Emitted once per house bank and file content when a statement file fetched from the house bank's SFTP channel (T49d) is refused by the import (unreadable, too large, a statement already imported from another file): the file is left in the bank's statements directory for a person to take up with the bank, and later fetches skip it. A file of another house bank's account sharing the directory is left for that bank and not refused. Subject is the fetch record (payments.statement_fetch)."
+      description: "Emitted once per house bank and file content when a statement file fetched from the house bank's SFTP channel (T49d) is refused by the import (unreadable, too large, a statement already imported from another file, a statement of an account no house bank on the channel has: payments.statement_of_no_bank): the file is left in the bank's statements directory for a person to take up with the bank, and later fetches skip it. A file of the account of another house bank on the same channel is left for that bank and not refused. Subject is the fetch record (payments.statement_fetch)."
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -1326,6 +1328,22 @@ components:
         - name: unreadable
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f5, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_file_refused.v1, subject: 0192a000-0000-7000-8000-000000000b30, time: '2026-10-20T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
           payload: {statement_fetch_id: 0192a000-0000-7000-8000-000000000b30, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, file_name: STMT20261020.sta, file_sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9, code: payments.statement_unreadable, reason: "line 4: the opening balance is not an amount"}
+    BankStatementFileChanged:
+      name: BankStatementFileChanged
+      title: Bank statement file changed after its import
+      summary: A statement file imported from the bank's channel holds other content now.
+      description: "Emitted once per house bank and file content when a statement file fetched from the house bank's SFTP channel (T49d), read again before its move to the archive directory, no longer holds the content imported: the file is not archived, the fetch record moves to `changed_after_import`, and the next fetch imports the new content as a new file. The statement imported from the earlier content stays. Subject is the fetch record (payments.statement_fetch)."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_statement_file_changed.v1}
+      payload: {$ref: '#/components/schemas/BankStatementFileChangedV1'}
+      examples:
+        - name: changed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f6, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_file_changed.v1, subject: 0192a000-0000-7000-8000-000000000b31, time: '2026-10-20T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
+          payload: {statement_fetch_id: 0192a000-0000-7000-8000-000000000b31, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, file_name: STMT20261020.sta, file_sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9, current_sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}
     BankFileTransmitted:
       name: BankFileTransmitted
       title: Bank file transmitted
@@ -3675,6 +3693,16 @@ components:
         file_sha256: {"$ref": "#/components/schemas/Sha256Hex"}
         code: {"type": "string", "description": "The import's problem code, such as payments.statement_unreadable or payments.statement_conflict."}
         reason: {"type": "string", "description": "What the import said, with the line of the file where reading failed."}
+    BankStatementFileChangedV1:
+      type: object
+      required: ["statement_fetch_id", "house_bank_id", "legal_entity_id", "file_name", "file_sha256", "current_sha256"]
+      properties:
+        statement_fetch_id: {"$ref": "#/components/schemas/Uuid"}
+        house_bank_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        file_name: {"type": "string", "description": "The file's name in the bank's statements directory."}
+        file_sha256: {"$ref": "#/components/schemas/Sha256Hex", "description": "The content imported."}
+        current_sha256: {"$ref": "#/components/schemas/Sha256Hex", "description": "The content the file holds now, imported by the next fetch."}
     BankFileCreatedV1:
       type: object
       required: ["bank_file_id", "payment_run_id", "format", "sha256", "status"]

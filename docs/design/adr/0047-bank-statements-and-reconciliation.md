@@ -156,7 +156,9 @@ Canadian bank may only offer BAI2.
   `ERP_OBJECT_RETENTION` (default 10 years) like the audit anchors and
   exports (ADR-0021). Offboarding's erasure deletes the tenant's prefix and
   keeps what is locked until its retention ends, as for the other financial
-  records that outlive the tenant; a re-onboarded tenant's statements
+  records that outlive the tenant: a statement file outliving the tenant's
+  erasure until then is accepted as the retention of financial records
+  requires (coordinator 2026-10-20); a re-onboarded tenant's statements
   (ADR-0029) name the same keys. The file is written once it is known to be
   imported (every statement of the bank's account and currency, every key
   new) and before the statements are inserted, so a refused file leaves no
@@ -168,7 +170,7 @@ Canadian bank may only offer BAI2.
   agent's import is refused with 403 `identity.agent_not_allowed` by the
   handler: `x-agent: false` would refuse integrations' service principals
   too.
-- SFTP fetch (T49d, 000107): a `bank_sftp` connector names the
+- SFTP fetch (T49d, 000107, 000108): a `bank_sftp` connector names the
   directory the bank leaves statements in and the one they are moved to
   (`statements_directory`, `statements_archive`: both or neither,
   absolute, not the same). The workflow dispatcher starts, once per
@@ -180,8 +182,13 @@ Canadian bank may only offer BAI2.
   directory (hidden files are files still being written), and per file
   reads it (at most 4 MB), imports it through the upload's path as the
   fetcher (a system principal acting for the bank's company; the format
-  told by the content: XML is camt.053), and once the import committed moves
-  it to the archive under its name prefixed with its hash. What became of
+  told by the content: XML is camt.053), and once the import committed reads
+  it again and moves it to the archive under its name prefixed with its
+  hash. A file that holds other content when read again (the bank rewrote
+  it) is not moved: its record becomes `changed_after_import`, with the new
+  content's hash as the reason, `BankStatementFileChanged` is published,
+  and the next fetch imports the new content as a new file (coordinator
+  2026-10-20); a rewrite between that read and the move is not seen. What became of
   each file is recorded once per house bank and content
   (`payments.statement_fetch`: `imported`, `archived`, `refused` with the
   import's reason), so a file imported and not yet moved when a fetch was
@@ -190,8 +197,12 @@ Canadian bank may only offer BAI2.
   delivered again is removed once its archived copy is there. A file the
   import refuses (unreadable, too large, a statement of another file) is
   recorded once with `BankStatementFileRefused` and left in the directory
-  for a person to take up with the bank; a statement of another house
-  bank's account (a directory several banks share) is left for that bank.
+  for a person to take up with the bank; a statement of the account of
+  another active house bank on the same channel (a directory several banks
+  share) is left for that bank, and one of an account no house bank on the
+  channel has is refused as the others are
+  (`payments.statement_of_no_bank`; coordinator 2026-10-20), never skipped
+  unseen.
   Each activity is retried (5 attempts); a file's failure does not stop the
   others, and the workflow then fails naming the files the next fetch
   takes again. The channel resolves as for a transmission and fails

@@ -112,23 +112,42 @@ func archived(name, content string) string {
 	return fmt.Sprintf("/archive/%x-%s", sum[:8], name)
 }
 
+// otherBank adds an active house bank of company 2000 with the account,
+// in EUR, on the scenario's channel; sealed, when given, stands for its
+// sealed IBAN.
+func (s *fetchScenario) otherBank(t *testing.T, iban string, sealed ...[]byte) uuid.UUID {
+	t.Helper()
+	cipher := apitest.Seal(t, s.e.Tenant.ID, iban)
+	if len(sealed) > 0 {
+		cipher = sealed[0]
+	}
+	bank := uuid.Must(uuid.NewV7())
+	pgtest.Exec(t, `INSERT INTO payments.house_bank (tenant_id, id, legal_entity_id, code, name, iban_cipher, iban_last4, bic, currency, gl_account_id,
+		active_gl_account_id, status, connector_id, created_by, updated_by) VALUES ($1, $2, $3, 'DB', 'DB', $4, $5, 'DEUTDEFFXXX', 'EUR', $6, $6, 'active', $7, $8, $8)`,
+		s.e.Tenant.ID, bank, s.e.DE, cipher, iban[len(iban)-4:], s.e.Account(t, "2000", "101000"), s.conn, s.e.Tenant.Human.ID)
+	return bank
+}
+
 func (s *fetchScenario) count(t *testing.T, name string) int {
 	t.Helper()
 	return len(apitest.Published(t, s.e.Tenant, outbox.Event{Context: "payments", Name: name}))
 }
 
 // TestFetchStatements: the house bank's statements are fetched from its
-// channel, imported through the upload's path and archived; a file refused
-// is recorded once and left, another bank's file is left, and a second run
-// imports and publishes nothing again (ADR-0047, T49d).
+// channel, imported through the upload's path and archived; a file refused,
+// or of no house bank on the channel, is recorded once and left, a file of
+// another bank on the channel is left for it, and a second run imports and
+// publishes nothing again (ADR-0047, T49d).
 func TestFetchStatements(t *testing.T) {
 	s := fetchSetup(t)
 	files := map[string]string{
-		"a.sta":     statement("A1", "1", "100,00", "261001"),
-		"b.sta":     statement("A2", "2", "100,00", "261002"),
-		"bad.sta":   strings.Replace(statement("A3", "3", "100,00", "261003"), ":62F:C261003EUR100,00", ":62F:C261003EUR1,00", 1),
-		"other.sta": strings.Replace(statement("A4", "4", "100,00", "261004"), "DE89370400440532013000", "GB33BUKB20201555555555", 1),
+		"a.sta":      statement("A1", "1", "100,00", "261001"),
+		"b.sta":      statement("A2", "2", "100,00", "261002"),
+		"bad.sta":    strings.Replace(statement("A3", "3", "100,00", "261003"), ":62F:C261003EUR100,00", ":62F:C261003EUR1,00", 1),
+		"other.sta":  strings.Replace(statement("A4", "4", "100,00", "261004"), "DE89370400440532013000", "GB33BUKB20201555555555", 1),
+		"shared.sta": strings.Replace(statement("A7", "7", "100,00", "261004"), "DE89370400440532013000", "DE72500700100175526300", 1),
 	}
+	s.otherBank(t, "DE72500700100175526300")
 	for name, content := range files {
 		s.server.Put(t, "/in/"+name, content)
 	}
@@ -140,7 +159,8 @@ func TestFetchStatements(t *testing.T) {
 		for name, want := range map[string]struct {
 			status        string
 			left, archive bool
-		}{"a.sta": {"archived", false, true}, "b.sta": {"archived", false, true}, "bad.sta": {"refused", true, false}, "other.sta": {"", true, false}} {
+		}{"a.sta": {"archived", false, true}, "b.sta": {"archived", false, true}, "bad.sta": {"refused", true, false}, "other.sta": {"refused", true, false},
+			"shared.sta": {"", true, false}} {
 			if got := s.fetchState(t, files[name]); got != want.status {
 				t.Errorf("%s: got status %q, want %q", name, got, want.status)
 			}
@@ -151,7 +171,7 @@ func TestFetchStatements(t *testing.T) {
 				t.Errorf("%s: got archived %v %q, want %v", name, ok, got, want.archive)
 			}
 		}
-		for event, want := range map[string]int{"bank_statement_imported": 2, "bank_statement_file_refused": 1} {
+		for event, want := range map[string]int{"bank_statement_imported": 2, "bank_statement_file_refused": 2} {
 			if got := s.count(t, event); got != want {
 				t.Errorf("%s events: got %d, want %d", event, got, want)
 			}
@@ -212,6 +232,61 @@ func TestFetchArchiveFails(t *testing.T) {
 	if got := s.count(t, "bank_statement_imported"); got != 1 {
 		t.Errorf("imported events: got %d, want 1", got)
 	}
+}
+
+// TestFetchChangedAfterImport: a file whose content changed on the server
+// after its import is not archived; the change is recorded once with
+// BankStatementFileChanged, and the next fetch imports the new content as a
+// new file and archives it (coordinator 2026-10-20).
+func TestFetchChangedAfterImport(t *testing.T) {
+	s := fetchSetup(t)
+	before, after := statement("C1", "1", "3,00", "261001"), statement("C2", "2", "3,00", "261002")
+	s.server.Put(t, "/in/c.sta", before)
+	in, ctx := workflows.FileInput{FetchInput: s.in, Name: "c.sta"}, context.Background()
+	f, err := s.a.ImportStatementFile(ctx, in)
+	if err != nil || f.Status != payments.FetchImported {
+		t.Fatalf("import: got %v %v, want imported", f, err)
+	}
+	s.server.Put(t, "/in/c.sta", after)
+	in.SHA256 = f.SHA256
+	for i := range 2 {
+		if err := s.a.ArchiveStatementFile(ctx, in); err != nil {
+			t.Fatalf("archive %d: %v", i+1, err)
+		}
+	}
+	if got := s.fetchState(t, before); got != payments.FetchChanged {
+		t.Errorf("the content imported: got %q, want %s", got, payments.FetchChanged)
+	}
+	if got, ok := s.server.Read(t, "/in/c.sta"); !ok || got != after {
+		t.Errorf("the file: got %v %q, want the new content left", ok, got)
+	}
+	if _, ok := s.server.Read(t, archived("c.sta", before)); ok {
+		t.Error("the file was archived under the content imported")
+	}
+	if got := s.count(t, "bank_statement_file_changed"); got != 1 {
+		t.Errorf("changed events: got %d, want 1", got)
+	}
+	if err := s.run(t, nil); err != nil {
+		t.Fatalf("next fetch: %v", err)
+	}
+	if got := s.fetchState(t, after); got != payments.FetchArchived {
+		t.Errorf("the new content: got %q, want archived", got)
+	}
+	if got := s.count(t, "bank_statement_imported"); got != 2 {
+		t.Errorf("imported events: got %d, want 2", got)
+	}
+	t.Run("the content imported delivered again", func(t *testing.T) {
+		s.server.Put(t, "/in/c.sta", before)
+		if err := s.run(t, nil); err != nil {
+			t.Fatalf("fetch: %v", err)
+		}
+		if got, ok := s.server.Read(t, archived("c.sta", before)); !ok || got != before {
+			t.Errorf("archived: got %v %q, want the content imported", ok, got)
+		}
+		if got := s.count(t, "bank_statement_imported"); got != 2 {
+			t.Errorf("imported events: got %d, want 2", got)
+		}
+	})
 }
 
 // TestFetchActivitiesRunTwice: each activity run again does nothing twice:
@@ -313,8 +388,14 @@ func TestFetchFailures(t *testing.T) {
 		}, "read statement file none.sta"},
 		"rename refused": {func() { s.server.FailRename = true; s.server.Put(t, "/in/f.sta", "f") },
 			func() error {
-				return s.a.ArchiveStatementFile(ctx, workflows.FileInput{FetchInput: s.in, Name: "f.sta", SHA256: make([]byte, 32)})
+				sum := sha256.Sum256([]byte("f"))
+				return s.a.ArchiveStatementFile(ctx, workflows.FileInput{FetchInput: s.in, Name: "f.sta", SHA256: sum[:]})
 			}, "archive statement file f.sta"},
+		"reading again refused": {func() { s.server.FailRead = true; s.server.Put(t, "/in/f.sta", "f") },
+			func() error {
+				return s.a.ArchiveStatementFile(ctx, workflows.FileInput{FetchInput: s.in, Name: "f.sta", SHA256: make([]byte, 32)})
+			},
+			"read statement file f.sta of house bank"},
 		"the database": {func() {
 			s.server.Put(t, "/in/f.sta", statement("F1", "1", "1,00", "261001"))
 			s.a.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
@@ -323,7 +404,7 @@ func TestFetchFailures(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			c.state()
 			defer func() {
-				s.server.FailList, s.server.FailRename, s.a.Begin = false, false, nil
+				s.server.FailList, s.server.FailRename, s.server.FailRead, s.a.Begin = false, false, false, nil
 				pgtest.Exec(t, `UPDATE payments.house_bank SET connector_id = $2, version = version + 1 WHERE id = $1`, s.e.bank, s.conn)
 				pgtest.Exec(t, `UPDATE integration.connector SET status = 'active', version = version + 1 WHERE id = $1`, s.conn)
 			}()
@@ -365,6 +446,16 @@ func TestFetchDatabaseFailures(t *testing.T) {
 			return ignore(err, "payments.statement_unreadable")
 		},
 		"refuse": func(ctx context.Context) error { return payments.RefuseFetched(ctx, bank, "d.sta", sum[:], refusal) },
+		"no bank's": func(ctx context.Context) error {
+			_, err := h.ImportFetched(ctx, bank, "o.sta", []byte(strings.Replace(string(file), "DE89370400440532013000", "GB33BUKB20201555555555", 1)))
+			return ignore(err, "payments.statement_of_no_bank")
+		},
+		"changed": func(ctx context.Context) error {
+			if _, err := h.ImportFetched(ctx, bank, "d.sta", file); err != nil {
+				return err
+			}
+			return payments.ChangedFetched(ctx, bank, sum[:], make([]byte, 32))
+		},
 		"archive": func(ctx context.Context) error {
 			if _, err := h.ImportFetched(ctx, bank, "d.sta", file); err != nil {
 				return err
@@ -379,9 +470,10 @@ func TestFetchDatabaseFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, fn := range map[string]func(ctx context.Context) error{
-		"import again":  func(ctx context.Context) error { _, err := h.ImportFetched(ctx, bank, "d.sta", file); return err },
-		"refuse again":  func(ctx context.Context) error { return payments.RefuseFetched(ctx, bank, "d.sta", sum[:], refusal) },
-		"archive again": func(ctx context.Context) error { return payments.ArchivedFetched(ctx, bank, sum[:]) },
+		"import again":           func(ctx context.Context) error { _, err := h.ImportFetched(ctx, bank, "d.sta", file); return err },
+		"refuse again":           func(ctx context.Context) error { return payments.RefuseFetched(ctx, bank, "d.sta", sum[:], refusal) },
+		"archive again":          func(ctx context.Context) error { return payments.ArchivedFetched(ctx, bank, sum[:]) },
+		"changed after archived": func(ctx context.Context) error { return payments.ChangedFetched(ctx, bank, sum[:], make([]byte, 32)) },
 	} {
 		apitest.EveryFailure(t, s.e.Tenant, s.e.Tenant.Human, name, fn)
 	}
@@ -390,9 +482,18 @@ func TestFetchDatabaseFailures(t *testing.T) {
 		"import":  func() error { _, err := h.ImportFetched(ctx, bank, "d.sta", file); return err }(),
 		"refuse":  payments.RefuseFetched(ctx, bank, "d.sta", sum[:], refusal),
 		"archive": payments.ArchivedFetched(ctx, bank, sum[:]),
+		"changed": payments.ChangedFetched(ctx, bank, sum[:], make([]byte, 32)),
 	} {
 		t.Run(name, func(t *testing.T) { pgtest.WantErr(t, err, "") })
 	}
+	t.Run("a sharing bank's IBAN that does not open", func(t *testing.T) {
+		s.otherBank(t, "DE72500700100175526300", []byte{0})
+		err := apitest.InRequest(t, s.e.Tenant, s.e.Tenant.Human, func(ctx context.Context) error {
+			_, err := h.ImportFetched(ctx, bank, "o.sta", []byte(strings.Replace(string(file), "DE89370400440532013000", "GB33BUKB20201555555555", 1)))
+			return err
+		})
+		pgtest.WantErr(t, err, "open the IBAN of a house bank sharing the channel")
+	})
 }
 
 // ignore is err unless it is the problem with that code.

@@ -871,7 +871,7 @@
        {
         "s": "D",
         "t": "SFTP fetch per house bank once per period (dispatcher-started workflow), each file imported through the upload's path and archived after import; fetched files recorded once (imported, archived, refused), refusals reported once, per-file failures do not stop the others",
-        "r": "db/migrations/000107 · payments.statement_fetch · bank_sftp statements_directory/statements_archive · FetchBankStatements · ERP_STATEMENT_FETCH_INTERVAL · BankStatementFileRefused · erp_bank_statement_files_refused/unarchived · T49d",
+        "r": "db/migrations/000107-000108 · payments.statement_fetch · bank_sftp statements_directory/statements_archive · FetchBankStatements · ERP_STATEMENT_FETCH_INTERVAL · BankStatementFileRefused (also a file of no house bank on the channel: payments.statement_of_no_bank) · BankStatementFileChanged (changed_after_import, read again before the move) · erp_bank_statement_files_refused/unarchived · T49d",
         "c": []
        },
        {

@@ -1359,12 +1359,14 @@ accounting evidence: it is kept in the object store under the tenant and
 its hash (`file_ref`, `tenants/<id>/bank-statements/<sha256>`), written
 once, encrypted by the store and locked for the retention of financial
 records.
-Statement files fetched from a house bank's SFTP channel (T49d, 000107)
-are recorded once per house bank and content (`payments.statement_fetch`,
-`statement_fetch_file_once`): `imported`, then `archived` once moved to the
-archive directory, or `refused` with the import's reason
-(`statement_fetch_reason`), so a fetch cut short never imports a file twice
-and a refused file is reported once.
+Statement files fetched from a house bank's SFTP channel (T49d, 000107,
+000108) are recorded once per house bank and content
+(`payments.statement_fetch`, `statement_fetch_file_once`): `imported`, then
+`archived` once moved to the archive directory, `refused` with the
+import's reason, or `changed_after_import` with the content the file holds
+now when it was rewritten before its move (`statement_fetch_reason`: a
+reason exactly for these two), so a fetch cut short never imports a file
+twice and a refused or changed file is reported once.
 
 A company's payment methods (`payments.payment_method`, SAP T042Z) rank,
 per currency, the house banks that pay with them, first preferred

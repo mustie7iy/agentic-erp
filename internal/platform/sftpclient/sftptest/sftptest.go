@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"testing"
 
 	"github.com/pkg/sftp"
@@ -179,6 +180,9 @@ func (f failing) Filelist(r *sftp.Request) (sftp.ListerAt, error) {
 
 func (f failing) Fileread(r *sftp.Request) (io.ReaderAt, error) {
 	ra, err := f.get.Fileread(r)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, os.ErrNotExist // as a real server answers: the SFTP layer turns it into SSH_FX_NO_SUCH_FILE, which it does not for a wrapped error
+	}
 	if err != nil {
 		return nil, fmt.Errorf("sftptest: open %s: %w", r.Filepath, err)
 	}
