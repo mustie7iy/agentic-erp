@@ -686,6 +686,17 @@ Rules enforced in the database:
 - `period_status` (one row per legal entity, ledger, year and period) has a
   uuid `id` so the API can address a posting period; its natural key stays
   the primary key.
+- Parallel ledgers (ADR-0045, T52a): `ledger` (0L is the leading ledger,
+  `ledger_leading_is_0l`), `company_ledger` (the ledgers a legal entity
+  keeps, insert-only; exactly one leading per legal entity:
+  `company_ledger_one_leading` and the commit-time
+  `company_ledger_leading_required`), `ledger_group` and
+  `ledger_group_member` (insert-only; the representative is a member,
+  `ledger_group_representative_member`, the leading ledger when it is one,
+  `ledger_group_leading_represents`, and only the name changes,
+  `ledger_group_fixed`). All from the configuration's `ledgers`,
+  `companies[].ledgers` and `ledger_groups`; `period_status` has rows for
+  every ledger the legal entity keeps.
 
 Enforced by the ledger, not the database (T32c): `:unlock` (permission
 `ledger.period.lock`, people only) opens the `period_unlock` request with

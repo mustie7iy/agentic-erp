@@ -1164,6 +1164,28 @@ func (UnimplementedHandler) ListJournalEntries(ctx context.Context, params ListJ
 	return r, ht.ErrNotImplemented
 }
 
+// ListLedgerGroups implements listLedgerGroups operation.
+//
+// Ledger groups name the ledgers a posting goes to together; the representative ledger decides the
+// posting period (ADR-0045). Groups come from the configuration (`ledger_groups`) and change only
+// through its approval loop. Sortable by: `code`.
+//
+// GET /v1/ledger-groups
+func (UnimplementedHandler) ListLedgerGroups(ctx context.Context, params ListLedgerGroupsParams) (r ListLedgerGroupsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListLedgers implements listLedgers operation.
+//
+// The leading ledger 0L and the parallel ledgers kept under other accounting principles, with the
+// legal entities that keep each (ADR-0045). Ledgers come from the configuration (`ledgers`,
+// `companies[].ledgers`) and change only through its approval loop. Sortable by: `code`.
+//
+// GET /v1/ledgers
+func (UnimplementedHandler) ListLedgers(ctx context.Context, params ListLedgersParams) (r ListLedgersRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListLegalEntities implements listLegalEntities operation.
 //
 // Legal entities the caller has access to. Sortable by: `code`, `name`.

@@ -469,6 +469,14 @@ type ListJournalEntriesRes interface {
 	listJournalEntriesRes()
 }
 
+type ListLedgerGroupsRes interface {
+	listLedgerGroupsRes()
+}
+
+type ListLedgersRes interface {
+	listLedgersRes()
+}
+
 type ListLegalEntitiesRes interface {
 	listLegalEntitiesRes()
 }

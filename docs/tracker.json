@@ -896,10 +896,23 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Leading and non-leading ledgers",
       "r": "T52",
-      "c": []
+      "c": [
+       {
+        "s": "D",
+        "t": "Ledgers, company ledgers (exactly one leading 0L) and ledger groups with a representative from configuration, kept once activated; periods per ledger of each company; ledgers and groups read through the API",
+        "r": "db/migrations/000091 · ledgers · companies[].ledgers · ledger_groups · GET /v1/ledgers · GET /v1/ledger-groups · ADR-0045 · T52a",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Revaluation per ledger and valuation area (fx_valuation keyed by ledger)",
+        "r": "T52d",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",

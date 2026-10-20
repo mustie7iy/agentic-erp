@@ -123,6 +123,8 @@ const (
 	ListGoodsReceiptsOperation                OperationName = "ListGoodsReceipts"
 	ListGrIrBalancesOperation                 OperationName = "ListGrIrBalances"
 	ListJournalEntriesOperation               OperationName = "ListJournalEntries"
+	ListLedgerGroupsOperation                 OperationName = "ListLedgerGroups"
+	ListLedgersOperation                      OperationName = "ListLedgers"
 	ListLegalEntitiesOperation                OperationName = "ListLegalEntities"
 	ListMatchResultsOperation                 OperationName = "ListMatchResults"
 	ListMigrationRunsOperation                OperationName = "ListMigrationRuns"

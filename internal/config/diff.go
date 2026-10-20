@@ -61,6 +61,7 @@ var tierRules = []struct {
 	{rx(`^companies\[\*\]$`), TierStructural},
 	{rx(`^companies\[\*\]\.(code|currency|fiscal_year_start_month)$`), TierStructural},
 	{rx(`^companies\[\*\]\.chart_of_accounts\[\*\]\.name$`), TierCosmetic},
+	{rx(`^companies\[\*\]\.ledgers`), TierStructural},
 	{rx(`^companies\[\*\]\.chart_of_accounts`), TierStructural},
 	{rx(`^companies\[\*\]\.(name|country)$`), TierCosmetic},
 	{rx(`^companies\[\*\]\.tax_codes\[\*\]\.description$`), TierCosmetic},
@@ -68,6 +69,10 @@ var tierRules = []struct {
 	{rx(`^companies\[\*\]\.withholding_tax_codes`), TierPostingRelated},
 	{rx(`^companies\[\*\]\.(account_determination|tax_codes|auto_post_limit|manual_entry_approval_limit|house_bank)`), TierPostingRelated},
 	{rx(`^companies\[\*\]\.(invoice_tolerance|gr_over_delivery_percent)`), TierOperational},
+	{rx(`^(ledgers|ledger_groups)\[\*\]\.name$`), TierCosmetic},
+	{rx(`^ledgers`), TierStructural},
+	// A group decides which ledgers a posting naming it reaches (T52b).
+	{rx(`^ledger_groups`), TierPostingRelated},
 	{rx(`^payment_terms\[\*\]\.description$`), TierCosmetic},
 	// Discounts change what payments post (cash discount and tax).
 	{rx(`^payment_terms\[\*\]\.discounts`), TierPostingRelated},
@@ -101,7 +106,7 @@ func classify(path string) Tier {
 // identity instead of position.
 var listKeys = map[string]string{
 	"companies": "code", "chart_of_accounts": "number", "tax_codes": "code", "withholding_tax_codes": "code",
-	"payment_terms": "key",
+	"payment_terms": "key", "ledgers": "code", "ledger_groups": "code",
 	"number_ranges": "company,document_type,fiscal_year",
 }
 
@@ -229,6 +234,9 @@ func walk(path, field string, v any, out map[string]string) {
 		key := listKeys[field]
 		for i, item := range x {
 			id := fmt.Sprint(i)
+			if s, ok := item.(string); ok && key != "" { // a list of codes (a company's ledgers): each code is its own identity
+				id = s
+			}
 			if m, ok := item.(map[string]any); ok && key != "" {
 				var parts []string
 				for _, k := range strings.Split(key, ",") {

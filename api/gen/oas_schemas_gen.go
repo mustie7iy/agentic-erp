@@ -2763,6 +2763,8 @@ func (*BadRequestHeaders) listFiscalPeriodsRes()                {}
 func (*BadRequestHeaders) listGoodsReceiptsRes()                {}
 func (*BadRequestHeaders) listGrIrBalancesRes()                 {}
 func (*BadRequestHeaders) listJournalEntriesRes()               {}
+func (*BadRequestHeaders) listLedgerGroupsRes()                 {}
+func (*BadRequestHeaders) listLedgersRes()                      {}
 func (*BadRequestHeaders) listLegalEntitiesRes()                {}
 func (*BadRequestHeaders) listMatchResultsRes()                 {}
 func (*BadRequestHeaders) listMigrationRunsRes()                {}
@@ -9975,6 +9977,8 @@ func (*ForbiddenHeaders) listFiscalPeriodsRes()                {}
 func (*ForbiddenHeaders) listGoodsReceiptsRes()                {}
 func (*ForbiddenHeaders) listGrIrBalancesRes()                 {}
 func (*ForbiddenHeaders) listJournalEntriesRes()               {}
+func (*ForbiddenHeaders) listLedgerGroupsRes()                 {}
+func (*ForbiddenHeaders) listLedgersRes()                      {}
 func (*ForbiddenHeaders) listLegalEntitiesRes()                {}
 func (*ForbiddenHeaders) listMatchResultsRes()                 {}
 func (*ForbiddenHeaders) listMigrationRunsRes()                {}
@@ -13627,6 +13631,430 @@ func (s *JournalLineInput) SetQuantity(val OptQuantity) {
 func (s *JournalLineInput) SetLineText(val OptString) {
 	s.LineText = val
 }
+
+// A ledger of the tenant (SAP FINSC_LEDGER): the leading ledger 0L or a parallel ledger.
+// Ref: #/components/schemas/Ledger
+type Ledger struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Ledger code: 0L for the leading ledger, two upper-case letters or digits for the others.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// Accounting principle the ledger is kept under (IFRS, US_GAAP, HGB); fixed once activated.
+	AccountingPrinciple string `json:"accounting_principle"`
+	// Whether this is the leading ledger 0L, which every company keeps and reports default to.
+	IsLeading bool `json:"is_leading"`
+	// The legal entities that keep the ledger, of those the caller may see.
+	LegalEntityIds []uuid.UUID `json:"legal_entity_ids"`
+	// Optimistic-lock version; equals the ETag.
+	Version int32 `json:"version"`
+	// Creation time.
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that activated the configuration creating it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *Ledger) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCode returns the value of Code.
+func (s *Ledger) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *Ledger) GetName() string {
+	return s.Name
+}
+
+// GetAccountingPrinciple returns the value of AccountingPrinciple.
+func (s *Ledger) GetAccountingPrinciple() string {
+	return s.AccountingPrinciple
+}
+
+// GetIsLeading returns the value of IsLeading.
+func (s *Ledger) GetIsLeading() bool {
+	return s.IsLeading
+}
+
+// GetLegalEntityIds returns the value of LegalEntityIds.
+func (s *Ledger) GetLegalEntityIds() []uuid.UUID {
+	return s.LegalEntityIds
+}
+
+// GetVersion returns the value of Version.
+func (s *Ledger) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *Ledger) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *Ledger) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *Ledger) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCode sets the value of Code.
+func (s *Ledger) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *Ledger) SetName(val string) {
+	s.Name = val
+}
+
+// SetAccountingPrinciple sets the value of AccountingPrinciple.
+func (s *Ledger) SetAccountingPrinciple(val string) {
+	s.AccountingPrinciple = val
+}
+
+// SetIsLeading sets the value of IsLeading.
+func (s *Ledger) SetIsLeading(val bool) {
+	s.IsLeading = val
+}
+
+// SetLegalEntityIds sets the value of LegalEntityIds.
+func (s *Ledger) SetLegalEntityIds(val []uuid.UUID) {
+	s.LegalEntityIds = val
+}
+
+// SetVersion sets the value of Version.
+func (s *Ledger) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *Ledger) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *Ledger) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// A ledger group (SAP FAGL ledger group): ledgers a posting goes to together, the representative
+// deciding its posting period.
+// Ref: #/components/schemas/LedgerGroup
+type LedgerGroup struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Group code, 1-4 upper-case letters or digits, different from every ledger's.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// The member whose periods decide the group's postings; the leading ledger when it is a member. Fixed
+	// once activated.
+	RepresentativeLedgerID uuid.UUID `json:"representative_ledger_id"`
+	// The group's ledgers; a ledger never leaves a group once activated.
+	LedgerIds []uuid.UUID `json:"ledger_ids"`
+	// Optimistic-lock version; equals the ETag.
+	Version int32 `json:"version"`
+	// Creation time.
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that activated the configuration creating it.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change.
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that activated the configuration changing it last.
+	UpdatedBy uuid.UUID `json:"updated_by"`
+}
+
+// GetID returns the value of ID.
+func (s *LedgerGroup) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCode returns the value of Code.
+func (s *LedgerGroup) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *LedgerGroup) GetName() string {
+	return s.Name
+}
+
+// GetRepresentativeLedgerID returns the value of RepresentativeLedgerID.
+func (s *LedgerGroup) GetRepresentativeLedgerID() uuid.UUID {
+	return s.RepresentativeLedgerID
+}
+
+// GetLedgerIds returns the value of LedgerIds.
+func (s *LedgerGroup) GetLedgerIds() []uuid.UUID {
+	return s.LedgerIds
+}
+
+// GetVersion returns the value of Version.
+func (s *LedgerGroup) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *LedgerGroup) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *LedgerGroup) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *LedgerGroup) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *LedgerGroup) GetUpdatedBy() uuid.UUID {
+	return s.UpdatedBy
+}
+
+// SetID sets the value of ID.
+func (s *LedgerGroup) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCode sets the value of Code.
+func (s *LedgerGroup) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *LedgerGroup) SetName(val string) {
+	s.Name = val
+}
+
+// SetRepresentativeLedgerID sets the value of RepresentativeLedgerID.
+func (s *LedgerGroup) SetRepresentativeLedgerID(val uuid.UUID) {
+	s.RepresentativeLedgerID = val
+}
+
+// SetLedgerIds sets the value of LedgerIds.
+func (s *LedgerGroup) SetLedgerIds(val []uuid.UUID) {
+	s.LedgerIds = val
+}
+
+// SetVersion sets the value of Version.
+func (s *LedgerGroup) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *LedgerGroup) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *LedgerGroup) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *LedgerGroup) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *LedgerGroup) SetUpdatedBy(val uuid.UUID) {
+	s.UpdatedBy = val
+}
+
+// One page of ledger groups.
+// Ref: #/components/schemas/LedgerGroupPage
+type LedgerGroupPage struct {
+	// The ledger groups on this page.
+	Items []LedgerGroup `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *LedgerGroupPage) GetItems() []LedgerGroup {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *LedgerGroupPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *LedgerGroupPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *LedgerGroupPage) SetItems(val []LedgerGroup) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *LedgerGroupPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *LedgerGroupPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+// LedgerGroupPageHeaders wraps LedgerGroupPage with response headers.
+type LedgerGroupPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           LedgerGroupPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *LedgerGroupPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *LedgerGroupPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *LedgerGroupPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *LedgerGroupPageHeaders) GetResponse() LedgerGroupPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *LedgerGroupPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *LedgerGroupPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *LedgerGroupPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *LedgerGroupPageHeaders) SetResponse(val LedgerGroupPage) {
+	s.Response = val
+}
+
+func (*LedgerGroupPageHeaders) listLedgerGroupsRes() {}
+
+// One page of ledgers.
+// Ref: #/components/schemas/LedgerPage
+type LedgerPage struct {
+	// The ledgers on this page.
+	Items []Ledger `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *LedgerPage) GetItems() []Ledger {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *LedgerPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *LedgerPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *LedgerPage) SetItems(val []Ledger) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *LedgerPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *LedgerPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+// LedgerPageHeaders wraps LedgerPage with response headers.
+type LedgerPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           LedgerPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *LedgerPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *LedgerPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *LedgerPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *LedgerPageHeaders) GetResponse() LedgerPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *LedgerPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *LedgerPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *LedgerPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *LedgerPageHeaders) SetResponse(val LedgerPage) {
+	s.Response = val
+}
+
+func (*LedgerPageHeaders) listLedgersRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/LegalEntity
@@ -27322,6 +27750,8 @@ func (*TooManyRequestsHeaders) listFiscalPeriodsRes()                {}
 func (*TooManyRequestsHeaders) listGoodsReceiptsRes()                {}
 func (*TooManyRequestsHeaders) listGrIrBalancesRes()                 {}
 func (*TooManyRequestsHeaders) listJournalEntriesRes()               {}
+func (*TooManyRequestsHeaders) listLedgerGroupsRes()                 {}
+func (*TooManyRequestsHeaders) listLedgersRes()                      {}
 func (*TooManyRequestsHeaders) listLegalEntitiesRes()                {}
 func (*TooManyRequestsHeaders) listMatchResultsRes()                 {}
 func (*TooManyRequestsHeaders) listMigrationRunsRes()                {}
@@ -27573,6 +28003,8 @@ func (*UnauthorizedHeaders) listFiscalPeriodsRes()                {}
 func (*UnauthorizedHeaders) listGoodsReceiptsRes()                {}
 func (*UnauthorizedHeaders) listGrIrBalancesRes()                 {}
 func (*UnauthorizedHeaders) listJournalEntriesRes()               {}
+func (*UnauthorizedHeaders) listLedgerGroupsRes()                 {}
+func (*UnauthorizedHeaders) listLedgersRes()                      {}
 func (*UnauthorizedHeaders) listLegalEntitiesRes()                {}
 func (*UnauthorizedHeaders) listMatchResultsRes()                 {}
 func (*UnauthorizedHeaders) listMigrationRunsRes()                {}

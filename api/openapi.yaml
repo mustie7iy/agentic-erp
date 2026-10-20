@@ -3429,6 +3429,90 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/ledgers:
+    get:
+      operationId: listLedgers
+      tags:
+        - ledger
+      summary: List ledgers
+      description: "The leading ledger 0L and the parallel ledgers kept under other accounting principles, with the legal entities that keep each (ADR-0045). Ledgers come from the configuration (`ledgers`, `companies[].ledgers`) and change only through its approval loop. Sortable by: `code`."
+      x-permission: ledger.account.read
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: false
+          description: Only the ledgers this legal entity keeps.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of ledger results.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LedgerPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/ledger-groups:
+    get:
+      operationId: listLedgerGroups
+      tags:
+        - ledger
+      summary: List ledger groups
+      description: "Ledger groups name the ledgers a posting goes to together; the representative ledger decides the posting period (ADR-0045). Groups come from the configuration (`ledger_groups`) and change only through its approval loop. Sortable by: `code`."
+      x-permission: ledger.account.read
+      parameters:
+        - name: ledger_id
+          in: query
+          required: false
+          description: Only the groups with this ledger.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of ledger group results.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LedgerGroupPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/fiscal-periods:
     get:
       operationId: listFiscalPeriods
@@ -14185,6 +14269,224 @@ components:
               is_special: false
               status: open
               version: 1
+              updated_at: "2026-10-09T14:03:11Z"
+              updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
+    Ledger:
+      type: object
+      description: "A ledger of the tenant (SAP FINSC_LEDGER): the leading ledger 0L or a parallel ledger."
+      required:
+        - id
+        - code
+        - name
+        - accounting_principle
+        - is_leading
+        - legal_entity_ids
+        - version
+        - created_at
+        - created_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier (UUIDv7).
+          readOnly: true
+        code:
+          type: string
+          description: "Ledger code: 0L for the leading ledger, two upper-case letters or digits for the others."
+          pattern: "^[0-9A-Z]{2}$"
+          readOnly: true
+        name:
+          type: string
+          description: Name.
+          maxLength: 200
+          readOnly: true
+        accounting_principle:
+          type: string
+          description: "Accounting principle the ledger is kept under (IFRS, US_GAAP, HGB); fixed once activated."
+          pattern: "^[A-Z0-9_]{2,20}$"
+          readOnly: true
+        is_leading:
+          type: boolean
+          description: "Whether this is the leading ledger 0L, which every company keeps and reports default to."
+          readOnly: true
+        legal_entity_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: "The legal entities that keep the ledger, of those the caller may see."
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          description: "Optimistic-lock version; equals the ETag."
+          minimum: 1
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: Creation time.
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: Principal that activated the configuration creating it.
+          readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+          code: "0L"
+          name: Leading ledger
+          accounting_principle: IFRS
+          is_leading: true
+          legal_entity_ids:
+            - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+          version: 1
+          created_at: "2026-10-09T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
+    LedgerPage:
+      type: object
+      description: One page of ledgers.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Ledger"
+          description: The ledgers on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+      examples:
+        - items:
+            - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+              code: "0L"
+              name: Leading ledger
+              accounting_principle: IFRS
+              is_leading: true
+              legal_entity_ids:
+                - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+              version: 1
+              created_at: "2026-10-09T14:03:11Z"
+              created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
+    LedgerGroup:
+      type: object
+      description: "A ledger group (SAP FAGL ledger group): ledgers a posting goes to together, the representative deciding its posting period."
+      required:
+        - id
+        - code
+        - name
+        - representative_ledger_id
+        - ledger_ids
+        - version
+        - created_at
+        - created_by
+        - updated_at
+        - updated_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier (UUIDv7).
+          readOnly: true
+        code:
+          type: string
+          description: "Group code, 1-4 upper-case letters or digits, different from every ledger's."
+          pattern: "^[0-9A-Z]{1,4}$"
+          readOnly: true
+        name:
+          type: string
+          description: Name.
+          maxLength: 200
+          readOnly: true
+        representative_ledger_id:
+          type: string
+          format: uuid
+          description: "The member whose periods decide the group's postings; the leading ledger when it is a member. Fixed once activated."
+          readOnly: true
+        ledger_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: "The group's ledgers; a ledger never leaves a group once activated."
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          description: "Optimistic-lock version; equals the ETag."
+          minimum: 1
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: Creation time.
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: Principal that activated the configuration creating it.
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: Time of the last change.
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          description: Principal that activated the configuration changing it last.
+          readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d90"
+          code: ALL
+          name: Every ledger
+          representative_ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+          ledger_ids:
+            - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+            - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
+          version: 1
+          created_at: "2026-10-09T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
+          updated_at: "2026-10-09T14:03:11Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
+    LedgerGroupPage:
+      type: object
+      description: One page of ledger groups.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/LedgerGroup"
+          description: The ledger groups on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+      examples:
+        - items:
+            - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d90"
+              code: ALL
+              name: Every ledger
+              representative_ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+              ledger_ids:
+                - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+              version: 1
+              created_at: "2026-10-09T14:03:11Z"
+              created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
               updated_at: "2026-10-09T14:03:11Z"
               updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
     JournalLine:

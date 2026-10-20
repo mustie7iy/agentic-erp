@@ -14,12 +14,12 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-// Setup is the configuration document's ledger section: each company's
-// chart of accounts and account determination, and its fiscal calendar
-// with the periods of every fiscal year that has a number range.
+// Setup is the configuration document's ledger section: the ledgers and
+// ledger groups, each company's ledgers, chart of accounts and account
+// determination, and its fiscal calendar with the periods of every fiscal
+// year that has a number range.
 //
 // The mapping, decided in T3 (docs/design/07-transition.md):
-//   - the tenant gets a leading ledger 0L (IFRS) with its first configuration;
 //   - each company has its own chart, coded with the company code; accounts
 //     removed from the document become inactive, and an account's type and
 //     reconciliation kind never change once activated;
@@ -27,9 +27,12 @@ import (
 //     4 special periods), created with the start month of the document;
 //     fiscal years are named after the calendar year they end in, so with
 //     start month 4 fiscal year 2026 runs from 1 April 2025 to 31 March 2026;
+//   - ledgers, the ledgers each company keeps and ledger groups (T52a,
+//     ADR-0045) are created from the document, the leading ledger 0L alone
+//     when it names none;
 //   - a fiscal year exists for a company once the document has a number
-//     range for it; its periods are created closed in every ledger and
-//     opened with fiscal-periods/{id}:open;
+//     range for it; its periods are created closed in every ledger of the
+//     company and opened with fiscal-periods/{id}:open;
 //   - tax codes (input tax, decided in T4) are valid from the start of the
 //     company's first fiscal year; a changed rate or account ends the
 //     current one and starts the new one on the activation day, and a
@@ -63,6 +66,9 @@ func (s Setup) Check(ctx context.Context, base, proposed *config.Config) ([]conf
 		if err := s.checkCompany(ctx, tx, co, &out); err != nil {
 			return nil, err
 		}
+	}
+	if err := checkLedgers(ctx, tx, proposed, &out); err != nil {
+		return nil, err
 	}
 	if base == nil {
 		return out, nil
@@ -108,6 +114,9 @@ func (s Setup) checkCompany(ctx context.Context, tx pgx.Tx, co config.Company, o
 	}
 	if len(months) > 0 && !slices.Contains(months, int32(co.FiscalYearStartMonth)) {
 		out.add(p+".fiscal_year_start_month", "the legal entity's fiscal calendar starts its years in month %d", months[0])
+	}
+	if err := checkCompanyLedgers(ctx, tx, p, le.ID, co, out); err != nil {
+		return err
 	}
 	if err := checkTaxCodesChangedToday(ctx, tx, p, le.ID, co, out); err != nil {
 		return err
@@ -203,17 +212,15 @@ func (s Setup) Apply(ctx context.Context, doc *config.Config) error {
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO ledger.ledger (tenant_id, id, code, name, is_leading, accounting_principle, created_by)
-		SELECT $1, $2, '0L', 'Leading ledger', true, 'IFRS', $3 WHERE NOT EXISTS (SELECT FROM ledger.ledger)`,
-		p.TenantID, uuid.Must(uuid.NewV7()), p.ID); err != nil {
-		return fmt.Errorf("ledger: apply leading ledger: %w", err)
+	if err := applyLedgers(ctx, tx, p, doc); err != nil {
+		return err
 	}
 	for _, co := range doc.Companies {
 		if err := s.applyCompany(ctx, tx, p, co, doc); err != nil {
 			return err
 		}
 	}
-	return nil
+	return applyLedgerGroups(ctx, tx, p, doc)
 }
 
 // applyCompany makes one company's chart of accounts, account
@@ -246,6 +253,9 @@ func (s Setup) applyCompany(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 			"cash_discount", "down_payment"}, []string{ad.APReconciliation, ad.InputTax, ad.Bank, ad.FXGain, ad.FXLoss, ad.GRIR, ad.PriceDifference,
 			ad.CashDiscount, ad.DownPayment}); err != nil {
 		return fmt.Errorf("ledger: apply company %s: account determination: %w", co.Code, err)
+	}
+	if err := applyCompanyLedgers(ctx, tx, p, le.ID, co); err != nil {
+		return err
 	}
 	if err := s.calendar(ctx, tx, p, le.FiscalCalendarID, le.ID, co, doc); err != nil {
 		return err
@@ -352,7 +362,8 @@ func taxCodes(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, calendar, 
 
 // calendar creates the legal entity's fiscal calendar if needed and the
 // periods of every fiscal year the document has a number range for, closed
-// in every ledger.
+// in every ledger the company keeps: a parallel ledger has periods of its
+// own, opened, closed and locked apart from the leading ledger's (ADR-0045).
 func (s Setup) calendar(ctx context.Context, tx pgx.Tx, p reqctx.Principal, calendar, legalEntity uuid.UUID, co config.Company, doc *config.Config) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.fiscal_calendar (tenant_id, id, code, name, normal_periods, special_periods, created_by)
 		SELECT $1, $2, 'C' || lpad((count(*) + 1)::text, 3, '0'), $3, $4, $5, $6 FROM ledger.fiscal_calendar
@@ -383,7 +394,8 @@ func (s Setup) calendar(ctx context.Context, tx pgx.Tx, p reqctx.Principal, cale
 		return fmt.Errorf("ledger: fiscal calendar %s: periods: %w", calendar, err)
 	}
 	var ledgers []uuid.UUID
-	if err := tx.QueryRow(ctx, `SELECT array_agg(id ORDER BY id) FROM ledger.ledger`).Scan(&ledgers); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT array_agg(ledger_id ORDER BY ledger_id) FROM ledger.company_ledger WHERE legal_entity_id = $1`,
+		legalEntity).Scan(&ledgers); err != nil {
 		return fmt.Errorf("ledger: fiscal calendar %s: ledgers: %w", calendar, err)
 	}
 	var ids, ledgerIDs []uuid.UUID

@@ -23,6 +23,51 @@ type Config struct {
 	Payments     Payments      `yaml:"payments" json:"payments"`
 	Output       Output        `yaml:"output" json:"output"`
 	NumberRanges []NumberRange `yaml:"number_ranges,omitempty" json:"number_ranges,omitempty"`
+	// Ledgers and LedgerGroups are the tenant's parallel ledgers (T52a,
+	// ADR-0045); without them the tenant keeps only the leading ledger 0L.
+	Ledgers      []Ledger      `yaml:"ledgers,omitempty" json:"ledgers,omitempty"`
+	LedgerGroups []LedgerGroup `yaml:"ledger_groups,omitempty" json:"ledger_groups,omitempty"`
+}
+
+// LeadingLedger is the code of the leading ledger every company keeps.
+const LeadingLedger = "0L"
+
+// Ledger is a ledger of the tenant (SAP FINSC_LEDGER): the leading ledger
+// 0L or a parallel ledger kept under another accounting principle. Once
+// activated only its name changes.
+type Ledger struct {
+	Code                string `yaml:"code" json:"code"`
+	Name                string `yaml:"name" json:"name"`
+	AccountingPrinciple string `yaml:"accounting_principle" json:"accounting_principle"`
+}
+
+// LedgerGroup names ledgers a posting goes to together (SAP FAGL ledger
+// group); its representative ledger decides the posting period. Once
+// activated it keeps its members and representative; only its name and
+// new members change.
+type LedgerGroup struct {
+	Code           string   `yaml:"code" json:"code"`
+	Name           string   `yaml:"name" json:"name"`
+	Representative string   `yaml:"representative" json:"representative"`
+	Ledgers        []string `yaml:"ledgers" json:"ledgers"`
+}
+
+// LedgerList is the tenant's ledgers: those of the document, or the
+// leading ledger alone when it names none.
+func (c *Config) LedgerList() []Ledger {
+	if len(c.Ledgers) > 0 {
+		return c.Ledgers
+	}
+	return []Ledger{{Code: LeadingLedger, Name: "Leading ledger", AccountingPrinciple: "IFRS"}}
+}
+
+// LedgerCodes is the company's ledgers: those it names, or the leading
+// ledger alone.
+func (c *Company) LedgerCodes() []string {
+	if len(c.Ledgers) > 0 {
+		return c.Ledgers
+	}
+	return []string{LeadingLedger}
 }
 
 // NumberRange is a document number interval for one company, document type
@@ -63,6 +108,9 @@ type Company struct {
 	ManualEntryApprovalLimit string    `yaml:"manual_entry_approval_limit" json:"manual_entry_approval_limit"`
 	OverDeliveryPercent      int       `yaml:"gr_over_delivery_percent" json:"gr_over_delivery_percent"`
 	HouseBank                HouseBank `yaml:"house_bank" json:"house_bank"`
+	// Ledgers are the codes of the ledgers the company keeps (SAP ledger
+	// assignment), the leading ledger 0L among them; none means 0L alone.
+	Ledgers []string `yaml:"ledgers,omitempty" json:"ledgers,omitempty"`
 }
 
 // AccountType classifies an account for the balance sheet and the income
