@@ -1245,7 +1245,7 @@
     "c": [
      {
       "s": "T",
-      "t": "Cost center master and hierarchy",
+      "t": "Cost center master and hierarchy; then lift the custom field schema compiler's refusal of cost object reference fields (ADR-0046, T58d)",
       "r": "T56",
       "c": []
      },
@@ -3685,9 +3685,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "The tenant's schema at GET /v1/schemas/{entity}, ETag the configuration version",
-        "r": "T58d",
+        "s": "D",
+        "t": "The tenant's active schema at GET /v1/schemas/{entity}: ETag the configuration version, 304 on If-None-Match, 404 without a schema, readable by whoever may read the entity (x-entity-permissions); cost object fields refused until T56",
+        "r": "configuration.GetSchema · authz.AuthorizeEntity · etag.NoneMatch · TestGetSchema · T58d",
         "c": []
        },
        {
@@ -5181,7 +5181,7 @@
      {
       "s": "D",
       "t": "Performance budgets in CI",
-      "r": "internal/nfr · ledger TestTrialBalanceBudget · payments TestProposalBudget · make perf",
+      "r": "internal/nfr · ledger TestTrialBalanceBudget · payments TestProposalBudget · make perf · note (2026-10-20): procurement TestGoodsReceiptBudget fails under load on main; a load-sensitive budget, left unchanged",
       "c": [
        {
         "s": "D",

@@ -56,6 +56,8 @@ func TestOperationsRejectsBadContracts(t *testing.T) {
 		"no permission": "paths:\n  /v1/x:\n    get:\n      operationId: getX\n",
 		"bad operation": "paths:\n  /v1/x:\n    get: [1]\n",
 		"bad autonomy":  "paths:\n  /v1/x:\n    post:\n      operationId: x\n      x-permission: a.b.c\n      x-autonomy: decide\n",
+		"both permissions": "paths:\n  /v1/x/{entity}:\n    get:\n      operationId: getX\n      x-permission: a.b.c\n" +
+			"      x-entity-permissions:\n        e: a.b.read\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parseOperations([]byte(src), true); err == nil {
@@ -84,6 +86,17 @@ func TestOperationsRejectsBadContracts(t *testing.T) {
 	}
 	if !strings.HasPrefix(ops["getX"].Path, "/v1/") {
 		t.Errorf("path: got %s, want it under /v1/", ops["getX"].Path)
+	}
+}
+
+// TestEntityPermissions: x-entity-permissions stands in for x-permission.
+func TestEntityPermissions(t *testing.T) {
+	ops, err := parseOperations([]byte("paths:\n  /v1/x/{entity}:\n    get:\n      operationId: getX\n      x-entity-permissions:\n        e: a.b.read\n"), true)
+	if err != nil {
+		t.Fatalf("x-entity-permissions: %v", err)
+	}
+	if got := ops["getX"].EntityPermissions["e"]; got != "a.b.read" {
+		t.Errorf("entity permission: got %q, want a.b.read", got)
 	}
 }
 

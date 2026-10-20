@@ -2633,6 +2633,67 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/schemas/{entity}":
+    get:
+      operationId: getSchema
+      tags:
+        - configuration
+      summary: Get a custom field schema
+      description: "The tenant's custom field schema for the entity in the active configuration version (ADR-0046): the restricted subset of JSON Schema that writes of the entity's `extensions` are checked against, every field with its privacy class `x-pii`. The ETag is the configuration version, so `If-None-Match` answers 304 until a change request activates a new version. Whoever may read the entity may read its schema: the permission depends on the entity, listed in `x-entity-permissions`. An entity without a schema, or one that takes no custom fields, is 404."
+      x-entity-permissions:
+        business_partner: partner.supplier.read
+        purchase_order: procurement.order.read
+        supplier_invoice: payables.invoice.read
+      parameters:
+        - name: entity
+          in: path
+          required: true
+          description: The extensible entity.
+          schema:
+            type: string
+            description: "Extensible entity. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - business_partner
+              - purchase_order
+              - supplier_invoice
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: The custom field schema.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomFieldSchema"
+        "304":
+          description: The schema has not changed since the ETag in If-None-Match.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/number-ranges:
     get:
       operationId: listNumberRanges
@@ -10013,6 +10074,16 @@ components:
         minLength: 1
         maxLength: 64
       example: "\"3\""
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      description: "The ETag the client last read. When it still matches, the answer is 304 without a body."
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 256
+      example: "\"3\""
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -12781,6 +12852,40 @@ components:
                   detail: {}
                   recorded_at: "2026-10-09T14:03:11Z"
                   recorded_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d3c"
+    CustomFieldSchema:
+      type: object
+      description: "A tenant's custom field schema for one entity, as the active configuration version holds it (ADR-0046)."
+      required:
+        - entity
+        - version
+        - config_version
+        - schema
+      properties:
+        entity:
+          type: string
+          description: "The extensible entity. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - business_partner
+            - purchase_order
+            - supplier_invoice
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          minimum: 1
+          description: The schema's own version, recorded with every row written under it (`extensions_schema`); a version never changes once activated.
+          readOnly: true
+        config_version:
+          type: integer
+          format: int32
+          minimum: 1
+          description: The active configuration version that holds the schema; it is the ETag.
+          readOnly: true
+        schema:
+          type: object
+          additionalProperties: true
+          description: "The JSON Schema, in the restricted subset of ADR-0046: a flat `type: object` with `additionalProperties: false`, `required` and `properties`, each property with `type`, optional `format`, `maxLength`, `enum`, `minimum`, `maximum`, `title`, `description`, and `x-pii` (`none`, `personal` or `sensitive`)."
+          readOnly: true
     ConfigVersion:
       type: object
       description: "An immutable, activated configuration version. Insert-only; `activated_*` play the role of `created_*`."

@@ -3,6 +3,7 @@ package extensions_test
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -15,16 +16,15 @@ func ptr[T any](v T) *T { return &v }
 func schema() extensions.Schema {
 	return extensions.Schema{Version: 1, Type: "object", AdditionalProperties: ptr(false), Required: []string{"project"},
 		Properties: map[string]extensions.Property{
-			"project":   {Type: "string", MaxLength: 20, Title: "Project", PII: extensions.PIINone},
-			"note":      {Type: "string", Format: "text", PII: extensions.PIIPersonal},
-			"count":     {Type: "integer", Minimum: ptr[int64](0), Maximum: ptr[int64](10), PII: extensions.PIINone},
-			"rate":      {Type: "string", Format: "decimal", PII: extensions.PIINone},
-			"cap":       {Type: "object", Format: "money", PII: extensions.PIINone},
-			"due":       {Type: "string", Format: "date", PII: extensions.PIINone},
-			"urgent":    {Type: "boolean", PII: extensions.PIINone},
-			"channel":   {Type: "string", Enum: []string{"web", "mail"}, PII: extensions.PIINone},
-			"broker":    {Type: "string", Format: "partner", PII: extensions.PIINone},
-			"cost_unit": {Type: "string", Format: "cost_object", PII: extensions.PIISensitive},
+			"project": {Type: "string", MaxLength: 20, Title: "Project", PII: extensions.PIINone},
+			"note":    {Type: "string", Format: "text", PII: extensions.PIIPersonal},
+			"count":   {Type: "integer", Minimum: ptr[int64](0), Maximum: ptr[int64](10), PII: extensions.PIINone},
+			"rate":    {Type: "string", Format: "decimal", PII: extensions.PIINone},
+			"cap":     {Type: "object", Format: "money", PII: extensions.PIINone},
+			"due":     {Type: "string", Format: "date", PII: extensions.PIINone},
+			"urgent":  {Type: "boolean", PII: extensions.PIINone},
+			"channel": {Type: "string", Enum: []string{"web", "mail"}, PII: extensions.PIINone},
+			"broker":  {Type: "string", Format: "partner", PII: extensions.PIISensitive},
 		}}
 }
 
@@ -39,7 +39,7 @@ func TestCompile(t *testing.T) {
 	}
 	want := map[string]extensions.Kind{"project": extensions.String, "note": extensions.Text, "count": extensions.Integer,
 		"rate": extensions.Decimal, "cap": extensions.Money, "due": extensions.Date, "urgent": extensions.Boolean,
-		"channel": extensions.Enum, "broker": extensions.Partner, "cost_unit": extensions.CostObject}
+		"channel": extensions.Enum, "broker": extensions.Partner}
 	for k, kind := range want {
 		if kinds[k] != kind {
 			t.Errorf("field %s: got kind %q, want %q", k, kinds[k], kind)
@@ -69,6 +69,7 @@ func TestCompileRefusals(t *testing.T) {
 	}{
 		"unsupported entity":       {"journal_entry", func(*extensions.Schema) {}, ""},
 		"version":                  {"", func(s *extensions.Schema) { s.Version = 0 }, "version"},
+		"version above int32":      {"", func(s *extensions.Schema) { s.Version = math.MaxInt32 + 1 }, "version"},
 		"type":                     {"", func(s *extensions.Schema) { s.Type = "array" }, "type"},
 		"additional allowed":       {"", func(s *extensions.Schema) { s.AdditionalProperties = ptr(true) }, "additionalProperties"},
 		"additional unset":         {"", func(s *extensions.Schema) { s.AdditionalProperties = nil }, "additionalProperties"},
@@ -83,6 +84,7 @@ func TestCompileRefusals(t *testing.T) {
 		"float":                    {"", put("x", extensions.Property{Type: "number", PII: "none"}), "properties.x"},
 		"array":                    {"", put("x", extensions.Property{Type: "array", PII: "none"}), "properties.x"},
 		"nested object":            {"", put("x", extensions.Property{Type: "object", PII: "none"}), "properties.x"},
+		"cost object":              {"", put("x", extensions.Property{Type: "string", Format: "cost_object", PII: "none"}), "properties.x.format"},
 		"unknown format":           {"", put("x", extensions.Property{Type: "string", Format: "email", PII: "none"}), "properties.x"},
 		"enum with format":         {"", put("x", extensions.Property{Type: "string", Format: "date", Enum: []string{"a"}, PII: "none"}), "properties.x.enum"},
 		"enum on an integer":       {"", put("x", extensions.Property{Type: "integer", Enum: []string{"1"}, PII: "none"}), "properties.x.enum"},

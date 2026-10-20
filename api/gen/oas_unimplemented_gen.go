@@ -911,6 +911,20 @@ func (UnimplementedHandler) GetRolePermission(ctx context.Context, params GetRol
 	return r, ht.ErrNotImplemented
 }
 
+// GetSchema implements getSchema operation.
+//
+// The tenant's custom field schema for the entity in the active configuration version (ADR-0046): the
+// restricted subset of JSON Schema that writes of the entity's `extensions` are checked against, every
+// field with its privacy class `x-pii`. The ETag is the configuration version, so `If-None-Match`
+// answers 304 until a change request activates a new version. Whoever may read the entity may read its
+// schema: the permission depends on the entity, listed in `x-entity-permissions`. An entity without a
+// schema, or one that takes no custom fields, is 404.
+//
+// GET /v1/schemas/{entity}
+func (UnimplementedHandler) GetSchema(ctx context.Context, params GetSchemaParams) (r GetSchemaRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetSodRule implements getSodRule operation.
 //
 // Returns one segregation-of-duties rule.

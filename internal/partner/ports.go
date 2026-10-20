@@ -405,13 +405,14 @@ func lockCodes(ctx context.Context, tx pgx.Tx, name string) error {
 }
 
 // References answers whether the record a custom field refers to exists
-// (extensions.References), in the request's transaction. There is no cost
-// object master data yet, so no cost object exists: a cost object field
-// refuses every value until one is modelled.
+// (extensions.References), in the request's transaction. The schema
+// compiler refuses cost object fields until cost objects exist (T56), so a
+// business partner is the one kind of record referred to.
 type References struct{}
 
-// Exists reports whether a business partner, in any status, or a cost
-// object has the id: a reference names a record, whatever it may be used for.
+// Exists reports whether a business partner, in any status, has the id: a
+// reference names a record, whatever it may be used for. Any other kind
+// names no record this context holds.
 func (References) Exists(ctx context.Context, kind extensions.Kind, id uuid.UUID) (bool, error) {
 	if kind != extensions.Partner {
 		return false, nil

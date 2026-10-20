@@ -146,7 +146,7 @@ type valueCheck func(ctx context.Context, refs References, f Field, v any) (code
 
 var kinds = map[Kind]valueCheck{
 	String: pure(text), Text: pure(text), Integer: pure(integer), Decimal: pure(decimal), Date: pure(date),
-	Boolean: pure(boolean), Enum: pure(enum), Money: moneyValue, Partner: reference, CostObject: reference,
+	Boolean: pure(boolean), Enum: pure(enum), Money: moneyValue, Partner: reference,
 }
 
 func pure(check func(Field, any) (string, string)) valueCheck {
@@ -252,7 +252,7 @@ func validAmount(s string, exp int) bool {
 	return err == nil
 }
 
-// reference checks that a partner or cost object id names a record.
+// reference checks that a reference field's id names a record.
 func reference(ctx context.Context, refs References, f Field, v any) (string, string, error) {
 	s, _ := v.(string) // not a string: refused as no id below
 	id, ok := parseID(s)

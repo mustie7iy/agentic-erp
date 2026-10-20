@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -55,10 +56,11 @@ type env struct {
 }
 
 // setup creates a tenant with legal entities 1000 and 2000 and, unless
-// bare, bootstraps its configuration with document(t).
-func setup(t *testing.T, bare bool) env {
+// bare, bootstraps its configuration with document(t). Its principals hold
+// perms and extra.
+func setup(t *testing.T, bare bool, extra ...string) env {
 	t.Helper()
-	ten := pgtest.NewTenant(t, perms...)
+	ten := pgtest.NewTenant(t, append(slices.Clone(perms), extra...)...)
 	ten.AllCompanies(t, ten.Human)
 	e := env{Client: apitest.Client{T: t, API: apitest.New(t), Tenant: ten, As: ten.Human}, ten: ten, le: uuid.Must(uuid.NewV7())}
 	pgtest.Exec(t, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)

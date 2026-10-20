@@ -3,6 +3,7 @@ package extensions
 import (
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"unicode/utf8"
 )
@@ -54,16 +55,15 @@ type Kind string
 
 // The kinds of ADR-0046. There is no floating-point kind.
 const (
-	String     Kind = "string"      // type string, at most 255 characters
-	Text       Kind = "text"        // type string, format text, at most 2000
-	Integer    Kind = "integer"     // type integer
-	Decimal    Kind = "decimal"     // type string, format decimal
-	Money      Kind = "money"       // type object, format money: amount and currency
-	Date       Kind = "date"        // type string, format date
-	Boolean    Kind = "boolean"     // type boolean
-	Enum       Kind = "enum"        // type string with enum
-	Partner    Kind = "partner"     // type string, format partner: a business partner's id
-	CostObject Kind = "cost_object" // type string, format cost_object: a cost object's id
+	String  Kind = "string"  // type string, at most 255 characters
+	Text    Kind = "text"    // type string, format text, at most 2000
+	Integer Kind = "integer" // type integer
+	Decimal Kind = "decimal" // type string, format decimal
+	Money   Kind = "money"   // type object, format money: amount and currency
+	Date    Kind = "date"    // type string, format date
+	Boolean Kind = "boolean" // type boolean
+	Enum    Kind = "enum"    // type string with enum
+	Partner Kind = "partner" // type string, format partner: a business partner's id
 )
 
 // PII is a field's privacy class: personal and sensitive values are masked
@@ -112,8 +112,8 @@ func Compile(entity string, s Schema) (*Compiled, []Issue) {
 	if !slices.Contains(Entities, entity) {
 		c.issue("", "custom fields are not supported on %q; supported: %v", entity, Entities)
 	}
-	if s.Version < 1 {
-		c.issue("version", "must be 1 or more")
+	if s.Version < 1 || s.Version > math.MaxInt32 { // the API serves it as an int32
+		c.issue("version", "must be 1 to %d", math.MaxInt32)
 	}
 	if s.Type != "object" {
 		c.issue("type", "must be object")
@@ -188,11 +188,15 @@ func (c *compiler) field(p string, d Property) Field {
 // without a format that lists values.
 var formats = map[[2]string]Kind{
 	{"string", ""}: String, {"string", "text"}: Text, {"string", "decimal"}: Decimal, {"string", "date"}: Date,
-	{"string", "partner"}: Partner, {"string", "cost_object"}: CostObject,
-	{"integer", ""}: Integer, {"boolean", ""}: Boolean, {"object", "money"}: Money,
+	{"string", "partner"}: Partner,
+	{"integer", ""}:       Integer, {"boolean", ""}: Boolean, {"object", "money"}: Money,
 }
 
 func (c *compiler) kind(p string, d Property) Kind {
+	if d.Type == "string" && d.Format == "cost_object" { // ADR-0046: allowed once cost objects exist (T56)
+		c.issue(p+".format", "cost object references are refused until cost objects exist (T56)")
+		return ""
+	}
 	k, ok := formats[[2]string{d.Type, d.Format}]
 	if !ok {
 		c.issue(p, "type %q with format %q is not a custom field type", d.Type, d.Format)

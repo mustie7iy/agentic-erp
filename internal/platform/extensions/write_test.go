@@ -37,7 +37,7 @@ func every() *extensions.Schema {
 			"n": {Type: "integer", Minimum: &lo, Maximum: &hi, PII: none}, "d": {Type: "string", Format: "decimal", PII: none},
 			"m": {Type: "object", Format: "money", PII: none}, "dt": {Type: "string", Format: "date", PII: none},
 			"b": {Type: "boolean", PII: none}, "e": {Type: "string", Enum: []string{"a", "b"}, PII: none},
-			"p": {Type: "string", Format: "partner", PII: extensions.PIISensitive}, "c": {Type: "string", Format: "cost_object", PII: none},
+			"p":   {Type: "string", Format: "partner", PII: extensions.PIISensitive},
 			"req": {Type: "string", PII: none},
 		}}
 }
@@ -91,7 +91,6 @@ func TestWritesCheck(t *testing.T) {
 		"enum value":       {map[string]any{"e": "c"}, "extensions.e:not_allowed"},
 		"partner id":       {map[string]any{"p": "P1"}, "extensions.p:invalid_type"},
 		"partner missing":  {map[string]any{"p": uuid.NewString()}, "extensions.p:not_found"},
-		"cost object":      {map[string]any{"c": uuid.NewString()}, "extensions.c:not_found"},
 		"several in order": {map[string]any{"zz": 1, "b": 1, "req": nil}, "extensions.b:invalid_type extensions.req:required extensions.zz:unknown_key"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -118,6 +117,14 @@ func TestWritesCheck(t *testing.T) {
 				t.Errorf("got %s, want %s", got, c.want)
 			}
 		})
+	}
+}
+
+// TestReferencesOtherKinds: the partner context holds business partners
+// only, so it knows no record of another kind.
+func TestReferencesOtherKinds(t *testing.T) {
+	if ok, err := (partner.References{}).Exists(context.Background(), extensions.Kind("cost_object"), uuid.New()); ok || err != nil {
+		t.Errorf("cost object: got %v, %v; want false, nil", ok, err)
 	}
 }
 
@@ -184,7 +191,7 @@ func TestWritesCheckFailures(t *testing.T) {
 	}{
 		"schema read":    {extensions.Writes{Schemas: schemas{err: boom}}, nil},
 		"schema invalid": {extensions.Writes{Entity: "supplier_invoice", Schemas: schemas{s: bad}}, nil},
-		"reference read": {extensions.Writes{Entity: "supplier_invoice", Schemas: schemas{s: every()}, References: refs{err: boom}}, map[string]any{"req": "r", "c": uuid.NewString()}},
+		"reference read": {extensions.Writes{Entity: "supplier_invoice", Schemas: schemas{s: every()}, References: refs{err: boom}}, map[string]any{"req": "r", "p": uuid.NewString()}},
 		"partner outside a request": {extensions.Writes{Entity: "supplier_invoice", Schemas: schemas{s: every()}, References: partner.References{}},
 			map[string]any{"req": "r", "p": uuid.NewString()}},
 		"outside a request": {extensions.Writes{Entity: "supplier_invoice", Schemas: schemas{s: every()}}, map[string]any{"req": "r", "m": map[string]any{"amount": "1", "currency": "JPY"}}},

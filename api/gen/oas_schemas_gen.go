@@ -2736,6 +2736,7 @@ func (*BadRequestHeaders) getRequisitionRes()                   {}
 func (*BadRequestHeaders) getRoleAssignmentRes()                {}
 func (*BadRequestHeaders) getRolePermissionRes()                {}
 func (*BadRequestHeaders) getRoleRes()                          {}
+func (*BadRequestHeaders) getSchemaRes()                        {}
 func (*BadRequestHeaders) getSodRuleRes()                       {}
 func (*BadRequestHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*BadRequestHeaders) getSupplierInvoiceRes()               {}
@@ -7931,6 +7932,141 @@ func (s *CreateUploadCreatedHeaders) SetResponse(val Upload) {
 
 func (*CreateUploadCreatedHeaders) createUploadRes() {}
 
+// A tenant's custom field schema for one entity, as the active configuration version holds it
+// (ADR-0046).
+// Ref: #/components/schemas/CustomFieldSchema
+type CustomFieldSchema struct {
+	// The extensible entity. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Entity string `json:"entity"`
+	// The schema's own version, recorded with every row written under it (`extensions_schema`); a version
+	// never changes once activated.
+	Version int32 `json:"version"`
+	// The active configuration version that holds the schema; it is the ETag.
+	ConfigVersion int32 `json:"config_version"`
+	// The JSON Schema, in the restricted subset of ADR-0046: a flat `type: object` with
+	// `additionalProperties: false`, `required` and `properties`, each property with `type`, optional
+	// `format`, `maxLength`, `enum`, `minimum`, `maximum`, `title`, `description`, and `x-pii` (`none`,
+	// `personal` or `sensitive`).
+	Schema CustomFieldSchemaSchema `json:"schema"`
+}
+
+// GetEntity returns the value of Entity.
+func (s *CustomFieldSchema) GetEntity() string {
+	return s.Entity
+}
+
+// GetVersion returns the value of Version.
+func (s *CustomFieldSchema) GetVersion() int32 {
+	return s.Version
+}
+
+// GetConfigVersion returns the value of ConfigVersion.
+func (s *CustomFieldSchema) GetConfigVersion() int32 {
+	return s.ConfigVersion
+}
+
+// GetSchema returns the value of Schema.
+func (s *CustomFieldSchema) GetSchema() CustomFieldSchemaSchema {
+	return s.Schema
+}
+
+// SetEntity sets the value of Entity.
+func (s *CustomFieldSchema) SetEntity(val string) {
+	s.Entity = val
+}
+
+// SetVersion sets the value of Version.
+func (s *CustomFieldSchema) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetConfigVersion sets the value of ConfigVersion.
+func (s *CustomFieldSchema) SetConfigVersion(val int32) {
+	s.ConfigVersion = val
+}
+
+// SetSchema sets the value of Schema.
+func (s *CustomFieldSchema) SetSchema(val CustomFieldSchemaSchema) {
+	s.Schema = val
+}
+
+// CustomFieldSchemaHeaders wraps CustomFieldSchema with response headers.
+type CustomFieldSchemaHeaders struct {
+	ETag               OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           CustomFieldSchema
+}
+
+// GetETag returns the value of ETag.
+func (s *CustomFieldSchemaHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *CustomFieldSchemaHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *CustomFieldSchemaHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *CustomFieldSchemaHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *CustomFieldSchemaHeaders) GetResponse() CustomFieldSchema {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CustomFieldSchemaHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *CustomFieldSchemaHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *CustomFieldSchemaHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *CustomFieldSchemaHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CustomFieldSchemaHeaders) SetResponse(val CustomFieldSchema) {
+	s.Response = val
+}
+
+func (*CustomFieldSchemaHeaders) getSchemaRes() {}
+
+// The JSON Schema, in the restricted subset of ADR-0046: a flat `type: object` with
+// `additionalProperties: false`, `required` and `properties`, each property with `type`, optional
+// `format`, `maxLength`, `enum`, `minimum`, `maximum`, `title`, `description`, and `x-pii` (`none`,
+// `personal` or `sensitive`).
+type CustomFieldSchemaSchema map[string]jx.Raw
+
+func (s *CustomFieldSchemaSchema) init() CustomFieldSchemaSchema {
+	m := *s
+	if m == nil {
+		m = map[string]jx.Raw{}
+		*s = m
+	}
+	return m
+}
+
 // DecideRecommendationOKHeaders wraps Recommendation with response headers.
 type DecideRecommendationOKHeaders struct {
 	ETag               OptString
@@ -10009,6 +10145,7 @@ func (*ForbiddenHeaders) getRequisitionRes()                   {}
 func (*ForbiddenHeaders) getRoleAssignmentRes()                {}
 func (*ForbiddenHeaders) getRolePermissionRes()                {}
 func (*ForbiddenHeaders) getRoleRes()                          {}
+func (*ForbiddenHeaders) getSchemaRes()                        {}
 func (*ForbiddenHeaders) getSodRuleRes()                       {}
 func (*ForbiddenHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*ForbiddenHeaders) getSupplierInvoiceRes()               {}
@@ -11761,6 +11898,56 @@ func (s *GetRolePermissionOKHeaders) SetResponse(val RolePermission) {
 }
 
 func (*GetRolePermissionOKHeaders) getRolePermissionRes() {}
+
+// GetSchemaNotModified is response for GetSchema operation.
+type GetSchemaNotModified struct {
+	ETag               OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+}
+
+// GetETag returns the value of ETag.
+func (s *GetSchemaNotModified) GetETag() OptString {
+	return s.ETag
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *GetSchemaNotModified) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *GetSchemaNotModified) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *GetSchemaNotModified) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// SetETag sets the value of ETag.
+func (s *GetSchemaNotModified) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *GetSchemaNotModified) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *GetSchemaNotModified) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *GetSchemaNotModified) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+func (*GetSchemaNotModified) getSchemaRes() {}
 
 // GetSodRuleOKHeaders wraps SodRule with response headers.
 type GetSodRuleOKHeaders struct {
@@ -15246,6 +15433,7 @@ func (*NotFoundHeaders) getRequisitionRes()                   {}
 func (*NotFoundHeaders) getRoleAssignmentRes()                {}
 func (*NotFoundHeaders) getRolePermissionRes()                {}
 func (*NotFoundHeaders) getRoleRes()                          {}
+func (*NotFoundHeaders) getSchemaRes()                        {}
 func (*NotFoundHeaders) getSodRuleRes()                       {}
 func (*NotFoundHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*NotFoundHeaders) getSupplierInvoiceRes()               {}
@@ -27429,6 +27617,7 @@ func (*TooManyRequestsHeaders) getRequisitionRes()                   {}
 func (*TooManyRequestsHeaders) getRoleAssignmentRes()                {}
 func (*TooManyRequestsHeaders) getRolePermissionRes()                {}
 func (*TooManyRequestsHeaders) getRoleRes()                          {}
+func (*TooManyRequestsHeaders) getSchemaRes()                        {}
 func (*TooManyRequestsHeaders) getSodRuleRes()                       {}
 func (*TooManyRequestsHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*TooManyRequestsHeaders) getSupplierInvoiceRes()               {}
@@ -27680,6 +27869,7 @@ func (*UnauthorizedHeaders) getRequisitionRes()                   {}
 func (*UnauthorizedHeaders) getRoleAssignmentRes()                {}
 func (*UnauthorizedHeaders) getRolePermissionRes()                {}
 func (*UnauthorizedHeaders) getRoleRes()                          {}
+func (*UnauthorizedHeaders) getSchemaRes()                        {}
 func (*UnauthorizedHeaders) getSodRuleRes()                       {}
 func (*UnauthorizedHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*UnauthorizedHeaders) getSupplierInvoiceRes()               {}

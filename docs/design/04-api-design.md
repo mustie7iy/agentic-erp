@@ -243,7 +243,9 @@ at most one bank file.
 - Every operation in the spec declares its permission with
   `x-permission: payables.invoice.post`. The generated router refuses to start
   if a handler has no permission, and a test checks that every permission in
-  the spec exists in `ref.permission`.
+  the spec exists in `ref.permission`. An operation whose resource is read by
+  whoever may read an entity (`GET /v1/schemas/{entity}`, ADR-0046) names a
+  read permission per entity in `x-entity-permissions` instead.
 - Company access is checked on every read and write; resources outside the
   caller's companies are 404, not 403, so ids cannot be probed.
 - Segregation of duties is checked on transitions (for example, the user who

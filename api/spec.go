@@ -24,11 +24,15 @@ var modelYAML []byte
 // Operation is what the request pipeline needs to know about an operation
 // beyond what the generated server enforces.
 type Operation struct {
-	ID           string // operationId
-	Method       string // upper case
-	Path         string
-	Permission   string // x-permission
-	AgentAllowed bool   // false when x-agent: false
+	ID         string // operationId
+	Method     string // upper case
+	Path       string
+	Permission string // x-permission
+	// EntityPermissions is x-entity-permissions, in place of x-permission:
+	// the permission by the operation's {entity} path parameter, for a
+	// resource whoever may read the entity may read (a custom field schema).
+	EntityPermissions map[string]string
+	AgentAllowed      bool // false when x-agent: false
 	// Proposes is x-autonomy: propose: the operation only proposes, and an
 	// agent of autonomy level 1 may perform it (ADR-0036).
 	Proposes bool
@@ -83,22 +87,23 @@ func parseOperations(src []byte, permissioned bool) (map[string]Operation, error
 				continue
 			}
 			var op struct {
-				ID         string `yaml:"operationId"`
-				Permission string `yaml:"x-permission"`
-				Agent      *bool  `yaml:"x-agent"`
-				Autonomy   string `yaml:"x-autonomy"`
+				ID         string            `yaml:"operationId"`
+				Permission string            `yaml:"x-permission"`
+				Entities   map[string]string `yaml:"x-entity-permissions"`
+				Agent      *bool             `yaml:"x-agent"`
+				Autonomy   string            `yaml:"x-autonomy"`
 			}
 			if err := node.Decode(&op); err != nil {
 				return nil, fmt.Errorf("api: %s %s: %w", method, path, err)
 			}
-			if op.ID == "" || (permissioned && op.Permission == "") {
-				return nil, fmt.Errorf("api: %s %s: operationId and x-permission are required", method, path)
+			if op.ID == "" || (permissioned && (op.Permission == "") == (len(op.Entities) == 0)) {
+				return nil, fmt.Errorf("api: %s %s: operationId and one of x-permission and x-entity-permissions are required", method, path)
 			}
 			if op.Autonomy != "" && op.Autonomy != "propose" && op.Autonomy != "read" {
 				return nil, fmt.Errorf("api: %s %s: x-autonomy is propose, read or absent", method, path)
 			}
 			ops[op.ID] = Operation{
-				ID: op.ID, Method: strings.ToUpper(method), Path: path, Permission: op.Permission,
+				ID: op.ID, Method: strings.ToUpper(method), Path: path, Permission: op.Permission, EntityPermissions: op.Entities,
 				AgentAllowed: op.Agent == nil || *op.Agent, Proposes: op.Autonomy == "propose", Reads: op.Autonomy == "read",
 			}
 		}

@@ -72,6 +72,25 @@ func TestAuthorizeAgainstTheContract(t *testing.T) {
 	})
 }
 
+// TestAuthorizeEntity: an operation with x-entity-permissions requires the
+// permission of the entity it is called for, and serves no other entity.
+func TestAuthorizeEntity(t *testing.T) {
+	a := authz.New(api.MustOperations())
+	ten := pgtest.NewTenant(t, "payables.invoice.read")
+	as(t, ten, ten.Human, func(ctx context.Context) {
+		for entity, want := range map[string]int{"supplier_invoice": 0, "purchase_order": 403, "ledger_account": 404, "": 404} {
+			t.Run(entity, func(t *testing.T) {
+				if got := status(a.AuthorizeEntity(ctx, "getSchema", entity)); got != want {
+					t.Errorf("getSchema for %q: got %d, want %d", entity, got, want)
+				}
+			})
+		}
+		if got := status(a.AuthorizeEntity(ctx, "getOperation", "supplier_invoice")); got != 403 {
+			t.Errorf("an x-permission operation ignores the entity: got %d, want 403", got)
+		}
+	})
+}
+
 func TestOnlyCurrentGrantsCount(t *testing.T) {
 	ten := pgtest.NewTenant(t, "platform.operation.read", "platform.operation.cancel")
 	// End the cancel grant today, put a future-dated grant in place, and deactivate nothing else.

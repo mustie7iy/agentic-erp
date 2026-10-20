@@ -34,7 +34,9 @@ needs.
   decimal (a decimal string, never a JSON number), money (`money.Minor`
   with a currency, the API's Money shape, ADR-0005), date, boolean, enum
   (at most 100 values), and a reference to a business partner or a cost
-  object, whose existence is checked on write. No floats anywhere.
+  object, whose existence is checked on write. No floats anywhere. Until
+  cost objects exist (T56) the schema compiler refuses a cost object field
+  (coordinator, 2026-10-20); T56 lifts the refusal.
 - **Limits.** At most 50 fields per entity and 16 KiB of extensions per row.
 - **Privacy.** Every field declares `x-pii: none | personal | sensitive`.
   Personal and sensitive values are masked in logs, traces and events,
@@ -61,10 +63,18 @@ needs.
   captured supplier invoice carries no custom fields, so a field the schema
   requires holds it (naming the field) instead of refusing the document;
   its next update, and its posting, check its extensions against the
-  current schema, so they require the field.
+  current schema, so they require the field. A migration load is not a
+  capture: it refuses an invoice missing a required field, row by row
+  (coordinator, 2026-10-20).
 - **API.** Resources keep `extensions` free-form in the contract. The
   tenant's schema for an entity is at `GET /v1/schemas/{entity}`, with the
-  configuration version as its ETag. A write that does not match the
+  configuration version as its ETag: `If-None-Match` answers 304 until a
+  new version is activated, and an entity without a schema is 404. Whoever
+  may read the entity may read its schema, so the operation names a
+  permission per entity (`x-entity-permissions`, in place of
+  `x-permission`) and the authorizer picks the one of the requested entity;
+  an entity it does not list is 404. A GET, it is open to every autonomy
+  level. A write that does not match the
   schema is answered 422 `request.invalid_extension` with one field error
   per offending key (`extensions.<key>`).
 - **Events.** Events of an extensible entity carry its `extensions` and
@@ -111,6 +121,13 @@ compiler's fuzz target joins `make fuzz`.
   (07 T58 excludes it in Phase 2); CEL is bounded and analyzable.
 - **Rules that derive values or route approvals now:** more power than
   Phase 2 needs; validation alone cannot change what is posted.
+
+## Release note
+Rows written before T58c may hold free-form `extensions` keys. A tenant
+without a schema for the entity has no custom fields, so every such key is
+unknown: the row's next update is refused (422 `request.invalid_extension`)
+until the update removes the keys, or the tenant declares them in a schema
+first (coordinator, 2026-10-20).
 
 ## Consequences
 - Writes of the first entities validate extensions against the active
