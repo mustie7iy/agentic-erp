@@ -290,3 +290,59 @@ func TestMalformed(t *testing.T) {
 		})
 	}
 }
+
+// TestErrorLines: a refusal names the line of the bank's file where what
+// is wrong starts: the MT940 field, the statement for what concerns it as
+// a whole, the camt.053 entry or statement, the XML that does not parse.
+func TestErrorLines(t *testing.T) {
+	ca, mt := string(sample(t, "camt053_ca_v02.xml")), string(sample(t, "mt940_ca.txt"))
+	camt := func(s string) error { _, err := ParseCamt053([]byte(s), currency.Seeded()); return err }
+	mt940 := func(s string) error { _, err := ParseMT940([]byte(s), currency.Seeded()); return err }
+	for _, c := range []struct {
+		name string
+		err  error
+		line int
+	}{
+		{"an MT940 statement line", mt940(strings.Replace(mt, "D1200,00NMSC", "D1200.00NMSC", 1)), 7},
+		{"the second MT940 statement unbalanced", mt940(strings.Replace(mt, ":62F:C270102CAD9040,05", ":62F:C270102CAD9040,06", 1)), 11},
+		{"the second MT940 statement without :28C:", mt940(strings.Replace(mt, ":28C:00013/1\n", "", 1)), 11},
+		{"text before the first field", mt940("hello\n" + mt), 1},
+		{"a field before :20:", mt940(":25:X\n" + mt), 1},
+		{"a camt.053 entry", camt(strings.Replace(ca, `<Amt Ccy="CAD">15.00</Amt>`, `<Amt Ccy="USD">15.00</Amt>`, 1)), 49},
+		{"a camt.053 statement unbalanced", camt(strings.Replace(ca, ">53250.44<", ">53250.45<", 1)), 8},
+		{"XML that does not parse", camt("<Document>\n<Stmt>\n</Document>"), 3},
+		{"no statement", camt(`<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02"><BkToCstmrStmt/></Document>`), 0},
+		{"another encoding", camt(`<?xml version="1.0" encoding="ISO-8859-1"?>` + "\n<Document/>"), 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var pe *ParseError
+			if !errors.As(c.err, &pe) {
+				t.Fatalf("got %v, want a ParseError", c.err)
+			}
+			if pe.Line != c.line {
+				t.Errorf("line: got %d (%v), want %d", pe.Line, c.err, c.line)
+			}
+		})
+	}
+}
+
+// TestUnplacedErrors: a refusal that is not the parser's, or names an
+// entry the document does not have, keeps no line.
+func TestUnplacedErrors(t *testing.T) {
+	ca := sample(t, "camt053_ca_v02.xml")
+	other := errors.New("other")
+	if got := camtAtLine(ca, 0, other); !errors.Is(got, other) || got.Error() != "other" {
+		t.Errorf("another error: got %v, want it unchanged", got)
+	}
+	pe := &ParseError{Reason: "x", entry: 99}
+	if err := camtAtLine(ca, 0, pe); !errors.Is(err, pe) || pe.Line != 0 {
+		t.Errorf("an entry the document does not have: got line %d, want 0", pe.Line)
+	}
+	if got := pe.Error(); got != "bankstatement: malformed statement: x" {
+		t.Errorf("message without a line: got %q", got)
+	}
+	pe.Line = 7
+	if got := pe.Error(); got != "bankstatement: malformed statement: line 7: x" {
+		t.Errorf("message with a line: got %q", got)
+	}
+}

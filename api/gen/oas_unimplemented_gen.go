@@ -641,6 +641,15 @@ func (UnimplementedHandler) GetBankFileContent(ctx context.Context, params GetBa
 	return r, ht.ErrNotImplemented
 }
 
+// GetBankStatement implements getBankStatement operation.
+//
+// Returns one bank statement with its lines.
+//
+// GET /v1/bank-statements/{id}
+func (UnimplementedHandler) GetBankStatement(ctx context.Context, params GetBankStatementParams) (r GetBankStatementRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetBusinessPartner implements getBusinessPartner operation.
 //
 // Returns one business partner.
@@ -968,6 +977,24 @@ func (UnimplementedHandler) HoldSupplierInvoice(ctx context.Context, req *Reason
 	return r, ht.ErrNotImplemented
 }
 
+// ImportBankStatements implements importBankStatements operation.
+//
+// Imports the statements of a bank's file (ADR-0047) for one house bank: camt.053 (.001.02 or .001.08)
+// or MT940, read as UTF-8, at most 4 MB. Each statement must be of the house bank's account and
+// currency, and its entries must take its opening balance to its closing balance. The same file again
+// for the house bank (by its SHA-256) answers 200 with the statements it imported; another file with a
+// statement already imported (the same statement id, account and sequence) is refused with 409
+// `payments.statement_conflict`. A statement whose opening balance is not the closing balance of the
+// house bank's statement before it is imported in status `gap`, and automatic posting stops for the
+// bank. A file that cannot be read is refused with 422 `payments.statement_unreadable`, naming the
+// line where what is wrong starts. Imports are made by people and integrations; agents read
+// statements.
+//
+// POST /v1/bank-statements
+func (UnimplementedHandler) ImportBankStatements(ctx context.Context, req *BankStatementUploadMultipart, params ImportBankStatementsParams) (r ImportBankStatementsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListAccounts implements listAccounts operation.
 //
 // General ledger accounts. Sortable by: `number`.
@@ -1038,6 +1065,16 @@ func (UnimplementedHandler) ListBankAccounts(ctx context.Context, params ListBan
 //
 // GET /v1/bank-files
 func (UnimplementedHandler) ListBankFiles(ctx context.Context, params ListBankFilesParams) (r ListBankFilesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListBankStatements implements listBankStatements operation.
+//
+// Bank statements imported for the house banks of the companies the caller may access, without their
+// lines (`GET /v1/bank-statements/{id}` has them). Sortable by: `closing_date`.
+//
+// GET /v1/bank-statements
+func (UnimplementedHandler) ListBankStatements(ctx context.Context, params ListBankStatementsParams) (r ListBankStatementsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

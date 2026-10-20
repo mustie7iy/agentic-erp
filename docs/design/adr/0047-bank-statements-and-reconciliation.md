@@ -132,6 +132,25 @@ Canadian bank may only offer BAI2.
   `ledger.open_items_account_posted`, and the activation rolls back. An
   entry committed while the activation itself runs is indistinguishable
   from one posted just after it, and is an open item like it.
+- Import (T49c, 000106): `POST /v1/bank-statements` takes the format
+  (`camt.053` or `mt940`), the house bank and the file (at most 4 MB) as a
+  form; nothing of the upload names a path. A statement must be of the
+  house bank's account (its IBAN, or account number) and currency (422
+  `payments.statement_not_of_bank`); a file that cannot be read is 422
+  `payments.statement_unreadable`, its message starting with the line of
+  the file where what is wrong starts (`bankstatement.ParseError`).
+  Imports of one house bank wait for each other (an advisory lock), so the
+  file hash, the key and the continuity are checked against every
+  committed import. The statement before is the bank's with the latest
+  closing date not after the new one's opening date; when a statement
+  arrives whose closing balance is the opening balance of the bank's next
+  statement in `gap`, that one becomes `imported`
+  (`BankStatementGapClosed`). Automatic posting (T49f) runs only while the
+  bank has no statement in `gap`. The file itself is not kept: its hash,
+  statements and lines are. Permissions: `payments.statement.import`
+  (people and integrations) and `payments.statement.read` (agents too); the
+  upload is not `x-autonomy: propose`, so an agent below level 2 cannot
+  import.
 - Steps: a ADR, configuration and the house bank's columns · b parsers ·
   c tables, upload, idempotency and continuity · d SFTP fetch · e rule
   matching · f posting, clearing, approval and period locks · g agent

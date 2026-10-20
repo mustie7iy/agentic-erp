@@ -3,6 +3,7 @@ package bankstatement
 import (
 	"bytes"
 	"encoding/xml"
+	"errors"
 	"strings"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
@@ -120,6 +121,10 @@ type (
 func ParseCamt053(b []byte, exps currency.Exponents) ([]Statement, error) {
 	var doc camtDocument
 	if err := xml.NewDecoder(bytes.NewReader(b)).Decode(&doc); err != nil {
+		var syntax *xml.SyntaxError
+		if errors.As(err, &syntax) {
+			return nil, atLine(malformed("camt.053: %s", syntax.Msg), syntax.Line)
+		}
 		return nil, malformed("camt.053: %v", err)
 	}
 	format, ok := camtNamespaces[doc.XMLName.Space]
@@ -133,7 +138,7 @@ func ParseCamt053(b []byte, exps currency.Exponents) ([]Statement, error) {
 	for i, st := range doc.Stmts {
 		s, err := camtStatement(st, exps)
 		if err != nil {
-			return nil, err
+			return nil, camtAtLine(b, i, err)
 		}
 		s.Format, s.MessageID = format, strings.TrimSpace(doc.MsgID)
 		out[i] = s
@@ -155,12 +160,15 @@ func camtStatement(st camtStmt, exps currency.Exponents) (Statement, error) {
 	if st.Ccy != "" && st.Ccy != s.Currency || camtCurrencies(st.Bals) != s.Currency {
 		return Statement{}, malformed("camt.053 statement %q: balances in more than one currency", s.ID)
 	}
-	for _, n := range st.Ntries {
+	for i, n := range st.Ntries {
 		if firstOf(strings.TrimSpace(n.Sts.Cd), strings.TrimSpace(n.Sts.Text)) != "BOOK" {
 			continue
 		}
 		e, err := camtEntryOf(n, s.Currency, exps)
 		if err != nil {
+			var pe *ParseError
+			errors.As(err, &pe) // the entry's readers refuse only with malformed
+			pe.entry = i
 			return Statement{}, err
 		}
 		s.Entries = append(s.Entries, e)
@@ -319,4 +327,30 @@ func firstOf(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// camtAtLine places the refusal of the document's statement stmt (from 0)
+// at the line of the entry it is in, or else of the statement: the
+// document is read again, only for a refusal, to find where they start.
+func camtAtLine(b []byte, stmt int, err error) error {
+	var pe *ParseError
+	if !errors.As(err, &pe) {
+		return err
+	}
+	want, skip := "Stmt", stmt // the element sought, and how many of them come first
+	d := xml.NewDecoder(bytes.NewReader(b))
+	for tok, terr := d.Token(); terr == nil; tok, terr = d.Token() {
+		start, ok := tok.(xml.StartElement)
+		switch {
+		case !ok || start.Name.Local != want:
+		case skip > 0:
+			skip--
+		case want == "Stmt" && pe.entry >= 0:
+			want, skip = "Ntry", pe.entry
+		default:
+			line, _ := d.InputPos()
+			return atLine(err, line)
+		}
+	}
+	return err // an element the document does not have: the refusal stays unplaced
 }

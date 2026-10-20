@@ -29,9 +29,40 @@ const (
 // ErrMalformed is wrapped by every refusal of a file's content.
 var ErrMalformed = errors.New("bankstatement: malformed statement")
 
+// ParseError is a refusal of a file's content, at the line of the file
+// where what is wrong starts (0 when it is the file as a whole), so a
+// person can find it in the bank's file.
+type ParseError struct {
+	Line   int
+	Reason string
+	// entry is the camt.053 entry the error is in, counted from 0 among
+	// the statement's entries; -1 for the statement itself. ParseCamt053
+	// turns it into a line.
+	entry int
+}
+
+func (e *ParseError) Error() string {
+	if e.Line > 0 {
+		return fmt.Sprintf("%v: line %d: %s", ErrMalformed, e.Line, e.Reason)
+	}
+	return fmt.Sprintf("%v: %s", ErrMalformed, e.Reason)
+}
+
+// Unwrap makes every ParseError an ErrMalformed.
+func (e *ParseError) Unwrap() error { return ErrMalformed }
+
 // malformed is a refusal of the content, saying what is wrong.
 func malformed(format string, a ...any) error {
-	return fmt.Errorf("%w: %s", ErrMalformed, fmt.Sprintf(format, a...))
+	return &ParseError{Reason: fmt.Sprintf(format, a...), entry: -1}
+}
+
+// atLine places a refusal without a line at the line given.
+func atLine(err error, line int) error {
+	var pe *ParseError
+	if errors.As(err, &pe) && pe.Line == 0 {
+		pe.Line = line
+	}
+	return err
 }
 
 // Statement is one account statement.

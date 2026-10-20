@@ -14,6 +14,7 @@ import (
 type mtField struct {
 	tag, value string
 	lines      []string // the value's lines, joined once into value
+	line       int      // the file's line the field starts on, from 1
 }
 
 var (
@@ -35,7 +36,7 @@ func ParseMT940(b []byte, exps currency.Exponents) ([]Statement, error) {
 	var out []Statement
 	for len(fields) > 0 {
 		if fields[0].tag != "20" {
-			return nil, malformed("mt940: a statement starts with :20:, not :%s:", fields[0].tag)
+			return nil, atLine(malformed("mt940: a statement starts with :20:, not :%s:", fields[0].tag), fields[0].line)
 		}
 		end := 1
 		for end < len(fields) && fields[end].tag != "20" {
@@ -58,18 +59,20 @@ func ParseMT940(b []byte, exps currency.Exponents) ([]Statement, error) {
 // blocks and trailers and the "-" that ends a message.
 func mtFields(text string) ([]mtField, error) {
 	var out []mtField
+	n := 0
 	for line := range strings.Lines(strings.ReplaceAll(text, "\r\n", "\n")) {
+		n++
 		line = strings.TrimRight(line, "\r\n")
 		switch {
 		case strings.TrimSpace(line) == "", strings.HasPrefix(line, "{"), strings.HasPrefix(line, "-"):
 			continue
 		}
 		if m := mtTag.FindStringSubmatch(line); m != nil {
-			out = append(out, mtField{tag: m[1], lines: []string{m[2]}})
+			out = append(out, mtField{tag: m[1], lines: []string{m[2]}, line: n})
 			continue
 		}
 		if len(out) == 0 {
-			return nil, malformed("mt940: text before the first field")
+			return nil, atLine(malformed("mt940: text before the first field"), n)
 		}
 		// Lines are collected and joined once: appending to the value would
 		// copy it for every line, quadratic in an uploaded file.
@@ -106,13 +109,13 @@ func mtStatement(fields []mtField, exps currency.Exponents) (Statement, error) {
 			}
 		}
 		if err != nil {
-			return Statement{}, err
+			return Statement{}, atLine(err, f.line)
 		}
 	}
 	if s.Currency == "" || !closing || s.Sequence == "" {
-		return Statement{}, malformed("mt940 statement %q: :28C:, :60F: or :62F: missing, or :61: before :60F:", s.ID)
+		return Statement{}, atLine(malformed("mt940 statement %q: :28C:, :60F: or :62F: missing, or :61: before :60F:", s.ID), fields[0].line)
 	}
-	return s, s.check()
+	return s, atLine(s.check(), fields[0].line)
 }
 
 // mtBalanceField reads the statement's one opening balance (:60a:), which

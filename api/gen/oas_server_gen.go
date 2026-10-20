@@ -456,6 +456,12 @@ type Handler interface {
 	//
 	// GET /v1/bank-files/{id}/content
 	GetBankFileContent(ctx context.Context, params GetBankFileContentParams) (GetBankFileContentRes, error)
+	// GetBankStatement implements getBankStatement operation.
+	//
+	// Returns one bank statement with its lines.
+	//
+	// GET /v1/bank-statements/{id}
+	GetBankStatement(ctx context.Context, params GetBankStatementParams) (GetBankStatementRes, error)
 	// GetBusinessPartner implements getBusinessPartner operation.
 	//
 	// Returns one business partner.
@@ -675,6 +681,21 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices/{id}:hold
 	HoldSupplierInvoice(ctx context.Context, req *ReasonInput, params HoldSupplierInvoiceParams) (HoldSupplierInvoiceRes, error)
+	// ImportBankStatements implements importBankStatements operation.
+	//
+	// Imports the statements of a bank's file (ADR-0047) for one house bank: camt.053 (.001.02 or .001.08)
+	// or MT940, read as UTF-8, at most 4 MB. Each statement must be of the house bank's account and
+	// currency, and its entries must take its opening balance to its closing balance. The same file again
+	// for the house bank (by its SHA-256) answers 200 with the statements it imported; another file with a
+	// statement already imported (the same statement id, account and sequence) is refused with 409
+	// `payments.statement_conflict`. A statement whose opening balance is not the closing balance of the
+	// house bank's statement before it is imported in status `gap`, and automatic posting stops for the
+	// bank. A file that cannot be read is refused with 422 `payments.statement_unreadable`, naming the
+	// line where what is wrong starts. Imports are made by people and integrations; agents read
+	// statements.
+	//
+	// POST /v1/bank-statements
+	ImportBankStatements(ctx context.Context, req *BankStatementUploadMultipart, params ImportBankStatementsParams) (ImportBankStatementsRes, error)
 	// ListAccounts implements listAccounts operation.
 	//
 	// General ledger accounts. Sortable by: `number`.
@@ -724,6 +745,13 @@ type Handler interface {
 	//
 	// GET /v1/bank-files
 	ListBankFiles(ctx context.Context, params ListBankFilesParams) (ListBankFilesRes, error)
+	// ListBankStatements implements listBankStatements operation.
+	//
+	// Bank statements imported for the house banks of the companies the caller may access, without their
+	// lines (`GET /v1/bank-statements/{id}` has them). Sortable by: `closing_date`.
+	//
+	// GET /v1/bank-statements
+	ListBankStatements(ctx context.Context, params ListBankStatementsParams) (ListBankStatementsRes, error)
 	// ListBusinessPartners implements listBusinessPartners operation.
 	//
 	// Business partners. Filter by `number` or `name_prefix` to look one up. Sortable by: `number`,

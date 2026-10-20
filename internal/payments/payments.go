@@ -24,6 +24,10 @@
 // clears the items, then writes the pain.001 bank file. :reject frees the
 // items. Bank files are rebuilt from the run when transmitted and checked
 // against the hash stored at release, until object storage exists.
+//
+// Bank statements (ADR-0047) are imported from the bank's camt.053 or MT940
+// file per house bank, once per file and statement, each compared with the
+// bank's statement before it (statements.go).
 package payments
 
 import (

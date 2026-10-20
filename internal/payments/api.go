@@ -277,3 +277,94 @@ func (e *Endpoints) TransmitBankFile(ctx context.Context, params gen.TransmitBan
 	}
 	return &gen.OperationHeaders{Location: gen.NewOptString("/v1/operations/" + op.ID.String()), Response: operations.ToAPI(op)}, nil
 }
+
+func statementToAPI(s Statement) gen.BankStatement {
+	out := gen.BankStatement{ID: s.ID, Version: s.Version, CreatedAt: s.CreatedAt, CreatedBy: s.CreatedBy, UpdatedAt: s.UpdatedAt,
+		UpdatedBy: gen.NewOptUUID(s.UpdatedBy), HouseBankID: s.HouseBankID, LegalEntityID: s.LegalEntityID, Format: s.Format,
+		FileSHA256: sha256Hex(s.FileSHA256), FilePosition: s.FilePosition, StatementRef: s.Ref, Sequence: s.Sequence, Account: s.Account,
+		OpeningBalance: apitypes.Money(s.Opening, s.Currency, s.Exponent), OpeningDate: s.OpeningDate,
+		ClosingBalance: apitypes.Money(s.Closing, s.Currency, s.Exponent), ClosingDate: s.ClosingDate, LineCount: s.LineCount,
+		PreviousStatementID: apitypes.OptUUID(s.PreviousID), Status: s.Status}
+	if s.MessageID != nil {
+		out.MessageID.SetTo(*s.MessageID)
+	}
+	if s.Lines != nil { // read with the statement: [] when it has none
+		out.Lines = make([]gen.BankStatementLine, 0, len(s.Lines))
+	}
+	for _, l := range s.Lines {
+		line := gen.BankStatementLine{LineNo: l.LineNo, Amount: apitypes.Money(l.Amount, s.Currency, s.Exponent), IsReversal: l.Reversal,
+			BookingDate: l.BookingDate, ValueDate: l.ValueDate, TransactionCode: l.TransactionCode, BankReference: l.BankReference,
+			OwnerReference: l.OwnerReference, Text: l.Text, Status: l.Status, Transactions: make([]gen.BankStatementTransaction, len(l.Details))}
+		for i, d := range l.Details {
+			line.Transactions[i] = gen.BankStatementTransaction{Amount: apitypes.Money(d.Amount, s.Currency, s.Exponent),
+				MessageID: optText(d.MessageID), PaymentInformationID: optText(d.PaymentInfoID), InstructionID: optText(d.InstructionID),
+				EndToEndID: optText(d.EndToEndID), TransactionCode: optText(d.TransactionCode), CounterpartyName: optText(d.CounterpartyName),
+				CounterpartyIban: optText(d.CounterpartyIBAN), CounterpartyAccount: optText(d.CounterpartyAccount), CounterpartyBic: optText(d.CounterpartyBIC),
+				Remittance: optText(d.Remittance)}
+		}
+		out.Lines = append(out.Lines, line)
+	}
+	return out
+}
+
+// optText is a text the bank may not give: absent when empty.
+func optText(s string) gen.OptString {
+	if s == "" {
+		return gen.OptString{}
+	}
+	return gen.NewOptString(s)
+}
+
+// ImportBankStatements implements POST /v1/bank-statements.
+func (e *Endpoints) ImportBankStatements(ctx context.Context, req *gen.BankStatementUploadMultipart, _ gen.ImportBankStatementsParams) (gen.ImportBankStatementsRes, error) {
+	statements, sum, created, err := e.ImportStatements(ctx, req.HouseBankID, req.Format, []byte(req.File))
+	if err != nil {
+		return nil, err
+	}
+	out := gen.BankStatementImport{FileSHA256: sha256Hex(sum), Statements: make([]gen.BankStatement, len(statements))}
+	for i, s := range statements {
+		out.Statements[i] = statementToAPI(s)
+	}
+	if created {
+		return &gen.ImportBankStatementsCreated{Response: out}, nil
+	}
+	return &gen.ImportBankStatementsOK{Response: out}, nil
+}
+
+// GetBankStatement implements GET /v1/bank-statements/{id}.
+func (e *Endpoints) GetBankStatement(ctx context.Context, params gen.GetBankStatementParams) (gen.GetBankStatementRes, error) {
+	s, err := GetStatement(ctx, params.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.BankStatementHeaders{ETag: gen.NewOptString(etag.Format(s.Version)), Response: statementToAPI(s)}, nil
+}
+
+var statementSort = pagination.Sort{Default: "closing_date", Fields: []pagination.Field{{Name: "closing_date", Column: "s.closing_date", Type: "date"}}}
+
+// ListBankStatements implements GET /v1/bank-statements.
+func (e *Endpoints) ListBankStatements(ctx context.Context, params gen.ListBankStatementsParams) (gen.ListBankStatementsRes, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	le, bank := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.HouseBankID)
+	scope := fmt.Sprintf("listBankStatements|%s|%s|%s", le, bank, params.Status.Value)
+	ks, err := e.Pages.Keyset(statementSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
+	if err != nil {
+		return nil, err
+	}
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return nil, err
+	}
+	q, args := ks.SQL(statementSelect+` WHERE ($1 OR s.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR s.legal_entity_id = $3)
+		AND ($4::uuid IS NULL OR s.house_bank_id = $4) AND ($5 = '' OR s.status = $5)`, []any{access.All, access.IDs, le, bank, params.Status.Value})
+	rows, _ := tx.Query(ctx, q, args...)
+	statements, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Statement, error) { return scanStatement(r) })
+	if err != nil {
+		return nil, fmt.Errorf("payments: list bank statements: %w", err)
+	}
+	items, next := apitypes.PageOf(ks, statements, func(s Statement) (string, uuid.UUID) { return s.ClosingDate.Format(time.DateOnly), s.ID }, statementToAPI)
+	return &gen.BankStatementPageHeaders{Response: gen.BankStatementPage{Items: items, NextPageToken: next}}, nil
+}

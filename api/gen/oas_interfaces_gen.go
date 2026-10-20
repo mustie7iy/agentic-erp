@@ -241,6 +241,10 @@ type GetBankFileRes interface {
 	getBankFileRes()
 }
 
+type GetBankStatementRes interface {
+	getBankStatementRes()
+}
+
 type GetBusinessPartnerRes interface {
 	getBusinessPartnerRes()
 }
@@ -385,6 +389,10 @@ type HoldSupplierInvoiceRes interface {
 	holdSupplierInvoiceRes()
 }
 
+type ImportBankStatementsRes interface {
+	importBankStatementsRes()
+}
+
 type ListAccountsRes interface {
 	listAccountsRes()
 }
@@ -415,6 +423,10 @@ type ListBankAccountsRes interface {
 
 type ListBankFilesRes interface {
 	listBankFilesRes()
+}
+
+type ListBankStatementsRes interface {
+	listBankStatementsRes()
 }
 
 type ListBusinessPartnersRes interface {
