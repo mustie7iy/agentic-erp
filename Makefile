@@ -95,7 +95,7 @@ coverage:
 FUZZTIME ?= 15s
 FUZZ_TARGETS = money:FuzzParseDecimal money:FuzzConvert config:FuzzParseValidateDiff analytics:FuzzNarrative \
 	bankfile:FuzzPain001Text bankfile:FuzzValidIBAN sap:FuzzODataValue sap:FuzzODataString \
-	platform/redact:FuzzText platform/extensions:FuzzCompile
+	platform/redact:FuzzText platform/extensions:FuzzCompile platform/rules:FuzzCompile
 
 # Evaluate one agent live (ADR-0039): make eval AGENT=ap_exceptions (the
 # migration suite needs the cell started with ERP_EXTRACT_DIR=evals/migration). It

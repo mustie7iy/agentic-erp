@@ -108,6 +108,22 @@ needs.
   evaluation timeout through the context, at most 20 rules per entity. No
   `now()`, no randomness, no I/O; the inputs are the row and its
   extensions only.
+- **Engine (T58f).** `internal/platform/rules` on cel-go (`cel.dev/cel-go`,
+  pinned). Rules sit in the configuration document under
+  `rules.<entity>.<name>` with an `expression`, a `message` and unit
+  `cases` (an input and `valid: true|false`; at least one of each, at most
+  20), run whenever the rule is compiled. The inputs are `row.<field>`, the
+  header fields of the entity's create request, and `ext.<key>`, the custom
+  fields of the schema in the same document; a field that may be absent is
+  a CEL optional (`ext.x.orValue("")`), dates are `YYYY-MM-DD` strings and
+  money is `{amount, currency}` of strings. The expression must be boolean;
+  any other type (a derived value, a route) is refused. The standard
+  library is used without its time functions (`timestamp`, `duration` and
+  their accessors), with optional types and nothing else. Limits: 1000
+  code points and nesting 32 per expression, a cost of 10 000 per
+  evaluation, 10 ms through the context, checked on every comprehension
+  step. An input of the wrong type, a failed evaluation or an exceeded
+  limit is an error, never a pass.
 - **Governance.** Rules are versioned in configuration, compiled when
   proposed (a rule that does not compile is a validation finding), and are
   tier 3 changes, so `:simulate` evidence is mandatory before approval.

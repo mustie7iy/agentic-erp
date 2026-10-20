@@ -15,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 )
 
 type Config struct {
@@ -27,6 +28,8 @@ type Config struct {
 	NumberRanges []NumberRange `yaml:"number_ranges,omitempty" json:"number_ranges,omitempty"`
 	// Extensions are the tenant's custom field schemas by entity (ADR-0046).
 	Extensions map[string]extensions.Schema `yaml:"extensions,omitempty" json:"extensions,omitempty"`
+	// Rules are the tenant's validation rules by entity and name (ADR-0046).
+	Rules map[string]map[string]rules.Rule `yaml:"rules,omitempty" json:"rules,omitempty"`
 }
 
 // NumberRange is a document number interval for one company, document type

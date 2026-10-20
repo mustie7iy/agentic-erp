@@ -82,6 +82,8 @@ var tierRules = []struct {
 	// Submission only lets new ranges and raised upper limits through, so
 	// issued numbers stay valid.
 	{rx(`^number_ranges`), TierCosmetic},
+	// A rule refuses writes: tier 3, with :simulate evidence (ADR-0046).
+	{rx(`^rules\.`), TierPostingRelated},
 }
 
 func rx(s string) *regexp.Regexp { return regexp.MustCompile(s) }

@@ -5,6 +5,7 @@ go 1.26.2
 toolchain go1.26.9
 
 require (
+	cel.dev/cel-go v0.32.0
 	github.com/anthropics/anthropic-sdk-go v1.79.1
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/go-faster/errors v0.8.0
@@ -31,7 +32,9 @@ require (
 )
 
 require (
+	cel.dev/expr v0.25.2 // indirect
 	github.com/antithesishq/antithesis-sdk-go v0.8.0-default-no-op // indirect
+	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/buger/jsonparser v1.1.2 // indirect
@@ -88,7 +91,7 @@ require (
 	go.uber.org/zap v1.28.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
-	golang.org/x/exp v0.0.0-20240325151524-a685a6edb6d8 // indirect
+	golang.org/x/exp v0.0.0-20240823005443-9b4947da3948 // indirect
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect

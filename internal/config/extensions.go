@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 )
 
 // extensions checks each entity's custom field schema against ADR-0046's
@@ -16,13 +17,18 @@ import (
 func (v *validator) extensions(c *Config) {
 	for _, entity := range slices.Sorted(maps.Keys(c.Extensions)) {
 		_, issues := extensions.Compile(entity, c.Extensions[entity])
-		for _, is := range issues {
-			p := "extensions." + entity
-			if is.Path != "" {
-				p += "." + is.Path
-			}
-			v.err(p, "%s", is.Message)
+		v.issues("extensions."+entity, issues)
+	}
+}
+
+// issues reports a compiler's issues, their paths relative to prefix.
+func (v *validator) issues(prefix string, issues []extensions.Issue) {
+	for _, is := range issues {
+		p := prefix
+		if is.Path != "" {
+			p += "." + is.Path
 		}
+		v.err(p, "%s", is.Message)
 	}
 }
 
@@ -156,4 +162,18 @@ func number(n int) string {
 		return ""
 	}
 	return strconv.Itoa(n)
+}
+
+// rules compiles each entity's validation rules against its standard
+// fields and the custom field schema of the same document, and runs their
+// unit cases (ADR-0046).
+func (v *validator) rules(c *Config) {
+	for _, entity := range slices.Sorted(maps.Keys(c.Rules)) {
+		var schema *extensions.Compiled
+		if s, ok := c.Extensions[entity]; ok {
+			schema, _ = extensions.Compile(entity, s) // its issues are the extensions section's findings
+		}
+		_, issues := rules.Compile(entity, schema, c.Rules[entity])
+		v.issues("rules."+entity, issues)
+	}
 }

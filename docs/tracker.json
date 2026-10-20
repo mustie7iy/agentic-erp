@@ -3704,9 +3704,9 @@
       "r": "ADR-0046 · T58",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "CEL engine: cost and compile-size limits, 10 ms timeout, at most 20 rules per entity, inputs the row and its extensions",
-        "r": "T58f",
+        "r": "rules.Compile · rules.Set.Check · config rules section · rules:FuzzCompile · T58f",
         "c": []
        },
        {

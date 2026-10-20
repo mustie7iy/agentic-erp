@@ -1,0 +1,176 @@
+package rules
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"maps"
+	"slices"
+	"strconv"
+	"strings"
+
+	"cel.dev/cel-go/common/types"
+	"cel.dev/cel-go/common/types/ref"
+	"cel.dev/cel-go/interpreter"
+)
+
+// Violation is a rule that refused a row.
+type Violation struct {
+	Rule    string
+	Message string
+}
+
+// Check evaluates every rule of the set against a row and its extensions
+// and returns the rules that refused it, in name order. An input of the
+// wrong type, or a rule that fails, exceeds its cost or its time, is an
+// error: the write cannot be shown to pass.
+func (s *Set) Check(ctx context.Context, row, ext map[string]any) ([]Violation, error) {
+	act, err := s.bind(row, ext)
+	if err != nil {
+		return nil, fmt.Errorf("rules: %s: %w", s.Entity, err)
+	}
+	var out []Violation
+	for _, r := range s.rules {
+		ok, err := r.eval(ctx, act)
+		if err != nil {
+			return nil, fmt.Errorf("rules: %s.%s: %w", s.Entity, r.name, err)
+		}
+		if !ok {
+			out = append(out, Violation{r.name, r.message})
+		}
+	}
+	return out, nil
+}
+
+// eval runs one rule within the timeout of ADR-0046. The checker proved
+// the result boolean.
+func (r compiled) eval(ctx context.Context, act interpreter.Activation) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, Timeout)
+	defer cancel()
+	out, _, err := r.prg.ContextEval(ctx, act)
+	if err != nil {
+		return false, fmt.Errorf("evaluation: %w", err)
+	}
+	return out == types.True, nil
+}
+
+// bind turns a row and its extensions into the rule inputs: every
+// declared input once, an absent optional one as optional.none(). A key
+// that is not declared is refused, so a case cannot test a field that
+// does not exist.
+func (s *Set) bind(row, ext map[string]any) (interpreter.Activation, error) {
+	given := make(map[string]any, len(row)+len(ext))
+	for k, v := range row {
+		given["row."+k] = v
+	}
+	for k, v := range ext {
+		given["ext."+k] = v
+	}
+	vars := make(inputs, len(s.inputs))
+	for _, in := range s.inputs {
+		v, ok := given[in.name]
+		delete(given, in.name)
+		val, err := value(in, v, ok && v != nil)
+		if err != nil {
+			return nil, err
+		}
+		vars[in.name] = val
+	}
+	if len(given) > 0 {
+		return nil, fmt.Errorf("%s is not an input", strings.Join(slices.Sorted(maps.Keys(given)), ", "))
+	}
+	return vars, nil
+}
+
+// inputs are a rule's bound inputs by qualified name (row.x, ext.y).
+type inputs map[string]any
+
+func (in inputs) ResolveName(name string) (any, bool) {
+	v, ok := in[name]
+	return v, ok
+}
+
+func (inputs) Parent() interpreter.Activation { return nil }
+
+func value(in input, v any, present bool) (ref.Val, error) {
+	if !present {
+		if in.optional {
+			return types.OptionalNone, nil
+		}
+		return nil, fmt.Errorf("%s is required", in.name)
+	}
+	val, ok := convert(in.t, v)
+	if !ok {
+		return nil, fmt.Errorf("%s: want %s", in.name, typeNames[in.t])
+	}
+	if in.optional {
+		return types.OptionalOf(val), nil
+	}
+	return val, nil
+}
+
+var typeNames = map[typ]string{
+	tString: "a string", tInt: "a whole number", tBool: "a boolean",
+	tStrings: "a list of strings", tMoney: `{"amount": "<decimal>", "currency": "<code>"}`,
+}
+
+// convert reads a decoded JSON or YAML value as the input's type.
+func convert(t typ, v any) (ref.Val, bool) {
+	switch t {
+	case tInt:
+		n, ok := whole(v)
+		return types.Int(n), ok
+	case tBool:
+		b, ok := v.(bool)
+		return types.Bool(b), ok
+	case tStrings:
+		l, ok := strings_(v)
+		return types.NewStringList(types.DefaultTypeAdapter, l), ok
+	case tMoney:
+		m, ok := money(v)
+		return types.NewStringStringMap(types.DefaultTypeAdapter, m), ok
+	default:
+		s, ok := v.(string)
+		return types.String(s), ok
+	}
+}
+
+// maxExact is the largest whole number a JSON number holds exactly.
+const maxExact = 1<<53 - 1
+
+// whole reads a whole number as the custom field write path does: from
+// its JSON spelling, whatever Go type decoded it.
+func whole(v any) (int64, bool) {
+	b, _ := json.Marshal(v) // decoded JSON or YAML: it always encodes
+	n, err := strconv.ParseInt(string(b), 10, 64)
+	return n, err == nil && n >= -maxExact && n <= maxExact
+}
+
+func strings_(v any) ([]string, bool) {
+	switch l := v.(type) {
+	case []string:
+		return l, true
+	case []any:
+		out := make([]string, len(l))
+		for i, e := range l {
+			s, ok := e.(string)
+			if !ok {
+				return nil, false
+			}
+			out[i] = s
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+func money(v any) (map[string]string, bool) {
+	m, ok := v.(map[string]any)
+	if !ok || len(m) != 2 {
+		return nil, false
+	}
+	amount, okA := m["amount"].(string)
+	code, okC := m["currency"].(string)
+	return map[string]string{"amount": amount, "currency": code}, okA && okC
+}
