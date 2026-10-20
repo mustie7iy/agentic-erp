@@ -884,6 +884,15 @@ func (UnimplementedHandler) GetRequisition(ctx context.Context, params GetRequis
 	return r, ht.ErrNotImplemented
 }
 
+// GetRevaluationRun implements getRevaluationRun operation.
+//
+// Returns one revaluation run with its items and totals.
+//
+// GET /v1/revaluation-runs/{id}
+func (UnimplementedHandler) GetRevaluationRun(ctx context.Context, params GetRevaluationRunParams) (r GetRevaluationRunRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetRole implements getRole operation.
 //
 // Returns one role.
@@ -1330,6 +1339,16 @@ func (UnimplementedHandler) ListRequisitions(ctx context.Context, params ListReq
 	return r, ht.ErrNotImplemented
 }
 
+// ListRevaluationRuns implements listRevaluationRuns operation.
+//
+// Foreign-currency revaluation runs (ADR-0042), without their items and totals (`getRevaluationRun`
+// has them). Sortable by: `key_date`.
+//
+// GET /v1/revaluation-runs
+func (UnimplementedHandler) ListRevaluationRuns(ctx context.Context, params ListRevaluationRunsParams) (r ListRevaluationRunsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListRoleAssignments implements listRoleAssignments operation.
 //
 // Effective-dated role grants, including ended ones. Sortable by: `valid_from`.
@@ -1469,6 +1488,25 @@ func (UnimplementedHandler) PostJournalEntry(ctx context.Context, req *JournalEn
 //
 // POST /v1/parked-journal-entries/{id}:post
 func (UnimplementedHandler) PostParkedJournalEntry(ctx context.Context, params PostParkedJournalEntryParams) (r PostParkedJournalEntryRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// PostRevaluationRun implements postRevaluationRun operation.
+//
+// Values what `previewRevaluation` values and, in one transaction, posts the differences (ADR-0042,
+// T48c): a valuation entry (document type SA, in local currency, source the run) dated the key date
+// and its reset, a separate entry of the negated lines dated the next day, the first of the next
+// period, so the items stay open at their booked amounts. Each item's local and group differences go
+// to the account itself for a flagged account and to its adjustment account for a reconciliation
+// account, against the unrealised gain or loss account by the item's direction. Both periods must be
+// open (409 `ledger.period_not_open`). A run whose items have no difference is recorded without
+// entries. The run and its items are recorded, audited and published (`RevaluationRunPosted`, besides
+// each entry's `JournalEntryPosted`). One run per legal entity, ledger and key date is posted: a
+// second is 409 `ledger.revaluation_exists`, whose `detail` names the posted run and whose `Location`
+// header links it. Concurrent clearings and reversals of the tenant wait for the run. Human-only.
+//
+// POST /v1/revaluation-runs
+func (UnimplementedHandler) PostRevaluationRun(ctx context.Context, req *RevaluationPreviewRequest, params PostRevaluationRunParams) (r PostRevaluationRunRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

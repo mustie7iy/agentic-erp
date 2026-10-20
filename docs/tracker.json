@@ -1030,9 +1030,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Posting run: valuation entry on the key date, reversal on the 1st of the next period, both periods open; 409 ledger.revaluation_exists; audit and RevaluationRunPosted",
-        "r": "T48c",
+        "r": "POST/GET /v1/revaluation-runs (x-agent: false) · document type SA in local currency · run without differences recorded without entries · tenant's entry locks exclusive · RevaluationRunPosted · T48c",
         "c": []
        },
        {

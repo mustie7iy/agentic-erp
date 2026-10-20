@@ -332,26 +332,7 @@ func (e *Endpoints) PreviewRevaluation(ctx context.Context, req *gen.Revaluation
 	if err != nil {
 		return nil, err
 	}
-	access, err := authz.Companies(ctx)
-	if err != nil {
-		return nil, err
-	}
-	le, ok, err := e.LegalEntities.Entity(ctx, req.LegalEntityID)
-	if err != nil {
-		return nil, err
-	}
-	if !ok || !access.Allows(le.ID) {
-		return nil, problem.ReferenceNotFound("legal_entity_id", "legal entity", "no legal entity with this id")
-	}
-	var ledgerID uuid.UUID
-	err = tx.QueryRow(ctx, `SELECT id FROM ledger.ledger WHERE ($1::uuid IS NULL AND is_leading) OR id = $1`, apitypes.Ptr[uuid.UUID](req.LedgerID)).Scan(&ledgerID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, problem.ReferenceNotFound("ledger_id", "ledger", "no ledger with this id")
-	}
-	if err != nil {
-		return nil, fmt.Errorf("ledger: revaluation preview of %s: find ledger: %w", le.ID, err)
-	}
-	group, err := e.LegalEntities.GroupCurrency(ctx)
+	le, ledgerID, group, err := e.revaluationTarget(ctx, tx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -366,15 +347,50 @@ func (e *Endpoints) PreviewRevaluation(ctx context.Context, req *gen.Revaluation
 	return &gen.RevaluationPreviewHeaders{Response: revaluationToAPI(r, totals)}, nil
 }
 
+// revaluationTarget resolves the legal entity, ledger (the leading one by
+// default) and group currency a preview or run values; a legal entity the
+// caller cannot act in is not found.
+func (e *Endpoints) revaluationTarget(ctx context.Context, tx pgx.Tx, req *gen.RevaluationPreviewRequest) (tenancy.Entity, uuid.UUID, string, error) {
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return tenancy.Entity{}, uuid.Nil, "", err
+	}
+	le, ok, err := e.LegalEntities.Entity(ctx, req.LegalEntityID)
+	if err != nil {
+		return tenancy.Entity{}, uuid.Nil, "", err
+	}
+	if !ok || !access.Allows(le.ID) {
+		return tenancy.Entity{}, uuid.Nil, "", problem.ReferenceNotFound("legal_entity_id", "legal entity", "no legal entity with this id")
+	}
+	var ledgerID uuid.UUID
+	err = tx.QueryRow(ctx, `SELECT id FROM ledger.ledger WHERE ($1::uuid IS NULL AND is_leading) OR id = $1`, apitypes.Ptr[uuid.UUID](req.LedgerID)).Scan(&ledgerID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return tenancy.Entity{}, uuid.Nil, "", problem.ReferenceNotFound("ledger_id", "ledger", "no ledger with this id")
+	}
+	if err != nil {
+		return tenancy.Entity{}, uuid.Nil, "", fmt.Errorf("ledger: revaluation of %s: find ledger: %w", le.ID, err)
+	}
+	group, err := e.LegalEntities.GroupCurrency(ctx)
+	if err != nil {
+		return tenancy.Entity{}, uuid.Nil, "", err
+	}
+	return le, ledgerID, group, nil
+}
+
 // revaluationToAPI renders a valuation and its totals.
 func revaluationToAPI(r Revaluation, totals []RevaluationTotal) gen.RevaluationPreview {
-	out := gen.RevaluationPreview{LegalEntityID: r.LegalEntityID, LedgerID: r.LedgerID, KeyDate: r.KeyDate, FiscalYear: int32(r.FiscalYear),
-		FiscalPeriod: int32(r.FiscalPeriod), RateType: r.RateType, Items: make([]gen.RevaluationPreviewItem, len(r.Items)),
-		Totals: make([]gen.RevaluationPreviewTotal, len(totals))}
+	items, sums := revaluationItemsToAPI(r, totals)
+	return gen.RevaluationPreview{LegalEntityID: r.LegalEntityID, LedgerID: r.LedgerID, KeyDate: r.KeyDate, FiscalYear: int32(r.FiscalYear),
+		FiscalPeriod: int32(r.FiscalPeriod), RateType: r.RateType, Items: items, Totals: sums}
+}
+
+// revaluationItemsToAPI renders a valuation's items and totals.
+func revaluationItemsToAPI(r Revaluation, totals []RevaluationTotal) ([]gen.RevaluationItem, []gen.RevaluationTotal) {
+	items, sums := make([]gen.RevaluationItem, len(r.Items)), make([]gen.RevaluationTotal, len(totals))
 	lc := func(m money.Minor) gen.Money { return apitypes.Money(m, r.CurrencyLC, r.ExpLC) }
 	gc := func(m money.Minor) gen.Money { return apitypes.Money(m, r.CurrencyGC, r.ExpGC) }
 	for i, it := range r.Items {
-		item := gen.RevaluationPreviewItem{AccountID: it.AccountID, Amount: apitypes.Money(it.AmountTC, it.CurrencyTC, it.ExpTC), AmountLc: lc(it.AmountLC),
+		item := gen.RevaluationItem{AccountID: it.AccountID, Amount: apitypes.Money(it.AmountTC, it.CurrencyTC, it.ExpTC), AmountLc: lc(it.AmountLC),
 			AmountGc: gc(it.AmountGC), Rate: gen.Decimal(it.Rate), RateValidFrom: it.RateValidFrom, ValuedLc: lc(it.ValuedLC),
 			DifferenceLc: lc(it.DifferenceLC), RateGc: gen.Decimal(it.RateGC), ValuedGc: gc(it.ValuedGC), DifferenceGc: gc(it.DifferenceGC),
 			Direction: it.Direction()}
@@ -389,12 +405,12 @@ func revaluationToAPI(r Revaluation, totals []RevaluationTotal) gen.RevaluationP
 			item.JournalEntryID.SetTo(it.Line.EntryID)
 			item.LineNo.SetTo(it.Line.LineNo)
 		}
-		out.Items[i] = item
+		items[i] = item
 	}
 	for i, t := range totals {
-		out.Totals[i] = gen.RevaluationPreviewTotal{AccountID: t.AccountID, Currency: t.CurrencyTC, Direction: t.Direction, ItemCount: t.Count,
+		sums[i] = gen.RevaluationTotal{AccountID: t.AccountID, Currency: t.CurrencyTC, Direction: t.Direction, ItemCount: t.Count,
 			Amount: apitypes.Money(t.AmountTC, t.CurrencyTC, t.ExpTC), AmountLc: lc(t.AmountLC), ValuedLc: lc(t.ValuedLC),
 			DifferenceLc: lc(t.DifferenceLC), AmountGc: gc(t.AmountGC), ValuedGc: gc(t.ValuedGC), DifferenceGc: gc(t.DifferenceGC)}
 	}
-	return out
+	return items, sums
 }

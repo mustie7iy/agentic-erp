@@ -88,9 +88,33 @@ posting.
   their journal lines, so an item's account and partner are its line's.
   `POST /v1/revaluation-runs/preview` returns the items and their totals
   per account, currency and direction.
+- **Posting (T48c).** `POST /v1/revaluation-runs` posts both entries
+  through the ledger's posting path (`post`): document type SA (SAP's
+  standard for the valuation run, numbered in the general journal range),
+  in local currency, source the run (`source_context` ledger,
+  `source_document_id` the run). The entry is in local currency because a
+  run spans currencies and an entry has one; its transaction amounts are
+  its local ones, and since the scope reads only entries in a currency
+  other than local, a run's own entries never become items. Per total
+  (account, currency, direction) two lines: the local and group
+  differences on the flagged account itself, or on the reconciliation
+  account's adjustment account, and their offset on the unrealised gain
+  or loss account; the header's local-to-group rate is the posting date's
+  average rate, for the record only. The reset entry, dated the next day,
+  has the same lines negated. Both periods must be open
+  (`ledger.period_not_open`), also for a run without differences, which
+  is recorded with its items and no entries. Running needs
+  `ledger.entry.post`; reading runs `ledger.entry.read`.
+- **Locking.** A run takes every entry lock bucket of the tenant
+  exclusively before it reads (03-data-model, entry locks): clearings and
+  reversals, which take them shared, wait until it commits, and a
+  second run of the tenant waits and then finds the first posted. A run
+  is a period-end job of seconds, so holding the tenant's clearings for
+  it is accepted; finer locks wait for batching (Out of scope).
 - **One posted run per key date.** A partial unique index on (tenant,
   legal entity, ledger, key date) where `status = 'posted'`; a second run is
-  409 `ledger.revaluation_exists`. To correct a run, cancel it (which
+  409 `ledger.revaluation_exists`, whose detail names the posted
+  run and whose `Location` header links it. To correct a run, cancel it (which
   reverses both its entries) and run again.
 - **Transactions and access.** A run is synchronous, one transaction:
   items are read, valued and posted together, and the run's open items are

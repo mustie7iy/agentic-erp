@@ -779,7 +779,8 @@ for local and for group currency each, the rate, its validity (none for
 the group's own currency) and the amount at that rate: group currency is
 valued on its own. An open item has a transaction-currency amount; a
 balance may be zero in it while its local or group balance is not, the
-residual a run corrects (`revaluation_item_amount`).
+residual a run corrects (`revaluation_item_amount`); a group rate without
+its validity is 1 (`revaluation_item_rate_gc`).
 
 ## 3.8 Procurement (`procurement`)
 
@@ -1499,7 +1500,9 @@ locks on 64 buckets per tenant (`'ledger.journal_entry:' || tenant || ':'
 `platform.require_tenant()` (migration 000039), which fails a transaction
 without one where a NULL key would take no lock), each set
 taken once per transaction in bucket order and before any posting period or
-number range (posting takes those). GR/IR locks (T33b) are advisory locks
+number range (posting takes those). A revaluation run (T48c, ADR-0042)
+takes all 64 exclusively before it reads, so the tenant's clearings and
+reversals wait for it. GR/IR locks (T33b) are advisory locks
 per purchase order (`'ledger.gr_ir:' || tenant || ':' || order`), taken in
 one sorted call by every posting that moves a GR/IR position and by a
 reversal of one, after its entry bucket. The lock order is entry buckets,

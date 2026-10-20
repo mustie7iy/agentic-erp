@@ -714,6 +714,20 @@ func encodePostJournalEntryRequest(
 	return nil
 }
 
+func encodePostRevaluationRunRequest(
+	req *RevaluationPreviewRequest,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodePostSupplierInvoiceRequest(
 	req OptSupplierInvoicePost,
 	r *http.Request,

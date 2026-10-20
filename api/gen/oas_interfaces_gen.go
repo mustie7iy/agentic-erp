@@ -349,6 +349,10 @@ type GetRequisitionRes interface {
 	getRequisitionRes()
 }
 
+type GetRevaluationRunRes interface {
+	getRevaluationRunRes()
+}
+
 type GetRoleAssignmentRes interface {
 	getRoleAssignmentRes()
 }
@@ -541,6 +545,10 @@ type ListRequisitionsRes interface {
 	listRequisitionsRes()
 }
 
+type ListRevaluationRunsRes interface {
+	listRevaluationRunsRes()
+}
+
 type ListRoleAssignmentsRes interface {
 	listRoleAssignmentsRes()
 }
@@ -587,6 +595,10 @@ type PostJournalEntryRes interface {
 
 type PostParkedJournalEntryRes interface {
 	postParkedJournalEntryRes()
+}
+
+type PostRevaluationRunRes interface {
+	postRevaluationRunRes()
 }
 
 type PostSupplierInvoiceRes interface {
