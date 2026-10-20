@@ -214,13 +214,17 @@ type Output struct {
 }
 
 // Parse reads a configuration strictly: unknown fields are errors, so a
-// typo never silently falls back to a default.
+// typo never silently falls back to a default, and a fraction in an
+// integer field is refused rather than truncated.
 func Parse(b []byte) (*Config, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(b))
 	dec.KnownFields(true)
 	var c Config
 	if err := dec.Decode(&c); err != nil {
 		return nil, fmt.Errorf("configuration: %w", err)
+	}
+	if err := notWhole(b); err != nil {
+		return nil, err
 	}
 	return &c, nil
 }
