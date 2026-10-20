@@ -151,9 +151,9 @@ CREATE UNIQUE INDEX revaluation_run_valuation_entry ON ledger.revaluation_run (t
 CREATE UNIQUE INDEX revaluation_run_reversal_entry ON ledger.revaluation_run (tenant_id, reversal_entry_year, reversal_entry_id) WHERE reversal_entry_id IS NOT NULL;
 CREATE TRIGGER revaluation_run_touch BEFORE UPDATE ON ledger.revaluation_run FOR EACH ROW EXECUTE FUNCTION platform.touch();
 
--- A run is posted first, may be cancelled once, and never changes what it
--- valued or posted. Callers read it FOR UPDATE before they cancel it
--- (ADR-0008).
+-- A run is posted first, may be cancelled once its entries are reversed,
+-- and never changes what it valued or posted. Callers read it FOR UPDATE
+-- before they cancel it (ADR-0008).
 CREATE FUNCTION ledger.check_revaluation_run() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -175,6 +175,18 @@ BEGIN
   IF NEW.status IS DISTINCT FROM OLD.status AND (OLD.status, NEW.status) NOT IN (('posted', 'cancelled')) THEN
     RAISE EXCEPTION 'revaluation run % cannot go from % to %', OLD.id, OLD.status, NEW.status
       USING ERRCODE = 'check_violation', CONSTRAINT = 'revaluation_run_lifecycle';
+  END IF;
+  -- A cancelled run leaves no valuation in the books: the application
+  -- reverses both entries before it cancels the run (T48d), and the
+  -- database refuses a cancellation that skipped one. A run has both
+  -- entries or neither (revaluation_run_entries), so one is tested.
+  IF OLD.status = 'posted' AND NEW.status = 'cancelled' AND OLD.valuation_entry_id IS NOT NULL AND (
+      NOT EXISTS (SELECT FROM ledger.reversal r WHERE r.tenant_id = OLD.tenant_id AND r.original_year = OLD.valuation_entry_year
+        AND r.original_entry_id = OLD.valuation_entry_id)
+      OR NOT EXISTS (SELECT FROM ledger.reversal r WHERE r.tenant_id = OLD.tenant_id AND r.original_year = OLD.reversal_entry_year
+        AND r.original_entry_id = OLD.reversal_entry_id)) THEN
+    RAISE EXCEPTION 'revaluation run % is cancelled only once its valuation and reset entries are reversed', OLD.id
+      USING ERRCODE = 'check_violation', CONSTRAINT = 'revaluation_run_cancel_reversed';
   END IF;
   IF (NEW.legal_entity_id, NEW.ledger_id, NEW.key_date, NEW.rate_type, NEW.valuation_entry_year, NEW.valuation_entry_id, NEW.reversal_entry_year,
       NEW.reversal_entry_id, NEW.created_at, NEW.created_by)

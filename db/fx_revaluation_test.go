@@ -128,10 +128,24 @@ func (f fixture) run(tx pgx.Tx, key string, valuation, reversal *uuid.UUID) (uui
 		f.tenant, r, f.entity, f.ledger, key, year, valuation, reversal, f.actor)
 }
 
+// reversed records a reversal of the 2026 entry original, as the
+// application's reversal does, so a run may be cancelled; the trigger
+// reads only that the row exists, so the reversal's date is arbitrary.
+func (f fixture) reversed(original uuid.UUID) func(tx pgx.Tx) error {
+	return func(tx pgx.Tx) error {
+		rev, err := f.entry(tx, 4, "2026-04-01", line{account: f.bank, amount: 10}, line{account: f.expense, amount: -10})
+		if err != nil {
+			return err
+		}
+		return exec(tx, `INSERT INTO ledger.reversal (tenant_id, original_year, original_entry_id, reversal_year, reversal_entry_id)
+			VALUES ($1,2026,$2,2026,$3)`, f.tenant, original, rev)
+	}
+}
+
 // TestRevaluationRuns: a run is posted first with its valuation entry on
 // the key date and its reversal on the next day, or with neither; one run
-// per key date is posted; a posted run may be cancelled, which frees the
-// key date, and is otherwise fixed.
+// per key date is posted; a posted run may be cancelled once both its
+// entries are reversed, which frees the key date, and is otherwise fixed.
 func TestRevaluationRuns(t *testing.T) {
 	need(t)
 	f := newFixture(t)
@@ -189,8 +203,14 @@ func TestRevaluationRuns(t *testing.T) {
 				VALUES ($1,$2,$3,$4,'2026-05-31','spot',$5,$5)`, f.tenant, id(), f.entity, f.ledger, f.actor)
 		}), "revaluation_run_rate_type_check")
 	})
-	t.Run("cancelled once, then rerun", func(t *testing.T) {
+	t.Run("cancelled only once both entries are reversed", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, update("status = 'cancelled'")), "revaluation_run_cancel_reversed")
+		mustApp(t, f.tenant, f.reversed(valuation))
+		failsOn(t, asApp(t, f.tenant, update("status = 'cancelled'")), "revaluation_run_cancel_reversed")
+		mustApp(t, f.tenant, f.reversed(reversal))
 		mustApp(t, f.tenant, update("status = 'cancelled'"))
+	})
+	t.Run("cancelled once, then rerun", func(t *testing.T) {
 		failsOn(t, asApp(t, f.tenant, update("status = 'posted'")), "revaluation_run_lifecycle")
 		failsOn(t, asApp(t, f.tenant, insert("2026-03-31", &valuation, &reversal)), "revaluation_run_valuation_entry")
 		var again uuid.UUID
