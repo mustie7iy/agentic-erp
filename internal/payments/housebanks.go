@@ -164,11 +164,11 @@ func (h HouseBanks) Apply(ctx context.Context, doc *config.Config) error {
 			return fmt.Errorf("payments: deactivate the unlisted house banks of legal entity %s: %w", co.Code, err)
 		}
 		for _, hb := range banks {
-			account, ok := chart[co.HouseBankAccount(hb)]
-			if !ok { // the document requires the account, which the ledger section applied
-				return fmt.Errorf("payments: legal entity %s has no account %s for house bank %s", co.Code, co.HouseBankAccount(hb), hb.Name)
+			accounts, err := bankAccounts(chart, &co, hb)
+			if err != nil {
+				return err
 			}
-			if err := h.upsert(ctx, tx, p, le.ID, co.Currency, hb, account.ID); err != nil {
+			if err := h.upsert(ctx, tx, p, le.ID, co.Currency, hb, accounts); err != nil {
 				return fmt.Errorf("payments: apply house bank %s of legal entity %s: %w", hb.Name, co.Code, err)
 			}
 		}
@@ -176,9 +176,40 @@ func (h HouseBanks) Apply(ctx context.Context, doc *config.Config) error {
 	return nil
 }
 
-// upsert creates the house bank active on the account and channel, or
+// houseBankAccounts are a house bank's ledger accounts: its clearing
+// account and, for a bank whose statements post, its main bank account
+// and incoming payments clearing account (ADR-0047).
+type houseBankAccounts struct {
+	clearing       uuid.UUID
+	main, incoming *uuid.UUID
+}
+
+// bankAccounts finds the house bank's accounts in the company's chart.
+func bankAccounts(chart map[string]ledger.ChartAccount, co *config.Company, hb config.HouseBank) (houseBankAccounts, error) {
+	var out houseBankAccounts
+	for _, a := range []struct {
+		number string
+		id     **uuid.UUID
+	}{{co.HouseBankAccount(hb), nil}, {hb.MainGLAccount, &out.main}, {hb.IncomingGLAccount, &out.incoming}} {
+		if a.number == "" {
+			continue
+		}
+		account, ok := chart[a.number]
+		if !ok { // the document requires the account, which the ledger section applied
+			return out, fmt.Errorf("payments: legal entity %s has no account %s for house bank %s", co.Code, a.number, hb.Name)
+		}
+		if a.id == nil {
+			out.clearing = account.ID
+			continue
+		}
+		*a.id = &account.ID
+	}
+	return out, nil
+}
+
+// upsert creates the house bank active on the accounts and channel, or
 // reactivates it and moves it to them.
-func (h HouseBanks) upsert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le uuid.UUID, currency string, hb config.HouseBank, account uuid.UUID) error {
+func (h HouseBanks) upsert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le uuid.UUID, currency string, hb config.HouseBank, accounts houseBankAccounts) error {
 	sealed, err := h.Keys.Seal(ctx, p.TenantID, hb.IBAN)
 	if err != nil {
 		return err
@@ -195,12 +226,14 @@ func (h HouseBanks) upsert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, l
 		channel = &id
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO payments.house_bank AS h (tenant_id, id, legal_entity_id, code, name, iban_cipher, iban_last4, bic, currency,
-			gl_account_id, active_gl_account_id, status, created_by, updated_by, connector_id)
-		VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, $9, 'active', $10, $10, $11)
+			gl_account_id, active_gl_account_id, status, created_by, updated_by, connector_id, main_gl_account_id, incoming_gl_account_id)
+		VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, $9, 'active', $10, $10, $11, $12, $13)
 		ON CONFLICT (tenant_id, legal_entity_id, code) DO UPDATE SET gl_account_id = EXCLUDED.gl_account_id, active_gl_account_id = EXCLUDED.gl_account_id, status = 'active',
-			connector_id = EXCLUDED.connector_id, version = h.version + 1, updated_by = EXCLUDED.updated_by
-		WHERE (h.gl_account_id, h.status, h.connector_id) IS DISTINCT FROM (EXCLUDED.gl_account_id, 'active', EXCLUDED.connector_id)`,
-		p.TenantID, uuid.Must(uuid.NewV7()), le, hb.Name, sealed, fieldcrypt.Last4(hb.IBAN), hb.BIC, currency, account, p.ID, channel)
+			connector_id = EXCLUDED.connector_id, main_gl_account_id = EXCLUDED.main_gl_account_id, incoming_gl_account_id = EXCLUDED.incoming_gl_account_id,
+			version = h.version + 1, updated_by = EXCLUDED.updated_by
+		WHERE (h.gl_account_id, h.status, h.connector_id, h.main_gl_account_id, h.incoming_gl_account_id)
+			IS DISTINCT FROM (EXCLUDED.gl_account_id, 'active', EXCLUDED.connector_id, EXCLUDED.main_gl_account_id, EXCLUDED.incoming_gl_account_id)`,
+		p.TenantID, uuid.Must(uuid.NewV7()), le, hb.Name, sealed, fieldcrypt.Last4(hb.IBAN), hb.BIC, currency, accounts.clearing, p.ID, channel, accounts.main, accounts.incoming)
 	if err != nil {
 		return fmt.Errorf("write: %w", err)
 	}

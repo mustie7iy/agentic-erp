@@ -60,7 +60,11 @@ func (s Setup) Check(ctx context.Context, base, proposed *config.Config) ([]conf
 	}
 	var out findings
 	for _, co := range proposed.Companies {
-		if err := s.checkCompany(ctx, tx, co, &out); err != nil {
+		var was *config.Company
+		if base != nil {
+			was = base.Company(co.Code)
+		}
+		if err := s.checkCompany(ctx, tx, co, was, &out); err != nil {
 			return nil, err
 		}
 	}
@@ -80,9 +84,11 @@ func (f *findings) add(path, format string, a ...any) {
 
 // checkCompany checks one proposed company against its legal entity: the
 // account numbers, the legal entity's existence and currency, the start
-// month of its calendar, tax codes already changed today, and a new GR/IR
-// account that is already posted.
-func (s Setup) checkCompany(ctx context.Context, tx pgx.Tx, co config.Company, out *findings) error {
+// month of its calendar, tax codes already changed today, a new GR/IR
+// account that is already posted, and open-item management turned on for
+// an account with postings. was is the activated company, nil for a new
+// one.
+func (s Setup) checkCompany(ctx context.Context, tx pgx.Tx, co config.Company, was *config.Company, out *findings) error {
 	p := "companies[" + co.Code + "]"
 	for _, a := range co.ChartOfAccounts {
 		if !accountNumber.MatchString(a.Number) {
@@ -112,7 +118,42 @@ func (s Setup) checkCompany(ctx context.Context, tx pgx.Tx, co config.Company, o
 	if err := checkTaxCodesChangedToday(ctx, tx, p, le.ID, co, out); err != nil {
 		return err
 	}
+	if err := checkOpenItemsUnposted(ctx, tx, p, le.ID, co, was, out); err != nil {
+		return err
+	}
 	return checkGRIRUnposted(ctx, tx, p, le.ID, co, out)
+}
+
+// checkOpenItemsUnposted reports accounts the proposal makes open-item
+// managed that already have postings (ADR-0047, product owner
+// 2026-10-20): their lines were never open items, so a statement could
+// not clear them and the account's balance would never reconcile. The
+// company names a new clearing account instead and transfers the old
+// balance to it with one audited manual entry.
+func checkOpenItemsUnposted(ctx context.Context, tx pgx.Tx, p string, le uuid.UUID, co config.Company, was *config.Company, out *findings) error {
+	var numbers []string
+	for _, a := range co.ChartOfAccounts {
+		if a.OpenItems && (was == nil || was.Account(a.Number) == nil || !was.Account(a.Number).OpenItems) {
+			numbers = append(numbers, a.Number)
+		}
+	}
+	if len(numbers) == 0 {
+		return nil
+	}
+	rows, _ := tx.Query(ctx, `SELECT g.number FROM ledger.gl_account g
+		JOIN ledger.chart_of_accounts c ON c.tenant_id = g.tenant_id AND c.id = g.chart_id AND c.code = $2
+		WHERE g.number = ANY($3) AND EXISTS (SELECT FROM ledger.journal_line l
+			WHERE l.tenant_id = g.tenant_id AND l.legal_entity_id = $1 AND l.account_id = g.id)
+		ORDER BY 1`, le, co.Code, numbers)
+	posted, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return fmt.Errorf("ledger: check company %s: open-item accounts: %w", co.Code, err)
+	}
+	for _, number := range posted {
+		out.add(p+".chart_of_accounts["+number+"].open_items", "account %s has postings, so it cannot become open-item managed; "+
+			"name a new clearing account and transfer the old balance to it", number)
+	}
+	return nil
 }
 
 // checkGRIRUnposted reports a GR/IR account that is not yet the legal
@@ -192,6 +233,8 @@ func checkActivated(base, proposed *config.Config, out *findings) {
 				out.add(p+".chart_of_accounts["+was.Number+"].type", "an account's type cannot change once activated")
 			case a.VendorReconciliation != was.VendorReconciliation:
 				out.add(p+".chart_of_accounts["+was.Number+"].vendor_reconciliation", "an account's reconciliation kind cannot change once activated")
+			case was.OpenItems && !a.OpenItems: // its lines are open items a statement may still clear (ADR-0047)
+				out.add(p+".chart_of_accounts["+was.Number+"].open_items", "open-item management cannot be turned off once activated")
 			}
 		}
 	}

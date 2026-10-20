@@ -846,10 +846,59 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Bank statement import (camt.053, MT940)",
-      "r": "T49",
-      "c": []
+      "r": "ADR-0047 · T49 (split T49a-T49h)",
+      "c": [
+       {
+        "s": "D",
+        "t": "ADR-0047; house banks' main bank and incoming payments accounts (000105); open-item managed clearing accounts, refused for an account with postings; posting rules by transaction code, matching rules, approval tiers with no default",
+        "r": "ADR-0047 · companies[].bank_statements · house_bank.main_gl_account/incoming_gl_account · chart_of_accounts[].open_items · ledger.Setup.Check · 000105 · T49a",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "camt.053 (.001.02, .001.08) and MT940 parsers into one statement model, fuzzed",
+        "r": "internal/bankstatement · T49b",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Statement tables, upload, idempotency by file hash and statement key, balance continuity",
+        "r": "T49c",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "SFTP fetch per house bank on a Temporal schedule, archived after import",
+        "r": "T49d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Rule matching in priority order",
+        "r": "T49e",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Posting and clearing, approvals.BankClearing, period locks",
+        "r": "T49f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Agent proposals (x-autonomy: propose)",
+        "r": "T49g",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Reconciliation report and documentation",
+        "r": "T49h",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",

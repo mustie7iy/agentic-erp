@@ -66,6 +66,7 @@ var tierRules = []struct {
 	{rx(`^companies\[\*\]\.tax_codes\[\*\]\.description$`), TierCosmetic},
 	{rx(`^companies\[\*\]\.withholding_tax_codes\[\*\]\.description$`), TierCosmetic},
 	{rx(`^companies\[\*\]\.payment_methods\[\*\]\.description$`), TierCosmetic},
+	{rx(`^companies\[\*\]\.bank_statements\.posting_rules\[\*\]\.description$`), TierCosmetic},
 	{rx(`^companies\[\*\]\.withholding_tax_codes`), TierPostingRelated},
 	{rx(`^companies\[\*\]\.(account_determination|tax_codes|auto_post_limit|manual_entry_approval_limit|house_bank)`), TierPostingRelated},
 	{rx(`^companies\[\*\]\.(invoice_tolerance|gr_over_delivery_percent)`), TierOperational},
@@ -103,6 +104,7 @@ func classify(path string) Tier {
 var listKeys = map[string]string{
 	"companies": "code", "chart_of_accounts": "number", "tax_codes": "code", "withholding_tax_codes": "code",
 	"house_banks": "name", "payment_methods": "code", "ranking": "currency",
+	"posting_rules": "transaction_code", "matching_rules": "kind",
 	"payment_terms": "key",
 	"number_ranges": "company,document_type,fiscal_year",
 }

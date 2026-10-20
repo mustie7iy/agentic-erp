@@ -1272,7 +1272,9 @@ erDiagram
     text bic
     uuid gl_account_id
     uuid active_gl_account_id "gl_account_id while active; unique per legal entity"
-    uuid connector_id "its channel, an integration connector; null: the server's directory (T44b)" }
+    uuid connector_id "its channel, an integration connector; null: the server's directory (T44b)"
+    uuid main_gl_account_id "the main bank account statements post to; null: not posted (ADR-0047)"
+    uuid incoming_gl_account_id "incoming payments clearing (ADR-0047)" }
   sent_bank_file { uuid house_bank_id PK
     bytea sha256 PK
     uuid bank_file_id

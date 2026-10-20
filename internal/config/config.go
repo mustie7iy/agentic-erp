@@ -70,7 +70,56 @@ type Company struct {
 	// each ranking per currency the house banks that pay with it (SAP
 	// T042E/T042I; ADR-0038).
 	PaymentMethods []PaymentMethod `yaml:"payment_methods,omitempty" json:"payment_methods,omitempty"`
+	// BankStatements says how the company's bank statements are matched
+	// and posted (SAP FF_5/FEBAN, T028G; ADR-0047).
+	BankStatements BankStatements `yaml:"bank_statements,omitempty" json:"bank_statements,omitzero"`
 }
+
+// BankStatements is how bank statement lines are matched to what they
+// clear and posted (ADR-0047). A line posts only when matched.
+type BankStatements struct {
+	// PostingRules post the lines the bank books itself, such as charges
+	// and interest, by their bank transaction code (SAP T028G).
+	PostingRules []StatementPostingRule `yaml:"posting_rules,omitempty" json:"posting_rules,omitempty"`
+	// MatchingRules are tried in order; a line is posted automatically only
+	// when the first rule that finds candidates finds exactly one.
+	MatchingRules []MatchingRule `yaml:"matching_rules,omitempty" json:"matching_rules,omitempty"`
+	// ApprovalTiers route a match by the line's amount in the company's
+	// currency (approvals.BankClearing); a tier without steps posts without
+	// approval. There is no default: without tiers every match is approved
+	// first (product owner 2026-10-20).
+	ApprovalTiers []ApprovalTier `yaml:"approval_tiers,omitempty" json:"approval_tiers,omitempty"`
+}
+
+// StatementPostingRule posts statement lines with a bank transaction code
+// to an account: the ISO 20022 domain, family and sub-family (PMNT-CCRD-CHRG),
+// a SWIFT MT940 type (NCHG) or a bank's proprietary code, such as a BAI
+// code (ADR-0047).
+type StatementPostingRule struct {
+	TransactionCode string `yaml:"transaction_code" json:"transaction_code"`
+	Description     string `yaml:"description" json:"description"`
+	Account         string `yaml:"account" json:"account"`
+}
+
+// MatchingRule is one way of finding what a statement line clears.
+type MatchingRule struct {
+	Kind string `yaml:"kind" json:"kind"` // one of the Match* kinds
+	// AmountTolerance, DateWindowDays and Counterparty refine MatchAmount:
+	// the payment's amount within the tolerance (in the company's
+	// currency), its date within the window of the booking date and, when
+	// Counterparty is set, the counterparty's IBAN or name the payee's.
+	AmountTolerance string `yaml:"amount_tolerance,omitempty" json:"amount_tolerance,omitempty"`
+	DateWindowDays  int    `yaml:"date_window_days,omitempty" json:"date_window_days,omitempty"`
+	Counterparty    bool   `yaml:"counterparty,omitempty" json:"counterparty,omitempty"`
+}
+
+// Matching rule kinds (ADR-0047).
+const (
+	MatchEndToEndID      = "end_to_end_id"    // the payment whose end-to-end id the line carries
+	MatchBatchID         = "batch_id"         // the bank file whose PmtInfId or MsgId the line carries
+	MatchTransactionCode = "transaction_code" // a posting rule for the line's transaction code
+	MatchAmount          = "amount"           // a payment by amount, date and counterparty
+)
 
 // AccountType classifies an account for the balance sheet and the income
 // statement.
@@ -89,6 +138,11 @@ type Account struct {
 	Name                 string      `yaml:"name" json:"name"`
 	Type                 AccountType `yaml:"type" json:"type"`
 	VendorReconciliation bool        `yaml:"vendor_reconciliation,omitempty" json:"vendor_reconciliation,omitempty"`
+	// OpenItems manages the account's lines as open items that a later
+	// posting clears (SAP SKB1-XOPVW), as bank clearing accounts must be
+	// (ADR-0047). It is turned on only for an account without postings and
+	// never turned off.
+	OpenItems bool `yaml:"open_items,omitempty" json:"open_items,omitempty"`
 }
 
 // AccountDetermination says which accounts automatic postings use (SAP T030).
@@ -175,6 +229,14 @@ type HouseBank struct {
 	// transmitted through (ADR-0038, T44b); without one they go to the
 	// server's directory, which a transfer agent collects from.
 	Connector string `yaml:"connector,omitempty" json:"connector,omitempty"`
+	// MainGLAccount is the bank account itself, which the statement's
+	// lines post to while they clear GLAccount (ADR-0047); a bank without
+	// one has its statements imported but never posted.
+	MainGLAccount string `yaml:"main_gl_account,omitempty" json:"main_gl_account,omitempty"`
+	// IncomingGLAccount takes the bank's incoming payments until accounts
+	// receivable clears them (ADR-0047); a bank without one leaves them
+	// unposted.
+	IncomingGLAccount string `yaml:"incoming_gl_account,omitempty" json:"incoming_gl_account,omitempty"`
 }
 
 // AllHouseBanks is the main house bank followed by the further ones.
