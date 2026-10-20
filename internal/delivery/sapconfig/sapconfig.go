@@ -111,7 +111,7 @@ type gen struct {
 	notes []Note
 }
 
-func (g *gen) note(path, msg string) { g.notes = append(g.notes, Note{path, msg}) }
+func (g *gen) note(path, msg string) { g.notes = append(g.notes, Note{Path: path, Message: msg}) }
 
 // unknownDays marks a payment term whose SAP days could not be read. Any
 // guess would be wrong in a way that pays early or late (0 days would
