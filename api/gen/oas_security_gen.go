@@ -112,6 +112,7 @@ var operationRolesOidc = map[string][]string{
 	GetBankFileOperation:                      []string{},
 	GetBankFileContentOperation:               []string{},
 	GetBankStatementOperation:                 []string{},
+	GetBankStatementFileOperation:             []string{},
 	GetBusinessPartnerOperation:               []string{},
 	GetChangeRequestOperation:                 []string{},
 	GetClearingOperation:                      []string{},

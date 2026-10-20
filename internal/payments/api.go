@@ -340,6 +340,15 @@ func (e *Endpoints) GetBankStatement(ctx context.Context, params gen.GetBankStat
 	return &gen.BankStatementHeaders{ETag: gen.NewOptString(etag.Format(s.Version)), Response: statementToAPI(s)}, nil
 }
 
+// GetBankStatementFile implements GET /v1/bank-statements/{id}/file.
+func (e *Endpoints) GetBankStatementFile(ctx context.Context, params gen.GetBankStatementFileParams) (gen.GetBankStatementFileRes, error) {
+	content, err := e.StatementFile(ctx, params.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.GetBankStatementFileOKHeaders{Response: gen.GetBankStatementFileOK{Data: bytes.NewReader(content)}}, nil
+}
+
 var statementSort = pagination.Sort{Default: "closing_date", Fields: []pagination.Field{{Name: "closing_date", Column: "s.closing_date", Type: "date"}}}
 
 // ListBankStatements implements GET /v1/bank-statements.

@@ -147,8 +147,21 @@ Canadian bank may only offer BAI2.
   becomes the next one's previous statement, which is compared again: it
   becomes `imported` when the balances meet (`BankStatementGapClosed`) and
   `gap` when they do not (`BankStatementGapFound`). Automatic posting (T49f) runs only while the
-  bank has no statement in `gap`. The file itself is not kept: its hash,
-  statements and lines are. Permissions: `payments.statement.import`
+  bank has no statement in `gap`. The file itself is kept as accounting
+  evidence (coordinator 2026-10-20): in the object store under the tenant
+  and its SHA-256 (`tenants/<id>/bank-statements/<sha256>`, linked from
+  `bank_statement.file_ref`), written once (the same bytes again are the
+  same object), encrypted by the store as every object is (SSE-KMS where
+  configured, ADR-0040), and locked in compliance mode for
+  `ERP_OBJECT_RETENTION` (default 10 years) like the audit anchors and
+  exports (ADR-0021). Offboarding's erasure deletes the tenant's prefix and
+  keeps what is locked until its retention ends, as for the other financial
+  records that outlive the tenant; a re-onboarded tenant's statements
+  (ADR-0029) name the same keys. The file is written before the statements
+  are inserted, so a statement never names a missing file; without object
+  storage, or when the store does not take it, nothing is imported (503).
+  `GET /v1/bank-statements/{id}/file` downloads it, byte for byte, with
+  `payments.statement.read`. Permissions: `payments.statement.import`
   (people and integrations) and `payments.statement.read` (agents too). An
   agent's import is refused with 403 `identity.agent_not_allowed` by the
   handler: `x-agent: false` would refuse integrations' service principals

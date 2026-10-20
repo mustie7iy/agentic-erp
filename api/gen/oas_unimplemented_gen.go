@@ -650,6 +650,18 @@ func (UnimplementedHandler) GetBankStatement(ctx context.Context, params GetBank
 	return r, ht.ErrNotImplemented
 }
 
+// GetBankStatementFile implements getBankStatementFile operation.
+//
+// The file a bank statement was imported from, byte for byte as the bank sent it (camt.053 XML or
+// MT940 text): kept as accounting evidence in object storage, written once, encrypted and locked for
+// the retention of financial records (ADR-0047). The statements of one file share it. 503 while the
+// server has no object storage or the store does not answer.
+//
+// GET /v1/bank-statements/{id}/file
+func (UnimplementedHandler) GetBankStatementFile(ctx context.Context, params GetBankStatementFileParams) (r GetBankStatementFileRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetBusinessPartner implements getBusinessPartner operation.
 //
 // Returns one business partner.
@@ -990,7 +1002,9 @@ func (UnimplementedHandler) HoldSupplierInvoice(ctx context.Context, req *Reason
 // status follows the comparison again. A file that cannot be read is refused with 422
 // `payments.statement_unreadable`, naming the line where what is wrong starts. Imports are made by
 // people and integrations; agents read statements, and an agent's import is refused with 403
-// `identity.agent_not_allowed`.
+// `identity.agent_not_allowed`. The file is kept as accounting evidence in object storage
+// (`GET /v1/bank-statements/{id}/file`), so without object storage, or when the store does not take
+// it, nothing is imported (503).
 //
 // POST /v1/bank-statements
 func (UnimplementedHandler) ImportBankStatements(ctx context.Context, req *BankStatementUploadMultipart, params ImportBankStatementsParams) (r ImportBankStatementsRes, _ error) {

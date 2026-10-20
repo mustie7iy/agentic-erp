@@ -8,7 +8,9 @@
 -- balance of the house bank's statement before it (previous_statement_id):
 -- a difference imports it as 'gap', and automatic posting stops for the
 -- bank until it is resolved. Amounts are minor units of the statement's
--- currency (ADR-0005), signed: a credit to the account is positive.
+-- currency (ADR-0005), signed: a credit to the account is positive. The
+-- file itself is accounting evidence: it is kept, written once and locked,
+-- in the object store under the tenant and its hash (file_ref).
 -- Statements and lines are never deleted; a line's status and a
 -- statement's are the only changes, made by matching and posting (T49e-f).
 CREATE TABLE payments.bank_statement (
@@ -19,6 +21,7 @@ CREATE TABLE payments.bank_statement (
   format                 text NOT NULL CHECK (format IN ('camt.053.001.02', 'camt.053.001.08', 'mt940')),
   file_sha256            bytea NOT NULL CHECK (octet_length(file_sha256) = 32),
   file_position          integer NOT NULL CHECK (file_position >= 1),  -- the statement's place in its file
+  file_ref               text NOT NULL CHECK (file_ref <> ''),  -- the file as imported, in the object store (blobstore key), kept as evidence
   statement_key          text NOT NULL CHECK (statement_key <> ''),
   message_id             text,                  -- camt GrpHdr/MsgId; null in MT940
   statement_ref          text NOT NULL,         -- camt Stmt/Id; MT940 :20:

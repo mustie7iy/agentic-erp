@@ -2706,6 +2706,7 @@ func (*BadRequestHeaders) getApprovalRequestRes()               {}
 func (*BadRequestHeaders) getBankAccountRes()                   {}
 func (*BadRequestHeaders) getBankFileContentRes()               {}
 func (*BadRequestHeaders) getBankFileRes()                      {}
+func (*BadRequestHeaders) getBankStatementFileRes()             {}
 func (*BadRequestHeaders) getBankStatementRes()                 {}
 func (*BadRequestHeaders) getBusinessPartnerRes()               {}
 func (*BadRequestHeaders) getChangeRequestRes()                 {}
@@ -10825,6 +10826,7 @@ func (*ForbiddenHeaders) getApprovalRequestRes()               {}
 func (*ForbiddenHeaders) getBankAccountRes()                   {}
 func (*ForbiddenHeaders) getBankFileContentRes()               {}
 func (*ForbiddenHeaders) getBankFileRes()                      {}
+func (*ForbiddenHeaders) getBankStatementFileRes()             {}
 func (*ForbiddenHeaders) getBankStatementRes()                 {}
 func (*ForbiddenHeaders) getBusinessPartnerRes()               {}
 func (*ForbiddenHeaders) getChangeRequestRes()                 {}
@@ -11085,6 +11087,71 @@ func (s *GetBankFileContentOKHeaders) SetResponse(val GetBankFileContentOK) {
 }
 
 func (*GetBankFileContentOKHeaders) getBankFileContentRes() {}
+
+// The file's bytes.
+type GetBankStatementFileOK struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s GetBankStatementFileOK) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+// GetBankStatementFileOKHeaders wraps GetBankStatementFileOK with response headers.
+type GetBankStatementFileOKHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           GetBankStatementFileOK
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *GetBankStatementFileOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *GetBankStatementFileOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *GetBankStatementFileOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *GetBankStatementFileOKHeaders) GetResponse() GetBankStatementFileOK {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *GetBankStatementFileOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *GetBankStatementFileOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *GetBankStatementFileOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetBankStatementFileOKHeaders) SetResponse(val GetBankStatementFileOK) {
+	s.Response = val
+}
+
+func (*GetBankStatementFileOKHeaders) getBankStatementFileRes() {}
 
 // GetBusinessPartnerOKHeaders wraps BusinessPartner with response headers.
 type GetBusinessPartnerOKHeaders struct {
@@ -16073,6 +16140,7 @@ func (*NotFoundHeaders) getApprovalRequestRes()               {}
 func (*NotFoundHeaders) getBankAccountRes()                   {}
 func (*NotFoundHeaders) getBankFileContentRes()               {}
 func (*NotFoundHeaders) getBankFileRes()                      {}
+func (*NotFoundHeaders) getBankStatementFileRes()             {}
 func (*NotFoundHeaders) getBankStatementRes()                 {}
 func (*NotFoundHeaders) getBusinessPartnerRes()               {}
 func (*NotFoundHeaders) getChangeRequestRes()                 {}
@@ -26509,9 +26577,11 @@ func (*ServiceUnavailableHeaders) endCompanyAccessRes()                 {}
 func (*ServiceUnavailableHeaders) endRoleAssignmentRes()                {}
 func (*ServiceUnavailableHeaders) endRolePermissionRes()                {}
 func (*ServiceUnavailableHeaders) endSodRuleRes()                       {}
+func (*ServiceUnavailableHeaders) getBankStatementFileRes()             {}
 func (*ServiceUnavailableHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*ServiceUnavailableHeaders) grantRolePermissionRes()              {}
 func (*ServiceUnavailableHeaders) holdSupplierInvoiceRes()              {}
+func (*ServiceUnavailableHeaders) importBankStatementsRes()             {}
 func (*ServiceUnavailableHeaders) lockFiscalPeriodRes()                 {}
 func (*ServiceUnavailableHeaders) matchSupplierInvoiceRes()             {}
 func (*ServiceUnavailableHeaders) openFiscalPeriodRes()                 {}
@@ -28258,6 +28328,7 @@ func (*TooManyRequestsHeaders) getApprovalRequestRes()               {}
 func (*TooManyRequestsHeaders) getBankAccountRes()                   {}
 func (*TooManyRequestsHeaders) getBankFileContentRes()               {}
 func (*TooManyRequestsHeaders) getBankFileRes()                      {}
+func (*TooManyRequestsHeaders) getBankStatementFileRes()             {}
 func (*TooManyRequestsHeaders) getBankStatementRes()                 {}
 func (*TooManyRequestsHeaders) getBusinessPartnerRes()               {}
 func (*TooManyRequestsHeaders) getChangeRequestRes()                 {}
@@ -28512,6 +28583,7 @@ func (*UnauthorizedHeaders) getApprovalRequestRes()               {}
 func (*UnauthorizedHeaders) getBankAccountRes()                   {}
 func (*UnauthorizedHeaders) getBankFileContentRes()               {}
 func (*UnauthorizedHeaders) getBankFileRes()                      {}
+func (*UnauthorizedHeaders) getBankStatementFileRes()             {}
 func (*UnauthorizedHeaders) getBankStatementRes()                 {}
 func (*UnauthorizedHeaders) getBusinessPartnerRes()               {}
 func (*UnauthorizedHeaders) getChangeRequestRes()                 {}

@@ -8077,7 +8077,7 @@ paths:
       tags:
         - payments
       summary: Import a bank statement file
-      description: "Imports the statements of a bank's file (ADR-0047) for one house bank: camt.053 (.001.02 or .001.08) or MT940, read as UTF-8, at most 4 MB. Each statement must be of the house bank's account and currency, and its entries must take its opening balance to its closing balance. The same file again for the house bank (by its SHA-256) answers 200 with the statements it imported; another file with a statement already imported (the same statement id, account and sequence) is refused with 409 `payments.statement_conflict`. A statement whose opening balance is not the closing balance of the house bank's statement before it is imported in status `gap`, and automatic posting stops for the bank; a statement imported between two others becomes the next one's previous statement, whose status follows the comparison again. A file that cannot be read is refused with 422 `payments.statement_unreadable`, naming the line where what is wrong starts. Imports are made by people and integrations; agents read statements, and an agent's import is refused with 403 `identity.agent_not_allowed`."
+      description: "Imports the statements of a bank's file (ADR-0047) for one house bank: camt.053 (.001.02 or .001.08) or MT940, read as UTF-8, at most 4 MB. Each statement must be of the house bank's account and currency, and its entries must take its opening balance to its closing balance. The same file again for the house bank (by its SHA-256) answers 200 with the statements it imported; another file with a statement already imported (the same statement id, account and sequence) is refused with 409 `payments.statement_conflict`. A statement whose opening balance is not the closing balance of the house bank's statement before it is imported in status `gap`, and automatic posting stops for the bank; a statement imported between two others becomes the next one's previous statement, whose status follows the comparison again. A file that cannot be read is refused with 422 `payments.statement_unreadable`, naming the line where what is wrong starts. Imports are made by people and integrations; agents read statements, and an agent's import is refused with 403 `identity.agent_not_allowed`. The file is kept as accounting evidence in object storage (`GET /v1/bank-statements/{id}/file`), so without object storage, or when the store does not take it, nothing is imported (503)."
       x-permission: payments.statement.import
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -8133,6 +8133,8 @@ paths:
           $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   "/v1/bank-statements/{id}":
     get:
       operationId: getBankStatement
@@ -8169,6 +8171,44 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/bank-statements/{id}/file":
+    get:
+      operationId: getBankStatementFile
+      tags:
+        - payments
+      summary: Download a bank statement's file
+      description: "The file a bank statement was imported from, byte for byte as the bank sent it (camt.053 XML or MT940 text): kept as accounting evidence in object storage, written once, encrypted and locked for the retention of financial records (ADR-0047). The statements of one file share it. 503 while the server has no object storage or the store does not answer."
+      x-permission: payments.statement.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The statement file.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+                description: The file's bytes.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   "/v1/bank-files/{id}":
     get:
       operationId: getBankFile

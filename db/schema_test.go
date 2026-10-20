@@ -3098,8 +3098,8 @@ func TestAgentCertification(t *testing.T) {
 }
 
 // TestBankStatementSchema: a statement is imported once per house bank and
-// key and once per file position, its dates in order, a gap only after a
-// previous statement; a line belongs to a statement and keeps its details
+// key and once per file position, names its kept file, its dates in order,
+// a gap only after a previous statement; a line belongs to a statement and keeps its details
 // a list; a match targets at most one thing, names its posting exactly when
 // posted, is live once per line and is never decided by its proposer
 // (T49c, ADR-0047).
@@ -3117,17 +3117,18 @@ func TestBankStatementSchema(t *testing.T) {
 		sum                 string
 		closing             string
 		previous            *uuid.UUID
+		ref                 string
 	}
 	statement := func(s stmt) func(tx pgx.Tx) error {
 		return func(tx pgx.Tx) error {
 			return exec(tx, `INSERT INTO payments.bank_statement (tenant_id, id, house_bank_id, legal_entity_id, format, file_sha256, file_position,
 					statement_key, statement_ref, sequence, account, currency, opening_balance, opening_date, closing_balance, closing_date, line_count,
-					previous_statement_id, status, created_by, updated_by)
-				VALUES ($1,$2,$3,$4,$5,decode($6, 'hex'),$7,$8,'S','1','GB33','USD',0,'2026-10-20',0,$9::date,0,$10,$11,$12,$12)`,
-				f.tenant, id(), hb, f.entity, s.format, s.sum, s.position, s.key, s.closing, s.previous, s.status, f.actor)
+					previous_statement_id, status, created_by, updated_by, file_ref)
+				VALUES ($1,$2,$3,$4,$5,decode($6, 'hex'),$7,$8,'S','1','GB33','USD',0,'2026-10-20',0,$9::date,0,$10,$11,$12,$12,$13)`,
+				f.tenant, id(), hb, f.entity, s.format, s.sum, s.position, s.key, s.closing, s.previous, s.status, f.actor, s.ref)
 		}
 	}
-	ok := stmt{key: "K1", format: "mt940", status: "imported", position: 1, sum: strings.Repeat("ab", 32), closing: "2026-10-20"}
+	ok := stmt{key: "K1", format: "mt940", status: "imported", position: 1, sum: strings.Repeat("ab", 32), closing: "2026-10-20", ref: "tenants/t/bank-statements/ab"}
 	with := func(change func(*stmt)) func(tx pgx.Tx) error {
 		s := ok
 		change(&s)
@@ -3135,8 +3136,8 @@ func TestBankStatementSchema(t *testing.T) {
 	}
 	mustApp(t, f.tenant, func(tx pgx.Tx) error {
 		return exec(tx, `INSERT INTO payments.bank_statement (tenant_id, id, house_bank_id, legal_entity_id, format, file_sha256, file_position,
-				statement_key, statement_ref, sequence, account, currency, opening_balance, opening_date, closing_balance, closing_date, line_count, status, created_by, updated_by)
-			VALUES ($1,$2,$3,$4,'mt940',decode(repeat('ab', 32), 'hex'),1,'K1','S','1','GB33','USD',0,'2026-10-20',0,'2026-10-20',1,'imported',$5,$5)`,
+				statement_key, statement_ref, sequence, account, currency, opening_balance, opening_date, closing_balance, closing_date, line_count, status, created_by, updated_by, file_ref)
+			VALUES ($1,$2,$3,$4,'mt940',decode(repeat('ab', 32), 'hex'),1,'K1','S','1','GB33','USD',0,'2026-10-20',0,'2026-10-20',1,'imported',$5,$5,'tenants/t/bank-statements/ab')`,
 			f.tenant, first, hb, f.entity, f.actor)
 	})
 	line := func(statement uuid.UUID, no int, details string) func(tx pgx.Tx) error {
@@ -3186,6 +3187,7 @@ func TestBankStatementSchema(t *testing.T) {
 		{"closing before opening", with(func(s *stmt) { s.key, s.position, s.closing = "K2", 2, "2026-10-19" }), "bank_statement_dates"},
 		{"a gap without a previous statement", with(func(s *stmt) { s.key, s.position, s.status = "K2", 2, "gap" }), "bank_statement_gap"},
 		{"another status", with(func(s *stmt) { s.key, s.position, s.status = "K2", 2, "posted" }), "bank_statement_status_check"},
+		{"no file", with(func(s *stmt) { s.key, s.position, s.ref = "K2", 2, "" }), "bank_statement_file_ref_check"},
 		{"an unknown previous statement", with(func(s *stmt) { s.key, s.position, s.previous = "K2", 2, &hb }), "bank_statement_tenant_id_previous_statement_id_fkey"},
 		{"a line of no statement", line(hb, 1, `[]`), "bank_statement_line_tenant_id_statement_id_fkey"},
 		{"line 0", line(first, 0, `[]`), "bank_statement_line_line_no_check"},

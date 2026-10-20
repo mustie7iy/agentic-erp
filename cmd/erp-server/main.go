@@ -536,7 +536,7 @@ func (s *server) dialEngine(ctx context.Context) (*workflow.Temporal, error) {
 func (s *server) newAPI() error {
 	cfg := s.cfg
 	s.apiCfg = app.Config{
-		Pool: s.pool, AppRole: cfg.AppRole, Verifier: s.verifier, Pages: s.pages, FieldKeys: s.keys, Extractor: s.extractor, Connector: s.connector, ExtractDir: cfg.ExtractDir, Objects: s.store, Secrets: cfg.Secrets, Log: s.log,
+		Pool: s.pool, AppRole: cfg.AppRole, Verifier: s.verifier, Pages: s.pages, FieldKeys: s.keys, Extractor: s.extractor, Connector: s.connector, ExtractDir: cfg.ExtractDir, Objects: s.store, Retention: cfg.Objects.Retention, Secrets: cfg.Secrets, Log: s.log,
 		UploadKey: uploadKey(cfg.PageTokenKey), PublicURL: cfg.PublicURL, Workflows: s.engineClient,
 		Limits: ratelimit.New(cfg.TenantQuota, cfg.PrincipalQuota), RequestTimeout: cfg.RequestTimeout,
 		Metrics: s.metrics, Tracer: s.tp, Meter: otel.GetMeterProvider(), Now: time.Now,

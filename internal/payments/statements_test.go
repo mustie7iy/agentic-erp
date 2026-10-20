@@ -4,17 +4,31 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
+	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 var statementPerms = []string{"payments.statement.read", "payments.statement.import"}
+
+// statementSetup is the package setup with the permissions on statements
+// and an object store that encrypts and locks for an hour.
+func statementSetup(t *testing.T) (env, *blobstoretest.Server) {
+	t.Helper()
+	store := blobstoretest.New(t)
+	objects := store.Store()
+	objects.Encryption = blobstore.Encryption{Algorithm: blobstore.SSEKMS}
+	return setupWith(t, statementPerms, func(cfg *app.Config) { cfg.Objects, cfg.Retention = objects, time.Hour }), store
+}
 
 // mtStatement is an MT940 statement of house bank MAIN of company 2000
 // (DE89370400440532013000, EUR) with the balances and :61: lines given.
@@ -62,7 +76,7 @@ func field(v any, path ...string) any {
 // the first import, and another file with an imported statement is
 // refused (ADR-0047).
 func TestImportStatements(t *testing.T) {
-	e := setupWith(t, statementPerms, func(*app.Config) {})
+	e, _ := statementSetup(t)
 	file := mtStatement("S1", "00001/001", "1000,00", "261019", "989,50", "261020",
 		":61:2610201020D10,50NCHGNONREF//B1\n:86:/EREF/E2E-1/NAME/Bank AG/REMI/FEES\n") +
 		mtStatement("S2", "00002/001", "989,50", "261020", "1089,50", "261021", ":61:261021C100,00NTRFREF2//B2\n")
@@ -125,7 +139,7 @@ func TestImportStatements(t *testing.T) {
 // balance of the bank's statement before it is imported in gap; the
 // missing statement, when it arrives, closes the gap.
 func TestStatementGaps(t *testing.T) {
-	e := setupWith(t, statementPerms, func(*app.Config) {})
+	e, _ := statementSetup(t)
 	first := e.imported(t, "mt940", mtStatement("G1", "1", "500,00", "261001", "500,00", "261001"))[0].(map[string]any)
 	third := e.imported(t, "mt940", mtStatement("G3", "3", "700,00", "261003", "700,00", "261003"))[0].(map[string]any)
 	if third["status"] != "gap" || third["previous_statement_id"] != first["id"] {
@@ -174,7 +188,7 @@ func TestStatementGaps(t *testing.T) {
 
 // TestStatementCamt: a camt.053 file is imported in its version.
 func TestStatementCamt(t *testing.T) {
-	e := setupWith(t, statementPerms, func(*app.Config) {})
+	e, _ := statementSetup(t)
 	doc := `<?xml version="1.0" encoding="UTF-8"?>
 <Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02"><BkToCstmrStmt><GrpHdr><MsgId>MSG-1</MsgId></GrpHdr>
 <Stmt><Id>C1</Id><ElctrncSeqNb>7</ElctrncSeqNb><Acct><Id><IBAN>DE89370400440532013000</IBAN></Id><Ccy>EUR</Ccy></Acct>
@@ -189,7 +203,7 @@ func TestStatementCamt(t *testing.T) {
 
 // TestStatementRefusals: what an import refuses, and why.
 func TestStatementRefusals(t *testing.T) {
-	e := setupWith(t, statementPerms, func(*app.Config) {})
+	e, _ := statementSetup(t)
 	ok := mtStatement("R1", "1", "1,00", "261001", "1,00", "261001")
 	for _, c := range []struct {
 		name, bank, format, file, code string
@@ -234,8 +248,9 @@ func TestStatementRefusals(t *testing.T) {
 // TestStatementDatabaseFailures: every statement of an import and of the
 // reads fails in turn, and none runs outside a unit of work.
 func TestStatementDatabaseFailures(t *testing.T) {
-	e := setupWith(t, statementPerms, func(*app.Config) {})
+	e, store := statementSetup(t)
 	h := endpoints(nil)
+	h.Objects = store.Store()
 	s := e.imported(t, "mt940", mtStatement("F1", "1", "1,00", "261001", "1,00", "261001"))[0].(map[string]any)
 	n := 0
 	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "import", func(ctx context.Context) error {
@@ -249,6 +264,10 @@ func TestStatementDatabaseFailures(t *testing.T) {
 	})
 	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "get", func(ctx context.Context) error {
 		_, err := payments.GetStatement(ctx, uuidOf(id(s)))
+		return err
+	})
+	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "file", func(ctx context.Context) error {
+		_, err := h.StatementFile(ctx, uuidOf(id(s)))
 		return err
 	})
 	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "list", func(ctx context.Context) error {
@@ -273,7 +292,73 @@ func TestStatementDatabaseFailures(t *testing.T) {
 			_, err := h.ImportBankStatements(context.Background(), &gen.BankStatementUploadMultipart{}, gen.ImportBankStatementsParams{})
 			return err
 		}(),
+		"file": func() error {
+			_, err := h.GetBankStatementFile(context.Background(), gen.GetBankStatementFileParams{ID: e.bank})
+			return err
+		}(),
 	} {
 		t.Run(name, func(t *testing.T) { pgtest.WantErr(t, err, "") })
 	}
+}
+
+// TestStatementFile: the file a statement was imported from is kept as
+// evidence, written once under the tenant and its hash, encrypted and
+// locked, and downloaded as it came; without the store nothing is
+// imported (ADR-0047).
+func TestStatementFile(t *testing.T) {
+	e, store := statementSetup(t)
+	file := mtStatement("K1", "1", "1,00", "261001", "1,00", "261001")
+	s := e.imported(t, "mt940", file)[0].(map[string]any)
+	key := fmt.Sprintf("tenants/%s/bank-statements/%x", e.Tenant.ID, sha256.Sum256([]byte(file)))
+	o, ok := store.Object(key)
+	if !ok {
+		t.Fatalf("object %s: not stored; stored %v", key, store.Keys())
+	}
+	for name, c := range map[string]struct{ got, want any }{
+		"content":      {string(o.Content), file},
+		"content type": {o.ContentType, "text/plain; charset=utf-8"},
+		"lock mode":    {o.LockMode, "COMPLIANCE"},
+		"locked":       {o.RetainUntil != "", true},
+		"encryption":   {o.Encryption, blobstore.SSEKMS},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s: got %v, want %v", name, c.got, c.want)
+		}
+	}
+	download := func(e env) *httptest.ResponseRecorder {
+		return e.API.Do(apitest.Req{Method: "GET", Path: "/v1/bank-statements/" + id(s) + "/file", Tenant: e.Tenant.ID, As: e.Client.As})
+	}
+	t.Run("downloaded as it came", func(t *testing.T) {
+		if r := download(e.in(t)); r.Code != 200 || r.Body.String() != file {
+			t.Errorf("got %d %q, want 200 and the file", r.Code, r.Body.String())
+		}
+		e.in(t).Problem(404, "request.not_found", "GET", "/v1/bank-statements/"+e.expense.String()+"/file", "", "")
+	})
+	t.Run("imported again after its rows went, the kept file is the same", func(t *testing.T) {
+		pgtest.Exec(t, `DELETE FROM payments.bank_statement_line WHERE statement_id = $1`, uuidOf(id(s)))
+		pgtest.Exec(t, `UPDATE payments.bank_statement SET file_sha256 = decode(repeat('00', 32), 'hex'), statement_key = 'gone', version = version + 1 WHERE id = $1`, uuidOf(id(s)))
+		if again := e.in(t).imported(t, "mt940", file)[0].(map[string]any); again["id"] == s["id"] {
+			t.Errorf("again: got the same statement %v, want a new one", again["id"])
+		}
+	})
+	t.Run("the store fails", func(t *testing.T) {
+		store.Fail = 500
+		defer func() { store.Fail = 0 }()
+		if code, body := e.in(t).upload(t, e.bank.String(), "mt940", mtStatement("K2", "2", "1,00", "261002", "1,00", "261002")); code != 503 {
+			t.Errorf("import: got %d %v, want 503", code, body)
+		}
+		if r := download(e.in(t)); r.Code != 503 {
+			t.Errorf("download: got %d %s, want 503", r.Code, r.Body.String())
+		}
+	})
+	t.Run("no object store", func(t *testing.T) {
+		bare := e.in(t)
+		bare.API = apitest.NewWith(t, func(*app.Config) {})
+		if code, body := bare.upload(t, e.bank.String(), "mt940", mtStatement("K3", "3", "1,00", "261003", "1,00", "261003")); code != 503 {
+			t.Errorf("import: got %d %v, want 503", code, body)
+		}
+		if r := download(bare); r.Code != 503 {
+			t.Errorf("download: got %d %s, want 503", r.Code, r.Body.String())
+		}
+	})
 }

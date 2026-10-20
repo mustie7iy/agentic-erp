@@ -15,6 +15,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/bankstatement"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
@@ -61,6 +63,7 @@ type Statement struct {
 	Format                         string
 	FileSHA256                     []byte
 	FilePosition                   int32
+	FileRef                        string // the file in the object store
 	MessageID                      *string
 	Ref, Sequence, Account         string
 	Currency                       string
@@ -126,6 +129,21 @@ func (e *Endpoints) ImportStatements(ctx context.Context, houseBank uuid.UUID, f
 	if p.Kind == reqctx.KindAgent { // agents read statements; people and integrations import them (ADR-0047)
 		return nil, nil, false, problem.Forbidden("identity.agent_not_allowed", "Bank statements are imported by people and integrations; agents read them.")
 	}
+	bank, err := e.statementBank(ctx, tx, p.TenantID, houseBank, true)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	return e.importFile(ctx, tx, p, bank, format, file)
+}
+
+// importFile imports the file's statements for the bank, the one import
+// path of uploads and of the fetch from the bank's channel (T49d): the
+// file is checked, the bank's imports wait for each other, the same file
+// again is its first import, and a new file is kept in the object store,
+// locked, before its statements are inserted (ADR-0047). Without an object
+// store nothing is imported: a statement whose file is lost is not
+// evidence.
+func (e *Endpoints) importFile(ctx context.Context, tx pgx.Tx, p reqctx.Principal, bank statementBank, format string, file []byte) (_ []Statement, sum []byte, created bool, err error) {
 	parse, ok := statementFormats[format]
 	if !ok {
 		return nil, nil, false, problem.Unprocessable("request.validation_failed", "The format is not one statements are read from.",
@@ -135,16 +153,15 @@ func (e *Endpoints) ImportStatements(ctx context.Context, houseBank uuid.UUID, f
 		return nil, nil, false, problem.Unprocessable("request.validation_failed", "A statement file has 1 byte to 4 MB.",
 			problem.FieldError{Field: "file", Code: "invalid_length", Message: "1 byte to 4 MB"})
 	}
-	bank, err := e.statementBank(ctx, tx, p.TenantID, houseBank)
-	if err != nil {
-		return nil, nil, false, err
+	if e.Objects == nil {
+		return nil, nil, false, problem.Unavailable("Statement files are kept in object storage, which this server does not have.", 0)
 	}
 	digest := sha256.Sum256(file)
 	sum = digest[:]
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('payments.bank_statement:' || $1::text, 0))`, houseBank); err != nil {
-		return nil, nil, false, fmt.Errorf("payments: lock statements of house bank %s: %w", houseBank, err)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('payments.bank_statement:' || $1::text, 0))`, bank.ID); err != nil {
+		return nil, nil, false, fmt.Errorf("payments: lock statements of house bank %s: %w", bank.ID, err)
 	}
-	if before, err := fileStatements(ctx, tx, houseBank, sum); err != nil || len(before) > 0 {
+	if before, err := fileStatements(ctx, tx, bank.ID, sum); err != nil || len(before) > 0 {
 		return before, sum, false, err
 	}
 	exps, err := currency.Load(ctx, tx)
@@ -156,21 +173,58 @@ func (e *Endpoints) ImportStatements(ctx context.Context, houseBank uuid.UUID, f
 		return nil, nil, false, problem.Unprocessable("payments.statement_unreadable", "The file cannot be read as "+format+".",
 			problem.FieldError{Field: "file", Code: "unreadable", Message: strings.TrimPrefix(err.Error(), bankstatement.ErrMalformed.Error()+": ")})
 	}
+	ref, err := e.keepStatementFile(ctx, p.TenantID, sum, format, file)
+	if err != nil {
+		return nil, nil, false, err
+	}
 	for i, s := range parsed {
-		if err := importStatement(ctx, tx, p, bank, sum, int32(i+1), s, exps[s.Currency]); err != nil {
+		if err := importStatement(ctx, tx, p, bank, statementFile{sum: sum, ref: ref, position: int32(i + 1)}, s, exps[s.Currency]); err != nil {
 			return nil, nil, false, err
 		}
 	}
-	out, err := fileStatements(ctx, tx, houseBank, sum)
+	out, err := fileStatements(ctx, tx, bank.ID, sum)
 	return out, sum, true, err
 }
 
-// statementBank reads the house bank, which must be in a legal entity the
-// caller may act in, with its IBAN opened.
-func (e *Endpoints) statementBank(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID) (statementBank, error) {
-	access, err := authz.Companies(ctx)
-	if err != nil {
-		return statementBank{}, err
+// statementContentTypes are the content types statement files are kept
+// with, by format.
+var statementContentTypes = map[string]string{"camt.053": "application/xml", "mt940": "text/plain; charset=utf-8"}
+
+// keepStatementFile writes the file to the object store under the tenant
+// and its hash, once and locked for the retention of financial records
+// (ADR-0021, ADR-0040): the store encrypts it as it does every object. A
+// file already there is the same bytes, as when an import whose
+// transaction failed after the write is tried again.
+func (e *Endpoints) keepStatementFile(ctx context.Context, tenant uuid.UUID, sum []byte, format string, file []byte) (string, error) {
+	ref := blobstore.Key(tenant, blobstore.KindStatements, sha256Hex(sum))
+	opts := blobstore.PutOptions{ContentType: statementContentTypes[format]}
+	if e.Retention > 0 {
+		opts.RetainUntil = clock.Now(e.Now).Add(e.Retention)
+	}
+	if err := e.Objects.Put(ctx, ref, file, opts); err != nil && !errors.Is(err, blobstore.ErrExists) {
+		return "", problem.Unavailable("The object store did not take the statement file; import it again.", 30).WithCause(err)
+	}
+	return ref, nil
+}
+
+// statementFile is the file a statement is imported from: its hash, where
+// it is kept, and the statement's place in it.
+type statementFile struct {
+	sum      []byte
+	ref      string
+	position int32
+}
+
+// statementBank reads the house bank with its IBAN opened. A caller's
+// bank must be in a legal entity the caller may act in (checked); the
+// fetch from the bank's own channel acts for the bank's company.
+func (e *Endpoints) statementBank(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, checked bool) (statementBank, error) {
+	access := authz.Access{All: true}
+	var err error
+	if checked {
+		if access, err = authz.Companies(ctx); err != nil {
+			return statementBank{}, err
+		}
 	}
 	b := statementBank{ID: id}
 	var sealed []byte
@@ -188,8 +242,7 @@ func (e *Endpoints) statementBank(ctx context.Context, tx pgx.Tx, tenant, id uui
 // importStatement inserts one statement of the file at its position, after
 // the bank's statement before it, and its lines, and closes the gap of the
 // bank's statement after it that it was missing.
-func importStatement(ctx context.Context, tx pgx.Tx, p reqctx.Principal, bank statementBank, sum []byte, position int32, s bankstatement.Statement,
-	exp int) error {
+func importStatement(ctx context.Context, tx pgx.Tx, p reqctx.Principal, bank statementBank, f statementFile, s bankstatement.Statement, exp int) error {
 	if fieldcrypt.Normalize(s.Account.Identifier()) != fieldcrypt.Normalize(bank.IBAN) || s.Currency != bank.Currency {
 		return problem.Unprocessable("payments.statement_not_of_bank", fmt.Sprintf("Statement %s is of account %s in %s; the house bank's account is in %s.",
 			s.ID, s.Account.Identifier(), s.Currency, bank.Currency), problem.FieldError{Field: "file", Code: "other_account", Message: "a statement of the house bank's account"})
@@ -212,16 +265,16 @@ func importStatement(ctx context.Context, tx pgx.Tx, p reqctx.Principal, bank st
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO payments.bank_statement (tenant_id, id, house_bank_id, legal_entity_id, format, file_sha256, file_position,
 			statement_key, message_id, statement_ref, sequence, account, currency, opening_balance, opening_date, closing_balance, closing_date,
-			line_count, previous_statement_id, status, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $21)`,
-		p.TenantID, id, bank.ID, bank.LegalEntityID, s.Format, sum, position, s.Key(), msg, s.ID, s.Sequence, s.Account.Identifier(), s.Currency,
-		s.Opening.Amount, s.Opening.Date, s.Closing.Amount, s.Closing.Date, len(s.Entries), prevID, status, p.ID); err != nil {
+			line_count, previous_statement_id, status, created_by, updated_by, file_ref)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $21, $22)`,
+		p.TenantID, id, bank.ID, bank.LegalEntityID, s.Format, f.sum, f.position, s.Key(), msg, s.ID, s.Sequence, s.Account.Identifier(), s.Currency,
+		s.Opening.Amount, s.Opening.Date, s.Closing.Amount, s.Closing.Date, len(s.Entries), prevID, status, p.ID, f.ref); err != nil {
 		return fmt.Errorf("payments: insert statement %s of house bank %s: %w", s.ID, bank.ID, err)
 	}
 	if err := insertLines(ctx, tx, p, id, s.Entries); err != nil {
 		return err
 	}
-	if err := recordStatement(ctx, id, bank, sum, s, exp, status, prevID); err != nil {
+	if err := recordStatement(ctx, id, bank, f.sum, s, exp, status, prevID); err != nil {
 		return err
 	}
 	return relinkNext(ctx, tx, p, bank, id, prevID, s)
@@ -307,14 +360,14 @@ func recordStatement(ctx context.Context, id uuid.UUID, bank statementBank, sum 
 		"status": status}, outbox.Event{Context: "payments", Name: "bank_statement_imported", AggregateType: "payments.bank_statement", AggregateID: id, Payload: payload})
 }
 
-const statementSelect = `SELECT s.id, s.house_bank_id, s.legal_entity_id, s.format, s.file_sha256, s.file_position, s.message_id, s.statement_ref,
+const statementSelect = `SELECT s.id, s.house_bank_id, s.legal_entity_id, s.format, s.file_sha256, s.file_position, s.file_ref, s.message_id, s.statement_ref,
 	s.sequence, s.account, s.currency, c.exponent, s.opening_balance, s.closing_balance, s.opening_date, s.closing_date, s.line_count,
 	s.previous_statement_id, s.status, s.version, s.created_at, s.updated_at, s.created_by, s.updated_by
 	FROM payments.bank_statement s JOIN ref.currency c ON c.code = s.currency`
 
 func scanStatement(row pgx.Row) (Statement, error) {
 	var s Statement
-	err := row.Scan(&s.ID, &s.HouseBankID, &s.LegalEntityID, &s.Format, &s.FileSHA256, &s.FilePosition, &s.MessageID, &s.Ref, &s.Sequence, &s.Account,
+	err := row.Scan(&s.ID, &s.HouseBankID, &s.LegalEntityID, &s.Format, &s.FileSHA256, &s.FilePosition, &s.FileRef, &s.MessageID, &s.Ref, &s.Sequence, &s.Account,
 		&s.Currency, &s.Exponent, &s.Opening, &s.Closing, &s.OpeningDate, &s.ClosingDate, &s.LineCount, &s.PreviousID, &s.Status, &s.Version,
 		&s.CreatedAt, &s.UpdatedAt, &s.CreatedBy, &s.UpdatedBy)
 	return s, errs.Wrapf(err, "scan bank statement")
@@ -357,20 +410,47 @@ func statementNotFound() error { return problem.NotFoundOf("bank statement") }
 // GetStatement returns a bank statement of a legal entity the caller may
 // access, with its lines.
 func GetStatement(ctx context.Context, id uuid.UUID) (Statement, error) {
-	tx, _, err := reqctx.Request(ctx)
+	s, tx, err := visibleStatement(ctx, id)
 	if err != nil {
-		return Statement{}, err
-	}
-	access, err := authz.Companies(ctx)
-	if err != nil {
-		return Statement{}, err
-	}
-	s, err := scanStatement(tx.QueryRow(ctx, statementSelect+` WHERE s.id = $1`, id))
-	if err = authz.Visible(err, access, s.LegalEntityID, statementNotFound(), "payments: read bank statement %s", id); err != nil {
 		return Statement{}, err
 	}
 	s.Lines, err = statementLines(ctx, tx, id)
 	return s, err
+}
+
+// visibleStatement reads a bank statement of a legal entity the caller may
+// access, without its lines; any other is not found.
+func visibleStatement(ctx context.Context, id uuid.UUID) (Statement, pgx.Tx, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return Statement{}, nil, err
+	}
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return Statement{}, nil, err
+	}
+	s, err := scanStatement(tx.QueryRow(ctx, statementSelect+` WHERE s.id = $1`, id))
+	if err = authz.Visible(err, access, s.LegalEntityID, statementNotFound(), "payments: read bank statement %s", id); err != nil {
+		return Statement{}, nil, err
+	}
+	return s, tx, nil
+}
+
+// StatementFile returns the file a bank statement of a legal entity the
+// caller may access was imported from, byte for byte.
+func (e *Endpoints) StatementFile(ctx context.Context, id uuid.UUID) ([]byte, error) {
+	s, _, err := visibleStatement(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if e.Objects == nil {
+		return nil, problem.Unavailable("Statement files are kept in object storage, which this server does not have.", 0)
+	}
+	content, _, err := e.Objects.Get(ctx, s.FileRef) // the content type is the format's, and the API answers octet-stream
+	if err != nil {
+		return nil, problem.Unavailable("The object store did not return the statement file; try again.", 30).WithCause(err)
+	}
+	return content, nil
 }
 
 // sha256Hex is a file's hash as the API shows it.

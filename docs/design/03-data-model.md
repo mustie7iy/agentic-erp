@@ -1286,6 +1286,7 @@ erDiagram
     uuid house_bank_id "unique with statement_key, and with file_sha256 and file_position"
     text format "camt.053.001.02 | camt.053.001.08 | mt940"
     bytea file_sha256
+    text file_ref "the file in the object store, kept as evidence"
     text statement_key "statement id, account, sequence"
     bigint opening_balance
     bigint closing_balance
@@ -1353,7 +1354,11 @@ the posting named exactly when posted, never decided by its proposer). A
 statement whose opening balance is not the closing balance of the bank's
 statement before it (`previous_statement_id`) is in `gap`; a statement
 imported between two others becomes the next one's previous statement,
-which is compared again (its gap closes, or one opens).
+which is compared again (its gap closes, or one opens). The file itself is
+accounting evidence: it is kept in the object store under the tenant and
+its hash (`file_ref`, `tenants/<id>/bank-statements/<sha256>`), written
+once, encrypted by the store and locked for the retention of financial
+records.
 
 A company's payment methods (`payments.payment_method`, SAP T042Z) rank,
 per currency, the house banks that pay with them, first preferred
