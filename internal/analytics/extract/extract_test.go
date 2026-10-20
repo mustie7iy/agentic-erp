@@ -74,7 +74,7 @@ func (e env) post(t *testing.T, date, amount string) string {
 // waits for.
 func (e env) settled(t *testing.T) {
 	t.Helper()
-	pgtest.Eventually(t, time.Minute, func() bool {
+	pgtest.Eventually(t, 5*time.Minute, func() bool { // the horizon waits for every open transaction of the cluster, long ones of parallel packages too
 		var done bool
 		pgtest.Scan(t, `SELECT coalesce(max(posted_xid) < pg_snapshot_xmin(pg_current_snapshot()), true) FROM ledger.journal_entry WHERE tenant_id = $1`,
 			[]any{e.Tenant.ID}, &done)
