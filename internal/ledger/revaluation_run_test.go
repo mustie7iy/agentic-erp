@@ -317,3 +317,136 @@ func TestRevaluationRunTooLarge(t *testing.T) {
 		e.ten.ID, run, ap, e.supplier, entries)
 	e.Problem(422, "ledger.amount_too_large", "GET", "/v1/revaluation-runs/"+run.String(), "", "")
 }
+
+// cancelRun cancels a run with a fresh Idempotency-Key.
+func cancelRun(e env, id, ifMatch string) (int, map[string]any) {
+	rec := e.API.Do(apitest.Req{Method: "POST", Path: "/v1/revaluation-runs/" + id + ":cancel", Body: `{"reason": "The USD rate was keyed wrongly."}`,
+		Tenant: e.ten.ID, As: e.ten.Human, Key: apitest.NewKey(), IfMatch: ifMatch})
+	return rec.Code, apitest.JSON(e.T, rec)
+}
+
+// TestRevaluationRunCancel cancels a run (ADR-0042): both entries are
+// reversed on their own dates, the run is cancelled with its items,
+// audited and published, and its key date is free for another run; a
+// replay answers the same, a second cancel is refused, If-Match is
+// required and checked, agents are refused, and a run without entries is
+// cancelled without reversals.
+func TestRevaluationRunCancel(t *testing.T) {
+	e := runFixture(t)
+	run, tag := e.Must(201, "POST", "/v1/revaluation-runs", preview(e.de, "2026-03-31"), "")
+	id := apitest.String(t, run, "id")
+	path := "/v1/revaluation-runs/" + id + ":cancel"
+	body := `{"reason": "The USD rate was keyed wrongly."}`
+	t.Run("preconditions", func(t *testing.T) {
+		e.in(t).Problem(428, "request.precondition_required", "POST", path, body, "")
+		e.in(t).Problem(412, "request.version_mismatch", "POST", path, body, `"99"`)
+		agent := e.in(t)
+		agent.As = e.ten.Agent
+		agent.Problem(403, "identity.agent_not_allowed", "POST", path, body, tag)
+		e.in(t).Problem(404, "request.not_found", "POST", "/v1/revaluation-runs/"+uuid.NewString()+":cancel", body, "*")
+	})
+	key := apitest.NewKey()
+	call := func() (int, map[string]any, string, string) {
+		rec := e.API.Do(apitest.Req{Method: "POST", Path: path, Body: body, Tenant: e.ten.ID, As: e.ten.Human, Key: key, IfMatch: tag})
+		return rec.Code, apitest.JSON(t, rec), rec.Header().Get("ETag"), rec.Header().Get("Idempotent-Replayed")
+	}
+	code, cancelled, cancelledTag, _ := call()
+	if code != 200 || cancelled["status"] != "cancelled" || len(apitest.List(t, cancelled, "items")) != 2 || cancelledTag == tag {
+		t.Fatalf("cancel: got %d %v ETag %s, want 200 cancelled with its 2 items and a new ETag", code, cancelled, cancelledTag)
+	}
+	t.Run("reversals", func(t *testing.T) {
+		reversed := apitest.Published(t, e.ten, outbox.Event{Context: "ledger", Name: "journal_entry_reversed"})
+		dates := map[any]any{}
+		for _, r := range reversed {
+			dates[r["journal_entry_id"]] = r["reversal_posting_date"]
+		}
+		if g := fmt.Sprintln(len(reversed), dates[run["valuation_entry_id"]], dates[run["reversal_entry_id"]]); g != "2 2026-03-31 2026-04-01\n" {
+			t.Errorf("JournalEntryReversed: got %s, want 2 2026-03-31 2026-04-01", g)
+		}
+	})
+	t.Run("event and audit", func(t *testing.T) {
+		got := apitest.Published(t, e.ten, outbox.Event{Context: "ledger", Name: "revaluation_run_cancelled"})
+		if len(got) != 1 || got[0]["run_id"] != id || got[0]["reason"] != "The USD rate was keyed wrongly." || got[0]["valuation_reversal_entry_id"] == nil ||
+			got[0]["reset_reversal_entry_id"] == nil {
+			t.Errorf("RevaluationRunCancelled: got %v, want one of run %s with its reason and both reversals", got, id)
+		}
+		var audits int
+		count(t, &audits, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'ledger.revaluation_run.cancel' AND object_id = $2`, e.ten.ID, id)
+		if audits != 1 {
+			t.Errorf("audit records: got %d, want 1", audits)
+		}
+	})
+	t.Run("replayed", func(t *testing.T) {
+		code, again, _, replayed := call()
+		if code != 200 || again["status"] != "cancelled" || replayed != "true" {
+			t.Errorf("replay: got %d %v replayed %q, want 200 cancelled replayed", code, again["status"], replayed)
+		}
+	})
+	t.Run("cancelled twice", func(t *testing.T) {
+		e.in(t).Problem(409, "ledger.revaluation_not_posted", "POST", path, body, "*")
+	})
+	t.Run("its entries stay reversed", func(t *testing.T) {
+		e.in(t).Problem(409, "ledger.already_reversed", "POST", "/v1/journal-entries/"+apitest.String(t, run, "valuation_entry_id")+":reverse", "", "*")
+	})
+	t.Run("rerun", func(t *testing.T) {
+		again, _ := e.in(t).Must(201, "POST", "/v1/revaluation-runs", preview(e.de, "2026-03-31"), "")
+		if again["id"] == id || again["valuation_entry_id"] == nil {
+			t.Errorf("rerun: got %v, want a new run with its own entries", again)
+		}
+	})
+	t.Run("a run without entries", func(t *testing.T) {
+		empty, emptyTag := e.in(t).Must(201, "POST", "/v1/revaluation-runs", preview(e.de, "2026-02-28"), "")
+		if code, got := cancelRun(e, apitest.String(t, empty, "id"), emptyTag); code != 200 || got["status"] != "cancelled" {
+			t.Errorf("cancel: got %d %v, want 200 cancelled", code, got)
+		}
+		events := apitest.Published(t, e.ten, outbox.Event{Context: "ledger", Name: "revaluation_run_cancelled"})
+		last := events[len(events)-1]
+		if last["run_id"] != empty["id"] || last["valuation_reversal_entry_id"] != nil {
+			t.Errorf("RevaluationRunCancelled: got %v, want run %v without reversals", last, empty["id"])
+		}
+	})
+}
+
+// TestRevaluationRunCancelPeriodLocked: a run whose valuation entry's or
+// reset entry's period is locked (T32) is not cancelled, and nothing of it
+// is reversed.
+func TestRevaluationRunCancelPeriodLocked(t *testing.T) {
+	for _, period := range []int{3, 4} {
+		t.Run(fmt.Sprintf("period %d", period), func(t *testing.T) {
+			e := runFixture(t)
+			run, tag := e.in(t).Must(201, "POST", "/v1/revaluation-runs", preview(e.de, "2026-03-31"), "")
+			for _, status := range []string{"closed", "locked"} {
+				pgtest.Exec(t, `UPDATE ledger.period_status SET status = $3, version = version + 1 WHERE legal_entity_id = $1 AND fiscal_year = 2026 AND period = $2`,
+					e.de, period, status)
+			}
+			p := e.in(t).Problem(409, "ledger.period_not_open", "POST", "/v1/revaluation-runs/"+apitest.String(t, run, "id")+":cancel",
+				`{"reason": "late"}`, tag)
+			if !strings.Contains(fmt.Sprint(p["detail"]), "locked") {
+				t.Errorf("detail: got %v, want it to say the period is locked", p["detail"])
+			}
+			var reversals, posted int
+			count(t, &reversals, `SELECT count(*) FROM ledger.reversal WHERE tenant_id = $1`, e.ten.ID)
+			count(t, &posted, `SELECT count(*) FROM ledger.revaluation_run WHERE tenant_id = $1 AND status = 'posted'`, e.ten.ID)
+			if reversals != 0 || posted != 1 {
+				t.Errorf("after the refusal: got %d reversals and %d posted runs, want 0 and 1", reversals, posted)
+			}
+		})
+	}
+}
+
+// TestRevaluationRunCancelFailures fails each statement of cancelling a
+// run that posted both entries, and calls it outside a unit of work.
+func TestRevaluationRunCancelFailures(t *testing.T) {
+	e := runFixture(t)
+	run, _ := e.Must(201, "POST", "/v1/revaluation-runs", preview(e.de, "2026-03-31"), "")
+	h := endpoints()
+	cancel := func(ctx context.Context) error {
+		_, err := h.CancelRevaluationRun(ctx, &gen.ReasonInput{Reason: "test"},
+			gen.CancelRevaluationRunParams{ID: uuid.MustParse(apitest.String(t, run, "id")), IfMatch: "*"})
+		return err
+	}
+	if err := cancel(context.Background()); err == nil {
+		t.Error("cancel outside a unit of work: got no error, want one")
+	}
+	apitest.EveryFailure(t, e.ten, e.ten.Human, "cancel revaluation run", cancel)
+}

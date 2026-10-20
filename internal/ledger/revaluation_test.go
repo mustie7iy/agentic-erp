@@ -363,6 +363,39 @@ func TestRevaluationGroupCurrency(t *testing.T) {
 	}
 }
 
+// TestRevaluationResidualWithoutRate: a balance zero in its currency is
+// valued at zero without a rate (ADR-0042), so a missing valuation rate of
+// its currency neither refuses the preview nor the run, whose item is
+// recorded and read back without rates.
+func TestRevaluationResidualWithoutRate(t *testing.T) {
+	e := setup(t)
+	revaluationSetup(t, e, true)
+	settleRate(t, e, "USD", "2026-01-01", "0.8")
+	settleRate(t, e, "USD", "2026-03-10", "0.85")
+	expense, bank := settleAccount(t, e, "2000", "520000"), settleAccount(t, e, "2000", "100000")
+	revaluationPost(t, e, e.de, "2026-03-02", "USD", ledger.PostingLine{AccountID: bank, Amount: 50000}, ledger.PostingLine{AccountID: expense, Amount: -50000})
+	revaluationPost(t, e, e.de, "2026-03-12", "USD", ledger.PostingLine{AccountID: expense, Amount: 50000}, ledger.PostingLine{AccountID: bank, Amount: -50000})
+	render := func(got map[string]any) string {
+		t.Helper()
+		items := apitest.List(t, got, "items")
+		if len(items) != 1 {
+			t.Fatalf("items: got %d, want the bank's USD balance", len(items))
+		}
+		it := items[0].(map[string]any)
+		return fmt.Sprintf("%v %v %v %v %v", it["rate"], it["rate_valid_from"], it["rate_gc"], it["difference_lc"].(map[string]any)["amount"], it["direction"])
+	}
+	want := "<nil> <nil> <nil> 25.00 gain"
+	got, _ := e.in(t).Must(200, "POST", "/v1/revaluation-runs/preview", preview(e.de, "2026-03-31"), "")
+	if g := render(got); g != want {
+		t.Errorf("preview: got %s, want %s", g, want)
+	}
+	run, _ := e.in(t).Must(201, "POST", "/v1/revaluation-runs", preview(e.de, "2026-03-31"), "")
+	read, _ := e.in(t).Must(200, "GET", "/v1/revaluation-runs/"+apitest.String(t, run, "id"), "", "")
+	if g := render(read); g != want {
+		t.Errorf("run read back: got %s, want %s", g, want)
+	}
+}
+
 // TestRevaluationResidual: a flagged account whose balance in a currency
 // is zero but whose local and group balances are not is valued at zero,
 // and its residual is the difference (ADR-0042): USD in at 0.8 and out at

@@ -779,8 +779,13 @@ for local and for group currency each, the rate, its validity (none for
 the group's own currency) and the amount at that rate: group currency is
 valued on its own. An open item has a transaction-currency amount; a
 balance may be zero in it while its local or group balance is not, the
-residual a run corrects (`revaluation_item_amount`); a group rate without
-its validity is 1 (`revaluation_item_rate_gc`).
+residual a run corrects (`revaluation_item_amount`), and is worth zero at
+any rate, so it is valued without rates, every other item with both
+(`revaluation_item_rates`); a group rate without its validity is 1
+(`revaluation_item_rate_gc`). Cancelling a run (T48d) reverses both its
+entries through the ledger's reversal path (`ledger.reversal`) and sets
+`cancelled`, under the entries' bucket locks and the run read `FOR UPDATE`;
+the key date is then free for another posted run.
 
 ## 3.8 Procurement (`procurement`)
 

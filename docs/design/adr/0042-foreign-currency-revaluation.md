@@ -66,7 +66,10 @@ posting.
   account's balance per currency where it is not zero in transaction,
   local or group currency: a balance zero in its currency with a local or
   group residual is valued at zero, and the residual is exactly what the
-  run corrects. Each is valued `round(amount_tc × rate)` against its
+  run corrects. Such a balance is worth zero at any rate, so it is valued
+  without one (coordinator 2026-10-19): no rate is looked up or checked
+  for it, its difference is `0 −` its booked local and group amounts, and
+  its item records no rates (`revaluation_item_rates`). Every other item is valued `round(amount_tc × rate)` against its
   booked local amount, rounded once; a positive difference is a gain, a
   negative one a loss.
 - **Group currency is valued on its own (product owner 2026-10-19).** As
@@ -103,8 +106,7 @@ posting.
   posting's; the header's local-to-group rate is the posting date's
   average rate, for the record only, so a run fails without one as any
   posting would. A run's entries are not reversed one by one
-  (`ledger.entry_owned_elsewhere`); cancelling the run (T48d) reverses
-  both. The reset entry, dated the next day,
+  (`ledger.entry_owned_elsewhere`); cancelling the run reverses both. The reset entry, dated the next day,
   has the same lines negated. Both periods must be open
   (`ledger.period_not_open`), also for a run without differences, which
   is recorded with its items and no entries. Running needs
@@ -120,6 +122,18 @@ posting.
   409 `ledger.revaluation_exists`, whose detail names the posted
   run and whose `Location` header links it. To correct a run, cancel it (which
   reverses both its entries) and run again.
+- **Cancelling (T48d).** `POST /v1/revaluation-runs/{id}:cancel`
+  (Idempotency-Key, If-Match the run's version, a reason) reverses the
+  valuation and reset entries through the ledger's reversal path, each on
+  its own posting date with `JournalEntryReversed`: the run's cancel is
+  the one way around `:reverse`'s refusal of a run's entries. Both
+  entries' periods must be open (`ledger.period_not_open`; a closed or
+  locked period, T32, refuses the cancel and nothing is reversed); a
+  cancelled run is 409 `ledger.revaluation_not_posted`. The run becomes
+  `cancelled`, which frees its key date, and is audited and published
+  (`RevaluationRunCancelled`); a run without entries is cancelled without
+  reversals. It takes its entries' bucket locks, then reads the run
+  `FOR UPDATE` (ADR-0008). Needs `ledger.entry.post`; human-only.
 - **Transactions and access.** A run is synchronous, one transaction:
   items are read, valued and posted together, and the run's open items are
   read so that a concurrent clearing waits (ADR-0008). Running and
@@ -150,7 +164,9 @@ posting.
 
 ## Consequences
 - Steps: a ADR and schema (000091) · b valuation engine and preview · c
-  posting run · d cancel and close-out.
+  posting run · d cancel and close-out, all done; e (follow-ups: paging
+  of very large previews, one shared definition of "reversed" for
+  open-item reads, a budget run with reversals) is open.
 - The unrealised result of a period is visible as the balance of the
   unrealised gain and loss accounts and is gone from the next period after
   the reversal.

@@ -2662,6 +2662,7 @@ func (*BadRequestHeaders) cancelParkedJournalEntryRes()         {}
 func (*BadRequestHeaders) cancelPurchaseOrderChangeRes()        {}
 func (*BadRequestHeaders) cancelPurchaseOrderRes()              {}
 func (*BadRequestHeaders) cancelRequisitionRes()                {}
+func (*BadRequestHeaders) cancelRevaluationRunRes()             {}
 func (*BadRequestHeaders) cancelSupplierInvoiceRes()            {}
 func (*BadRequestHeaders) captureSupplierInvoiceRes()           {}
 func (*BadRequestHeaders) clearSupplierInvoiceDownPaymentsRes() {}
@@ -4789,6 +4790,78 @@ func (s *CancelOperationOKHeaders) SetResponse(val Operation) {
 
 func (*CancelOperationOKHeaders) cancelOperationRes() {}
 
+// CancelRevaluationRunOKHeaders wraps RevaluationRun with response headers.
+type CancelRevaluationRunOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           RevaluationRun
+}
+
+// GetETag returns the value of ETag.
+func (s *CancelRevaluationRunOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CancelRevaluationRunOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *CancelRevaluationRunOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *CancelRevaluationRunOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *CancelRevaluationRunOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *CancelRevaluationRunOKHeaders) GetResponse() RevaluationRun {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CancelRevaluationRunOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CancelRevaluationRunOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *CancelRevaluationRunOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *CancelRevaluationRunOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *CancelRevaluationRunOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CancelRevaluationRunOKHeaders) SetResponse(val RevaluationRun) {
+	s.Response = val
+}
+
+func (*CancelRevaluationRunOKHeaders) cancelRevaluationRunRes() {}
+
 // A cash discount for payment by a date.
 // Ref: #/components/schemas/CashDiscountTier
 type CashDiscountTier struct {
@@ -6598,6 +6671,7 @@ func (*ConflictHeaders) cancelParkedJournalEntryRes()         {}
 func (*ConflictHeaders) cancelPurchaseOrderChangeRes()        {}
 func (*ConflictHeaders) cancelPurchaseOrderRes()              {}
 func (*ConflictHeaders) cancelRequisitionRes()                {}
+func (*ConflictHeaders) cancelRevaluationRunRes()             {}
 func (*ConflictHeaders) cancelSupplierInvoiceRes()            {}
 func (*ConflictHeaders) captureSupplierInvoiceRes()           {}
 func (*ConflictHeaders) clearSupplierInvoiceDownPaymentsRes() {}
@@ -9941,6 +10015,7 @@ func (*ForbiddenHeaders) cancelParkedJournalEntryRes()         {}
 func (*ForbiddenHeaders) cancelPurchaseOrderChangeRes()        {}
 func (*ForbiddenHeaders) cancelPurchaseOrderRes()              {}
 func (*ForbiddenHeaders) cancelRequisitionRes()                {}
+func (*ForbiddenHeaders) cancelRevaluationRunRes()             {}
 func (*ForbiddenHeaders) cancelSupplierInvoiceRes()            {}
 func (*ForbiddenHeaders) captureSupplierInvoiceRes()           {}
 func (*ForbiddenHeaders) clearSupplierInvoiceDownPaymentsRes() {}
@@ -15268,6 +15343,7 @@ func (*NotFoundHeaders) cancelParkedJournalEntryRes()         {}
 func (*NotFoundHeaders) cancelPurchaseOrderChangeRes()        {}
 func (*NotFoundHeaders) cancelPurchaseOrderRes()              {}
 func (*NotFoundHeaders) cancelRequisitionRes()                {}
+func (*NotFoundHeaders) cancelRevaluationRunRes()             {}
 func (*NotFoundHeaders) cancelSupplierInvoiceRes()            {}
 func (*NotFoundHeaders) clearSupplierInvoiceDownPaymentsRes() {}
 func (*NotFoundHeaders) closeFiscalPeriodRes()                {}
@@ -20456,6 +20532,7 @@ func (*PreconditionFailedHeaders) cancelParkedJournalEntryRes()         {}
 func (*PreconditionFailedHeaders) cancelPurchaseOrderChangeRes()        {}
 func (*PreconditionFailedHeaders) cancelPurchaseOrderRes()              {}
 func (*PreconditionFailedHeaders) cancelRequisitionRes()                {}
+func (*PreconditionFailedHeaders) cancelRevaluationRunRes()             {}
 func (*PreconditionFailedHeaders) cancelSupplierInvoiceRes()            {}
 func (*PreconditionFailedHeaders) clearSupplierInvoiceDownPaymentsRes() {}
 func (*PreconditionFailedHeaders) closeFiscalPeriodRes()                {}
@@ -20577,6 +20654,7 @@ func (*PreconditionRequiredHeaders) cancelParkedJournalEntryRes()         {}
 func (*PreconditionRequiredHeaders) cancelPurchaseOrderChangeRes()        {}
 func (*PreconditionRequiredHeaders) cancelPurchaseOrderRes()              {}
 func (*PreconditionRequiredHeaders) cancelRequisitionRes()                {}
+func (*PreconditionRequiredHeaders) cancelRevaluationRunRes()             {}
 func (*PreconditionRequiredHeaders) cancelSupplierInvoiceRes()            {}
 func (*PreconditionRequiredHeaders) captureSupplierInvoiceRes()           {}
 func (*PreconditionRequiredHeaders) clearSupplierInvoiceDownPaymentsRes() {}
@@ -24433,18 +24511,20 @@ type RevaluationItem struct {
 	// Booked amount in group currency, signed.
 	AmountGc Money `json:"amount_gc"`
 	// Units of local currency per unit of the transaction currency on the key date, of the valuation rate
-	// type (rounded to 12 decimals when only the reverse pair is recorded).
-	Rate Decimal `json:"rate"`
-	// The rate's valid_from.
-	RateValidFrom time.Time `json:"rate_valid_from"`
+	// type (rounded to 12 decimals when only the reverse pair is recorded); absent for a balance that is
+	// zero in its currency, which is valued at zero without a rate.
+	Rate OptDecimal `json:"rate"`
+	// The rate's valid_from; absent with the rate.
+	RateValidFrom OptDate `json:"rate_valid_from"`
 	// The amount at the rate in local currency, rounded once.
 	ValuedLc Money `json:"valued_lc"`
 	// Valued_lc less amount_lc.
 	DifferenceLc Money `json:"difference_lc"`
 	// Units of group currency per unit of the transaction currency on the key date, of the valuation rate
-	// type; 1 when the transaction currency is the group's.
-	RateGc Decimal `json:"rate_gc"`
-	// Rate_gc's valid_from; absent when the transaction currency is the group's.
+	// type; 1 when the transaction currency is the group's; absent for a balance that is zero in its
+	// currency.
+	RateGc OptDecimal `json:"rate_gc"`
+	// Rate_gc's valid_from; absent when the transaction currency is the group's or rate_gc is absent.
 	RateGcValidFrom OptDate `json:"rate_gc_valid_from"`
 	// The amount at rate_gc in group currency, rounded once.
 	ValuedGc Money `json:"valued_gc"`
@@ -24496,12 +24576,12 @@ func (s *RevaluationItem) GetAmountGc() Money {
 }
 
 // GetRate returns the value of Rate.
-func (s *RevaluationItem) GetRate() Decimal {
+func (s *RevaluationItem) GetRate() OptDecimal {
 	return s.Rate
 }
 
 // GetRateValidFrom returns the value of RateValidFrom.
-func (s *RevaluationItem) GetRateValidFrom() time.Time {
+func (s *RevaluationItem) GetRateValidFrom() OptDate {
 	return s.RateValidFrom
 }
 
@@ -24516,7 +24596,7 @@ func (s *RevaluationItem) GetDifferenceLc() Money {
 }
 
 // GetRateGc returns the value of RateGc.
-func (s *RevaluationItem) GetRateGc() Decimal {
+func (s *RevaluationItem) GetRateGc() OptDecimal {
 	return s.RateGc
 }
 
@@ -24581,12 +24661,12 @@ func (s *RevaluationItem) SetAmountGc(val Money) {
 }
 
 // SetRate sets the value of Rate.
-func (s *RevaluationItem) SetRate(val Decimal) {
+func (s *RevaluationItem) SetRate(val OptDecimal) {
 	s.Rate = val
 }
 
 // SetRateValidFrom sets the value of RateValidFrom.
-func (s *RevaluationItem) SetRateValidFrom(val time.Time) {
+func (s *RevaluationItem) SetRateValidFrom(val OptDate) {
 	s.RateValidFrom = val
 }
 
@@ -24601,7 +24681,7 @@ func (s *RevaluationItem) SetDifferenceLc(val Money) {
 }
 
 // SetRateGc sets the value of RateGc.
-func (s *RevaluationItem) SetRateGc(val Decimal) {
+func (s *RevaluationItem) SetRateGc(val OptDecimal) {
 	s.RateGc = val
 }
 
@@ -24828,7 +24908,8 @@ func (s *RevaluationPreviewRequest) SetKeyDate(val time.Time) {
 	s.KeyDate = val
 }
 
-// A posted foreign-currency revaluation run (ADR-0042). Insert-only until cancelled (T48d).
+// A foreign-currency revaluation run (ADR-0042). Fixed once posted, except that it may be cancelled
+// once (`cancelRevaluationRun`).
 // Ref: #/components/schemas/RevaluationRun
 type RevaluationRun struct {
 	// Run id.
@@ -24841,7 +24922,8 @@ type RevaluationRun struct {
 	KeyDate time.Time `json:"key_date"`
 	// The valuation rate type the run valued at.
 	RateType string `json:"rate_type"`
-	// Posted, or cancelled (T48d).
+	// Posted, or cancelled (`cancelRevaluationRun`: both entries reversed, the key date free for another
+	// run).
 	Status string `json:"status"`
 	// Items valued, with or without a difference.
 	ItemCount int32 `json:"item_count"`
@@ -26588,6 +26670,7 @@ func (*ServiceUnavailableHeaders) cancelParkedJournalEntryRes()         {}
 func (*ServiceUnavailableHeaders) cancelPurchaseOrderChangeRes()        {}
 func (*ServiceUnavailableHeaders) cancelPurchaseOrderRes()              {}
 func (*ServiceUnavailableHeaders) cancelRequisitionRes()                {}
+func (*ServiceUnavailableHeaders) cancelRevaluationRunRes()             {}
 func (*ServiceUnavailableHeaders) cancelSupplierInvoiceRes()            {}
 func (*ServiceUnavailableHeaders) captureSupplierInvoiceRes()           {}
 func (*ServiceUnavailableHeaders) clearSupplierInvoiceDownPaymentsRes() {}
@@ -28330,6 +28413,7 @@ func (*TooManyRequestsHeaders) cancelParkedJournalEntryRes()         {}
 func (*TooManyRequestsHeaders) cancelPurchaseOrderChangeRes()        {}
 func (*TooManyRequestsHeaders) cancelPurchaseOrderRes()              {}
 func (*TooManyRequestsHeaders) cancelRequisitionRes()                {}
+func (*TooManyRequestsHeaders) cancelRevaluationRunRes()             {}
 func (*TooManyRequestsHeaders) cancelSupplierInvoiceRes()            {}
 func (*TooManyRequestsHeaders) captureSupplierInvoiceRes()           {}
 func (*TooManyRequestsHeaders) clearSupplierInvoiceDownPaymentsRes() {}
@@ -28585,6 +28669,7 @@ func (*UnauthorizedHeaders) cancelParkedJournalEntryRes()         {}
 func (*UnauthorizedHeaders) cancelPurchaseOrderChangeRes()        {}
 func (*UnauthorizedHeaders) cancelPurchaseOrderRes()              {}
 func (*UnauthorizedHeaders) cancelRequisitionRes()                {}
+func (*UnauthorizedHeaders) cancelRevaluationRunRes()             {}
 func (*UnauthorizedHeaders) cancelSupplierInvoiceRes()            {}
 func (*UnauthorizedHeaders) captureSupplierInvoiceRes()           {}
 func (*UnauthorizedHeaders) clearSupplierInvoiceDownPaymentsRes() {}
@@ -28829,6 +28914,7 @@ func (*UnprocessableHeaders) cancelParkedJournalEntryRes()         {}
 func (*UnprocessableHeaders) cancelPurchaseOrderChangeRes()        {}
 func (*UnprocessableHeaders) cancelPurchaseOrderRes()              {}
 func (*UnprocessableHeaders) cancelRequisitionRes()                {}
+func (*UnprocessableHeaders) cancelRevaluationRunRes()             {}
 func (*UnprocessableHeaders) cancelSupplierInvoiceRes()            {}
 func (*UnprocessableHeaders) captureSupplierInvoiceRes()           {}
 func (*UnprocessableHeaders) clearSupplierInvoiceDownPaymentsRes() {}

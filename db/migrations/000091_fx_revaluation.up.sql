@@ -212,10 +212,10 @@ CREATE TABLE ledger.revaluation_item (
   amount_tc         bigint NOT NULL,
   amount_lc         bigint NOT NULL,              -- booked, before this run
   amount_gc         bigint NOT NULL,              -- booked, before this run
-  rate              numeric(28,12) NOT NULL CHECK (rate > 0),
-  rate_valid_from   date NOT NULL,
+  rate              numeric(28,12) CHECK (rate > 0), -- none for a balance zero in its currency, valued without rates
+  rate_valid_from   date,
   valued_lc         bigint NOT NULL,              -- amount_tc at rate
-  rate_gc           numeric(28,12) NOT NULL CHECK (rate_gc > 0),
+  rate_gc           numeric(28,12) CHECK (rate_gc > 0),
   rate_gc_valid_from date,                        -- none when the item's currency is the group's (rate 1)
   valued_gc         bigint NOT NULL,              -- amount_tc at rate_gc
   PRIMARY KEY (tenant_id, run_id, item_no),
@@ -226,7 +226,12 @@ CREATE TABLE ledger.revaluation_item (
   -- An open item has an amount in its currency; a balance has one in some
   -- currency.
   -- Only the group's own currency is valued at 1 without a recorded rate.
-  CONSTRAINT revaluation_item_rate_gc CHECK (rate_gc_valid_from IS NOT NULL OR rate_gc = 1),
+  CONSTRAINT revaluation_item_rate_gc CHECK (rate_gc_valid_from IS NOT NULL OR rate_gc = 1 OR rate_gc IS NULL),
+  -- A balance zero in its currency is worth zero at any rate, so it is
+  -- valued without one (a rate no longer kept does not stop the run); every
+  -- other item has both rates.
+  CONSTRAINT revaluation_item_rates CHECK ((rate IS NULL) = (amount_tc = 0) AND (rate IS NULL) = (rate_valid_from IS NULL)
+    AND (rate IS NULL) = (rate_gc IS NULL) AND (rate_gc IS NOT NULL OR rate_gc_valid_from IS NULL)),
   CONSTRAINT revaluation_item_amount CHECK (amount_tc <> 0 OR (journal_entry_id IS NULL AND (amount_lc <> 0 OR amount_gc <> 0)))
 );
 CREATE UNIQUE INDEX revaluation_item_line ON ledger.revaluation_item (tenant_id, run_id, fiscal_year, journal_entry_id, line_no)

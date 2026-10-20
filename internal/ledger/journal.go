@@ -818,7 +818,7 @@ func (e *Endpoints) reverseJournalEntry(ctx context.Context, id uuid.UUID, ifMat
 	if err != nil {
 		return Entry{}, err
 	}
-	orig, err := reversibleEntry(ctx, tx, id, ifMatch)
+	orig, err := reversibleEntry(ctx, tx, id, ifMatch, uuid.Nil)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -836,8 +836,10 @@ func (e *Endpoints) reverseJournalEntry(ctx context.Context, id uuid.UUID, ifMat
 // reversibleEntry locks the entry's bucket and reads the entry, refusing
 // it when ifMatch does, when it cannot be reversed, or when a run holds
 // one of its items. Locked before reading, so requireReversible sees any
-// clearing of the entry that committed while this waited.
-func reversibleEntry(ctx context.Context, tx pgx.Tx, id uuid.UUID, ifMatch func(Entry) error) (Entry, error) {
+// clearing of the entry that committed while this waited. cancelling is
+// the revaluation run being cancelled, whose entries it may reverse, or
+// uuid.Nil.
+func reversibleEntry(ctx context.Context, tx pgx.Tx, id uuid.UUID, ifMatch func(Entry) error, cancelling uuid.UUID) (Entry, error) {
 	if err := lockEntries(ctx, tx, false, []uuid.UUID{id}); err != nil {
 		return Entry{}, err
 	}
@@ -848,7 +850,7 @@ func reversibleEntry(ctx context.Context, tx pgx.Tx, id uuid.UUID, ifMatch func(
 	if err := ifMatch(orig); err != nil {
 		return Entry{}, err
 	}
-	if err := requireReversible(ctx, tx, orig); err != nil {
+	if err := requireReversible(ctx, tx, orig, cancelling); err != nil {
 		return Entry{}, err
 	}
 	if err := requireUnreserved(ctx, tx, orig); err != nil {
@@ -909,10 +911,11 @@ func recordReversal(ctx context.Context, tx pgx.Tx, p reqctx.Principal, orig, re
 }
 
 // requireReversible refuses to reverse a reversed entry, a reversal, an
-// entry with cleared lines, or a revaluation run's entry: reversing one
-// alone would leave the run posted with its other entry still in force
-// (ADR-0042; a run's entries are reversed together by cancelling it).
-func requireReversible(ctx context.Context, tx pgx.Tx, orig Entry) error {
+// entry with cleared lines, or a revaluation run's entry unless that run
+// is cancelling: reversing one alone would leave the run posted with its
+// other entry still in force (ADR-0042; a run's entries are reversed
+// together by cancelling it).
+func requireReversible(ctx context.Context, tx pgx.Tx, orig Entry, cancelling uuid.UUID) error {
 	switch {
 	case orig.ReversedByID != nil:
 		return problem.Conflict("ledger.already_reversed", "The journal entry has already been reversed.")
@@ -929,7 +932,7 @@ func requireReversible(ctx context.Context, tx pgx.Tx, orig Entry) error {
 	switch {
 	case cleared:
 		return problem.Conflict("ledger.entry_cleared", "Lines of the journal entry are cleared; an entry with cleared lines cannot be reversed.")
-	case run != nil:
+	case run != nil && *run != cancelling:
 		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted by revaluation run "+run.String()+
 			"; a run's valuation and reset entries are reversed together by cancelling the run.")
 	}

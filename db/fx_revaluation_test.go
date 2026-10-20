@@ -206,7 +206,7 @@ func TestRevaluationRuns(t *testing.T) {
 // TestRevaluationItems: an item is an open item (a journal line, with its
 // partner) or a flagged account's balance in one currency (no line, no
 // partner), valued once per run, at positive rates into local and group
-// currency; an open item has an amount in its currency, a balance one in
+// currency, except a balance zero in its currency, which has none; an open item has an amount in its currency, a balance one in
 // some currency (a residual in local or group currency of a balance that
 // is zero in its own is what a run corrects); items are insert-only.
 func TestRevaluationItems(t *testing.T) {
@@ -220,7 +220,8 @@ func TestRevaluationItems(t *testing.T) {
 		run, err = f.run(tx, "2026-03-31", nil, nil)
 		return err
 	})
-	// item inserts an item booked at lc in local and group currency.
+	// item inserts an item booked at lc in local and group currency; a rate
+	// of "" is none, without its valid-from date.
 	item := func(no int, account uuid.UUID, partner, entry *uuid.UUID, lineNo *int, tc, lc int, rate, rateGC string) func(tx pgx.Tx) error {
 		return func(tx pgx.Tx) error {
 			var year *int
@@ -230,7 +231,8 @@ func TestRevaluationItems(t *testing.T) {
 			}
 			return exec(tx, `INSERT INTO ledger.revaluation_item (tenant_id, run_id, item_no, account_id, partner_id, fiscal_year, journal_entry_id, line_no,
 				currency_tc, amount_tc, amount_lc, amount_gc, rate, rate_valid_from, valued_lc, rate_gc, rate_gc_valid_from, valued_gc)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'GBP',$9,$10,$10,$11,'2026-03-01',-95,$12,'2026-03-01',-96)`,
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'GBP',$9,$10,$10,nullif($11, '')::numeric, CASE WHEN $11 <> '' THEN date '2026-03-01' END,-95,
+					nullif($12, '')::numeric, CASE WHEN $12 <> '' THEN date '2026-03-01' END,-96)`,
 				f.tenant, run, no, account, partner, year, entry, lineNo, tc, lc, rate, rateGC)
 		}
 	}
@@ -238,7 +240,8 @@ func TestRevaluationItems(t *testing.T) {
 	mustApp(t, f.tenant, item(1, f.ap, &f.supplier, &invoice, &two, -100, -90, "0.95", "0.96"))
 	mustApp(t, f.tenant, item(2, f.bank, nil, nil, nil, 50, -90, "0.95", "0.96"))
 	// A balance that is zero in its currency, with a local residual.
-	mustApp(t, f.tenant, item(4, f.tax, nil, nil, nil, 0, -90, "0.95", "0.96"))
+	// It is worth zero at any rate, so it is valued without one.
+	mustApp(t, f.tenant, item(4, f.tax, nil, nil, nil, 0, -90, "", ""))
 	for _, c := range []struct {
 		name   string
 		insert func(tx pgx.Tx) error
@@ -250,8 +253,15 @@ func TestRevaluationItems(t *testing.T) {
 		{"a line without its number", item(3, f.ap, &f.supplier, &invoice, nil, -100, -90, "0.95", "0.96"), "revaluation_item_kind"},
 		{"a line that is not posted", item(3, f.ap, &f.supplier, &invoice, &[]int{9}[0], -100, -90, "0.95", "0.96"),
 			"revaluation_item_open_item"},
-		{"an open item without an amount", item(3, f.expense, nil, &invoice, &one, 0, -90, "0.95", "0.96"), "revaluation_item_amount"},
-		{"a balance without any amount", item(3, f.expense, nil, nil, nil, 0, 0, "0.95", "0.96"), "revaluation_item_amount"},
+		{"an open item without an amount", item(3, f.expense, nil, &invoice, &one, 0, -90, "", ""), "revaluation_item_amount"},
+		{"a balance without any amount", item(3, f.expense, nil, nil, nil, 0, 0, "", ""), "revaluation_item_amount"},
+		{"a zero balance with rates", item(3, f.expense, nil, nil, nil, 0, -90, "0.95", "0.96"), "revaluation_item_rates"},
+		{"an amount without rates", item(3, f.expense, nil, nil, nil, 50, -90, "", ""), "revaluation_item_rates"},
+		{"a local rate without the group's", item(3, f.expense, nil, nil, nil, 50, -90, "0.95", ""), "revaluation_item_rates"},
+		{"a group rate's date without the rate", func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO ledger.revaluation_item (tenant_id, run_id, item_no, account_id, currency_tc, amount_tc, amount_lc, amount_gc,
+				valued_lc, rate_gc_valid_from, valued_gc) VALUES ($1,$2,3,$3,'GBP',0,1,1,0,'2026-03-01',0)`, f.tenant, run, f.expense)
+		}, "revaluation_item_rates"},
 		{"a rate of 0", item(3, f.expense, nil, &invoice, &one, 100, -90, "0", "0.96"), "revaluation_item_rate_check"},
 		{"a group rate without its date that is not 1", func(tx pgx.Tx) error {
 			return exec(tx, `INSERT INTO ledger.revaluation_item (tenant_id, run_id, item_no, account_id, currency_tc, amount_tc, amount_lc, amount_gc, rate,

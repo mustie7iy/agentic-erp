@@ -65,6 +65,10 @@ type CancelRequisitionRes interface {
 	cancelRequisitionRes()
 }
 
+type CancelRevaluationRunRes interface {
+	cancelRevaluationRunRes()
+}
+
 type CancelSupplierInvoiceRes interface {
 	cancelSupplierInvoiceRes()
 }

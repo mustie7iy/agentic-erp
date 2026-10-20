@@ -1036,9 +1036,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Cancel and close-out: cancel reverses both entries (which :reverse refuses alone, ledger.entry_owned_elsewhere), RevaluationRunCancelled; rerun after cancel",
-        "r": "T48d",
+        "s": "D",
+        "t": "Cancel and close-out: cancel reverses both entries through the ledger's reversal path (which :reverse refuses alone, ledger.entry_owned_elsewhere), refused when either entry's period is not open (T32) or the run is cancelled; RevaluationRunCancelled; rerun after cancel; a balance zero in its currency valued without a rate (coordinator 2026-10-19)",
+        "r": "POST /v1/revaluation-runs/{id}:cancel (x-agent: false, If-Match the run's version) · 409 ledger.revaluation_not_posted · item rates nullable for a zero balance (revaluation_item_rates) · T48d",
         "c": []
        },
        {

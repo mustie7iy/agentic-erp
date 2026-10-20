@@ -179,6 +179,22 @@ func (UnimplementedHandler) CancelRequisition(ctx context.Context, params Cancel
 	return r, ht.ErrNotImplemented
 }
 
+// CancelRevaluationRun implements cancelRevaluationRun operation.
+//
+// Cancels a posted revaluation run (ADR-0042, T48d): reverses its valuation entry and its reset entry
+// through the ledger's reversal path, each on its own posting date (`JournalEntryReversed` for each),
+// and marks the run `cancelled`, which frees its key date for another run. This is the only way a
+// run's entries are reversed (`journal-entries/{id}:reverse` refuses them with 409
+// `ledger.entry_owned_elsewhere`). Both entries' periods must be open (409 `ledger.period_not_open`,
+// also when one is closed or locked, T32); a cancelled run is 409 `ledger.revaluation_not_posted`. A
+// run without entries is cancelled without reversals. Audited and published
+// (`RevaluationRunCancelled`). The If-Match is the run's ETag. Human-only.
+//
+// POST /v1/revaluation-runs/{id}:cancel
+func (UnimplementedHandler) CancelRevaluationRun(ctx context.Context, req *ReasonInput, params CancelRevaluationRunParams) (r CancelRevaluationRunRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CancelSupplierInvoice implements cancelSupplierInvoice operation.
 //
 // Cancels a parked or held invoice (status `cancelled`); its supplier reference can then be entered
@@ -1503,7 +1519,8 @@ func (UnimplementedHandler) PostParkedJournalEntry(ctx context.Context, params P
 // entries. The run and its items are recorded, audited and published (`RevaluationRunPosted`, besides
 // each entry's `JournalEntryPosted`). One run per legal entity, ledger and key date is posted: a
 // second is 409 `ledger.revaluation_exists`, whose `detail` names the posted run and whose `Location`
-// header links it. Concurrent clearings and reversals of the tenant wait for the run. Human-only.
+// header links it; cancelling that run (`cancelRevaluationRun`) frees the key date. Concurrent
+// clearings and reversals of the tenant wait for the run. Human-only.
 //
 // POST /v1/revaluation-runs
 func (UnimplementedHandler) PostRevaluationRun(ctx context.Context, req *RevaluationPreviewRequest, params PostRevaluationRunParams) (r PostRevaluationRunRes, _ error) {
@@ -1531,17 +1548,17 @@ func (UnimplementedHandler) PostSupplierInvoice(ctx context.Context, req OptSupp
 // the balance of each G/L account flagged `revalue_foreign_currency`, in every currency other than
 // local currency. Down payments (special G/L items) and the GR/IR account are not revalued. A flagged
 // account's balance that is zero in its currency but not in local or group currency is valued too, at
-// zero: that residual is what revaluation corrects. Each item is valued in local and, on its own, in
-// group currency at the legal entity's valuation rate type valid on the key date, each rounded once:
-// `valued_lc` = amount × rate and `valued_gc` = amount × rate_gc (SAP's parallel-currency valuation,
-// not the local difference translated); the differences to the booked amounts are an unrealised gain
-// when positive and a loss when negative, by the local difference's sign, or the group one's when
-// local does not differ. The key date is the last day of a posting period of the ledger (422
-// `ledger.key_date_not_period_end`); a rate into local or group currency valid from before that period
-// is stale (422 `ledger.rate_stale`) and a missing one is refused (422 `ledger.no_exchange_rate`); an
-// account with items in scope and no active valuation accounts fails the preview (422
-// `ledger.revaluation_account_missing`, naming the account). Reads only; every agent autonomy level
-// may call it.
+// zero and without a rate (none is looked up or checked for it): that residual is what revaluation
+// corrects. Each item is valued in local and, on its own, in group currency at the legal entity's
+// valuation rate type valid on the key date, each rounded once: `valued_lc` = amount × rate and
+// `valued_gc` = amount × rate_gc (SAP's parallel-currency valuation, not the local difference
+// translated); the differences to the booked amounts are an unrealised gain when positive and a loss
+// when negative, by the local difference's sign, or the group one's when local does not differ. The
+// key date is the last day of a posting period of the ledger (422 `ledger.key_date_not_period_end`); a
+// rate into local or group currency valid from before that period is stale (422 `ledger.rate_stale`)
+// and a missing one is refused (422 `ledger.no_exchange_rate`); an account with items in scope and no
+// active valuation accounts fails the preview (422 `ledger.revaluation_account_missing`, naming the
+// account). Reads only; every agent autonomy level may call it.
 //
 // POST /v1/revaluation-runs/preview
 func (UnimplementedHandler) PreviewRevaluation(ctx context.Context, req *RevaluationPreviewRequest, params PreviewRevaluationParams) (r PreviewRevaluationRes, _ error) {

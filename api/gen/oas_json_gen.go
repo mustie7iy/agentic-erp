@@ -33622,12 +33622,16 @@ func (s *RevaluationItem) encodeFields(e *jx.Encoder) {
 		s.AmountGc.Encode(e)
 	}
 	{
-		e.FieldStart("rate")
-		s.Rate.Encode(e)
+		if s.Rate.Set {
+			e.FieldStart("rate")
+			s.Rate.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("rate_valid_from")
-		json.EncodeDate(e, s.RateValidFrom)
+		if s.RateValidFrom.Set {
+			e.FieldStart("rate_valid_from")
+			s.RateValidFrom.Encode(e, json.EncodeDate)
+		}
 	}
 	{
 		e.FieldStart("valued_lc")
@@ -33638,8 +33642,10 @@ func (s *RevaluationItem) encodeFields(e *jx.Encoder) {
 		s.DifferenceLc.Encode(e)
 	}
 	{
-		e.FieldStart("rate_gc")
-		s.RateGc.Encode(e)
+		if s.RateGc.Set {
+			e.FieldStart("rate_gc")
+			s.RateGc.Encode(e)
+		}
 	}
 	{
 		if s.RateGcValidFrom.Set {
@@ -33773,8 +33779,8 @@ func (s *RevaluationItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"amount_gc\"")
 			}
 		case "rate":
-			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
+				s.Rate.Reset()
 				if err := s.Rate.Decode(d); err != nil {
 					return err
 				}
@@ -33783,11 +33789,9 @@ func (s *RevaluationItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"rate\"")
 			}
 		case "rate_valid_from":
-			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
-				v, err := json.DecodeDate(d)
-				s.RateValidFrom = v
-				if err != nil {
+				s.RateValidFrom.Reset()
+				if err := s.RateValidFrom.Decode(d, json.DecodeDate); err != nil {
 					return err
 				}
 				return nil
@@ -33815,8 +33819,8 @@ func (s *RevaluationItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"difference_lc\"")
 			}
 		case "rate_gc":
-			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
+				s.RateGc.Reset()
 				if err := s.RateGc.Decode(d); err != nil {
 					return err
 				}
@@ -33877,7 +33881,7 @@ func (s *RevaluationItem) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [3]uint8{
 		0b11100001,
-		0b11011111,
+		0b11001100,
 		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {

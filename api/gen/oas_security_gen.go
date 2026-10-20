@@ -67,6 +67,7 @@ var operationRolesOidc = map[string][]string{
 	CancelPurchaseOrderOperation:              []string{},
 	CancelPurchaseOrderChangeOperation:        []string{},
 	CancelRequisitionOperation:                []string{},
+	CancelRevaluationRunOperation:             []string{},
 	CancelSupplierInvoiceOperation:            []string{},
 	CaptureSupplierInvoiceOperation:           []string{},
 	ClearSupplierInvoiceDownPaymentsOperation: []string{},

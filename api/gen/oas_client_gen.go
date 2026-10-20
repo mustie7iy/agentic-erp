@@ -147,6 +147,19 @@ type Invoker interface {
 	//
 	// POST /v1/requisitions/{id}:cancel
 	CancelRequisition(ctx context.Context, params CancelRequisitionParams) (CancelRequisitionRes, error)
+	// CancelRevaluationRun invokes cancelRevaluationRun operation.
+	//
+	// Cancels a posted revaluation run (ADR-0042, T48d): reverses its valuation entry and its reset entry
+	// through the ledger's reversal path, each on its own posting date (`JournalEntryReversed` for each),
+	// and marks the run `cancelled`, which frees its key date for another run. This is the only way a
+	// run's entries are reversed (`journal-entries/{id}:reverse` refuses them with 409
+	// `ledger.entry_owned_elsewhere`). Both entries' periods must be open (409 `ledger.period_not_open`,
+	// also when one is closed or locked, T32); a cancelled run is 409 `ledger.revaluation_not_posted`. A
+	// run without entries is cancelled without reversals. Audited and published
+	// (`RevaluationRunCancelled`). The If-Match is the run's ETag. Human-only.
+	//
+	// POST /v1/revaluation-runs/{id}:cancel
+	CancelRevaluationRun(ctx context.Context, request *ReasonInput, params CancelRevaluationRunParams) (CancelRevaluationRunRes, error)
 	// CancelSupplierInvoice invokes cancelSupplierInvoice operation.
 	//
 	// Cancels a parked or held invoice (status `cancelled`); its supplier reference can then be entered
@@ -1072,7 +1085,8 @@ type Invoker interface {
 	// entries. The run and its items are recorded, audited and published (`RevaluationRunPosted`, besides
 	// each entry's `JournalEntryPosted`). One run per legal entity, ledger and key date is posted: a
 	// second is 409 `ledger.revaluation_exists`, whose `detail` names the posted run and whose `Location`
-	// header links it. Concurrent clearings and reversals of the tenant wait for the run. Human-only.
+	// header links it; cancelling that run (`cancelRevaluationRun`) frees the key date. Concurrent
+	// clearings and reversals of the tenant wait for the run. Human-only.
 	//
 	// POST /v1/revaluation-runs
 	PostRevaluationRun(ctx context.Context, request *RevaluationPreviewRequest, params PostRevaluationRunParams) (PostRevaluationRunRes, error)
@@ -1094,17 +1108,17 @@ type Invoker interface {
 	// the balance of each G/L account flagged `revalue_foreign_currency`, in every currency other than
 	// local currency. Down payments (special G/L items) and the GR/IR account are not revalued. A flagged
 	// account's balance that is zero in its currency but not in local or group currency is valued too, at
-	// zero: that residual is what revaluation corrects. Each item is valued in local and, on its own, in
-	// group currency at the legal entity's valuation rate type valid on the key date, each rounded once:
-	// `valued_lc` = amount × rate and `valued_gc` = amount × rate_gc (SAP's parallel-currency valuation,
-	// not the local difference translated); the differences to the booked amounts are an unrealised gain
-	// when positive and a loss when negative, by the local difference's sign, or the group one's when
-	// local does not differ. The key date is the last day of a posting period of the ledger (422
-	// `ledger.key_date_not_period_end`); a rate into local or group currency valid from before that period
-	// is stale (422 `ledger.rate_stale`) and a missing one is refused (422 `ledger.no_exchange_rate`); an
-	// account with items in scope and no active valuation accounts fails the preview (422
-	// `ledger.revaluation_account_missing`, naming the account). Reads only; every agent autonomy level
-	// may call it.
+	// zero and without a rate (none is looked up or checked for it): that residual is what revaluation
+	// corrects. Each item is valued in local and, on its own, in group currency at the legal entity's
+	// valuation rate type valid on the key date, each rounded once: `valued_lc` = amount × rate and
+	// `valued_gc` = amount × rate_gc (SAP's parallel-currency valuation, not the local difference
+	// translated); the differences to the booked amounts are an unrealised gain when positive and a loss
+	// when negative, by the local difference's sign, or the group one's when local does not differ. The
+	// key date is the last day of a posting period of the ledger (422 `ledger.key_date_not_period_end`); a
+	// rate into local or group currency valid from before that period is stale (422 `ledger.rate_stale`)
+	// and a missing one is refused (422 `ledger.no_exchange_rate`); an account with items in scope and no
+	// active valuation accounts fails the preview (422 `ledger.revaluation_account_missing`, naming the
+	// account). Reads only; every agent autonomy level may call it.
 	//
 	// POST /v1/revaluation-runs/preview
 	PreviewRevaluation(ctx context.Context, request *RevaluationPreviewRequest, params PreviewRevaluationParams) (PreviewRevaluationRes, error)
@@ -4103,6 +4117,173 @@ func (c *Client) sendCancelRequisition(ctx context.Context, params CancelRequisi
 
 	stage = "DecodeResponse"
 	result, err := decodeCancelRequisitionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CancelRevaluationRun invokes cancelRevaluationRun operation.
+//
+// Cancels a posted revaluation run (ADR-0042, T48d): reverses its valuation entry and its reset entry
+// through the ledger's reversal path, each on its own posting date (`JournalEntryReversed` for each),
+// and marks the run `cancelled`, which frees its key date for another run. This is the only way a
+// run's entries are reversed (`journal-entries/{id}:reverse` refuses them with 409
+// `ledger.entry_owned_elsewhere`). Both entries' periods must be open (409 `ledger.period_not_open`,
+// also when one is closed or locked, T32); a cancelled run is 409 `ledger.revaluation_not_posted`. A
+// run without entries is cancelled without reversals. Audited and published
+// (`RevaluationRunCancelled`). The If-Match is the run's ETag. Human-only.
+//
+// POST /v1/revaluation-runs/{id}:cancel
+func (c *Client) CancelRevaluationRun(ctx context.Context, request *ReasonInput, params CancelRevaluationRunParams) (CancelRevaluationRunRes, error) {
+	res, err := c.sendCancelRevaluationRun(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCancelRevaluationRun(ctx context.Context, request *ReasonInput, params CancelRevaluationRunParams) (res CancelRevaluationRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("cancelRevaluationRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/revaluation-runs/{id}:cancel"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CancelRevaluationRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/revaluation-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":cancel"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCancelRevaluationRunRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CancelRevaluationRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCancelRevaluationRunResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -26746,7 +26927,8 @@ func (c *Client) sendPostParkedJournalEntry(ctx context.Context, params PostPark
 // entries. The run and its items are recorded, audited and published (`RevaluationRunPosted`, besides
 // each entry's `JournalEntryPosted`). One run per legal entity, ledger and key date is posted: a
 // second is 409 `ledger.revaluation_exists`, whose `detail` names the posted run and whose `Location`
-// header links it. Concurrent clearings and reversals of the tenant wait for the run. Human-only.
+// header links it; cancelling that run (`cancelRevaluationRun`) frees the key date. Concurrent
+// clearings and reversals of the tenant wait for the run. Human-only.
 //
 // POST /v1/revaluation-runs
 func (c *Client) PostRevaluationRun(ctx context.Context, request *RevaluationPreviewRequest, params PostRevaluationRunParams) (PostRevaluationRunRes, error) {
@@ -27046,17 +27228,17 @@ func (c *Client) sendPostSupplierInvoice(ctx context.Context, request OptSupplie
 // the balance of each G/L account flagged `revalue_foreign_currency`, in every currency other than
 // local currency. Down payments (special G/L items) and the GR/IR account are not revalued. A flagged
 // account's balance that is zero in its currency but not in local or group currency is valued too, at
-// zero: that residual is what revaluation corrects. Each item is valued in local and, on its own, in
-// group currency at the legal entity's valuation rate type valid on the key date, each rounded once:
-// `valued_lc` = amount × rate and `valued_gc` = amount × rate_gc (SAP's parallel-currency valuation,
-// not the local difference translated); the differences to the booked amounts are an unrealised gain
-// when positive and a loss when negative, by the local difference's sign, or the group one's when
-// local does not differ. The key date is the last day of a posting period of the ledger (422
-// `ledger.key_date_not_period_end`); a rate into local or group currency valid from before that period
-// is stale (422 `ledger.rate_stale`) and a missing one is refused (422 `ledger.no_exchange_rate`); an
-// account with items in scope and no active valuation accounts fails the preview (422
-// `ledger.revaluation_account_missing`, naming the account). Reads only; every agent autonomy level
-// may call it.
+// zero and without a rate (none is looked up or checked for it): that residual is what revaluation
+// corrects. Each item is valued in local and, on its own, in group currency at the legal entity's
+// valuation rate type valid on the key date, each rounded once: `valued_lc` = amount × rate and
+// `valued_gc` = amount × rate_gc (SAP's parallel-currency valuation, not the local difference
+// translated); the differences to the booked amounts are an unrealised gain when positive and a loss
+// when negative, by the local difference's sign, or the group one's when local does not differ. The
+// key date is the last day of a posting period of the ledger (422 `ledger.key_date_not_period_end`); a
+// rate into local or group currency valid from before that period is stale (422 `ledger.rate_stale`)
+// and a missing one is refused (422 `ledger.no_exchange_rate`); an account with items in scope and no
+// active valuation accounts fails the preview (422 `ledger.revaluation_account_missing`, naming the
+// account). Reads only; every agent autonomy level may call it.
 //
 // POST /v1/revaluation-runs/preview
 func (c *Client) PreviewRevaluation(ctx context.Context, request *RevaluationPreviewRequest, params PreviewRevaluationParams) (PreviewRevaluationRes, error) {

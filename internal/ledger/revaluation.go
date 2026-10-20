@@ -48,12 +48,12 @@ type RevaluedItem struct {
 	AmountTC        money.Minor
 	AmountLC        money.Minor // booked
 	AmountGC        money.Minor // booked
-	Rate            string      // into local currency, shown to 12 decimals
-	RateValidFrom   time.Time
+	Rate            string      // into local currency, shown to 12 decimals; "" for a balance zero in its currency
+	RateValidFrom   time.Time   // zero without Rate
 	ValuedLC        money.Minor // AmountTC at Rate, rounded once
 	DifferenceLC    money.Minor
-	RateGC          string    // into group currency, "1" when CurrencyTC is the group's
-	RateGCValidFrom time.Time // zero when CurrencyTC is the group's
+	RateGC          string    // into group currency, "1" when CurrencyTC is the group's; "" without Rate
+	RateGCValidFrom time.Time // zero when CurrencyTC is the group's or without Rate
 	ValuedGC        money.Minor
 	DifferenceGC    money.Minor
 }
@@ -171,27 +171,42 @@ func valueRevaluation(ctx context.Context, tx pgx.Tx, le tenancy.Entity, ledgerI
 	if r.Items, err = revaluationItems(ctx, tx, r, keyDate); err != nil {
 		return Revaluation{}, err
 	}
+	return r, valueItems(ctx, tx, r, start)
+}
+
+// valueItems values each item at its currency's rates, looked up once per
+// currency. A balance zero in its currency is worth zero at any rate, so
+// it is valued without one: its difference is its booked residual, and a
+// missing or stale rate of a currency the legal entity no longer holds
+// does not stop the run (ADR-0042).
+func valueItems(ctx context.Context, tx pgx.Tx, r Revaluation, start time.Time) error {
+	// Zero, shown as no rate: any amount at it is zero.
+	none := exchange{exact: new(big.Rat)}
 	rates := map[string][2]exchange{}
 	for i := range r.Items {
 		it := &r.Items[i]
 		x, ok := rates[it.CurrencyTC]
-		if !ok {
+		switch {
+		case it.AmountTC == 0:
+			x = [2]exchange{none, none}
+		case !ok:
+			var err error
 			if x[0], err = valuationRate(ctx, tx, r, it.CurrencyTC, r.CurrencyLC, start); err != nil {
-				return Revaluation{}, err
+				return err
 			}
 			x[1] = x[0]
 			if r.CurrencyGC != r.CurrencyLC {
 				if x[1], err = valuationRate(ctx, tx, r, it.CurrencyTC, r.CurrencyGC, start); err != nil {
-					return Revaluation{}, err
+					return err
 				}
 			}
 			rates[it.CurrencyTC] = x
 		}
 		if err := it.value(x[0], x[1], r.ExpLC, r.ExpGC); err != nil {
-			return Revaluation{}, err
+			return err
 		}
 	}
-	return r, nil
+	return nil
 }
 
 // revaluationItems reads the items in scope (revaluationScope), refusing
@@ -391,9 +406,14 @@ func revaluationItemsToAPI(r Revaluation, totals []RevaluationTotal) ([]gen.Reva
 	gc := func(m money.Minor) gen.Money { return apitypes.Money(m, r.CurrencyGC, r.ExpGC) }
 	for i, it := range r.Items {
 		item := gen.RevaluationItem{AccountID: it.AccountID, Amount: apitypes.Money(it.AmountTC, it.CurrencyTC, it.ExpTC), AmountLc: lc(it.AmountLC),
-			AmountGc: gc(it.AmountGC), Rate: gen.Decimal(it.Rate), RateValidFrom: it.RateValidFrom, ValuedLc: lc(it.ValuedLC),
-			DifferenceLc: lc(it.DifferenceLC), RateGc: gen.Decimal(it.RateGC), ValuedGc: gc(it.ValuedGC), DifferenceGc: gc(it.DifferenceGC),
-			Direction: it.Direction()}
+			AmountGc: gc(it.AmountGC), ValuedLc: lc(it.ValuedLC), DifferenceLc: lc(it.DifferenceLC), ValuedGc: gc(it.ValuedGC),
+			DifferenceGc: gc(it.DifferenceGC), Direction: it.Direction()}
+		// A balance zero in its currency has no rates (valueItems).
+		if it.Rate != "" {
+			item.Rate.SetTo(gen.Decimal(it.Rate))
+			item.RateValidFrom.SetTo(it.RateValidFrom)
+			item.RateGc.SetTo(gen.Decimal(it.RateGC))
+		}
 		if !it.RateGCValidFrom.IsZero() {
 			item.RateGcValidFrom.SetTo(it.RateGCValidFrom)
 		}

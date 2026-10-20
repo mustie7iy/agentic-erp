@@ -11,10 +11,10 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/money"
-	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -38,6 +38,7 @@ type RevaluationRun struct {
 	ValuationID, ReversalID     *uuid.UUID
 	CreatedAt                   time.Time
 	CreatedBy                   uuid.UUID
+	Version                     int32
 	Valuation                   *Revaluation
 	Totals                      []RevaluationTotal
 }
@@ -46,13 +47,13 @@ type RevaluationRun struct {
 // after the run, which is fixed once posted.
 const revaluationRunSelect = `SELECT r.id, r.legal_entity_id, r.ledger_id, r.key_date, r.rate_type, r.status,
 		(SELECT count(*) FROM ledger.revaluation_item i WHERE i.tenant_id = r.tenant_id AND i.run_id = r.id)::int,
-		r.valuation_entry_year, r.valuation_entry_id, r.reversal_entry_year, r.reversal_entry_id, r.created_at, r.created_by
+		r.valuation_entry_year, r.valuation_entry_id, r.reversal_entry_year, r.reversal_entry_id, r.created_at, r.created_by, r.version
 	FROM ledger.revaluation_run r`
 
 func scanRevaluationRun(row pgx.Row) (RevaluationRun, error) {
 	var r RevaluationRun
 	err := errs.Wrapf(row.Scan(&r.ID, &r.LegalEntityID, &r.LedgerID, &r.KeyDate, &r.RateType, &r.Status, &r.ItemCount, &r.ValuationYear,
-		&r.ValuationID, &r.ReversalYear, &r.ReversalID, &r.CreatedAt, &r.CreatedBy), "scan revaluation run")
+		&r.ValuationID, &r.ReversalYear, &r.ReversalID, &r.CreatedAt, &r.CreatedBy, &r.Version), "scan revaluation run")
 	return r, err
 }
 
@@ -92,7 +93,7 @@ func (e *Endpoints) PostRevaluationRun(ctx context.Context, req *gen.Revaluation
 		return nil, err
 	}
 	rep := revaluationRunToAPI(run)
-	return &gen.RevaluationRunHeaders{ETag: apitypes.ETagOf(rep), Location: gen.NewOptString("/v1/revaluation-runs/" + run.ID.String()), Response: rep}, nil
+	return &gen.RevaluationRunHeaders{ETag: gen.NewOptString(etag.Format(run.Version)), Location: gen.NewOptString("/v1/revaluation-runs/" + run.ID.String()), Response: rep}, nil
 }
 
 // allBuckets lists every entry lock bucket in ascending order.
@@ -274,8 +275,8 @@ func recordRevaluationItems(ctx context.Context, tx pgx.Tx, tenant, run uuid.UUI
 	n := len(items)
 	accounts, partners, entries := make([]uuid.UUID, n), make([]*uuid.UUID, n), make([]*uuid.UUID, n)
 	years, lineNos := make([]*int16, n), make([]*int32, n)
-	currencies, rates, ratesGC := make([]string, n), make([]string, n), make([]string, n)
-	froms, fromsGC := make([]time.Time, n), make([]*time.Time, n)
+	currencies, rates, ratesGC := make([]string, n), make([]*string, n), make([]*string, n)
+	froms, fromsGC := make([]*time.Time, n), make([]*time.Time, n)
 	tcs, lcs, gcs, valuedLC, valuedGC := make([]money.Minor, n), make([]money.Minor, n), make([]money.Minor, n), make([]money.Minor, n), make([]money.Minor, n)
 	for i, it := range items {
 		accounts[i], partners[i], currencies[i] = it.AccountID, it.PartnerID, it.CurrencyTC
@@ -283,7 +284,10 @@ func recordRevaluationItems(ctx context.Context, tx pgx.Tx, tenant, run uuid.UUI
 			years[i], entries[i], lineNos[i] = &it.Line.FiscalYear, &it.Line.EntryID, &it.Line.LineNo
 		}
 		tcs[i], lcs[i], gcs[i], valuedLC[i], valuedGC[i] = it.AmountTC, it.AmountLC, it.AmountGC, it.ValuedLC, it.ValuedGC
-		rates[i], froms[i], ratesGC[i] = it.Rate, it.RateValidFrom, it.RateGC
+		// A balance zero in its currency is valued without rates (valueItems).
+		if it.Rate != "" {
+			rates[i], froms[i], ratesGC[i] = &it.Rate, &it.RateValidFrom, &it.RateGC
+		}
 		if !it.RateGCValidFrom.IsZero() {
 			fromsGC[i] = &it.RateGCValidFrom
 		}
@@ -323,25 +327,33 @@ func (e *Endpoints) GetRevaluationRun(ctx context.Context, params gen.GetRevalua
 	if err != nil {
 		return nil, err
 	}
+	rep, err := e.revaluationRunWithItems(ctx, tx, run)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.GetRevaluationRunOKHeaders{ETag: gen.NewOptString(etag.Format(run.Version)), Response: rep}, nil
+}
+
+// revaluationRunWithItems renders a run with its items and totals.
+func (e *Endpoints) revaluationRunWithItems(ctx context.Context, tx pgx.Tx, run RevaluationRun) (gen.RevaluationRun, error) {
 	// A run is recorded for an existing legal entity, which is never deleted.
 	le, _, err := e.LegalEntities.Entity(ctx, run.LegalEntityID)
 	if err != nil {
-		return nil, err
+		return gen.RevaluationRun{}, err
 	}
 	group, err := e.LegalEntities.GroupCurrency(ctx)
 	if err != nil {
-		return nil, err
+		return gen.RevaluationRun{}, err
 	}
 	r, err := revaluationRunItems(ctx, tx, run, le.LocalCurrency, group)
 	if err != nil {
-		return nil, err
+		return gen.RevaluationRun{}, err
 	}
 	if run.Totals, err = r.Totals(); err != nil {
-		return nil, err
+		return gen.RevaluationRun{}, err
 	}
 	run.Valuation = &r
-	rep := revaluationRunToAPI(run)
-	return &gen.GetRevaluationRunOKHeaders{ETag: apitypes.ETagOf(rep), Response: rep}, nil
+	return revaluationRunToAPI(run), nil
 }
 
 // revaluationRunItems reads a run's items back, with the differences they
@@ -354,23 +366,26 @@ func revaluationRunItems(ctx context.Context, tx pgx.Tx, run RevaluationRun, lc,
 	}
 	r.ExpLC, r.ExpGC = exps[lc], exps[gc]
 	rows, _ := tx.Query(ctx, `SELECT i.account_id, i.partner_id, i.fiscal_year, i.journal_entry_id, i.line_no, i.currency_tc, c.exponent, i.amount_tc,
-			i.amount_lc, i.amount_gc, i.rate::text, i.rate_valid_from, i.valued_lc, i.rate_gc::text, i.rate_gc_valid_from, i.valued_gc
+			i.amount_lc, i.amount_gc, coalesce(i.rate::text, ''), i.rate_valid_from, i.valued_lc, coalesce(i.rate_gc::text, ''), i.rate_gc_valid_from, i.valued_gc
 		FROM ledger.revaluation_item i JOIN ref.currency c ON c.code = i.currency_tc WHERE i.run_id = $1 ORDER BY i.item_no`, run.ID)
 	var it RevaluedItem
 	var year *int16
 	var entry *uuid.UUID
 	var lineNo *int32
-	var fromGC *time.Time
+	var from, fromGC *time.Time
 	_, err = pgx.ForEachRow(rows, []any{&it.AccountID, &it.PartnerID, &year, &entry, &lineNo, &it.CurrencyTC, &it.ExpTC, &it.AmountTC, &it.AmountLC,
-		&it.AmountGC, &it.Rate, &it.RateValidFrom, &it.ValuedLC, &it.RateGC, &fromGC, &it.ValuedGC}, func() error {
+		&it.AmountGC, &it.Rate, &from, &it.ValuedLC, &it.RateGC, &fromGC, &it.ValuedGC}, func() error {
 		item := it
-		item.Line, item.RateGCValidFrom = nil, time.Time{}
+		item.Line, item.RateValidFrom, item.RateGCValidFrom = nil, time.Time{}, time.Time{}
 		if item.PartnerID != nil {
 			partner := *item.PartnerID
 			item.PartnerID = &partner
 		}
 		if entry != nil {
 			item.Line = &ItemRef{FiscalYear: *year, EntryID: *entry, LineNo: *lineNo}
+		}
+		if from != nil {
+			item.RateValidFrom = *from
 		}
 		if fromGC != nil {
 			item.RateGCValidFrom = *fromGC
@@ -416,4 +431,98 @@ func revaluationRunToAPI(run RevaluationRun) gen.RevaluationRun {
 		out.Items, out.Totals = revaluationItemsToAPI(*run.Valuation, run.Totals)
 	}
 	return out
+}
+
+// CancelRevaluationRun implements POST /v1/revaluation-runs/{id}:cancel:
+// reverses the run's valuation and reset entries through the ledger's
+// reversal path, the one way around :reverse's refusal of a run's entries,
+// and marks the run cancelled, which frees its key date; audited and
+// published as RevaluationRunCancelled (ADR-0042). Human-only.
+func (e *Endpoints) CancelRevaluationRun(ctx context.Context, req *gen.ReasonInput, params gen.CancelRevaluationRunParams) (gen.CancelRevaluationRunRes, error) {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	run, err := getRevaluationRun(ctx, tx, params.ID)
+	if err != nil {
+		return nil, err
+	}
+	// The entries' buckets first, both at once and in order (03-data-model,
+	// entry locks), then the run, so a concurrent cancel waits here.
+	if run.ValuationID != nil {
+		if err := lockEntries(ctx, tx, false, []uuid.UUID{*run.ValuationID, *run.ReversalID}); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.QueryRow(ctx, `SELECT status, version FROM ledger.revaluation_run WHERE id = $1 FOR UPDATE`, run.ID).Scan(&run.Status, &run.Version); err != nil {
+		return nil, fmt.Errorf("ledger: cancel revaluation run %s: lock: %w", run.ID, err)
+	}
+	if err := etag.Check(params.IfMatch, run.Version); err != nil {
+		return nil, err
+	}
+	if run.Status != "posted" {
+		return nil, problem.Conflict("ledger.revaluation_not_posted", "Revaluation run "+run.ID.String()+" is "+run.Status+"; only a posted run is cancelled.")
+	}
+	reversals, err := e.reverseRevaluationEntries(ctx, tx, p, run)
+	if err != nil {
+		return nil, err
+	}
+	if run, err = recordRevaluationCancel(ctx, tx, p, run, req.Reason, reversals); err != nil {
+		return nil, err
+	}
+	rep, err := e.revaluationRunWithItems(ctx, tx, run)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.CancelRevaluationRunOKHeaders{ETag: gen.NewOptString(etag.Format(run.Version)), Response: rep}, nil
+}
+
+// reverseRevaluationEntries reverses a run's valuation and reset entries,
+// each on its own posting date, so both periods must be open as for any
+// posting (T32: a closed or locked one refuses the cancel); none for a run
+// without entries.
+func (e *Endpoints) reverseRevaluationEntries(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run RevaluationRun) ([]Entry, error) {
+	if run.ValuationID == nil {
+		return nil, nil
+	}
+	reversals := make([]Entry, 0, 2)
+	for _, id := range []uuid.UUID{*run.ValuationID, *run.ReversalID} {
+		// The run's state, not the entry's, is what the caller matched.
+		orig, err := reversibleEntry(ctx, tx, id, func(Entry) error { return nil }, run.ID)
+		if err != nil {
+			return nil, err
+		}
+		rev, err := e.postReversal(ctx, tx, p, orig, nil, nil)
+		if err != nil {
+			return nil, err
+		}
+		if err := recordReversal(ctx, tx, p, orig, rev); err != nil {
+			return nil, err
+		}
+		reversals = append(reversals, rev)
+	}
+	return reversals, nil
+}
+
+// recordRevaluationCancel marks the locked, posted run cancelled, audits
+// it and publishes RevaluationRunCancelled with its entries' reversals.
+func recordRevaluationCancel(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run RevaluationRun, reason string, reversals []Entry) (RevaluationRun, error) {
+	if _, err := tx.Exec(ctx, `UPDATE ledger.revaluation_run SET status = 'cancelled', updated_by = $2, version = version + 1 WHERE id = $1`,
+		run.ID, p.ID); err != nil {
+		return RevaluationRun{}, fmt.Errorf("ledger: cancel revaluation run %s: %w", run.ID, err)
+	}
+	run.Status, run.Version = "cancelled", run.Version+1
+	payload := map[string]any{"run_id": run.ID, "legal_entity_id": run.LegalEntityID, "ledger_id": run.LedgerID,
+		"key_date": run.KeyDate.Format(time.DateOnly), "reason": reason, "valuation_reversal_entry_id": nil, "valuation_reversal_entry_year": nil,
+		"reset_reversal_entry_id": nil, "reset_reversal_entry_year": nil}
+	for i, k := range []string{"valuation", "reset"} {
+		if len(reversals) > 0 {
+			payload[k+"_reversal_entry_id"], payload[k+"_reversal_entry_year"] = reversals[i].ID, reversals[i].FiscalYear
+		}
+	}
+	err := audit.Record(ctx, "ledger.revaluation_run.cancel", "ledger.revaluation_run", run.ID,
+		map[string]any{"reason": reason, "valuation_reversal_entry_id": payload["valuation_reversal_entry_id"],
+			"reset_reversal_entry_id": payload["reset_reversal_entry_id"]},
+		outbox.Event{Context: "ledger", Name: "revaluation_run_cancelled", AggregateType: "ledger.revaluation_run", AggregateID: run.ID, Payload: payload})
+	return run, err
 }
