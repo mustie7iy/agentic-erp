@@ -216,6 +216,7 @@ func postAgain(t *testing.T, e env, run, pay map[string]any) {
 // writes it to the bank file.
 func TestDownPaymentDatabaseFailures(t *testing.T) {
 	e := downPaymentSetup(t)
+	workLeftovers(t)
 	h := endpoints(nil)
 	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
 	e.bankAccount(t, e.Vendor, "DE02120300000000202051", "Vendor", "2026-01-01", "", "create")
