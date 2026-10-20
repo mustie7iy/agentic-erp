@@ -563,18 +563,7 @@ func CreatePartner(ctx context.Context, ports Ports, in NewPartner) (Partner, Ch
 	if err != nil {
 		return Partner{}, Change{}, err
 	}
-	fields, codes := newPartnerCountries(in)
-	if err := checkCountries(ctx, tx, fields, codes); err != nil {
-		return Partner{}, Change{}, err
-	}
-	if err := checkCompanies(ctx, tx, ports, slices.Contains(in.Roles, "supplier"), in.SupplierCompanies); err != nil {
-		return Partner{}, Change{}, err
-	}
-	if err := checkAddresses(day, in.Addresses, false); err != nil {
-		return Partner{}, Change{}, err
-	}
-	if err := ports.checkRules(ctx, "partner.business_partner.create", "", uuid.Nil, Partner{Kind: in.Kind, Name: in.Name, LegalName: in.LegalName,
-		CountryCode: in.CountryCode, Language: in.Language, Roles: in.Roles, Extensions: in.Extensions}); err != nil {
+	if err := checkNewPartnerData(ctx, tx, ports, day, in); err != nil {
 		return Partner{}, Change{}, err
 	}
 	taxes, err := sealTaxes(ctx, ports.Keys, p.TenantID, in.TaxIdentifiers)
@@ -608,6 +597,23 @@ func CreatePartner(ctx context.Context, ports Ports, in NewPartner) (Partner, Ch
 		return Partner{}, Change{}, err
 	}
 	return bp, c, recordCreated(ctx, ports.extensions(), bp, c, len(warns))
+}
+
+// checkNewPartnerData checks a new partner's countries, company data and
+// addresses, then the tenant's rules on its header (ADR-0046).
+func checkNewPartnerData(ctx context.Context, tx pgx.Tx, ports Ports, day time.Time, in NewPartner) error {
+	fields, codes := newPartnerCountries(in)
+	if err := checkCountries(ctx, tx, fields, codes); err != nil {
+		return err
+	}
+	if err := checkCompanies(ctx, tx, ports, slices.Contains(in.Roles, "supplier"), in.SupplierCompanies); err != nil {
+		return err
+	}
+	if err := checkAddresses(day, in.Addresses, false); err != nil {
+		return err
+	}
+	return ports.checkRules(ctx, "partner.business_partner.create", "", uuid.Nil, Partner{Kind: in.Kind, Name: in.Name, LegalName: in.LegalName,
+		CountryCode: in.CountryCode, Language: in.Language, Roles: in.Roles, Extensions: in.Extensions})
 }
 
 // recordCreated audits the new partner and publishes

@@ -321,6 +321,13 @@ type NewOrder struct {
 	Extensions      map[string]any
 }
 
+// header is the order's header as created: what the rules judge
+// (ADR-0046).
+func (in NewOrder) header(legalEntity uuid.UUID, term string) PurchaseOrder {
+	return PurchaseOrder{LegalEntityID: legalEntity, PurchasingOrgID: in.PurchasingOrgID, SupplierID: in.SupplierID, Currency: in.Currency,
+		OrderDate: in.OrderDate, PaymentTermCode: term, RequisitionID: in.RequisitionID, ContractID: in.ContractID, Extensions: in.Extensions}
+}
+
 // createOrder creates a draft purchase order. An order from a requisition
 // needs an approved requisition of the legal entity and currency, which
 // becomes ordered.
@@ -356,9 +363,7 @@ func (e *Endpoints) createOrder(ctx context.Context, in NewOrder) (PurchaseOrder
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
-	if err := e.checkRules(ctx, "procurement.purchase_order.create", "", uuid.Nil, PurchaseOrder{LegalEntityID: le.ID,
-		PurchasingOrgID: in.PurchasingOrgID, SupplierID: in.SupplierID, Currency: in.Currency, OrderDate: in.OrderDate, PaymentTermCode: term,
-		RequisitionID: in.RequisitionID, ContractID: in.ContractID, Extensions: in.Extensions}); err != nil {
+	if err := e.checkRules(ctx, "procurement.purchase_order.create", "", uuid.Nil, in.header(le.ID, term)); err != nil {
 		return PurchaseOrder{}, err
 	}
 	number, err := e.number(ctx, le.ID, "purchase_order", in.OrderDate)
