@@ -1823,8 +1823,13 @@ func TestRegisterProviderCommand(t *testing.T) {
 	env := environment(t, authntest.New(t), "")
 	getenv := func(k string) string { return env[k] }
 	ten := pgtest.NewTenant(t)
+	// An active (issuer, audience) pair is unique across tenants and the test
+	// issuers listen on 127.0.0.1 ports the OS reuses, so a repeated run could
+	// meet an issuer an earlier run registered: a per-run audience keeps each
+	// run's registrations its own.
+	audience := authntest.Audience + "-" + uuid.NewString()
 	var stdout, stderr bytes.Buffer
-	args := []string{"register-provider", "-tenant", ten.ID.String(), "-issuer", idp.URL, "-audience", authntest.Audience, "-amr", "mfa,otp", "-certificate-bound"}
+	args := []string{"register-provider", "-tenant", ten.ID.String(), "-issuer", idp.URL, "-audience", audience, "-amr", "mfa,otp", "-certificate-bound"}
 	if code := cli(context.Background(), args, getenv, &stdout, &stderr, nil); code != 0 {
 		t.Fatalf("register-provider: %d %s", code, stderr.String())
 	}
@@ -1864,7 +1869,7 @@ func TestRegisterProviderCommand(t *testing.T) {
 		directoryURL := pgtest.EmptyDatabase(t)
 		env["ERP_DIRECTORY_URL"], env["ERP_CELL_API_URL"], env["ERP_CELL_CONTROL_URL"], env["ERP_CELL_REGION"] = directoryURL, "https://test.api.example.com", "http://test-admin.internal:9090", "eu-west"
 		defer delete(env, "ERP_DIRECTORY_URL")
-		withDir := []string{"register-provider", "-tenant", ten.ID.String(), "-issuer", other.URL, "-audience", authntest.Audience}
+		withDir := []string{"register-provider", "-tenant", ten.ID.String(), "-issuer", other.URL, "-audience", audience}
 		if code := cli(context.Background(), withDir, getenv, io.Discard, &stderr, nil); code != 0 {
 			t.Fatalf("register-provider: %d %s", code, stderr.String())
 		}
@@ -1873,7 +1878,7 @@ func TestRegisterProviderCommand(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer dir.Close()
-		if claims, err := dir.LookupIssuer(context.Background(), other.URL, []string{authntest.Audience}); err != nil || len(claims) != 1 {
+		if claims, err := dir.LookupIssuer(context.Background(), other.URL, []string{audience}); err != nil || len(claims) != 1 {
 			t.Errorf("claims: got %v, %v, want the provider's", claims, err)
 		}
 		env["ERP_DIRECTORY_URL"] = "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"
