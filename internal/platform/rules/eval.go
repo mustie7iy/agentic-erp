@@ -60,6 +60,20 @@ func (e *UnevaluableError) Error() string {
 
 func (e *UnevaluableError) Unwrap() error { return e.Err }
 
+// failure is what a report or a log line says of a rule's failure: its
+// kind only, since the evaluator's text can repeat an input value (a key
+// looked up, a pattern) that may be personal data.
+func failure(err error) string {
+	switch msg := err.Error(); {
+	case strings.Contains(msg, "cost limit exceeded"):
+		return "exceeds its cost limit"
+	case strings.Contains(msg, "operation interrupted"):
+		return "exceeds its time limit"
+	default:
+		return "fails to evaluate on this input"
+	}
+}
+
 // eval runs one rule within the timeout of ADR-0046. The checker proved
 // the result boolean.
 func (r compiled) eval(ctx context.Context, act interpreter.Activation) (bool, error) {

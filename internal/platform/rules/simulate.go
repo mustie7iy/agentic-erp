@@ -77,7 +77,8 @@ type RuleReplay struct {
 // SampleRef names a row in a report: its id and reference, and its custom
 // fields with every value not declared `x-pii: none` masked, since the
 // report is shown to approvers. Header fields are left out: a partner's
-// name may be personal data. Error is why the rule could not be evaluated.
+// name may be personal data. Error is why the rule could not be evaluated,
+// by kind (cost, time or evaluation), never the evaluator's text.
 type SampleRef struct {
 	ID         uuid.UUID      `json:"id"`
 	Reference  string         `json:"reference"`
@@ -155,7 +156,7 @@ func (r *RuleReplay) add(was, is outcome, ref SampleRef) {
 	case is.err != nil:
 		r.fail = true
 		r.Unevaluable++
-		ref.Error = is.err.Error()
+		ref.Error = failure(is.err)
 		r.ErrorRows = appendExample(r.ErrorRows, ref)
 	case is.refused && (!was.refused || was.err != nil):
 		r.changed = true

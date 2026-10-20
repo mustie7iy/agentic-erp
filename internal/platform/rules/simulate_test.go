@@ -2,6 +2,7 @@ package rules
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -68,7 +69,7 @@ func TestSimulate(t *testing.T) {
 		t.Error("passed: got true with a proposed rule that fails, want false")
 	}
 	b := got.Rules[0]
-	if b.Rule != "broken" || b.Unevaluable != 3 || !strings.Contains(b.ErrorRows[0].Error, "evaluation") {
+	if b.Rule != "broken" || b.Unevaluable != 3 || b.ErrorRows[0].Error != "fails to evaluate on this input" {
 		t.Errorf("broken: got %+v, want three rows it cannot evaluate", b)
 	}
 }
@@ -119,5 +120,20 @@ func TestSimulateDoesNotCompile(t *testing.T) {
 func TestEntities(t *testing.T) {
 	if got := strings.Join(Entities(), ","); got != "business_partner,purchase_order,supplier_invoice" {
 		t.Errorf("got %s, want the three entities in name order", got)
+	}
+}
+
+// A failure is reported by its kind, never with the evaluator's text.
+func TestFailure(t *testing.T) {
+	for msg, want := range map[string]string{
+		"evaluation: operation cancelled: actual cost limit exceeded":  "exceeds its cost limit",
+		"evaluation: operation interrupted: context deadline exceeded": "exceeds its time limit",
+		"evaluation: no such key: Ann Smith":                           "fails to evaluate on this input",
+	} {
+		t.Run(want, func(t *testing.T) {
+			if got := failure(errors.New(msg)); got != want {
+				t.Errorf("got %q, want %q", got, want)
+			}
+		})
 	}
 }

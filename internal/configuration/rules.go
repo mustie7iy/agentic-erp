@@ -117,10 +117,10 @@ func requireRulesSimulated(c ChangeRequest) error {
 	want := proposalHash(c.Proposed)
 	for _, e := range c.Evidence {
 		var d struct {
-			Hash string `json:"proposal_sha256"`
+			ProposalSHA256 string `json:"proposal_sha256"`
 		}
 		// A detail that does not decode names no proposal: no evidence.
-		if err := json.Unmarshal(e.Detail, &d); err == nil && e.Kind == "simulation" && e.Passed && d.Hash == want {
+		if err := json.Unmarshal(e.Detail, &d); err == nil && e.Kind == "simulation" && e.Passed && d.ProposalSHA256 == want {
 			return nil
 		}
 	}

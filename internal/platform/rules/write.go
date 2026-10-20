@@ -150,9 +150,9 @@ var Unevaluable = prometheus.NewCounterVec(prometheus.CounterOpts{
 func unevaluable(ctx context.Context, tenant uuid.UUID, version int32, u *UnevaluableError) error {
 	Unevaluable.WithLabelValues(u.Entity).Inc()
 	slog.WarnContext(ctx, "a validation rule could not be evaluated; the write is refused", "tenant_id", tenant,
-		"entity", u.Entity, "rule", u.Rule, "config_version", version, "error", u.Err.Error())
+		"entity", u.Entity, "rule", u.Rule, "config_version", version, "failure", failure(u.Err))
 	return problem.Unprocessable("request.rule_unevaluable", "A validation rule of the tenant cannot be evaluated on the write.",
-		problem.FieldError{Field: "rules." + u.Rule, Code: "rule_unevaluable", Message: "The rule fails or exceeds its limits on this input; have the rule corrected."})
+		problem.FieldError{Field: "rules." + u.Rule, Code: "rule_unevaluable", Message: "The rule " + failure(u.Err) + "; have the rule corrected."})
 }
 
 // setKey names an entity's rules in one tenant's configuration version.

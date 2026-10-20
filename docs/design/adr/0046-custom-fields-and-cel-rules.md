@@ -140,15 +140,19 @@ needs.
 - **Simulation (T58h).** A change of an entity's rules, or of the custom
   field schema its rules read, is replayed by `:simulate` (the simulation
   worker) on the entity's recent rows: those changed in the last 30 days,
-  newest first, at most 200 per entity, so the cost does not grow with the
-  tenant's history. Each context that owns an entity reads them
+  newest first, at most 200 per entity, so the evaluations do not grow
+  with the tenant's history (the read of the sample does, until
+  `updated_at` is indexed; it runs in the simulation worker, not on a
+  request). Each context that owns an entity reads them
   (`rules.Sampler`) as its writes present them to the rules. Every row is
   judged by the active and the proposed rules, each rule on its own; the
   evidence (`detail.rules`) lists per rule the rows it would newly refuse
   and newly pass, with counts and up to 20 examples each, named by id and
   number with their custom fields masked per `x-pii` (header fields are
   left out: a partner's name may be personal). A proposed rule that fails
-  or exceeds a limit on a row fails the simulation, so the change cannot
+  or exceeds a limit on a row fails the simulation (reported, like the
+  unevaluable write's log line, by the kind of failure, never the
+  evaluator's text, which may repeat an input value), so the change cannot
   reach approval; a row the proposed schema does not accept is counted as
   skipped, since the custom field check refuses its next write first. The
   evidence carries the SHA-256 of the proposal it judged, and activation
