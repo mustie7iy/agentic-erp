@@ -260,6 +260,8 @@ func dropped(old Manifest, key string, next Manifest) []string {
 	return out
 }
 
+// movePointer points the tenant's pointer at key, guarded by the manifest
+// the run read; it changes no row when another run moved it first.
 func movePointer(ctx context.Context, tx pgx.Tx, r *run, key string) (pgconn.CommandTag, error) {
 	wm := strconv.FormatUint(r.cutoff, 10)
 	sql, args := `INSERT INTO analytics.snapshot (tenant_id, manifest_key, watermark, as_of, checked_at)

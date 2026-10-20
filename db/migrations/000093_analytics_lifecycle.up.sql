@@ -3,8 +3,9 @@
 
 -- The manifests a publication replaced, kept seven days so a running query
 -- never loses a file; the lifecycle then deletes what they dropped, but for
--- what the current manifest or a later supersession lists, and the row. A run that lost the race records its own
--- manifest here too. Bookkeeping of derived data: no audit record.
+-- what the current manifest or a later supersession lists, and the row. A
+-- run that lost the race records its own manifest too. Bookkeeping of
+-- derived data: no audit record.
 CREATE TABLE analytics.superseded (
   tenant_id      uuid NOT NULL,
   manifest_key   text NOT NULL CONSTRAINT superseded_manifest_key_check
