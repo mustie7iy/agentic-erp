@@ -59,8 +59,15 @@ func (p parallelEnv) docs(t *testing.T, number string) parallelDocs {
 	d := parallelDocs{bank: p.account(t, "2000", "100000"), expense: p.account(t, "2000", "520000"), ap: p.account(t, "2000", "211000")}
 	d.sup = p.newSupplier(t, number).String()
 	d.invoice, _ = p.in(t).Must(201, "POST", "/v1/journal-entries", entry(p.de, "2026-03-01", "EUR", line{d.expense, "100.00", ""}, line{d.ap, "-100.00", d.sup}), "")
-	d.leadingInvoice, _ = p.in(t).Must(201, "POST", "/v1/journal-entries", with(entry(p.de, "2026-03-02", "EUR", line{d.expense, "30.00", ""},
-		line{d.ap, "-30.00", d.sup}), `"ledger_id": "`+p.leading+`"`), "")
+	d.leadingInvoice, _ = p.in(t).Must(201, "POST", "/v1/journal-entries", entry(p.de, "2026-03-02", "EUR", line{d.expense, "30.00", ""},
+		line{d.ap, "-30.00", d.sup}), "")
+	// A supplier line is never posted to one ledger alone (ADR-0045); the
+	// copy is taken away, as an item posted to the leading ledger alone
+	// before that rule has none.
+	pgtest.Unguarded(t, `WITH c AS (SELECT id FROM ledger.journal_entry WHERE posting_group_id = $1 AND id <> $1),
+		l AS (DELETE FROM ledger.journal_line WHERE journal_entry_id IN (SELECT id FROM c)),
+		b AS (DELETE FROM ledger.balance_projection WHERE journal_entry_id IN (SELECT id FROM c))
+		DELETE FROM ledger.journal_entry WHERE id IN (SELECT id FROM c)`, uuid.MustParse(d.leadingInvoice["id"].(string)))
 	d.payment, _ = p.in(t).Must(201, "POST", "/v1/journal-entries", entry(p.de, "2026-03-20", "EUR", line{d.ap, "100.00", d.sup}, line{d.bank, "-100.00", ""}), "")
 	return d
 }
@@ -189,6 +196,13 @@ func migratedEveryLedger(t *testing.T, p parallelEnv) {
 	}
 	if got := problem.From(clear(payCopy, "2026-03-31")); got.Code != "ledger.invalid_clearing_entry" || !strings.Contains(got.Detail, "is a copy") {
 		t.Errorf("by a copy: got %s %q, want ledger.invalid_clearing_entry naming the copy", got.Code, got.Detail)
+	}
+	// An entry of the parallel ledger alone holds no open item to clear by.
+	alone, _ := p.in(t).Must(201, "POST", "/v1/journal-entries", with(entry(p.de, "2026-03-03", "EUR", line{d.bank, "5.00", ""},
+		line{d.expense, "-5.00", ""}), `"ledger_id": "`+p.local+`"`), "")
+	if got := problem.From(clear(uuid.MustParse(alone["id"].(string)), "2026-03-31")); got.Code != "ledger.invalid_clearing_entry" ||
+		!strings.Contains(got.Detail, "not in the leading ledger") {
+		t.Errorf("by an entry of 2L alone: got %s %q, want ledger.invalid_clearing_entry naming the leading ledger", got.Code, got.Detail)
 	}
 	pgtest.Exec(t, `UPDATE ledger.period_status SET status = 'closed', version = version + 1 WHERE legal_entity_id = $1 AND ledger_id = $2
 		AND fiscal_year = 2026 AND period = 6`, p.de, p.local)

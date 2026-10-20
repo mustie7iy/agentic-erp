@@ -14827,10 +14827,10 @@ components:
         ledger_id:
           type: string
           format: uuid
-          description: "The one ledger the entry posts to (a ledger-specific posting), one its company keeps (422 `ledger.ledger_not_kept`). Without `ledger_id` and `ledger_group` the entry posts to every ledger its company keeps, as linked entries sharing one document number; the leading ledger's entry is the one returned."
+          description: "The one ledger the entry posts to (a ledger-specific posting), one its company keeps (422 `ledger.ledger_not_kept`); a ledger-specific posting has no line on a supplier or customer reconciliation account (422 `ledger.ledger_specific_reconciliation`). Without `ledger_id` and `ledger_group` the entry posts to every ledger its company keeps, as linked entries sharing one document number; the leading ledger's entry is the one returned."
         ledger_group:
           type: string
-          description: "Code of the ledger group the entry posts to (`GET /v1/ledger-groups`): one entry per member its company keeps, the representative's returned (or, the representative not kept, the first member left by code); a group of no ledger the company keeps is 422 `ledger.ledger_not_kept`. Not with `ledger_id` (422 `ledger.ledger_or_group`); an unknown code is 422 `ledger.unknown_ledger_group`."
+          description: "Code of the ledger group the entry posts to (`GET /v1/ledger-groups`): one entry per member its company keeps, the representative's returned (or, the representative not kept, the first member left by code); a group of no ledger the company keeps is 422 `ledger.ledger_not_kept`, and one with a line on a supplier or customer reconciliation account is 422 `ledger.ledger_specific_reconciliation`. Not with `ledger_id` (422 `ledger.ledger_or_group`); an unknown code is 422 `ledger.unknown_ledger_group`."
           pattern: "^[0-9A-Z]{1,4}$"
         document_type:
           type: string

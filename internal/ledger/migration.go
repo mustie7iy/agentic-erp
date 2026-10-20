@@ -83,7 +83,8 @@ func (p Postings) Clear(ctx context.Context, legalEntity uuid.UUID, date time.Ti
 
 // clearingPeriod requires the clearing entry to be one of the legal
 // entity's, the first entry of its posting group (the one a clearing is
-// shown by; its copies are cleared with it, clearCopies), and the clearing
+// shown by; its copies are cleared with it, clearCopies) and in the
+// leading ledger, where the open items are (ADR-0045), and the clearing
 // date to fall in an open period of the legal entity in the entry's ledger
 // and in each ledger of its copies, and holds each period's status row FOR
 // SHARE until the transaction ends, as postingPeriod does for a posting: a
@@ -94,8 +95,10 @@ func (p Postings) Clear(ctx context.Context, legalEntity uuid.UUID, date time.Ti
 func clearingPeriod(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, by ItemRef, date time.Time) error {
 	var entity uuid.UUID
 	var group *uuid.UUID
-	err := tx.QueryRow(ctx, `SELECT legal_entity_id, posting_group_id FROM ledger.journal_entry WHERE fiscal_year = $1 AND id = $2`,
-		by.FiscalYear, by.EntryID).Scan(&entity, &group)
+	var leading bool
+	err := tx.QueryRow(ctx, `SELECT e.legal_entity_id, e.posting_group_id, g.is_leading FROM ledger.journal_entry e
+		JOIN ledger.ledger g ON g.tenant_id = e.tenant_id AND g.id = e.ledger_id WHERE e.fiscal_year = $1 AND e.id = $2`,
+		by.FiscalYear, by.EntryID).Scan(&entity, &group, &leading)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return problem.Unprocessable("ledger.invalid_clearing_entry", fmt.Sprintf("Entry %d/%s does not exist.", by.FiscalYear, by.EntryID))
@@ -106,6 +109,9 @@ func clearingPeriod(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, by It
 	case group != nil && *group != by.EntryID:
 		return problem.Unprocessable("ledger.invalid_clearing_entry", "Entry "+by.EntryID.String()+" is a copy in another ledger; clear by entry "+
 			group.String()+", which clears its copies too.")
+	case !leading:
+		return problem.Unprocessable("ledger.invalid_clearing_entry", "Entry "+by.EntryID.String()+" is not in the leading ledger, "+
+			"whose entries clear open items; clear by an entry posted to the leading ledger.")
 	}
 	return clearingPeriods(ctx, tx, entity, by, date)
 }

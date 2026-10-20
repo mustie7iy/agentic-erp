@@ -72,6 +72,10 @@ func TestParallelPostings(t *testing.T) {
 	usBank, usRevenue := p.account(t, "1000", "100000"), p.account(t, "1000", "400000")
 	body := entry(p.de, "2026-03-15", "EUR", line{bank, "10.00", ""}, line{revenue, "-10.00", ""})
 	us := entry(p.us, "2026-03-15", "USD", line{usBank, "10.00", ""}, line{usRevenue, "-10.00", ""})
+	// SAP refuses ledger-specific postings on reconciliation accounts:
+	// open items are the same in every ledger (product owner, 2026-10-20).
+	invoice := entry(p.de, "2026-03-15", "EUR", line{p.account(t, "2000", "520000"), "10.00", ""},
+		line{p.account(t, "2000", "211000"), "-10.00", p.newSupplier(t, "BP00000079").String()})
 
 	for _, c := range []struct {
 		name, body, ledger, group string // ledger returned and the group's ledgers
@@ -106,6 +110,9 @@ func TestParallelPostings(t *testing.T) {
 			{"a group of no ledger the company keeps", with(us, `"ledger_group": "LOC"`), "ledger.ledger_not_kept"},
 			{"an unknown group", with(body, `"ledger_group": "ZZ"`), "ledger.unknown_ledger_group"},
 			{"a ledger and a group", with(body, `"ledger_id": "`+p.local+`", "ledger_group": "LOC"`), "ledger.ledger_or_group"},
+			{"a supplier line in one ledger", with(invoice, `"ledger_id": "`+p.local+`"`), "ledger.ledger_specific_reconciliation"},
+			{"a supplier line in a group", with(invoice, `"ledger_group": "ALL"`), "ledger.ledger_specific_reconciliation"},
+			{"a supplier line in the leading ledger alone", with(invoice, `"ledger_id": "`+p.leading+`"`), "ledger.ledger_specific_reconciliation"},
 		} {
 			t.Run(c.name, func(t *testing.T) {
 				p.in(t).Problem(422, c.code, "POST", "/v1/journal-entries", c.body, "")

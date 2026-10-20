@@ -78,6 +78,24 @@ func groupLedgers(ctx context.Context, tx pgx.Tx, le uuid.UUID, code string) (le
 	return c, nil
 }
 
+// commonOnReconciliation refuses a ledger-specific posting (to a ledger or
+// a ledger group) with a line on a supplier or customer reconciliation
+// account, as SAP does (product owner, 2026-10-20): open items are the
+// same in every ledger, so a ledger's difference is posted on G/L accounts.
+func commonOnReconciliation(c ledgerChoice, lines []Line, accounts map[uuid.UUID]account) error {
+	if c.ledgers == nil {
+		return nil
+	}
+	for i, l := range lines {
+		if kind := accounts[l.AccountID].kind; kind == "supplier" || kind == "customer" {
+			return problem.Unprocessable("ledger.ledger_specific_reconciliation", fmt.Sprintf("Line %d posts to a %s reconciliation account, "+
+				"which is posted in every ledger alike; post it without ledger_id and ledger_group, and a ledger's difference on a G/L account.", i+1, kind),
+				problem.FieldError{Field: fmt.Sprintf("lines[%d].account_id", i), Code: "reconciliation_account", Message: "not in a ledger-specific posting"})
+		}
+	}
+	return nil
+}
+
 // notKept refuses a posting to a ledger its company does not keep; field
 // names the request field that chose it.
 func notKept(field string) *problem.Problem {

@@ -54,7 +54,14 @@ to must be one the company keeps (422 `ledger.ledger_not_kept`). A group
 naming ledgers the company does not keep is narrowed to those it keeps, as
 SAP does, and refused (422 `ledger.ledger_not_kept`) only when it keeps
 none of them (product owner, 2026-10-20, T52c); when the representative is
-narrowed away, the first member left by code stands for the posting. The
+narrowed away, the first member left by code stands for the posting. A
+ledger-specific posting (naming a ledger, even the leading one, or a group)
+takes no line on a supplier or customer reconciliation account (422
+`ledger.ledger_specific_reconciliation`, product owner, 2026-10-20, T52d),
+as SAP refuses it: open items are the same in every ledger, and a ledger's
+own difference is posted on G/L accounts. A parked entry is held to it
+when it is posted or approved, so one parked before the rule is changed
+to post to every ledger, or deleted. The
 first entry is the representative ledger's (the leading ledger's without a
 group) and is the one returned, audited and referred to by open items and
 clearings; each entry publishes its own `JournalEntryPosted` and is
@@ -77,8 +84,9 @@ ledger alone) is left with its offset, so a ledger never clears an item
 without the line that offsets it. This holds for clearings, settlements
 (payments), down payment clearings, reversals (the reversal's copies clear
 the original's) and migrated clearings (whose clearing entry must be a
-posting group's first entry, and whose date must fall in an open period of
-every ledger of its copies). A clearing's own entry (AB, and the down
+posting group's first entry in the leading ledger, where the open items
+are, T52d, and whose date must fall in an open period of every ledger of
+its copies). A clearing's own entry (AB, and the down
 payment transfer) is narrowed to the ledgers every item was posted in, so a
 0L-only item's clearing posts to 0L alone; payables, payments, GR/IR and
 settlement postings go to every ledger of the company. The copies'
@@ -91,7 +99,11 @@ show only when their ledger is asked for and readers that sum the list
 with a ledger or group, is how they propose.
 
 **Revaluation and depreciation.** Foreign-currency revaluation runs per
-ledger (`fx_valuation` keyed by `ledger_id`, T52d); depreciation runs per
+ledger (`fx_valuation` keyed by `ledger_id`, T52d): each run posts into its
+own ledger alone, which the rule above allows because its lines are on the
+valuation and unrealised gain/loss accounts, a reconciliation account's
+valuation on its adjustment account (ADR-0042), never on the
+reconciliation account itself. Depreciation runs per
 depreciation area, each posting to its ledger (T57).
 
 **Reconciliation (T52e).** `GET /v1/ledger-reconciliation` compares the

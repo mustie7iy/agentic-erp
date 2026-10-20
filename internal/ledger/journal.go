@@ -493,9 +493,15 @@ type account struct {
 // entity, and partners exactly on reconciliation accounts. withPartners
 // asks the partner context whether each partner may be posted to.
 func (e *Endpoints) checkAccounts(ctx context.Context, tx pgx.Tx, le uuid.UUID, lines []Line, withPartners bool) error {
+	_, err := e.checkedAccounts(ctx, tx, le, lines, withPartners)
+	return err
+}
+
+// checkedAccounts is checkAccounts returning the accounts it checked.
+func (e *Endpoints) checkedAccounts(ctx context.Context, tx pgx.Tx, le uuid.UUID, lines []Line, withPartners bool) (map[uuid.UUID]account, error) {
 	accounts, err := lineAccounts(ctx, tx, le, lines)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	type partnerKey struct {
 		partner uuid.UUID
@@ -506,18 +512,18 @@ func (e *Endpoints) checkAccounts(ctx context.Context, tx pgx.Tx, le uuid.UUID, 
 		field := fmt.Sprintf("lines[%d]", i)
 		a, ok := accounts[l.AccountID]
 		if err := requirePostable(i, field, a, ok); err != nil {
-			return err
+			return nil, err
 		}
 		if err := requireSpecialGL(i, field, l, a); err != nil {
-			return err
+			return nil, err
 		}
 		recon := a.kind == "supplier" || a.kind == "customer"
 		switch {
 		case recon && l.PartnerID == nil:
-			return problem.Unprocessable("ledger.partner_required", "Line "+fmt.Sprint(i+1)+" posts to a "+a.kind+" reconciliation account and needs a partner.",
+			return nil, problem.Unprocessable("ledger.partner_required", "Line "+fmt.Sprint(i+1)+" posts to a "+a.kind+" reconciliation account and needs a partner.",
 				problem.FieldError{Field: field + ".partner_id", Code: "required", Message: "the " + a.kind + " of the line"})
 		case !recon && l.PartnerID != nil:
-			return problem.Unprocessable("ledger.partner_not_allowed", "Line "+fmt.Sprint(i+1)+": partners are posted only on reconciliation accounts.",
+			return nil, problem.Unprocessable("ledger.partner_not_allowed", "Line "+fmt.Sprint(i+1)+": partners are posted only on reconciliation accounts.",
 				problem.FieldError{Field: field + ".partner_id", Code: "not_allowed", Message: "only on supplier or customer reconciliation accounts"})
 		case !recon || !withPartners || checked[partnerKey{*l.PartnerID, a.kind}]:
 			continue
@@ -525,14 +531,14 @@ func (e *Endpoints) checkAccounts(ctx context.Context, tx pgx.Tx, le uuid.UUID, 
 		checked[partnerKey{*l.PartnerID, a.kind}] = true
 		why, err := e.Partners.PostingBlock(ctx, *l.PartnerID, le, a.kind)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if why != "" {
-			return problem.Unprocessable("ledger.partner_not_postable", "Line "+fmt.Sprint(i+1)+": "+why+".",
+			return nil, problem.Unprocessable("ledger.partner_not_postable", "Line "+fmt.Sprint(i+1)+": "+why+".",
 				problem.FieldError{Field: field + ".partner_id", Code: "not_postable", Message: why})
 		}
 	}
-	return nil
+	return accounts, nil
 }
 
 // lineAccounts reads the accounts the lines post to, with their settings
@@ -771,7 +777,11 @@ func (e *Endpoints) prepareFor(ctx context.Context, tx pgx.Tx, le tenancy.Entity
 	if err != nil {
 		return prepared{}, err
 	}
-	if err := e.checkAccounts(ctx, tx, le.ID, lines, true); err != nil {
+	accounts, err := e.checkedAccounts(ctx, tx, le.ID, lines, true)
+	if err != nil {
+		return prepared{}, err
+	}
+	if err := commonOnReconciliation(choice, lines, accounts); err != nil {
 		return prepared{}, err
 	}
 	if err := checkTaxCodes(ctx, tx, le.ID, in.PostingDate, lines); err != nil {

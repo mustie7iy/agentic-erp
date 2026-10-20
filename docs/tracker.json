@@ -919,9 +919,21 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Ledger-specific postings refused on supplier and customer reconciliation accounts (422 ledger.ledger_specific_reconciliation), so open items are the same in every ledger; a migrated clearing's entry must be the leading ledger's",
+        "r": "commonOnReconciliation · clearingPeriod · ADR-0045 · T52d",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Revaluation per ledger and valuation area (fx_valuation keyed by ledger)",
+        "t": "Revaluation per ledger and valuation area (fx_valuation keyed by ledger); waits for T48 on main",
         "r": "T52d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Ledger-aware list index and planner statistics for the journal list's ledger filter",
+        "r": "T52",
         "c": []
        }
       ]
