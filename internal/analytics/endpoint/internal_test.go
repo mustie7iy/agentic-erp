@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
-	"github.com/mustie7iy/agentic-erp/internal/analytics"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -41,12 +41,25 @@ func (c codes) CompanyCode(context.Context, uuid.UUID) (string, bool, error) {
 	return "2000", true, c.err
 }
 
+// seed answers the seed model as version 1, or fails.
+type seed struct{ err error }
+
+func (s seed) Document(context.Context) (*config.Config, int32, error) { return nil, 1, s.err }
+
+func (s seed) Version(context.Context, int32) (*config.Config, error) { return nil, s.err }
+
 // inRequest runs fn with a request's transaction and principal: the
 // tenant's agent, given access to one company; the transaction fails its
 // statements from failAt on (0: none).
 func inRequest(t *testing.T, failAt int, fn func(ctx context.Context)) {
 	t.Helper()
-	ten := pgtest.NewTenant(t, "analytics.query.run", "ledger.entry.read")
+	inRequestWith(t, []string{"analytics.query.run", "ledger.entry.read"}, failAt, fn)
+}
+
+// inRequestWith is inRequest for an agent holding permissions.
+func inRequestWith(t *testing.T, permissions []string, failAt int, fn func(ctx context.Context)) {
+	t.Helper()
+	ten := pgtest.NewTenant(t, permissions...)
 	pgtest.Exec(t, `INSERT INTO identity.company_access (tenant_id, id, principal_id, legal_entity_id, valid_from, created_by)
 		VALUES ($1, gen_random_uuid(), $2, gen_random_uuid(), current_date - 1, $3)`, ten.ID, ten.Agent.ID, ten.Human.ID)
 	ctx := context.Background()
@@ -64,17 +77,16 @@ func inRequest(t *testing.T, failAt int, fn func(ctx context.Context)) {
 
 // TestFailures: each step of a query failing fails the query.
 func TestFailures(t *testing.T) {
-	m, _ := analytics.DefaultModel()
 	req := &gen.AnalyticsQuery{Measures: []string{"revenue"}}
 	run := func(e *Endpoints, ctx context.Context) error {
 		_, err := e.RunAnalyticsQuery(ctx, req, gen.RunAnalyticsQueryParams{})
 		return err
 	}
-	e := (&Endpoints{Model: m, Companies: codes{}, Loopback: &httpapi.Loopback{}}).Init()
+	e := (&Endpoints{Configs: seed{}, Companies: codes{}, Loopback: &httpapi.Loopback{}}).Init()
 	pgtest.CheckErr(t, run(e, context.Background()), "no transaction and principal")
 	t.Run("company code", func(t *testing.T) {
 		inRequest(t, 0, func(ctx context.Context) {
-			failing := (&Endpoints{Model: m, Companies: codes{errors.New("directory down")}}).Init()
+			failing := (&Endpoints{Configs: seed{}, Companies: codes{errors.New("directory down")}}).Init()
 			pgtest.CheckErr(t, run(failing, ctx), "directory down")
 		})
 	})
@@ -82,7 +94,7 @@ func TestFailures(t *testing.T) {
 		inRequest(t, 2, func(ctx context.Context) { pgtest.CheckErr(t, run(e, ctx), pgtest.ErrInjected.Error()) })
 	})
 	t.Run("busy", func(t *testing.T) {
-		busy := (&Endpoints{Model: m, Companies: codes{}, Fallbacks: 1}).Init()
+		busy := (&Endpoints{Configs: seed{}, Companies: codes{}, Fallbacks: 1}).Init()
 		busy.slots <- struct{}{}
 		inRequest(t, 0, func(ctx context.Context) {
 			if err := run(busy, ctx); problem.From(err).Code != "analytics.busy" {

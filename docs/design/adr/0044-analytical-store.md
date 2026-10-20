@@ -481,6 +481,54 @@ T52a).
 is the cluster's, so a dedicated database cannot shorten it (a cluster of
 their own could; not worth it while the wait is seconds).
 
+**Metric definitions in the configuration (T55g).** The semantic model
+(calendar, everyday-word defaults, dimensions, metrics) is the
+configuration document's `analytics` section (`config.Analytics`; the
+analytics package's model types are its types), so a metric's meaning
+changes only through a change request: proposed, submitted, simulated,
+approved and activated as a configuration version. A document without the
+section reads `semantic.yaml`, which stays the seed every tenant starts
+from until its first metric change adds the section. The analytics
+context checks a proposed section on submission (`endpoint.Section`: the
+model must read, including no metric derived from itself), and the
+endpoint reads the active version's model in each request
+(`configuration.Settings.Document`); the answer names it in
+`config_version`.
+
+*Tiers and evidence.* A metric's or dimension's label, description and
+synonyms are tier 1 (no value moves); anything else in the section is
+tier 2 (process owner) and needs a simulation before approval whatever
+its tier (`config.Evidence`), since a definition changes every report
+computing it. The change request's simulation runs the payables
+simulation and the analytics one (`configuration.Simulators`):
+`endpoint.Simulation` lists the metrics the change can move
+(`analytics.Affected`: those added, removed or computed differently,
+through their derivations and the calendar) and records, as the evidence's
+detail, each one's value by company and fiscal year for the current and
+previous fiscal year under the base and the proposed definitions, read as
+the person who asked for the simulation, within their companies and
+permissions. It reads the analytical store only: the database path reads
+the API with a request's credentials, which a queued simulation does not
+have, so a store that cannot answer (none configured, stale) records a
+failed simulation that names the metrics, to be simulated again once the
+store is current; a cell without erp-analytics cannot change metric
+definitions until it has one (T55o). The analytics agent and the CLI still
+describe the seed's metrics to the model (T55n).
+
+*Agents propose, people activate.* An agent may create, submit and
+simulate a change request (`x-autonomy: propose`); activation is
+`x-agent: false`, as approval decisions are, so no agent activates a
+metric change.
+
+*Earlier versions stay answerable (decided).* Configuration versions are
+immutable, so a query may name `config_version` and is answered under that
+version's definitions, on current data: an auditor can see what a metric
+meant when a report was made and recompute it, and every answer carries
+the version it was computed under. An unknown version is 422
+`config.unknown_version`. The data is today's: reproducing a report's
+figures as they were also needs the data as of then, which the store's
+superseded manifests keep only for 7 days (T55f), so that is not promised.
+
 **Steps.** T55a this ADR and the dataset contract; T55b the snapshot
 migration, extractor and Parquet writer for journal lines; T55c the other
 datasets and the scheduler (migration 000092); T55d `erp-analytics`, the guard and the

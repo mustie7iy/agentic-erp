@@ -73,3 +73,27 @@ func (Settings) Document(ctx context.Context) (*config.Config, int32, error) {
 	}
 	return c, n, nil
 }
+
+// Version returns the document of an activated configuration version, for
+// a reading under a past version: an audit's analytics query answered with
+// the metric definitions of the version a report was made under
+// (ADR-0044). An unknown number is 422 config.unknown_version.
+func (Settings) Version(ctx context.Context, number int32) (*config.Config, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := readVersion(ctx, tx, number)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, problem.Unprocessable("config.unknown_version", fmt.Sprintf("There is no configuration version %d.", number),
+			problem.FieldError{Field: "config_version", Code: "not_found", Message: "an activated configuration version"})
+	}
+	if err != nil {
+		return nil, err
+	}
+	c, err := activeConfig(ctx, raw)
+	if err != nil {
+		return nil, fmt.Errorf("configuration: read version %d: %w", number, err)
+	}
+	return c, nil
+}

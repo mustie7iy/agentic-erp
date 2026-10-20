@@ -4129,9 +4129,15 @@ func (s *AnalyticsQuery) encodeFields(e *jx.Encoder) {
 			e.ArrEnd()
 		}
 	}
+	{
+		if s.ConfigVersion.Set {
+			e.FieldStart("config_version")
+			s.ConfigVersion.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfAnalyticsQuery = [9]string{
+var jsonFieldsNameOfAnalyticsQuery = [10]string{
 	0: "measures",
 	1: "by",
 	2: "where",
@@ -4141,6 +4147,7 @@ var jsonFieldsNameOfAnalyticsQuery = [9]string{
 	6: "ledger",
 	7: "as_of",
 	8: "companies",
+	9: "config_version",
 }
 
 // Decode decodes AnalyticsQuery from json.
@@ -4277,6 +4284,16 @@ func (s *AnalyticsQuery) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"companies\"")
 			}
+		case "config_version":
+			if err := func() error {
+				s.ConfigVersion.Reset()
+				if err := s.ConfigVersion.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"config_version\"")
+			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
 		}
@@ -4344,6 +4361,10 @@ func (s *AnalyticsResult) Encode(e *jx.Encoder) {
 // encodeFields encodes fields.
 func (s *AnalyticsResult) encodeFields(e *jx.Encoder) {
 	{
+		e.FieldStart("config_version")
+		e.Int32(s.ConfigVersion)
+	}
+	{
 		e.FieldStart("query_id")
 		e.Str(s.QueryID)
 	}
@@ -4393,15 +4414,16 @@ func (s *AnalyticsResult) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfAnalyticsResult = [8]string{
-	0: "query_id",
-	1: "columns",
-	2: "rows",
-	3: "source",
-	4: "as_of",
-	5: "data_through",
-	6: "definitions",
-	7: "truncated",
+var jsonFieldsNameOfAnalyticsResult = [9]string{
+	0: "config_version",
+	1: "query_id",
+	2: "columns",
+	3: "rows",
+	4: "source",
+	5: "as_of",
+	6: "data_through",
+	7: "definitions",
+	8: "truncated",
 }
 
 // Decode decodes AnalyticsResult from json.
@@ -4409,12 +4431,24 @@ func (s *AnalyticsResult) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode AnalyticsResult to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
-		case "query_id":
+		case "config_version":
 			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Int32()
+				s.ConfigVersion = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"config_version\"")
+			}
+		case "query_id":
+			requiredBitSet[0] |= 1 << 1
 			if err := func() error {
 				v, err := d.Str()
 				s.QueryID = string(v)
@@ -4426,7 +4460,7 @@ func (s *AnalyticsResult) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"query_id\"")
 			}
 		case "columns":
-			requiredBitSet[0] |= 1 << 1
+			requiredBitSet[0] |= 1 << 2
 			if err := func() error {
 				s.Columns = make([]AnalyticsColumn, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -4444,7 +4478,7 @@ func (s *AnalyticsResult) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"columns\"")
 			}
 		case "rows":
-			requiredBitSet[0] |= 1 << 2
+			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
 				s.Rows = make([][]AnalyticsCell, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -4470,7 +4504,7 @@ func (s *AnalyticsResult) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"rows\"")
 			}
 		case "source":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.Source = string(v)
@@ -4482,7 +4516,7 @@ func (s *AnalyticsResult) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"source\"")
 			}
 		case "as_of":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.AsOf = v
@@ -4494,7 +4528,7 @@ func (s *AnalyticsResult) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"as_of\"")
 			}
 		case "data_through":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.DataThrough = string(v)
@@ -4506,7 +4540,7 @@ func (s *AnalyticsResult) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"data_through\"")
 			}
 		case "definitions":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				s.Definitions = make([]AnalyticsDefinition, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -4524,7 +4558,7 @@ func (s *AnalyticsResult) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"definitions\"")
 			}
 		case "truncated":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				v, err := d.Bool()
 				s.Truncated = bool(v)
@@ -4544,8 +4578,9 @@ func (s *AnalyticsResult) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
+	for i, mask := range [2]uint8{
 		0b11111111,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

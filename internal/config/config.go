@@ -23,6 +23,9 @@ type Config struct {
 	Payments     Payments      `yaml:"payments" json:"payments"`
 	Output       Output        `yaml:"output" json:"output"`
 	NumberRanges []NumberRange `yaml:"number_ranges,omitempty" json:"number_ranges,omitempty"`
+	// Analytics is the semantic layer's governed model; nil: the seed
+	// (internal/analytics/semantic.yaml) until a change request adds it.
+	Analytics *Analytics `yaml:"analytics,omitempty" json:"analytics,omitempty"`
 }
 
 // NumberRange is a document number interval for one company, document type

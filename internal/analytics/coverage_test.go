@@ -52,6 +52,8 @@ func TestModelValidationMessages(t *testing.T) {
 		"undeclared dimension":     src("  - {name: b, type: money, source: t, aggregate: sum, dimensions: [zz]}\n"),
 		"needs a source":           src("  - {name: b, type: money}\n"),
 		"points to unknown metric": src("defaults: {sales: zz}\n"),
+		"b derives from itself": src("  - {name: b, type: money, derived: {op: subtract, left: a, right: c}}\n" +
+			"  - {name: c, type: money, derived: {op: divide, left: b, right: a}}\n"),
 	}
 	for want, doc := range cases {
 		t.Run(want, func(t *testing.T) {

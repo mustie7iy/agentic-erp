@@ -141,8 +141,9 @@ func certifications(cfg Config) agents.Certifications {
 func New(cfg Config) (http.Handler, error) {
 	upload := uploads(cfg)
 	loopback := &httpapi.Loopback{}
-	model, err := governedModel()
-	if err != nil {
+	// The seed of every tenant's semantic model until a change request
+	// gives it its own: unreadable, the API does not start.
+	if _, err := governedModel(); err != nil {
 		return nil, err
 	}
 	h := handler{
@@ -170,8 +171,7 @@ func New(cfg Config) (http.Handler, error) {
 		auditAPI:       &audit.Endpoints{Pages: cfg.Pages, Anchors: cfg.Objects},
 		integrationAPI: Integration(cfg),
 		agentsAPI:      &agents.Endpoints{Pages: cfg.Pages, Countries: tenancy.Countries, Certifications: certifications(cfg)},
-		analyticsAPI: (&endpoint.Endpoints{Model: model, Companies: companyCodes{}, Reader: cfg.Analytics, Loopback: loopback,
-			Log: cfg.Log, Now: cfg.Now}).Init(),
+		analyticsAPI:   analyticsEndpoints(cfg, loopback).Init(),
 	}
 	return httpapi.New(h, httpapi.Pipeline{
 		Pool: cfg.Pool, AppRole: cfg.AppRole, Verifier: cfg.Verifier, Limits: cfg.Limits, RequestTimeout: cfg.RequestTimeout,
@@ -190,7 +190,15 @@ func New(cfg Config) (http.Handler, error) {
 	})
 }
 
-// governedModel is the semantic layer's governed model, built in; tests
+// analyticsEndpoints is the analytics context as the API and the
+// simulation worker wire it: the semantic model read from the tenant's
+// configuration (ADR-0044, T55g).
+func analyticsEndpoints(cfg Config, loopback http.RoundTripper) *endpoint.Endpoints {
+	return &endpoint.Endpoints{Configs: configuration.Settings{}, Companies: companyCodes{}, Reader: cfg.Analytics, Loopback: loopback,
+		Log: cfg.Log, Now: cfg.Now}
+}
+
+// governedModel is the semantic layer's seed model, built in; tests
 // replace it.
 var governedModel = analytics.DefaultModel
 
@@ -210,9 +218,10 @@ func Configuration(cfg Config) configuration.Dependencies {
 		Sections: []configuration.Section{ledger.Setup{LegalEntities: tenancy.Directory{}}, partner.PaymentTerms{}, partner.WithholdingCodes{LegalEntities: tenancy.Directory{}},
 			partner.PaymentMethodCodes{LegalEntities: tenancy.Directory{}},
 			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Channels: integration.BankChannels{}, Keys: cfg.FieldKeys},
-			payments.PaymentMethods{LegalEntities: tenancy.Directory{}}},
+			payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, endpoint.Section{}},
 		Approvals: opener(),
-		Simulator: payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
+		Simulator: configuration.Simulators{payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
+			endpoint.Simulation{Endpoints: analyticsEndpoints(cfg, nil), Now: cfg.Now}},
 		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
 		Actors:    identity.Actors{},
 	}

@@ -34,7 +34,9 @@ type Companies interface {
 
 // Endpoints is the analytics context's part of the generated Handler.
 type Endpoints struct {
-	Model     *analytics.Model // the governed semantic model
+	// Configs reads the configuration versions whose analytics sections
+	// are the governed semantic model (ADR-0044, T55g).
+	Configs   Configs
 	Companies Companies
 	// Reader asks erp-analytics for a plan's groups; nil: no reader is
 	// configured and every query is answered from the database.
@@ -62,15 +64,19 @@ var factDatasets = []struct{ dataset, permission string }{
 
 // RunAnalyticsQuery implements gen.Handler.
 func (e *Endpoints) RunAnalyticsQuery(ctx context.Context, req *gen.AnalyticsQuery, _ gen.RunAnalyticsQueryParams) (gen.RunAnalyticsQueryRes, error) {
+	m, version, err := e.model(ctx, req.ConfigVersion.Or(0))
+	if err != nil {
+		return nil, err
+	}
 	q := fromAPI(req)
-	if err := analytics.Validate(e.Model, q); err != nil {
+	if err := analytics.Validate(m, q); err != nil {
 		return nil, invalid(err)
 	}
 	p, err := e.principal(ctx, req.Companies)
 	if err != nil {
 		return nil, err
 	}
-	datasets, err := e.datasets(ctx, q)
+	datasets, err := e.datasets(ctx, m, q)
 	if err != nil {
 		return nil, err
 	}
@@ -81,14 +87,15 @@ func (e *Endpoints) RunAnalyticsQuery(ctx context.Context, req *gen.AnalyticsQue
 	defer release()
 	db := e.database(datasets)
 	src := store.Source{Reader: e.Reader, Database: db, Datasets: datasets, Requires: db.Permissions(), Now: e.Now, Log: e.Log}
-	facts, err := src.Facts(ctx, e.Model, p, q, req.AsOf.Or(time.Time{}))
+	facts, err := src.Facts(ctx, m, p, q, req.AsOf.Or(time.Time{}))
 	if err != nil {
 		return nil, apiError(err)
 	}
-	res, err := analytics.Execute(e.Model, facts, p, q)
+	res, err := analytics.Execute(m, facts, p, q)
 	if err != nil {
 		return nil, invalid(err)
 	}
+	res.ConfigVersion = version
 	return &gen.AnalyticsResultHeaders{Response: toAPI(res)}, nil
 }
 
@@ -173,15 +180,15 @@ func (e *Endpoints) principal(ctx context.Context, asked []string) (analytics.Pr
 // caller's permissions do not read refuses the query as the API would
 // refuse that read, whichever path answers; one the query does not need is
 // read by neither.
-func (e *Endpoints) datasets(ctx context.Context, q analytics.Query) ([]string, error) {
+func (e *Endpoints) datasets(ctx context.Context, m *analytics.Model, q analytics.Query) ([]string, error) {
 	perms, err := authz.Permissions(ctx)
 	if err != nil {
 		return nil, err
 	}
 	needed := map[string]bool{}
 	for _, name := range q.Measures {
-		for _, base := range e.Model.BaseMetrics(name) {
-			needed[e.Model.Metric(base).Source] = true
+		for _, base := range m.BaseMetrics(name) {
+			needed[m.Metric(base).Source] = true
 		}
 	}
 	out := []string{}

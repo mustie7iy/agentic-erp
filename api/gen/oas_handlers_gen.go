@@ -33218,15 +33218,18 @@ func (s *Server) handleReverseSupplierInvoiceRequest(args [1]string, argsEscaped
 
 // handleRunAnalyticsQueryRequest handles runAnalyticsQuery operation.
 //
-// Answers governed metrics (the semantic layer's `semantic.yaml`), broken down by its dimensions and
-// filtered on them, for the companies the principal may read. A query names metrics and dimensions,
-// never SQL. It is answered from the analytical store when the tenant's store was found current within
-// the freshness target and no earlier than `as_of`, else from the database; `source` and `as_of` say
-// which (ADR-0044). The database answers through the API's own reads as the caller, so a metric over
-// data the caller may not read is 403 as that read is. A query the semantic layer refuses (an unknown
-// metric or dimension, a filter it cannot apply, amounts of two currencies summed) is 422
-// `analytics.invalid_query`; too many queries answering at once on the server is 503 `analytics.busy`
-// with `Retry-After`. Changes nothing: agents of any autonomy level may run it.
+// Answers governed metrics (the semantic model in the active configuration version's `analytics`
+// section, `semantic.yaml` until a change request adds one; metric definitions change only through
+// change requests), broken down by its dimensions and filtered on them, for the companies the
+// principal may read. A query names metrics and dimensions, never SQL. It is answered from the
+// analytical store when the tenant's store was found current within the freshness target and no
+// earlier than `as_of`, else from the database; `source` and `as_of` say which (ADR-0044). The
+// database answers through the API's own reads as the caller, so a metric over data the caller may not
+// read is 403 as that read is, and the store answers only a caller who holds the permissions of those
+// reads. A tenant without a configuration is 409 `config.not_bootstrapped`. A query the semantic layer
+// refuses (an unknown metric or dimension, a filter it cannot apply, amounts of two currencies summed)
+// is 422 `analytics.invalid_query`; too many queries answering at once on the server is 503
+// `analytics.busy` with `Retry-After`. Changes nothing: agents of any autonomy level may run it.
 //
 // POST /v1/analytics-queries
 func (s *Server) handleRunAnalyticsQueryRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

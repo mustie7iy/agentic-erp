@@ -20,7 +20,7 @@ func fromAPI(req *gen.AnalyticsQuery) analytics.Query {
 // toAPI is a result as the contract writes it: each measure an exact
 // decimal string with its currency.
 func toAPI(r *analytics.Result) gen.AnalyticsResult {
-	out := gen.AnalyticsResult{QueryID: r.ID, Source: r.Source, AsOf: r.AsOf, DataThrough: r.DataThrough, Truncated: r.Truncated,
+	out := gen.AnalyticsResult{QueryID: r.ID, ConfigVersion: r.ConfigVersion, Source: r.Source, AsOf: r.AsOf, DataThrough: r.DataThrough, Truncated: r.Truncated,
 		Columns: make([]gen.AnalyticsColumn, 0, len(r.Columns)), Rows: make([][]gen.AnalyticsCell, 0, len(r.Rows)),
 		Definitions: make([]gen.AnalyticsDefinition, 0, len(r.Definitions))}
 	for _, c := range r.Columns {

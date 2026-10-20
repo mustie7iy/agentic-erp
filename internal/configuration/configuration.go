@@ -432,7 +432,7 @@ func SubmitChangeRequest(ctx context.Context, deps Dependencies, id uuid.UUID, i
 	}
 	status := AwaitingEvidence
 	var request *uuid.UUID
-	if len(config.RequiredEvidence(tier)) == 0 {
+	if len(config.Evidence(changes)) == 0 {
 		if status, request, err = route(ctx, deps, c, tier); err != nil {
 			return ChangeRequest{}, err
 		}

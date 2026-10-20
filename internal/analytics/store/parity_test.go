@@ -47,7 +47,7 @@ type parity struct {
 }
 
 var parityPerms = []string{"ledger.entry.post", "ledger.entry.read", "ledger.account.read", "payables.invoice.read", "procurement.order.read",
-	"partner.supplier.read", "tenancy.org.read", "analytics.query.run"}
+	"partner.supplier.read", "tenancy.org.read", "analytics.query.run", "config.change.read", "config.change.propose", "config.change.activate"}
 
 // post posts a journal entry in le debiting debit and crediting credit,
 // the partner on the credit line, in ledger (nil: the leading one).
@@ -216,6 +216,7 @@ func TestParity(t *testing.T) {
 	}
 	t.Run("endpoint", p.endpoint)
 	t.Run("permissions", p.permissions)
+	t.Run("metric change", p.metricChange) // last: it activates a configuration version
 	t.Run("not vacuous", func(t *testing.T) {
 		m := model(t)
 		dbFacts, err := p.db.Facts(context.Background(), m, p.asOf)

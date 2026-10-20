@@ -74,6 +74,9 @@ type Result struct {
 	DataThrough string          `json:"data_through"`
 	Definitions []MetricLineage `json:"definitions"`
 	Truncated   bool            `json:"truncated,omitempty"`
+	// ConfigVersion is the configuration version whose metric definitions
+	// answered (the endpoint's; 0 for a model read locally).
+	ConfigVersion int32 `json:"config_version,omitempty"`
 }
 
 // MetricLineage records exactly which definition produced a measure.

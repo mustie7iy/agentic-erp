@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -39,6 +41,31 @@ type Simulation struct {
 // writing nothing (the payables context implements it).
 type Simulator interface {
 	Simulate(ctx context.Context, base, proposed *config.Config) (Simulation, error)
+}
+
+// Simulators simulates one change in several contexts (the payables
+// context's invoices, the analytics context's metrics): the change passes
+// when every simulation does; the summaries are joined and the details
+// merged, each context's under keys of its own.
+type Simulators []Simulator
+
+// Simulate implements Simulator.
+func (s Simulators) Simulate(ctx context.Context, base, proposed *config.Config) (Simulation, error) {
+	out := Simulation{Passed: true, Detail: map[string]any{}}
+	var summaries []string
+	for _, sim := range s {
+		r, err := sim.Simulate(ctx, base, proposed)
+		if err != nil {
+			return Simulation{}, err
+		}
+		out.Passed = out.Passed && r.Passed
+		if r.Summary != "" {
+			summaries = append(summaries, r.Summary)
+		}
+		maps.Copy(out.Detail, r.Detail)
+	}
+	out.Summary = strings.Join(summaries, " ")
+	return out, nil
 }
 
 // SimulationWorker runs queued config.simulate operations (ADR-0012): it

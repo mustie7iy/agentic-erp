@@ -604,3 +604,47 @@ func TestParseActive(t *testing.T) {
 		t.Errorf("an unreadable document: got %v, %v; want an error and no document", c, err)
 	}
 }
+
+// TestAnalyticsChanges: a metric's or dimension's words are cosmetic and
+// need no evidence; its definition is operational and needs a simulation,
+// which a tier needing one already has.
+func TestAnalyticsChanges(t *testing.T) {
+	base := func() *Config {
+		return &Config{Analytics: &Analytics{Dimensions: []Dimension{{Name: "company", Label: "Company"}},
+			Metrics: []Metric{{Name: "revenue", Label: "Revenue", Type: "money", Source: "gl_lines", Aggregate: "sum", Filter: map[string][]string{"account_type": {"revenue"}}}}}}
+	}
+	cases := map[string]struct {
+		change   func(*Config)
+		tier     Tier
+		evidence string
+	}{
+		"a label":       {func(c *Config) { c.Analytics.Metrics[0].Label = "Sales" }, TierCosmetic, ""},
+		"a synonym":     {func(c *Config) { c.Analytics.Metrics[0].Synonyms = []string{"sales"} }, TierCosmetic, ""},
+		"a dimension":   {func(c *Config) { c.Analytics.Dimensions[0].Description = "Code" }, TierCosmetic, ""},
+		"a filter":      {func(c *Config) { c.Analytics.Metrics[0].Filter["account"] = []string{"400000"} }, TierOperational, "simulation"},
+		"a new metric":  {func(c *Config) { c.Analytics.Metrics = append(c.Analytics.Metrics, Metric{Name: "x", Label: "X"}) }, TierOperational, "simulation"},
+		"the calendar":  {func(c *Config) { c.Analytics.Calendar.FiscalYearStartMonth = 7 }, TierOperational, "simulation"},
+		"with a tier 3": {func(c *Config) { c.Analytics.Metrics[0].Sign = -1; c.Payments.ReleaseApprovals = 2 }, TierPostingRelated, "simulation regression"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			proposed := base()
+			c.change(proposed)
+			changes, _ := Diff(base(), proposed) // never fails
+			if got := MaxTier(changes); got != c.tier {
+				t.Errorf("tier: got %v, want %v (%v)", got, c.tier, changes)
+			}
+			if got := strings.Join(Evidence(changes), " "); got != c.evidence {
+				t.Errorf("evidence: got %q, want %q", got, c.evidence)
+			}
+		})
+	}
+	changes, _ := Diff(base(), &Config{}) // never fails
+	var paths []string
+	for _, c := range changes {
+		paths = append(paths, c.Path)
+	}
+	if got, want := strings.Join(paths, " "), "analytics.calendar.fiscal_year_start_month analytics.dimensions[company] analytics.metrics[revenue]"; got != want {
+		t.Errorf("section removed: got %s, want %s", got, want)
+	}
+}

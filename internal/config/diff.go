@@ -82,6 +82,12 @@ var tierRules = []struct {
 	// Submission only lets new ranges and raised upper limits through, so
 	// issued numbers stay valid.
 	{rx(`^number_ranges`), TierCosmetic},
+	// A metric's or dimension's words change no value; its definition
+	// changes every report computing it, so it is simulated (Evidence)
+	// and its owner approves it.
+	{rx(`^analytics\.metrics\[\*\]\.(label|description|synonyms)`), TierCosmetic},
+	{rx(`^analytics\.dimensions\[\*\]\.(label|description)$`), TierCosmetic},
+	{rx(`^analytics(\.|$)`), TierOperational},
 }
 
 func rx(s string) *regexp.Regexp { return regexp.MustCompile(s) }
@@ -105,6 +111,9 @@ var listKeys = map[string]string{
 	"house_banks": "name", "payment_methods": "code", "ranking": "currency",
 	"payment_terms": "key",
 	"number_ranges": "company,document_type,fiscal_year",
+	// The analytics section's; a metric's own dimensions are names, listed
+	// by position.
+	"metrics": "name", "dimensions": "name",
 }
 
 // Diff lists every setting that differs from old to new, with its tier.

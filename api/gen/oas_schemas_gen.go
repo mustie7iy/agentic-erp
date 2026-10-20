@@ -2100,6 +2100,10 @@ type AnalyticsQuery struct {
 	// Company codes to restrict the answer to, within those the principal may read; all of those when
 	// omitted.
 	Companies []string `json:"companies"`
+	// Answer under the metric definitions of this configuration version, on current data (an audit of what
+	// a report meant when it was made); the active version's when omitted. An unknown version is 422
+	// `config.unknown_version` (ADR-0044).
+	ConfigVersion OptInt32 `json:"config_version"`
 }
 
 // GetMeasures returns the value of Measures.
@@ -2147,6 +2151,11 @@ func (s *AnalyticsQuery) GetCompanies() []string {
 	return s.Companies
 }
 
+// GetConfigVersion returns the value of ConfigVersion.
+func (s *AnalyticsQuery) GetConfigVersion() OptInt32 {
+	return s.ConfigVersion
+}
+
 // SetMeasures sets the value of Measures.
 func (s *AnalyticsQuery) SetMeasures(val []string) {
 	s.Measures = val
@@ -2192,10 +2201,17 @@ func (s *AnalyticsQuery) SetCompanies(val []string) {
 	s.Companies = val
 }
 
+// SetConfigVersion sets the value of ConfigVersion.
+func (s *AnalyticsQuery) SetConfigVersion(val OptInt32) {
+	s.ConfigVersion = val
+}
+
 // A query's columns and rows, with its lineage: the source it was answered from, as of when, the
 // latest date in the data read, and each measure's definition.
 // Ref: #/components/schemas/AnalyticsResult
 type AnalyticsResult struct {
+	// The configuration version whose metric definitions answered: the active one, or the one asked for.
+	ConfigVersion int32 `json:"config_version"`
 	// Stable for the same query and company scope, so saved reports can refer to it.
 	QueryID string `json:"query_id"`
 	// The dimensions, then the measures, in the order of each row's cells.
@@ -2213,6 +2229,11 @@ type AnalyticsResult struct {
 	Definitions []AnalyticsDefinition `json:"definitions"`
 	// The rows were cut at the limit.
 	Truncated bool `json:"truncated"`
+}
+
+// GetConfigVersion returns the value of ConfigVersion.
+func (s *AnalyticsResult) GetConfigVersion() int32 {
+	return s.ConfigVersion
 }
 
 // GetQueryID returns the value of QueryID.
@@ -2253,6 +2274,11 @@ func (s *AnalyticsResult) GetDefinitions() []AnalyticsDefinition {
 // GetTruncated returns the value of Truncated.
 func (s *AnalyticsResult) GetTruncated() bool {
 	return s.Truncated
+}
+
+// SetConfigVersion sets the value of ConfigVersion.
+func (s *AnalyticsResult) SetConfigVersion(val int32) {
+	s.ConfigVersion = val
 }
 
 // SetQueryID sets the value of QueryID.
