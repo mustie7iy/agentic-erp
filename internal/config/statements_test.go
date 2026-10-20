@@ -33,26 +33,29 @@ func reconciling(c *Config) {
 }
 
 func TestBankStatementsValid(t *testing.T) {
-	c := fixture(t)
-	reconciling(c)
-	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
-		t.Fatalf("reconciling company invalid: %v", fs)
+	for name, change := range map[string]func(c *Config){
+		"reconciling":                 func(*Config) {},
+		"without approval tiers":      func(c *Config) { c.Companies[0].BankStatements.ApprovalTiers = nil },
+		"without an incoming account": func(c *Config) { c.Companies[0].HouseBank.IncomingGLAccount = "" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := fixture(t)
+			reconciling(c)
+			change(c)
+			if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
+				t.Fatalf("got findings %v, want none", fs)
+			}
+		})
 	}
-	c.Companies[0].BankStatements.ApprovalTiers = nil
-	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
-		t.Fatalf("without approval tiers (every match approved): %v", fs)
-	}
-	c.Companies[0].HouseBank.IncomingGLAccount = ""
-	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
-		t.Fatalf("without an incoming payments account: %v", fs)
-	}
-	b, err := fixture(t).Marshal()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(b), "bank_statements") {
-		t.Errorf("a company without statement settings renders them:\n%s", b)
-	}
+	t.Run("a company without statement settings renders none", func(t *testing.T) {
+		b, err := fixture(t).Marshal()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), "bank_statements") {
+			t.Errorf("got bank_statements in\n%s, want none", b)
+		}
+	})
 }
 
 // Each mutation of a reconciling company must produce an error finding at

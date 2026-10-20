@@ -22,6 +22,15 @@ func withOpenItems(tb testing.TB) *config.Config {
 	return doc
 }
 
+// withUnmanaged102000 is the document with company 2000's account 102000
+// applied without open-item management.
+func withUnmanaged102000(tb testing.TB) *config.Config {
+	tb.Helper()
+	doc := document(tb)
+	doc.Companies[1].ChartOfAccounts = append(doc.Companies[1].ChartOfAccounts, config.Account{Number: "102000", Name: "Bank clearing", Type: config.Asset})
+	return doc
+}
+
 // TestOpenItemsOnlyUnposted: an account becomes open-item managed only
 // while it has no postings in the legal entity (product owner
 // 2026-10-20), on the first activation as on a later one; an account
@@ -29,7 +38,7 @@ func withOpenItems(tb testing.TB) *config.Config {
 func TestOpenItemsOnlyUnposted(t *testing.T) {
 	e := setup(t)
 	s := ledger.Setup{LegalEntities: tenancy.Directory{}}
-	base := document(t)
+	base := withUnmanaged102000(t)
 	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error { return s.Apply(ctx, base) }); err != nil {
 		t.Fatal(err)
 	}
@@ -47,6 +56,7 @@ func TestOpenItemsOnlyUnposted(t *testing.T) {
 		{"turned on with postings, first activation", nil, withOpenItems(t), posted},
 		{"already open-item managed", withOpenItems(t), withOpenItems(t), ""},
 		{"turned off", withOpenItems(t), document(t), turnedOff},
+		{"turned on for an applied account without postings", withUnmanaged102000(t), withOpenItems(t), posted},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var got []string

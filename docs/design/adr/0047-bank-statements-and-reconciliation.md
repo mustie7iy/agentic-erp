@@ -115,6 +115,12 @@ Canadian bank may only offer BAI2.
   description (T49a).
 - The ledger keeps the open-item flag in the configuration only; posting
   and clearing read it there (T49f).
+- The ledger's check that an account turned open-item managed has no
+  postings runs when the change is submitted, as the GR/IR account's
+  does; activation does not repeat the sections' database checks, so an
+  entry posted to the account while the change awaits approval is not
+  caught. Running those checks again at activation is a follow-up for
+  every section, not T49's.
 - Steps: a ADR, configuration and the house bank's columns · b parsers ·
   c tables, upload, idempotency and continuity · d SFTP fetch · e rule
   matching · f posting, clearing, approval and period locks · g agent

@@ -277,10 +277,12 @@ func (v *validator) statementAccounts(hp string, co *Company, hb HouseBank, acco
 	}
 }
 
+// isoTransactionCode is an ISO 20022 domain, family and sub-family;
+// bankTransactionCode a SWIFT MT940 type (NCHG) or a bank's proprietary
+// code. Codes are compared exactly, as banks send them.
 var (
-	isoTransactionCode   = regexp.MustCompile(`^[A-Z]{4}-[A-Z]{4}-[A-Z]{4}$`)
-	swiftTransactionCode = regexp.MustCompile(`^[NSF][A-Z0-9]{3}$`)
-	prtryTransactionCode = regexp.MustCompile(`^[A-Za-z0-9]{1,35}$`)
+	isoTransactionCode  = regexp.MustCompile(`^[A-Z]{4}-[A-Z]{4}-[A-Z]{4}$`)
+	bankTransactionCode = regexp.MustCompile(`^[A-Za-z0-9]{1,35}$`)
 )
 
 // ValidTransactionCode reports whether code is a bank transaction code as
@@ -289,7 +291,7 @@ var (
 // type (NCHG), or a bank's proprietary code of letters and digits, such as
 // a BAI type code (398).
 func ValidTransactionCode(code string) bool {
-	return isoTransactionCode.MatchString(code) || swiftTransactionCode.MatchString(code) || prtryTransactionCode.MatchString(code)
+	return isoTransactionCode.MatchString(code) || bankTransactionCode.MatchString(code)
 }
 
 // bankStatements checks how the company's statements are matched and
