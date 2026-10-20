@@ -39,14 +39,26 @@ settings cannot simply overwrite their document.
   through approval tiers and simulation like any other change (03 §3.5).
 - **Upgrades are a three-way merge**: base = the pack version the company
   adopted (empty on first adoption), the tenant's current document, and the
-  new pack version, matched by account number, tax code, number range key,
-  payment term key and account determination field. A change only in the
-  pack is taken; a change only in the tenant's document is kept; a change in
-  both is kept as the tenant has it, with a conflict note (unless both made
-  the same change); an item the new pack removed is kept, with a note.
+  new pack version, matched by account number, tax code, number range
+  key, payment term key, account determination field and holiday date. A
+  change only in the pack is taken; a change only in the tenant's document
+  is kept; a change in both is kept as the tenant has it, with a conflict
+  note (unless both made the same change); an item the new pack removed is
+  kept, with a note.
 - **Provenance**: the document's `packs` section records, per company, the
   country, the pack version and the date it was applied on; the next
   upgrade reads its base from there.
+- **Holidays** live in the document's `calendars` section, one calendar
+  per company of the document (`calendars[company].holidays[date]`), each
+  holiday a `YYYY-MM-DD` date once, with a name (T62c). Applying a pack
+  merges its `calendar.yaml` into the company's calendar by date, in date
+  order. Holidays post nothing but move what falls due on business days
+  (due dates, payment runs), as payment terms' days do, so a change is
+  operational (tier 2) and a holiday's name cosmetic (tier 1). The section
+  stays in the document, which owns no table for it: other contexts read
+  it from the active document with `config.Config.Holiday(company, date)`.
+  Which weekdays are a company's weekend is not in the section yet; the
+  first context that counts business days decides it (see Consequences).
 - **Tax rates**: `config.TaxCode` keeps one rate until effective-dated tax
   codes come with T61, so the applier writes the rate in force on the date
   of application and notes the future rates; applying the pack again once a
@@ -67,3 +79,9 @@ settings cannot simply overwrite their document.
   effect; the notes of the earlier application name the date.
 - The base of an upgrade must still be in the image, so released versions
   are never removed (the hash list enforces it).
+- Holidays are dated, not recurring: a pack lists them year by year, and a
+  new version that stops listing a past year's holidays leaves them in the
+  calendar with a note each, so a pack keeps the years it listed.
+- A business day needs the company's weekend as well as its holidays
+  (the UAE's differs from Canada's); it is added to the calendar, with
+  its tier, by the first step that schedules by business days.

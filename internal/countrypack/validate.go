@@ -175,7 +175,7 @@ func (v *validator) rates(p string, rates []Rate) {
 	}
 }
 
-func (v *validator) holidays(hs []Holiday) {
+func (v *validator) holidays(hs []config.Holiday) {
 	seen := map[string]bool{}
 	for i, h := range hs {
 		p := fmt.Sprintf("calendar.yaml: holidays[%d]", i)

@@ -12,6 +12,7 @@ func FuzzParseValidateDiff(f *testing.F) {
 	valid, _ := os.ReadFile("testdata/valid.yaml")
 	f.Add(valid)
 	f.Add([]byte("version: 1\ncompanies: [{code: X}]\n"))
+	f.Add([]byte("version: 1\ncompanies: [{code: X}]\ncalendars: [{company: X, holidays: [{date: 2026-01-01, name: N}]}]\n"))
 	f.Add([]byte("purchasing: {requisition_approval: [{steps: [{role: a}]}]}\n"))
 	base, _ := Parse(valid)
 	f.Fuzz(func(t *testing.T, doc []byte) {

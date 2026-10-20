@@ -3704,9 +3704,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "The calendars section: a company's holidays",
-        "r": "T62c",
+        "s": "D",
+        "t": "The calendars section: a company's holidays (date, name), one calendar per company of the document, each date once; operational tier, a holiday's name cosmetic; applying a pack merges its holidays by date into the company's calendar with notes; read by config.Config.Holiday",
+        "r": "config.Calendar · countrypack.Apply · ADR-0048 · T62c",
         "c": []
        },
        {

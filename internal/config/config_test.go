@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 )
@@ -67,6 +68,12 @@ func TestValidationRules(t *testing.T) {
 		{"pack version", adopt(PackAdoption{Version: "2026"}), "packs[1000].version"},
 		{"pack applied on", adopt(PackAdoption{AppliedOn: "2026-1-5"}), "packs[1000].applied_on"},
 		{"pack adopted twice", func(c *Config) { adopt(PackAdoption{})(c); c.Packs = append(c.Packs, c.Packs[0]) }, "packs[1000]"},
+		{"calendar of no company", holidays("9000", Holiday{Date: "2026-01-01", Name: "New Year"}), "calendars[9000].company"},
+		{"calendar twice", func(c *Config) { holidays("1000")(c); c.Calendars = append(c.Calendars, c.Calendars[0]) }, "calendars[1000]"},
+		{"holiday date", holidays("1000", Holiday{Date: "2026-02-30", Name: "None"}), "calendars[1000].holidays[2026-02-30].date"},
+		{"holiday date unpadded", holidays("1000", Holiday{Date: "2026-1-1", Name: "New Year"}), "calendars[1000].holidays[2026-1-1].date"},
+		{"holiday twice", holidays("1000", Holiday{Date: "2026-01-01", Name: "New Year"}, Holiday{Date: "2026-01-01", Name: "Again"}), "calendars[1000].holidays[2026-01-01]"},
+		{"holiday name", holidays("1000", Holiday{Date: "2026-01-01", Name: " "}), "calendars[1000].holidays[2026-01-01].name"},
 		{"no companies", func(c *Config) { c.Companies = nil }, "companies"},
 		{"duplicate company", func(c *Config) { c.Companies = append(c.Companies, c.Companies[0]) }, "companies[1000]"},
 		{"empty code", func(c *Config) { c.Companies[0].Code = "" }, "companies[0].code"},
@@ -257,6 +264,64 @@ func TestPackAdoption(t *testing.T) {
 	}
 	if n := (Note{Path: "packs[1000]", Message: "adopted"}); n.String() != "packs[1000]: adopted" {
 		t.Errorf("Note.String: got %q", n.String())
+	}
+}
+
+// holidays gives the company a calendar of these holidays.
+func holidays(company string, hs ...Holiday) func(c *Config) {
+	return func(c *Config) { c.Calendars = append(c.Calendars, Calendar{Company: company, Holidays: hs}) }
+}
+
+// A company's calendar is valid, read by company and date, and its changes
+// are operational but for a holiday's name, a text (ADR-0048).
+func TestCalendars(t *testing.T) {
+	c := fixture(t)
+	holidays("1000", Holiday{Date: "2026-01-01", Name: "New Year's Day"}, Holiday{Date: "2026-12-25", Name: "Christmas Day"})(c)
+	holidays("2000")(c)
+	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
+		t.Errorf("Validate: got %v, want no errors", fs)
+	}
+	newYear := time.Date(2026, 1, 1, 23, 0, 0, 0, time.UTC)
+	reads := []struct {
+		name    string
+		company string
+		on      time.Time
+		want    string // the holiday's name, or "" for none
+	}{
+		{"holiday", "1000", newYear, "New Year's Day"},
+		{"business day", "1000", newYear.AddDate(0, 0, 1), ""},
+		{"empty calendar", "2000", newYear, ""},
+		{"no calendar", "3000", newYear, ""},
+	}
+	for _, r := range reads {
+		t.Run(r.name, func(t *testing.T) {
+			h, ok := c.Holiday(r.company, r.on)
+			got := h.Name
+			if ok != (r.want != "") {
+				t.Errorf("Holiday(%s, %s) found: got %v, want %v", r.company, r.on.Format(time.DateOnly), ok, r.want != "")
+			}
+			if got != r.want {
+				t.Errorf("Holiday(%s, %s): got %q, want %q", r.company, r.on.Format(time.DateOnly), got, r.want)
+			}
+		})
+	}
+	changed := fixture(t)
+	holidays("1000", Holiday{Date: "2026-01-01", Name: "New Year"}, Holiday{Date: "2026-05-01", Name: "Labour Day"})(changed)
+	holidays("2000", Holiday{Date: "2026-01-01", Name: "New Year"})(changed)
+	diffs, _ := Diff(c, changed) // Diff never fails
+	want := map[string]Tier{
+		"calendars[1000].holidays[2026-01-01].name": TierCosmetic,
+		"calendars[1000].holidays[2026-05-01]":      TierOperational,
+		"calendars[1000].holidays[2026-12-25]":      TierOperational,
+		"calendars[2000].holidays[2026-01-01]":      TierOperational,
+	}
+	if len(diffs) != len(want) {
+		t.Errorf("Diff: got %v, want %d changes", diffs, len(want))
+	}
+	for _, d := range diffs {
+		if tier, ok := want[d.Path]; !ok || d.Tier != tier {
+			t.Errorf("Diff %s: got %v, want %v", d.Path, d.Tier, tier)
+		}
 	}
 }
 

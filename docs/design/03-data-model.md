@@ -335,7 +335,12 @@ request, merged three-way from the version the company adopted. The
 document's `packs` section records, per company, the country, the pack
 version and the date it was applied on (`packs[company]`, an operational-
 tier change); validation requires a company of that country, one adoption
-per company, a `YYYY.N` version and a date.
+per company, a `YYYY.N` version and a date. The `calendars` section holds
+each company's holidays (`calendars[company].holidays[date]`, T62c): one
+calendar per company of the document, each holiday a `YYYY-MM-DD` date
+once, with a name; applying a pack merges its holidays by date. A change
+is operational, a holiday's name cosmetic. No context owns a table for it:
+readers use the active document (`config.Config.Holiday`).
 
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,

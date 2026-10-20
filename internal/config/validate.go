@@ -83,6 +83,7 @@ func Validate(c *Config, exponents currency.Exponents) []Finding {
 	v.numberRanges(c)
 	v.journalRanges(c)
 	v.packs(c)
+	v.calendars(c)
 	switch c.Output.PurchaseOrderChannel {
 	case "email", "edi", "print":
 	default:
@@ -151,6 +152,36 @@ func (v *validator) packs(c *Config) {
 		}
 		if _, err := time.Parse(time.DateOnly, a.AppliedOn); err != nil {
 			v.err(p+".applied_on", "%q is not a date (YYYY-MM-DD)", a.AppliedOn)
+		}
+	}
+}
+
+// calendars checks the companies' holidays (ADR-0048): one calendar per
+// company of the document, each holiday a date (YYYY-MM-DD) once, named.
+func (v *validator) calendars(c *Config) {
+	seen := map[string]bool{}
+	for _, cal := range c.Calendars {
+		p := "calendars[" + cal.Company + "]"
+		if seen[cal.Company] {
+			v.err(p, "duplicate calendar")
+		}
+		seen[cal.Company] = true
+		if c.Company(cal.Company) == nil {
+			v.err(p+".company", "company %q is not in the document", cal.Company)
+		}
+		dates := map[string]bool{}
+		for _, h := range cal.Holidays {
+			hp := p + ".holidays[" + h.Date + "]"
+			if _, err := time.Parse(time.DateOnly, h.Date); err != nil {
+				v.err(hp+".date", "%q is not a date (YYYY-MM-DD)", h.Date)
+			}
+			if dates[h.Date] {
+				v.err(hp, "duplicate holiday")
+			}
+			dates[h.Date] = true
+			if strings.TrimSpace(h.Name) == "" {
+				v.err(hp+".name", "name is required")
+			}
 		}
 	}
 }

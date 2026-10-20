@@ -6,6 +6,7 @@ import (
 	"maps"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
@@ -37,6 +38,7 @@ func Apply(cur *config.Config, next *Pack, lib *Library, o Options) (*config.Con
 	draft := *cur
 	draft.Companies = slices.Clone(cur.Companies)
 	draft.Packs = slices.Clone(cur.Packs)
+	draft.Calendars = slices.Clone(cur.Calendars)
 	co := draft.Company(o.Company)
 	switch {
 	case co == nil:
@@ -62,6 +64,7 @@ func Apply(cur *config.Config, next *Pack, lib *Library, o Options) (*config.Con
 	draft.NumberRanges = issuedStay(m, cur.NumberRanges, draft.NumberRanges)
 	draft.PaymentTerms = merge3(m, "payment_terms", base.Payments.PaymentTerms, cur.PaymentTerms, next.Payments.PaymentTerms,
 		func(t config.PaymentTerm) string { return t.Key })
+	mergeCalendar(m, &draft, base, next, o.Company)
 	adopt(&draft, next, o)
 	m.note("packs["+o.Company+"]", "applies the %s pack %s (%s) on %s", next.Manifest.Country, next.Manifest.Version, baseText(base), o.On.Format(time.DateOnly))
 	if !next.SignedOff() {
@@ -187,6 +190,26 @@ func issuedStay(m *merger, cur, merged []config.NumberRange) []config.NumberRang
 		}
 	}
 	return merged
+}
+
+// mergeCalendar merges the pack's holidays into the company's calendar by
+// date, in date order; a company without a calendar gets one when the
+// merge leaves it any holidays.
+func mergeCalendar(m *merger, c *config.Config, base, next *Pack, company string) {
+	var tenant []config.Holiday
+	cal := c.Calendar(company)
+	if cal != nil {
+		tenant = cal.Holidays
+	}
+	merged := merge3(m, "calendars["+company+"].holidays", base.Calendar.Holidays, tenant, next.Calendar.Holidays,
+		func(h config.Holiday) string { return h.Date })
+	slices.SortStableFunc(merged, func(a, b config.Holiday) int { return strings.Compare(a.Date, b.Date) })
+	switch {
+	case cal != nil:
+		cal.Holidays = merged
+	case len(merged) > 0:
+		c.Calendars = append(c.Calendars, config.Calendar{Company: company, Holidays: merged})
+	}
 }
 
 // field is one account determination setting, merged like a list item.
