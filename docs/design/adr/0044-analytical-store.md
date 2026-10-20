@@ -453,17 +453,26 @@ verified claims and client certificate go through the unit of work and the
 generated server, in transactions of their own beside the request's, so
 the facts are not one snapshot, as `erp analytics` never read them as
 one; the reads are not counted against the caller's quota nor traced as
-requests of their own), so a person or agent sees in analytics what the
-API lets them read. Dimensions a store answer names (account and vendor
-names) are not gated by `ledger.account.read` or
-`partner.supplier.read` as the database path's reads are: an open point
-for the product owner. Each answer holds its request's transaction while it reads, so at most
+requests of their own yet, T55l), so a person or agent sees in analytics what the
+API lets them read. A store answer is held to the same reads: before the
+store names a dimension, `store.Source` requires the permissions the
+database path's reads need (`analytics.Source.Permissions`:
+`tenancy.org.read` for the companies, `partner.supplier.read` for the
+vendors and their names, `ledger.account.read` for the accounts and their
+names when journal or order metrics are read, and each fact type's), and
+refuses a caller lacking one with the 403 the API answers that read with,
+the first missing in the order the database path reads; a parity test
+proves the two paths answer a person lacking each alike. There is no
+customer read permission (the vendors dataset's customers are named only
+under `partner.supplier.read`, as the API's business-partner list is).
+Each answer holds its request's transaction while it reads, so at most
 two answer at once per replica; another is 503 `analytics.busy` with
 `Retry-After: 1`, never a wait on the pool. `erp query`, `erp ask` and `erp
 report` and the analytics agent's `run_query` tool call the endpoint
 (`analytics.Remote`, a session's `Runner`) and compute nothing
 client-side; the evaluation harness keeps reading the facts itself, since
-it grades the companies the agent's data came from. The agent's tool takes
+it grades the companies the agent's data came from (exercising the
+endpoint instead is T55m). The agent's tool takes
 a `ledger` argument once `GET /v1/ledgers` lists the ledgers (T55k, after
 T52a).
 

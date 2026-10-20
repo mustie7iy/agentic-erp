@@ -215,6 +215,7 @@ func TestParity(t *testing.T) {
 		}
 	}
 	t.Run("endpoint", p.endpoint)
+	t.Run("permissions", p.permissions)
 	t.Run("not vacuous", func(t *testing.T) {
 		m := model(t)
 		dbFacts, err := p.db.Facts(context.Background(), m, p.asOf)
@@ -286,4 +287,56 @@ func (p parity) endpoint(t *testing.T) {
 	if !reflect.DeepEqual(fromStore["rows"], fromDB["rows"]) || len(fromStore["rows"].([]any)) == 0 {
 		t.Errorf("rows: got %v from the store and %v from the database, want the same", fromStore["rows"], fromDB["rows"])
 	}
+}
+
+// permissions: a caller lacking a permission the database path's reads
+// need (the companies, the vendors' names, the accounts' names) is refused
+// by the store exactly as by the database, before any dimension is named.
+func (p parity) permissions(t *testing.T) {
+	api := apitest.NewWith(t, func(c *app.Config) { c.Analytics = direct{p.r} })
+	queries := map[string]string{
+		"accounts": `{"measures": ["revenue"], "by": ["account_name"]%s}`,
+		"vendors":  `{"measures": ["invoice_count"], "by": ["vendor_name"]%s}`,
+		"orders":   `{"measures": ["purchase_order_value"], "by": ["account_name", "vendor_name"]%s}`,
+	}
+	for _, perm := range []string{"tenancy.org.read", "partner.supplier.read", "ledger.account.read"} {
+		t.Run(perm, func(t *testing.T) {
+			c := apitest.Client{T: t, API: api, Tenant: p.Tenant, As: p.lacking(t, perm)}
+			for name, q := range queries {
+				storeStatus, fromStore, _ := c.Do("POST", "/v1/analytics-queries", fmt.Sprintf(q, ""), "")
+				dbStatus, fromDB, _ := c.Do("POST", "/v1/analytics-queries", fmt.Sprintf(q, `, "as_of": "2999-01-01T00:00:00Z"`), "")
+				// Invoices name no account: the database path reads no chart for them.
+				want := 403
+				if perm == "ledger.account.read" && name == "vendors" {
+					want = 200
+				}
+				if storeStatus != want {
+					t.Errorf("%s from the store: got %d %v, want %d", name, storeStatus, fromStore, want)
+				}
+				if storeStatus != dbStatus || fromStore["code"] != fromDB["code"] || fromStore["detail"] != fromDB["detail"] ||
+					!reflect.DeepEqual(fromStore["rows"], fromDB["rows"]) {
+					t.Errorf("%s: got %d %v from the store and %d %v from the database, want the same", name, storeStatus, fromStore, dbStatus, fromDB)
+				}
+			}
+		})
+	}
+}
+
+// lacking is a person of every company holding the parity permissions but
+// perm.
+func (p parity) lacking(t *testing.T, perm string) pgtest.Actor {
+	t.Helper()
+	a := pgtest.Actor{ID: uuid.Must(uuid.NewV7()), Kind: "human"}
+	a.Subject = "human|" + a.ID.String()
+	role := uuid.New()
+	pgtest.Exec(t, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, all_companies, status, created_by, updated_by)
+		VALUES ($1, $2, 'human', $3, $4, 'Lacking', true, 'active', $2, $2)`, p.Tenant.ID, a.ID, pgtest.Issuer(t), a.Subject)
+	pgtest.Exec(t, `INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1, $2, $3, 'Lacking', 'active', $4, $4)`,
+		p.Tenant.ID, role, "lacking_"+strings.ReplaceAll(perm, ".", "_"), a.ID)
+	pgtest.Exec(t, `INSERT INTO identity.role_permission (tenant_id, id, role_id, permission_code, valid_from, created_by)
+		SELECT $1, gen_random_uuid(), $2, code, current_date - 1, $3 FROM unnest($4::text[]) code WHERE code <> $5`,
+		p.Tenant.ID, role, a.ID, parityPerms, perm)
+	pgtest.Exec(t, `INSERT INTO identity.principal_role (tenant_id, id, principal_id, role_id, valid_from, created_by) VALUES ($1, gen_random_uuid(), $2, $3, current_date - 1, $2)`,
+		p.Tenant.ID, a.ID, role)
+	return a
 }

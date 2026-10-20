@@ -26,7 +26,9 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/analytics/wire"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -52,6 +54,12 @@ type Source struct {
 	// Datasets are the fact datasets of the fact types the principal may
 	// see; a plan over another is refused by the reader.
 	Datasets []string
+	// Requires are the permissions the database path's reads need
+	// (analytics.Source.Permissions): a caller lacking one is refused
+	// before the store names a dimension, as the database path's read is
+	// refused, so neither path names an account or vendor the caller may
+	// not read. Nil checks none.
+	Requires []string
 	Target   time.Duration    // the freshness target; default Target
 	Now      func() time.Time // the as_of of a database answer; nil: the wall clock
 	Log      *slog.Logger     // why an answer came from the database; nil: discarded
@@ -127,6 +135,9 @@ func (s *Source) fromStoreIfFresh(ctx context.Context, m *analytics.Model, p ana
 	if err != nil {
 		return nil, "", err
 	}
+	if err := s.permitted(ctx); err != nil {
+		return nil, "", err
+	}
 	snap, ok, err := ReadSnapshot(ctx, tx, s.target())
 	switch {
 	case err != nil:
@@ -140,6 +151,25 @@ func (s *Source) fromStoreIfFresh(ctx context.Context, m *analytics.Model, p ana
 	}
 	f, failed := s.fromStore(ctx, m, p, q, snap)
 	return f, reason(failed), nil
+}
+
+// permitted refuses a caller lacking one of Requires with the problem the
+// API answers the database path's read with, the first missing in the
+// order that path reads.
+func (s *Source) permitted(ctx context.Context) error {
+	if len(s.Requires) == 0 {
+		return nil
+	}
+	held, err := authz.Permissions(ctx)
+	if err != nil {
+		return err
+	}
+	for _, p := range s.Requires {
+		if !held[p] {
+			return problem.Forbidden("identity.permission_missing", "This action requires the permission "+p+".")
+		}
+	}
+	return nil
 }
 
 // reason is why the store could not answer, which the database then does.

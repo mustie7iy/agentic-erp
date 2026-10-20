@@ -79,7 +79,8 @@ func (e *Endpoints) RunAnalyticsQuery(ctx context.Context, req *gen.AnalyticsQue
 		return nil, err
 	}
 	defer release()
-	src := store.Source{Reader: e.Reader, Database: e.database(datasets), Datasets: datasets, Now: e.Now, Log: e.Log}
+	db := e.database(datasets)
+	src := store.Source{Reader: e.Reader, Database: db, Datasets: datasets, Requires: db.Permissions(), Now: e.Now, Log: e.Log}
 	facts, err := src.Facts(ctx, e.Model, p, q, req.AsOf.Or(time.Time{}))
 	if err != nil {
 		return nil, apiError(err)
@@ -132,7 +133,7 @@ func (e *Endpoints) Init() *Endpoints {
 
 // database is the database path: the semantic layer's facts read through
 // the API in-process, as the caller.
-func (e *Endpoints) database(datasets []string) store.Database {
+func (e *Endpoints) database(datasets []string) analytics.Source {
 	return analytics.Source{API: &apitools.Client{BaseURL: "http://loopback", HTTP: &http.Client{Transport: e.Loopback}}, Datasets: datasets}
 }
 

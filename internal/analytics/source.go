@@ -26,6 +26,26 @@ type Source struct {
 	Datasets []string
 }
 
+// Permissions are those the reads of Facts need, in the order it reads,
+// for the fact tables it builds: the API refuses a read without its
+// permission, and with it the whole answer. The store's answer is held to
+// them too (store.Source.Requires), so that it names no account or vendor
+// the database path could not read (ADR-0044).
+func (s Source) Permissions() []string {
+	out := []string{"tenancy.org.read", "partner.supplier.read"}
+	if s.builds("gl_lines") || s.builds("po_lines") {
+		out = append(out, "ledger.account.read")
+	}
+	for _, d := range []struct{ dataset, permission string }{
+		{"gl_lines", "ledger.entry.read"}, {"po_lines", "procurement.order.read"}, {"ap_invoices", "payables.invoice.read"},
+	} {
+		if s.builds(d.dataset) {
+			out = append(out, d.permission)
+		}
+	}
+	return out
+}
+
 // builds reports whether the source builds a fact table.
 func (s Source) builds(dataset string) bool {
 	return s.Datasets == nil || slices.Contains(s.Datasets, dataset)

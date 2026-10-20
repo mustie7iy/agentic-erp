@@ -285,6 +285,13 @@ func TestFailures(t *testing.T) {
 			t.Errorf("pointer: got %v, want the injected failure", err)
 		}
 	})
+	inRequest(t, e.Tenant.ID, func(tx pgx.Tx) pgx.Tx { return &pgtest.FailingTx{Tx: tx, FailAt: 1} }, func(ctx context.Context) {
+		src := source(&fakeReader{}, &fakeDatabase{})
+		src.Requires = []string{"ledger.account.read"}
+		if _, err := src.Facts(ctx, m, analytics.Principal{}, q, time.Time{}); !errors.Is(err, pgtest.ErrInjected) {
+			t.Errorf("permissions: got %v, want the injected failure", err)
+		}
+	})
 	inRequest(t, e.Tenant.ID, nil, func(ctx context.Context) {
 		if _, err := source(&fakeReader{}, &fakeDatabase{err: errors.New("down")}).Facts(ctx, m, analytics.Principal{}, q, time.Time{}); err == nil {
 			t.Error("database: got nil error, want its error")
