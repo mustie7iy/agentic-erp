@@ -170,10 +170,12 @@ grafana:
 #   add-ons, and Prometheus waits for its volumes;
 # - a SecretStore of its own, as its own IRSA role (erp-monitoring-secrets,
 #   which reads erp/<cell>/alertmanager-receivers and grafana-oidc alone);
-# - Alertmanager's configuration: every alert to erp-alerts, a receiver the
-#   secret defines (a YAML list of Alertmanager receivers, indented under
+# - Alertmanager's configuration: every alert to erp-alerts, and erp-cell's
+#   dead man's switch (ErpWatchdog) to erp-heartbeat, receivers the secret
+#   defines (a YAML list of Alertmanager receivers, indented under
 #   receivers:). Until the receivers are decided, the bootstrap seeds it
-#   with the placeholder "- name: erp-alerts", which notifies no one;
+#   with the placeholders "- name: erp-alerts" and "- name: erp-heartbeat",
+#   which notify no one;
 # - Grafana's OIDC client secret.
 erp:
   cell: ""
@@ -246,6 +248,13 @@ extraManifests:
                 routes:
                   - receiver: erp-null
                     matchers: ['alertname=~"Watchdog|InfoInhibitor"']
+                  # erp-cell's dead man's switch (T54e): every minute to an
+                  # outside service that pages when it stops hearing it.
+                  - receiver: erp-heartbeat
+                    matchers: ['alertname="ErpWatchdog"']
+                    group_wait: 0s
+                    group_interval: 1m
+                    repeat_interval: 1m
               receivers:
                 - name: erp-null
               {{ "{{-" }} .receivers | nindent 2 {{ "}}" }}

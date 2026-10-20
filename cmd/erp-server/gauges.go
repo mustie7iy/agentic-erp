@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/db"
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
@@ -68,4 +70,28 @@ func businessGauges(pool *database.Pool, cfg config.Config, m *telemetry.Metrics
 		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM ledger.period_status s
 			JOIN ledger.fiscal_period f USING (tenant_id, calendar_id, fiscal_year, period)
 			WHERE s.status = 'open' AND f.end_date < current_date AND NOT f.is_special`))
+}
+
+// horizonGauges export the partition horizon readiness requires (db.Horizon),
+// so an alert asks for the maintenance job before readiness fails (T54e).
+// The catalog it reads is open to the worker role; now is the clock the
+// horizon is counted from.
+//
+//nolint:forbidigo // a count of partitions read as a Prometheus gauge value, which is float64; no amount or quantity
+func horizonGauges(pool *database.Pool, cfg config.Config, m *telemetry.Metrics, now func() time.Time) {
+	read := func(pick func(months, years int) int) func(context.Context) (float64, error) {
+		return func(ctx context.Context) (float64, error) {
+			var n int
+			err := pool.InTx(ctx, database.Scope{Role: cfg.WorkerRole, ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
+				months, years, err := db.Horizon(ctx, tx, now())
+				n = pick(months, years)
+				return err
+			})
+			return float64(n), err
+		}
+	}
+	m.Gauge("erp_partition_horizon_audit_months", "Audit partitions ahead of the current month.",
+		read(func(months, _ int) int { return months }))
+	m.Gauge("erp_partition_horizon_ledger_years", "Journal partitions ahead of the current year.",
+		read(func(_, years int) int { return years }))
 }

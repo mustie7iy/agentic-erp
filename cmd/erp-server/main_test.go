@@ -2038,6 +2038,58 @@ func TestMetricsCatalog(t *testing.T) {
 	}
 }
 
+// TestRulesUseCatalog: the cell's SLO rules (deploy/helm/erp-cell/rules)
+// name only series the cell exports, match only labels those series carry,
+// and group by or print only catalog labels (ADR-0043, T54e).
+func TestRulesUseCatalog(t *testing.T) {
+	rules, err := os.ReadFile("../../deploy/helm/erp-cell/rules/erp.rules.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := regexp.MustCompile(`(?m)^\s*#.*$`).ReplaceAllString(string(rules), "")
+	series := newMetrics(pgtest.Pool(t), config.Config{}, quiet()).Series()
+	if n := strings.Count(src, "record: erp:http_latency_slow:ratio_rate"); n != 7 {
+		t.Errorf("latency rules: got %d, want one per window (7)", n)
+	}
+	// Labels a rule makes itself (label_replace) are its own to group on.
+	made := map[string]bool{"le": true, "__name__": true}
+	for _, m := range regexp.MustCompile(`label_replace\([^,]*,\s*"([a-z_]+)"`).FindAllStringSubmatch(src, -1) {
+		made[m[1]] = true
+	}
+	known := func(label string) bool {
+		_, ok := telemetry.Labels[label]
+		return ok || made[label]
+	}
+	for _, sel := range regexp.MustCompile(`\b(erp_[a-z0-9_]+)(\{[^}]*\})?`).FindAllStringSubmatch(src, -1) {
+		labels, ok := series[sel[1]]
+		if !ok {
+			t.Errorf("%s: not a series the cell exports", sel[1])
+			continue
+		}
+		for _, m := range regexp.MustCompile(`([a-z_]+)\s*(?:=~|!~|!=|=)`).FindAllStringSubmatch(sel[2], -1) {
+			if !slices.Contains(labels, m[1]) {
+				t.Errorf("%s: matches label %s, which it does not carry", sel[1], m[1])
+			}
+		}
+	}
+	for _, g := range regexp.MustCompile(`\b(?:by|on|without|ignoring|group_left|group_right)\s*\(([^)]*)\)|\$labels\.([a-z_]+)`).FindAllStringSubmatch(src, -1) {
+		for _, l := range strings.FieldsFunc(g[1]+","+g[2], func(r rune) bool { return r == ',' || r == ' ' }) {
+			if !known(l) {
+				t.Errorf("label %s: not in the catalog", l)
+			}
+		}
+	}
+	// Each latency rule gives every class its threshold: a class without
+	// one would have a denominator and no ratio.
+	for _, rule := range regexp.MustCompile(`(?s)record: erp:http_latency_slow:ratio_rate\w+\n.*?(?:\n      - |\n  - )`).FindAllString(src, -1) {
+		for _, class := range api.Classes {
+			if !regexp.MustCompile(`class=~?"(?:[a-z|]*\|)?` + class + `(?:\|[a-z|]*)?"`).MatchString(rule) {
+				t.Errorf("%s: no threshold for class %s", strings.SplitN(rule, "\n", 2)[0], class)
+			}
+		}
+	}
+}
+
 // TestAtRestStatedAndChecked: with ERP_AT_REST the cell logs how each
 // store encrypts at rest and exports it as erp_at_rest_info; with
 // objects=sse-kms it asks for KMS encryption on every write and starts

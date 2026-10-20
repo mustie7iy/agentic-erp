@@ -1,0 +1,376 @@
+# The cell's SLOs and alerts (ADR-0043, T54e), loaded by the cell's
+# Prometheus as the erp-slo PrometheusRule (templates/rules.yaml) and
+# tested by promtool (erp.rules.test.yaml, scripts/helm-checks.sh). Every
+# metric here is in the catalog (cmd/erp-server's TestRulesUseCatalog).
+#
+# Availability (01 §1.3: 99.95% monthly): the share of requests that
+# failed, a 5xx or a 429 (the cell turned the caller away), of the requests
+# that count; any other 4xx is the caller's and does not count either way.
+# No failure is 0, not no series; no request at all is no series.
+# Latency per class: the share of a class's requests slower than its p95
+# threshold (0.05, 0.15, 0.2, 0.15, 1 s for read, list, write, approval,
+# report), whose budget is 5%. Each is recorded over the windows the
+# burn-rate alerts read: page at 14.4x the budget's burn (1h and 5m, 2% of
+# a month's budget in an hour) or 6x (6h and 30m), ticket at 3x (1d and
+# 2h) or 1x (3d and 6h); the short window ends the alert soon after the
+# burn stops. The info series is grouped first: each replica exports it.
+# A whole-second threshold's le is "1" as the client writes it and "1.0"
+# once Prometheus 3 has normalized it on scrape, so both are matched.
+groups:
+  - name: erp-slo-availability
+    rules:
+      - record: erp:http_availability_errors:ratio_rate5m
+        expr: |
+          (sum(rate(erp_http_requests_total{code=~"5..|429"}[5m])) or vector(0))
+          / sum(rate(erp_http_requests_total{code=~"[1235]..|429"}[5m]))
+      - record: erp:http_availability_errors:ratio_rate30m
+        expr: |
+          (sum(rate(erp_http_requests_total{code=~"5..|429"}[30m])) or vector(0))
+          / sum(rate(erp_http_requests_total{code=~"[1235]..|429"}[30m]))
+      - record: erp:http_availability_errors:ratio_rate1h
+        expr: |
+          (sum(rate(erp_http_requests_total{code=~"5..|429"}[1h])) or vector(0))
+          / sum(rate(erp_http_requests_total{code=~"[1235]..|429"}[1h]))
+      - record: erp:http_availability_errors:ratio_rate2h
+        expr: |
+          (sum(rate(erp_http_requests_total{code=~"5..|429"}[2h])) or vector(0))
+          / sum(rate(erp_http_requests_total{code=~"[1235]..|429"}[2h]))
+      - record: erp:http_availability_errors:ratio_rate6h
+        expr: |
+          (sum(rate(erp_http_requests_total{code=~"5..|429"}[6h])) or vector(0))
+          / sum(rate(erp_http_requests_total{code=~"[1235]..|429"}[6h]))
+      - record: erp:http_availability_errors:ratio_rate1d
+        expr: |
+          (sum(rate(erp_http_requests_total{code=~"5..|429"}[1d])) or vector(0))
+          / sum(rate(erp_http_requests_total{code=~"[1235]..|429"}[1d]))
+      - record: erp:http_availability_errors:ratio_rate3d
+        expr: |
+          (sum(rate(erp_http_requests_total{code=~"5..|429"}[3d])) or vector(0))
+          / sum(rate(erp_http_requests_total{code=~"[1235]..|429"}[3d]))
+  - name: erp-slo-latency
+    rules:
+      - record: erp:http_latency_slow:ratio_rate5m
+        expr: |
+          1 - (
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le="0.05"}[5m]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class="read"})
+          )
+          or
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le="0.15"}[5m]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class=~"list|approval"})
+          )
+          or
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le="0.2"}[5m]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class="write"})
+          )
+          or
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le=~"1|1.0"}[5m]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class="report"})
+          )
+          )
+          / sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_count[5m]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info)
+          )
+      - record: erp:http_latency_slow:ratio_rate30m
+        expr: |
+          1 - (
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le="0.05"}[30m]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class="read"})
+          )
+          or
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le="0.15"}[30m]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class=~"list|approval"})
+          )
+          or
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le="0.2"}[30m]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class="write"})
+          )
+          or
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le=~"1|1.0"}[30m]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class="report"})
+          )
+          )
+          / sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_count[30m]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info)
+          )
+      - record: erp:http_latency_slow:ratio_rate1h
+        expr: |
+          1 - (
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le="0.05"}[1h]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class="read"})
+          )
+          or
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le="0.15"}[1h]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class=~"list|approval"})
+          )
+          or
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le="0.2"}[1h]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class="write"})
+          )
+          or
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le=~"1|1.0"}[1h]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class="report"})
+          )
+          )
+          / sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_count[1h]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info)
+          )
+      - record: erp:http_latency_slow:ratio_rate2h
+        expr: |
+          1 - (
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le="0.05"}[2h]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class="read"})
+          )
+          or
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le="0.15"}[2h]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class=~"list|approval"})
+          )
+          or
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le="0.2"}[2h]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class="write"})
+          )
+          or
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le=~"1|1.0"}[2h]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class="report"})
+          )
+          )
+          / sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_count[2h]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info)
+          )
+      - record: erp:http_latency_slow:ratio_rate6h
+        expr: |
+          1 - (
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le="0.05"}[6h]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class="read"})
+          )
+          or
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le="0.15"}[6h]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class=~"list|approval"})
+          )
+          or
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le="0.2"}[6h]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class="write"})
+          )
+          or
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le=~"1|1.0"}[6h]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class="report"})
+          )
+          )
+          / sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_count[6h]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info)
+          )
+      - record: erp:http_latency_slow:ratio_rate1d
+        expr: |
+          1 - (
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le="0.05"}[1d]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class="read"})
+          )
+          or
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le="0.15"}[1d]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class=~"list|approval"})
+          )
+          or
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le="0.2"}[1d]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class="write"})
+          )
+          or
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le=~"1|1.0"}[1d]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class="report"})
+          )
+          )
+          / sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_count[1d]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info)
+          )
+      - record: erp:http_latency_slow:ratio_rate3d
+        expr: |
+          1 - (
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le="0.05"}[3d]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class="read"})
+          )
+          or
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le="0.15"}[3d]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class=~"list|approval"})
+          )
+          or
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le="0.2"}[3d]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class="write"})
+          )
+          or
+          sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_bucket{le=~"1|1.0"}[3d]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info{class="report"})
+          )
+          )
+          / sum by (class) (
+            sum by (operation) (rate(erp_http_request_duration_seconds_count[3d]))
+            * on (operation) group_left (class) group by (operation, class) (erp_operation_info)
+          )
+  - name: erp-slo-alerts
+    rules:
+      - alert: ErpAvailabilityBudgetBurnFast
+        expr: |
+          (erp:http_availability_errors:ratio_rate1h > 14.4 * 0.0005 and erp:http_availability_errors:ratio_rate5m > 14.4 * 0.0005)
+          or
+          (erp:http_availability_errors:ratio_rate6h > 6 * 0.0005 and erp:http_availability_errors:ratio_rate30m > 6 * 0.0005)
+        labels:
+          severity: page
+        annotations:
+          summary: "The API's errors burn the month's 99.95% availability budget at 6x or more: it lasts days at this rate."
+      - alert: ErpAvailabilityBudgetBurnSlow
+        expr: |
+          (erp:http_availability_errors:ratio_rate1d > 3 * 0.0005 and erp:http_availability_errors:ratio_rate2h > 3 * 0.0005)
+          or
+          (erp:http_availability_errors:ratio_rate3d > 1 * 0.0005 and erp:http_availability_errors:ratio_rate6h > 1 * 0.0005)
+        labels:
+          severity: ticket
+        annotations:
+          summary: "The API's errors burn the month's 99.95% availability budget at 1x or more: it runs out before the month ends."
+      - alert: ErpLatencyBudgetBurnFast
+        expr: |
+          (erp:http_latency_slow:ratio_rate1h > 14.4 * 0.05 and erp:http_latency_slow:ratio_rate5m > 14.4 * 0.05)
+          or
+          (erp:http_latency_slow:ratio_rate6h > 6 * 0.05 and erp:http_latency_slow:ratio_rate30m > 6 * 0.05)
+        labels:
+          severity: page
+        annotations:
+          summary: "Requests of class {{ $labels.class }} over their p95 objective burn its 5% budget at 6x or more."
+      - alert: ErpLatencyBudgetBurnSlow
+        expr: |
+          (erp:http_latency_slow:ratio_rate1d > 3 * 0.05 and erp:http_latency_slow:ratio_rate2h > 3 * 0.05)
+          or
+          (erp:http_latency_slow:ratio_rate3d > 1 * 0.05 and erp:http_latency_slow:ratio_rate6h > 1 * 0.05)
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Requests of class {{ $labels.class }} over their p95 objective burn its 5% budget at 1x or more."
+  # Symptoms the SLOs do not see: work that waits, and integrity.
+  - name: erp-symptoms
+    rules:
+      # Events wait for the relay: bank files, webhooks and other contexts
+      # wait with them.
+      - alert: ErpOutboxLagging
+        expr: erp_outbox_lag_seconds > 300
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "The oldest event waiting in the outbox is {{ $value | humanizeDuration }} old: the relay is not publishing."
+      # Reports add the entries the projector has not reached, so balances
+      # stay right; the lag costs report latency, not correctness.
+      - alert: ErpProjectorLagging
+        expr: erp_projection_lag_seconds > 900
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "The balance projector is {{ $value | humanizeDuration }} behind the journal."
+      # EnsurePartitions keeps 6 months and 3 years ahead every 6 hours, so
+      # a horizon this short for 12 hours is a maintenance job that stopped.
+      # Readiness fails below 3 months or 2 years (db.MinAuditMonths,
+      # db.MinLedgerYears): the audit page comes a month before it, the
+      # ledger's when it fails, its ticket having fired a year before. Each
+      # gauge is labelled, so both are alerted on when both are short.
+      - alert: ErpPartitionHorizonShort
+        expr: |
+          label_replace(erp_partition_horizon_audit_months < 5, "horizon", "audit months", "", "")
+          or label_replace(erp_partition_horizon_ledger_years < 3, "horizon", "ledger years", "", "")
+        for: 12h
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $value }} {{ $labels.horizon }} of partitions ahead: partition maintenance has not run."
+      - alert: ErpPartitionHorizonNearReadiness
+        expr: |
+          label_replace(erp_partition_horizon_audit_months < 4, "horizon", "audit months", "", "")
+          or label_replace(erp_partition_horizon_ledger_years < 2, "horizon", "ledger years", "", "")
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $value }} {{ $labels.horizon }} of partitions ahead: readiness fails below 3 audit months or 2 ledger years."
+      # A bank acknowledges a file within its business day.
+      - alert: ErpBankFileNotAcknowledged
+        expr: erp_bank_files_unacknowledged_age_seconds > 86400
+        labels:
+          severity: ticket
+        annotations:
+          summary: "A bank file transmitted {{ $value | humanizeDuration }} ago has no acknowledgement."
+      # The gauge counts a day, so the alert ends a day after the failure.
+      - alert: ErpPaymentRunFailed
+        expr: erp_payment_runs_failed_recent > 0
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $value }} payment runs failed in the last 24 hours: their suppliers are not paid."
+      # A broken audit chain is evidence of tampering (ADR-0011): at once.
+      - alert: ErpAuditChainTampered
+        expr: erp_audit_chains_tampered > 0
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $value }} tenants' audit chains failed verification."
+      # A gauge whose read fails leaves its sample out, and its alert with it.
+      - alert: ErpGaugeReadFailing
+        expr: sum by (gauge) (rate(erp_gauge_read_errors_total[10m])) > 0
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.gauge }} cannot be read: its alerts are blind."
+      # No server scraped: every rule above is blind.
+      - alert: ErpMetricsAbsent
+        expr: absent(erp_operation_info)
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "No erp-server is scraped: the cell's SLOs and alerts see nothing."
+      # The dead man's switch: always firing, routed to erp-heartbeat, an
+      # outside service that pages when it stops hearing it, so a cell
+      # whose Prometheus or Alertmanager is down is noticed.
+      - alert: ErpWatchdog
+        expr: vector(1)
+        labels:
+          severity: heartbeat
+        annotations:
+          summary: "Always firing while the cell's alerting works."
+  - name: erp-agents
+    rules:
+      # ADR-0043: the share of agent-raised proposals a person rejected, or
+      # changed before approving.
+      - record: erp:agent_override_rate:ratio_rate1d
+        expr: |
+          sum by (agent_kind) (rate(erp_agent_proposals_decided_total{decision=~"rejected|modified"}[1d]))
+          / sum by (agent_kind) (rate(erp_agent_proposals_decided_total[1d]))

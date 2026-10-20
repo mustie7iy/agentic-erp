@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -191,6 +192,23 @@ func TestCatalog(t *testing.T) {
 				t.Errorf("catalog: got %v, want %s", err, c.want)
 			}
 		})
+	}
+}
+
+// Series names what a scrape exposes: a histogram as its three series.
+func TestSeries(t *testing.T) {
+	m := NewMetrics()
+	m.Gauge("erp_outbox_backlog", "Events waiting.", func(context.Context) (float64, error) { return 0, nil })
+	got := m.Series()
+	for name, want := range map[string]string{"erp_outbox_backlog": "[]", "erp_http_requests_total": "[operation code]",
+		"erp_http_request_duration_seconds_bucket": "[operation le]", "erp_http_request_duration_seconds_count": "[operation]",
+		"erp_http_request_duration_seconds_sum": "[operation]"} {
+		if labels, ok := got[name]; !ok || fmt.Sprint(labels) != want {
+			t.Errorf("%s: got %v (present %v), want %s", name, labels, ok, want)
+		}
+	}
+	if _, ok := got["erp_http_request_duration_seconds"]; ok {
+		t.Errorf("histogram: got its bare name, want only _bucket, _sum and _count")
 	}
 }
 

@@ -15,7 +15,8 @@
 #     render without each value they require; erp-cell's workloads must
 #     pass deploy/helm/policy (non-root, read-only, digests, budgets,
 #     default deny); the workflow engine's configuration it renders must be
-#     one erp-temporal accepts (check-config, built from temporal/);
+#     one erp-temporal accepts (check-config, built from temporal/); its
+#     SLO rules pass promtool's checks and unit tests (rules/);
 #   - deploy/helm/erp-global likewise, its router reading the PROXY header
 #     from, and taking public connections from, the load balancer's
 #     subnets alone, ready only once the load balancer finds it healthy;
@@ -27,13 +28,14 @@
 #     the Jobs' deadline;
 #   - scripts/admission-checks.sh then runs its policies against signed
 #     images and certificates.
-# HELM, KUBECONFORM and CONFTEST (which turns YAML into JSON here) name the
-# binaries; admission-checks.sh takes its own.
+# HELM, KUBECONFORM, CONFTEST (which turns YAML into JSON here) and
+# PROMTOOL name the binaries; admission-checks.sh takes its own.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 HELM="${HELM:-helm}"
 KUBECONFORM="${KUBECONFORM:-kubeconform}"
 CONFTEST="${CONFTEST:-conftest}"
+PROMTOOL="${PROMTOOL:-promtool}"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 mkdir "$work/schemas"
@@ -182,6 +184,8 @@ for d in secrets:
 config = one("ExternalSecret", "erp-alertmanager")["spec"]["target"]["template"]["data"]["alertmanager.yaml"]
 if "receiver: erp-alerts" not in config:
     fail("Alertmanager's route does not end at erp-alerts")
+if "- receiver: erp-heartbeat" not in config or """matchers: ['alertname="ErpWatchdog"']""" not in config:
+    fail("Alertmanager does not send erp-cell's ErpWatchdog to erp-heartbeat")
 if any(d["kind"] == "Secret" and ("admin-password" in d.get("data", {}) or "alertmanager.yaml" in d.get("data", {})) for d in docs):
     fail("the chart makes a Grafana admin password or Alertmanager's configuration itself")
 grafana = one("Deployment", "erp-monitoring-grafana")["spec"]["template"]["spec"]["containers"]
@@ -248,7 +252,8 @@ grep -qF '"erp" "{{ .clientPassword | replace "\"" "\"\"" }}"' "$work/erp-cell.y
   { echo "helm-checks: erp-cell's user list does not double the quotes of the client password" >&2; exit 1; }
 # The engine's configuration, as erp-temporal serve would load it.
 "$CONFTEST" parse --parser yaml "$work/erp-cell.yaml" >"$work/erp-cell.json"
-python3 - "$work/erp-cell.json" "$work/temporal.yaml" <<'PY'
+mkdir "$work/rules"
+python3 - "$work/erp-cell.json" "$work/temporal.yaml" "$work/rules/erp.rules.yaml" <<'PY'
 import json, sys
 for d in json.load(open(sys.argv[1])):
     if d and d.get("kind") == "ConfigMap" and d["metadata"]["name"] == "erp-temporal":
@@ -273,7 +278,17 @@ if not scrape or [(f["namespaceSelector"]["matchLabels"], f["podSelector"]["matc
                   for r in scrape[0]["spec"]["ingress"] for f in r["from"]] \
         != [({"kubernetes.io/metadata.name": "monitoring"}, {"operator.prometheus.io/name": "erp-monitoring-prometheus"}, [9090])]:
     sys.exit("helm-checks: erp-cell's erp-server-metrics policy must admit the monitoring namespace's Prometheus to 9090 alone")
+# The SLO rules as the cell's Prometheus gets them, for promtool.
+rules = [d for d in docs if d["kind"] == "PrometheusRule" and d["metadata"]["name"] == "erp-slo"]
+if len(rules) != 1:
+    sys.exit("helm-checks: erp-cell renders no erp-slo PrometheusRule")
+json.dump(rules[0]["spec"], open(sys.argv[3], "w"))
 PY
+# The SLOs and alerts (ADR-0043): the rendered rules pass promtool's
+# checks and lint, and its unit tests run against them.
+cp "$chart/rules/erp.rules.test.yaml" "$work/rules/"
+"$PROMTOOL" check rules --lint=all --lint-fatal "$work/rules/erp.rules.yaml"
+(cd "$work/rules" && "$PROMTOOL" test rules erp.rules.test.yaml)
 (cd temporal && go build -o "$work/erp-temporal" ./cmd/erp-temporal)
 ERP_TEMPORAL_CONFIG="$work/temporal.yaml" "$work/erp-temporal" check-config
 # required VALUE...: each value, removed in turn, fails the render and

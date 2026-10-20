@@ -108,3 +108,20 @@ func (m *Metrics) Check() error {
 	}
 	return errors.Join(errs...)
 }
+
+// Series names each series name the registered metrics expose with the
+// labels it carries: a histogram's _bucket (with le), _sum and _count. Rules
+// and dashboards are held to it, so they name no metric or label the cell
+// does not export (ADR-0043).
+func (m *Metrics) Series() map[string][]string {
+	out := map[string][]string{}
+	for _, f := range m.families {
+		if f.kind != dto.MetricType_HISTOGRAM {
+			out[f.name] = f.labels
+			continue
+		}
+		out[f.name+"_bucket"] = append(append([]string{}, f.labels...), "le")
+		out[f.name+"_sum"], out[f.name+"_count"] = f.labels, f.labels
+	}
+	return out
+}

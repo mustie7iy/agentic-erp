@@ -27,8 +27,11 @@ which would make a cell's series grow with its customers. T54 closes this.
   that port alone. Alertmanager's configuration is written by an
   ExternalSecret: the routes in the repository, every alert to
   `erp-alerts`, whose definition is the receivers list in
-  `erp/<cell>/alertmanager-receivers` (seeded `- name: erp-alerts`, which
-  notifies no one). Grafana signs in through the operators' identity
+  `erp/<cell>/alertmanager-receivers` (seeded `- name: erp-alerts` and
+  `- name: erp-heartbeat`, which notify no one; T54e). A cell
+  bootstrapped before T54e adds `- name: erp-heartbeat` to that secret
+  before it syncs the add-on: Alertmanager refuses a route to a receiver
+  the list does not define. Grafana signs in through the operators' identity
   provider alone (OIDC, its client secret from `erp/<cell>/grafana-oidc`,
   roles from the provider's claims, strictly): no initial admin, no login
   form, no basic or anonymous access, no password in values. The add-on
@@ -115,8 +118,33 @@ which would make a cell's series grow with its customers. T54 closes this.
       sum by (agent_kind) (rate(erp_agent_proposals_decided_total{decision=~"rejected|modified"}[1d]))
       / sum by (agent_kind) (rate(erp_agent_proposals_decided_total[1d]))
   ```
-- **SLOs and alerts** (T54e) are multi-window burn-rate rules on the
-  availability (99.95%) and latency objectives, with promtool unit tests.
+- **SLOs and alerts** (T54e) are `deploy/helm/erp-cell/rules/erp.rules.yaml`,
+  a plain rule file the chart ships as the `erp-slo` PrometheusRule and
+  promtool checks and unit-tests (`erp.rules.test.yaml`) in
+  `scripts/helm-checks.sh`, at the add-on's Prometheus version, pinned by
+  SHA-256 in the deploy workflow. Availability is the share of 5xx and 429
+  among requests that count (any other 4xx is the caller's and counts
+  neither way); latency is, per class, the share of requests over the
+  class's p95 threshold, a 5% budget. Both are recorded over 5m, 30m, 1h,
+  2h, 6h, 1d and 3d, and alerted on the multi-window burn rates of the
+  99.95% monthly budget: page at 14.4× (1h and 5m) or 6× (6h and 30m),
+  ticket at 3× (1d and 2h) or 1× (3d and 6h). Symptom alerts cover what an
+  SLO does not see: outbox lag over 5 minutes (page), projector lag over
+  15 minutes (ticket: reports add unprojected entries), a partition horizon
+  short for 12 hours (ticket) or, for audit, a month from failing
+  readiness and, for the ledger, failing it (page; the
+  server exports `erp_partition_horizon_audit_months` and
+  `_ledger_years`, what readiness checks), a bank file unacknowledged a
+  day (ticket), a failed payment run (ticket), a tampered audit chain (page
+  at once), a gauge that cannot be read, no server scraped (page), and
+  `ErpWatchdog`, the dead man's switch, always firing and routed every
+  minute to `erp-heartbeat`, an outside service that pages when it stops
+  hearing it (seeded like `erp-alerts` until the receivers are decided).
+  Severity is a label (`page`, `ticket`, `heartbeat`); every alert
+  goes to `erp-alerts` but `ErpWatchdog`, whose receivers decide how each is delivered.
+  cmd/erp-server's `TestRulesUseCatalog` holds the rules to the catalog
+  (`Metrics.Series`): only series the cell exports, labels they carry,
+  and catalog labels in groupings and annotations.
   **Dashboards** (T54f) are code: Grafana JSON in the repository, whose
   PromQL is linted against the catalog so a panel cannot name a metric or
   label that does not exist.

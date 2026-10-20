@@ -492,6 +492,7 @@ func newMetrics(pool *database.Pool, cfg config.Config, log *slog.Logger) *telem
 	m := telemetry.NewMetrics()
 	backlogs(pool, cfg, m)
 	businessGauges(pool, cfg, m)
+	horizonGauges(pool, cfg, m, time.Now)
 	atRest(cfg.AtRest, m, log)
 	operationClasses(m)
 	return m

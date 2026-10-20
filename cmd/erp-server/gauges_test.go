@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/db"
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
@@ -133,6 +134,31 @@ func TestBusinessGauges(t *testing.T) {
 	for _, name := range []string{"erp_bank_files_unacknowledged_age_seconds", "erp_approvals_pending_age_seconds"} {
 		if got := after[name]; got < 400*86400 {
 			t.Errorf("%s: got %v, want at least 400 days", name, got)
+		}
+	}
+}
+
+// TestHorizonGauges: the horizon gauges read what readiness checks, as the
+// worker role (T54e).
+func TestHorizonGauges(t *testing.T) {
+	m := telemetry.NewMetrics()
+	// A fixed clock: the gauges and the check count from the same month.
+	now := func() time.Time { return time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC) }
+	horizonGauges(pgtest.Pool(t), config.Config{WorkerRole: "erp_worker"}, m, now)
+	months, years, err := db.Horizon(context.Background(), pgtest.Admin(t), now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]float64
+	pgtest.Eventually(t, 30*time.Second, func() bool {
+		got = samples(t, m)
+		_, a := got["erp_partition_horizon_audit_months"]
+		_, l := got["erp_partition_horizon_ledger_years"]
+		return a && l
+	}, "a horizon gauge is missing")
+	for name, want := range map[string]int{"erp_partition_horizon_audit_months": months, "erp_partition_horizon_ledger_years": years} {
+		if got[name] != float64(want) {
+			t.Errorf("%s: got %v, want %d", name, got[name], want)
 		}
 	}
 }

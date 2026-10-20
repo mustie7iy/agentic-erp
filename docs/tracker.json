@@ -5120,8 +5120,14 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "SLOs and alerts as the erp-slo PrometheusRule: availability (5xx and 429 of requests that count) and per-class latency (share over the class's p95 threshold, joined on erp_operation_info) recorded over 5m-3d; multi-window burn-rate alerts on the 99.95% monthly budget, page at 14.4x (1h/5m) and 6x (6h/30m), ticket at 3x (1d/2h) and 1x (3d/6h), the same for latency's 5%; symptom alerts for outbox and projector lag, partition horizon (erp_partition_horizon_* gauges), bank file unacknowledged, payment run failed, audit tamper (page at once), unreadable gauges, no server scraped; ErpWatchdog dead man's switch to erp-heartbeat; the override-rate recording rule; promtool 3.15.0 checks and unit tests pinned by SHA-256; rules held to the catalog by TestRulesUseCatalog",
+        "r": "deploy/helm/erp-cell/rules · templates/rules.yaml · cmd/erp-server/gauges.go horizonGauges · telemetry.Metrics.Series · scripts/helm-checks.sh · deploy.yml · ADR-0043 · T54e",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Decide Alertmanager's receivers (PO): set erp/<cell>/alertmanager-receivers' erp-alerts to the chosen integrations",
+        "t": "Decide Alertmanager's receivers (PO): set erp/<cell>/alertmanager-receivers' erp-alerts and erp-heartbeat (the dead man's switch's outside service) to the chosen integrations, and whether severity=page and ticket go to different ones",
         "r": "ADR-0043 · T54d",
         "c": []
        }
