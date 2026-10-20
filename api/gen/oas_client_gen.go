@@ -711,9 +711,11 @@ type Invoker interface {
 	// statement already imported (the same statement id, account and sequence) is refused with 409
 	// `payments.statement_conflict`. A statement whose opening balance is not the closing balance of the
 	// house bank's statement before it is imported in status `gap`, and automatic posting stops for the
-	// bank. A file that cannot be read is refused with 422 `payments.statement_unreadable`, naming the
-	// line where what is wrong starts. Imports are made by people and integrations; agents read
-	// statements.
+	// bank; a statement imported between two others becomes the next one's previous statement, whose
+	// status follows the comparison again. A file that cannot be read is refused with 422
+	// `payments.statement_unreadable`, naming the line where what is wrong starts. Imports are made by
+	// people and integrations; agents read statements, and an agent's import is refused with 403
+	// `identity.agent_not_allowed`.
 	//
 	// POST /v1/bank-statements
 	ImportBankStatements(ctx context.Context, request *BankStatementUploadMultipart, params ImportBankStatementsParams) (ImportBankStatementsRes, error)
@@ -15310,9 +15312,11 @@ func (c *Client) sendHoldSupplierInvoice(ctx context.Context, request *ReasonInp
 // statement already imported (the same statement id, account and sequence) is refused with 409
 // `payments.statement_conflict`. A statement whose opening balance is not the closing balance of the
 // house bank's statement before it is imported in status `gap`, and automatic posting stops for the
-// bank. A file that cannot be read is refused with 422 `payments.statement_unreadable`, naming the
-// line where what is wrong starts. Imports are made by people and integrations; agents read
-// statements.
+// bank; a statement imported between two others becomes the next one's previous statement, whose
+// status follows the comparison again. A file that cannot be read is refused with 422
+// `payments.statement_unreadable`, naming the line where what is wrong starts. Imports are made by
+// people and integrations; agents read statements, and an agent's import is refused with 403
+// `identity.agent_not_allowed`.
 //
 // POST /v1/bank-statements
 func (c *Client) ImportBankStatements(ctx context.Context, request *BankStatementUploadMultipart, params ImportBankStatementsParams) (ImportBankStatementsRes, error) {

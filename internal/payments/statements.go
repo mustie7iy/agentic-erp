@@ -30,9 +30,11 @@ import (
 // statement is imported once per key (bankstatement.Statement.Key), so
 // another file with an imported statement is refused. Each statement's
 // opening balance is compared with the closing balance of the bank's
-// statement before it, by closing date: a difference imports it as Gap,
-// and it stays one until the statement that closes the difference
-// arrives. Imports of one house bank wait for each other.
+// statement before it, by closing date: a difference imports it as Gap. A
+// statement imported between two others (a missing one, or an older one
+// imported later) becomes the next one's previous statement, which is
+// compared again: its gap closes, or one opens. Imports of one house bank
+// wait for each other.
 
 // MaxStatementFile is the largest statement file imported, below the
 // request limit (uow.MaxBody) so the form around it fits.
@@ -47,8 +49,8 @@ const (
 
 func init() {
 	problem.RegisterConstraint("bank_statement_key_once", func() *problem.Problem {
-		return problem.Conflict("payments.statement_conflict", "A statement of this file, with its statement id, account and sequence, "+
-			"was imported from another file; the bank sent it twice with different content.")
+		return problem.Conflict("payments.statement_conflict", "A statement with the statement id, account and sequence of one in this file "+
+			"was already imported, from another file or earlier in this one.")
 	})
 }
 
@@ -120,6 +122,9 @@ func (e *Endpoints) ImportStatements(ctx context.Context, houseBank uuid.UUID, f
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, nil, false, err
+	}
+	if p.Kind == reqctx.KindAgent { // agents read statements; people and integrations import them (ADR-0047)
+		return nil, nil, false, problem.Forbidden("identity.agent_not_allowed", "Bank statements are imported by people and integrations; agents read them.")
 	}
 	parse, ok := statementFormats[format]
 	if !ok {
@@ -219,7 +224,7 @@ func importStatement(ctx context.Context, tx pgx.Tx, p reqctx.Principal, bank st
 	if err := recordStatement(ctx, id, bank, sum, s, exp, status, prevID); err != nil {
 		return err
 	}
-	return closeGap(ctx, tx, p, bank, id, s)
+	return relinkNext(ctx, tx, p, bank, id, s)
 }
 
 // insertLines inserts the statement's lines in the bank's order.
@@ -256,25 +261,37 @@ func lineDetails(ds []bankstatement.Detail) []LineDetail {
 	return out
 }
 
-// closeGap makes the bank's next statement, in status gap, imported when
-// the statement just imported closes its difference: it was the one
-// missing.
-func closeGap(ctx context.Context, tx pgx.Tx, p reqctx.Principal, bank statementBank, id uuid.UUID, s bankstatement.Statement) error {
+// relinkNext makes the statement just imported the previous statement of
+// the bank's next one, when it comes between that one and its previous
+// statement (a missing statement, or an older one imported later), and
+// compares their balances again: the next statement is in gap exactly when
+// its opening balance is not the new closing balance (a reconciled one
+// stays reconciled).
+func relinkNext(ctx context.Context, tx pgx.Tx, p reqctx.Principal, bank statementBank, id uuid.UUID, s bankstatement.Statement) error {
 	var next uuid.UUID
-	err := tx.QueryRow(ctx, `UPDATE payments.bank_statement SET status = 'imported', previous_statement_id = $2, version = version + 1, updated_by = $5
-		WHERE id = (SELECT id FROM payments.bank_statement WHERE house_bank_id = $1 AND id <> $2 AND opening_date >= $3
-			ORDER BY opening_date, id LIMIT 1) AND status = 'gap' AND opening_balance = $4
-		RETURNING id`, bank.ID, id, s.Closing.Date, s.Closing.Amount, p.ID).Scan(&next)
+	var was, now string
+	err := tx.QueryRow(ctx, `WITH next AS (
+			SELECT n.id, n.status FROM payments.bank_statement n
+			LEFT JOIN payments.bank_statement pr ON pr.tenant_id = n.tenant_id AND pr.id = n.previous_statement_id
+			WHERE n.house_bank_id = $1 AND n.id <> $2 AND n.opening_date >= $3 AND (pr.id IS NULL OR pr.closing_date <= $3)
+			ORDER BY n.opening_date, n.id LIMIT 1)
+		UPDATE payments.bank_statement b SET previous_statement_id = $2, version = b.version + 1, updated_by = $5,
+			status = CASE WHEN b.status = 'reconciled' THEN b.status WHEN b.opening_balance = $4 THEN 'imported' ELSE 'gap' END
+		FROM next WHERE b.id = next.id
+		RETURNING b.id, next.status, b.status`, bank.ID, id, s.Closing.Date, s.Closing.Amount, p.ID).Scan(&next, &was, &now)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("payments: close the gap after statement %s: %w", id, err)
+		return fmt.Errorf("payments: the statement after statement %s: %w", id, err)
 	}
-	return record(ctx, "payments.bank_statement.close_gap", next, map[string]any{"previous_statement_id": id},
-		outbox.Event{Context: "payments", Name: "bank_statement_gap_closed", AggregateType: "payments.bank_statement", AggregateID: next,
+	var events []outbox.Event
+	if name := map[string]string{StatementImported: "bank_statement_gap_closed", StatementGap: "bank_statement_gap_found"}[now]; name != "" && was != now {
+		events = append(events, outbox.Event{Context: "payments", Name: name, AggregateType: "payments.bank_statement", AggregateID: next,
 			Payload: map[string]any{"bank_statement_id": next, "house_bank_id": bank.ID, "legal_entity_id": bank.LegalEntityID,
-				"previous_statement_id": id, "status": StatementImported}})
+				"previous_statement_id": id, "status": now}})
+	}
+	return record(ctx, "payments.bank_statement.relink", next, map[string]any{"previous_statement_id": id, "previous_status": was, "status": now}, events...)
 }
 
 // recordStatement audits the import and publishes BankStatementImported.

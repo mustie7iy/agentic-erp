@@ -865,7 +865,7 @@
        {
         "s": "D",
         "t": "Statement tables, upload, idempotency by file hash and statement key, balance continuity (gap until the missing statement arrives), parse errors with line numbers",
-        "r": "db/migrations/000106 · payments.bank_statement · bank_statement_line · statement_match · POST/GET /v1/bank-statements · payments.statement.import/read · BankStatementImported · BankStatementGapClosed · T49c",
+        "r": "db/migrations/000106 · payments.bank_statement · bank_statement_line · statement_match · POST/GET /v1/bank-statements · payments.statement.import/read · BankStatementImported · BankStatementGapClosed · BankStatementGapFound · T49c",
         "c": []
        },
        {

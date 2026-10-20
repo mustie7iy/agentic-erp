@@ -35,6 +35,12 @@ func (e env) upload(t *testing.T, bank, format, file string) (int, map[string]an
 	return r.Code, apitest.JSON(t, r)
 }
 
+// agent is e acting as the tenant's agent.
+func (e env) agent() env {
+	e.Client.As = e.Tenant.Agent
+	return e
+}
+
 func (e env) imported(t *testing.T, format, file string) []any {
 	t.Helper()
 	code, body := e.upload(t, e.bank.String(), format, file)
@@ -139,10 +145,24 @@ func TestStatementGaps(t *testing.T) {
 	if n := len(events(t, e.Tenant, "bank_statement_gap_closed")); n != 1 {
 		t.Errorf("gap closed events: got %d, want 1", n)
 	}
-	// A statement after one in gap that does not close it leaves it.
-	e.imported(t, "mt940", mtStatement("G0", "0", "1,00", "260901", "1,00", "260901"))
-	if again, _ := e.Must(200, "GET", "/v1/bank-statements/"+id(first), "", ""); again["status"] != "imported" {
-		t.Errorf("first statement: got %v, want imported", again["status"])
+	// An older statement imported later is the first one's previous
+	// statement: a gap opens where its closing balance does not lead to it.
+	zero := e.imported(t, "mt940", mtStatement("G0", "0", "1,00", "260901", "1,00", "260901"))[0].(map[string]any)
+	if again, _ := e.Must(200, "GET", "/v1/bank-statements/"+id(first), "", ""); again["status"] != "gap" || again["previous_statement_id"] != zero["id"] {
+		t.Errorf("first statement after an older one that does not lead to it: got %v, want gap after it", again)
+	}
+	if n := len(events(t, e.Tenant, "bank_statement_gap_found")); n != 1 {
+		t.Errorf("gap found events: got %d, want 1", n)
+	}
+	// One that leads to it keeps it imported.
+	e.imported(t, "mt940", mtStatement("H0", "0", "200,00", "261102", "200,00", "261102"))
+	h1 := e.imported(t, "mt940", mtStatement("H1", "1", "200,00", "261105", "200,00", "261105"))[0].(map[string]any)
+	h := e.imported(t, "mt940", mtStatement("H", "9", "200,00", "261103", "200,00", "261104"))[0].(map[string]any)
+	if again, _ := e.Must(200, "GET", "/v1/bank-statements/"+id(h1), "", ""); again["status"] != "imported" || again["previous_statement_id"] != h["id"] {
+		t.Errorf("a statement after an older one that leads to it: got %v, want imported after it", again)
+	}
+	if n := len(events(t, e.Tenant, "bank_statement_gap_found")) + len(events(t, e.Tenant, "bank_statement_gap_closed")); n != 2 {
+		t.Errorf("gap events after a relink without change: got %d, want 2", n)
 	}
 }
 
@@ -185,6 +205,11 @@ func TestStatementRefusals(t *testing.T) {
 	}
 	t.Run("an order the list does not have", func(t *testing.T) {
 		e.in(t).Problem(400, "request.invalid_order_by", "GET", "/v1/bank-statements?order_by=amount", "", "")
+	})
+	t.Run("an agent", func(t *testing.T) {
+		if code, body := (env{Env: e.Env, bank: e.bank}).agent().upload(t, e.bank.String(), "mt940", ok); code != 403 || body["code"] != "identity.agent_not_allowed" {
+			t.Errorf("got %d %v, want 403 identity.agent_not_allowed", code, body)
+		}
 	})
 	t.Run("the line of what cannot be read", func(t *testing.T) {
 		_, body := e.in(t).upload(t, e.bank.String(), "mt940", strings.Replace(ok, ":60F:C261001EUR1,00", ":60F:C261001EUR1.00", 1))

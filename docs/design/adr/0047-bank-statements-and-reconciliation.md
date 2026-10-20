@@ -142,15 +142,17 @@ Canadian bank may only offer BAI2.
   Imports of one house bank wait for each other (an advisory lock), so the
   file hash, the key and the continuity are checked against every
   committed import. The statement before is the bank's with the latest
-  closing date not after the new one's opening date; when a statement
-  arrives whose closing balance is the opening balance of the bank's next
-  statement in `gap`, that one becomes `imported`
-  (`BankStatementGapClosed`). Automatic posting (T49f) runs only while the
+  closing date not after the new one's opening date. A statement imported
+  between two others (the missing one, or an older one imported later)
+  becomes the next one's previous statement, which is compared again: it
+  becomes `imported` when the balances meet (`BankStatementGapClosed`) and
+  `gap` when they do not (`BankStatementGapFound`). Automatic posting (T49f) runs only while the
   bank has no statement in `gap`. The file itself is not kept: its hash,
   statements and lines are. Permissions: `payments.statement.import`
-  (people and integrations) and `payments.statement.read` (agents too); the
-  upload is not `x-autonomy: propose`, so an agent below level 2 cannot
-  import.
+  (people and integrations) and `payments.statement.read` (agents too). An
+  agent's import is refused with 403 `identity.agent_not_allowed` by the
+  handler: `x-agent: false` would refuse integrations' service principals
+  too.
 - Steps: a ADR, configuration and the house bank's columns · b parsers ·
   c tables, upload, idempotency and continuity · d SFTP fetch · e rule
   matching · f posting, clearing, approval and period locks · g agent

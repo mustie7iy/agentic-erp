@@ -1351,8 +1351,9 @@ the transactions in `details`) and the lines' matches
 (`statement_match`, T49e-f: at most one target, one live match per line,
 the posting named exactly when posted, never decided by its proposer). A
 statement whose opening balance is not the closing balance of the bank's
-statement before it (`previous_statement_id`) is in `gap` until the
-missing statement arrives.
+statement before it (`previous_statement_id`) is in `gap`; a statement
+imported between two others becomes the next one's previous statement,
+which is compared again (its gap closes, or one opens).
 
 A company's payment methods (`payments.payment_method`, SAP T042Z) rank,
 per currency, the house banks that pay with them, first preferred

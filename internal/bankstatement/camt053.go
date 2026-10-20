@@ -166,9 +166,9 @@ func camtStatement(st camtStmt, exps currency.Exponents) (Statement, error) {
 		}
 		e, err := camtEntryOf(n, s.Currency, exps)
 		if err != nil {
-			var pe *ParseError
-			errors.As(err, &pe) // the entry's readers refuse only with malformed
-			pe.entry = i
+			if pe := (*ParseError)(nil); errors.As(err, &pe) { // the entry's readers refuse only with malformed
+				pe.entry = i
+			}
 			return Statement{}, err
 		}
 		s.Entries = append(s.Entries, e)
