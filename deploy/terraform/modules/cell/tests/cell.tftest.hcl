@@ -298,9 +298,18 @@ run "secrets_and_objects_are_encrypted_with_the_data_key" {
     error_message = "the cell's Argo CD has a secret for its deploy key"
   }
   assert {
-    # The mock gives every secret one ARN: the statement names all but one.
-    condition     = length([for r in jsondecode(aws_iam_role_policy.workload["external_secrets"].policy).Statement[0].Resource : r if r == aws_secretsmanager_secret.cell["argocd-repository"].arn]) == length(aws_secretsmanager_secret.cell) - 1
-    error_message = "the External Secrets Operator cannot read the deploy key"
+    # The mock gives every secret one ARN: the statement names all but
+    # the deploy key and the monitoring add-on's two.
+    condition     = length([for r in jsondecode(aws_iam_role_policy.workload["external_secrets"].policy).Statement[0].Resource : r if r == aws_secretsmanager_secret.cell["argocd-repository"].arn]) == length(aws_secretsmanager_secret.cell) - 3
+    error_message = "the External Secrets Operator cannot read the deploy key, nor the monitoring add-on's secrets"
+  }
+  assert {
+    condition     = length(jsondecode(aws_iam_role_policy.workload["monitoring"].policy).Statement[0].Resource) == 2 && contains(keys(aws_secretsmanager_secret.cell), "alertmanager-receivers") && contains(keys(aws_secretsmanager_secret.cell), "grafana-oidc")
+    error_message = "the monitoring add-on's role reads its two secrets and nothing else"
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role.workload["monitoring"].assume_role_policy).Statement[0].Condition.StringEquals["oidc.eks.eu-central-1.amazonaws.com/id/ABC:sub"] == "system:serviceaccount:monitoring:erp-monitoring-secrets"
+    error_message = "the monitoring add-on's role trusts its SecretStore's service account alone"
   }
   assert {
     condition     = one(one(aws_s3_bucket_server_side_encryption_configuration.objects.rule).apply_server_side_encryption_by_default).sse_algorithm == "aws:kms"

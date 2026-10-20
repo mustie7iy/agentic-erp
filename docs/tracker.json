@@ -5109,10 +5109,23 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Dashboards and alerting (Grafana)",
       "r": "T54",
-      "c": []
+      "c": [
+       {
+        "s": "D",
+        "t": "Monitoring stack as a cell add-on: kube-prometheus-stack pinned (Prometheus HA pair keeping 15 days on encrypted gp3, Alertmanager on two replicas, Grafana), ~2.3 vCPU / 9.5 GiB; the server's admin /metrics scraped over verified TLS by a ServiceMonitor, admitted by a NetworkPolicy; Grafana signs in through the operators' IdP (OIDC) alone, no local admin; Alertmanager's receivers and Grafana's client secret from erp/<cell>/ through the add-on's own SecretStore and IRSA role, placeholder receiver erp-alerts",
+        "r": "deploy/helm/addons/values/kube-prometheus-stack.yaml · erp-cell templates/monitoring.yaml · irsa.tf monitoring · scripts/helm-checks.sh · ADR-0043 · ADR-0035 bootstrap · T54d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Decide Alertmanager's receivers (PO): set erp/<cell>/alertmanager-receivers' erp-alerts to the chosen integrations",
+        "r": "ADR-0043 · T54d",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",
@@ -5122,8 +5135,20 @@
      },
      {
       "s": "T",
-      "t": "Count modified-then-approved agent proposals: an owning context whose objects a person may change while their approval waits implements approvals.Modifier",
+      "t": "Count modified-then-approved agent proposals: an owning context whose objects a person may change while their approval waits implements approvals.Modifier (stays opt-in per owning context, coordinator decision on T54c)",
       "r": "T54",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Override rate: a payment run proposed by an agent and released or rejected by a person counts as an agent proposal decided (coordinator decision on T54c)",
+      "r": "T54 · erp_agent_proposals_decided_total",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Worker-side decisions (uow.Act) get an OnCommit hook so their agent proposal decisions are counted (coordinator decision on T54c)",
+      "r": "T54 · uow.Act · reqctx.OnCommit",
       "c": []
      }
     ]

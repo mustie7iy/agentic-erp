@@ -12,6 +12,9 @@ trustDomain: ""
 # The namespace the router and the global plane run in (erp-global
 # chart): the only callers of the API and /control.
 routerNamespace: erp-global
+# The cell's monitoring add-on (kube-prometheus-stack, ADR-0043), whose
+# Prometheus scrapes the server's admin /metrics.
+monitoringNamespace: monitoring
 # The cell's VPC CIDR (cell.cidr): the database and the AWS endpoints.
 vpcCidr: ""
 

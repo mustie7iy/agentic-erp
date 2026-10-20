@@ -14,7 +14,14 @@ locals {
     ebs_csi          = { namespace = "kube-system", name = "ebs-csi-controller-sa" }
     load_balancer    = { namespace = "kube-system", name = "aws-load-balancer-controller" }
     kyverno          = { namespace = "kyverno", name = "kyverno-admission-controller" }
+    monitoring       = { namespace = "monitoring", name = "erp-monitoring-secrets" }
   }
+
+  # The monitoring add-on's secrets (ADR-0043): read through its own
+  # SecretStore as its own role, so nothing in its namespace can reach the
+  # platform's secrets, nor the platform's store these.
+  monitoring_secrets = ["alertmanager-receivers", "grafana-oidc"]
+  secrets_key_via    = { StringEquals = { "kms:ViaService" = "secretsmanager.${data.aws_region.current.region}.amazonaws.com" } }
 
   workloads = {
     # The API server and its workers: objects, field-key wrapping.
@@ -31,10 +38,10 @@ locals {
     # the deploy key, which only the bootstrap reads, into Argo CD.
     external_secrets = {
       statements = [
-        { Sid = "Secrets", Effect = "Allow", Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], Resource = concat([for name, secret in aws_secretsmanager_secret.cell : secret.arn if name != "argocd-repository"], compact([local.database_master_secret_arn]), var.global_secrets.arns) },
+        { Sid = "Secrets", Effect = "Allow", Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], Resource = concat([for name, secret in aws_secretsmanager_secret.cell : secret.arn if !contains(concat(["argocd-repository"], local.monitoring_secrets), name)], compact([local.database_master_secret_arn]), var.global_secrets.arns) },
         # Through Secrets Manager only: the global tier's key also encrypts
         # the directory's storage and logs.
-        { Sid = "SecretsKey", Effect = "Allow", Action = "kms:Decrypt", Resource = compact([aws_kms_key.data.arn, var.global_secrets.kms_key_arn]), Condition = { StringEquals = { "kms:ViaService" = "secretsmanager.${data.aws_region.current.region}.amazonaws.com" } } },
+        { Sid = "SecretsKey", Effect = "Allow", Action = "kms:Decrypt", Resource = compact([aws_kms_key.data.arn, var.global_secrets.kms_key_arn]), Condition = local.secrets_key_via },
       ]
     }
     # cert-manager's aws-privateca-issuer: certificates from the
@@ -73,6 +80,14 @@ locals {
         # The same actions as the repositories grant the environments
         # (modules/ecr pull_actions): cross-account, both sides must allow.
         { Sid = "ReadImages", Effect = "Allow", Action = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability", "ecr:DescribeImages", "ecr:ListImages"], Resource = "arn:${data.aws_partition.current.partition}:ecr:*:${var.image_registry_account_id}:repository/erp*" },
+      ]
+    }
+    # The monitoring add-on's SecretStore (kube-prometheus-stack, T54d):
+    # Alertmanager's receivers and Grafana's OIDC client, read only.
+    monitoring = {
+      statements = [
+        { Sid = "Secrets", Effect = "Allow", Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], Resource = [for name in local.monitoring_secrets : aws_secretsmanager_secret.cell[name].arn] },
+        { Sid = "SecretsKey", Effect = "Allow", Action = "kms:Decrypt", Resource = aws_kms_key.data.arn, Condition = local.secrets_key_via },
       ]
     }
   }

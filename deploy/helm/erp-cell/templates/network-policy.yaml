@@ -1,7 +1,8 @@
 # The cell's traffic (ADR-0035), default deny: what is not allowed here
 # does not happen.
 # - The API and the admin listener (/control, metrics) take connections
-#   from the router and the global plane's namespace only; kubelet's
+#   from the router and the global plane's namespace only, and the admin
+#   listener from the cell's Prometheus (monitoring.yaml); kubelet's
 #   probes are not subject to policies.
 # - The server reaches PgBouncer, NATS, the workflow engine, on the home
 #   cell the global directory in the VPC and, on 443, the AWS endpoints in

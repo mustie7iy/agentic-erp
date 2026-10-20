@@ -624,6 +624,12 @@ which the state bucket refuses.
      `kubectl create namespace argocd`, then
      `kubectl -n argocd create secret generic erp-repository --from-literal=type=git --from-literal=url=<repository> --from-file=sshPrivateKey=<(aws secretsmanager get-secret-value --secret-id erp/<cell>/argocd-repository --query SecretString --output text)`
      and `kubectl -n argocd label secret erp-repository argocd.argoproj.io/secret-type=repository`;
+   - seed the monitoring add-on's secrets (ADR-0043): register Grafana as
+     a client of the operators' identity provider (redirect
+     `<root_url>/login/generic_oauth`) and store its secret in
+     `erp/<cell>/grafana-oidc`; store Alertmanager's receivers, a YAML list,
+     in `erp/<cell>/alertmanager-receivers`, `- name: erp-alerts` (which
+     notifies no one) until the receivers are decided;
    - install Argo CD from its pinned archive, checked against `addons.txt`:
      `helm pull argo-cd --repo https://argoproj.github.io/argo-helm --version <version>`,
      `shasum -a 256` it, then

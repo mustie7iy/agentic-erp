@@ -1,0 +1,267 @@
+# The cell's monitoring (ADR-0043, T54d): Prometheus as an HA pair,
+# Alertmanager clustered on two replicas, and Grafana, all in the cell and
+# in its account; nothing leaves it but the alerts. The environment sets,
+# from Terraform's outputs (cell.json addons.kube-prometheus-stack):
+#   erp.cell                     the cell's id (its secrets are erp/<cell>/*)
+#   erp.region                   the cell's region (Secrets Manager)
+#   erp.clusterKmsKeyArn         cell.cluster_kms_key_arn (the volumes' key)
+#   erp.secretsRoleArn           cell.workload_role_arns.monitoring
+#   grafana."grafana.ini"        server.root_url and auth.generic_oauth's
+#                                client_id, auth_url, token_url, api_url
+#                                and role_attribute_path: the operators'
+#                                identity provider
+# Sized for one cell: about 2.3 vCPU and 9.5 GiB requested in all (two
+# Prometheus at 0.75 vCPU and 4 GiB each; the rest small, node-exporter
+# per node).
+fullnameOverride: erp-monitoring
+crds:
+  enabled: true
+  upgradeJob:
+    enabled: false
+
+# EKS runs the control plane: its components are not reachable to scrape.
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+windowsMonitoring:
+  enabled: false
+defaultRules:
+  rules:
+    etcd: false
+    kubeControllerManager: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeProxy: false
+    windows: false
+
+prometheus:
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  prometheusSpec:
+    replicas: 2
+    podAntiAffinity: hard
+    podAntiAffinityTopologyKey: kubernetes.io/hostname
+    retention: 15d
+    # Below the volume, so Prometheus drops its oldest blocks before the
+    # disk fills.
+    retentionSize: 45GB
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: erp-monitoring
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 50Gi
+    resources:
+      requests: {cpu: 750m, memory: 4Gi}
+      limits: {memory: 4Gi}
+    # Every ServiceMonitor, PodMonitor and rule of the cell, not only this
+    # release's: the erp-cell chart's ServiceMonitors (the server's admin
+    # /metrics) and the rules of T54e.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+
+alertmanager:
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  alertmanagerSpec:
+    replicas: 2
+    podAntiAffinity: hard
+    podAntiAffinityTopologyKey: kubernetes.io/hostname
+    # The configuration is erp-alertmanager, which the ExternalSecret below
+    # writes: the routes are here, the receivers from Secrets Manager.
+    useExistingSecret: true
+    configSecret: erp-alertmanager
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: erp-monitoring
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 2Gi
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {memory: 256Mi}
+
+prometheusOperator:
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 512Mi}
+
+kube-state-metrics:
+  fullnameOverride: erp-monitoring-kube-state-metrics
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 512Mi}
+
+prometheus-node-exporter:
+  fullnameOverride: erp-monitoring-node-exporter
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 128Mi}
+
+# Grafana signs in through the operators' identity provider alone (OIDC):
+# no initial admin, no login form, no basic or anonymous access, and no
+# password in these values; who may do what comes from the provider's
+# claims (role_attribute_path), strictly: a sign-in without a role is
+# refused. Its client secret is mounted from erp/<cell>/grafana-oidc.
+# Dashboards are code (T54f), so it keeps no state worth a volume. No
+# ingress: operators reach it through the cell's Kubernetes API, as Argo
+# CD's.
+grafana:
+  fullnameOverride: erp-monitoring-grafana
+  replicas: 1
+  env:
+    GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "true"
+  grafana.ini:
+    # Nothing leaves the cell: no update checks, no usage reports.
+    analytics:
+      check_for_updates: false
+      check_for_plugin_updates: false
+      reporting_enabled: false
+    auth:
+      disable_login_form: true
+      oauth_auto_login: true
+    auth.basic:
+      enabled: false
+    auth.anonymous:
+      enabled: false
+    auth.generic_oauth:
+      enabled: true
+      name: Operators
+      client_secret: $__file{/etc/secrets/grafana-oidc/client-secret}
+      scopes: openid email profile
+      use_pkce: true
+      role_attribute_strict: true
+      allow_assign_grafana_admin: false
+      allow_sign_up: true
+  extraSecretMounts:
+    - name: grafana-oidc
+      secretName: erp-grafana-oidc
+      mountPath: /etc/secrets/grafana-oidc
+      readOnly: true
+  # With no admin, the sidecars cannot call Grafana's reload API: they load
+  # what exists at start, and Grafana rereads the dashboards' files.
+  sidecar:
+    dashboards:
+      skipReload: true
+      initDashboards: true
+    datasources:
+      skipReload: true
+      initDatasources: true
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 512Mi}
+
+# The add-on's own resources, rendered with the environment's values:
+# - the volumes' class, gp3 encrypted with the cluster key, here rather
+#   than erp-cluster's erp-encrypted since erp-cluster syncs after the
+#   add-ons, and Prometheus waits for its volumes;
+# - a SecretStore of its own, as its own IRSA role (erp-monitoring-secrets,
+#   which reads erp/<cell>/alertmanager-receivers and grafana-oidc alone);
+# - Alertmanager's configuration: every alert to erp-alerts, a receiver the
+#   secret defines (a YAML list of Alertmanager receivers, indented under
+#   receivers:). Until the receivers are decided, the bootstrap seeds it
+#   with the placeholder "- name: erp-alerts", which notifies no one;
+# - Grafana's OIDC client secret.
+erp:
+  cell: ""
+  region: ""
+  clusterKmsKeyArn: ""
+  secretsRoleArn: ""
+extraManifests:
+  storageClass: |
+    apiVersion: storage.k8s.io/v1
+    kind: StorageClass
+    metadata:
+      name: erp-monitoring
+    provisioner: ebs.csi.aws.com
+    parameters:
+      type: gp3
+      encrypted: "true"
+      kmsKeyId: {{ required "erp.clusterKmsKeyArn is required: cell.cluster_kms_key_arn" .Values.erp.clusterKmsKeyArn | quote }}
+    reclaimPolicy: Retain
+    allowVolumeExpansion: true
+    volumeBindingMode: WaitForFirstConsumer
+  serviceAccount: |
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: erp-monitoring-secrets
+      namespace: {{ .Release.Namespace }}
+      annotations:
+        eks.amazonaws.com/role-arn: {{ required "erp.secretsRoleArn is required: cell.workload_role_arns.monitoring" .Values.erp.secretsRoleArn | quote }}
+    automountServiceAccountToken: false
+  secretStore: |
+    apiVersion: external-secrets.io/v1
+    kind: SecretStore
+    metadata:
+      name: erp-monitoring
+      namespace: {{ .Release.Namespace }}
+    spec:
+      provider:
+        aws:
+          service: SecretsManager
+          region: {{ required "erp.region is required" .Values.erp.region | quote }}
+          auth:
+            jwt:
+              serviceAccountRef:
+                name: erp-monitoring-secrets
+  alertmanager: |
+    apiVersion: external-secrets.io/v1
+    kind: ExternalSecret
+    metadata:
+      name: erp-alertmanager
+      namespace: {{ .Release.Namespace }}
+    spec:
+      refreshInterval: 1h
+      secretStoreRef:
+        kind: SecretStore
+        name: erp-monitoring
+      target:
+        name: erp-alertmanager
+        creationPolicy: Owner
+        template:
+          engineVersion: v2
+          data:
+            alertmanager.yaml: |
+              route:
+                receiver: erp-alerts
+                group_by: [alertname, context]
+                group_wait: 30s
+                group_interval: 5m
+                repeat_interval: 4h
+              receivers: {{ "{{" }} .receivers | nindent 2 {{ "}}" }}
+      data:
+        - secretKey: receivers
+          remoteRef:
+            key: {{ printf "erp/%s/alertmanager-receivers" (required "erp.cell is required" .Values.erp.cell) | quote }}
+  grafanaOIDC: |
+    apiVersion: external-secrets.io/v1
+    kind: ExternalSecret
+    metadata:
+      name: erp-grafana-oidc
+      namespace: {{ .Release.Namespace }}
+    spec:
+      refreshInterval: 1h
+      secretStoreRef:
+        kind: SecretStore
+        name: erp-monitoring
+      target:
+        name: erp-grafana-oidc
+        creationPolicy: Owner
+      data:
+        - secretKey: client-secret
+          remoteRef:
+            key: {{ printf "erp/%s/grafana-oidc" (required "erp.cell is required" .Values.erp.cell) | quote }}

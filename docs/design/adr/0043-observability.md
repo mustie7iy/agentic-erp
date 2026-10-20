@@ -17,7 +17,24 @@ which would make a cell's series grow with its customers. T54 closes this.
   self-hosted with the kube-prometheus-stack chart as a cell add-on
   (ADR-0035). Nothing leaves the cell's account but the alerts. Alert
   receivers are decided later; until then the routes end at a placeholder
-  receiver.
+  receiver. As built (T54d, `deploy/helm/addons/values/kube-prometheus-stack.yaml`):
+  Prometheus is an HA pair keeping 15 days (45 GB at most) on 50 GiB gp3
+  volumes encrypted with the cluster key, Alertmanager two clustered
+  replicas; the add-on asks about 2.3 vCPU and 9.5 GiB of a cell. It
+  scrapes every ServiceMonitor of the cell; the erp-cell chart's scrapes
+  the server's admin `/metrics` over TLS verified against the
+  environment's CA, and a NetworkPolicy admits the add-on's Prometheus to
+  that port alone. Alertmanager's configuration is written by an
+  ExternalSecret: the routes in the repository, every alert to
+  `erp-alerts`, whose definition is the receivers list in
+  `erp/<cell>/alertmanager-receivers` (seeded `- name: erp-alerts`, which
+  notifies no one). Grafana signs in through the operators' identity
+  provider alone (OIDC, its client secret from `erp/<cell>/grafana-oidc`,
+  roles from the provider's claims, strictly): no initial admin, no login
+  form, no basic or anonymous access, no password in values. The add-on
+  reads those two secrets through a SecretStore of its own as its own IRSA
+  role (`monitoring`), which reads nothing else and which the platform's
+  store and role cannot read.
 - **Labels are bounded enumerations.** A metric's labels are only
   `context`, `operation`, `class`, `event`, `status`, `decision`, `kind`,
   `agent_kind`, `alias`, `currency` and the operational ones already there

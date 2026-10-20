@@ -4,7 +4,8 @@
   "cell": "dev1",
   "home": true,
   "addons": {
-    "external-secrets": {"serviceAccount": {"annotations": {"eks.amazonaws.com/role-arn": "arn:aws:iam::222222222222:role/erp-dev1-external-secrets"}}}
+    "external-secrets": {"serviceAccount": {"annotations": {"eks.amazonaws.com/role-arn": "arn:aws:iam::222222222222:role/erp-dev1-external-secrets"}}},
+    "kube-prometheus-stack": {"erp": {"cell": "dev1", "region": "eu-central-1", "secretsRoleArn": "arn:aws:iam::222222222222:role/erp-dev1-monitoring"}}
   },
   "erpCluster": {"region": "eu-central-1"},
   "erpCell": {"cell": "dev1", "region": "eu-central-1"},

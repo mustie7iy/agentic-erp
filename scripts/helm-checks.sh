@@ -7,6 +7,9 @@
 #     validated with kubeconform; the service account its IRSA role trusts
 #     (deploy/terraform/modules/cell/irsa.tf) must be the one it runs as,
 #     annotated with the role;
+#   - the monitoring add-on (kube-prometheus-stack) keeps 15 days on
+#     encrypted gp3 as an HA pair, reads only its own two secrets through
+#     its own store and role, and Grafana signs in through OIDC alone;
 #   - deploy/helm/erp-cluster and erp-cell are linted, rendered and
 #     validated against the pinned add-ons' own CRDs, and must refuse to
 #     render without each value they require; erp-cell's workloads must
@@ -136,6 +139,73 @@ while read -r -u 3 name namespace repository chart version sha256; do
   fi
 done 3<deploy/helm/erp-delivery/addons.txt
 
+# The monitoring add-on (ADR-0043): an HA pair keeping 15 days on
+# encrypted gp3; Alertmanager's configuration and Grafana's client secret
+# from the cell's secrets through a store of its own, as a role that
+# irsa.tf trusts for that service account alone; Grafana signing in
+# through the identity provider only, with no admin of its own.
+monitoring() {
+  python3 - "$1" <<'PY'
+import json, sys
+docs = [d for d in json.load(open(sys.argv[1])) if d]
+def fail(msg):
+    sys.exit("helm-checks: kube-prometheus-stack: " + msg)
+def one(kind, name=None):
+    found = [d for d in docs if d["kind"] == kind and (name is None or d["metadata"]["name"] == name)]
+    if len(found) != 1:
+        fail("renders %d %s %s, want one" % (len(found), kind, name or ""))
+    return found[0]
+prom, am = one("Prometheus")["spec"], one("Alertmanager")["spec"]
+if prom.get("replicas") != 2 or prom.get("retention") != "15d":
+    fail("Prometheus runs %s replicas keeping %s, want 2 keeping 15d" % (prom.get("replicas"), prom.get("retention")))
+for name, spec in (("Prometheus", prom["storage"]), ("Alertmanager", am["storage"])):
+    if spec["volumeClaimTemplate"]["spec"].get("storageClassName") != "erp-monitoring":
+        fail("%s's volumes are not of the erp-monitoring class" % name)
+sc = one("StorageClass", "erp-monitoring")
+if sc["parameters"].get("type") != "gp3" or sc["parameters"].get("encrypted") != "true" or not sc["parameters"].get("kmsKeyId", "").startswith("arn:aws:kms:"):
+    fail("the erp-monitoring class is not gp3, encrypted with the cluster key")
+if am.get("replicas") != 2 or am.get("configSecret") != "erp-alertmanager":
+    fail("Alertmanager runs %s replicas configured from %s, want 2 from erp-alertmanager" % (am.get("replicas"), am.get("configSecret")))
+store = one("SecretStore", "erp-monitoring")
+if store["spec"]["provider"]["aws"]["auth"]["jwt"]["serviceAccountRef"]["name"] != "erp-monitoring-secrets":
+    fail("the SecretStore does not authenticate as erp-monitoring-secrets")
+sa = one("ServiceAccount", "erp-monitoring-secrets")
+if not sa["metadata"].get("annotations", {}).get("eks.amazonaws.com/role-arn"):
+    fail("erp-monitoring-secrets carries no IRSA role annotation")
+allowed = {"erp/dev1/alertmanager-receivers", "erp/dev1/grafana-oidc"}
+secrets = [d for d in docs if d["kind"] == "ExternalSecret"]
+if sorted(d["spec"]["target"]["name"] for d in secrets) != ["erp-alertmanager", "erp-grafana-oidc"]:
+    fail("its ExternalSecrets make %s, want erp-alertmanager and erp-grafana-oidc" % [d["spec"]["target"]["name"] for d in secrets])
+for d in secrets:
+    if d["spec"]["secretStoreRef"] != {"kind": "SecretStore", "name": "erp-monitoring"} or {x["remoteRef"]["key"] for x in d["spec"]["data"]} - allowed:
+        fail("ExternalSecret %s reads other than its own store's two secrets" % d["metadata"]["name"])
+config = one("ExternalSecret", "erp-alertmanager")["spec"]["target"]["template"]["data"]["alertmanager.yaml"]
+if "receiver: erp-alerts" not in config:
+    fail("Alertmanager's route does not end at erp-alerts")
+if any(d["kind"] == "Secret" and ("admin-password" in d.get("data", {}) or "alertmanager.yaml" in d.get("data", {})) for d in docs):
+    fail("the chart makes a Grafana admin password or Alertmanager's configuration itself")
+grafana = one("Deployment", "erp-monitoring-grafana")["spec"]["template"]["spec"]["containers"]
+env = {e["name"]: e.get("value") for c in grafana for e in c.get("env", [])}
+if env.get("GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION") != "true":
+    fail("Grafana creates an admin of its own")
+ini = one("ConfigMap", "erp-monitoring-grafana")["data"]["grafana.ini"]
+for want in ("[auth.generic_oauth]", "disable_login_form = true", "role_attribute_strict = true", "client_secret = $__file{"):
+    if want not in ini:
+        fail("Grafana's grafana.ini lacks %r: it must sign in through the identity provider alone" % want)
+for section in ("[auth.basic]", "[auth.anonymous]"):
+    if section + "\nenabled = false" not in ini:
+        fail("Grafana's %s is not disabled" % section)
+PY
+}
+monitoring "$work/kube-prometheus-stack.json"
+grep -q 'monitoring       = { namespace = "monitoring", name = "erp-monitoring-secrets" }' deploy/terraform/modules/cell/irsa.tf ||
+  { echo "helm-checks: irsa.tf trusts no monitoring/erp-monitoring-secrets" >&2; exit 1; }
+if grep -qiE '(admin_?password|password[[:space:]]*[:=])' deploy/helm/addons/values/kube-prometheus-stack.yaml deploy/helm/addons/testdata/kube-prometheus-stack.yaml; then
+  echo "helm-checks: kube-prometheus-stack's values set a password" >&2
+  exit 1
+fi
+echo "helm-checks: the monitoring add-on keeps 15 days on encrypted gp3, reads its own two secrets, and signs in through the identity provider alone"
+
 echo "== erp-cluster"
 chart=deploy/helm/erp-cluster
 values="$chart/tests/values.yaml"
@@ -191,6 +261,18 @@ drill = [d for d in json.load(open(sys.argv[1])) if d and d.get("kind") == "Netw
 if not drill or drill[0]["spec"]["podSelector"]["matchLabels"].get("app.kubernetes.io/name") != "erp-restore-drill" \
         or [p["port"] for r in drill[0]["spec"]["egress"] for p in r["ports"]] != [5432] or drill[0]["spec"].get("ingress"):
     sys.exit("helm-checks: erp-cell's erp-restore-drill policy must let the drill's pods reach port 5432 in the VPC, and nothing in")
+# The cell's Prometheus scrapes the server's admin /metrics over verified
+# TLS, and is let in to that port alone.
+docs = [d for d in json.load(open(sys.argv[1])) if d]
+monitors = [d for d in docs if d["kind"] == "ServiceMonitor" and d["metadata"]["name"] == "erp-server"]
+if not monitors or [(e["port"], e["path"], e["scheme"], e["tlsConfig"]["ca"]["configMap"]["name"], e["tlsConfig"]["serverName"]) for e in monitors[0]["spec"]["endpoints"]] \
+        != [("admin", "/metrics", "https", "erp-trust", "erp-server.erp.svc")]:
+    sys.exit("helm-checks: erp-cell's erp-server ServiceMonitor must scrape admin /metrics over https, verified against erp-trust as erp-server.erp.svc")
+scrape = [d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == "erp-server-metrics"]
+if not scrape or [(f["namespaceSelector"]["matchLabels"], f["podSelector"]["matchLabels"], [p["port"] for p in r["ports"]])
+                  for r in scrape[0]["spec"]["ingress"] for f in r["from"]] \
+        != [({"kubernetes.io/metadata.name": "monitoring"}, {"app.kubernetes.io/name": "prometheus"}, [9090])]:
+    sys.exit("helm-checks: erp-cell's erp-server-metrics policy must admit the monitoring namespace's Prometheus to 9090 alone")
 PY
 (cd temporal && go build -o "$work/erp-temporal" ./cmd/erp-temporal)
 ERP_TEMPORAL_CONFIG="$work/temporal.yaml" "$work/erp-temporal" check-config
@@ -210,7 +292,7 @@ required() {
     fi
   done
 }
-required cell region trustDomain vpcCidr trust.caBundle secrets.prefix \
+required cell region trustDomain vpcCidr monitoringNamespace trust.caBundle secrets.prefix \
   images.server.repository images.server.digest images.pgbouncer.repository images.pgbouncer.digest \
   images.nats.repository images.nats.digest images.temporal.repository images.temporal.digest \
   server.roleArn server.operatorIssuers server.objectBucket server.fieldKmsKeyArn \
