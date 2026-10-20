@@ -8,8 +8,6 @@ import (
 	"slices"
 	"strconv"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 )
 
@@ -158,45 +156,4 @@ func number(n int) string {
 		return ""
 	}
 	return strconv.Itoa(n)
-}
-
-// integerKeys are the keywords of a custom field schema that hold integers.
-var integerKeys = map[string]bool{"version": true, "maxLength": true, "minimum": true, "maximum": true}
-
-// extensionFloat returns the first floating-point number given for an
-// integer keyword of the document's extensions section, or nil: yaml
-// truncates one silently into an integer field, and custom field schemas
-// have no floats (ADR-0046). The section is decoded as Parse decoded it,
-// merge keys and aliases resolved.
-func extensionFloat(b []byte) *yaml.Node {
-	var doc struct {
-		Extensions yaml.Node `yaml:"extensions"`
-	}
-	_ = yaml.Unmarshal(b, &doc) // Parse decoded it already
-	return float(&doc.Extensions, false)
-}
-
-func float(n *yaml.Node, integer bool) *yaml.Node {
-	switch n.Kind {
-	case yaml.AliasNode:
-		return float(n.Alias, integer)
-	case yaml.ScalarNode:
-		if integer && n.ShortTag() == "!!float" {
-			return n
-		}
-	case yaml.MappingNode:
-		for i := 0; i+1 < len(n.Content); i += 2 {
-			if f := float(n.Content[i+1], integerKeys[n.Content[i].Value]); f != nil {
-				return f
-			}
-		}
-	case yaml.SequenceNode: // a merge list, or a list of strings (enum, required)
-		for _, c := range n.Content {
-			if f := float(c, integer); f != nil {
-				return f
-			}
-		}
-	case yaml.DocumentNode: // never nested
-	}
-	return nil
 }

@@ -276,9 +276,6 @@ func Parse(b []byte) (*Config, error) {
 	if err := notWhole(b); err != nil {
 		return nil, err
 	}
-	if n := extensionFloat(b); n != nil {
-		return nil, fmt.Errorf("configuration: line %d: %s: custom field schemas have no floating-point numbers", n.Line, n.Value)
-	}
 	return &c, nil
 }
 

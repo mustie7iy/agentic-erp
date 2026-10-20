@@ -72,7 +72,7 @@ func TestExtensionsParse(t *testing.T) {
 				t.Fatal("got parsed, want refused")
 			}
 			if strings.HasPrefix(name, "float") || name == "merged section" {
-				if !strings.Contains(err.Error(), "floating-point") {
+				if !strings.Contains(err.Error(), "is not a whole number") {
 					t.Errorf("got %v, want the float refused", err)
 				}
 			}
