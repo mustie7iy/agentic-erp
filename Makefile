@@ -1,11 +1,11 @@
-.PHONY: temporal-checks generate run-server build images images-reproducible image-scan signing-roundtrip test-release-scripts lint lint-all test test-short ci-local db-up test-db coverage fuzz perf load soak resilience failover restore-drill demo clean
+.PHONY: temporal-checks generate run-server build images images-reproducible image-scan image-analytics signing-roundtrip test-release-scripts lint lint-all test test-short ci-local db-up test-db coverage fuzz perf load soak resilience failover restore-drill demo clean
 
 build:
 	go build -o bin/erp ./cmd/erp
 	go build -o bin/erp-server ./cmd/erp-server
 	go build -o bin/erp-router ./cmd/erp-router
 	# erp-analytics links DuckDB through cgo (ADR-0044): built with the host's
-	# C toolchain, and not yet one of the images below (T55h).
+	# C toolchain; its image is image-analytics below (T55h).
 	CGO_ENABLED=1 go build -o bin/erp-analytics ./cmd/erp-analytics
 
 # Container images of the three binaries with ko (.ko.yaml, ADR-0032), not
@@ -20,6 +20,19 @@ images-reproducible:
 
 image-scan:
 	./scripts/image-scan.sh dist/images
+
+# The erp-analytics image (cgo, DuckDB: not ko's, ADR-0044) with docker
+# buildx, both platforms, as an OCI archive dated at the epoch in
+# dist/images-analytics. Each platform compiles api/gen at once, which takes
+# a few GB of the Docker VM's memory each; ANALYTICS_PLATFORMS=linux/arm64
+# builds one. Its place in images.sh, the reproducibility gate, the SBOM,
+# scan and signing is T55p.
+ANALYTICS_PLATFORMS ?= linux/amd64,linux/arm64
+image-analytics:
+	mkdir -p dist/images-analytics
+	docker buildx build -f deploy/images/erp-analytics.Dockerfile --platform $(ANALYTICS_PLATFORMS) \
+	  --build-arg SOURCE_DATE_EPOCH=0 --build-arg ERP_VERSION="$(ERP_VERSION)" \
+	  --output type=oci,dest=dist/images-analytics/erp-analytics.tar,rewrite-timestamp=true .
 
 # Signing round trip against a throwaway registry (SIGNING_REGISTRY): push,
 # sign and attest with a key pair made for the run, verify, and check the

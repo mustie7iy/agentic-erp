@@ -158,3 +158,8 @@ signature and `verify-image.sh`. The exception covers that binary only:
 scope is narrow because the binary is narrow: read-only access to the
 bucket's `analytics/` prefix, no database credentials, reachable only from
 `erp-server` over mTLS (ADR-0033). Any other cgo binary needs its own ADR.
+Built outside ko, which does not cross-compile cgo: a pinned multi-stage
+`deploy/images/erp-analytics.Dockerfile` with docker buildx (T55h; the
+double build matched by hand). Its place in `images.sh` and the gates
+that read `images.txt` is T55p, extending those scripts rather than
+copying them.

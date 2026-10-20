@@ -16,7 +16,7 @@ run "one_immutable_encrypted_scanned_repository_per_binary" {
   command = apply
 
   assert {
-    condition     = toset(keys(aws_ecr_repository.this)) == toset(["erp-server", "erp-router", "erp", "erp-pgbouncer", "erp-nats"])
+    condition     = toset(keys(aws_ecr_repository.this)) == toset(["erp-server", "erp-router", "erp", "erp-analytics", "erp-pgbouncer", "erp-nats"])
     error_message = "one repository per binary"
   }
   assert {
@@ -33,7 +33,7 @@ run "the_lifecycle_never_expires_untagged_signatures" {
   command = apply
 
   assert {
-    condition     = length(aws_ecr_lifecycle_policy.this) == 5 && alltrue([for p in aws_ecr_lifecycle_policy.this : length(jsondecode(p.policy).rules) == 1])
+    condition     = length(aws_ecr_lifecycle_policy.this) == 6 && alltrue([for p in aws_ecr_lifecycle_policy.this : length(jsondecode(p.policy).rules) == 1])
     error_message = "every repository has its one lifecycle rule"
   }
   assert {

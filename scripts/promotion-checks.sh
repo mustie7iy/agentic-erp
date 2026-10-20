@@ -56,7 +56,7 @@ import datetime, json, os, re, subprocess, sys
 
 base, head, out, approval_out = sys.argv[1:5]
 root = "deploy/environments"
-images = {"server": "erp-server", "router": "erp-router", "pgbouncer": "erp-pgbouncer", "nats": "erp-nats", "temporal": "erp-temporal"}
+images = {"server": "erp-server", "router": "erp-router", "pgbouncer": "erp-pgbouncer", "nats": "erp-nats", "temporal": "erp-temporal", "analytics": "erp-analytics"}
 
 def fail(msg):
     sys.exit("promotion-checks: " + msg)

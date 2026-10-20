@@ -123,6 +123,23 @@ run "each_workload_role_trusts_its_service_account_only" {
   command = apply
 
   assert {
+    condition     = jsondecode(aws_iam_role.workload["analytics"].assume_role_policy).Statement[0].Condition.StringEquals["oidc.eks.eu-central-1.amazonaws.com/id/ABC:sub"] == "system:serviceaccount:erp:erp-analytics"
+    error_message = "the analytics role trusts the erp/erp-analytics service account only"
+  }
+  assert {
+    condition     = toset(flatten([for st in jsondecode(aws_iam_role_policy.workload["analytics"].policy).Statement : st.Action])) == toset(["s3:GetObject", "s3:ListBucket", "kms:Decrypt"])
+    error_message = "the analytics role reads and writes nothing else"
+  }
+  assert {
+    condition     = [for st in jsondecode(aws_iam_role_policy.workload["analytics"].policy).Statement : st.Resource if st.Sid == "ReadSnapshots"][0] == "${aws_s3_bucket.objects.arn}/analytics/*"
+    error_message = "the analytics role reads analytics/ alone"
+  }
+  assert {
+    condition     = [for st in jsondecode(aws_iam_role_policy.workload["analytics"].policy).Statement : st.Condition.StringLike["s3:prefix"] if st.Sid == "ListSnapshots"][0] == "analytics/*"
+    error_message = "the analytics role lists analytics/ alone"
+  }
+
+  assert {
     condition     = jsondecode(aws_iam_role.workload["server"].assume_role_policy).Statement[0].Condition.StringEquals["oidc.eks.eu-central-1.amazonaws.com/id/ABC:sub"] == "system:serviceaccount:erp:erp-server"
     error_message = "the server's role trusts the erp/erp-server service account only"
   }

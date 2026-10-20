@@ -24,7 +24,7 @@ release() {
   d="$(printf "%064d" 0 | tr 0 "$2")" c="$(printf "%040d" 0 | tr 0 "$2")"
   printf '{"release": {"version": "%s", "commit": "%s"}, "images": {' "$1" "$c"
   printf '"%s": {"repository": "111111111111.dkr.ecr.eu-central-1.amazonaws.com/erp-%s", "digest": "sha256:%s"}, ' \
-    server server "$d" router router "$d" pgbouncer pgbouncer "$d" nats nats "$d"
+    server server "$d" router router "$d" pgbouncer pgbouncer "$d" nats nats "$d" analytics analytics "$d"
   printf '"temporal": {"repository": "111111111111.dkr.ecr.eu-central-1.amazonaws.com/erp-temporal", "digest": "sha256:%s"}}}\n' "$d"
 }
 # put PATH CONTENT MESSAGE: commits CONTENT at PATH on the current branch.
@@ -149,14 +149,14 @@ case_ cell-values-and-release refused "one cell" 'put deploy/environments/dev/de
 case_ unknown-file refused "only cells" 'put deploy/environments/notes.txt hello p'
 case_ off-the-path refused "not on" 'put "$(env_file sandbox/sbx1)" "$(release v1.2.0 3)" p'
 
-# An accepted promotion lists its five images, by digest, with the commit.
+# An accepted promotion lists its six images, by digest, with the commit.
 git -C "$repo" checkout -q -B listed main
 (cd "$repo" && put "$(env_file test/test1)" "$(release v1.2.0 3)" p)
 # As the workflow runs it: BASE's copy of the checks, on the PR's commit.
 git -C "$repo" checkout -q main
 OUT="$work/out" "$repo/scripts/promotion-checks.sh" main listed >/dev/null
-if [ "$(grep -c "^$(printf "%040d" 0 | tr 0 3) .*@sha256:$(printf "%064d" 0 | tr 0 3)$" "$work/out")" -ne 5 ]; then
-  echo "FAIL listed: OUT does not list the five images with the release's commit" >&2
+if [ "$(grep -c "^$(printf "%040d" 0 | tr 0 3) .*@sha256:$(printf "%064d" 0 | tr 0 3)$" "$work/out")" -ne 6 ]; then
+  echo "FAIL listed: OUT does not list the six images with the release's commit" >&2
   cat "$work/out" >&2
   failed=1
 else

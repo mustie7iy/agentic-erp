@@ -9,6 +9,7 @@ locals {
   # names the server's role, and the server's permissions name the key.
   service_accounts = {
     server           = { namespace = "erp", name = "erp-server" }
+    analytics        = { namespace = "erp", name = "erp-analytics" }
     external_secrets = { namespace = "external-secrets", name = "external-secrets" }
     cert_manager     = { namespace = "cert-manager", name = "aws-privateca-issuer" }
     ebs_csi          = { namespace = "kube-system", name = "ebs-csi-controller-sa" }
@@ -23,6 +24,16 @@ locals {
         { Sid = "Objects", Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload", "s3:PutObjectRetention", "s3:GetObjectRetention"], Resource = "${aws_s3_bucket.objects.arn}/*" },
         { Sid = "ListObjects", Effect = "Allow", Action = "s3:ListBucket", Resource = aws_s3_bucket.objects.arn },
         { Sid = "ObjectKey", Effect = "Allow", Action = ["kms:Decrypt", "kms:GenerateDataKey"], Resource = aws_kms_key.data.arn },
+      ]
+    }
+    # erp-analytics (ADR-0044): reads the tenants' snapshots under
+    # analytics/ and nothing else; writes nothing. The objects are under
+    # the data key, which it may use only through S3.
+    analytics = {
+      statements = [
+        { Sid = "ReadSnapshots", Effect = "Allow", Action = "s3:GetObject", Resource = "${aws_s3_bucket.objects.arn}/analytics/*" },
+        { Sid = "ListSnapshots", Effect = "Allow", Action = "s3:ListBucket", Resource = aws_s3_bucket.objects.arn, Condition = { StringLike = { "s3:prefix" = "analytics/*" } } },
+        { Sid = "SnapshotKey", Effect = "Allow", Action = "kms:Decrypt", Resource = aws_kms_key.data.arn, Condition = { StringEquals = { "kms:ViaService" = "s3.${data.aws_region.current.region}.amazonaws.com" } } },
       ]
     }
     # The External Secrets Operator: the cell's secrets and the database's

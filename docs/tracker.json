@@ -3392,9 +3392,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "erp-analytics image and deployment: pinned multi-stage Dockerfile (Go 1.26.2 bookworm builder cross-compiling with Debian's cross gcc, DuckDB static from duckdb-go-bindings, glibc dynamic on distroless cc-debian12:nonroot, both bases by digest; -trimpath, no build id or VCS stamp, layers at SOURCE_DATE_EPOCH: two clean builds matched per platform), make image-analytics; erp-cell chart: Deployment, Service, PDB, certificate as .../erp-analytics, non-root and read-only with an emptyDir cache, TCP probes, NetworkPolicy admitting erp-server alone on 8443 and egress 443 only, ERP_ANALYTICS_URL and egress on erp-server; Terraform: IRSA role reading analytics/ alone (GetObject, prefixed ListBucket, data key via S3), ECR repository erp-analytics; images.analytics required in release.json (promotion-checks) and in the admission checks",
+        "r": "deploy/images/erp-analytics.Dockerfile · .dockerignore · deploy/helm/erp-cell/templates/analytics.yaml · modules/cell irsa.tf · modules/ecr · scripts/promotion-checks.sh · ADR-0044 · ADR-0032 · T55h",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "erp-analytics image: cgo build on distroless cc-debian12 for linux/amd64 and arm64 (ko does not cross-compile cgo), through the ADR-0032 gates (double build with matching digests, SBOM listing DuckDB and glibc, grype scan, signature, verify-image.sh), and its deployment (read-only analytics/ prefix, no database path)",
-        "r": "T55h",
+        "t": "erp-analytics image in the ADR-0032 pipeline: scripts/images.sh builds it (buildx, both platforms, pushed with the others) into images.txt; its SBOM (syft: Go modules, DuckDB, the cc base's Debian packages) written in sign-images.sh's convention; images-reproducible.sh compares its digests; image-scan.sh scans its SBOM and the cc base; base-image-current.sh checks both bases; the release pushes and signs it, so release.json can name images.analytics",
+        "r": "T55p",
         "c": []
        },
        {

@@ -203,8 +203,8 @@ instead, and every answer's lineage names its source (`store` or
 
 **No new per-PR CI.** The contract, isolation and parity tests run in the
 existing test job, which builds `erp-analytics` with cgo as it already
-does for `-race`; from T55h the image job that already builds the binaries
-builds its image too.
+does for `-race`; once T55p joins its image to `scripts/images.sh`, the
+image job that already builds the binaries builds it too.
 
 **Extractor (T55b).** `internal/analytics/extract` reads, as the
 application role in a read-only `REPEATABLE READ` transaction scoped to
@@ -278,6 +278,35 @@ module without a build tag (the test job already builds with cgo for
 `bin/erp-analytics` with the host's toolchain; its image (distroless cc on
 both platforms, through the ADR-0032 gates) is T55h, since ko does not
 cross-compile cgo.
+
+**The image and its deployment (T55h).** `deploy/images/erp-analytics.Dockerfile`
+builds the image with docker buildx (`make image-analytics`): a Go 1.26.2
+Debian 12 builder on the build machine's platform cross-compiles with
+Debian's cross gcc (no emulation), DuckDB coming prebuilt and static from
+duckdb-go-bindings; glibc stays dynamic, on
+`gcr.io/distroless/cc-debian12:nonroot` (glibc, libgcc, libstdc++, no
+shell, uid 65532), both bases pinned by index digest. `-trimpath`, no
+build id, no VCS stamp, stripped, layers dated at `SOURCE_DATE_EPOCH`:
+two builds without cache gave the same manifest digest for each platform
+(2026-10-20, arm64 native and amd64 cross). The build context is the Go
+sources alone (`.dockerignore`). Each platform compiles `api/gen`, a few
+GB of memory apiece, so a small Docker VM builds one platform at a time.
+Joining the ADR-0032 pipeline (images.txt, the double-build gate, an SBOM
+in sign-images.sh's convention, the grype scan of it and of the cc base,
+base-image-current, push and signature in the release) is T55p; until
+then a release.json cannot carry the image the chart requires.
+The erp-cell chart runs it in every cell (`analytics.yaml`): its own
+service account and IRSA role (`cell.workload_role_arns.analytics`:
+`s3:GetObject` on `analytics/*`, `s3:ListBucket` for that prefix, the
+data key through S3 alone; nothing written), a certificate as
+`spiffe://<domain>/<cell>/erp-analytics`, non-root with a read-only root
+file system, its cache and DuckDB's working directory an emptyDir, TCP
+probes (the listener demands a client certificate kubelet does not
+have), two replicas with a disruption budget. Its NetworkPolicy admits
+erp-server alone, on 8443, and lets it out on 443 only (the S3 gateway
+endpoint and STS); erp-server gets `ERP_ANALYTICS_URL` and an egress rule
+to it. The release registry gains `erp-analytics`, and a cell's
+release.json must name `images.analytics` (promotion-checks).
 
 **Semantic layer on the store (T55e).** The plan, scope and rows are a
 cgo-free package, `internal/analytics/wire`, which the reader aliases and

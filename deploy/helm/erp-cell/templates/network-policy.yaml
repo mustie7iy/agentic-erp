@@ -3,9 +3,11 @@
 # - The API and the admin listener (/control, metrics) take connections
 #   from the router and the global plane's namespace only; kubelet's
 #   probes are not subject to policies.
-# - The server reaches PgBouncer, NATS, the workflow engine, on the home
+# - The server reaches PgBouncer, NATS, the workflow engine, erp-analytics, on the home
 #   cell the global directory in the VPC and, on 443, the AWS endpoints in
 #   the VPC and the tenants' identity providers outside it.
+# - erp-analytics takes the server alone, and reaches, on 443, the S3
+#   gateway endpoint and STS in the VPC; no database, bus or engine.
 # - NATS takes clients from the server and routes from its own nodes.
 # - The workflow engine's frontend takes the server and the engine's own
 #   nodes; its other services and membership ports, its nodes alone. It
@@ -73,6 +75,12 @@ spec:
               {{- include "erp-cell.selector" (dict "root" . "component" "erp-temporal") | nindent 14 }}
       ports:
         - {protocol: TCP, port: 7233}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "erp-cell.selector" (dict "root" . "component" "erp-analytics") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 8443}
     {{- if .Values.directory.endpoint }}
     # The global directory, in the home cell's VPC. The rule admits the
     # VPC's 5432, the writer's too, which the server could then reach past
@@ -84,6 +92,30 @@ spec:
       ports:
         - {protocol: TCP, port: 5432}
     {{- end }}
+    - ports:
+        - {protocol: TCP, port: 443}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: erp-analytics
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-analytics") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "erp-cell.selector" (dict "root" . "component" "erp-analytics") | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "erp-cell.selector" (dict "root" . "component" "erp-server") | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 8443}
+  # S3 through the gateway endpoint (the region's public prefixes) and STS
+  # through its interface endpoint: 443, as the server's.
+  egress:
     - ports:
         - {protocol: TCP, port: 443}
 ---
