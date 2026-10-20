@@ -40,8 +40,10 @@ type (
 		Account     string `parquet:"account"`
 		VendorRecon bool   `parquet:"vendor_recon"`
 	}
-	vendorRow struct {
-		Vendor string `parquet:"vendor"`
+	partnerRow struct {
+		Vendor   string `parquet:"vendor"`
+		Supplier bool   `parquet:"supplier"`
+		Customer bool   `parquet:"customer"`
 	}
 )
 
@@ -89,6 +91,15 @@ func (e env) invoice(t *testing.T, date string, gross int64) uuid.UUID {
 	return id
 }
 
+// customer inserts a business partner in the customer role alone.
+func (e env) customer(t *testing.T, number string) {
+	t.Helper()
+	id := uuid.New()
+	pgtest.Exec(t, `INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, country_code, status, created_by, updated_by)
+		VALUES ($1, $2, $3, 'organization', 'Customer', 'DE', 'active', $4, $4)`, e.Tenant.ID, id, number, e.Tenant.Human.ID)
+	pgtest.Exec(t, `INSERT INTO partner.partner_role (tenant_id, partner_id, role, created_by) VALUES ($1, $2, 'customer', $3)`, e.Tenant.ID, id, e.Tenant.Human.ID)
+}
+
 // TestSnapshotDatasets: documents and master data are read whole in the
 // journal's transaction, and a file whose content did not change is kept.
 func TestSnapshotDatasets(t *testing.T) {
@@ -96,6 +107,7 @@ func TestSnapshotDatasets(t *testing.T) {
 	entry := e.post(t, "2026-03-02", "100.00")
 	po := e.order(t, "2026-03-05", "2.5", 199)
 	inv := e.invoice(t, "2026-04-01", 11900)
+	e.customer(t, "BP90000009")
 	first := e.run(t)
 	m := e.manifest(t, first.ManifestKey)
 
@@ -119,8 +131,14 @@ func TestSnapshotDatasets(t *testing.T) {
 	if got := read[openRow](t, e, m, "open_items"); len(got) != 1 || got[0].DocumentID.String() != entry || got[0].LineNo != 2 {
 		t.Errorf("open_items: got %+v, want line 2 of entry %s", got, entry)
 	}
-	if got := read[vendorRow](t, e, m, "vendors"); len(got) != 2 || got[0].Vendor != "BP90000001" || got[1].Vendor != "BP90000002" {
-		t.Errorf("vendors: got %+v, want BP90000001 and BP90000002", got)
+	partners := map[string]partnerRow{}
+	for _, p := range read[partnerRow](t, e, m, "partners") {
+		partners[p.Vendor] = p
+	}
+	for number, want := range map[string][2]bool{"BP90000001": {true, false}, "BP90000002": {true, false}, "BP90000009": {false, true}} {
+		if p, ok := partners[number]; !ok || p.Supplier != want[0] || p.Customer != want[1] {
+			t.Errorf("partner %s: got %+v (present %v), want supplier %v customer %v", number, p, ok, want[0], want[1])
+		}
 	}
 	recon := map[string]bool{}
 	for _, a := range read[accountRow](t, e, m, "accounts") {

@@ -1,14 +1,11 @@
 package analytics
 
 import (
-	"bytes"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
-	"gopkg.in/yaml.v3"
+	"github.com/mustie7iy/agentic-erp/analytics/datasets"
 )
 
 // The analytical store's dataset contract (ADR-0044) lives in
@@ -16,61 +13,16 @@ import (
 // metric cannot name a dimension the store does not carry and the store
 // cannot carry a column no metric explains.
 
-const datasetDir = "../../analytics/datasets/v1"
-
-type dsColumn struct {
-	Name     string `yaml:"name"`
-	Type     string `yaml:"type"`
-	Role     string `yaml:"role"`
-	Nullable bool   `yaml:"nullable"`
-}
-
-type dsJoin struct {
-	Dataset string   `yaml:"dataset"`
-	On      []string `yaml:"on"`
-}
-
-type dsDerived struct {
-	Name string `yaml:"name"`
-	From string `yaml:"from"`
-	Rule string `yaml:"rule"`
-}
-
-type dataset struct {
-	Dataset   string      `yaml:"dataset"`
-	Version   int         `yaml:"version"`
-	Kind      string      `yaml:"kind"`
-	Grain     string      `yaml:"grain"`
-	Load      string      `yaml:"load"`
-	Watermark string      `yaml:"watermark"`
-	Date      string      `yaml:"date"`
-	Joins     []dsJoin    `yaml:"joins"`
-	Derived   []dsDerived `yaml:"derived"`
-	Columns   []dsColumn  `yaml:"columns"`
-}
-
-func (d *dataset) column(name string) *dsColumn {
-	for i := range d.Columns {
-		if d.Columns[i].Name == name {
-			return &d.Columns[i]
-		}
-	}
-	return nil
-}
-
-func (d *dataset) withRole(role string) []dsColumn {
-	var out []dsColumn
-	for _, c := range d.Columns {
-		if c.Role == role {
-			out = append(out, c)
-		}
-	}
-	return out
-}
+type (
+	dataset  = datasets.Dataset
+	dsColumn = datasets.Column
+)
 
 var (
 	dsTypes = []string{"uuid", "string", "int32", "int64", "bool", "date", "timestamp", "xid8"}
-	dsRoles = []string{"tenant", "id", "key", "dimension", "date", "amount", "currency", "exponent", "watermark"}
+	// attribute: a column the reader may filter or group by that no semantic
+	// dimension names (a partner's roles).
+	dsRoles = []string{"tenant", "id", "key", "dimension", "date", "amount", "currency", "exponent", "watermark", "attribute"}
 	// A guard, not the masking policy itself: names of fields that are
 	// masked or redacted (bank details, tax ids, contact data, ADR-0036) or
 	// free text that may hold them. The store never holds them, so it cannot
@@ -81,28 +33,11 @@ var (
 
 func loadDatasets(t *testing.T) map[string]*dataset {
 	t.Helper()
-	files, err := filepath.Glob(filepath.Join(datasetDir, "*.yaml"))
-	if err != nil || len(files) == 0 {
-		t.Fatalf("dataset files: got %d (%v), want at least one", len(files), err)
+	sets, err := datasets.V1()
+	if err != nil {
+		t.Fatalf("dataset files: %v", err)
 	}
-	out := map[string]*dataset{}
-	for _, f := range files {
-		b, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatalf("read %s: %v", f, err)
-		}
-		dec := yaml.NewDecoder(bytes.NewReader(b))
-		dec.KnownFields(true)
-		var d dataset
-		if err := dec.Decode(&d); err != nil {
-			t.Fatalf("decode %s: %v", f, err)
-		}
-		if want := strings.TrimSuffix(filepath.Base(f), ".yaml"); d.Dataset != want {
-			t.Errorf("%s: dataset got %q, want %q (the file name)", f, d.Dataset, want)
-		}
-		out[d.Dataset] = &d
-	}
-	return out
+	return sets
 }
 
 func TestDatasetContractShape(t *testing.T) {
@@ -133,7 +68,7 @@ func checkHeader(t *testing.T, d *dataset) {
 	if d.Grain == "" {
 		t.Error("grain: got empty, want the row's meaning")
 	}
-	wm := d.withRole("watermark")
+	wm := d.WithRole("watermark")
 	if d.Load == "append" && (len(wm) != 1 || wm[0].Name != d.Watermark || wm[0].Type != "xid8") {
 		t.Errorf("watermark: got %q %v, want one xid8 watermark column (commit order, ADR-0044) when appending", d.Watermark, wm)
 	}
@@ -176,7 +111,7 @@ func checkJoins(t *testing.T, d *dataset, sets map[string]*dataset) {
 			continue
 		}
 		for _, k := range j.On {
-			if d.column(k) == nil || dim.column(k) == nil || dim.column(k).Role != "key" {
+			if d.Column(k) == nil || dim.Column(k) == nil || dim.Column(k).Role != "key" {
 				t.Errorf("join %s on %s: got a key missing on either side, want it in both and a key of %s", j.Dataset, k, j.Dataset)
 			}
 		}
@@ -195,12 +130,12 @@ func checkFact(t *testing.T, d *dataset) {
 	t.Helper()
 	want := map[string]string{"id": "uuid", "date": "date", "amount": "int64", "currency": "string", "exponent": "int32"}
 	for role, typ := range want {
-		cols := d.withRole(role)
+		cols := d.WithRole(role)
 		if len(cols) != 1 || cols[0].Type != typ || cols[0].Nullable {
 			t.Errorf("role %s: got %v, want one non-null %s column", role, cols, typ)
 		}
 	}
-	if c := d.column(d.Date); c == nil || c.Role != "date" {
+	if c := d.Column(d.Date); c == nil || c.Role != "date" {
 		t.Errorf("date: got %q, want the name of the date column", d.Date)
 	}
 }
@@ -277,7 +212,7 @@ func TestDatasetDimensionsMapToSemanticModel(t *testing.T) {
 	}
 	for name, d := range loadDatasets(t) {
 		t.Run(name, func(t *testing.T) {
-			for _, c := range d.withRole("dimension") {
+			for _, c := range d.WithRole("dimension") {
 				if !known[c.Name] {
 					t.Errorf("column %s: got no dimension or filter of that name in semantic.yaml, want one", c.Name)
 				}

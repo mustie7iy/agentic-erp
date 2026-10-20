@@ -14,7 +14,7 @@ watermark: posted_xid
 date: posting_date
 joins:
   - {dataset: accounts, on: [company, account]}
-  - {dataset: vendors, on: [vendor]}
+  - {dataset: partners, on: [vendor]}
 # Clearing changes after posting, so it is not a column of the line: a
 # supplier line is cleared when it is on a reconciliation account and has no
 # open_items row.

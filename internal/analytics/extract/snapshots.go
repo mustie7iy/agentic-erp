@@ -60,10 +60,15 @@ type accountRow struct {
 	VendorRecon bool      `parquet:"vendor_recon"`
 }
 
-type vendorRow struct {
+// partnerRow is a business partner in any role: a journal line names a
+// customer as its partner as well as a supplier, and BuildFacts gives it the
+// partner's name either way.
+type partnerRow struct {
 	TenantID   uuid.UUID `parquet:"tenant_id,uuid"`
 	Vendor     string    `parquet:"vendor"`
 	VendorName string    `parquet:"vendor_name"`
+	Supplier   bool      `parquet:"supplier"`
+	Customer   bool      `parquet:"customer"`
 }
 
 // The snapshots' queries, ordered by month first for the fact datasets;
@@ -98,14 +103,16 @@ const (
 		JOIN ledger.gl_account a ON a.tenant_id = ca.tenant_id AND a.id = ca.account_id
 		JOIN tenancy.legal_entity le ON le.tenant_id = ca.tenant_id AND le.id = ca.legal_entity_id
 		ORDER BY le.code, a.number`
-	vendorsSQL = `SELECT bp.tenant_id, bp.number, bp.name FROM partner.business_partner bp
-		WHERE EXISTS (SELECT FROM partner.partner_role r WHERE r.tenant_id = bp.tenant_id AND r.partner_id = bp.id AND r.role = 'supplier')
-		ORDER BY bp.number`
+	// Every partner, as /v1/business-partners lists them, with its roles.
+	partnersSQL = `SELECT bp.tenant_id, bp.number, bp.name,
+		EXISTS (SELECT FROM partner.partner_role r WHERE r.tenant_id = bp.tenant_id AND r.partner_id = bp.id AND r.role = 'supplier'),
+		EXISTS (SELECT FROM partner.partner_role r WHERE r.tenant_id = bp.tenant_id AND r.partner_id = bp.id AND r.role = 'customer')
+		FROM partner.business_partner bp ORDER BY bp.number`
 )
 
 // snapshots reads every snapshot dataset.
 func (r *run) snapshots(ctx context.Context, tx pgx.Tx) error {
-	for _, read := range []func(context.Context, pgx.Tx) error{r.poLines, r.apInvoices, r.openItems, r.accounts, r.vendors} {
+	for _, read := range []func(context.Context, pgx.Tx) error{r.poLines, r.apInvoices, r.openItems, r.accounts, r.partners} {
 		if err := read(ctx, tx); err != nil {
 			return err
 		}
@@ -156,10 +163,10 @@ func (r *run) accounts(ctx context.Context, tx pgx.Tx) error {
 		func() (accountRow, string, error) { return a, "", nil })
 }
 
-func (r *run) vendors(ctx context.Context, tx pgx.Tx) error {
-	var v vendorRow
-	return snapshot(ctx, tx, r, "vendors", vendorsSQL, []any{&v.TenantID, &v.Vendor, &v.VendorName},
-		func() (vendorRow, string, error) { return v, "", nil })
+func (r *run) partners(ctx context.Context, tx pgx.Tx) error {
+	var v partnerRow
+	return snapshot(ctx, tx, r, "partners", partnersSQL, []any{&v.TenantID, &v.Vendor, &v.VendorName, &v.Supplier, &v.Customer},
+		func() (partnerRow, string, error) { return v, "", nil })
 }
 
 // snapshot reads a snapshot dataset into files named by their content, one

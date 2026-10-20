@@ -2,12 +2,16 @@
 # column); a removed, renamed or retyped column or a changed grain is a new
 # version under ../v2. Columns are what the extractor writes to Parquet;
 # internal/analytics/datasets_test.go checks them against semantic.yaml.
-dataset: vendors
+dataset: partners
 version: 1
 kind: dimension
-grain: One row per supplier.
+# A journal line's partner is a supplier or a customer, and the semantic
+# layer names either by its vendor dimension, so the dataset holds both.
+grain: One row per business partner in any role, as /v1/business-partners returns them.
 load: snapshot
 columns:
   - {name: tenant_id, type: uuid, role: tenant}
   - {name: vendor, type: string, role: key}
   - {name: vendor_name, type: string, role: dimension}
+  - {name: supplier, type: bool, role: attribute}
+  - {name: customer, type: bool, role: attribute}

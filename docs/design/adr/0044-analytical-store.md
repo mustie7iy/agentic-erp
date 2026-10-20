@@ -2,7 +2,8 @@
 
 **Status:** accepted (product owner, 2026-10-19, T55; amended 2026-10-19,
 T55b: one pointer row per tenant, the leading ledger by default; T55c:
-manifests named by cutoff and digest, `checked_at`, the scheduler)
+manifests named by cutoff and digest, `checked_at`, the scheduler; T55d:
+`partners` in place of `vendors`, the reader)
 
 ## Context
 The semantic layer (`internal/analytics`, `semantic.yaml`) answers every
@@ -43,7 +44,7 @@ good. Transaction ids belong to one cluster; the store is rebuilt after a
 restore or a move, which resets the watermark (below).
 
 Documents that change after they are written (orders, invoices, open items)
-and master data (accounts, vendors) are re-extracted as snapshots of the
+and master data (accounts, partners) are re-extracted as snapshots of the
 tenant's rows. **One run per tenant extracts every dataset in one
 `REPEATABLE READ` transaction**, so the journal's append and the snapshots
 (the open items `cleared` is derived from among them) come from the same
@@ -95,7 +96,7 @@ query, never a tenant id from the request alone.
 **Datasets are a contract.** Each dataset has a versioned schema file
 (`analytics/datasets/v1/<dataset>.yaml`) shaped like the semantic layer's
 facts: a fact dataset per `source` in `semantic.yaml` (`gl_lines`,
-`po_lines`, `ap_invoices`) and dimension datasets (`accounts`, `vendors`,
+`po_lines`, `ap_invoices`) and dimension datasets (`accounts`, `partners`,
 `open_items`) joined at read time, so a rename or a reclassification of an
 account needs no re-extract of posted lines. Money is integer minor units
 plus currency plus exponent (ADR-0005); the reader refuses a row whose
@@ -198,8 +199,9 @@ instead, and every answer's lineage names its source (`store` or
 `database`) and `as_of`.
 
 **No new per-PR CI.** The contract, isolation and parity tests run in the
-existing test job; the cgo build of `erp-analytics` runs in the image job
-that already builds the binaries.
+existing test job, which builds `erp-analytics` with cgo as it already
+does for `-race`; from T55h the image job that already builds the binaries
+builds its image too.
 
 **Extractor (T55b).** `internal/analytics/extract` reads, as the
 application role in a read-only `REPEATABLE READ` transaction scoped to
@@ -218,7 +220,13 @@ layer's `BuildFacts` derives them: order items valued with `money.Scale` of
 the decimal quantity (a value out of range stops the run), invoices at
 gross in any status, supplier open items as `/v1/open-items` returns them,
 accounts per company assignment with `vendor_recon` for supplier
-reconciliation accounts, and partners holding the supplier role. Company
+reconciliation accounts, and every business partner, as
+`/v1/business-partners` lists them, with `supplier` and `customer` flags
+(T55d: a journal line names a customer as its partner too, and
+`BuildFacts` gives it the partner's name; contract v1 was unmerged, so
+`vendors` became `partners` in place). A flag's role in the contract is
+`attribute`: the reader filters and groups by it, and no semantic
+dimension names it. Company
 and dataset stay keys, so the reader can apply the principal's company
 access and fact types. Bank accounts and tax identifiers, which the API
 masks, are never read. Every dataset streams in month order, a month's
@@ -233,10 +241,47 @@ primary: a lagging replica would find nothing new, record `checked_at` and
 mark the change done, and the entry would wait for the tenant's next
 change.
 
+**Reader (T55d).** `internal/analytics/reader`, served by
+`cmd/erp-analytics` on one mTLS listener (TLS 1.3, a client certificate
+required, `RequirePeer` admitting `spiffe://<domain>/<cell>/erp-server`
+alone; TLS material, trust domain and cell are required, there is no
+plaintext mode). `POST /v1/query` takes the tenant, the manifest key
+erp-server read from the tenant's pointer under RLS, the principal's scope
+(every company or the ones listed, and the fact datasets of its fact types)
+and a plan: a fact dataset, `sum` (of the amount, grouped by currency and
+exponent) or `count_distinct` (of the document id), the columns to group by
+and filters (`in`, `not_in` on any of them; `>=`, `<=`, `between` on the
+date). Names resolve only to the contract's dimension and date columns of
+the fact and the dimension and attribute columns of the datasets it joins
+(the contract is embedded from `analytics/datasets`); values are
+parameters. The guard accepts a manifest key only as
+`analytics/v1/tenant=<id>/manifest-<cutoff>[-<digest>].json` and a file only
+as `analytics/v1/tenant=<id>/<dataset>/[month=YYYY-MM/]part-<interval or
+sha256>.parquet` (anchored patterns: no `..`, glob, scheme or second
+tenant), and a manifest only when its `tenant_id` is the request's and its
+datasets share one `as_of`. Each file is fetched into a local cache named by
+its SHA-256 and used only when its size and digest match the manifest's.
+Each query opens a fresh in-memory DuckDB with extension autoload and
+autoinstall off, writes the tenant and the scope's companies to temporary
+tables (parameters, not SQL text), sets `allowed_paths` to the plan's
+files, `enable_external_access=false` and `lock_configuration=true`, and
+only then creates one temporary view per dataset the plan reads, selecting
+the contract's columns from those files where `tenant_id` is the scope's
+and, for a dataset with a company, the company is in the scope's. A row
+whose exponent is not its currency's (`currency.Seeded`), or a sum outside
+int64, is refused. A refusal is 422 `analytics.refused`, which the
+semantic layer answers from the database (T55e). The reader is in the main
+module without a build tag (the test job already builds with cgo for
+`-race`); `internal/layout`'s `TestStaticBinaries` fails when `erp-server`,
+`erp-router` or `erp` would link DuckDB or the reader. `make build` builds
+`bin/erp-analytics` with the host's toolchain; its image (distroless cc on
+both platforms, through the ADR-0032 gates) is T55h, since ko does not
+cross-compile cgo.
+
 **Steps.** T55a this ADR and the dataset contract; T55b the snapshot
 migration, extractor and Parquet writer for journal lines; T55c the other
 datasets and the scheduler (migration 000092); T55d `erp-analytics`, the guard and the
-isolation tests; T55e the semantic layer on the store, the fallback,
+isolation tests; T55h the `erp-analytics` image; T55e the semantic layer on the store, the fallback,
 lineage and parity; T55f erasure, compaction, lifecycle, rebuild and the
 freshness alert; T55g metric changes through the configuration approval
 loop.

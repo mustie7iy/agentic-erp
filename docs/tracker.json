@@ -3386,14 +3386,20 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "erp-analytics reader, path guard and isolation tests",
-        "r": "T55d",
+        "s": "D",
+        "t": "erp-analytics (cmd/erp-analytics, the one cgo binary; static binaries checked by internal/layout TestStaticBinaries): mTLS listener admitting the cell's erp-server alone; reader of semantic query plans (contract columns only, values as parameters) over a tenant's manifest: anchored path guard (FuzzManifestPath in make fuzz), files verified by size and SHA-256 into a digest-named cache, a fresh in-memory DuckDB per query with autoload off, allowed_paths, external access off and configuration locked, views of contract columns filtered by tenant_id and the principal's companies, fact types checked; pre-aggregated rows, exponents checked; refusals 422 for the fallback. Dataset vendors became partners (every partner, supplier and customer flags) so customer lines match BuildFacts",
+        "r": "internal/analytics/reader · cmd/erp-analytics · analytics/datasets · ADR-0044 · T55d",
         "c": []
        },
        {
         "s": "T",
-        "t": "Semantic layer reads the store, with fallback, lineage and parity; erp-server starts the extract scheduler and sets the relay's Relayed hook; vendors carry suppliers only, so a customer line's vendor_name differs from BuildFacts unless the contract adds customers",
+        "t": "erp-analytics image: cgo build on distroless cc-debian12 for linux/amd64 and arm64 (ko does not cross-compile cgo), through the ADR-0032 gates (double build with matching digests, SBOM listing DuckDB and glibc, grype scan, signature, verify-image.sh), and its deployment (read-only analytics/ prefix, no database path)",
+        "r": "T55h",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Semantic layer reads the store, with fallback, lineage and parity: generates reader plans from metrics (fiscal periods from the date and the calendar, cleared from open_items, leading ledger by default, which needs a ledger filter in the reader: ledger_id is a key, which plans may not name yet), per-query DuckDB threads and memory_limit and a cap on concurrent queries in erp-analytics, calls erp-analytics over mTLS with the pointer's manifest key, falls back on a refusal or a stale checked_at; erp-server starts the extract scheduler and sets the relay's Relayed hook",
         "r": "T55e",
         "c": []
        },

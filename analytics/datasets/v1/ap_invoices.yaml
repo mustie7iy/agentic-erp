@@ -9,7 +9,7 @@ grain: One row per supplier invoice, gross amount, any status.
 load: snapshot
 date: invoice_date
 joins:
-  - {dataset: vendors, on: [vendor]}
+  - {dataset: partners, on: [vendor]}
 columns:
   - {name: tenant_id, type: uuid, role: tenant}
   - {name: invoice_id, type: uuid, role: id}

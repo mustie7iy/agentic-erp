@@ -22,7 +22,7 @@ import (
 func TestColumnsAreTheContract(t *testing.T) {
 	for name, row := range map[string]any{
 		"gl_lines": glLine{}, "po_lines": poLine{}, "ap_invoices": apInvoice{},
-		"open_items": openItem{}, "accounts": accountRow{}, "vendors": vendorRow{},
+		"open_items": openItem{}, "accounts": accountRow{}, "partners": partnerRow{},
 	} {
 		t.Run(name, func(t *testing.T) {
 			b, err := os.ReadFile("../../../analytics/datasets/v1/" + name + ".yaml")

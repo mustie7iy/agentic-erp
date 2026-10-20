@@ -12,6 +12,10 @@
 # depends only on the source and this file: the reproducibility gate builds
 # twice and compares. ERP_VERSION, when set, stamps the release version into
 # internal/platform/buildinfo; a build without it reports "devel".
+#
+# erp-analytics is not built here: it links DuckDB through cgo (ADR-0044),
+# which ko does not cross-compile. Its image (distroless cc, glibc, both
+# platforms, with the same reproducibility, scan and signing gates) is T55h.
 defaultBaseImage: gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 defaultPlatforms:
   - linux/amd64

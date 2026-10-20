@@ -12,7 +12,7 @@ load: snapshot
 date: order_date
 joins:
   - {dataset: accounts, on: [company, account]}
-  - {dataset: vendors, on: [vendor]}
+  - {dataset: partners, on: [vendor]}
 columns:
   - {name: tenant_id, type: uuid, role: tenant}
   - {name: order_id, type: uuid, role: id}

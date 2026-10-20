@@ -4,6 +4,8 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -202,5 +204,22 @@ func TestUnit(t *testing.T) {
 				t.Errorf("unit(%q): got %q, want %q", pkg, got, want)
 			}
 		})
+	}
+}
+
+// TestStaticBinaries: erp-server, erp-router and erp build without cgo and
+// link no DuckDB; erp-analytics alone carries the cgo exception (ADR-0032,
+// amended by ADR-0044).
+func TestStaticBinaries(t *testing.T) {
+	cmd := exec.CommandContext(t.Context(), "go", "list", "-deps", "-f", "{{.ImportPath}}", "../../cmd/erp-server", "../../cmd/erp-router", "../../cmd/erp")
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go list: %v\n%s", err, out)
+	}
+	for _, dep := range strings.Fields(string(out)) {
+		if strings.Contains(dep, "duckdb") || strings.HasSuffix(dep, "/internal/analytics/reader") {
+			t.Errorf("dependency %s: got it in a static binary, want it in erp-analytics alone", dep)
+		}
 	}
 }

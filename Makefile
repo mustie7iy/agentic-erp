@@ -4,6 +4,9 @@ build:
 	go build -o bin/erp ./cmd/erp
 	go build -o bin/erp-server ./cmd/erp-server
 	go build -o bin/erp-router ./cmd/erp-router
+	# erp-analytics links DuckDB through cgo (ADR-0044): built with the host's
+	# C toolchain, and not yet one of the images below (T55h).
+	CGO_ENABLED=1 go build -o bin/erp-analytics ./cmd/erp-analytics
 
 # Container images of the three binaries with ko (.ko.yaml, ADR-0032), not
 # pushed: digests in dist/images/images.txt, SBOMs in dist/images/sbom.
@@ -93,7 +96,7 @@ coverage:
 	DATABASE_URL="$(DATABASE_URL)" ./scripts/coverage.sh
 
 FUZZTIME ?= 15s
-FUZZ_TARGETS = money:FuzzParseDecimal money:FuzzConvert config:FuzzParseValidateDiff analytics:FuzzNarrative \
+FUZZ_TARGETS = analytics/reader:FuzzManifestPath money:FuzzParseDecimal money:FuzzConvert config:FuzzParseValidateDiff analytics:FuzzNarrative \
 	bankfile:FuzzPain001Text bankfile:FuzzValidIBAN sap:FuzzODataValue sap:FuzzODataString \
 	platform/redact:FuzzText
 
