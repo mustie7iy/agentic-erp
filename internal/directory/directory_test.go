@@ -167,13 +167,17 @@ func (s *dirScenario) statusAndMoves(t *testing.T) {
 	if frozen.Version != 3 {
 		t.Errorf("frozen version: got %d, want 3", frozen.Version)
 	}
-	if err := dir.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "eu-west", Cell: "eu-2", APIURL: "https://eu-2.api.example.com", Status: directory.Active}); err != nil {
-		t.Fatalf("upsert from eu-2: %v", err)
+	// Another cell's write leaves the entry where the directory places it.
+	if err := dir.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "eu-west", Cell: "eu-2", APIURL: "https://eu-2.api.example.com", Status: directory.Active}); !errors.Is(err, directory.ErrOtherCell) {
+		t.Fatalf("upsert from eu-2: got %v, want ErrOtherCell", err)
+	}
+	if err := dir.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "eu-west", Cell: "eu-1", APIURL: "https://eu-1.api.example.com", Status: directory.Active}); err != nil {
+		t.Fatalf("upsert from eu-1: %v", err)
 	}
 	if e, _ := dir.Lookup(ctx, tenant); e.Status != directory.ReadOnly {
 		t.Fatalf("moving status: got %s, want %s", e.Status, directory.ReadOnly)
-	} else if e.Cell != "eu-2" {
-		t.Fatalf("moving cell: got %s, want eu-2", e.Cell)
+	} else if e.Cell != "eu-1" {
+		t.Fatalf("moving cell: got %s, want eu-1", e.Cell)
 	}
 	// Moves go to registered cells of the tenant's region only, at the version read.
 	if err := dir.UpsertCell(ctx, directory.Cell{Name: "eu-3", Region: "eu-west", APIURL: "https://eu-3.api.example.com", ControlURL: "http://eu-3:9090", Accepting: false}); err != nil {
@@ -210,8 +214,8 @@ func (s *dirScenario) statusAndMoves(t *testing.T) {
 	if _, err := dir.SetStatus(ctx, tenant, 0, directory.Active); err != nil {
 		t.Fatal(err)
 	}
-	if err := dir.Upsert(ctx, directory.Entry{TenantID: tenant, Status: "bogus"}); err == nil {
-		t.Fatal("bogus status stored")
+	if err := dir.Upsert(ctx, directory.Entry{TenantID: tenant, Cell: "eu-3", Status: "bogus"}); err == nil || errors.Is(err, directory.ErrOtherCell) {
+		t.Fatalf("bogus status: got %v, want a refusal", err)
 	}
 	if _, err := dir.SetStatus(ctx, tenant, 0, "bogus"); err == nil {
 		t.Fatal("bogus status set: got nil error, want a refusal")
@@ -552,11 +556,11 @@ func TestDirectoryStatementFailures(t *testing.T) {
 	if err := dir.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "sf-west", Cell: "sf-1", APIURL: "https://sf-1", Status: directory.ReadOnly}); err != nil {
 		t.Fatalf("place the tenant on sf-1: %v", err)
 	}
-	pool := dir.Pool
+	pool, upserted := dir.Pool, uuid.New()
 	for name, op := range map[string]func() error{
 		"lookup": func() error { _, err := dir.Lookup(ctx, tenant); return err },
-		"upsert": func() error {
-			return dir.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "sf-west", Cell: "sf-1", APIURL: "https://sf-1", Status: directory.Active})
+		"upsert": func() error { // a tenant of its own: "move" may run first and take the other away from sf-1
+			return dir.Upsert(ctx, directory.Entry{TenantID: upserted, Region: "sf-west", Cell: "sf-1", APIURL: "https://sf-1", Status: directory.Active})
 		},
 		"set status": func() error { _, err := dir.SetStatus(ctx, tenant, 0, directory.ReadOnly); return err },
 		"move":       func() error { _, err := dir.Move(ctx, tenant, 0, "sf-2"); return err },
@@ -659,12 +663,26 @@ func TestErasedAndOffboardedOutliveARestore(t *testing.T) {
 	if e, _ := dir.Lookup(ctx, tenant); e.Status != directory.ReadOnly {
 		t.Errorf("reinstated while moving: got %s, want %s", e.Status, directory.ReadOnly)
 	}
-	// Erased in its old cell, the tenant lives on in the cell it moved to:
-	// that cell's writes are its own.
+	// Erased in its old cell and imported into another: that cell's sync
+	// leaves the entry; it is moved there first, still erased, and the
+	// import reinstates it; the old cell's sync leaves it then.
 	moved := uuid.New()
 	upsert(moved, directory.Erased)
-	if err := dir.Upsert(ctx, directory.Entry{TenantID: moved, Region: "eu-west", Cell: "eu-2", APIURL: "https://eu-2", Status: directory.Active}); err != nil {
+	there := directory.Entry{TenantID: moved, Region: "eu-west", Cell: "eu-2", APIURL: "https://eu-2", Status: directory.Active}
+	if err := dir.Upsert(ctx, there); !errors.Is(err, directory.ErrOtherCell) {
+		t.Errorf("upsert from eu-2 before the move: got %v, want ErrOtherCell", err)
+	}
+	if err := dir.UpsertCell(ctx, directory.Cell{Name: "eu-2", Region: "eu-west", APIURL: "https://eu-2", ControlURL: "http://eu-2:9090"}); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := dir.Move(ctx, moved, 0, "eu-2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := dir.Reinstate(ctx, moved, "eu-2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := dir.Upsert(ctx, directory.Entry{TenantID: moved, Region: "eu-west", Cell: "eu-1", APIURL: "https://eu-1", Status: directory.Active}); !errors.Is(err, directory.ErrOtherCell) {
+		t.Errorf("upsert from eu-1 after the move: got %v, want ErrOtherCell", err)
 	}
 	if e, _ := dir.Lookup(ctx, moved); e.Status != directory.Active || e.Cell != "eu-2" {
 		t.Errorf("moved: got %s in %s, want %s in eu-2", e.Status, e.Cell, directory.Active)
@@ -696,5 +714,60 @@ func TestStatusOf(t *testing.T) {
 				t.Errorf("got %s, want %s", got, c.want)
 			}
 		})
+	}
+}
+
+// TestSyncLeavesTenantsAnotherCellOwns: after a tenant's entry is moved,
+// the cell it left still holds its rows until they are removed (05 §5.4
+// step 5); its sync and registrations must not point the entry back.
+func TestSyncLeavesTenantsAnotherCellOwns(t *testing.T) {
+	ctx := context.Background()
+	tenant := pgtest.NewTenant(t)
+	dir, err := directory.Open(ctx, pgtest.URL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	var logs bytes.Buffer
+	old := &directory.Sync{Pool: pgtest.Pool(t), ControlRole: "erp_control", Directory: dir, Cell: "move-old", APIURL: "https://move-old", Log: slog.New(slog.NewTextHandler(&logs, nil))}
+	if _, err := old.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	e, err := dir.Lookup(ctx, tenant.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dir.UpsertCell(ctx, directory.Cell{Name: "move-new", Region: e.Region, APIURL: "https://move-new", ControlURL: "http://move-new:9090"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dir.Move(ctx, tenant.ID, e.Version, "move-new"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := old.RunOnce(ctx); err != nil {
+		t.Fatalf("round after the move: %v", err)
+	}
+	if e, _ := dir.Lookup(ctx, tenant.ID); e.Cell != "move-new" || e.APIURL != "https://move-new" {
+		t.Errorf("after the old cell's round: got %s (%s), want move-new", e.Cell, e.APIURL)
+	}
+	if !strings.Contains(logs.String(), "level=INFO msg=\"directory sync left tenants another cell owns\"") {
+		t.Errorf("round logs: got %s, want the skipped tenants at info", logs.String())
+	}
+	old.Register(ctx, tenant.ID, e.Region, directory.Suspended)
+	if e, _ := dir.Lookup(ctx, tenant.ID); e.Cell != "move-new" || e.Status != directory.Active {
+		t.Errorf("after the old cell's registration: got %s in %s, want active in move-new", e.Status, e.Cell)
+	}
+	if !strings.Contains(logs.String(), "level=INFO msg=\"directory registration left a tenant another cell owns\"") {
+		t.Errorf("registration logs: got %s, want the skip at info", logs.String())
+	}
+	// Offboarded in the new cell, the tenant stays so whatever the old cell's
+	// copy still says.
+	if err := dir.Upsert(ctx, directory.Entry{TenantID: tenant.ID, Region: e.Region, Cell: "move-new", APIURL: "https://move-new", Status: directory.Offboarded}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := old.RunOnce(ctx); err != nil {
+		t.Fatalf("round after the offboarding: %v", err)
+	}
+	if e, _ := dir.Lookup(ctx, tenant.ID); e.Cell != "move-new" || e.Status != directory.Offboarded {
+		t.Errorf("after the offboarding: got %s in %s, want offboarded in move-new", e.Status, e.Cell)
 	}
 }

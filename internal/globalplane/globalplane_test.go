@@ -378,6 +378,20 @@ func (s *globalScenario) move(t *testing.T) {
 	if active["status"] != "active" || active["cell"] != region+"-2" {
 		t.Fatalf("unfrozen: %v", active)
 	}
+	// An offboarded or erased tenant moves ahead of its import elsewhere,
+	// keeping its status (a region of its own keeps the listing's counts).
+	gone := region + "-gone"
+	s.upsertCell(t, directory.Cell{Name: gone + "-2", Region: gone, APIURL: "https://g2.api.example.com", ControlURL: "http://g2:9090"})
+	for _, status := range []string{directory.Offboarded, directory.Erased} {
+		left := uuid.New()
+		if err := s.p.dir.Upsert(context.Background(), directory.Entry{TenantID: left, Region: gone, Cell: gone + "-1", APIURL: "https://g1.api.example.com", Status: status}); err != nil {
+			t.Fatal(err)
+		}
+		e, _ := p.must(200, "ops|bob", "POST", "/directory/v1/tenants/"+left.String()+":move", `{"cell":"`+gone+`-2"}`, "If-Match", `"1"`)
+		if e["status"] != status || e["cell"] != gone+"-2" {
+			t.Errorf("%s moved: got %v in %v, want %s in %s-2", status, e["status"], e["cell"], status, gone)
+		}
+	}
 }
 
 // listing: filters, pages, order; unknown tenants and methods; tokens.

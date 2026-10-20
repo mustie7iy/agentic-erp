@@ -96,12 +96,15 @@ func (s *Service) transition(ctx context.Context, tenant uuid.UUID, ifMatch, fro
 
 // Move points a frozen tenant at another cell of the directory, the step of
 // 05 §5.4 after its rows were copied and verified; the cell must be known.
+// An offboarded or erased tenant moves too, keeping its status, ahead of its
+// import into that cell (ADR-0029), which reinstates it: only the entry's
+// own cell writes it (ADR-0023).
 func (s *Service) Move(ctx context.Context, tenant uuid.UUID, ifMatch, cell string) (directory.Entry, error) {
 	e, err := s.checked(ctx, tenant, ifMatch)
 	if err != nil {
 		return directory.Entry{}, err
 	}
-	if e.Status != directory.ReadOnly {
+	if e.Status != directory.ReadOnly && e.Status != directory.Offboarded && e.Status != directory.Erased {
 		return directory.Entry{}, problem.Conflict("tenancy.invalid_transition", fmt.Sprintf("The tenant is %s; freeze it before moving it.", e.Status))
 	}
 	moved, err := s.Directory.Move(ctx, tenant, e.Version, cell)
@@ -175,7 +178,8 @@ func (s *Service) Create(ctx context.Context, key, authorization string, body []
 			Status string    `json:"status"`
 		}
 		if json.Unmarshal(answer, &created) == nil && created.ID != uuid.Nil {
-			// The cell registers the tenant too; this makes it routable before its next round.
+			// The cell registers the tenant too; this makes it routable before
+			// its next round, so a failure (or ErrOtherCell) is left to that.
 			_ = s.Directory.Upsert(ctx, directory.Entry{TenantID: created.ID, Region: created.Region, Cell: chosen.Name, APIURL: chosen.APIURL, Status: created.Status})
 		}
 	}

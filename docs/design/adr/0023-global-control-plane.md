@@ -19,7 +19,13 @@ provisioning with placement, and the three directory steps of a move.
 **Cells register themselves.** Each cell's sync worker records its own
 entry (`ERP_CELL_REGION`, `ERP_CELL_API_URL`, `ERP_CELL_CONTROL_URL`,
 `ERP_CELL_ACCEPTING`) every minute, so the directory knows which cells
-exist, where their control planes are and which take new tenants.
+exist, where their control planes are and which take new tenants. A cell's
+sync and registrations change only the entries the directory places in
+that cell (`directory.ErrOtherCell`, logged at info and counted): the cell a
+tenant moved from keeps its rows until they are removed and must not point
+the entry back; only `:move` switches it. A tenant re-onboarded into
+another cell is moved there before its import, still offboarded or erased,
+and the import reinstates it (ADR-0029, ADR-0040).
 
 **Placement is a forwarding.** `POST /directory/v1/tenants` takes the cell
 control plane's request, picks the accepting cell of the region with the

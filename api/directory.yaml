@@ -184,7 +184,7 @@ paths:
       tags:
         - directory
       summary: Point a frozen tenant at another cell
-      description: "Switches the entry to the cell named, after its rows were copied and verified outside this API (05 §5.4). The tenant must be `read_only` (409) and the cell registered and in the tenant's region (422). The router follows within its cache period."
+      description: "Switches the entry to the cell named, after its rows were copied and verified outside this API (05 §5.4). The tenant must be `read_only` (409) and the cell registered and in the tenant's region (422). An `offboarded` or `erased` tenant moves too, keeping its status, ahead of its import into that cell, which reinstates it (ADR-0029, ADR-0023). The router follows within its cache period."
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"

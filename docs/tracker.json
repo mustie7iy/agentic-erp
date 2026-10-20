@@ -5051,7 +5051,14 @@
       "s": "D",
       "t": "Global control plane over the directory: tenants and cells across the platform, provisioning placed in the emptiest accepting cell of the region and forwarded to its control plane, moves between cells in three steps under If-Match",
       "r": "api/directory.yaml · internal/globalplane · erp directory · ADR-0023",
-      "c": []
+      "c": [
+       {
+        "s": "D",
+        "t": "A cell's sync and registrations leave an entry the directory places in another cell alone (logged at info, counted), so the cell a tenant moved from cannot point the entry back, even once the tenant is offboarded or erased; only :move switches an entry's cell; :move takes an offboarded or erased entry too, ahead of the import that reinstates it in its new cell",
+        "r": "directory.Upsert, ErrOtherCell · Sync.RunOnce, Register · globalplane.Move · api/directory.yaml · TestSyncLeavesTenantsAnotherCellOwns",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",
