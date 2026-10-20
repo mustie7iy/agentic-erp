@@ -41,6 +41,11 @@ import (
 // next run starts from the newer pointer.
 var ErrMoved = errors.New("analytics: snapshot moved by another run")
 
+// ErrBehind is returned when the database's transaction ids are below the
+// tenant's watermark: the database was restored or moved and the tenant's
+// store must be rebuilt (ADR-0044), which the sweep alerts on.
+var ErrBehind = errors.New("analytics: watermark ahead of the database; rebuild the store")
+
 // Extractor extracts one tenant at a time.
 type Extractor struct {
 	// Replica begins the extract's reading transaction: the cell's read
@@ -86,10 +91,11 @@ func (x Extractor) Run(ctx context.Context, tenant uuid.UUID) (Result, error) {
 	if len(s.lines) == 0 {
 		return Result{ManifestKey: s.prev.key, Watermark: s.prev.watermark}, nil
 	}
-	key, err := x.write(ctx, tenant, s)
+	key, asOf, err := x.write(ctx, tenant, s)
 	if err != nil {
 		return Result{}, fmt.Errorf("analytics: extract tenant %s: %w", tenant, err)
 	}
+	s.asOf = asOf
 	if err := x.publish(ctx, tenant, s, key); err != nil {
 		return Result{}, fmt.Errorf("analytics: extract tenant %s: %w", tenant, err)
 	}
@@ -110,10 +116,13 @@ func (x Extractor) read(ctx context.Context, tenant uuid.UUID) (snapshot, error)
 		if err := tx.QueryRow(ctx, `SELECT pg_snapshot_xmin(pg_current_snapshot())::text, now()`).Scan((*xid)(&s.cutoff), &s.asOf); err != nil {
 			return false, fmt.Errorf("cutoff: %w", err)
 		}
-		// A cutoff at or below the watermark has nothing new; below it only
-		// after a restore, which rebuilds the store (ADR-0044).
-		if s.prev.set && s.cutoff <= s.prev.watermark {
-			return false, nil
+		// A cutoff at the watermark reads the empty interval. Below it, the
+		// database was restored or moved under the store: appending from the
+		// stored watermark would skip the entries posted with the transaction
+		// ids in between, so the run stops until the store is rebuilt
+		// (ADR-0044).
+		if s.prev.set && s.cutoff < s.prev.watermark {
+			return false, fmt.Errorf("%w: watermark %d, cutoff %d", ErrBehind, s.prev.watermark, s.cutoff)
 		}
 		s.lines, err = readLines(ctx, tx, s.prev, s.cutoff)
 		return false, err

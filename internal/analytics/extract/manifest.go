@@ -58,38 +58,42 @@ func ManifestKey(tenant uuid.UUID, cutoff uint64) string {
 }
 
 // write stores the new lines' files and the manifest that adds them to the
-// previous manifest's, and returns the manifest's key.
-func (x Extractor) write(ctx context.Context, tenant uuid.UUID, s snapshot) (string, error) {
+// previous manifest's, and returns the manifest's key and as_of.
+func (x Extractor) write(ctx context.Context, tenant uuid.UUID, s snapshot) (string, time.Time, error) {
 	m := Manifest{TenantID: tenant, Datasets: map[string]Dataset{}}
 	if s.prev.set {
 		b, _, err := x.Store.Get(ctx, s.prev.key)
 		if err != nil {
-			return "", fmt.Errorf("previous manifest: %w", err)
+			return "", time.Time{}, fmt.Errorf("previous manifest: %w", err)
 		}
 		if err := json.Unmarshal(b, &m); err != nil {
-			return "", fmt.Errorf("previous manifest %s: %w", s.prev.key, err)
+			return "", time.Time{}, fmt.Errorf("previous manifest %s: %w", s.prev.key, err)
 		}
 	}
 	ds := m.Datasets[glLinesDataset]
 	ds.Version, ds.Watermark, ds.AsOf = 1, s.cutoff, s.asOf
 	months, parts := byMonth(s.lines)
 	for _, month := range months {
-		f, err := x.part(ctx, tenant, month, s.cutoff, parts[month])
+		f, err := x.part(ctx, tenant, month, s, parts[month])
 		if err != nil {
-			return "", err
+			return "", time.Time{}, err
 		}
 		ds.Files, ds.Rows = append(ds.Files, f), ds.Rows+f.Rows
 	}
 	m.Datasets[glLinesDataset] = ds
 	key := ManifestKey(tenant, s.cutoff)
 	b, _ := json.Marshal(m) // a Manifest holds strings, numbers and times only, which always marshal
-	return key, x.putManifest(ctx, key, b, m)
+	asOf, err := x.putManifest(ctx, key, b, m)
+	return key, asOf, err
 }
 
 // part stores one month's lines.
-func (x Extractor) part(ctx context.Context, tenant uuid.UUID, month string, cutoff uint64, lines []glLine) (File, error) {
+// A part is named by the interval it holds (from, cutoff), so a run on a
+// lagging replica, which read from an older watermark, never meets another
+// run's file of the same cutoff.
+func (x Extractor) part(ctx context.Context, tenant uuid.UUID, month string, s snapshot, lines []glLine) (File, error) {
 	b := encode(lines)
-	key := tenantPrefix(tenant) + "/" + glLinesDataset + "/month=" + month + "/part-" + seq(cutoff) + ".parquet"
+	key := tenantPrefix(tenant) + "/" + glLinesDataset + "/month=" + month + "/part-" + seq(s.prev.watermark) + "-" + seq(s.cutoff) + ".parquet"
 	if err := x.putOnce(ctx, key, b, "application/vnd.apache.parquet"); err != nil {
 		return File{}, err
 	}
@@ -117,24 +121,26 @@ func (x Extractor) putOnce(ctx context.Context, key string, b []byte, contentTyp
 
 // putManifest writes the manifest once. A repeated run's manifest differs
 // from the stored one only in as_of (the transaction's time), so a stored
-// manifest listing the same files is taken as this run's.
-func (x Extractor) putManifest(ctx context.Context, key string, b []byte, m Manifest) error {
+// manifest listing the same files is taken as this run's, with its as_of,
+// which the pointer then carries too.
+func (x Extractor) putManifest(ctx context.Context, key string, b []byte, m Manifest) (time.Time, error) {
+	asOf := m.Datasets[glLinesDataset].AsOf
 	err := x.Store.Put(ctx, key, b, blobstore.PutOptions{ContentType: "application/json"})
 	if !errors.Is(err, blobstore.ErrExists) {
-		return err
+		return asOf, err
 	}
 	got, _, err := x.Store.Get(ctx, key)
 	if err != nil {
-		return err
+		return asOf, err
 	}
 	var stored Manifest
 	if err := json.Unmarshal(got, &stored); err != nil {
-		return fmt.Errorf("manifest %s: %w", key, err)
+		return asOf, fmt.Errorf("manifest %s: %w", key, err)
 	}
 	if !reflect.DeepEqual(withoutAsOf(stored), withoutAsOf(m)) {
-		return fmt.Errorf("%s holds another manifest", key)
+		return asOf, fmt.Errorf("%s holds another manifest", key)
 	}
-	return nil
+	return stored.Datasets[glLinesDataset].AsOf, nil
 }
 
 // withoutAsOf is m with its datasets' as_of cleared.

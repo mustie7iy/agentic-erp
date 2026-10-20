@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -63,7 +64,22 @@ func (e env) post(t *testing.T, date, amount string) string {
 		{"account_id": %q, "amount": {"amount": "-%s", "currency": "EUR"}, "partner_id": %q}]}`,
 		e.DE, date, date, e.Account(t, "2000", "610000"), amount, e.Account(t, "2000", "211000"), amount, e.Supplier), "")
 	id, _ := je["id"].(string)
+	e.settled(t)
 	return id
+}
+
+// settled waits until every transaction up to the tenant's last posting has
+// finished, so a run's cutoff (its snapshot's xmin) lies above it: another
+// test's open transaction holds xmin back, which the watermark rightly
+// waits for.
+func (e env) settled(t *testing.T) {
+	t.Helper()
+	pgtest.Eventually(t, time.Minute, func() bool {
+		var done bool
+		pgtest.Scan(t, `SELECT coalesce(max(posted_xid) < pg_snapshot_xmin(pg_current_snapshot()), true) FROM ledger.journal_entry WHERE tenant_id = $1`,
+			[]any{e.Tenant.ID}, &done)
+		return done
+	}, "postings of tenant %s still below the snapshot horizon", e.Tenant.ID)
 }
 
 func (e env) run(t *testing.T) extract.Result {
@@ -130,12 +146,12 @@ func TestRunAppendsByWatermark(t *testing.T) {
 	checkMarch(t, e, e.rows(t, ds.Files[0].Key), march, first.Watermark)
 
 	t.Run("run twice", func(t *testing.T) {
-		keys := e.server.Keys()
+		keys := slices.Sorted(slices.Values(e.server.Keys()))
 		again := e.run(t)
 		if again.ManifestKey != first.ManifestKey || again.Lines != 0 {
 			t.Errorf("second run: got %+v, want manifest %s and no lines", again, first.ManifestKey)
 		}
-		if got := e.server.Keys(); !slices.Equal(got, keys) {
+		if got := slices.Sorted(slices.Values(e.server.Keys())); !slices.Equal(got, keys) {
 			t.Errorf("second run wrote files: got %v, want %v", got, keys)
 		}
 	})
@@ -183,9 +199,9 @@ func checkMarch(t *testing.T, e env, rows []row, entry string, cutoff uint64) {
 	}
 }
 
-// TestRunBehindTheWatermark: a cutoff at or below the stored watermark
-// (the database restored under a store not yet rebuilt) reads and writes
-// nothing.
+// TestRunBehindTheWatermark: a cutoff below the stored watermark (the
+// database restored or moved under the store) stops the run, which would
+// otherwise skip the entries posted with the transaction ids in between.
 func TestRunBehindTheWatermark(t *testing.T) {
 	e := setup(t)
 	e.post(t, "2026-03-02", "1.00")
@@ -193,9 +209,8 @@ func TestRunBehindTheWatermark(t *testing.T) {
 	key := extract.ManifestKey(e.Tenant.ID, ahead)
 	pgtest.Exec(t, `INSERT INTO analytics.snapshot (tenant_id, manifest_key, watermark, as_of) VALUES ($1, $2, $3::text::xid8, now())`,
 		e.Tenant.ID, key, fmt.Sprint(ahead))
-	res := e.run(t)
-	if res.ManifestKey != key || res.Watermark != ahead || res.Lines != 0 {
-		t.Errorf("run: got %+v, want manifest %s at %d and no lines", res, key, ahead)
+	if _, err := e.x.Run(context.Background(), e.Tenant.ID); !errors.Is(err, extract.ErrBehind) {
+		t.Errorf("run: got %v, want ErrBehind", err)
 	}
 	if keys := e.server.Keys(); len(keys) != 0 {
 		t.Errorf("files: got %v, want none", keys)
@@ -326,4 +341,11 @@ func TestDatabaseFailures(t *testing.T) {
 	}
 	_, err := x.Run(context.Background(), e.Tenant.ID)
 	pgtest.WantErr(t, err, "commit")
+	// The next run publishes what the failed one could not.
+	res := e.run(t)
+	var key string
+	pgtest.Scan(t, `SELECT manifest_key FROM analytics.snapshot WHERE tenant_id = $1`, []any{e.Tenant.ID}, &key)
+	if key != res.ManifestKey || res.Lines != 2 {
+		t.Errorf("rerun: got pointer %s and %+v, want the rerun's manifest with the 2 new lines", key, res)
+	}
 }

@@ -34,9 +34,8 @@ type glLine struct {
 
 const glLinesDataset = "gl_lines"
 
-// glLinesSQL reads the lines of the entries posted in [$1, $2); a first run
-// ($1 NULL) also reads the entries posted before posted_xid existed, which
-// committed before any cutoff. Row-level security limits it to the tenant.
+// glLinesSQL reads the lines of a run's interval of entries; row-level
+// security limits it to the tenant.
 const glLinesSQL = `SELECT l.tenant_id, l.journal_entry_id, l.line_no, l.ledger_id, le.code, l.posting_date, a.number, e.document_type,
 	bp.number, l.amount_lc, e.currency_lc, c.exponent, coalesce(e.posted_xid, '0'::xid8)::text
 	FROM ledger.journal_entry e
@@ -45,19 +44,24 @@ const glLinesSQL = `SELECT l.tenant_id, l.journal_entry_id, l.line_no, l.ledger_
 	JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id
 	JOIN ref.currency c ON c.code = e.currency_lc
 	LEFT JOIN partner.business_partner bp ON bp.tenant_id = l.tenant_id AND bp.id = l.partner_id
-	WHERE CASE WHEN $1::text IS NULL THEN e.posted_xid IS NULL OR e.posted_xid < $2::text::xid8
-	           ELSE e.posted_xid >= $1::text::xid8 AND e.posted_xid < $2::text::xid8 END
-	ORDER BY l.posting_date, l.journal_entry_id, l.line_no`
+	WHERE `
+
+// The interval of a run: a plain range for the index (tenant_id,
+// posted_xid); a first run also reads the entries posted before the column
+// existed (NULL), which committed before any cutoff.
+const (
+	nextRun  = `e.posted_xid >= $1::text::xid8 AND e.posted_xid < $2::text::xid8 ORDER BY l.posting_date, l.journal_entry_id, l.line_no`
+	firstRun = `(e.posted_xid IS NULL OR e.posted_xid < $1::text::xid8) ORDER BY l.posting_date, l.journal_entry_id, l.line_no`
+)
 
 // readLines reads the journal lines above the previous watermark and below
 // the cutoff, in posting order.
 func readLines(ctx context.Context, tx pgx.Tx, prev pointer, cutoff uint64) ([]glLine, error) {
-	var from *string
+	sql, args := glLinesSQL+firstRun, []any{strconv.FormatUint(cutoff, 10)}
 	if prev.set {
-		s := strconv.FormatUint(prev.watermark, 10)
-		from = &s
+		sql, args = glLinesSQL+nextRun, []any{strconv.FormatUint(prev.watermark, 10), args[0]}
 	}
-	rows, _ := tx.Query(ctx, glLinesSQL, from, strconv.FormatUint(cutoff, 10))
+	rows, _ := tx.Query(ctx, sql, args...)
 	var out []glLine
 	var l glLine
 	var date time.Time

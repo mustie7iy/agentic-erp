@@ -101,15 +101,20 @@ column, a changed grain) is a new dataset version (`v2/`), written next to
 `v1` until no reader uses `v1`.
 
 **Layout and publication.**
-`analytics/v1/tenant=<tenant-id>/<dataset>/month=YYYY-MM/part-<seq>.parquet`,
+`analytics/v1/tenant=<tenant-id>/<dataset>/month=YYYY-MM/part-<from>-<to>.parquet`,
 each file written once through `blobstore` and never overwritten. A
 per-tenant manifest (`analytics/v1/tenant=<id>/manifest-<seq>.json`)
 lists, for each dataset, its files with size and SHA-256, the watermark,
 the row count and `as_of`; an append dataset's manifest lists its earlier
-runs' files too. `<seq>` is the run's cutoff, zero-padded to 20 digits, so
-names sort by run and a run repeated with the same cutoff (its publication
-lost) writes the same bytes under the same keys and goes on; other bytes
-under a key stop the run, never overwrite it. Table `analytics.snapshot
+runs' files too. A part is named by the interval it holds (the previous
+watermark and the run's cutoff), the manifest's `<seq>` by the cutoff, each
+zero-padded to 20 digits, so names sort by run and a run repeated with the
+same interval (its publication lost) writes the same bytes under the same
+keys and goes on, publishing the stored manifest's `as_of`; other bytes
+under a key stop the run, never overwrite it. A cutoff below the stored
+watermark (the database restored or moved under the store) stops the run
+with `ErrBehind` until the tenant's store is rebuilt: appending from the
+old watermark would skip entries for good. Table `analytics.snapshot
 (tenant_id, manifest_key, watermark, as_of, published_at)` holds **one row
 per tenant**, under RLS, pointing at the current manifest; a check
 constraint ties the manifest's name to the tenant and the watermark. All

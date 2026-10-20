@@ -6,6 +6,9 @@
 ALTER TABLE ledger.journal_entry ADD COLUMN posted_xid xid8;
 ALTER TABLE ledger.journal_entry ALTER COLUMN posted_xid SET DEFAULT pg_current_xact_id();
 -- An extract reads one tenant's entries above its previous cutoff.
+-- A plain CREATE INDEX on the partitioned table (06 §6.3, as 000055):
+-- before the pilot, writes to the journal wait while each partition is
+-- built; a cell with live tenants builds it per partition CONCURRENTLY first.
 CREATE INDEX journal_entry_posted_xid ON ledger.journal_entry (tenant_id, posted_xid);
 
 -- The pointer to a tenant's current manifest: one row per tenant, so all of

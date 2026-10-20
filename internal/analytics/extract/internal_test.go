@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -68,7 +69,8 @@ func TestWritesOnce(t *testing.T) {
 	ctx := context.Background()
 	store := blobstoretest.New(t).Store()
 	x := Extractor{Store: store}
-	m := Manifest{TenantID: uuid.New(), Datasets: map[string]Dataset{"gl_lines": {Version: 1, Rows: 1, Files: []File{{Key: "k"}}}}}
+	stored := time.Date(2026, 10, 19, 8, 0, 0, 0, time.UTC)
+	m := Manifest{TenantID: uuid.New(), Datasets: map[string]Dataset{"gl_lines": {Version: 1, Rows: 1, AsOf: stored, Files: []File{{Key: "k"}}}}}
 	b, _ := json.Marshal(m) // a Manifest always marshals
 	for key, content := range map[string]string{"file": "abc", "manifest": string(b), "garbage": "{"} {
 		if err := store.Put(ctx, key, []byte(content), blobstore.PutOptions{}); err != nil {
@@ -77,9 +79,21 @@ func TestWritesOnce(t *testing.T) {
 	}
 	other := m
 	other.TenantID = uuid.New()
+	// A repeated run's manifest is the stored one but for its later as_of,
+	// and the run takes the stored as_of.
+	again := Manifest{TenantID: m.TenantID, Datasets: map[string]Dataset{"gl_lines": m.Datasets["gl_lines"]}}
+	ds := again.Datasets["gl_lines"]
+	ds.AsOf = stored.Add(time.Minute)
+	again.Datasets["gl_lines"] = ds
+	t.Run("same manifest", func(t *testing.T) {
+		asOf, err := x.putManifest(ctx, "manifest", b, again)
+		if err != nil || !asOf.Equal(stored) {
+			t.Errorf("got %v, %v, want the stored as_of %v", asOf, err, stored)
+		}
+	})
+	errOf := func(_ time.Time, err error) error { return err }
 	for name, err := range map[string]error{
-		"same file":     x.putOnce(ctx, "file", []byte("abc"), ""),
-		"same manifest": x.putManifest(ctx, "manifest", b, m),
+		"same file": x.putOnce(ctx, "file", []byte("abc"), ""),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err != nil {
@@ -90,9 +104,9 @@ func TestWritesOnce(t *testing.T) {
 	for name, err := range map[string]error{
 		"other file":             x.putOnce(ctx, "file", []byte("abd"), ""),
 		"file unreadable":        Extractor{Store: getFails{store}}.putOnce(ctx, "file", []byte("abc"), ""),
-		"other manifest":         x.putManifest(ctx, "manifest", b, other),
-		"manifest unreadable":    Extractor{Store: getFails{store}}.putManifest(ctx, "manifest", b, m),
-		"stored manifest broken": x.putManifest(ctx, "garbage", b, m),
+		"other manifest":         errOf(x.putManifest(ctx, "manifest", b, other)),
+		"manifest unreadable":    errOf(Extractor{Store: getFails{store}}.putManifest(ctx, "manifest", b, m)),
+		"stored manifest broken": errOf(x.putManifest(ctx, "garbage", b, m)),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err == nil {
