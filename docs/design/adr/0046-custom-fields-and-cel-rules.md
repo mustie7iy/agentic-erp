@@ -53,7 +53,11 @@ needs.
   built concurrently per partition. Never from a configuration change.
 - **Which schema.** A write validates against the schema of the
   configuration version its transaction reads, and records that schema's
-  version with the row's events.
+  version with the row (`extensions_schema`) and with the row's events.
+  Every create and update of the row checks its extensions as the write
+  leaves them; a change request is checked when it is requested, and the
+  version it was checked against is applied with it. A tenant without a
+  schema for the entity has no custom fields: every key is unknown.
 - **API.** Resources keep `extensions` free-form in the contract. The
   tenant's schema for an entity is at `GET /v1/schemas/{entity}`, with the
   configuration version as its ETag. A write that does not match the

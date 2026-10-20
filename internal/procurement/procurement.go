@@ -24,6 +24,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -80,9 +81,16 @@ type Endpoints struct {
 	Numbers       Numbers
 	Calendar      Calendar
 	Settings      Settings
+	Schemas       extensions.Schemas    // the tenant's custom field schemas (configuration context)
+	References    extensions.References // what custom fields refer to (partner context)
 	Approvals     Opener
 	Invoices      Invoices
 	Postings      Postings
+}
+
+// extensions checks a purchase order's custom fields (ADR-0046).
+func (e *Endpoints) extensions() extensions.Writes {
+	return extensions.Writes{Entity: "purchase_order", Schemas: e.Schemas, References: e.References}
 }
 
 // Postings posts the WE entries of goods movements on orders valued

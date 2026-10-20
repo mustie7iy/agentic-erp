@@ -3679,9 +3679,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Writes of the supplier invoice, purchase order and business partner validate extensions (422 request.invalid_extension per key)",
-        "r": "T58c",
+        "r": "extensions.Writes.Check · configuration.Settings.Schema · partner.References · extensions_schema (000105) · TestWritesCheck · T58c",
         "c": []
        },
        {

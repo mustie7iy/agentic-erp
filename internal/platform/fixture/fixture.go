@@ -27,6 +27,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -64,6 +65,7 @@ func Document(tb testing.TB) *config.Config {
 	if err != nil {
 		tb.Fatal(err)
 	}
+	c.Extensions = Schemas()
 	for _, y := range Years() {
 		for _, co := range []string{"1000", "2000"} {
 			for dt, prefix := range DocumentTypes {
@@ -73,6 +75,20 @@ func Document(tb testing.TB) *config.Config {
 		}
 	}
 	return c
+}
+
+// Schemas are the custom field schemas of the prototype's configuration:
+// optional strings on each first entity (ADR-0046), version 1.
+func Schemas() map[string]extensions.Schema {
+	schema := func(keys ...string) extensions.Schema {
+		s := extensions.Schema{Version: 1, Type: "object", AdditionalProperties: new(bool), Properties: map[string]extensions.Property{}}
+		for _, k := range keys {
+			s.Properties[k] = extensions.Property{Type: "string", PII: extensions.PIINone}
+		}
+		return s
+	}
+	return map[string]extensions.Schema{"business_partner": schema("cost_object_hint", "segment", "routing"),
+		"purchase_order": schema("cost_center", "project"), "supplier_invoice": schema("cost_center", "channel")}
 }
 
 // rates converts document amounts into their company's currency, as the

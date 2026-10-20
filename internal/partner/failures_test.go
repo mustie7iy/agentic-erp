@@ -11,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
@@ -23,7 +24,7 @@ import (
 func endpoints() *partner.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
 	return &partner.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: apitest.FieldKeys(), Approvals: fixture.Approvals(),
-		PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}}
+		PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, Schemas: configuration.Settings{}}
 }
 
 // TestDatabaseFailures calls every handler and context function outside a
@@ -42,7 +43,7 @@ func TestDatabaseFailures(t *testing.T) {
 	update, _ := e.Must(201, "POST", "/v1/partner-changes", e.update(id(a), fmt.Sprintf(`{"name": "A2", "roles": ["supplier", "customer"],
 		"supplier_companies": [{"legal_entity_id": %q, "reconciliation_account_id": %q, "payment_term_code": "NT60"}],
 		"addresses": [{"purpose": "legal", "line1": "L", "city": "C", "country_code": "DE", "valid_from": %q}],
-		"tax_identifiers": [{"scheme": "EU_VAT", "value": "DE1"}], "extensions": {"x": 1}}`, e.le, e.recon, e.date(0))), "")
+		"tax_identifiers": [{"scheme": "EU_VAT", "value": "DE1"}], "extensions": {"segment": "x"}}`, e.le, e.recon, e.date(0))), "")
 	_, aTag := e.Must(200, "GET", "/v1/business-partners/"+id(a)+"/bank-accounts/"+bankOf(a).String(), "", "")
 	bankEnd, _ := e.Must(200, "POST", "/v1/business-partners/"+id(a)+"/bank-accounts/"+bankOf(a).String()+":end",
 		fmt.Sprintf(`{"valid_to": %q, "reason": "r"}`, e.date(10)), aTag)
@@ -70,7 +71,7 @@ func TestDatabaseFailures(t *testing.T) {
 		TaxIdentifiers: []gen.TaxIdentifierInput{{Scheme: "EU_VAT", Value: "DE123456789"}},
 		BankAccounts: []gen.BankAccountInput{{AccountNumber: iban, AccountScheme: "iban", BankCountryCode: "DE", HolderName: "N", ValidFrom: e.day,
 			Bic: gen.NewOptString("COBADEFFXXX")}},
-		Extensions: gen.NewOptExtensions(gen.Extensions{"x": []byte("1")})}
+		Extensions: gen.NewOptExtensions(gen.Extensions{"segment": []byte(`"x"`)})}
 	calls := map[string]func(ctx context.Context) error{
 		"create partner": func(ctx context.Context) error {
 			_, err := h.CreateBusinessPartner(ctx, newPartner, gen.CreateBusinessPartnerParams{})

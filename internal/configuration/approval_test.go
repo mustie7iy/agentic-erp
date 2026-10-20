@@ -10,6 +10,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -166,6 +167,34 @@ func TestSettings(t *testing.T) {
 	}
 	apitest.EveryFailure(t, f.Tenant, f.Tenant.Human, "settings", func(ctx context.Context) error {
 		_, _, err := configuration.Settings{}.Document(ctx)
+		return err
+	})
+	// The custom field schemas: the entity's in the active document, none
+	// for an entity it does not declare or a tenant without configuration.
+	schema := func(ten pgtest.Tenant, a pgtest.Actor, entity string) (s *extensions.Schema) {
+		t.Helper()
+		if err := apitest.InRequest(t, ten, a, func(ctx context.Context) (err error) {
+			s, err = configuration.Settings{}.Schema(ctx, entity)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	if s := schema(f.Tenant, f.Tenant.Human, "purchase_order"); s == nil || s.Version != 1 || len(s.Properties) != 2 {
+		t.Errorf("purchase order schema: got %+v, want version 1 with 2 fields", s)
+	}
+	if s := schema(f.Tenant, f.Tenant.Human, "legal_entity"); s != nil {
+		t.Errorf("undeclared entity: got %+v, want none", s)
+	}
+	if s := schema(bare.ten, bare.ten.Human, "purchase_order"); s != nil {
+		t.Errorf("tenant without configuration: got %+v, want none", s)
+	}
+	if _, err := (configuration.Settings{}).Schema(context.Background(), "purchase_order"); err == nil {
+		t.Error("schema outside a unit of work: got no error, want one")
+	}
+	apitest.EveryFailure(t, f.Tenant, f.Tenant.Human, "schema", func(ctx context.Context) error {
+		_, err := configuration.Settings{}.Schema(ctx, "purchase_order")
 		return err
 	})
 	ranges, _ := f.Must(200, "GET", "/v1/number-ranges", "", "")

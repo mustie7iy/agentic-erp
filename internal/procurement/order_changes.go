@@ -13,7 +13,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
-	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -60,6 +59,10 @@ type ChangeProposal struct {
 	PaymentTermCode string         `json:"payment_term_code"`
 	Extensions      map[string]any `json:"extensions"`
 	Items           []Item         `json:"items"`
+	// ExtensionsSchema is the custom field schema version the extensions
+	// were checked against; nil before T58c and while the tenant declares
+	// no schema, which keeps the order's.
+	ExtensionsSchema *int `json:"extensions_schema,omitempty"`
 }
 
 // ChangeInput is a new order change or a merge patch of a draft one; nil
@@ -260,10 +263,14 @@ func (e *Endpoints) proposal(ctx context.Context, tx pgx.Tx, o PurchaseOrder, ba
 	}
 	if in.Extensions != nil {
 		pr.Extensions = mergepatch.Apply(pr.Extensions, in.Extensions)
-		if err := extensions.Check(pr.Extensions); err != nil {
-			return ChangeProposal{}, 0, err
-		}
 	}
+	// The extensions the change leaves the order with are checked now, on
+	// every proposal, and their schema version is applied with them.
+	schema, err := e.extensions().Check(ctx, pr.Extensions)
+	if err != nil {
+		return ChangeProposal{}, 0, err
+	}
+	pr.ExtensionsSchema = schema
 	le, err := e.legalEntity(ctx, o.LegalEntityID)
 	if err != nil {
 		return ChangeProposal{}, 0, err

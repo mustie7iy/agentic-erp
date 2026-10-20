@@ -153,8 +153,8 @@ func writeChange(ctx context.Context, tx pgx.Tx, p reqctx.Principal, o PurchaseO
 		return fmt.Errorf("procurement: apply order change %s: %w", ch.ID, err)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order SET applying_change_id = NULL, revision = revision + 1, order_date = $2,
-		payment_term_code = $3, extensions = $4, version = version + 1, updated_by = $5 WHERE id = $1`,
-		o.ID, ch.Proposed.OrderDate, ch.Proposed.PaymentTermCode, ch.Proposed.Extensions, p.ID); err != nil {
+		payment_term_code = $3, extensions = $4, extensions_schema = coalesce($6, extensions_schema), version = version + 1, updated_by = $5 WHERE id = $1`,
+		o.ID, ch.Proposed.OrderDate, ch.Proposed.PaymentTermCode, ch.Proposed.Extensions, p.ID, ch.Proposed.ExtensionsSchema); err != nil {
 		return fmt.Errorf("procurement: apply order change %s to purchase order %s: %w", ch.ID, o.ID, err)
 	}
 	return nil

@@ -17,7 +17,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
-	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -141,6 +140,10 @@ type updatePayload struct {
 	Addresses         []AddressInput         `json:"addresses,omitempty"`
 	TaxIdentifiers    []sealedTax            `json:"tax_identifiers,omitempty"`
 	Extensions        map[string]any         `json:"extensions,omitempty"`
+	// ExtensionsSchema is the schema version the extensions were checked
+	// against when the change was requested; nil before T58c and while the
+	// tenant declares no schema, which keeps the partner's.
+	ExtensionsSchema *int `json:"extensions_schema,omitempty"`
 }
 
 type bankChangePayload struct {
@@ -551,6 +554,10 @@ func CreatePartner(ctx context.Context, ports Ports, in NewPartner) (Partner, Ch
 	if err := checkNewPartner(&in); err != nil {
 		return Partner{}, Change{}, err
 	}
+	schema, err := ports.extensions().Check(ctx, in.Extensions)
+	if err != nil {
+		return Partner{}, Change{}, err
+	}
 	day, err := database.Today(ctx, tx)
 	if err != nil {
 		return Partner{}, Change{}, err
@@ -578,7 +585,7 @@ func CreatePartner(ctx context.Context, ports Ports, in NewPartner) (Partner, Ch
 		return Partner{}, Change{}, err
 	}
 	id := uuid.Must(uuid.NewV7())
-	if err := insertPartner(ctx, tx, p, id, number, in, taxes); err != nil {
+	if err := insertPartner(ctx, tx, p, id, number, in, schema, taxes); err != nil {
 		return Partner{}, Change{}, err
 	}
 	warns, err := warnings(ctx, tx, id, taxes, banks)
@@ -602,8 +609,8 @@ func CreatePartner(ctx context.Context, ports Ports, in NewPartner) (Partner, Ch
 			"status": Pending, "partner_change_id": c.ID}))
 }
 
-// checkNewPartner requires a known partner kind, known roles and valid
-// extensions, which default to none.
+// checkNewPartner requires a known partner kind and known roles; the
+// extensions default to none.
 func checkNewPartner(in *NewPartner) error {
 	if !slices.Contains(kinds, in.Kind) {
 		return invalid("partner.unknown_kind", "kind", "organization or person")
@@ -616,7 +623,7 @@ func checkNewPartner(in *NewPartner) error {
 	if in.Extensions == nil {
 		in.Extensions = map[string]any{}
 	}
-	return extensions.Check(in.Extensions)
+	return nil
 }
 
 // newPartnerCountries lists the country codes of a new partner with the
@@ -633,12 +640,13 @@ func newPartnerCountries(in NewPartner) (fields, codes []string) {
 }
 
 // insertPartner writes a pending partner with its roles, company data,
-// addresses and sealed tax identifiers.
-func insertPartner(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, number string, in NewPartner, taxes []sealedTax) error {
+// addresses and sealed tax identifiers, and the custom field schema version
+// its extensions were checked against.
+func insertPartner(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, number string, in NewPartner, schema *int, taxes []sealedTax) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, legal_name, country_code, language,
-			status, extensions, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10, $10)`,
-		p.TenantID, id, number, in.Kind, in.Name, in.LegalName, in.CountryCode, in.Language, in.Extensions, p.ID); err != nil {
+			status, extensions, extensions_schema, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10, $11, $11)`,
+		p.TenantID, id, number, in.Kind, in.Name, in.LegalName, in.CountryCode, in.Language, in.Extensions, schema, p.ID); err != nil {
 		return fmt.Errorf("partner: insert business partner %s: %w", number, err)
 	}
 	if err := addRoles(ctx, tx, p, id, in.Roles); err != nil {
@@ -743,7 +751,11 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 	if err != nil {
 		return Change{}, err
 	}
-	if err := extensions.Check(ch.Extensions); err != nil {
+	// The partner's extensions as the change leaves them are checked against
+	// the active schema now, on every update (ADR-0046: a narrowed field
+	// applies from the next write), and the version is applied with them.
+	schema, err := ports.extensions().Check(ctx, mergepatch.Apply(bp.Extensions, ch.Extensions))
+	if err != nil {
 		return Change{}, err
 	}
 	day, err := database.Today(ctx, tx)
@@ -773,7 +785,7 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 	}
 	c, err := insertChange(ctx, tx, p, KindUpdate, partnerID, updatePayload{Name: ch.Name, LegalName: toNullable(ch.LegalName),
 		Language: toNullable(ch.Language), Roles: ch.Roles, SupplierCompanies: ch.SupplierCompanies, Addresses: ch.Addresses,
-		TaxIdentifiers: taxes, Extensions: ch.Extensions}, reason, warns, false)
+		TaxIdentifiers: taxes, Extensions: ch.Extensions, ExtensionsSchema: schema}, reason, warns, false)
 	if err != nil {
 		return Change{}, err
 	}
@@ -1008,7 +1020,8 @@ func applyUpdate(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, b
 		fields = append(fields, "extensions")
 	}
 	if _, err := tx.Exec(ctx, `UPDATE partner.business_partner SET name = $2, legal_name = $3, language = $4, extensions = $5,
-		version = version + 1, updated_by = $6 WHERE id = $1`, bp.ID, name, legal, lang, ext, p.ID); err != nil {
+		extensions_schema = coalesce($7, extensions_schema), version = version + 1, updated_by = $6 WHERE id = $1`,
+		bp.ID, name, legal, lang, ext, p.ID, pl.ExtensionsSchema); err != nil {
 		return nil, fmt.Errorf("partner: update business partner %s: %w", bp.ID, err)
 	}
 	if pl.Roles != nil {

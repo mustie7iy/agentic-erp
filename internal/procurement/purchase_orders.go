@@ -14,7 +14,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
-	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -334,7 +333,8 @@ func (e *Endpoints) createOrder(ctx context.Context, in NewOrder) (PurchaseOrder
 	if in.Extensions == nil {
 		in.Extensions = map[string]any{}
 	}
-	if err := extensions.Check(in.Extensions); err != nil {
+	schema, err := e.extensions().Check(ctx, in.Extensions)
+	if err != nil {
 		return PurchaseOrder{}, err
 	}
 	req, err := orderedRequisition(ctx, tx, &in, le.ID)
@@ -359,10 +359,10 @@ func (e *Endpoints) createOrder(ctx context.Context, in NewOrder) (PurchaseOrder
 	}
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.purchase_order (tenant_id, id, document_number, legal_entity_id, purchasing_org_id, supplier_id,
-			currency, order_date, payment_term_code, requisition_id, contract_id, status, extensions, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'draft', $12, $13, $13)`,
+			currency, order_date, payment_term_code, requisition_id, contract_id, status, extensions, extensions_schema, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'draft', $12, $13, $14, $14)`,
 		p.TenantID, id, number, le.ID, in.PurchasingOrgID, in.SupplierID, in.Currency, in.OrderDate, term, in.RequisitionID, in.ContractID,
-		in.Extensions, p.ID); err != nil {
+		in.Extensions, schema, p.ID); err != nil {
 		return PurchaseOrder{}, fmt.Errorf("procurement: create purchase order %s: %w", number, err)
 	}
 	if err := writeOrderItems(ctx, tx, p.TenantID, id, items, false); err != nil {
@@ -450,6 +450,12 @@ func (e *Endpoints) updateOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 		return PurchaseOrder{}, err
 	}
 	org, contract, supplier, currency, orderDate, term, ext := f.org, f.contract, f.supplier, f.currency, f.orderDate, o.PaymentTermCode, f.ext
+	// Every update checks the order's extensions as it leaves them
+	// (ADR-0046: a narrowed field applies from the next write).
+	schema, err := e.extensions().Check(ctx, ext)
+	if err != nil {
+		return PurchaseOrder{}, err
+	}
 	le, err := e.legalEntity(ctx, o.LegalEntityID)
 	if err != nil {
 		return PurchaseOrder{}, err
@@ -475,8 +481,8 @@ func (e *Endpoints) updateOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 		return PurchaseOrder{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order SET purchasing_org_id = $2, supplier_id = $3, currency = $4, order_date = $5,
-		payment_term_code = $6, contract_id = $7, extensions = $8, version = version + 1, updated_by = $9 WHERE id = $1`,
-		id, org, supplier, currency, orderDate, term, contract, ext, p.ID); err != nil {
+		payment_term_code = $6, contract_id = $7, extensions = $8, extensions_schema = $10, version = version + 1, updated_by = $9 WHERE id = $1`,
+		id, org, supplier, currency, orderDate, term, contract, ext, p.ID, schema); err != nil {
 		return PurchaseOrder{}, fmt.Errorf("procurement: update purchase order %s: %w", id, err)
 	}
 	updated, err := getOrder(ctx, tx, id, false)
@@ -496,7 +502,7 @@ type orderHeaderFields struct {
 }
 
 // changedOrderHeader applies a change to the order's header fields; a new
-// currency needs new items, and the merged extensions must be valid.
+// currency needs new items; the caller checks the merged extensions.
 func changedOrderHeader(o PurchaseOrder, ch OrderChange) (orderHeaderFields, error) {
 	f := orderHeaderFields{org: o.PurchasingOrgID, contract: o.ContractID, supplier: o.SupplierID, currency: o.Currency, orderDate: o.OrderDate, ext: o.Extensions}
 	if ch.PurchasingOrg {
@@ -519,9 +525,6 @@ func changedOrderHeader(o PurchaseOrder, ch OrderChange) (orderHeaderFields, err
 	}
 	if ch.Extensions != nil {
 		f.ext = mergepatch.Apply(f.ext, ch.Extensions)
-		if err := extensions.Check(f.ext); err != nil {
-			return orderHeaderFields{}, err
-		}
 	}
 	return f, nil
 }

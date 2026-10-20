@@ -24,6 +24,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -99,6 +100,7 @@ type Endpoints struct {
 	PaymentMethods PaymentMethods
 	Keys           *fieldcrypt.Keyring
 	Approvals      Opener
+	Schemas        extensions.Schemas // the tenant's custom field schemas (configuration context)
 }
 
 // Ports are the other contexts and keys requests are checked and sealed with.
@@ -107,10 +109,17 @@ type Ports struct {
 	Accounts       Accounts
 	PaymentMethods PaymentMethods
 	Keys           *fieldcrypt.Keyring
+	Schemas        extensions.Schemas
 }
 
 func (e *Endpoints) ports() Ports {
-	return Ports{LegalEntities: e.LegalEntities, Accounts: e.Accounts, PaymentMethods: e.PaymentMethods, Keys: e.Keys}
+	return Ports{LegalEntities: e.LegalEntities, Accounts: e.Accounts, PaymentMethods: e.PaymentMethods, Keys: e.Keys, Schemas: e.Schemas}
+}
+
+// extensions checks a business partner's custom fields; the partners they
+// refer to are this context's own.
+func (p Ports) extensions() extensions.Writes {
+	return extensions.Writes{Entity: "business_partner", Schemas: p.Schemas, References: References{}}
 }
 
 // Date is a calendar date as PostgreSQL renders it in JSON.

@@ -9,6 +9,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
+	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 )
@@ -74,7 +75,7 @@ func TestRequestApproval(t *testing.T) {
 	f := fixture.New(t, perms...)
 	var c partner.Change
 	err := apitest.Committed(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) (err error) {
-		_, c, err = partner.CreatePartner(ctx, partner.Ports{LegalEntities: nil, Keys: apitest.FieldKeys()},
+		_, c, err = partner.CreatePartner(ctx, partner.Ports{LegalEntities: nil, Keys: apitest.FieldKeys(), Schemas: configuration.Settings{}},
 			partner.NewPartner{Kind: "person", Name: "Instant", CountryCode: "DE", Roles: []string{"customer"}, Reason: "r"})
 		return err
 	})

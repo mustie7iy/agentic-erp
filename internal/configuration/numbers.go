@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -53,6 +54,31 @@ type Settings struct{}
 // Document returns the active configuration and its version number; a
 // tenant without one is 409 config.not_bootstrapped.
 func (Settings) Document(ctx context.Context) (*config.Config, int32, error) {
+	c, n, err := active(ctx)
+	if err == nil && c == nil {
+		err = problem.Conflict("config.not_bootstrapped", "The tenant has no configuration yet.")
+	}
+	return c, n, err
+}
+
+// Schema returns the entity's custom field schema in the active
+// configuration (extensions.Schemas), nil when the tenant declares none,
+// a tenant without a configuration included: it has no custom fields.
+func (Settings) Schema(ctx context.Context, entity string) (*extensions.Schema, error) {
+	c, _, err := active(ctx)
+	if err != nil || c == nil {
+		return nil, err
+	}
+	s, ok := c.Extensions[entity]
+	if !ok {
+		return nil, nil
+	}
+	return &s, nil
+}
+
+// active reads the active configuration and its version number, nil for a
+// tenant without one.
+func active(ctx context.Context) (*config.Config, int32, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, 0, err
@@ -62,7 +88,7 @@ func (Settings) Document(ctx context.Context) (*config.Config, int32, error) {
 	err = tx.QueryRow(ctx, `SELECT v.document, v.number FROM config.active_version a JOIN config.config_version v ON v.tenant_id = a.tenant_id AND v.number = a.number`).
 		Scan(&doc, &n)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, 0, problem.Conflict("config.not_bootstrapped", "The tenant has no configuration yet.")
+		return nil, 0, nil
 	}
 	if err != nil {
 		return nil, 0, fmt.Errorf("configuration: read the active configuration: %w", err)

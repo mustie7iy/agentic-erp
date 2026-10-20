@@ -170,6 +170,8 @@ type Endpoints struct {
 	Numbers       Numbers
 	Calendar      Calendar
 	Settings      Settings
+	Schemas       extensions.Schemas    // the tenant's custom field schemas (configuration context)
+	References    extensions.References // what custom fields refer to (partner context)
 	Rates         Rates
 	Approvals     Opener
 	Payments      Payments
@@ -332,6 +334,14 @@ type checked struct {
 	purchaseOrder *uuid.UUID
 	items         []Item
 	kind          string
+	// extensionsSchema is the custom field schema version the extensions
+	// were checked against, written with the invoice.
+	extensionsSchema *int
+}
+
+// extensions checks a supplier invoice's custom fields (ADR-0046).
+func (e *Endpoints) extensions() extensions.Writes {
+	return extensions.Writes{Entity: "supplier_invoice", Schemas: e.Schemas, References: e.References}
 }
 
 func invalid(code, field, message string) error {
@@ -346,10 +356,11 @@ func (e *Endpoints) validate(ctx context.Context, tx pgx.Tx, in Input) (checked,
 	if err != nil {
 		return checked{}, err
 	}
-	if err := extensions.Check(in.Extensions); err != nil {
+	schema, err := e.extensions().Check(ctx, in.Extensions)
+	if err != nil {
 		return checked{}, err
 	}
-	c := checked{currency: in.Gross.Currency, purchaseOrder: in.PurchaseOrderID}
+	c := checked{currency: in.Gross.Currency, purchaseOrder: in.PurchaseOrderID, extensionsSchema: schema}
 	exp, err := currencyExponent(ctx, tx, c.currency, "gross_amount.currency")
 	if err != nil {
 		return checked{}, err

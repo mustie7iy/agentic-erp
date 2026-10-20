@@ -28,7 +28,7 @@ import (
 func endpoints() *procurement.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
 	return &procurement.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{}, Accounts: ledger.Accounts{},
-		Numbers: configuration.Numbers{}, Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}}, Settings: configuration.Settings{},
+		Numbers: configuration.Numbers{}, Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}}, Settings: configuration.Settings{}, Schemas: configuration.Settings{}, References: partner.References{},
 		Approvals: fixture.Approvals(), Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}}}
 }
 
@@ -409,13 +409,23 @@ func TestEdges(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// Custom fields merge recursively.
-	o := e.order(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), `, "extensions": {"routing": {"desk": "north", "floor": 2}}`)
-	upd, _ := e.Must(200, "PATCH", "/v1/purchase-orders/"+id(o), `{"extensions": {"routing": {"floor": null}}}`, `"1"`)
-	if fmt.Sprint(upd["extensions"]) != "map[routing:map[desk:north]]" {
+	// Custom fields merge as a merge patch: null removes a key.
+	o := e.order(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), `, "extensions": {"cost_center": "north", "project": "P2"}`)
+	upd, _ := e.Must(200, "PATCH", "/v1/purchase-orders/"+id(o), `{"extensions": {"project": null}}`, `"1"`)
+	if fmt.Sprint(upd["extensions"]) != "map[cost_center:north]" {
 		t.Fatalf("merged: %v", upd["extensions"])
 	}
 	e.Problem(412, "request.version_mismatch", "PATCH", "/v1/purchase-orders/"+id(o), `{}`, `"1"`)
+	var schema *int
+	pgtest.Scan(t, `SELECT extensions_schema FROM procurement.purchase_order WHERE id = $1`, []any{id(o)}, &schema)
+	if schema == nil || *schema != 1 {
+		t.Errorf("order's extensions schema: got %v, want 1", schema)
+	}
+	// One field error per offending key.
+	refusal := e.Problem(422, "request.invalid_extension", "PATCH", "/v1/purchase-orders/"+id(o), `{"extensions": {"Bad": 1, "project": 2}}`, `"2"`)
+	if errs := refusal["errors"].([]any); len(errs) != 2 {
+		t.Errorf("field errors: got %v, want one for Bad and one for project", errs)
+	}
 	// A contract can be attached to a draft order.
 	c := e.contract(t, e.Supplier.String(), "")
 	e.Problem(412, "request.version_mismatch", "POST", "/v1/contracts/"+id(c)+":release", "", `"7"`)

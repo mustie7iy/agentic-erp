@@ -238,15 +238,20 @@ func TestEdgeCases(t *testing.T) {
 	}
 	pgtest.Exec(t, `DELETE FROM ledger.account_determination WHERE legal_entity_id = $1 AND key = 'input_tax'`, e.DE)
 	e.Problem(422, "payables.no_tax_account", "POST", "/v1/supplier-invoices/"+id(untaxed)+":post", "", e.tag(t, id(untaxed)))
-	// Custom fields merge recursively.
+	// Custom fields merge as a merge patch: given keys replace, null removes.
 	withExt, tag := e.Must(201, "POST", "/v1/supplier-invoices", strings.Replace(e.invoice(e.Vendor, "E-5", "1.00", "0.00", plain),
-		`"items"`, `"extensions": {"routing": {"desk": "north", "floor": 2}}, "items"`, 1), "")
-	got, _ := e.Must(200, "PATCH", "/v1/supplier-invoices/"+id(withExt), `{"extensions": {"routing": {"floor": 3}}}`, tag)
-	r := got["extensions"].(map[string]any)["routing"].(map[string]any)
-	if r["desk"] != "north" {
-		t.Errorf("merged desk: got %v, want north", r["desk"])
+		`"items"`, `"extensions": {"cost_center": "CC1", "channel": "edi"}, "items"`, 1), "")
+	got, tag := e.Must(200, "PATCH", "/v1/supplier-invoices/"+id(withExt), `{"extensions": {"cost_center": "CC2", "channel": null}}`, tag)
+	var schema *int
+	pgtest.Scan(t, `SELECT extensions_schema FROM payables.supplier_invoice WHERE id = $1`, []any{id(withExt)}, &schema)
+	if schema == nil || *schema != 1 {
+		t.Errorf("invoice's extensions schema: got %v, want 1", schema)
 	}
-	if r["floor"] != float64(3) {
-		t.Errorf("merged floor: got %v, want 3", r["floor"])
+	bad := e.Problem(422, "request.invalid_extension", "PATCH", "/v1/supplier-invoices/"+id(withExt), `{"extensions": {"Bad": 1, "channel": 2}}`, tag)
+	if errs := bad["errors"].([]any); len(errs) != 2 {
+		t.Errorf("field errors: got %v, want one for Bad and one for channel", errs)
+	}
+	if r := got["extensions"].(map[string]any); len(r) != 1 || r["cost_center"] != "CC2" {
+		t.Errorf("merged: got %v, want map[cost_center:CC2]", r)
 	}
 }
