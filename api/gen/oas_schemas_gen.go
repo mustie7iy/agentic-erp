@@ -7552,12 +7552,14 @@ type Connector struct {
 	// Name, unique per tenant.
 	Name string `json:"name"`
 	// Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port`
-	// (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory`
-	// (absolute); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A
-	// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
-	// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
-	// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
-	// `integration.ebics_not_certified`.
+	// (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory`
+	// (absolute) and, for a bank that leaves statements there, `statements_directory` and
+	// `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first
+	// and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there
+	// are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https),
+	// `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys.
+	// EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics`
+	// connector there answers 422 `integration.ebics_not_certified`.
 	Settings ConnectorSettings `json:"settings"`
 	// Vault path of the credentials.
 	SecretRef OptString `json:"secret_ref"`
@@ -7685,11 +7687,13 @@ type ConnectorCreate struct {
 	// Name, unique per tenant.
 	Name string `json:"name"`
 	// Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22),
-	// `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory` (absolute);
-	// its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics`
-	// connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS
-	// 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified
-	// with a bank: creating or enabling a `bank_ebics` connector there answers 422
+	// `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and,
+	// for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute,
+	// both or neither, not the same: statements are fetched from the first and moved to the second once
+	// imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A
+	// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
+	// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
+	// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
 	// `integration.ebics_not_certified`.
 	Settings ConnectorCreateSettings `json:"settings"`
 	// Vault path of the credentials.
@@ -7737,11 +7741,13 @@ func (s *ConnectorCreate) SetSecretRef(val OptString) {
 }
 
 // Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22),
-// `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory` (absolute);
-// its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics`
-// connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS
-// 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified
-// with a bank: creating or enabling a `bank_ebics` connector there answers 422
+// `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and,
+// for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute,
+// both or neither, not the same: statements are fetched from the first and moved to the second once
+// imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A
+// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
+// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
+// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
 // `integration.ebics_not_certified`.
 type ConnectorCreateSettings map[string]jx.Raw
 
@@ -7930,12 +7936,14 @@ func (s *ConnectorPageHeaders) SetResponse(val ConnectorPage) {
 func (*ConnectorPageHeaders) listConnectorsRes() {}
 
 // Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port`
-// (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory`
-// (absolute); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A
-// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
-// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
-// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
-// `integration.ebics_not_certified`.
+// (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory`
+// (absolute) and, for a bank that leaves statements there, `statements_directory` and
+// `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first
+// and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there
+// are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https),
+// `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys.
+// EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics`
+// connector there answers 422 `integration.ebics_not_certified`.
 type ConnectorSettings map[string]jx.Raw
 
 func (s *ConnectorSettings) init() ConnectorSettings {
@@ -7953,11 +7961,13 @@ type ConnectorUpdate struct {
 	// Name.
 	Name OptString `json:"name"`
 	// Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22),
-	// `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory` (absolute);
-	// its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics`
-	// connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS
-	// 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified
-	// with a bank: creating or enabling a `bank_ebics` connector there answers 422
+	// `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and,
+	// for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute,
+	// both or neither, not the same: statements are fetched from the first and moved to the second once
+	// imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A
+	// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
+	// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
+	// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
 	// `integration.ebics_not_certified`.
 	Settings OptConnectorUpdateSettings `json:"settings"`
 	// Vault path of the credentials. Send null to clear.
@@ -7995,11 +8005,13 @@ func (s *ConnectorUpdate) SetSecretRef(val OptNilString) {
 }
 
 // Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22),
-// `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory` (absolute);
-// its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics`
-// connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS
-// 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified
-// with a bank: creating or enabling a `bank_ebics` connector there answers 422
+// `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and,
+// for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute,
+// both or neither, not the same: statements are fetched from the first and moved to the second once
+// imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A
+// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
+// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
+// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
 // `integration.ebics_not_certified`.
 type ConnectorUpdateSettings map[string]jx.Raw
 

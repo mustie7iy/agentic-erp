@@ -21,8 +21,8 @@ Canadian bank may only offer BAI2.
   ledger's published ports, as payments already do.
 - **Intake.** By upload, `POST /v1/bank-statements` naming the format and
   the house bank, and by SFTP fetch from the house bank's channel (the
-  `bank_sftp` connector of ADR-0038): a Temporal schedule per bank fetches
-  new files, imports each and moves it to an archive directory on the
+  `bank_sftp` connector of ADR-0038): a workflow per bank and period
+  (T49d) fetches new files, imports each and moves it to an archive directory on the
   server only after the import committed, so a lost acknowledgement fetches
   the file again and the import recognises it.
 - **Formats.** camt.053.001.02 and .001.08, and MT940, parsed in pure Go
@@ -166,6 +166,38 @@ Canadian bank may only offer BAI2.
   agent's import is refused with 403 `identity.agent_not_allowed` by the
   handler: `x-agent: false` would refuse integrations' service principals
   too.
+- SFTP fetch (T49d, 000107): a `bank_sftp` connector names the
+  directory the bank leaves statements in and the one they are moved to
+  (`statements_directory`, `statements_archive`: both or neither,
+  absolute, not the same). The workflow dispatcher starts, once per
+  `ERP_STATEMENT_FETCH_INTERVAL` (default 1h, 0 none) and active house bank
+  on such a channel, the `FetchBankStatements` workflow under an id naming
+  the bank and the period, so replicas start each once; this is the repo's
+  workflow pattern rather than a Temporal Schedule, which would need its
+  own lifecycle per bank as channels change. The workflow lists the
+  directory (hidden files are files still being written), and per file
+  reads it (at most 4 MB), imports it through the upload's path as the
+  fetcher (a system principal acting for the bank's company; the format
+  told by the content: XML is camt.053), and once the import committed moves
+  it to the archive under its name prefixed with its hash. What became of
+  each file is recorded once per house bank and content
+  (`payments.statement_fetch`: `imported`, `archived`, `refused` with the
+  import's reason), so a file imported and not yet moved when a fetch was
+  cut short is moved by the next one, never imported again; a move whose
+  acknowledgement was lost finds its target there; the same file
+  delivered again is removed once its archived copy is there. A file the
+  import refuses (unreadable, too large, a statement of another file) is
+  recorded once with `BankStatementFileRefused` and left in the directory
+  for a person to take up with the bank; a statement of another house
+  bank's account (a directory several banks share) is left for that bank.
+  Each activity is retried (5 attempts); a file's failure does not stop the
+  others, and the workflow then fails naming the files the next fetch
+  takes again. The channel resolves as for a transmission and fails
+  closed: an inactive bank, a disabled connector, a key that does not
+  resolve or a channel without statement directories fail the fetch
+  without retries. The gauges `erp_bank_statement_files_refused` and
+  `erp_bank_statement_files_unarchived` (imported over an hour ago and not
+  yet moved) show what needs a person.
 - Steps: a ADR, configuration and the house bank's columns · b parsers ·
   c tables, upload, idempotency and continuity · d SFTP fetch · e rule
   matching · f posting, clearing, approval and period locks · g agent

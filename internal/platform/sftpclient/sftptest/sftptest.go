@@ -32,6 +32,9 @@ type Server struct {
 	FailOpen    bool
 	FailWrite   bool
 	FailRename  bool
+	FailRemove  bool
+	FailList    bool // listing a directory
+	FailRead    bool // reading a file's content
 
 	listener  net.Listener
 	clientKey ssh.PublicKey
@@ -150,15 +153,44 @@ func (s *Server) session(conn net.Conn, cfg *ssh.ServerConfig) {
 // handlers are the in-memory file system with the failures asked for.
 func (s *Server) handlers() sftp.Handlers {
 	h := s.files
-	h.FilePut, h.FileCmd = failing{s, h.FilePut, h.FileCmd}, failing{s, h.FilePut, h.FileCmd}
+	f := failing{s, h.FilePut, h.FileCmd, h.FileList, h.FileGet}
+	h.FilePut, h.FileCmd, h.FileList, h.FileGet = f, f, f, f
 	return h
 }
 
 type failing struct {
-	s   *Server
-	put sftp.FileWriter
-	cmd sftp.FileCmder
+	s    *Server
+	put  sftp.FileWriter
+	cmd  sftp.FileCmder
+	list sftp.FileLister
+	get  sftp.FileReader
 }
+
+func (f failing) Filelist(r *sftp.Request) (sftp.ListerAt, error) {
+	if f.s.FailList && r.Method == "List" {
+		return nil, errors.New("permission denied")
+	}
+	l, err := f.list.Filelist(r)
+	if err != nil {
+		return nil, fmt.Errorf("sftptest: %s %s: %w", r.Method, r.Filepath, err)
+	}
+	return l, nil
+}
+
+func (f failing) Fileread(r *sftp.Request) (io.ReaderAt, error) {
+	ra, err := f.get.Fileread(r)
+	if err != nil {
+		return nil, fmt.Errorf("sftptest: open %s: %w", r.Filepath, err)
+	}
+	if f.s.FailRead {
+		return badReader{}, nil
+	}
+	return ra, nil
+}
+
+type badReader struct{}
+
+func (badReader) ReadAt([]byte, int64) (int, error) { return 0, errors.New("connection reset") }
 
 func (f failing) Filewrite(r *sftp.Request) (io.WriterAt, error) {
 	if f.s.FailOpen {
@@ -177,6 +209,9 @@ func (f failing) Filewrite(r *sftp.Request) (io.WriterAt, error) {
 func (f failing) Filecmd(r *sftp.Request) error {
 	if f.s.FailRename && r.Method == "Rename" {
 		return errors.New("rename refused")
+	}
+	if f.s.FailRemove && r.Method == "Remove" {
+		return errors.New("remove refused")
 	}
 	if err := f.cmd.Filecmd(r); err != nil {
 		return fmt.Errorf("sftptest: %s %s: %w", r.Method, r.Filepath, err)
@@ -200,4 +235,27 @@ func (s *Server) Read(tb testing.TB, path string) (string, bool) {
 	buf := make([]byte, 64<<10)
 	n, _ := ra.ReadAt(buf, 0) // io.EOF after a short file
 	return string(buf[:n]), true
+}
+
+// Put writes a file to the server's file system, as the bank leaves one;
+// its directory must exist (Mkdir).
+func (s *Server) Put(tb testing.TB, path, content string) {
+	tb.Helper()
+	r := sftp.NewRequest("Put", path)
+	r.Flags = 0x02 | 0x08 | 0x10 // SSH_FXF_WRITE, CREAT and TRUNC
+	w, err := s.files.FilePut.Filewrite(r)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	if _, err := w.WriteAt([]byte(content), 0); err != nil {
+		tb.Fatal(err)
+	}
+}
+
+// Mkdir makes a directory on the server's file system.
+func (s *Server) Mkdir(tb testing.TB, path string) {
+	tb.Helper()
+	if err := s.files.FileCmd.Filecmd(sftp.NewRequest("Mkdir", path)); err != nil {
+		tb.Fatal(err)
+	}
 }

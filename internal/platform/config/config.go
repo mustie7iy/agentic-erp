@@ -224,6 +224,10 @@ type Temporal struct {
 	// 48h; 0 disables escalation), Escalations how often (ERP_APPROVAL_ESCALATIONS, default 3).
 	EscalateAfter time.Duration
 	Escalations   int
+	// StatementFetch is the period of each house bank's statement fetch
+	// from its bank channel (ERP_STATEMENT_FETCH_INTERVAL, default 1h; 0
+	// fetches none; ADR-0047).
+	StatementFetch time.Duration
 }
 
 // Load reads and validates the configuration. The settings in
@@ -551,6 +555,9 @@ func (l *loader) temporal(c *Config) {
 	}
 	if c.Temporal.EscalateAfter, err = time.ParseDuration(get("ERP_APPROVAL_ESCALATE_AFTER", "48h")); err != nil || c.Temporal.EscalateAfter < 0 {
 		l.errs = append(l.errs, errors.New("ERP_APPROVAL_ESCALATE_AFTER must be a duration such as 48h, or 0 not to escalate"))
+	}
+	if c.Temporal.StatementFetch, err = time.ParseDuration(get("ERP_STATEMENT_FETCH_INTERVAL", "1h")); err != nil || c.Temporal.StatementFetch < 0 {
+		l.errs = append(l.errs, errors.New("ERP_STATEMENT_FETCH_INTERVAL must be a duration such as 1h, or 0 not to fetch statements"))
 	}
 	// The deadline workflow counts escalations in an int16 and stores them in a
 	// smallint, so a larger setting would wrap rather than escalate further.

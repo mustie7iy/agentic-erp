@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -83,4 +84,25 @@ func (b BankChannels) signer(ctx context.Context, ref string) (ssh.Signer, error
 		return nil, problem.Unprocessable("integration.secret_unavailable", "The bank channel's secret ("+ref+") is not a private key.").WithCause(err)
 	}
 	return s, nil
+}
+
+// TenantConnector is a connector of a tenant.
+type TenantConnector struct {
+	TenantID, ID uuid.UUID
+}
+
+// StatementChannels are the active bank channels that name statement
+// directories, across tenants as the worker role reads them: the
+// dispatcher fetches the statements of their house banks (T49d).
+func StatementChannels(ctx context.Context, tx pgx.Tx) (map[TenantConnector]bool, error) {
+	rows, _ := tx.Query(ctx, `SELECT tenant_id, id FROM integration.connector WHERE kind = $1 AND status = 'active' AND settings ? 'statements_directory'`, BankSFTP)
+	list, err := pgx.CollectRows(rows, pgx.RowToStructByPos[TenantConnector])
+	if err != nil {
+		return nil, fmt.Errorf("integration: list the bank channels with statements: %w", err)
+	}
+	out := make(map[TenantConnector]bool, len(list))
+	for _, c := range list {
+		out[c] = true
+	}
+	return out, nil
 }

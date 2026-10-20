@@ -126,7 +126,7 @@ func checkSFTPSettings(settings map[string]any) error {
 // client's key.
 func sftpEndpoint(settings map[string]any) (sftpclient.Endpoint, error) {
 	for k := range settings {
-		if !slices.Contains([]string{"host", "port", "user", "host_key", "directory"}, k) {
+		if !slices.Contains([]string{"host", "port", "user", "host_key", "directory", "statements_directory", "statements_archive"}, k) {
 			return sftpclient.Endpoint{}, invalid("integration.invalid_settings", "settings."+k, "Not a bank_sftp setting; credentials go in secret_ref.")
 		}
 	}
@@ -150,7 +150,32 @@ func sftpEndpoint(settings map[string]any) (sftpclient.Endpoint, error) {
 	if !path.IsAbs(dir) {
 		return sftpclient.Endpoint{}, invalid("integration.invalid_settings", "settings.directory", "The absolute directory the bank collects files from.")
 	}
-	return sftpclient.Endpoint{Addr: net.JoinHostPort(host, strconv.Itoa(port)), User: user, HostKey: key, Dir: dir}, nil
+	inbound, archive, err := statementDirs(settings)
+	if err != nil {
+		return sftpclient.Endpoint{}, err
+	}
+	return sftpclient.Endpoint{Addr: net.JoinHostPort(host, strconv.Itoa(port)), User: user, HostKey: key, Dir: dir, Inbound: inbound, Archive: archive}, nil
+}
+
+// statementDirs are the directories the bank leaves statements in and
+// they are moved to once imported (T49d, ADR-0047): both or neither, each
+// absolute, and not the same, so an archived file is never fetched again.
+func statementDirs(settings map[string]any) (inbound, archive string, err error) {
+	_, hasIn := settings["statements_directory"]
+	_, hasArchive := settings["statements_archive"]
+	if !hasIn && !hasArchive {
+		return "", "", nil
+	}
+	inbound, _ = settings["statements_directory"].(string) // not a string: "", which is not absolute
+	archive, _ = settings["statements_archive"].(string)   // as inbound
+	if !path.IsAbs(inbound) {
+		return "", "", invalid("integration.invalid_settings", "settings.statements_directory", "The absolute directory the bank leaves statements in, with statements_archive.")
+	}
+	if !path.IsAbs(archive) || path.Clean(archive) == path.Clean(inbound) {
+		return "", "", invalid("integration.invalid_settings", "settings.statements_archive",
+			"The absolute directory imported statements are moved to, not statements_directory.")
+	}
+	return path.Clean(inbound), path.Clean(archive), nil
 }
 
 // sftpPort is the settings' port, 22 when left out.

@@ -3204,3 +3204,40 @@ func TestBankStatementSchema(t *testing.T) {
 	}
 	mustApp(t, f.tenant, with(func(s *stmt) { s.key, s.position, s.status, s.previous = "K2", 2, "gap", &first }))
 }
+
+// TestStatementFetchSchema: a fetched file is recorded once per house bank
+// and content, with its name, in a known status, and a reason exactly when
+// refused (T49d, ADR-0047).
+func TestStatementFetchSchema(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	hb := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `INSERT INTO payments.house_bank (tenant_id, id, legal_entity_id, code, name, iban_cipher, iban_last4, bic, currency, gl_account_id, active_gl_account_id, status, created_by, updated_by)
+			VALUES ($1,$2,$3,'MAIN','Main','\x00','5555','BUKBGB22','USD',$4,$4,'active',$5,$5)`, f.tenant, hb, f.entity, f.bank, f.actor)
+	})
+	fetch := func(bank uuid.UUID, sum, name, status string, reason any) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.statement_fetch (tenant_id, id, house_bank_id, file_sha256, file_name, status, reason, created_by, updated_by)
+				VALUES ($1,$2,$3,decode($4, 'hex'),$5,$6,$7,$8,$8)`, f.tenant, id(), bank, sum, name, status, reason, f.actor)
+		}
+	}
+	sum := strings.Repeat("ab", 32)
+	mustApp(t, f.tenant, fetch(hb, sum, "a.sta", "imported", nil))
+	for _, c := range []struct {
+		name  string
+		write func(tx pgx.Tx) error
+		fails string
+	}{
+		{"the same file again", fetch(hb, sum, "b.sta", "imported", nil), "statement_fetch_file_once"},
+		{"a short hash", fetch(hb, "ab", "b.sta", "imported", nil), "statement_fetch_file_sha256_check"},
+		{"no name", fetch(hb, strings.Repeat("cd", 32), "", "imported", nil), "statement_fetch_file_name_check"},
+		{"another status", fetch(hb, strings.Repeat("cd", 32), "b.sta", "posted", nil), "statement_fetch_status_check"},
+		{"refused without a reason", fetch(hb, strings.Repeat("cd", 32), "b.sta", "refused", nil), "statement_fetch_reason"},
+		{"a reason without a refusal", fetch(hb, strings.Repeat("cd", 32), "b.sta", "archived", "x"), "statement_fetch_reason"},
+		{"no such house bank", fetch(id(), strings.Repeat("cd", 32), "b.sta", "imported", nil), "statement_fetch_tenant_id_house_bank_id_fkey"},
+	} {
+		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, c.write), c.fails) })
+	}
+	mustApp(t, f.tenant, fetch(hb, strings.Repeat("cd", 32), "b.sta", "refused", "unreadable"))
+}

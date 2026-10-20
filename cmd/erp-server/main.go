@@ -599,10 +599,10 @@ func (s *server) startOperations(runCtx context.Context) {
 	s.spawnCritical("workflow worker", func() error {
 		return engine.Worker(runCtx, cfg.Temporal.TaskQueue, func(r workflow.Registry) {
 			workflows.Register(r, activities, &workflows.Simulations{Worker: s.simulator}, &workflows.Migrations{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Integration(apiCfg), Actors: identity.Actors{}},
-				&workflows.Approvals{Pool: pool, AppRole: cfg.AppRole})
+				&workflows.Approvals{Pool: pool, AppRole: cfg.AppRole}, &workflows.Statements{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Payments(apiCfg)})
 		})
 	})
-	dispatcher := &workflows.Dispatcher{Deadline: cfg.Temporal.EscalateAfter, Escalations: cfg.Temporal.Escalations, Pool: pool, WorkerRole: cfg.WorkerRole, Client: engine, Queue: cfg.Temporal.TaskQueue, Interval: dispatchInterval, Log: log}
+	dispatcher := &workflows.Dispatcher{Deadline: cfg.Temporal.EscalateAfter, Escalations: cfg.Temporal.Escalations, Pool: pool, WorkerRole: cfg.WorkerRole, Client: engine, Queue: cfg.Temporal.TaskQueue, Interval: dispatchInterval, Statements: cfg.Temporal.StatementFetch, Log: log}
 	s.spawn("dispatcher", func() { dispatcher.Run(runCtx) })
 }
 
@@ -967,6 +967,10 @@ func backlogs(pool *database.Pool, cfg config.Config, m *telemetry.Metrics) {
 			WHERE o.kind = $1 AND r.status = 'proposing' AND o.status IN ('queued', 'cancelled')`, payments.ProposeKind))
 	m.Gauge("erp_simulations_queued", "Configuration simulations waiting for the worker.",
 		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM platform.operation WHERE kind = $1 AND status = 'queued'`, configuration.SimulateKind))
+	m.Gauge("erp_bank_statement_files_refused", "Statement files fetched from bank channels that the import refused, left for a person (ADR-0047).",
+		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM payments.statement_fetch WHERE status = 'refused'`))
+	m.Gauge("erp_bank_statement_files_unarchived", "Statement files imported from bank channels for over an hour and not yet moved to the archive directory.",
+		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM payments.statement_fetch WHERE status = 'imported' AND updated_at < now() - interval '1 hour'`))
 	m.Gauge("erp_audit_chains_unanchored", "Tenants whose audit chain head moved since its last anchor.",
 		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM audit.chain_head h
 			WHERE h.seq > coalesce((SELECT max(x.seq) FROM audit.anchor x WHERE x.tenant_id = h.tenant_id), 0)`))

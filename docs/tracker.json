@@ -869,9 +869,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "SFTP fetch per house bank on a Temporal schedule, archived after import",
-        "r": "T49d",
+        "s": "D",
+        "t": "SFTP fetch per house bank once per period (dispatcher-started workflow), each file imported through the upload's path and archived after import; fetched files recorded once (imported, archived, refused), refusals reported once, per-file failures do not stop the others",
+        "r": "db/migrations/000107 · payments.statement_fetch · bank_sftp statements_directory/statements_archive · FetchBankStatements · ERP_STATEMENT_FETCH_INTERVAL · BankStatementFileRefused · erp_bank_statement_files_refused/unarchived · T49d",
         "c": []
        },
        {
