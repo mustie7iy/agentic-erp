@@ -145,9 +145,23 @@ which would make a cell's series grow with its customers. T54 closes this.
   cmd/erp-server's `TestRulesUseCatalog` holds the rules to the catalog
   (`Metrics.Series`): only series the cell exports, labels they carry,
   and catalog labels in groupings and annotations.
-  **Dashboards** (T54f) are code: Grafana JSON in the repository, whose
-  PromQL is linted against the catalog so a panel cannot name a metric or
-  label that does not exist.
+  **Dashboards** (T54f) are code: plain Grafana JSON in
+  `deploy/helm/erp-cell/dashboards/` (no generator), one ConfigMap each
+  labelled `grafana_dashboard: "1"`, which the add-on's dashboards sidecar
+  watches in every namespace and writes to files Grafana's file provider
+  rereads (no reload API, so no admin). The cell overview (traffic, errors,
+  latency per class, saturation as 429s and work waiting, outbox and
+  projection lag), the SLOs and error budget (burn rates of the recorded
+  ratios), one per context (ledger, payables, payments, procurement,
+  identity) and agents (tokens, cost, latency, override rate). Each has
+  the stable UID `erp-<file>` and names no datasource, so the default (the
+  cell's Prometheus) serves it. cmd/erp-server's `TestDashboardsUseCatalog`
+  parses every panel's PromQL with Prometheus' own parser (the version
+  promtool is pinned at) and refuses a series the cell does not export or
+  the rules do not record, a label the series does not carry or the
+  catalog does not hold, and a value outside a closed list (contexts,
+  classes, statuses, token kinds, decisions), so a panel cannot name a
+  metric or label that does not exist.
 - **Logs and traces** (T54g): logs to CloudWatch, kept 90 days; traces to
   X-Ray, 5% of requests sampled plus every request that failed.
 

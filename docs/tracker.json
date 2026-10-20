@@ -5126,6 +5126,24 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Dashboards as code: plain Grafana JSON (cell overview: traffic, errors, latency per class, saturation, outbox and projection lag; SLOs and error budget from the recording rules; ledger, payables, payments, procurement, identity; agents: tokens, cost, latency, override rate), one ConfigMap each that Grafana's watching dashboards sidecar loads by grafana_dashboard=1; stable UIDs erp-<file>, no datasource but the default; TestDashboardsUseCatalog parses every panel's PromQL (Prometheus 3.15's parser) against the series the cell exports, the SLO rules' recorded series, the catalog's labels and closed label values; helm-checks renders them. actionlint 1.7.12 pinned by SHA-256 lints the workflows in deploy-checks",
+        "r": "deploy/helm/erp-cell/dashboards · templates/dashboards.yaml · cmd/erp-server/dashboards_test.go · kube-prometheus-stack.yaml sidecar · scripts/helm-checks.sh · scripts/deploy-checks.sh · deploy.yml · ADR-0043 · T54f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "CPU and memory saturation on the cell overview: the catalog has no process or container series (the add-on's own Kubernetes dashboards show them); export process metrics or admit kube-state/cAdvisor series to the dashboard lint",
+        "r": "ADR-0043 · T54f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Fix the flaky payments TestProposeReleaseTransmit (\"worker did 2 jobs\" under -race/-shuffle)",
+        "r": "internal/payments · T54f",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "Decide Alertmanager's receivers (PO): set erp/<cell>/alertmanager-receivers' erp-alerts and erp-heartbeat (the dead man's switch's outside service) to the chosen integrations, and whether severity=page and ticket go to different ones",
         "r": "ADR-0043 · T54d",

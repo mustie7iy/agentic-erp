@@ -16,7 +16,9 @@
 #     pass deploy/helm/policy (non-root, read-only, digests, budgets,
 #     default deny); the workflow engine's configuration it renders must be
 #     one erp-temporal accepts (check-config, built from temporal/); its
-#     SLO rules pass promtool's checks and unit tests (rules/);
+#     SLO rules pass promtool's checks and unit tests (rules/); its
+#     dashboards (dashboards/) render as the ConfigMaps Grafana's sidecar
+#     loads;
 #   - deploy/helm/erp-global likewise, its router reading the PROXY header
 #     from, and taking public connections from, the load balancer's
 #     subnets alone, ready only once the load balancer finds it healthy;
@@ -192,6 +194,11 @@ grafana = one("Deployment", "erp-monitoring-grafana")["spec"]["template"]["spec"
 env = {e["name"]: e.get("value") for c in grafana for e in c.get("env", [])}
 if env.get("GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION") != "true":
     fail("Grafana creates an admin of its own")
+# The dashboards' sidecar keeps watching (not only an init container at
+# start) for erp-cell's ConfigMaps by the label they carry.
+sidecar = {e["name"]: e.get("value") for c in grafana if c["name"].endswith("-sc-dashboard") for e in c.get("env", [])}
+if (sidecar.get("LABEL"), sidecar.get("LABEL_VALUE"), sidecar.get("NAMESPACE")) != ("grafana_dashboard", "1", "ALL"):
+    fail("Grafana's dashboards sidecar must load grafana_dashboard=1 ConfigMaps from every namespace, got %s" % sidecar)
 ini = one("ConfigMap", "erp-monitoring-grafana")["data"]["grafana.ini"]
 for want in ("[auth.generic_oauth]", "disable_login_form = true", "role_attribute_strict = true", "client_secret = $__file{"):
     if want not in ini:
@@ -283,6 +290,12 @@ rules = [d for d in docs if d["kind"] == "PrometheusRule" and d["metadata"]["nam
 if len(rules) != 1:
     sys.exit("helm-checks: erp-cell renders no erp-slo PrometheusRule")
 json.dump(rules[0]["spec"], open(sys.argv[3], "w"))
+# Each dashboard as the sidecar loads it: a ConfigMap of the file as it is.
+import glob, os
+want = {os.path.basename(f): open(f).read().rstrip("\n") for f in glob.glob("deploy/helm/erp-cell/dashboards/*.json")}
+got = {k: v for d in docs if d["kind"] == "ConfigMap" and d["metadata"].get("labels", {}).get("grafana_dashboard") == "1" for k, v in d["data"].items()}
+if not want or got != want:
+    sys.exit("helm-checks: erp-cell's grafana_dashboard ConfigMaps must hold dashboards/*.json as they are: got %s, want %s" % (sorted(got), sorted(want)))
 PY
 # The SLOs and alerts (ADR-0043): the rendered rules pass promtool's
 # checks and lint, and its unit tests run against them.

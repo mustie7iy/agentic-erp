@@ -23,7 +23,8 @@ on:
       - scripts/temporal-checks.sh
       - temporal/**
       - scripts/lib/**
-      - .github/workflows/deploy.yml
+      # The workflows themselves, which deploy-checks.sh lints.
+      - .github/workflows/**
   pull_request:
     paths: *paths
 
@@ -41,12 +42,14 @@ jobs:
     env:
       TERRAFORM_VERSION: 1.16.4
       TERRAFORM_SHA256: dc94af0eef1147718ad7c8daea792ed199e3e0492eec180d0adafa2a65a879df
+      ACTIONLINT_VERSION: 1.7.12
+      ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - name: Install Terraform, tflint and conftest (pinned)
+      - name: Install Terraform, tflint, conftest and actionlint (pinned)
         run: |
           cd "$RUNNER_TEMP"
           archive="terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
@@ -54,6 +57,10 @@ jobs:
           echo "${TERRAFORM_SHA256}  ${archive}" | sha256sum -c -
           unzip -q "${archive}" terraform
           mkdir -p bin && mv terraform bin/
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -sSfLO "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          echo "${ACTIONLINT_SHA256}  ${archive}" | sha256sum -c -
+          tar -xzf "${archive}" -C bin actionlint
           GOBIN="$RUNNER_TEMP/bin" go install github.com/terraform-linters/tflint@v0.63.1
           GOBIN="$RUNNER_TEMP/bin" go install github.com/open-policy-agent/conftest@v0.71.0
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"

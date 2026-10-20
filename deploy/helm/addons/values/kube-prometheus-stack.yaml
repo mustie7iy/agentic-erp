@@ -151,12 +151,14 @@ grafana:
       secretName: erp-grafana-oidc
       mountPath: /etc/secrets/grafana-oidc
       readOnly: true
-  # With no admin, the sidecars cannot call Grafana's reload API: they load
-  # what exists at start, and Grafana rereads the dashboards' files.
+  # With no admin, the sidecars cannot call Grafana's reload API. The
+  # datasources' loads what exists at start; the dashboards' keeps watching
+  # (T54f), so a dashboard changed in erp-cell reaches its file, which
+  # Grafana's file provider rereads every 30 s without a reload.
   sidecar:
     dashboards:
       skipReload: true
-      initDashboards: true
+      initDashboards: false
     datasources:
       skipReload: true
       initDatasources: true
