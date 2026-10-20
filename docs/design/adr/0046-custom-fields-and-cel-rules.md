@@ -60,7 +60,8 @@ needs.
   schema for the entity has no custom fields: every key is unknown. A
   captured supplier invoice carries no custom fields, so a field the schema
   requires holds it (naming the field) instead of refusing the document;
-  its next update, and its posting, require the field.
+  its next update, and its posting, check its extensions against the
+  current schema, so they require the field.
 - **API.** Resources keep `extensions` free-form in the contract. The
   tenant's schema for an entity is at `GET /v1/schemas/{entity}`, with the
   configuration version as its ETag. A write that does not match the
