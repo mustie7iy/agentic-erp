@@ -487,27 +487,32 @@ func (e *Endpoints) reverseRevaluationEntries(ctx context.Context, tx pgx.Tx, p 
 	}
 	reversals := make([]Entry, 0, 2)
 	for _, id := range []uuid.UUID{*run.ValuationID, *run.ReversalID} {
-		// The run's state, not the entry's, is what the caller matched.
-		orig, err := reversibleEntry(ctx, tx, id, func(Entry) error { return nil }, run.ID)
+		rev, err := e.reverseRevaluationEntry(ctx, tx, p, run.ID, id)
 		if err != nil {
-			return nil, err
-		}
-		rev, err := e.postReversal(ctx, tx, p, orig, nil, nil)
-		if err != nil {
-			return nil, err
-		}
-		if err := recordReversal(ctx, tx, p, orig, rev); err != nil {
-			return nil, err
-		}
-		// As every reversal, so the entry's audit trail shows it reversed.
-		if err := audit.Add(ctx, audit.Entry{Action: "ledger.journal_entry.reverse", ObjectType: "ledger.journal_entry", ObjectID: orig.ID,
-			Outcome: "succeeded", Detail: map[string]any{"reversal_entry_id": rev.ID, "reversal_document_number": rev.DocumentNumber,
-				"revaluation_run_id": run.ID}}); err != nil {
 			return nil, err
 		}
 		reversals = append(reversals, rev)
 	}
 	return reversals, nil
+}
+
+// reverseRevaluationEntry reverses one of a cancelling run's entries,
+// audited as every reversal, so the entry's trail shows it reversed.
+func (e *Endpoints) reverseRevaluationEntry(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run, id uuid.UUID) (Entry, error) {
+	// The run's state, not the entry's, is what the caller matched.
+	orig, err := reversibleEntry(ctx, tx, id, func(Entry) error { return nil }, run)
+	if err != nil {
+		return Entry{}, err
+	}
+	rev, err := e.postReversal(ctx, tx, p, orig, nil, nil)
+	if err != nil {
+		return Entry{}, err
+	}
+	if err := recordReversal(ctx, tx, p, orig, rev); err != nil {
+		return Entry{}, err
+	}
+	return rev, audit.Add(ctx, audit.Entry{Action: "ledger.journal_entry.reverse", ObjectType: "ledger.journal_entry", ObjectID: orig.ID,
+		Outcome: "succeeded", Detail: map[string]any{"reversal_entry_id": rev.ID, "reversal_document_number": rev.DocumentNumber, "revaluation_run_id": run}})
 }
 
 // recordRevaluationCancel marks the locked, posted run cancelled, audits
