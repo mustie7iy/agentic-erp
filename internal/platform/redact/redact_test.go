@@ -91,3 +91,33 @@ func TestLongRuns(t *testing.T) {
 		})
 	}
 }
+
+// TestCanadianBankAccounts: for a tenant in Canada, accounts written in
+// the dashed forms are replaced, before a card check could take them;
+// other tenants and undashed digits keep them (T45d).
+func TestCanadianBankAccounts(t *testing.T) {
+	ca, other := redact.For([]string{"CA"}), redact.For([]string{"DE"})
+	for _, c := range []struct {
+		name, in, want string
+		n              int
+		r              *redact.Redactor
+	}{
+		{"institution-transit-account", "pay to 003-12345-1234567 today", "pay to [BANK_ACCOUNT] today", 1, ca},
+		{"electronic routing form", "acct 0003-12345-123456789012.", "acct [BANK_ACCOUNT].", 1, ca},
+		{"cheque order", "MICR 12345-003-1234567", "MICR [BANK_ACCOUNT]", 1, ca},
+		{"passing Luhn, still an account", "003-12345-1234568", "[BANK_ACCOUNT]", 1, ca},
+		{"undashed digits stay", "invoice 003123451234567", "invoice 003123451234567", 0, ca},
+		{"account too short", "003-12345-123456", "003-12345-123456", 0, ca},
+		{"not for a tenant outside Canada", "pay to 003-12345-1234567", "pay to 003-12345-1234567", 0, other},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, n := c.r.Text(c.in)
+			if got != c.want {
+				t.Errorf("text: got %q, want %q", got, c.want)
+			}
+			if n != c.n {
+				t.Errorf("count: got %d, want %d", n, c.n)
+			}
+		})
+	}
+}

@@ -13,6 +13,8 @@ import (
 	"os"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/cabank"
 )
 
 type Config struct {
@@ -166,6 +168,12 @@ type HouseBank struct {
 	Name string `yaml:"name" json:"name"`
 	IBAN string `yaml:"iban" json:"iban"`
 	BIC  string `yaml:"bic" json:"bic"`
+	// InstitutionNumber, TransitNumber and AccountNumber are a Canadian
+	// bank account, which has no IBAN (ADR-0038, T45d); a house bank has
+	// either an IBAN or these.
+	InstitutionNumber string `yaml:"institution_number,omitempty" json:"institution_number,omitempty"`
+	TransitNumber     string `yaml:"transit_number,omitempty" json:"transit_number,omitempty"`
+	AccountNumber     string `yaml:"account_number,omitempty" json:"account_number,omitempty"`
 	// GLAccount is the bank's own ledger account, a bank clearing account
 	// (ADR-0038). The main house bank may leave it empty and keeps the
 	// account determination's bank account, as documents before it did;
@@ -175,6 +183,27 @@ type HouseBank struct {
 	// transmitted through (ADR-0038, T44b); without one they go to the
 	// server's directory, which a transfer agent collects from.
 	Connector string `yaml:"connector,omitempty" json:"connector,omitempty"`
+}
+
+// Canadian reports whether the house bank names a Canadian account
+// instead of an IBAN.
+func (hb HouseBank) Canadian() bool {
+	return hb.InstitutionNumber != "" || hb.TransitNumber != "" || hb.AccountNumber != ""
+}
+
+// Account is the house bank's account as it is sealed: its IBAN, or a
+// Canadian account's number, without spaces and dashes.
+func (hb HouseBank) Account() string {
+	if hb.Canadian() {
+		return cabank.Digits(hb.AccountNumber)
+	}
+	return hb.IBAN
+}
+
+// Routing is a Canadian house bank's institution and transit numbers as
+// they are stored, without spaces and dashes; empty for an IBAN.
+func (hb HouseBank) Routing() (institution, transit string) {
+	return cabank.Digits(hb.InstitutionNumber), cabank.Digits(hb.TransitNumber)
 }
 
 // AllHouseBanks is the main house bank followed by the further ones.

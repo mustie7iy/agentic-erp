@@ -9571,7 +9571,7 @@ paths:
       tags:
         - agents
       summary: Record a tool call
-      description: "Records one tool call of a running session, numbered in order. Insert-only. Only the session's agent records its calls. The input's strings and the result summary are recorded minimized, as the model gateway redacts what leaves the cell (ADR-0036): IBANs, card numbers and the tax identifiers of the tenant's countries become `[IBAN]`, `[CARD]` and `[TAX_ID]`."
+      description: "Records one tool call of a running session, numbered in order. Insert-only. Only the session's agent records its calls. The input's strings and the result summary are recorded minimized, as the model gateway redacts what leaves the cell (ADR-0036): IBANs, card numbers, the tax identifiers of the tenant's countries and, for a tenant in Canada, Canadian bank accounts written institution-transit-account become `[IBAN]`, `[CARD]`, `[TAX_ID]` and `[BANK_ACCOUNT]`."
       x-permission: agents.session.record
       x-autonomy: propose
       parameters:
@@ -13202,16 +13202,27 @@ components:
           default: payments
         account_number:
           type: string
-          description: "Full IBAN or domestic account number. Write-only; stored encrypted and never returned."
+          description: "Full IBAN, domestic account number, or for scheme `ca` the Canadian account number (7-12 digits). Write-only; stored encrypted and never returned."
           minLength: 4
           maxLength: 34
           writeOnly: true
         account_scheme:
           type: string
-          description: "Account number scheme. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "Account number scheme: `iban`, `domestic`, or `ca` for a Canadian account (institution, transit and account number; no IBAN). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum:
             - iban
             - domestic
+            - ca
+        institution_number:
+          type: string
+          description: "Canadian institution number (3 digits). Required for scheme `ca`, refused for the others."
+          pattern: "^[0-9]{3}$"
+          example: "003"
+        transit_number:
+          type: string
+          description: "Canadian transit (branch) number (5 digits). Required for scheme `ca`, refused for the others."
+          pattern: "^[0-9]{5}$"
+          example: "12345"
         bic:
           type: string
           description: BIC.
@@ -13584,10 +13595,21 @@ components:
               readOnly: true
             account_scheme:
               type: string
-              description: "Account number scheme. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "Account number scheme: `iban`, `domestic`, or `ca` for a Canadian account. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - iban
                 - domestic
+                - ca
+              readOnly: true
+            institution_number:
+              type: string
+              description: "Canadian institution number of a scheme `ca` account; absent for the others. It names the bank, as a BIC does, and is not masked."
+              pattern: "^[0-9]{3}$"
+              readOnly: true
+            transit_number:
+              type: string
+              description: "Canadian transit (branch) number of a scheme `ca` account; absent for the others."
+              pattern: "^[0-9]{5}$"
               readOnly: true
             bic:
               type: string
@@ -13812,16 +13834,27 @@ components:
           default: payments
         account_number:
           type: string
-          description: "Full IBAN or domestic account number. Write-only; stored encrypted and never returned."
+          description: "Full IBAN, domestic account number, or for scheme `ca` the Canadian account number (7-12 digits). Write-only; stored encrypted and never returned."
           minLength: 4
           maxLength: 34
           writeOnly: true
         account_scheme:
           type: string
-          description: "Account number scheme. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "Account number scheme: `iban`, `domestic`, or `ca` for a Canadian account (institution, transit and account number; no IBAN). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum:
             - iban
             - domestic
+            - ca
+        institution_number:
+          type: string
+          description: "Canadian institution number (3 digits). Required for scheme `ca`, refused for the others."
+          pattern: "^[0-9]{3}$"
+          example: "003"
+        transit_number:
+          type: string
+          description: "Canadian transit (branch) number (5 digits). Required for scheme `ca`, refused for the others."
+          pattern: "^[0-9]{5}$"
+          example: "12345"
         bic:
           type: string
           description: BIC.

@@ -16,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/bankfile"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/cabank"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
@@ -31,7 +32,7 @@ var (
 	roles           = []string{"supplier", "customer"}
 	addressPurposes = []string{"legal", "remit_to", "order_from", "ship_from"}
 	bankPurposes    = []string{"payments", "collections"}
-	accountSchemes  = []string{"iban", "domestic"}
+	accountSchemes  = []string{"iban", "domestic", "ca"}
 	accountNumber   = regexp.MustCompile(`^[A-Z0-9]{4,34}$`)
 )
 
@@ -76,6 +77,10 @@ type BankInput struct {
 	BankCountryCode string
 	HolderName      string
 	ValidFrom       time.Time
+	// InstitutionNumber and TransitNumber are a Canadian account's bank
+	// (scheme ca, T45d), whose account number AccountNumber is.
+	InstitutionNumber string
+	TransitNumber     string
 }
 
 // sealedTax is a tax identifier as a change payload holds it.
@@ -97,6 +102,9 @@ type sealedBank struct {
 	BankCountryCode    string  `json:"bank_country_code"`
 	HolderName         string  `json:"holder_name"`
 	ValidFrom          Date    `json:"valid_from"`
+	// Absent from the payloads of changes requested before T45d.
+	InstitutionNumber *string `json:"institution_number,omitempty"`
+	TransitNumber     *string `json:"transit_number,omitempty"`
 }
 
 // nullable is a merge-patch value: set, possibly to null.
@@ -326,35 +334,79 @@ func sealBanks(ctx context.Context, keys *fieldcrypt.Keyring, tenant uuid.UUID, 
 		if b.Purpose == "" {
 			b.Purpose = "payments"
 		}
-		number := fieldcrypt.Normalize(b.AccountNumber)
 		switch {
 		case !slices.Contains(bankPurposes, b.Purpose):
 			return nil, invalid("partner.unknown_bank_purpose", f+"purpose", "payments or collections")
 		case seen[b.Purpose]:
 			return nil, invalid("partner.duplicate_bank_purpose", f+"purpose", "one new account per purpose")
-		case !slices.Contains(accountSchemes, b.AccountScheme):
-			return nil, invalid("partner.unknown_account_scheme", f+"account_scheme", "iban or domestic")
-		case !accountNumber.MatchString(number):
-			return nil, invalid("partner.invalid_account_number", f+"account_number", "4-34 letters and digits")
-		case b.AccountScheme == "iban" && !bankfile.ValidIBAN(number):
-			return nil, invalid("partner.invalid_iban", f+"account_number", "an IBAN that passes the ISO 13616 check")
 		case b.ValidFrom.Before(day):
 			return nil, invalid("partner.backdated_bank_account", f+"valid_from", "today or later")
 		}
 		seen[b.Purpose] = true
-		cipher, err := keys.Seal(ctx, tenant, number)
+		acct, err := checkAccount(b, f)
 		if err != nil {
 			return nil, err
 		}
-		print, err := keys.Fingerprint(ctx, tenant, number)
+		cipher, err := keys.Seal(ctx, tenant, acct.number)
+		if err != nil {
+			return nil, err
+		}
+		// A Canadian account number is unique only at its bank: the
+		// fingerprint that finds one account on two partners covers the
+		// bank too.
+		print, err := keys.Fingerprint(ctx, tenant, acct.identity)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, sealedBank{Purpose: b.Purpose, AccountCipher: cipher, AccountFingerprint: print,
-			AccountLast4: fieldcrypt.Last4(number), AccountScheme: b.AccountScheme, BIC: b.BIC, BankCountryCode: b.BankCountryCode,
-			HolderName: b.HolderName, ValidFrom: Date{b.ValidFrom}})
+			AccountLast4: fieldcrypt.Last4(acct.number), AccountScheme: b.AccountScheme, BIC: b.BIC, BankCountryCode: b.BankCountryCode,
+			HolderName: b.HolderName, ValidFrom: Date{b.ValidFrom}, InstitutionNumber: acct.institution, TransitNumber: acct.transit})
 	}
 	return out, nil
+}
+
+// checkedAccount is a bank input's account, normalized: identity is what
+// its fingerprint covers, and the institution and transit numbers are set
+// only for scheme ca.
+type checkedAccount struct {
+	number, identity     string
+	institution, transit *string
+}
+
+// checkAccount checks the account number by its scheme (ADR-0038): an
+// IBAN by ISO 13616, a Canadian account by the digits and lengths of its
+// three numbers (T45d), a domestic one by its characters.
+func checkAccount(b BankInput, f string) (checkedAccount, error) {
+	if !slices.Contains(accountSchemes, b.AccountScheme) {
+		return checkedAccount{}, invalid("partner.unknown_account_scheme", f+"account_scheme", "iban, domestic or ca")
+	}
+	if b.AccountScheme == "ca" {
+		return checkCanadian(b, f)
+	}
+	number := fieldcrypt.Normalize(b.AccountNumber)
+	switch {
+	case b.InstitutionNumber != "" || b.TransitNumber != "":
+		return checkedAccount{}, invalid("partner.routing_not_allowed", f+"institution_number", "no institution or transit number but for account_scheme ca")
+	case !accountNumber.MatchString(number):
+		return checkedAccount{}, invalid("partner.invalid_account_number", f+"account_number", "4-34 letters and digits")
+	case b.AccountScheme == "iban" && !bankfile.ValidIBAN(number):
+		return checkedAccount{}, invalid("partner.invalid_iban", f+"account_number", "an IBAN that passes the ISO 13616 check")
+	}
+	return checkedAccount{number: number, identity: number}, nil
+}
+
+// checkCanadian checks a Canadian account's three numbers.
+func checkCanadian(b BankInput, f string) (checkedAccount, error) {
+	a, err := cabank.Parse(b.InstitutionNumber, b.TransitNumber, b.AccountNumber)
+	switch {
+	case errors.Is(err, cabank.ErrInstitution):
+		return checkedAccount{}, invalid("partner.invalid_institution_number", f+"institution_number", "3 digits")
+	case errors.Is(err, cabank.ErrTransit):
+		return checkedAccount{}, invalid("partner.invalid_transit_number", f+"transit_number", "5 digits")
+	case err != nil:
+		return checkedAccount{}, invalid("partner.invalid_account_number", f+"account_number", "7-12 digits")
+	}
+	return checkedAccount{number: a.Number, identity: a.Institution + a.Transit + a.Number, institution: &a.Institution, transit: &a.Transit}, nil
 }
 
 // warnings flags tax identifiers and bank accounts another partner already has.
@@ -939,15 +991,16 @@ func insertBank(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, b 
 	}
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO partner.bank_account (tenant_id, id, partner_id, purpose, account_cipher, account_fingerprint,
-			account_last4, account_scheme, bic, bank_country_code, holder_name, valid_from, partner_change_id, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+			account_last4, account_scheme, bic, bank_country_code, holder_name, valid_from, partner_change_id, created_by, institution_number, transit_number)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
 		p.TenantID, id, c.PartnerID, b.Purpose, b.AccountCipher, b.AccountFingerprint, b.AccountLast4, b.AccountScheme, b.BIC,
-		b.BankCountryCode, b.HolderName, from, c.ID, p.ID); err != nil {
+		b.BankCountryCode, b.HolderName, from, c.ID, p.ID, b.InstitutionNumber, b.TransitNumber); err != nil {
 		return outbox.Event{}, fmt.Errorf("partner: insert the %s bank account of business partner %s: %w", b.Purpose, c.PartnerID, err)
 	}
 	return event("bank_account_changed", c.PartnerID, "partner.business_partner", map[string]any{
 		"partner_id": c.PartnerID, "bank_account_id": id, "ended_bank_account_id": ended, "ended_valid_to": dateOrNil(endedTo),
 		"purpose": b.Purpose, "account_scheme": b.AccountScheme, "account_last4": b.AccountLast4, "bic": b.BIC,
+		"institution_number": b.InstitutionNumber, "transit_number": b.TransitNumber,
 		"bank_country_code": b.BankCountryCode, "valid_from": from.Format(time.DateOnly), "valid_to": nil, "partner_change_id": c.ID}), nil
 }
 
@@ -1062,6 +1115,7 @@ func applyBankChange(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Chang
 	return []outbox.Event{event("bank_account_changed", c.PartnerID, "partner.business_partner", map[string]any{
 		"partner_id": c.PartnerID, "bank_account_id": nil, "ended_bank_account_id": b.ID, "ended_valid_to": to.Format(time.DateOnly), // no new account: the change only ends one
 		"purpose": b.Purpose, "account_scheme": b.AccountScheme, "account_last4": b.AccountLast4, "bic": b.BIC,
+		"institution_number": b.InstitutionNumber, "transit_number": b.TransitNumber,
 		"bank_country_code": b.BankCountryCode, "valid_from": b.ValidFrom.Format(time.DateOnly), "valid_to": to.Format(time.DateOnly),
 		"partner_change_id": c.ID})}, nil
 }

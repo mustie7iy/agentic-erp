@@ -97,7 +97,9 @@ release step, not a multi-step approval. The requester, human or agent, may
 - Custom fields (ADR-0009) appear under `extensions`, validated against the
   tenant's published schema for that resource.
 - Sensitive values are never returned in full: bank accounts expose
-  `account_last4` and `account_scheme` only.
+  `account_last4` and `account_scheme` only, and for a Canadian account
+  (scheme `ca`, T45d) the bank's `institution_number` and `transit_number`,
+  which name the bank as a BIC does.
 
 ## 4.5 Lists, filters and pagination
 

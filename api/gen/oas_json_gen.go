@@ -4999,6 +4999,18 @@ func (s *BankAccount) encodeFields(e *jx.Encoder) {
 		e.Str(s.AccountScheme)
 	}
 	{
+		if s.InstitutionNumber.Set {
+			e.FieldStart("institution_number")
+			s.InstitutionNumber.Encode(e)
+		}
+	}
+	{
+		if s.TransitNumber.Set {
+			e.FieldStart("transit_number")
+			s.TransitNumber.Encode(e)
+		}
+	}
+	{
 		if s.Bic.Set {
 			e.FieldStart("bic")
 			s.Bic.Encode(e)
@@ -5018,7 +5030,7 @@ func (s *BankAccount) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfBankAccount = [15]string{
+var jsonFieldsNameOfBankAccount = [17]string{
 	0:  "id",
 	1:  "valid_from",
 	2:  "valid_to",
@@ -5030,10 +5042,12 @@ var jsonFieldsNameOfBankAccount = [15]string{
 	8:  "purpose",
 	9:  "account_last4",
 	10: "account_scheme",
-	11: "bic",
-	12: "bank_country_code",
-	13: "holder_name",
-	14: "partner_change_id",
+	11: "institution_number",
+	12: "transit_number",
+	13: "bic",
+	14: "bank_country_code",
+	15: "holder_name",
+	16: "partner_change_id",
 }
 
 // Decode decodes BankAccount from json.
@@ -5041,7 +5055,7 @@ func (s *BankAccount) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode BankAccount to nil")
 	}
-	var requiredBitSet [2]uint8
+	var requiredBitSet [3]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -5171,6 +5185,26 @@ func (s *BankAccount) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"account_scheme\"")
 			}
+		case "institution_number":
+			if err := func() error {
+				s.InstitutionNumber.Reset()
+				if err := s.InstitutionNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"institution_number\"")
+			}
+		case "transit_number":
+			if err := func() error {
+				s.TransitNumber.Reset()
+				if err := s.TransitNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"transit_number\"")
+			}
 		case "bic":
 			if err := func() error {
 				s.Bic.Reset()
@@ -5182,7 +5216,7 @@ func (s *BankAccount) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"bic\"")
 			}
 		case "bank_country_code":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.BankCountryCode = string(v)
@@ -5194,7 +5228,7 @@ func (s *BankAccount) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"bank_country_code\"")
 			}
 		case "holder_name":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				v, err := d.Str()
 				s.HolderName = string(v)
@@ -5206,7 +5240,7 @@ func (s *BankAccount) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"holder_name\"")
 			}
 		case "partner_change_id":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.PartnerChangeID = v
@@ -5226,9 +5260,10 @@ func (s *BankAccount) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [2]uint8{
+	for i, mask := range [3]uint8{
 		0b11100011,
-		0b01110111,
+		0b11000111,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -5411,6 +5446,18 @@ func (s *BankAccountInput) encodeFields(e *jx.Encoder) {
 		e.Str(s.AccountScheme)
 	}
 	{
+		if s.InstitutionNumber.Set {
+			e.FieldStart("institution_number")
+			s.InstitutionNumber.Encode(e)
+		}
+	}
+	{
+		if s.TransitNumber.Set {
+			e.FieldStart("transit_number")
+			s.TransitNumber.Encode(e)
+		}
+	}
+	{
 		if s.Bic.Set {
 			e.FieldStart("bic")
 			s.Bic.Encode(e)
@@ -5430,14 +5477,16 @@ func (s *BankAccountInput) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfBankAccountInput = [7]string{
+var jsonFieldsNameOfBankAccountInput = [9]string{
 	0: "purpose",
 	1: "account_number",
 	2: "account_scheme",
-	3: "bic",
-	4: "bank_country_code",
-	5: "holder_name",
-	6: "valid_from",
+	3: "institution_number",
+	4: "transit_number",
+	5: "bic",
+	6: "bank_country_code",
+	7: "holder_name",
+	8: "valid_from",
 }
 
 // Decode decodes BankAccountInput from json.
@@ -5445,7 +5494,7 @@ func (s *BankAccountInput) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode BankAccountInput to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 	s.setDefaults()
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
@@ -5484,6 +5533,26 @@ func (s *BankAccountInput) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"account_scheme\"")
 			}
+		case "institution_number":
+			if err := func() error {
+				s.InstitutionNumber.Reset()
+				if err := s.InstitutionNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"institution_number\"")
+			}
+		case "transit_number":
+			if err := func() error {
+				s.TransitNumber.Reset()
+				if err := s.TransitNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"transit_number\"")
+			}
 		case "bic":
 			if err := func() error {
 				s.Bic.Reset()
@@ -5495,7 +5564,7 @@ func (s *BankAccountInput) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"bic\"")
 			}
 		case "bank_country_code":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.BankCountryCode = string(v)
@@ -5507,7 +5576,7 @@ func (s *BankAccountInput) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"bank_country_code\"")
 			}
 		case "holder_name":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				v, err := d.Str()
 				s.HolderName = string(v)
@@ -5519,7 +5588,7 @@ func (s *BankAccountInput) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"holder_name\"")
 			}
 		case "valid_from":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.ValidFrom = v
@@ -5539,8 +5608,9 @@ func (s *BankAccountInput) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
-		0b01110110,
+	for i, mask := range [2]uint8{
+		0b11000110,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -5750,6 +5820,18 @@ func (s *BankChangeCreate) encodeFields(e *jx.Encoder) {
 		e.Str(s.AccountScheme)
 	}
 	{
+		if s.InstitutionNumber.Set {
+			e.FieldStart("institution_number")
+			s.InstitutionNumber.Encode(e)
+		}
+	}
+	{
+		if s.TransitNumber.Set {
+			e.FieldStart("transit_number")
+			s.TransitNumber.Encode(e)
+		}
+	}
+	{
 		if s.Bic.Set {
 			e.FieldStart("bic")
 			s.Bic.Encode(e)
@@ -5773,15 +5855,17 @@ func (s *BankChangeCreate) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfBankChangeCreate = [8]string{
+var jsonFieldsNameOfBankChangeCreate = [10]string{
 	0: "purpose",
 	1: "account_number",
 	2: "account_scheme",
-	3: "bic",
-	4: "bank_country_code",
-	5: "holder_name",
-	6: "valid_from",
-	7: "reason",
+	3: "institution_number",
+	4: "transit_number",
+	5: "bic",
+	6: "bank_country_code",
+	7: "holder_name",
+	8: "valid_from",
+	9: "reason",
 }
 
 // Decode decodes BankChangeCreate from json.
@@ -5789,7 +5873,7 @@ func (s *BankChangeCreate) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode BankChangeCreate to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 	s.setDefaults()
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
@@ -5828,6 +5912,26 @@ func (s *BankChangeCreate) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"account_scheme\"")
 			}
+		case "institution_number":
+			if err := func() error {
+				s.InstitutionNumber.Reset()
+				if err := s.InstitutionNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"institution_number\"")
+			}
+		case "transit_number":
+			if err := func() error {
+				s.TransitNumber.Reset()
+				if err := s.TransitNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"transit_number\"")
+			}
 		case "bic":
 			if err := func() error {
 				s.Bic.Reset()
@@ -5839,7 +5943,7 @@ func (s *BankChangeCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"bic\"")
 			}
 		case "bank_country_code":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.BankCountryCode = string(v)
@@ -5851,7 +5955,7 @@ func (s *BankChangeCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"bank_country_code\"")
 			}
 		case "holder_name":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				v, err := d.Str()
 				s.HolderName = string(v)
@@ -5863,7 +5967,7 @@ func (s *BankChangeCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"holder_name\"")
 			}
 		case "valid_from":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.ValidFrom = v
@@ -5875,7 +5979,7 @@ func (s *BankChangeCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"valid_from\"")
 			}
 		case "reason":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				v, err := d.Str()
 				s.Reason = string(v)
@@ -5895,8 +5999,9 @@ func (s *BankChangeCreate) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
-		0b11110110,
+	for i, mask := range [2]uint8{
+		0b11000110,
+		0b00000011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

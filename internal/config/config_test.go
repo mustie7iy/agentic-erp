@@ -37,6 +37,22 @@ func TestFixtureIsValid(t *testing.T) {
 	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
 		t.Fatalf("with a further house bank: %v", fs)
 	}
+	c = fixture(t)
+	canadianBank(func(*HouseBank) {})(c)
+	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
+		t.Fatalf("with a Canadian house bank: %v", fs)
+	}
+}
+
+// canadianBank adds a further house bank at a Canadian bank (T45d) to
+// company 2000, changed by mutate.
+func canadianBank(mutate func(hb *HouseBank)) func(c *Config) {
+	return func(c *Config) {
+		furtherBank("101000")(c)
+		hb := &c.Companies[1].HouseBanks[0]
+		hb.IBAN, hb.BIC, hb.InstitutionNumber, hb.TransitNumber, hb.AccountNumber = "", "ROYCCAT2", "003", "00002", "100-0001"
+		mutate(hb)
+	}
 }
 
 func TestParseIsStrict(t *testing.T) {
@@ -129,6 +145,10 @@ func TestValidationRules(t *testing.T) {
 			furtherBank("101000")(c)
 			c.Companies[1].HouseBanks[0].BIC = "DEUT"
 		}, "companies[2000].house_banks[DB].bic"},
+		{"Canadian bank with an IBAN", canadianBank(func(hb *HouseBank) { hb.IBAN = "DE02120300000000202051" }), "companies[2000].house_banks[DB].iban"},
+		{"Canadian institution", canadianBank(func(hb *HouseBank) { hb.InstitutionNumber = "3" }), "companies[2000].house_banks[DB].institution_number"},
+		{"Canadian transit", canadianBank(func(hb *HouseBank) { hb.TransitNumber = "" }), "companies[2000].house_banks[DB].transit_number"},
+		{"Canadian account", canadianBank(func(hb *HouseBank) { hb.AccountNumber = "12345" }), "companies[2000].house_banks[DB].account_number"},
 		{"payment method code", method(func(m *PaymentMethod) { m.Code = "TT" }), "companies[1000].payment_methods[TT]"},
 		{"payment method code taken", func(c *Config) {
 			c.Companies[0].PaymentMethods = append(c.Companies[0].PaymentMethods, c.Companies[0].PaymentMethods[0])
@@ -602,5 +622,25 @@ func TestParseActive(t *testing.T) {
 	}
 	if c, _, err := ParseActive([]byte("payment_terms: none\n")); err == nil || c != nil {
 		t.Errorf("an unreadable document: got %v, %v; want an error and no document", c, err)
+	}
+}
+
+// TestHouseBankAccount: the account sealed is the IBAN, or a Canadian
+// account's number in digits, beside its routing in digits (T45d).
+func TestHouseBankAccount(t *testing.T) {
+	iban := HouseBank{IBAN: "GB33BUKB20201555555555"}
+	ca := HouseBank{InstitutionNumber: "0 03", TransitNumber: "00-002", AccountNumber: "100-0001"}
+	institution, transit := ca.Routing()
+	for _, c := range []struct{ name, got, want string }{
+		{"IBAN account", iban.Account(), "GB33BUKB20201555555555"},
+		{"Canadian account", ca.Account(), "1000001"},
+		{"Canadian institution", institution, "003"},
+		{"Canadian transit", transit, "00002"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if c.got != c.want {
+				t.Errorf("got %q, want %q", c.got, c.want)
+			}
+		})
 	}
 }

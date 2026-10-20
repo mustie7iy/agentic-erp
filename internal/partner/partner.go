@@ -324,19 +324,23 @@ type BankAccount struct {
 	ValidFrom       time.Time
 	ValidTo         *time.Time
 	PartnerChangeID uuid.UUID
-	CreatedAt       time.Time
-	CreatedBy       uuid.UUID
-	EndedAt         *time.Time
-	EndedBy         *uuid.UUID
+	// InstitutionNumber and TransitNumber are a Canadian account's bank
+	// (scheme ca, T45d); nil for other schemes.
+	InstitutionNumber *string
+	TransitNumber     *string
+	CreatedAt         time.Time
+	CreatedBy         uuid.UUID
+	EndedAt           *time.Time
+	EndedBy           *uuid.UUID
 }
 
 const bankColumns = `id, partner_id, purpose, account_last4, account_scheme, bic, bank_country_code, holder_name, valid_from, valid_to,
-	partner_change_id, created_at, created_by, ended_at, ended_by`
+	partner_change_id, created_at, created_by, ended_at, ended_by, institution_number, transit_number`
 
 func scanBank(row pgx.Row) (BankAccount, error) {
 	var b BankAccount
 	err := row.Scan(&b.ID, &b.PartnerID, &b.Purpose, &b.AccountLast4, &b.AccountScheme, &b.BIC, &b.BankCountryCode, &b.HolderName,
-		&b.ValidFrom, &b.ValidTo, &b.PartnerChangeID, &b.CreatedAt, &b.CreatedBy, &b.EndedAt, &b.EndedBy)
+		&b.ValidFrom, &b.ValidTo, &b.PartnerChangeID, &b.CreatedAt, &b.CreatedBy, &b.EndedAt, &b.EndedBy, &b.InstitutionNumber, &b.TransitNumber)
 	return b, errs.Wrapf(err, "scan bank account")
 }
 

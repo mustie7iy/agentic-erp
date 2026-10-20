@@ -957,6 +957,55 @@ func TestBankAccountValidityCannotOverlap(t *testing.T) {
 	failsWith(t, asApp(t, f.tenant, add("2026-06-15", nil)), "conflicting key value violates exclusion constraint")
 }
 
+// TestCanadianBankAccounts: a partner account of scheme ca has an
+// institution number of 3 digits and a transit number of 5, and accounts
+// of other schemes have neither; a house bank has both or neither (T45d).
+func TestCanadianBankAccounts(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	from := 2000
+	add := func(scheme string, institution, transit *string) func(tx pgx.Tx) error {
+		from++ // each account its own validity, so none overlaps another
+		valid := fmt.Sprintf("%d-01-01", from)
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO partner.bank_account (tenant_id, id, partner_id, account_cipher, account_fingerprint, account_last4, account_scheme,
+				bank_country_code, holder_name, valid_from, valid_to, partner_change_id, created_by, institution_number, transit_number)
+				VALUES ($1,$2,$3,'\x01',$4,'4567',$5,'CA','Supplier 1',$6,($6::date + 1),$7,$8,$9,$10)`,
+				f.tenant, id(), f.supplier, strings.Repeat("a", 64), scheme, valid, id(), f.actor, institution, transit)
+		}
+	}
+	s := func(v string) *string { return &v }
+	mustApp(t, f.tenant, add("ca", s("003"), s("12345")))
+	mustApp(t, f.tenant, add("iban", nil, nil))
+	failsWith(t, asApp(t, f.tenant, add("swift", nil, nil)), "bank_account_account_scheme_check")
+	for name, c := range map[string]struct {
+		scheme               string
+		institution, transit *string
+	}{
+		"ca without an institution":   {"ca", nil, s("12345")},
+		"ca without a transit":        {"ca", s("003"), nil},
+		"ca with a short institution": {"ca", s("03"), s("12345")},
+		"ca with a letter in transit": {"ca", s("003"), s("1234A")},
+		"iban with an institution":    {"iban", s("003"), nil},
+		"domestic with a transit":     {"domestic", nil, s("12345")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			failsWith(t, asApp(t, f.tenant, add(c.scheme, c.institution, c.transit)), "bank_account_ca_routing")
+		})
+	}
+	bank := func(code string, institution, transit *string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.house_bank (tenant_id, id, legal_entity_id, code, name, iban_cipher, iban_last4, bic, currency, gl_account_id,
+				status, created_by, updated_by, institution_number, transit_number)
+				VALUES ($1,$2,$3,$4,$4,'\x00','0001','ROYCCAT2','CAD',$5,'inactive',$6,$6,$7,$8)`, f.tenant, id(), f.entity, code, f.bank, f.actor, institution, transit)
+		}
+	}
+	mustApp(t, f.tenant, bank("CA", s("003"), s("00002")))
+	mustApp(t, f.tenant, bank("GB", nil, nil))
+	failsWith(t, asApp(t, f.tenant, bank("X1", s("003"), nil)), "house_bank_ca_routing")
+	failsWith(t, asApp(t, f.tenant, bank("X2", s("3"), s("00002"))), "house_bank_ca_routing")
+}
+
 func TestGoodsReceiptLimits(t *testing.T) {
 	need(t)
 	f := newFixture(t)

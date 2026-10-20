@@ -20,6 +20,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/cabank"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -743,7 +744,7 @@ func (e *Endpoints) render(ctx context.Context, tenant uuid.UUID, r Run, g fileG
 	if err != nil {
 		return nil, err
 	}
-	iban, err := e.Keys.Open(ctx, tenant, hb.IBANCipher)
+	account, err := e.Keys.Open(ctx, tenant, hb.IBANCipher)
 	if err != nil {
 		return nil, err
 	}
@@ -762,16 +763,22 @@ func (e *Endpoints) render(ctx context.Context, tenant uuid.UUID, r Run, g fileG
 	if err != nil {
 		return nil, err
 	}
-	b := bankfile.Batch{MessageID: g.messageID(le.Code, r), InitiatorName: le.Name, DebtorName: le.Name, DebtorIBAN: iban, DebtorBIC: hb.BIC,
+	b := bankfile.Batch{MessageID: g.messageID(le.Code, r), InitiatorName: le.Name, DebtorName: le.Name, DebtorIBAN: account, DebtorBIC: hb.BIC,
 		Currency: r.Currency, Decimals: r.Exponent, ExecutionDate: r.RunDate.Format(time.DateOnly), Created: created}
+	if hb.Institution != "" { // a Canadian house bank (T45d)
+		b.DebtorIBAN, b.DebtorAccount, b.DebtorClearingID = "", account, cabank.MemberID(hb.Institution, hb.Transit)
+	}
 	for _, pay := range pays {
 		remittance, err := e.remittance(ctx, pay, refs)
 		if err != nil {
 			return nil, err
 		}
 		d := details[pay.BankAccountID]
-		b.Payments = append(b.Payments, bankfile.Payment{EndToEndID: pay.EndToEndID, CreditorName: d.Holder, CreditorAccount: d.Account,
-			Amount: pay.Amount, Remittance: remittance})
+		pm := bankfile.Payment{EndToEndID: pay.EndToEndID, CreditorName: d.Holder, CreditorAccount: d.Account, Amount: pay.Amount, Remittance: remittance}
+		if d.Institution != "" { // a Canadian supplier account (T45d)
+			pm.CreditorClearingID = cabank.MemberID(d.Institution, d.Transit)
+		}
+		b.Payments = append(b.Payments, pm)
 	}
 	content, err := bankfile.Pain001(b)
 	if err != nil {

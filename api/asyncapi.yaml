@@ -46,8 +46,9 @@ info:
     `{"value": "12.5", "unit": "KG"}`; business dates are `YYYY-MM-DD`;
     instants are RFC 3339 UTC; ids are UUIDs. Enumerations are lower-case
     strings and open: consumers must accept values they do not know.
-    Sensitive values never appear (bank accounts expose `account_last4` and
-    `account_scheme` only).
+    Sensitive values never appear (bank accounts expose `account_last4`,
+    `account_scheme` and, for a Canadian account, the bank's institution and
+    transit numbers, which name the bank as a BIC does).
 
     ## Delivery
 
@@ -2487,8 +2488,10 @@ components:
         ended_bank_account_id: {$ref: '#/components/schemas/NullableUuid', description: The account this change ended; null for a partner's first account.}
         ended_valid_to: {$ref: '#/components/schemas/NullableDate', description: '`valid_to` set on the ended account.'}
         purpose: {type: string, description: 'Open enum: payments, collections.'}
-        account_scheme: {type: string, description: 'Open enum: iban, domestic.'}
+        account_scheme: {type: string, description: 'Open enum: iban, domestic, ca (a Canadian account, T45d).'}
         account_last4: {type: string, pattern: '^[A-Z0-9]{1,4}$'}
+        institution_number: {type: [string, 'null'], pattern: '^[0-9]{3}$', description: 'Canadian institution number of a `ca` account; null for the others. Added in T45d; consumers ignore it if absent.'}
+        transit_number: {type: [string, 'null'], pattern: '^[0-9]{5}$', description: 'Canadian transit number of a `ca` account; null for the others.'}
         bic: {type: [string, 'null'], pattern: '^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$'}
         bank_country_code: {$ref: '#/components/schemas/CountryCode'}
         valid_from: {$ref: '#/components/schemas/Date'}
