@@ -3376,13 +3376,13 @@
        {
         "s": "D",
         "t": "Snapshot pointer (one row per tenant, RLS, manifest named by its watermark) and journal posted_xid (expand); per-tenant extractor of gl_lines in one REPEATABLE READ transaction under the tenant's RLS, appending by xid8 watermark, Parquet (parquet-go, no cgo) per posting month through blobstore, write-once files and manifest, guarded pointer swap; run twice writes nothing",
-        "r": "migration 000091 · internal/analytics/extract · db/analytics_snapshot_test.go · ADR-0044 · T55b",
+        "r": "migration 000114 · internal/analytics/extract · db/analytics_snapshot_test.go · ADR-0044 · T55b",
         "c": []
        },
        {
         "s": "D",
         "t": "Remaining datasets (po_lines, ap_invoices, open_items, accounts, vendors) in the journal's REPEATABLE READ run, as BuildFacts derives them, masked fields never read; every dataset streamed per month (bounded memory over any backlog); snapshot files named by content and kept when unchanged; manifests named by cutoff and digest; checked_at on the pointer (a run with nothing new records only it; entries pending above the cutoff hold it back); relay hook marks changed tenants once per batch; scheduler claims with FOR UPDATE SKIP LOCKED at most every 5 minutes per tenant",
-        "r": "migration 000092 · internal/analytics/extract · outbox.Relay.Relayed · db/analytics_snapshot_test.go · ADR-0044 · T55c",
+        "r": "migration 000115 · internal/analytics/extract · outbox.Relay.Relayed · db/analytics_snapshot_test.go · ADR-0044 · T55c",
         "c": []
        },
        {
@@ -3412,7 +3412,7 @@
        {
         "s": "D",
         "t": "Lifecycle: publications list the manifest they replace (analytics.superseded) and a lost run its own; after each run the scheduler collects, past 7 days, what each supersession dropped (recorded with it; one manifest read per collection) but what the current manifest or a later supersession lists, then (as erp_worker) the row; a month's journal parts merged at 8 into one file named by the interval they cover; erasure deletes analytics/v1/tenant=<id>/ with the tenant's objects (blobstore.TenantPrefixes); a run behind its watermark rebuilds the store when the primary is behind it too (restore) and is retried when only the replica lags; erp-server dr reconcile rebuilds every store ahead of the restored database; the claim records the primary's WAL position and the run reads the replica (DATABASE_REPLICA_URL) only once it has replayed past it, else the primary; hourly sweep of active tenants not found current; gauges erp_analytics_lag_seconds and erp_analytics_stale_tenants in a cell that extracts; claims of active tenants only. The dedicated test database was dropped: each package has one, and the snapshot horizon is the cluster's. erp-server answers POST /v1/analytics-queries (runAnalyticsQuery: metric names, breakdowns, filters, as_of, optional ledger and companies, never SQL; analytics.query.run, x-autonomy read) with the store Source and its database fallback (building only the fact tables the query needs; one the caller's permissions do not read is 403 on either path), the database path reading the API in-process as the caller (httpapi.Loopback), at most 2 answering at once per replica (503 analytics.busy), with lineage (source, as_of, data_through of the datasets read); erp query, ask and report and the agent's run_query call it (analytics.Remote). Parity data without customer journal lines accepted for now (coordinator, 2026-10-20). A store answer requires the permissions of the database path's reads (analytics.Source.Permissions: tenancy.org.read, partner.supplier.read, ledger.account.read for journal and order metrics, and each fact type's), checked before any dimension is named and refused with the same 403; parity test for a person lacking each (no customer read permission exists)",
-        "r": "migration 000093 · internal/analytics/extract lifecycle.go · offboarding.eraseObjects · drverify.Reconciler.Analytics · erp-server DATABASE_REPLICA_URL, ERP_ANALYTICS_URL · api/openapi.yaml runAnalyticsQuery · internal/analytics/endpoint · httpapi.Loopback · analytics.Remote · ADR-0044 · T55f",
+        "r": "migration 000116 · internal/analytics/extract lifecycle.go · offboarding.eraseObjects · drverify.Reconciler.Analytics · erp-server DATABASE_REPLICA_URL, ERP_ANALYTICS_URL · api/openapi.yaml runAnalyticsQuery · internal/analytics/endpoint · httpapi.Loopback · analytics.Remote · ADR-0044 · T55f",
         "c": []
        },
        {

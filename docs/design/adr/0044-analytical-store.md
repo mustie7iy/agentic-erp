@@ -31,7 +31,7 @@ that tenant's RLS (`app.tenant_id` set, the application role, never a
 immutable (ADR-0006), so the journal is extracted by watermark and
 appended. The watermark is a transaction-id horizon, not a clock: each journal entry
 gets `posted_xid xid8 DEFAULT pg_current_xact_id()` (an expand migration in
-T55b, 000091: the column is added without a default, so no partition is
+T55b, 000114: the column is added without a default, so no partition is
 rewritten, and the default set after; entries posted before it keep NULL,
 which a tenant's first run reads and Parquet stores as 0), and an extract's cutoff is the `xmin` of its own snapshot on the
 replica (`pg_snapshot_xmin(pg_current_snapshot())`). Every transaction below
@@ -380,7 +380,7 @@ one.
 `extract.MarkChanged`; the scheduler's extract reads on the primary until
 T55f. erp-server serves the semantic layer from T55f (below).
 
-**Lifecycle, rebuild and freshness (T55f).** Migration 000093.
+**Lifecycle, rebuild and freshness (T55f).** Migration 000116.
 
 *Superseded files.* A publication lists the manifest it replaced in
 `analytics.superseded (tenant_id, manifest_key, superseded_at, dropped)`
@@ -590,7 +590,7 @@ superseded manifests keep only for 7 days (T55f), so that is not promised.
 
 **Steps.** T55a this ADR and the dataset contract; T55b the snapshot
 migration, extractor and Parquet writer for journal lines; T55c the other
-datasets and the scheduler (migration 000092); T55d `erp-analytics`, the guard and the
+datasets and the scheduler (migration 000115); T55d `erp-analytics`, the guard and the
 isolation tests; T55h the `erp-analytics` image; T55e the semantic layer on the store, the fallback,
 lineage and parity; T55f erasure, compaction, lifecycle, rebuild and the
 freshness alert; T55g metric changes through the configuration approval

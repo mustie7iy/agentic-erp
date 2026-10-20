@@ -9,7 +9,7 @@ import (
 )
 
 // The analytical store's pointer and watermark (ADR-0044, T55b, migration
-// 000091): the rules the database keeps for them.
+// 000114): the rules the database keeps for them.
 
 // TestJournalEntriesRecordTheirTransaction: an entry records the transaction
 // that posted it, the extract's watermark.
@@ -98,7 +98,7 @@ func inRole(t *testing.T, role string, fn func(tx pgx.Tx) error) error {
 	return tx.Commit(ctx)
 }
 
-// TestExtractQueue (000092, 000093): the relay and the sweep mark tenants
+// TestExtractQueue (000115, 000116): the relay and the sweep mark tenants
 // changed, the worker claims and finishes their runs, the application only
 // reads its own row.
 func TestExtractQueue(t *testing.T) {
@@ -150,7 +150,7 @@ func TestExtractQueue(t *testing.T) {
 	})
 }
 
-// TestSupersededList (000093): the manifests a tenant's publications
+// TestSupersededList (000116): the manifests a tenant's publications
 // replaced, under row-level security, named for the tenant; the
 // application lists its own, the worker forgets them and clears a
 // tenant's store for a rebuild.
