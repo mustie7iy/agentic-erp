@@ -1157,7 +1157,9 @@ func (UnimplementedHandler) ListGrIrBalances(ctx context.Context, params ListGrI
 
 // ListJournalEntries implements listJournalEntries operation.
 //
-// Posted journal entries. Sortable by: `posting_date`, `document_number`.
+// Posted journal entries of one ledger, the leading ledger unless `ledger_id` names another: a
+// posting's copies in the parallel ledgers (ADR-0045) show only when their ledger is asked for.
+// Sortable by: `posting_date`, `document_number`.
 //
 // GET /v1/journal-entries
 func (UnimplementedHandler) ListJournalEntries(ctx context.Context, params ListJournalEntriesParams) (r ListJournalEntriesRes, _ error) {

@@ -3819,7 +3819,7 @@ paths:
       tags:
         - ledger
       summary: List journal entries
-      description: "Posted journal entries. Sortable by: `posting_date`, `document_number`."
+      description: "Posted journal entries of one ledger, the leading ledger unless `ledger_id` names another: a posting's copies in the parallel ledgers (ADR-0045) show only when their ledger is asked for. Sortable by: `posting_date`, `document_number`."
       x-permission: ledger.entry.read
       parameters:
         - $ref: "#/components/parameters/LegalEntityId"
@@ -3846,6 +3846,13 @@ paths:
           in: query
           required: false
           description: Only entries for this source document.
+          schema:
+            type: string
+            format: uuid
+        - name: ledger_id
+          in: query
+          required: false
+          description: "Only entries of this ledger (`GET /v1/ledgers`); defaults to the leading ledger."
           schema:
             type: string
             format: uuid
@@ -14823,7 +14830,7 @@ components:
           description: "The one ledger the entry posts to (a ledger-specific posting), one its company keeps (422 `ledger.ledger_not_kept`). Without `ledger_id` and `ledger_group` the entry posts to every ledger its company keeps, as linked entries sharing one document number; the leading ledger's entry is the one returned."
         ledger_group:
           type: string
-          description: "Code of the ledger group the entry posts to (`GET /v1/ledger-groups`): one entry per member, the representative's returned; every member a ledger its company keeps (422 `ledger.ledger_not_kept`). Not with `ledger_id` (422 `ledger.ledger_or_group`); an unknown code is 422 `ledger.unknown_ledger_group`."
+          description: "Code of the ledger group the entry posts to (`GET /v1/ledger-groups`): one entry per member its company keeps, the representative's returned (or, the representative not kept, the first member left by code); a group of no ledger the company keeps is 422 `ledger.ledger_not_kept`. Not with `ledger_id` (422 `ledger.ledger_or_group`); an unknown code is 422 `ledger.unknown_ledger_group`."
           pattern: "^[0-9A-Z]{1,4}$"
         document_type:
           type: string

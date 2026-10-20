@@ -252,15 +252,19 @@ var entrySort = pagination.Sort{Default: "posting_date", Fields: []pagination.Fi
 	{Name: "posting_date", Column: "e.posting_date", Type: "date"}, {Name: "document_number", Column: "e.document_number", Type: "text"},
 }}
 
-// ListJournalEntries implements GET /v1/journal-entries.
+// ListJournalEntries implements GET /v1/journal-entries: the entries of
+// one ledger, the leading ledger by default, so a posting's copies in the
+// parallel ledgers are listed only when their ledger is asked for and
+// readers that sum the list (analytics) see each posting once (ADR-0045).
 func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJournalEntriesParams) (gen.ListJournalEntriesRes, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
 	from, to := apitypes.Ptr[time.Time](params.PostingDateFrom), apitypes.Ptr[time.Time](params.PostingDateTo)
-	scope := fmt.Sprintf("listJournalEntries|%s|%s|%v|%v|%d|%s|%s", apitypes.Ptr[uuid.UUID](params.LegalEntityID), params.DocumentNumber.Value, from, to,
-		params.FiscalYear.Value, params.SourceContext.Value, apitypes.Ptr[uuid.UUID](params.SourceDocumentID))
+	ledger := apitypes.Ptr[uuid.UUID](params.LedgerID)
+	scope := fmt.Sprintf("listJournalEntries|%s|%s|%v|%v|%d|%s|%s|%s", apitypes.Ptr[uuid.UUID](params.LegalEntityID), params.DocumentNumber.Value, from, to,
+		params.FiscalYear.Value, params.SourceContext.Value, apitypes.Ptr[uuid.UUID](params.SourceDocumentID), ledger)
 	ks, err := e.Pages.Keyset(entrySort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
@@ -269,11 +273,20 @@ func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJourn
 	if err != nil {
 		return nil, err
 	}
+	// The ledger is tested inside a CASE on purpose. As a plain condition
+	// the planner estimates its selectivity across every tenant's ledgers
+	// and multiplies it with the legal entity's, expects a handful of
+	// entries, and reads and sorts the legal entity's whole year instead of
+	// following a page index (000055) for one page
+	// (TestListReadsOnlyItsPage). A CASE is estimated at one half, so the
+	// page indexes keep serving the sort, and a page reads its entries and
+	// at most their copies in the other ledgers.
 	q, args := ks.SQL(entrySelect+` WHERE ($1 OR e.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR e.legal_entity_id = $3)
 		AND ($4 = '' OR e.document_number = $4) AND ($5::date IS NULL OR e.posting_date >= $5) AND ($6::date IS NULL OR e.posting_date <= $6)
-		AND ($7::smallint IS NULL OR e.fiscal_year = $7) AND ($8 = '' OR e.source_context = $8) AND ($9::uuid IS NULL OR e.source_document_id = $9)`,
+		AND ($7::smallint IS NULL OR e.fiscal_year = $7) AND ($8 = '' OR e.source_context = $8) AND ($9::uuid IS NULL OR e.source_document_id = $9)
+		AND CASE WHEN e.ledger_id = coalesce($10, (SELECT g.id FROM ledger.ledger g WHERE g.is_leading)) THEN true ELSE false END`,
 		[]any{access.All, access.IDs, apitypes.Ptr[uuid.UUID](params.LegalEntityID), params.DocumentNumber.Value, from, to, apitypes.Ptr[int32](params.FiscalYear),
-			params.SourceContext.Value, apitypes.Ptr[uuid.UUID](params.SourceDocumentID)})
+			params.SourceContext.Value, apitypes.Ptr[uuid.UUID](params.SourceDocumentID), ledger})
 	rows, _ := tx.Query(ctx, q, args...)
 	entries, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Entry, error) { return scanEntry(r) })
 	if err != nil {
@@ -545,7 +558,7 @@ func (e *Endpoints) ListClearings(ctx context.Context, params gen.ListClearingsP
 	if err != nil {
 		return nil, err
 	}
-	q, args := ks.SQL(clearingSelect+` WHERE ($1 OR c.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR c.legal_entity_id = $3)`,
+	q, args := ks.SQL(clearingSelect+` WHERE ($1 OR c.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR c.legal_entity_id = $3) AND `+shownClearing,
 		[]any{access.All, access.IDs, apitypes.Ptr[uuid.UUID](params.LegalEntityID)})
 	rows, _ := tx.Query(ctx, q, args...)
 	clearings, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Clearing, error) { return scanClearing(r) })

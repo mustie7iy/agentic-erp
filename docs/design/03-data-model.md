@@ -708,6 +708,11 @@ Rules enforced in the database:
   `ledger_group_id` it names, and a copy to its group's first entry's
   header in another ledger. `parked_entry` keeps what it posts to
   (`ledger_specific`, `ledger_group_id`, not both, fixed once parked).
+- Clearing in every ledger (ADR-0045, T52c): a clearing writes one
+  `clearing` per ledger where its clearing entry has a copy, by that copy,
+  with `clearing_item` rows for the copies of the cleared lines (an item
+  with its offset, only where both have a copy); the leading ledger's is
+  the one read and announced.
 
 Enforced by the ledger, not the database (T32c): `:unlock` (permission
 `ledger.period.lock`, people only) opens the `period_unlock` request with

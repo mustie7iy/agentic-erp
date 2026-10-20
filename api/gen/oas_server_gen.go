@@ -804,7 +804,9 @@ type Handler interface {
 	ListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (ListGrIrBalancesRes, error)
 	// ListJournalEntries implements listJournalEntries operation.
 	//
-	// Posted journal entries. Sortable by: `posting_date`, `document_number`.
+	// Posted journal entries of one ledger, the leading ledger unless `ledger_id` names another: a
+	// posting's copies in the parallel ledgers (ADR-0045) show only when their ledger is asked for.
+	// Sortable by: `posting_date`, `document_number`.
 	//
 	// GET /v1/journal-entries
 	ListJournalEntries(ctx context.Context, params ListJournalEntriesParams) (ListJournalEntriesRes, error)

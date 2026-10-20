@@ -913,6 +913,12 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Clearing in every ledger: subledger postings copied, clearings applied to each ledger's copy lines by posting_group_id, a clearing's own entry narrowed to its items' ledgers; journal list by ledger (leading by default); ledger groups narrowed to the ledgers kept",
+        "r": "clearCopies · itemLedgers · GET /v1/journal-entries?ledger_id · ADR-0045 · T52c",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "Revaluation per ledger and valuation area (fx_valuation keyed by ledger)",
         "r": "T52d",

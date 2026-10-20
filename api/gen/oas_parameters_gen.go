@@ -20370,6 +20370,8 @@ type ListJournalEntriesParams struct {
 	SourceContext OptString `json:",omitempty,omitzero"`
 	// Only entries for this source document.
 	SourceDocumentID OptUUID `json:",omitempty,omitzero"`
+	// Only entries of this ledger (`GET /v1/ledgers`); defaults to the leading ledger.
+	LedgerID OptUUID `json:",omitempty,omitzero"`
 	// Maximum number of items to return. Defaults to 50, maximum 500.
 	PageSize OptInt32 `json:",omitempty,omitzero"`
 	// Opaque cursor from `next_page_token` of the previous page. Tokens are signed and encode the sort
@@ -20445,6 +20447,15 @@ func unpackListJournalEntriesParams(packed middleware.Parameters) (params ListJo
 		}
 		if v, ok := packed[key]; ok {
 			params.SourceDocumentID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "ledger_id",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.LedgerID = v.(OptUUID)
 		}
 	}
 	{
@@ -20823,6 +20834,47 @@ func decodeListJournalEntriesParams(args [0]string, argsEscaped bool, r *http.Re
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "source_document_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: ledger_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "ledger_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotLedgerIDVal uuid.UUID
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToUUID(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotLedgerIDVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.LedgerID.SetTo(paramsDotLedgerIDVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "ledger_id",
 			In:   "query",
 			Err:  err,
 		}

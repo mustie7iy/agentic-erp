@@ -80,6 +80,7 @@ func TestParallelPostings(t *testing.T) {
 		{"a company with one ledger", us, "0L", "0L"},
 		{"a ledger group", with(body, `"ledger_group": "ALL"`), "0L", "0L,2L"},
 		{"a group of the parallel ledger", with(body, `"ledger_group": "LOC"`), "2L", "2L"},
+		{"a group narrowed to the ledgers the company keeps", with(us, `"ledger_group": "ALL"`), "0L", "0L"},
 		{"one ledger", with(body, `"ledger_id": "`+p.local+`"`), "2L", "2L"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -102,7 +103,7 @@ func TestParallelPostings(t *testing.T) {
 	t.Run("refused", func(t *testing.T) {
 		for _, c := range []struct{ name, body, code string }{
 			{"a ledger the company does not keep", with(us, `"ledger_id": "`+p.local+`"`), "ledger.ledger_not_kept"},
-			{"a group with a ledger the company does not keep", with(us, `"ledger_group": "LOC"`), "ledger.ledger_not_kept"},
+			{"a group of no ledger the company keeps", with(us, `"ledger_group": "LOC"`), "ledger.ledger_not_kept"},
 			{"an unknown group", with(body, `"ledger_group": "ZZ"`), "ledger.unknown_ledger_group"},
 			{"a ledger and a group", with(body, `"ledger_id": "`+p.local+`", "ledger_group": "LOC"`), "ledger.ledger_or_group"},
 		} {

@@ -49,25 +49,29 @@ func chooseLedgers(ctx context.Context, tx pgx.Tx, le uuid.UUID, in NewEntry) (l
 	return ledgerChoice{ledger: ledger, ledgers: []uuid.UUID{ledger}, specific: true}, nil
 }
 
-// groupLedgers resolves a ledger group by its code: its members, the
-// representative first, every one a ledger the company le keeps.
+// groupLedgers resolves a ledger group by its code: its members the
+// company le keeps, the representative first. A group naming ledgers the
+// company does not keep is narrowed to those it keeps, as SAP does, and
+// refused only when it keeps none of them (product owner, 2026-10-20). When
+// the representative is narrowed away, the first member left by code stands
+// for the posting; the leading ledger, kept by every company, is the
+// representative of any group it is in.
 func groupLedgers(ctx context.Context, tx pgx.Tx, le uuid.UUID, code string) (ledgerChoice, error) {
 	var c ledgerChoice
 	var group uuid.UUID
-	var kept bool
-	err := tx.QueryRow(ctx, `SELECT g.id, array_agg(m.ledger_id ORDER BY m.ledger_id <> g.representative_ledger_id, l.code),
-			bool_and(ledger.company_keeps($2, m.ledger_id))
+	err := tx.QueryRow(ctx, `SELECT g.id, array_agg(m.ledger_id ORDER BY m.ledger_id <> g.representative_ledger_id, l.code)
+			FILTER (WHERE ledger.company_keeps($2, m.ledger_id))
 		FROM ledger.ledger_group g
 		JOIN ledger.ledger_group_member m ON m.tenant_id = g.tenant_id AND m.group_id = g.id
 		JOIN ledger.ledger l ON l.tenant_id = m.tenant_id AND l.id = m.ledger_id
-		WHERE g.code = $1 GROUP BY g.id`, code, le).Scan(&group, &c.ledgers, &kept)
+		WHERE g.code = $1 GROUP BY g.id`, code, le).Scan(&group, &c.ledgers)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return c, problem.Unprocessable("ledger.unknown_ledger_group", "No ledger group has the code "+code+".",
 			problem.FieldError{Field: "ledger_group", Code: "not_found", Message: "a ledger group of the tenant"})
 	case err != nil:
 		return c, fmt.Errorf("ledger: ledger group %s: %w", code, err)
-	case !kept:
+	case len(c.ledgers) == 0:
 		return c, notKept("ledger_group")
 	}
 	c.ledger, c.group = c.ledgers[0], &group

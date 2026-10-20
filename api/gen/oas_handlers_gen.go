@@ -23187,7 +23187,9 @@ func (s *Server) handleListGrIrBalancesRequest(args [0]string, argsEscaped bool,
 
 // handleListJournalEntriesRequest handles listJournalEntries operation.
 //
-// Posted journal entries. Sortable by: `posting_date`, `document_number`.
+// Posted journal entries of one ledger, the leading ledger unless `ledger_id` names another: a
+// posting's copies in the parallel ledgers (ADR-0045) show only when their ledger is asked for.
+// Sortable by: `posting_date`, `document_number`.
 //
 // GET /v1/journal-entries
 func (s *Server) handleListJournalEntriesRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -23356,6 +23358,10 @@ func (s *Server) handleListJournalEntriesRequest(args [0]string, argsEscaped boo
 					Name: "source_document_id",
 					In:   "query",
 				}: params.SourceDocumentID,
+				{
+					Name: "ledger_id",
+					In:   "query",
+				}: params.LedgerID,
 				{
 					Name: "page_size",
 					In:   "query",

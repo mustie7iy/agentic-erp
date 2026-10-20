@@ -50,8 +50,11 @@ of the company as linked entries sharing a `posting_group_id` and one
 document number; document number uniqueness gains `ledger_id`. Manual and
 parked entries may name a ledger group (`ledger_group`, its code) or a
 ledger (`ledger_id`), posting to those ledgers only; every ledger posted
-to must be one the company keeps (422 `ledger.ledger_not_kept`; a group
-with a ledger the company does not keep is refused, not narrowed). The
+to must be one the company keeps (422 `ledger.ledger_not_kept`). A group
+naming ledgers the company does not keep is narrowed to those it keeps, as
+SAP does, and refused (422 `ledger.ledger_not_kept`) only when it keeps
+none of them (product owner, 2026-10-20, T52c); when the representative is
+narrowed away, the first member left by code stands for the posting. The
 first entry is the representative ledger's (the leading ledger's without a
 group) and is the one returned, audited and referred to by open items and
 clearings; each entry publishes its own `JournalEntryPosted` and is
@@ -61,11 +64,30 @@ posting (the representative's period is among them). A reversal reverses
 every entry of the group, each copy by the reversal's copy in its ledger;
 a copy is not reversed by itself. Every posting through the ledger,
 including clearings and the contexts' postings, goes to every ledger of
-the company. Open items are the leading ledger's (the open item list and
-clearing read only its lines, T52b); a clearing's own entry is posted to
-every ledger, and applying it to the copies' lines through the
-`posting_group_id` is T52c. Reports read one ledger, the leading ledger by
-default. Agents keep proposing only: posting stays human-only and parking,
+the company. Open items are the leading ledger's (the open item list, the payment
+proposal's items, GR/IR and the migration's totals read only its lines,
+T52b).
+
+**Clearing in every ledger (T52c).** A clearing is applied to the copies
+of its lines in the same transaction, found through the `posting_group_id`:
+in each ledger where the clearing document has a copy, a clearing by that
+copy clears the copies of the items with the copies of their offsetting
+lines; an item without a copy there (posted before T52b, or to the leading
+ledger alone) is left with its offset, so a ledger never clears an item
+without the line that offsets it. This holds for clearings, settlements
+(payments), down payment clearings, reversals (the reversal's copies clear
+the original's) and migrated clearings (whose clearing entry must be a
+posting group's first entry, and whose date must fall in an open period of
+every ledger of its copies). A clearing's own entry (AB, and the down
+payment transfer) is narrowed to the ledgers every item was posted in, so a
+0L-only item's clearing posts to 0L alone; payables, payments, GR/IR and
+settlement postings go to every ledger of the company. The copies'
+clearings are part of the clearing: audited and announced (`items_cleared`)
+once, by the leading ledger's, and the clearing API shows only that one.
+Reports read one ledger, the leading ledger by default: the journal list
+takes `ledger_id`, defaulting to the leading ledger, so a posting's copies
+show only when their ledger is asked for and readers that sum the list
+(analytics) count each posting once. Agents keep proposing only: posting stays human-only and parking,
 with a ledger or group, is how they propose.
 
 **Revaluation and depreciation.** Foreign-currency revaluation runs per
@@ -77,7 +99,8 @@ ledgers of a company per account and period, with drill-down to the
 entries that differ, and the trial balance is checked per ledger.
 
 **Analytics and agents.** Analytics read the leading ledger by default
-(product owner). Agents read every ledger; ledger-specific and manual
+(product owner): they read the journal list and open items, both the
+leading ledger's unless asked (T52c). Agents read every ledger; ledger-specific and manual
 postings by agents are propose-only.
 
 **Migrations are expand-only.** New tables and nullable columns; unique
@@ -88,7 +111,10 @@ every copy, and the previous release never relies on it (numbers come from
 the number range), so dropping it is safe during a rolling deploy. The copies are not: a release before
 T52b lists a copy's supplier lines as open items and reverses a copy
 alone, so no company is assigned a parallel ledger until every replica
-runs T52b. Nothing
+runs T52b. The journal
+list's ledger filter needs no index: a page follows the page indexes
+(000055) and reads at most its entries' copies besides (the filter is
+written so the planner does not underestimate it, T52c). Nothing
 is backfilled: a company is assigned its ledgers by the next activation, so
 until then `GET /v1/ledgers` lists 0L without legal entities. Until T52b a
 posting may still name any ledger of the tenant; T52b limits it to the

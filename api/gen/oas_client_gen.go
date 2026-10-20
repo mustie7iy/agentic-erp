@@ -825,7 +825,9 @@ type Invoker interface {
 	ListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (ListGrIrBalancesRes, error)
 	// ListJournalEntries invokes listJournalEntries operation.
 	//
-	// Posted journal entries. Sortable by: `posting_date`, `document_number`.
+	// Posted journal entries of one ledger, the leading ledger unless `ledger_id` names another: a
+	// posting's copies in the parallel ledgers (ADR-0045) show only when their ledger is asked for.
+	// Sortable by: `posting_date`, `document_number`.
 	//
 	// GET /v1/journal-entries
 	ListJournalEntries(ctx context.Context, params ListJournalEntriesParams) (ListJournalEntriesRes, error)
@@ -19799,7 +19801,9 @@ func (c *Client) sendListGrIrBalances(ctx context.Context, params ListGrIrBalanc
 
 // ListJournalEntries invokes listJournalEntries operation.
 //
-// Posted journal entries. Sortable by: `posting_date`, `document_number`.
+// Posted journal entries of one ledger, the leading ledger unless `ledger_id` names another: a
+// posting's copies in the parallel ledgers (ADR-0045) show only when their ledger is asked for.
+// Sortable by: `posting_date`, `document_number`.
 //
 // GET /v1/journal-entries
 func (c *Client) ListJournalEntries(ctx context.Context, params ListJournalEntriesParams) (ListJournalEntriesRes, error) {
@@ -19962,6 +19966,23 @@ func (c *Client) sendListJournalEntries(ctx context.Context, params ListJournalE
 
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.SourceDocumentID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "ledger_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "ledger_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LedgerID.Get(); ok {
 				return e.EncodeValue(conv.UUIDToString(val))
 			}
 			return nil

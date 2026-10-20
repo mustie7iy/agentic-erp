@@ -13124,10 +13124,10 @@ type JournalEntryCreate struct {
 	// its company keeps, as linked entries sharing one document number; the leading ledger's entry is the
 	// one returned.
 	LedgerID OptUUID `json:"ledger_id"`
-	// Code of the ledger group the entry posts to (`GET /v1/ledger-groups`): one entry per member, the
-	// representative's returned; every member a ledger its company keeps (422 `ledger.ledger_not_kept`).
-	// Not with `ledger_id` (422 `ledger.ledger_or_group`); an unknown code is 422
-	// `ledger.unknown_ledger_group`.
+	// Code of the ledger group the entry posts to (`GET /v1/ledger-groups`): one entry per member its
+	// company keeps, the representative's returned (or, the representative not kept, the first member left
+	// by code); a group of no ledger the company keeps is 422 `ledger.ledger_not_kept`. Not with
+	// `ledger_id` (422 `ledger.ledger_or_group`); an unknown code is 422 `ledger.unknown_ledger_group`.
 	LedgerGroup OptString `json:"ledger_group"`
 	// Document type.
 	DocumentType OptString `json:"document_type"`
