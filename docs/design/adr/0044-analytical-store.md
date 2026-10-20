@@ -203,8 +203,8 @@ instead, and every answer's lineage names its source (`store` or
 
 **No new per-PR CI.** The contract, isolation and parity tests run in the
 existing test job, which builds `erp-analytics` with cgo as it already
-does for `-race`; once T55p joins its image to `scripts/images.sh`, the
-image job that already builds the binaries builds it too.
+does for `-race`; `scripts/images.sh` builds its image with the others
+(T55p), so the image job that already builds the binaries builds it too.
 
 **Extractor (T55b).** `internal/analytics/extract` reads, as the
 application role in a read-only `REPEATABLE READ` transaction scoped to
@@ -280,7 +280,7 @@ both platforms, through the ADR-0032 gates) is T55h, since ko does not
 cross-compile cgo.
 
 **The image and its deployment (T55h).** `deploy/images/erp-analytics.Dockerfile`
-builds the image with docker buildx (`make image-analytics`): a Go 1.26.2
+builds the image with docker buildx (`scripts/images.sh`, T55p): a Go 1.26.2
 Debian 12 builder on the build machine's platform cross-compiles with
 Debian's cross gcc (no emulation), DuckDB coming prebuilt and static from
 duckdb-go-bindings; glibc stays dynamic, on
@@ -291,10 +291,11 @@ two builds without cache gave the same manifest digest for each platform
 (2026-10-20, arm64 native and amd64 cross). The build context is the Go
 sources alone (`.dockerignore`). Each platform compiles `api/gen`, a few
 GB of memory apiece, so a small Docker VM builds one platform at a time.
-Joining the ADR-0032 pipeline (images.txt, the double-build gate, an SBOM
-in sign-images.sh's convention, the grype scan of it and of the cc base,
-base-image-current, push and signature in the release) is T55p; until
-then a release.json cannot carry the image the chart requires.
+It joins the ADR-0032 pipeline as ADR-0032's amendment describes
+(T55p): images.txt, the double-build gate, an SBOM in sign-images.sh's
+convention, the grype scan of it and of the cc base, base-image-current,
+push, signature and verification in the release, so a release.json names
+`images.analytics` from the release like the other images.
 The erp-cell chart runs it in every cell (`analytics.yaml`): its own
 service account and IRSA role (`cell.workload_role_arns.analytics`:
 `s3:GetObject` on `analytics/*`, `s3:ListBucket` for that prefix, the

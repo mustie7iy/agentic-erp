@@ -4,9 +4,11 @@
 # base plus one Go binary, so two scans cover it:
 #   - each per-platform SBOM that images.sh wrote (the Go modules in the
 #     binary; ko's SBOM does not list the standard library, which
-#     govulncheck covers in CI and weekly);
-#   - the base image by its digest from .ko.yaml, for each platform (its
-#     Debian packages, which ko's SBOM names but does not list).
+#     govulncheck covers in CI and weekly; erp-analytics's, syft's, also
+#     lists DuckDB's module and the cc base's packages);
+#   - the base images by digest, for each platform: .ko.yaml's (its Debian
+#     packages, which ko's SBOM names but does not list) and erp-analytics's
+#     runtime base, the Dockerfile's BASE_IMAGE (glibc, libstdc++).
 # Exceptions go in .grype.yaml, each with a reason and an expiry date.
 set -euo pipefail
 OUT="${1:-dist/images}"
@@ -30,7 +32,14 @@ if [[ "$base" != *@sha256:* ]] || [ ${#platforms[@]} -eq 0 ]; then
   echo "image-scan: .ko.yaml must name defaultBaseImage by digest and list defaultPlatforms one per line" >&2
   exit 1
 fi
-for platform in "${platforms[@]}"; do
-  echo "image-scan: $base ($platform)"
-  $GRYPE "registry:$base" --platform "$platform" "${args[@]}"
+cc="$(sed -n 's/^ARG BASE_IMAGE=//p' deploy/images/erp-analytics.Dockerfile)"
+if [[ "$cc" != *@sha256:* ]]; then
+  echo "image-scan: deploy/images/erp-analytics.Dockerfile must name ARG BASE_IMAGE by digest" >&2
+  exit 1
+fi
+for image in "$base" "$cc"; do
+  for platform in "${platforms[@]}"; do
+    echo "image-scan: $image ($platform)"
+    $GRYPE "registry:$image" --platform "$platform" "${args[@]}"
+  done
 done

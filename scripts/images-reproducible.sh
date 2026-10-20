@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The reproducibility gate (ADR-0032): builds the images twice, each time
-# with empty Go and ko caches of its own, and fails unless every image has
-# the same digest both times. An image whose digest depends on the machine,
+# with empty Go and ko caches and a buildx builder of its own (for
+# erp-analytics: a docker-container builder, removed with its cache after
+# the build), and fails unless every image has the same digest both times. An image whose digest depends on the machine,
 # the time or a cache cannot be verified against its source, so it is not
 # released. The caches are private temporary directories, removed at the
 # end: the shared Go build cache is never cleaned. The first build's caches
@@ -10,12 +11,25 @@
 # the scan.
 set -euo pipefail
 OUT="${1:-dist/images}"
+DOCKER="${DOCKER:-docker}"
 work="$(mktemp -d)"
-trap 'chmod -R u+w "$work" 2>/dev/null || true; rm -rf "$work"' EXIT
+builder=""
+# A failed build's builder goes too: its state would hold the cache.
+cleanup() {
+  if [ -n "$builder" ]; then $DOCKER buildx rm --force "$builder" >/dev/null 2>&1 || true; fi
+  chmod -R u+w "$work" 2>/dev/null || true
+  rm -rf "$work"
+}
+trap cleanup EXIT
 for run in first second; do
   mkdir -p "$work/$run/gocache" "$work/$run/kocache"
-  GOCACHE="$work/$run/gocache" KOCACHE="$work/$run/kocache" GOFLAGS="${GOFLAGS:+$GOFLAGS }-modcacherw" \
+  builder="erp-reproducible-$run-$$"
+  $DOCKER buildx create --name "$builder" --driver docker-container >/dev/null
+  GOCACHE="$work/$run/gocache" KOCACHE="$work/$run/kocache" BUILDX_BUILDER="$builder" \
+    GOFLAGS="${GOFLAGS:+$GOFLAGS }-modcacherw" \
     "$(dirname "$0")/images.sh" "$work/$run/out" >/dev/null
+  $DOCKER buildx rm --force "$builder" >/dev/null
+  builder=""
   # The module cache may hold read-only files; if chmod cannot fix one,
   # the rm below fails loudly.
   chmod -R u+w "$work/$run/gocache" "$work/$run/kocache" 2>/dev/null || true

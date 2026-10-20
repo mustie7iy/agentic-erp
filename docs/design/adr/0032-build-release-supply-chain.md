@@ -159,7 +159,20 @@ scope is narrow because the binary is narrow: read-only access to the
 bucket's `analytics/` prefix, no database credentials, reachable only from
 `erp-server` over mTLS (ADR-0033). Any other cgo binary needs its own ADR.
 Built outside ko, which does not cross-compile cgo: a pinned multi-stage
-`deploy/images/erp-analytics.Dockerfile` with docker buildx (T55h; the
-double build matched by hand). Its place in `images.sh` and the gates
-that read `images.txt` is T55p, extending those scripts rather than
-copying them.
+`deploy/images/erp-analytics.Dockerfile` with docker buildx (T55h).
+`scripts/images.sh` builds it after ko's images (T55p), one platform at a
+time (each compiles `api/gen` in a few GB of memory), each an OCI archive
+dated at the epoch without buildx attestations; it joins them into one
+OCI index it writes itself, so the index's digest is known before any
+push and `crane push --index` must report the same one, and lists the
+index and its images in `images.txt` like ko's. syft writes each image's
+SBOM (Go modules, DuckDB, the cc base's packages), its first package the
+image's digest, and the index gets one naming its images, so
+`sign-images.sh` signs and attests them unchanged. `images-reproducible.sh`
+gives each of its two builds a docker-container buildx builder of its
+own, removed with its cache; `image-scan.sh` scans the SBOMs and the cc
+base; `base-image-current.sh` checks the builder and the cc base besides
+ko's; the provenance names both. The release pushes, signs and verifies
+it with the others, so a cell's `release.json` takes `images.analytics`
+from the release's `images.txt` like every other image.
+`scripts/test-images.sh` checks these scripts with fake tools.
