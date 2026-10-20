@@ -353,23 +353,25 @@ T55f. erp-server serves the semantic layer from T55f (below).
 **Lifecycle, rebuild and freshness (T55f).** Migration 000093.
 
 *Superseded files.* A publication lists the manifest it replaced in
-`analytics.superseded (tenant_id, manifest_key, superseded_at)` (RLS, a
-check ties the key to the tenant), and a run that lost the race
-(`ErrMoved`) lists its own. After each tenant's run, in the same claim, the
-scheduler collects (`Extractor.Collect`): for every manifest superseded
-more than seven days ago (`Keep`), it deletes the files no manifest in use
-lists (the pointer's, and those superseded since), then the manifest, then,
-as `erp_worker` (the application deletes no row, `TestDesignRules`), its
-row. A manifest already gone lists nothing; an object already gone is
-nothing to delete; a manifest the pointer names again is kept. Run twice it
-deletes nothing more. Files a crashed run wrote before its manifest are
-listed by no manifest and stay until a rebuild or the erasure (accepted:
-bounded by crashes). Collection and the run of a tenant are serialized by
-its claim; two claims overlap only when a run outlasts five minutes, and
-then a content-named file the newer run takes up again could be deleted
-under it: the reader refuses the manifest, the semantic layer answers from
-the database, and the month's next change writes the file again
-(accepted).
+`analytics.superseded (tenant_id, manifest_key, superseded_at, dropped)`
+(RLS, a check ties the key to the tenant) with what it dropped: the keys
+the old manifest listed, itself included, that the new one does not. A run
+that lost the race (`ErrMoved`) lists its own manifest with every file it
+lists. After each tenant's run, in the same claim, the scheduler collects
+(`Extractor.Collect`): for every supersession more than seven days old
+(`Keep`) it deletes what it dropped, but for what the current manifest
+lists (the one manifest Collect reads, however many supersessions there
+are) and what a supersession since dropped (a file taken up again and
+dropped again stays for that one's seven days), then forgets the rows as
+`erp_worker` (the application deletes no row, `TestDesignRules`). An object
+already gone is nothing to delete; run twice it deletes nothing more.
+Files a crashed run wrote before its manifest are listed nowhere and stay
+until a rebuild or the erasure (accepted: bounded by crashes). Collection
+and the run of a tenant are serialized by its claim; two claims overlap
+only when a run outlasts five minutes, and then a content-named file the
+newer run takes up again could be deleted under it: the reader refuses the
+manifest, the semantic layer answers from the database, and the month's
+next change writes the file again (accepted).
 
 *Compaction.* Each run that posts to a month adds a small journal part. When
 a month would hold `CompactAt` (8) parts, the run merges them with its new
@@ -391,7 +393,8 @@ itself (`watermark > pg_snapshot_xmax(pg_current_snapshot())`, `Ahead`):
 then the database was restored or moved under the store (ADR-0040), and the
 scheduler rebuilds the tenant (`Rebuild`: its files deleted first, so a
 reader of the old pointer falls back, then its pointer and superseded rows
-as the worker, and the tenant marked due) and runs it again from the start.
+as the worker, and the tenant marked due) and runs it again from the start,
+on the primary (the claim's WAL position predates the rebuild).
 Ahead of the replica alone, the replica lags: the run is retried at the next
 claim and never publishes. `erp-server dr reconcile` rebuilds every tenant
 ahead of the restored database before the workloads start
@@ -406,6 +409,9 @@ otherwise it reads on the primary. erp-server reads `DATABASE_REPLICA_URL`
 (verified TLS in production, a pool of two connections); without it the
 primary.
 
+*Claims.* The scheduler claims active tenants only, so no run writes into
+an offboarded tenant's store while it is exported and erased.
+
 *Sweep.* Every hour each scheduler marks due every active tenant whose
 pointer is missing or whose `checked_at` is older than the freshness target
 (`Sweep`, as the worker, which may now insert and update `changed_at`), so a
@@ -413,13 +419,15 @@ lost event delays data and never loses it. The per-month reconciliation
 against the database (rows and the sum of `amount_minor`) is not built yet
 (T55i).
 
-*Freshness metrics.* erp-server exports `erp_analytics_lag_seconds` (the
-age of the oldest journal entry of an active tenant at or above its
-watermark: the target's measure, posting to the store) and
+*Freshness metrics.* A cell that extracts (an object store configured)
+exports `erp_analytics_lag_seconds`, the age of the oldest change of an
+active tenant not yet in its store: the oldest journal entry at or above
+its watermark (one index range per tenant), or, before a tenant's first
+extract, how long its first change has waited in the queue; and
 `erp_analytics_stale_tenants` (active tenants whose store is not found
-current within fifteen minutes, answered from the database), read as the
-worker (column grants on `ledger.journal_entry`). The alert rules on them
-are T55j, once T54's rules are merged.
+current within fifteen minutes, answered from the database). Both are read
+as the worker (column grants on `ledger.journal_entry`). The alert rules on
+them are T55j, once T54's rules are merged.
 
 *The query endpoint.* erp-server answers `POST /v1/analytics-queries`
 (`runAnalyticsQuery`, contract first: a semantic query of metric names,
@@ -430,20 +438,26 @@ analytics.query.run` and `x-autonomy: read` (it changes no business data,
 so an agent of any level runs it). `internal/analytics/endpoint` validates
 the query against the governed model (422 `analytics.invalid_query`),
 scopes it to the caller's companies (`authz.Companies`, named by code) and
-to the fact datasets of the fact types its permissions read
-(`ledger.entry.read`, `procurement.order.read`,
-`payables.invoice.read`), runs `store.Source` (the store when
+to the fact datasets its metrics read, each of which needs the permission
+that reads it through the API (`ledger.entry.read`,
+`procurement.order.read`, `payables.invoice.read`; 403
+`identity.permission_missing` otherwise, whichever path answers), runs `store.Source` (the store when
 `ERP_ANALYTICS_URL` names erp-analytics, over mTLS as
 `spiffe://<domain>/<cell>/erp-analytics`, and the snapshot is current;
 else the database) and `analytics.Execute`, and returns the rows (each
 measure an exact decimal string with its currency) with `source`, `as_of`,
 `data_through` and the definitions. The database path is `BuildFacts`
-over the API itself, read in-process as the caller (`httpapi.Loopback`:
-the request's verified claims and client certificate go through the unit
-of work and the generated server, in transactions of their own beside the
-request's), so a person or agent sees in analytics exactly what the API
-lets them read, and data it may not read refuses the query with the API's
-403. Each answer holds its request's transaction while it reads, so at most
+over the API itself, building only the fact tables the query needs, read
+in-process as the caller (`httpapi.Loopback`: GETs only, the request's
+verified claims and client certificate go through the unit of work and the
+generated server, in transactions of their own beside the request's, so
+the facts are not one snapshot, as `erp analytics` never read them as
+one; the reads are not counted against the caller's quota nor traced as
+requests of their own), so a person or agent sees in analytics what the
+API lets them read. Dimensions a store answer names (account and vendor
+names) are not gated by `ledger.account.read` or
+`partner.supplier.read` as the database path's reads are: an open point
+for the product owner. Each answer holds its request's transaction while it reads, so at most
 two answer at once per replica; another is 503 `analytics.busy` with
 `Retry-After: 1`, never a wait on the pool. `erp query`, `erp ask` and `erp
 report` and the analytics agent's `run_query` tool call the endpoint

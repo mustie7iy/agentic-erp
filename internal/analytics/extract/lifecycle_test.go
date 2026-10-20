@@ -87,11 +87,14 @@ func TestCollect(t *testing.T) {
 	if n := e.collect(t); n != 0 {
 		t.Errorf("collect again: got %d deleted, want 0", n)
 	}
-	// A listed manifest already deleted lists nothing; its row goes.
-	pgtest.Exec(t, `INSERT INTO analytics.superseded (tenant_id, manifest_key, superseded_at) VALUES ($1, $2, now() - interval '8 days')`,
-		e.Tenant.ID, extract.ManifestKey(e.Tenant.ID, 3, ""))
-	if n := e.collect(t); n != 1 {
-		t.Errorf("collect a deleted manifest: got %d deleted, want 1 (the key itself)", n)
+	// A dropped key already gone is nothing to delete; its row goes.
+	goneKey := extract.ManifestKey(e.Tenant.ID, 3, "")
+	pgtest.Exec(t, `INSERT INTO analytics.superseded (tenant_id, manifest_key, superseded_at, dropped) VALUES ($1, $2, now() - interval '8 days', ARRAY[$2])`,
+		e.Tenant.ID, goneKey)
+	e.collect(t)
+	pgtest.Scan(t, `SELECT count(*) FROM analytics.superseded WHERE tenant_id = $1`, []any{e.Tenant.ID}, &rows)
+	if rows != 0 {
+		t.Errorf("rows after collecting a key already gone: got %d, want 0", rows)
 	}
 	// The pointer read back is still the second run's, which reads alike.
 	if res := e.run(t); res.Published || res.ManifestKey != second {
@@ -138,7 +141,7 @@ func (g getFails) Get(ctx context.Context, key string) ([]byte, string, error) {
 func TestCollectFailures(t *testing.T) {
 	e := setup(t)
 	e.post(t, "2026-03-02", "1.00")
-	first := e.run(t).ManifestKey
+	e.run(t)
 	e.post(t, "2026-03-03", "2.00")
 	second := e.run(t).ManifestKey
 	e.expire(t)
@@ -147,10 +150,9 @@ func TestCollectFailures(t *testing.T) {
 		store blobstore.Store
 		want  string
 	}{
-		"no eraser":           {listless{e.server.Store()}, "cannot delete"},
-		"manifest in use":     {getFails{S3: e.server.Store(), part: second}, "get refused"},
-		"superseded manifest": {getFails{S3: e.server.Store(), part: first}, "get refused"},
-		"delete":              {deleteFails{S3: e.server.Store(), part: "manifest"}, "delete refused"},
+		"no eraser":       {listless{e.server.Store()}, "cannot delete"},
+		"manifest in use": {getFails{S3: e.server.Store(), part: second}, "get refused"},
+		"delete":          {deleteFails{S3: e.server.Store(), part: "manifest"}, "delete refused"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			x := e.x
@@ -602,4 +604,61 @@ func TestSchedulerRebuildFailures(t *testing.T) {
 	c.s.Extractor.Store = listless{c.server.Store()}
 	_, err = c.s.RunOnce(context.Background())
 	pgtest.WantErr(t, err, "cannot delete")
+}
+
+// gets counts the reads of a store.
+type gets struct {
+	blobstore.S3
+	n *int
+}
+
+func (g gets) Get(ctx context.Context, key string) ([]byte, string, error) {
+	*g.n++
+	return g.S3.Get(ctx, key)
+}
+
+// TestCollectReadsOneManifest: however many supersessions a tenant has,
+// Collect reads the current manifest alone; a file dropped and taken up
+// again stays.
+func TestCollectReadsOneManifest(t *testing.T) {
+	e := setup(t)
+	for i := range 4 {
+		e.post(t, fmt.Sprintf("2026-03-%02d", i+1), "1.00")
+		e.run(t)
+	}
+	pgtest.Exec(t, `UPDATE analytics.superseded SET superseded_at = superseded_at - interval '8 days'
+		WHERE tenant_id = $1 AND manifest_key = (SELECT min(manifest_key) FROM analytics.superseded WHERE tenant_id = $1)`, e.Tenant.ID)
+	n := 0
+	x := e.x
+	x.Store = gets{S3: e.server.Store(), n: &n}
+	if _, err := x.Collect(context.Background(), e.Tenant.ID); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("manifests read: got %d, want 1", n)
+	}
+}
+
+// TestCollectWithoutCurrent: a pointer naming a manifest already gone, or
+// none (a rebuild under way), keeps nothing beyond the recent drops.
+func TestCollectWithoutCurrent(t *testing.T) {
+	e := setup(t)
+	e.post(t, "2026-03-02", "1.00")
+	e.run(t)
+	e.post(t, "2026-03-03", "1.00")
+	res := e.run(t)
+	e.expire(t)
+	pgtest.Exec(t, `UPDATE analytics.snapshot SET manifest_key = $2 WHERE tenant_id = $1`, e.Tenant.ID, extract.ManifestKey(e.Tenant.ID, res.Watermark, "0123456789abcdef"))
+	if n := e.collect(t); n == 0 {
+		t.Error("collect under a pointer to a manifest gone: got nothing deleted, want the expired drops")
+	}
+	e.post(t, "2026-03-04", "1.00")
+	// A key dropped again since stays for that supersession's Keep.
+	pgtest.Exec(t, `INSERT INTO analytics.superseded (tenant_id, manifest_key, superseded_at, dropped) VALUES
+		($1, $2, now() - interval '8 days', ARRAY[$2, 'taken-up-again']), ($1, $3, now(), ARRAY['taken-up-again'])`,
+		e.Tenant.ID, res.ManifestKey, extract.ManifestKey(e.Tenant.ID, res.Watermark, "fedcba9876543210"))
+	pgtest.Exec(t, `DELETE FROM analytics.snapshot WHERE tenant_id = $1`, e.Tenant.ID)
+	if n := e.collect(t); n != 1 {
+		t.Errorf("collect without a pointer: got %d deleted, want 1", n)
+	}
 }

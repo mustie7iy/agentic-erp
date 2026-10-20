@@ -46,7 +46,7 @@ func (c codes) CompanyCode(context.Context, uuid.UUID) (string, bool, error) {
 // statements from failAt on (0: none).
 func inRequest(t *testing.T, failAt int, fn func(ctx context.Context)) {
 	t.Helper()
-	ten := pgtest.NewTenant(t, "analytics.query.run")
+	ten := pgtest.NewTenant(t, "analytics.query.run", "ledger.entry.read")
 	pgtest.Exec(t, `INSERT INTO identity.company_access (tenant_id, id, principal_id, legal_entity_id, valid_from, created_by)
 		VALUES ($1, gen_random_uuid(), $2, gen_random_uuid(), current_date - 1, $3)`, ten.ID, ten.Agent.ID, ten.Human.ID)
 	ctx := context.Background()

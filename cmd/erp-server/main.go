@@ -138,7 +138,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 		return err
 	}
 	defer s.pool.Close()
-	if s.replica, err = openReplica(ctx, cfg); err != nil {
+	if s.replica, err = openReplica(ctx, cfg, cfg.Objects.Enabled()); err != nil {
 		return err
 	}
 	if s.replica != nil {
@@ -268,10 +268,11 @@ func openPool(ctx context.Context, cfg config.Config) (*database.Pool, error) {
 	return database.Open(ctx, cfg.DatabaseURL, settings)
 }
 
-// openReplica opens the read replica's pool when one is configured, sized
-// for the extract alone: one tenant's run at a time per replica.
-func openReplica(ctx context.Context, cfg config.Config) (*database.Pool, error) {
-	if cfg.DatabaseReplicaURL == "" {
+// openReplica opens the read replica's pool when one is configured and
+// the cell extracts (an object store configured), sized for the extract
+// alone: one tenant's run at a time per replica.
+func openReplica(ctx context.Context, cfg config.Config, extracts bool) (*database.Pool, error) {
+	if cfg.DatabaseReplicaURL == "" || !extracts {
 		return nil, nil
 	}
 	settings := database.DefaultSettings
@@ -511,6 +512,9 @@ func (s *server) collaborators() {
 	}
 	s.metrics = telemetry.NewMetrics()
 	backlogs(s.pool, s.cfg, s.metrics)
+	if s.store != nil {
+		analyticsGauges(s.pool, s.cfg, s.metrics)
+	}
 	atRest(s.cfg.AtRest, s.metrics, s.log)
 }
 
@@ -990,6 +994,39 @@ func maintain(ctx context.Context, interval time.Duration, job func(context.Cont
 	}
 }
 
+// analyticsGauges expose the analytical store's freshness (ADR-0044),
+// which its alert watches, in a cell that extracts (an object store
+// configured): the age of the oldest journal entry of an active tenant not
+// yet in its store (the target is p95 of fifteen minutes from posting),
+// one index range per tenant above its watermark, or for a tenant not yet
+// extracted, how long its first change has waited; and the tenants whose
+// store is not found current within the target, answered from the
+// database.
+func analyticsGauges(pool *database.Pool, cfg config.Config, m *telemetry.Metrics) {
+	m.Gauge("erp_analytics_lag_seconds", "Age of the oldest change of an active tenant not yet in its analytical store.",
+		gaugeCount(pool, cfg.WorkerRole, `SELECT coalesce(extract(epoch FROM now() - least(
+			(SELECT min(e.posted_at) FROM analytics.snapshot s JOIN tenancy.tenant t ON t.id = s.tenant_id AND t.status = 'active'
+				JOIN ledger.journal_entry e ON e.tenant_id = s.tenant_id AND e.posted_xid >= s.watermark),
+			(SELECT min(d.changed_at) FROM analytics.extract_due d JOIN tenancy.tenant t ON t.id = d.tenant_id AND t.status = 'active'
+				WHERE d.changed_at > coalesce(d.done_at, '-infinity') AND NOT EXISTS (SELECT FROM analytics.snapshot s WHERE s.tenant_id = d.tenant_id)))), 0)::float8`))
+	m.Gauge("erp_analytics_stale_tenants", "Active tenants whose analytical store was not found current within 15 minutes.",
+		gaugeCount(pool, cfg.WorkerRole, `SELECT count(*)::float8 FROM tenancy.tenant t WHERE t.status = 'active'
+			AND NOT EXISTS (SELECT FROM analytics.snapshot s WHERE s.tenant_id = t.id AND s.checked_at >= now() - interval '15 minutes')`))
+}
+
+// gaugeCount reads a gauge's value with sql as role, read-only.
+//
+//nolint:forbidigo // a row count or age read as a Prometheus gauge value, which is float64; no amount or quantity
+func gaugeCount(pool *database.Pool, role, sql string) func(context.Context) (float64, error) {
+	return func(ctx context.Context) (float64, error) {
+		var n float64
+		err := pool.InTx(ctx, database.Scope{Role: role, ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
+			return tx.QueryRow(ctx, sql).Scan(&n)
+		})
+		return n, err
+	}
+}
+
 // backlogs exposes the queues the workers drain (05-scalability §5.7:
 // projector lag is a monitored metric), read on each scrape as the role
 // that drains them. The counts read several contexts' tables directly: an
@@ -1030,18 +1067,6 @@ func backlogs(pool *database.Pool, cfg config.Config, m *telemetry.Metrics) {
 	m.Gauge("erp_audit_chains_unanchored", "Tenants whose audit chain head moved since its last anchor.",
 		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM audit.chain_head h
 			WHERE h.seq > coalesce((SELECT max(x.seq) FROM audit.anchor x WHERE x.tenant_id = h.tenant_id), 0)`))
-	// The analytical store's freshness (ADR-0044), which its alert
-	// watches: the age of the oldest journal entry of an active tenant not
-	// yet in its store (the target is p95 of fifteen minutes from posting),
-	// and the tenants whose store is not found current within the target,
-	// whose analytics are answered from the database.
-	m.Gauge("erp_analytics_lag_seconds", "Age of the oldest journal entry of an active tenant not yet in its analytical store.",
-		count(cfg.WorkerRole, `SELECT coalesce(extract(epoch FROM now() - min(e.posted_at)), 0)::float8 FROM tenancy.tenant t
-			JOIN ledger.journal_entry e ON e.tenant_id = t.id LEFT JOIN analytics.snapshot s ON s.tenant_id = t.id
-			WHERE t.status = 'active' AND (s.tenant_id IS NULL OR e.posted_xid >= s.watermark)`))
-	m.Gauge("erp_analytics_stale_tenants", "Active tenants whose analytical store was not found current within 15 minutes.",
-		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM tenancy.tenant t WHERE t.status = 'active'
-			AND NOT EXISTS (SELECT FROM analytics.snapshot s WHERE s.tenant_id = t.id AND s.checked_at >= now() - interval '15 minutes')`))
 	m.Gauge("erp_audit_chains_tampered", "Tenants whose latest scheduled audit verification found the chain broken.",
 		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM (SELECT DISTINCT ON (tenant_id) ok FROM audit.verification ORDER BY tenant_id, verified_at DESC) v WHERE NOT v.ok`))
 }

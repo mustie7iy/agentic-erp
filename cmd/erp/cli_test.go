@@ -498,6 +498,11 @@ func TestAnalyticsErrors(t *testing.T) {
 	fails(t, "not a directory", "report", "-file", rep("good.json", "invoice_count"), "-out", "file/reports")
 	printFails(t, "report", "-file", "good.json", "-out", "reports")
 
+	governedModel = func() (*analytics.Model, error) { return nil, errors.New("model unreadable") }
+	for _, args := range [][]string{{"query", "-measures", "revenue"}, {"ask", "why"}, {"report", "-file", "good.json"}} {
+		fails(t, "model unreadable", args...)
+	}
+	governedModel = analytics.DefaultModel
 	fakeAPI(t, routes{})
 	fails(t, "404", "query", "-measures", "revenue")
 	fakeAPI(t, routes{}, "ERP_TOKEN", "")

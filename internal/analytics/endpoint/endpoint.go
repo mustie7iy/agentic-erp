@@ -70,7 +70,7 @@ func (e *Endpoints) RunAnalyticsQuery(ctx context.Context, req *gen.AnalyticsQue
 	if err != nil {
 		return nil, err
 	}
-	datasets, err := e.datasets(ctx)
+	datasets, err := e.datasets(ctx, q)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +79,7 @@ func (e *Endpoints) RunAnalyticsQuery(ctx context.Context, req *gen.AnalyticsQue
 		return nil, err
 	}
 	defer release()
-	src := store.Source{Reader: e.Reader, Database: e.database(), Datasets: datasets, Now: e.Now, Log: e.Log}
+	src := store.Source{Reader: e.Reader, Database: e.database(datasets), Datasets: datasets, Now: e.Now, Log: e.Log}
 	facts, err := src.Facts(ctx, e.Model, p, q, req.AsOf.Or(time.Time{}))
 	if err != nil {
 		return nil, apiError(err)
@@ -132,8 +132,8 @@ func (e *Endpoints) Init() *Endpoints {
 
 // database is the database path: the semantic layer's facts read through
 // the API in-process, as the caller.
-func (e *Endpoints) database() store.Database {
-	return analytics.Source{API: &apitools.Client{BaseURL: "http://loopback", HTTP: &http.Client{Transport: e.Loopback}}}
+func (e *Endpoints) database(datasets []string) store.Database {
+	return analytics.Source{API: &apitools.Client{BaseURL: "http://loopback", HTTP: &http.Client{Transport: e.Loopback}}, Datasets: datasets}
 }
 
 // principal is the caller's company scope: the codes of the companies it
@@ -168,17 +168,30 @@ func (e *Endpoints) principal(ctx context.Context, asked []string) (analytics.Pr
 	return p, nil
 }
 
-// datasets are the fact datasets of the fact types the caller may read.
-func (e *Endpoints) datasets(ctx context.Context) ([]string, error) {
+// datasets are the fact datasets the query's metrics read. A dataset the
+// caller's permissions do not read refuses the query as the API would
+// refuse that read, whichever path answers; one the query does not need is
+// read by neither.
+func (e *Endpoints) datasets(ctx context.Context, q analytics.Query) ([]string, error) {
 	perms, err := authz.Permissions(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var out []string
-	for _, f := range factDatasets {
-		if perms[f.permission] {
-			out = append(out, f.dataset)
+	needed := map[string]bool{}
+	for _, name := range q.Measures {
+		for _, base := range e.Model.BaseMetrics(name) {
+			needed[e.Model.Metric(base).Source] = true
 		}
+	}
+	out := []string{}
+	for _, f := range factDatasets {
+		if !needed[f.dataset] {
+			continue
+		}
+		if !perms[f.permission] {
+			return nil, problem.Forbidden("identity.permission_missing", "This query reads "+f.dataset+", which requires the permission "+f.permission+".")
+		}
+		out = append(out, f.dataset)
 	}
 	return out, nil
 }

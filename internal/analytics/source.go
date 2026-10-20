@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,16 @@ import (
 // Read models behind an analytics API replace it at scale.
 type Source struct {
 	API *apitools.Client
+	// Datasets are the fact tables to build (gl_lines, po_lines,
+	// ap_invoices): a query needs only its metrics', and reads nothing it
+	// does not need, so a permission another fact type needs does not
+	// refuse it. Nil builds every one.
+	Datasets []string
+}
+
+// builds reports whether the source builds a fact table.
+func (s Source) builds(dataset string) bool {
+	return s.Datasets == nil || slices.Contains(s.Datasets, dataset)
 }
 
 type amount struct {
@@ -148,23 +159,28 @@ func (b *factBuilder) calendar(dims map[string]string, date string) error {
 }
 
 // addEntity reads one legal entity's ledger, purchase orders and supplier
-// invoices into the fact tables.
+// invoices into the fact tables, those it builds.
 func (s Source) addEntity(ctx context.Context, b *factBuilder, le legalEntity) error {
 	b.f.Companies[le.Code] = le.LocalCurrency
 	byLE := url.Values{"legal_entity_id": {le.ID}}
-	accounts, err := apitools.List[account](ctx, s.API, "/v1/accounts", byLE)
-	if err != nil {
-		return err
+	if s.builds("gl_lines") || s.builds("po_lines") {
+		accounts, err := apitools.List[account](ctx, s.API, "/v1/accounts", byLE)
+		if err != nil {
+			return err
+		}
+		chart := map[string]account{}
+		for _, a := range accounts {
+			chart[a.ID] = a
+		}
+		if err := s.addJournal(ctx, b, le, byLE, chart); err != nil {
+			return err
+		}
+		if err := s.addOrders(ctx, b, le, byLE, chart); err != nil {
+			return err
+		}
 	}
-	chart := map[string]account{}
-	for _, a := range accounts {
-		chart[a.ID] = a
-	}
-	if err := s.addJournal(ctx, b, le, byLE, chart); err != nil {
-		return err
-	}
-	if err := s.addOrders(ctx, b, le, byLE, chart); err != nil {
-		return err
+	if !s.builds("ap_invoices") {
+		return nil
 	}
 	return s.addInvoices(ctx, b, le, byLE)
 }
@@ -172,6 +188,9 @@ func (s Source) addEntity(ctx context.Context, b *factBuilder, le legalEntity) e
 // addJournal adds one fact per journal line to gl_lines; a supplier line
 // counts as cleared when it is no longer an open item.
 func (s Source) addJournal(ctx context.Context, b *factBuilder, le legalEntity, byLE url.Values, chart map[string]account) error {
+	if !s.builds("gl_lines") {
+		return nil
+	}
 	open, err := apitools.List[openItem](ctx, s.API, "/v1/open-items", byLE)
 	if err != nil {
 		return err
@@ -216,6 +235,9 @@ func (b *factBuilder) addEntry(le legalEntity, je journalEntry, chart map[string
 // addOrders adds one fact per purchase order item to po_lines, valued at
 // quantity times unit price per price unit.
 func (s Source) addOrders(ctx context.Context, b *factBuilder, le legalEntity, byLE url.Values, chart map[string]account) error {
+	if !s.builds("po_lines") {
+		return nil
+	}
 	orders, err := apitools.List[order](ctx, s.API, "/v1/purchase-orders", byLE)
 	if err != nil {
 		return err

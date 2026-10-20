@@ -141,7 +141,10 @@ func certifications(cfg Config) agents.Certifications {
 func New(cfg Config) (http.Handler, error) {
 	upload := uploads(cfg)
 	loopback := &httpapi.Loopback{}
-	model, _ := analytics.DefaultModel() // embedded, and TestModelLoadsAndValidates proves it parses
+	model, err := governedModel()
+	if err != nil {
+		return nil, err
+	}
 	h := handler{
 		operationsAPI: &operations.Endpoints{Pages: cfg.Pages, Workflows: cfg.Workflows, Log: cfg.Log},
 		tenancyAPI:    &tenancy.Endpoints{Pages: cfg.Pages},
@@ -186,6 +189,10 @@ func New(cfg Config) (http.Handler, error) {
 		Loopback:           loopback,
 	})
 }
+
+// governedModel is the semantic layer's governed model, built in; tests
+// replace it.
+var governedModel = analytics.DefaultModel
 
 // companyCodes names legal entities by their company codes for analytics.
 type companyCodes struct{}

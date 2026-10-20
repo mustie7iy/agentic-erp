@@ -105,7 +105,11 @@ func (s *Scheduler) runTenant(ctx context.Context, c claim) (bool, error) {
 	res, err := s.Extractor.RunAt(ctx, c.tenant, c.lsn)
 	if errors.Is(err, ErrBehind) {
 		if err = s.rebuildIfAhead(ctx, c.tenant, err); err == nil {
-			res, err = s.Extractor.RunAt(ctx, c.tenant, c.lsn)
+			// On the primary: the claim's position predates the rebuild,
+			// which a replica may not have replayed yet.
+			x := s.Extractor
+			x.Replica = x.Primary
+			res, err = x.Run(ctx, c.tenant)
 		}
 	}
 	if err != nil {
@@ -198,9 +202,10 @@ type claim struct {
 	lsn     string
 }
 
-// claim takes the tenant changed longest ago that is due and not claimed in
-// the last Every, other than those this round claimed, and records the
-// claim's time and WAL position.
+// claim takes the active tenant changed longest ago that is due and not
+// claimed in the last Every, other than those this round claimed, and
+// records the claim's time and WAL position. An offboarded tenant is not
+// extracted, so no run writes into its store while it is erased.
 func (s *Scheduler) claim(ctx context.Context, claimed []uuid.UUID) (claim, bool, error) {
 	var c claim
 	var ok bool
@@ -210,6 +215,7 @@ func (s *Scheduler) claim(ctx context.Context, claimed []uuid.UUID) (claim, bool
 				SELECT tenant_id FROM analytics.extract_due
 				WHERE changed_at > coalesce(done_at, '-infinity') AND coalesce(started_at, '-infinity') <= now() - $1 * interval '1 millisecond'
 					AND tenant_id <> ALL($2::uuid[])
+					AND EXISTS (SELECT FROM tenancy.tenant t WHERE t.id = tenant_id AND t.status = 'active')
 				ORDER BY changed_at LIMIT 1 FOR UPDATE SKIP LOCKED) due
 			WHERE d.tenant_id = due.tenant_id RETURNING d.tenant_id, d.started_at, d.claimed_lsn::text`, s.every().Milliseconds(), claimed).Scan(&c.tenant, &c.started, &c.lsn)
 		if errors.Is(err, pgx.ErrNoRows) {

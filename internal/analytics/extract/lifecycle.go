@@ -30,49 +30,46 @@ func (x Extractor) keep() time.Duration {
 // lifecycle and a rebuild need.
 var ErrNoEraser = errors.New("analytics: the object store cannot delete files")
 
-// Collect deletes what the tenant's manifests superseded more than Keep ago
-// listed and no manifest still in use lists (the current one, and those
-// superseded since), then those manifests and their rows, and returns how
-// many objects it deleted. It is idempotent: an object already gone is
-// nothing to delete, and a row stays until its objects are gone.
+// Collect deletes what the tenant's manifests superseded more than Keep
+// ago dropped (the manifest itself and the files its successor did not
+// list), but for what the current manifest lists and what a supersession
+// since dropped (a file taken up again and dropped again stays for that
+// one's Keep), then forgets their rows, and returns how many deletions it
+// made. It reads one manifest, the current one, however many supersessions
+// are listed. It is idempotent: an object already gone is nothing to
+// delete, and a row stays until its deletions are made.
 func (x Extractor) Collect(ctx context.Context, tenant uuid.UUID) (int, error) {
 	eraser, ok := x.Store.(blobstore.Eraser)
 	if !ok {
 		return 0, ErrNoEraser
 	}
-	expired, inUse, err := x.superseded(ctx, tenant)
-	if err != nil || len(expired) == 0 {
+	l, err := x.superseded(ctx, tenant)
+	if err != nil || len(l.expired) == 0 {
 		return 0, wrapCollect(tenant, err)
 	}
-	keep := map[string]bool{}
-	for _, key := range inUse {
-		keep[key] = true
-		m, err := x.manifestAt(ctx, tenant, key)
+	keep := l.recent
+	if l.current != "" {
+		m, err := x.manifestAt(ctx, tenant, l.current)
 		if err != nil {
 			return 0, wrapCollect(tenant, err)
 		}
+		keep[l.current] = true
 		for _, f := range files(m) {
 			keep[f] = true
 		}
 	}
 	n := 0
-	for _, key := range expired {
-		m, err := x.manifestAt(ctx, tenant, key)
-		if err != nil {
+	for _, k := range l.drop {
+		if keep[k] {
+			continue
+		}
+		if err := eraser.Delete(ctx, k); err != nil {
 			return n, wrapCollect(tenant, err)
 		}
-		for _, k := range append(files(m), key) {
-			if keep[k] {
-				continue
-			}
-			if err := eraser.Delete(ctx, k); err != nil {
-				return n, wrapCollect(tenant, err)
-			}
-			keep[k] = true // listed by two expired manifests, deleted once
-			n++
-		}
+		keep[k] = true // dropped by two expired supersessions, deleted once
+		n++
 	}
-	return n, wrapCollect(tenant, x.forget(ctx, tenant, expired))
+	return n, wrapCollect(tenant, x.forget(ctx, tenant, l.expired))
 }
 
 func wrapCollect(tenant uuid.UUID, err error) error {
@@ -82,20 +79,35 @@ func wrapCollect(tenant uuid.UUID, err error) error {
 	return fmt.Errorf("analytics: collect tenant %s: %w", tenant, err)
 }
 
-// superseded reads the tenant's manifests superseded more than Keep ago and
-// those in use: the current one and the ones superseded since.
-func (x Extractor) superseded(ctx context.Context, tenant uuid.UUID) (expired, inUse []string, err error) {
+// supersessions is a tenant's list: the expired rows, what they dropped,
+// what the rows since dropped, and the current manifest.
+type supersessions struct {
+	expired []string
+	drop    []string
+	recent  map[string]bool
+	current string
+}
+
+// superseded reads the tenant's supersessions and its pointer.
+func (x Extractor) superseded(ctx context.Context, tenant uuid.UUID) (supersessions, error) {
+	l := supersessions{recent: map[string]bool{}}
 	job := uow.Job{Begin: x.Primary, Name: "analytics: superseded", Scope: database.Scope{Role: x.Role, TenantID: tenant, ReadOnly: true}}
-	err = job.Tx(ctx, func(ctx context.Context, tx pgx.Tx) (bool, error) {
-		rows, _ := tx.Query(ctx, `SELECT manifest_key, superseded_at < now() - $1 * interval '1 millisecond' FROM analytics.superseded
-			UNION ALL SELECT manifest_key, false FROM analytics.snapshot ORDER BY 1`, x.keep().Milliseconds())
+	err := job.Tx(ctx, func(ctx context.Context, tx pgx.Tx) (bool, error) {
+		rows, _ := tx.Query(ctx, `SELECT manifest_key, dropped, superseded_at < now() - $1 * interval '1 millisecond', false FROM analytics.superseded
+			UNION ALL SELECT manifest_key, '{}', false, true FROM analytics.snapshot ORDER BY 1`, x.keep().Milliseconds())
 		var key string
-		var old bool
-		_, err := pgx.ForEachRow(rows, []any{&key, &old}, func() error {
-			if old {
-				expired = append(expired, key)
-			} else {
-				inUse = append(inUse, key)
+		var drop []string
+		var old, current bool
+		_, err := pgx.ForEachRow(rows, []any{&key, &drop, &old, &current}, func() error {
+			switch {
+			case current:
+				l.current = key
+			case old:
+				l.expired, l.drop = append(l.expired, key), append(l.drop, drop...)
+			default:
+				for _, k := range drop {
+					l.recent[k] = true
+				}
 			}
 			return nil
 		})
@@ -104,7 +116,7 @@ func (x Extractor) superseded(ctx context.Context, tenant uuid.UUID) (expired, i
 		}
 		return false, nil
 	})
-	return expired, inUse, err
+	return l, err
 }
 
 // manifestAt reads a manifest; one already deleted lists nothing.

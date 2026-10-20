@@ -105,12 +105,25 @@ func TestCompanyAccess(t *testing.T) {
 	}
 }
 
-// TestDatabasePathRefused: the database path reads the API as the caller,
-// so data the caller may not read refuses the query as the API does.
-func TestDatabasePathRefused(t *testing.T) {
+// TestPermissions: a query reads only the fact types its metrics need, so
+// a permission another needs does not refuse it; one it needs and the
+// caller lacks refuses it, as the API's read would.
+func TestPermissions(t *testing.T) {
 	e := seeded(t, "ledger.entry.post", "ledger.entry.read", "ledger.account.read", "partner.supplier.read", "tenancy.org.read", "analytics.query.run")
-	code, body, _ := e.Do("POST", "/v1/analytics-queries", `{"measures": ["revenue"], "by": ["company"]}`, "")
+	res, _ := e.Must(200, "POST", "/v1/analytics-queries", `{"measures": ["revenue"], "by": ["company"]}`, "")
+	if got := len(rows(res)); got != 2 {
+		t.Errorf("revenue rows without order permissions: got %d, want 2", got)
+	}
+	code, body, _ := e.Do("POST", "/v1/analytics-queries", `{"measures": ["purchase_order_value"]}`, "")
 	if code != 403 || body["code"] != "identity.permission_missing" {
-		t.Errorf("got %d %v, want 403 identity.permission_missing", code, body)
+		t.Errorf("order value without procurement.order.read: got %d %v, want 403 identity.permission_missing", code, body)
+	}
+	// Orders alone: the journal is not read.
+	orders := seeded(t, "ledger.entry.post", "ledger.account.read", "partner.supplier.read", "tenancy.org.read", "procurement.order.read", "analytics.query.run")
+	orders.Must(200, "POST", "/v1/analytics-queries", `{"measures": ["purchase_order_value"]}`, "")
+	// A read every path needs, refused by the API, refuses the query.
+	blind := seeded(t, "ledger.entry.post", "ledger.entry.read", "ledger.account.read", "partner.supplier.read", "analytics.query.run")
+	if code, body, _ := blind.Do("POST", "/v1/analytics-queries", `{"measures": ["revenue"]}`, ""); code != 403 {
+		t.Errorf("without tenancy.org.read: got %d %v, want the API's 403", code, body)
 	}
 }

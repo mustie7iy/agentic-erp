@@ -40,12 +40,11 @@ func loadModel(path string) (*analytics.Model, error) {
 // person's token, which answers from the analytical store or the database
 // over only the companies and data the person may read (ADR-0044). The
 // governed model it shows the agent is the server's, built in.
-func (f analyticsFlags) session() (*analytics.Session, error) {
-	c, err := client("ERP_TOKEN")
+func (f analyticsFlags) session(c *apitools.Client) (*analytics.Session, error) {
+	m, err := governedModel()
 	if err != nil {
 		return nil, err
 	}
-	m, _ := analytics.DefaultModel() // embedded, and TestModelLoadsAndValidates proves it parses
 	p := analytics.Principal{ID: "token"}
 	if *f.companies != "" {
 		p.Companies = strings.Split(*f.companies, ",")
@@ -54,6 +53,9 @@ func (f analyticsFlags) session() (*analytics.Session, error) {
 	s.Runner = analytics.Remote{API: c, Companies: p.Companies}
 	return s, nil
 }
+
+// governedModel is the server's governed model, built in; tests replace it.
+var governedModel = analytics.DefaultModel
 
 func metricsCmd(_ context.Context, args []string) error {
 	fs := flag.NewFlagSet("metrics", flag.ContinueOnError)
@@ -95,7 +97,11 @@ func queryCmd(ctx context.Context, args []string) error {
 		}
 		q.Where = append(q.Where, f)
 	}
-	sess, err := af.session()
+	c, err := client("ERP_TOKEN")
+	if err != nil {
+		return err
+	}
+	sess, err := af.session(c)
 	if err != nil {
 		return err
 	}
@@ -164,7 +170,7 @@ func askCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	sess, err := af.session()
+	sess, err := af.session(c)
 	if err != nil {
 		return err
 	}
@@ -201,7 +207,11 @@ func reportCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	sess, err := af.session()
+	c, err := client("ERP_TOKEN")
+	if err != nil {
+		return err
+	}
+	sess, err := af.session(c)
 	if err != nil {
 		return err
 	}

@@ -148,7 +148,7 @@ func (x Extractor) RunAt(ctx context.Context, tenant uuid.UUID, lsn string) (Res
 	if errors.Is(err, ErrMoved) {
 		// The lost run's manifest and files go with the winner's
 		// superseded ones (Collect).
-		err = errors.Join(err, x.abandon(ctx, tenant, key))
+		err = errors.Join(err, x.abandon(ctx, tenant, key, r.m))
 	}
 	if err != nil {
 		return Result{}, wrapRun(tenant, err)
@@ -232,20 +232,34 @@ func (x Extractor) publish(ctx context.Context, tenant uuid.UUID, r *run, key st
 		// A manifest published again (the same files after a change and
 		// its reversal) may still be listed: Collect keeps what the
 		// pointer names.
-		if _, err := tx.Exec(ctx, supersedeSQL, r.prev.key); err != nil {
+		if _, err := tx.Exec(ctx, supersedeSQL, r.prev.key, dropped(r.prevM, r.prev.key, r.m)); err != nil {
 			return tag, fmt.Errorf("list %s superseded: %w", r.prev.key, err)
 		}
 		return tag, nil
 	})
 }
 
-// supersedeSQL lists a manifest as superseded now; listed again, it is kept
-// from now on.
-const supersedeSQL = `INSERT INTO analytics.superseded (tenant_id, manifest_key) VALUES (platform.current_tenant(), $1)
-	ON CONFLICT (tenant_id, manifest_key) DO UPDATE SET superseded_at = excluded.superseded_at`
+// supersedeSQL lists a manifest as superseded now with what it dropped;
+// listed again, it is kept from now on.
+const supersedeSQL = `INSERT INTO analytics.superseded (tenant_id, manifest_key, dropped) VALUES (platform.current_tenant(), $1, $2)
+	ON CONFLICT (tenant_id, manifest_key) DO UPDATE SET superseded_at = excluded.superseded_at, dropped = excluded.dropped`
 
-// movePointer points the tenant's pointer at key, guarded by the manifest
-// the run read; it changes no row when another run moved it first.
+// dropped are the keys old (named key) listed, itself included, that its
+// successor next does not.
+func dropped(old Manifest, key string, next Manifest) []string {
+	kept := map[string]bool{}
+	for _, k := range files(next) {
+		kept[k] = true
+	}
+	out := []string{key}
+	for _, k := range files(old) {
+		if !kept[k] {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
 func movePointer(ctx context.Context, tx pgx.Tx, r *run, key string) (pgconn.CommandTag, error) {
 	wm := strconv.FormatUint(r.cutoff, 10)
 	sql, args := `INSERT INTO analytics.snapshot (tenant_id, manifest_key, watermark, as_of, checked_at)
@@ -261,13 +275,14 @@ func movePointer(ctx context.Context, tx pgx.Tx, r *run, key string) (pgconn.Com
 	return tag, nil
 }
 
-// abandon lists the manifest of a run that lost the race as superseded, so
-// the files it wrote are collected with it; the winner's are kept, since
-// the pointer names them.
-func (x Extractor) abandon(ctx context.Context, tenant uuid.UUID, key string) error {
+// abandon lists the manifest of a run that lost the race as superseded
+// with every file it lists, so the files it wrote are collected with it;
+// those the winner shares are kept, since Collect keeps what the pointer
+// names.
+func (x Extractor) abandon(ctx context.Context, tenant uuid.UUID, key string, lost Manifest) error {
 	job := uow.Job{Begin: x.Primary, Name: "analytics: abandon", Scope: database.Scope{Role: x.Role, TenantID: tenant}}
 	return job.Tx(ctx, func(ctx context.Context, tx pgx.Tx) (bool, error) {
-		if _, err := tx.Exec(ctx, supersedeSQL, key); err != nil {
+		if _, err := tx.Exec(ctx, supersedeSQL, key, dropped(lost, key, Manifest{})); err != nil {
 			return false, fmt.Errorf("abandon %s: %w", key, err)
 		}
 		return true, nil
