@@ -134,16 +134,11 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	// spans the last export loses are reported through otel's error handler.
 	defer func() { _ = tp.Shutdown(context.WithoutCancel(ctx)) }()
 	s := &server{cfg: cfg, log: log, tp: tp, tls: cfg.TLSMaterial, failed: make(chan struct{})}
-	if s.pool, err = openPool(ctx, cfg); err != nil {
+	closePools, err := s.openPools(ctx)
+	if err != nil {
 		return err
 	}
-	defer s.pool.Close()
-	if s.replica, err = openReplica(ctx, cfg, cfg.Objects.Enabled()); err != nil {
-		return err
-	}
-	if s.replica != nil {
-		defer s.replica.Close()
-	}
+	defer closePools()
 	if err := s.prepare(ctx); err != nil {
 		return err
 	}
@@ -266,6 +261,25 @@ func openPool(ctx context.Context, cfg config.Config) (*database.Pool, error) {
 	settings := database.DefaultSettings
 	settings.MaxConns = cfg.DBMaxConns
 	return database.Open(ctx, cfg.DatabaseURL, settings)
+}
+
+// openPools opens the primary's pool and, when the cell extracts, the
+// read replica's; the function returned closes both.
+func (s *server) openPools(ctx context.Context) (func(), error) {
+	var err error
+	if s.pool, err = openPool(ctx, s.cfg); err != nil {
+		return nil, err
+	}
+	if s.replica, err = openReplica(ctx, s.cfg, s.cfg.Objects.Enabled()); err != nil {
+		s.pool.Close()
+		return nil, err
+	}
+	return func() {
+		if s.replica != nil {
+			s.replica.Close()
+		}
+		s.pool.Close()
+	}, nil
 }
 
 // openReplica opens the read replica's pool when one is configured and

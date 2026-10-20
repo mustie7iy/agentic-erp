@@ -422,11 +422,6 @@ func TestAgentErrors(t *testing.T) {
 	}
 }
 
-func page(v ...any) reply {
-	b, _ := json.Marshal(map[string]any{"items": v})
-	return ok(string(b))
-}
-
 // answer is erp-server's answer to an analytics query: invoices and
 // revenue by fiscal month, revenue not computable.
 const answer = `{"query_id": "q_0123456789ab", "columns": [{"name": "fiscal_month", "label": "Fiscal month", "kind": "dimension"},
