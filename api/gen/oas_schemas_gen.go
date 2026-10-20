@@ -9020,9 +9020,12 @@ type Evidence struct {
 	Kind string `json:"kind"`
 	// Whether the check passed.
 	Passed bool `json:"passed"`
-	// Summary of the result.
+	// Summary of the result. For `simulation` evidence its counts are over the companies the reader may
+	// access alone.
 	Summary string `json:"summary"`
-	// Detailed result.
+	// Detailed result. For `simulation` evidence, the replayed invoices, decisions and posting rules of
+	// the companies the reader may access alone, counted over those: a reader of no company is shown none
+	// and counts of zero. The verdict (`passed`) is over every company the change touches.
 	Detail EvidenceDetail `json:"detail"`
 	// When the evidence was recorded.
 	RecordedAt time.Time `json:"recorded_at"`
@@ -9090,7 +9093,9 @@ func (s *Evidence) SetRecordedBy(val uuid.UUID) {
 	s.RecordedBy = val
 }
 
-// Detailed result.
+// Detailed result. For `simulation` evidence, the replayed invoices, decisions and posting rules of
+// the companies the reader may access alone, counted over those: a reader of no company is shown none
+// and counts of zero. The verdict (`passed`) is over every company the change touches.
 type EvidenceDetail map[string]jx.Raw
 
 func (s *EvidenceDetail) init() EvidenceDetail {

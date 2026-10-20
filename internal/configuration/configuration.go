@@ -81,9 +81,10 @@ type Dependencies struct {
 	LegalEntities LegalEntities
 	Sections      []Section
 	Approvals     Opener
-	Simulator     Simulator // replays transactions for simulation evidence (the worker)
-	Regressor     Regressor // captures and replays regression suites
-	Actors        Actors    // who a queued simulation acts as (the worker)
+	Simulator     Simulator    // replays transactions for simulation evidence (the worker)
+	Regressor     Regressor    // captures and replays regression suites
+	Actors        Actors       // who a queued simulation acts as (the worker)
+	Disclosures   []Disclosure // what a reader is shown of evidence (the payables context's invoices by company)
 }
 
 // Actors reads who deferred work acts as: the person who queued it

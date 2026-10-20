@@ -15,6 +15,10 @@
 //
 // Down payment requests (ADR-0037) are payables documents outside the
 // ledger: a payment run pays them, which posts the special G/L item.
+//
+// Simulations of configuration changes replay the invoices of every
+// company and are recorded by company; each reader of the change request is
+// shown those of the companies they may access alone (Disclosure, ADR-0010).
 package payables
 
 import (

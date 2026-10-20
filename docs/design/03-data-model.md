@@ -329,6 +329,21 @@ activation, each owning context applies its part to its own relational tables
 to `partner`...). Domain tables are therefore always typed and constrained,
 and every change to them traces back to an approved change request.
 
+A change request's simulation replays the invoices of every company, so
+that its verdict covers the whole change, but each reader is shown the
+invoices of the companies they may access alone, and the detail's and
+summary's counts over those (04-api-design §4.9). The evidence is recorded
+by company (`invoices_by_company`) with a summary that carries no count,
+since the summary also reaches the operation's result and the audit trail;
+reading the change request (`payables.Disclosure`) fails closed: a reader
+of no company is shown no invoice and counts of zero, and a replay of no
+legal entity is shown only to a reader of every company. A simulation
+recorded before this rule, with counts over every company, is shown only
+to readers of every company. The verdict (`passed`) is the change's and is
+shown to every reader, as the request's status shows it anyway. Regression
+evidence and suites' cases are not yet limited this way (tracker follow-up
+under Regression suites).
+
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
 in the currency of the requisition's company), the order release

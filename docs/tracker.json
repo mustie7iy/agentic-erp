@@ -5561,7 +5561,14 @@
       "s": "D",
       "t": "Decision changes and ledger impact per account",
       "r": "evidence detail: decisions, postings (accounts, tax codes), breaks",
-      "c": []
+      "c": [
+       {
+        "s": "D",
+        "t": "Fix (T55g review): each reader of a change request is shown the simulated invoices of the companies they may access alone, the detail's and summary's counts over those (fail closed: no company, no invoice and counts of zero; a replay of no legal entity only to a reader of every company); the simulation is recorded by company and its summary with no count, as it reaches the operation's result and the audit trail; one recorded before, with counts over every company, is shown only to readers of every company; the verdict stays the change's. Residual: audit entries and operation results written before the fix keep their counts over every company (the audit trail is immutable, ADR-0011)",
+        "r": "payables.CompanyReplay · payables.Disclosure · configuration.Disclosure · api/openapi.yaml Evidence · 03-data-model §3.5 · TestSimulationShownByCompany · TestDisclosureOfOtherEvidence · TestDisclosure",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",
@@ -5610,7 +5617,14 @@
       "s": "D",
       "t": "Evidence attached to change requests",
       "r": "configuration.SimulationWorker records simulation and regression evidence",
-      "c": []
+      "c": [
+       {
+        "s": "T",
+        "t": "Follow-up of the simulation fix (T55g review): regression evidence shown to each reader for their own companies alone, as simulation evidence is. Today its detail (changed, regressions, stale: cases with invoice, document number and company) and its summary's counts (also the operation's regression_summary and the audit entry) cover every company, and GET/list /v1/regression-suites return every company's cases. Acceptance: recorded by company with a summary of no count; a configuration.Disclosure for kind regression filtering cases by legal entity with counts over those (fail closed); suites' cases filtered by authz.Companies; tests with readers of two companies and of none, and database failures",
+        "r": "configuration regression.go · api_regression.go · payables.Disclosure (pattern)",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",

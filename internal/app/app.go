@@ -180,10 +180,11 @@ func Configuration(cfg Config) configuration.Dependencies {
 			partner.PaymentMethodCodes{LegalEntities: tenancy.Directory{}},
 			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Channels: integration.BankChannels{}, Keys: cfg.FieldKeys},
 			payments.PaymentMethods{LegalEntities: tenancy.Directory{}}},
-		Approvals: opener(),
-		Simulator: payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
-		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
-		Actors:    identity.Actors{},
+		Approvals:   opener(),
+		Simulator:   payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
+		Regressor:   payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
+		Actors:      identity.Actors{},
+		Disclosures: []configuration.Disclosure{payables.Disclosure{}},
 	}
 }
 

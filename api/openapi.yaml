@@ -12367,12 +12367,12 @@ components:
           readOnly: true
         summary:
           type: string
-          description: Summary of the result.
+          description: "Summary of the result. For `simulation` evidence its counts are over the companies the reader may access alone."
           readOnly: true
         detail:
           type: object
           additionalProperties: true
-          description: Detailed result.
+          description: "Detailed result. For `simulation` evidence, the replayed invoices, decisions and posting rules of the companies the reader may access alone, counted over those: a reader of no company is shown none and counts of zero. The verdict (`passed`) is over every company the change touches."
           readOnly: true
         recorded_at:
           type: string
