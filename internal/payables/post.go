@@ -49,6 +49,11 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err := requireReference(ctx, tx, v); err != nil {
 		return Invoice{}, err
 	}
+	// A captured invoice may have landed without a required custom field
+	// (capturedExtensions); none posts without its required fields.
+	if _, err := e.extensions().Check(ctx, v.Extensions); err != nil {
+		return Invoice{}, err
+	}
 	if err := requireCleanMatch(ctx, tx, v); err != nil {
 		return Invoice{}, err
 	}

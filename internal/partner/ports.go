@@ -410,7 +410,8 @@ func lockCodes(ctx context.Context, tx pgx.Tx, name string) error {
 // refuses every value until one is modelled.
 type References struct{}
 
-// Exists reports whether a business partner, or a cost object, has the id.
+// Exists reports whether a business partner, in any status, or a cost
+// object has the id: a reference names a record, whatever it may be used for.
 func (References) Exists(ctx context.Context, kind extensions.Kind, id uuid.UUID) (bool, error) {
 	if kind != extensions.Partner {
 		return false, nil

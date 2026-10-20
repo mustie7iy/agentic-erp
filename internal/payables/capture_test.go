@@ -67,6 +67,44 @@ func extraction() *capture.Extraction {
 		TaxAmount: "22.8", GrossAmount: "157.80", Confidence: "high"}
 }
 
+// A document carries no custom fields: one the tenant's schema requires
+// holds the captured invoice, naming the field, instead of refusing it,
+// and the invoice's next update requires it.
+func TestCaptureMissingRequiredField(t *testing.T) {
+	e := setup(t)
+	e.order(t, e.Supplier, "PO-1")
+	pgtest.Unguarded(t, `UPDATE config.config_version SET document = jsonb_set(document, '{extensions,supplier_invoice,required}', '["cost_center"]')
+		WHERE tenant_id = $1`, e.Tenant.ID)
+	var res gen.CaptureSupplierInvoiceRes
+	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
+		res, err = endpoints(extractor{e: extraction()}).CaptureSupplierInvoice(ctx,
+			&gen.SupplierInvoiceCaptureMultipart{LegalEntityID: e.DE, Document: gen.NewOptString("%PDF-1 needs a cost center")}, gen.CaptureSupplierInvoiceParams{})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	path := res.(*gen.OperationHeaders).Response.Resource.Value
+	held, tag := e.Must(200, "GET", path, "", "")
+	if held["status"] != "on_hold" {
+		t.Errorf("status: got %v, want on_hold", held["status"])
+	}
+	if r, _ := held["hold_reason"].(string); !strings.Contains(r, "cost_center") {
+		t.Errorf("hold reason: got %q, want it to name cost_center", r)
+	}
+	var schema *int
+	pgtest.Scan(t, `SELECT extensions_schema FROM payables.supplier_invoice WHERE id = $1`, []any{path[len("/v1/supplier-invoices/"):]}, &schema)
+	if schema == nil || *schema != 1 {
+		t.Errorf("extensions schema: got %v, want 1", schema)
+	}
+	released, tag := e.Must(200, "POST", path+":release", `{"comment": "checked"}`, tag)
+	e.Problem(422, "request.invalid_extension", "POST", path+":post", "", tag)
+	e.Problem(422, "request.invalid_extension", "PATCH", path, `{"extensions": {"channel": "mail"}}`, tag)
+	if released["status"] != "parked" {
+		t.Errorf("released status: got %v, want parked", released["status"])
+	}
+	e.Must(200, "PATCH", path, `{"extensions": {"cost_center": "CC1"}}`, tag)
+}
+
 func TestCapture(t *testing.T) {
 	e := setup(t)
 	e.order(t, e.Supplier, "PO-1")

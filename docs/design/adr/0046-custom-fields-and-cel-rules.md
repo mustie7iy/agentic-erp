@@ -57,7 +57,10 @@ needs.
   Every create and update of the row checks its extensions as the write
   leaves them; a change request is checked when it is requested, and the
   version it was checked against is applied with it. A tenant without a
-  schema for the entity has no custom fields: every key is unknown.
+  schema for the entity has no custom fields: every key is unknown. A
+  captured supplier invoice carries no custom fields, so a field the schema
+  requires holds it (naming the field) instead of refusing the document;
+  its next update, and its posting, require the field.
 - **API.** Resources keep `extensions` free-form in the contract. The
   tenant's schema for an entity is at `GET /v1/schemas/{entity}`, with the
   configuration version as its ETag. A write that does not match the

@@ -1019,6 +1019,8 @@ func applyUpdate(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, b
 		ext = mergepatch.Apply(ext, pl.Extensions)
 		fields = append(fields, "extensions")
 	}
+	// coalesce: a change requested before T58c carries no schema version and
+	// keeps the partner's; schemas are never removed, so no other change has none.
 	if _, err := tx.Exec(ctx, `UPDATE partner.business_partner SET name = $2, legal_name = $3, language = $4, extensions = $5,
 		extensions_schema = coalesce($7, extensions_schema), version = version + 1, updated_by = $6 WHERE id = $1`,
 		bp.ID, name, legal, lang, ext, p.ID, pl.ExtensionsSchema); err != nil {

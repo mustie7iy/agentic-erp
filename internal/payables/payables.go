@@ -325,6 +325,10 @@ type Input struct {
 	// posted invoice a correction names (T34).
 	Kind               string
 	ReferenceInvoiceID *uuid.UUID
+	// held: the extensions were checked already, as a captured document's
+	// are (CheckHeld), against the schema version extensionsSchema.
+	held             bool
+	extensionsSchema *int
 }
 
 // checked is an input that passed validation.
@@ -356,9 +360,11 @@ func (e *Endpoints) validate(ctx context.Context, tx pgx.Tx, in Input) (checked,
 	if err != nil {
 		return checked{}, err
 	}
-	schema, err := e.extensions().Check(ctx, in.Extensions)
-	if err != nil {
-		return checked{}, err
+	schema := in.extensionsSchema
+	if !in.held {
+		if schema, err = e.extensions().Check(ctx, in.Extensions); err != nil {
+			return checked{}, err
+		}
 	}
 	c := checked{currency: in.Gross.Currency, purchaseOrder: in.PurchaseOrderID, extensionsSchema: schema}
 	exp, err := currencyExponent(ctx, tx, c.currency, "gross_amount.currency")

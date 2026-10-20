@@ -51,24 +51,45 @@ type Writes struct {
 // error per offending key, in key order. No message repeats a value, so a
 // personal or sensitive value never reaches a log through the error.
 func (w Writes) Check(ctx context.Context, ext map[string]any) (*int, error) {
+	v, _, err := w.check(ctx, ext, true)
+	return v, err
+}
+
+// CheckHeld is Check for a row that lands held until a person completes
+// it, such as a captured document: required fields may be missing, and are
+// returned, in key order, for the hold. Every other mismatch is refused.
+func (w Writes) CheckHeld(ctx context.Context, ext map[string]any) (*int, []string, error) {
+	return w.check(ctx, ext, false)
+}
+
+func (w Writes) check(ctx context.Context, ext map[string]any, required bool) (*int, []string, error) {
 	if b, _ := json.Marshal(ext); len(b) > MaxRowBytes { // decoded JSON: it always encodes
-		return nil, refused(problem.FieldError{Field: "extensions", Code: "too_large", Message: fmt.Sprintf("at most %d bytes of custom fields", MaxRowBytes)})
+		return nil, nil, refused(problem.FieldError{Field: "extensions", Code: "too_large", Message: fmt.Sprintf("at most %d bytes of custom fields", MaxRowBytes)})
 	}
 	c, err := w.schema(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	errs, err := c.check(ctx, w.References, ext)
 	if err != nil {
-		return nil, fmt.Errorf("extensions: check %s: %w", w.Entity, err)
+		return nil, nil, fmt.Errorf("extensions: check %s: %w", w.Entity, err)
+	}
+	var missing []string
+	if !required {
+		errs = slices.DeleteFunc(errs, func(f problem.FieldError) bool {
+			if f.Code == "required" {
+				missing = append(missing, f.Field[len("extensions."):])
+			}
+			return f.Code == "required"
+		})
 	}
 	if len(errs) > 0 {
-		return nil, refused(errs...)
+		return nil, nil, refused(errs...)
 	}
 	if c.Version == 0 {
-		return nil, nil
+		return nil, missing, nil
 	}
-	return &c.Version, nil
+	return &c.Version, missing, nil
 }
 
 // schema compiles the entity's active schema; a tenant without one has an

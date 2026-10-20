@@ -103,6 +103,9 @@ func (e *Endpoints) capture(ctx context.Context, legalEntity uuid.UUID, document
 	if err != nil {
 		return operations.Operation{}, err
 	}
+	if held, err = e.capturedExtensions(ctx, &in, held); err != nil {
+		return operations.Operation{}, err
+	}
 	status, reason, warnings := captureStatus(ext.Confidence, held)
 	v, err := e.insert(ctx, tx, p, newInvoice{Input: in, source: "capture", status: status, holdReason: reason, sha: sum[:], objectRef: objectRef})
 	if err != nil {
@@ -294,6 +297,21 @@ func capturedItems(lines []capture.Line, order procurement.Order, p *printed) ([
 		items = append(items, ItemInput{POItemNo: &no, Description: &description, Quantity: p.quantity(l.Quantity), Unit: unit, Amount: a})
 	}
 	return items, nil
+}
+
+// capturedExtensions checks a captured invoice's custom fields. A document
+// carries none: a field the schema requires holds the invoice until a
+// person adds it, which the invoice's next update checks.
+func (e *Endpoints) capturedExtensions(ctx context.Context, in *Input, held string) (string, error) {
+	schema, missing, err := e.extensions().CheckHeld(ctx, in.Extensions)
+	if err != nil {
+		return "", err
+	}
+	in.held, in.extensionsSchema = true, schema
+	if len(missing) > 0 {
+		held = strings.TrimSpace(held + " Required custom fields are missing: " + strings.Join(missing, ", ") + ".")
+	}
+	return held, nil
 }
 
 // captureStatus parks a captured invoice, or holds it when the extraction

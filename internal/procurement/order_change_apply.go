@@ -152,6 +152,8 @@ func writeChange(ctx context.Context, tx pgx.Tx, p reqctx.Principal, o PurchaseO
 		updated_by = $4 WHERE id = $1`, ch.ID, o.Revision+1, previous, p.ID); err != nil {
 		return fmt.Errorf("procurement: apply order change %s: %w", ch.ID, err)
 	}
+	// coalesce: a change proposed before T58c carries no schema version and
+	// keeps the order's; schemas are never removed, so no other proposal has none.
 	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order SET applying_change_id = NULL, revision = revision + 1, order_date = $2,
 		payment_term_code = $3, extensions = $4, extensions_schema = coalesce($6, extensions_schema), version = version + 1, updated_by = $5 WHERE id = $1`,
 		o.ID, ch.Proposed.OrderDate, ch.Proposed.PaymentTermCode, ch.Proposed.Extensions, p.ID, ch.Proposed.ExtensionsSchema); err != nil {

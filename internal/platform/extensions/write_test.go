@@ -153,6 +153,27 @@ func TestWritesCheckWithoutSchema(t *testing.T) {
 	}
 }
 
+// A row that lands held may miss required fields, which are returned;
+// any other mismatch is refused as by Check.
+func TestWritesCheckHeld(t *testing.T) {
+	w := extensions.Writes{Entity: "supplier_invoice", Schemas: schemas{s: every()}, References: refs{}}
+	v, missing, err := w.CheckHeld(context.Background(), map[string]any{"s": "abc"})
+	if err != nil || v == nil || *v != 2 || strings.Join(missing, ",") != "req" {
+		t.Errorf("got version %v, missing %v, error %v; want version 2, missing req", v, missing, err)
+	}
+	_, _, err = w.CheckHeld(context.Background(), map[string]any{"s": "abcd"})
+	if got := strings.Join(refused(t, err), " "); got != "extensions.s:too_long" {
+		t.Errorf("got %s, want extensions.s:too_long", got)
+	}
+	none := extensions.Writes{Entity: "purchase_order", Schemas: schemas{}}
+	if v, missing, err := none.CheckHeld(context.Background(), nil); v != nil || missing != nil || err != nil {
+		t.Errorf("without a schema: got %v, %v, %v; want nothing", v, missing, err)
+	}
+	if _, _, err := none.CheckHeld(context.Background(), map[string]any{"a": strings.Repeat("x", extensions.MaxRowBytes)}); err == nil {
+		t.Error("too large: got no error, want one")
+	}
+}
+
 func TestWritesCheckFailures(t *testing.T) {
 	boom := errors.New("boom")
 	bad := every()
