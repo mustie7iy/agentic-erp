@@ -218,9 +218,12 @@ account is an institution number (3 digits), a transit (branch) number
 - The account number is sealed and only its last four digits shown or
   published, as an IBAN's are. The institution and transit numbers name
   the bank, as a BIC does, so they are kept, returned and published
-  (`bank_account_changed`) in clear text. The fingerprint that finds one
-  account on two partners covers institution, transit and account, since
-  an account number is unique only at its bank.
+  (`bank_account_changed`) in clear text. A `ca` account's bank is in
+  Canada (`partner.bank_country_mismatch` otherwise). The fingerprint that
+  finds one account on two partners is of the account number alone, as
+  sealed, so key rotation, which recomputes it from the sealed value,
+  keeps it; the same number at two banks is warned about, a look rather
+  than a missed duplicate.
 - A house bank in the configuration gives either `iban` or
   `institution_number`, `transit_number` and `account_number`, and keeps
   its BIC. Its account number is sealed in `iban_cipher`; the routing sits
@@ -231,7 +234,8 @@ account is an institution number (3 digits), a transit (branch) number
   `CACPA` with the member id in the Canadian Payments Association's
   electronic routing form, `0` + institution + transit (9 digits); the
   debtor agent keeps its BIC beside it. Files to IBAN accounts are
-  unchanged. CPA-005, the 1464-byte AFT format, is not built: it is a
+  unchanged (a BIC is now left out when empty, which configuration
+  validation already refuses for a house bank). CPA-005, the 1464-byte AFT format, is not built: it is a
   fixed-width format of its own (originator id, file creation number,
   header, detail and trailer records) and is a tracker item for banks
   that do not take pain.001.
@@ -243,5 +247,9 @@ account is an institution number (3 digits), a transit (branch) number
   widened to `ca`; `bank_account_ca_routing`, `house_bank_ca_routing`),
   000106 validates them (06 §6.4). The previous version reads `ca` as an
   unknown value of the open enumeration and would write its account in
-  `Othr` without the clearing member, which the bank refuses; no Canadian
-  account is entered until the upgrade completes.
+  `Othr` without the clearing member, which the bank refuses; an old
+  binary applying a `ca` change a new one requested fails on
+  `bank_account_ca_routing` rather than writing an account without its
+  bank. No Canadian account is entered until the upgrade completes. The
+  SAP load (vendor accounts, T012K) still takes accounts as IBAN or
+  domestic: loading Canadian ones with their routing is a tracker item.

@@ -10,6 +10,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 // TestCanadianBankAccounts: a Canadian account (scheme ca, T45d) is its
@@ -35,6 +36,7 @@ func TestCanadianBankAccounts(t *testing.T) {
 		{"letters in the account", body("ca", "12345AB", routing("003", "12345")), "partner.invalid_account_number"},
 		{"routing on an IBAN", body("iban", iban, routing("003", "12345")), "partner.routing_not_allowed"},
 		{"routing on a domestic account", body("domestic", "12345678", `, "transit_number": "12345"`), "partner.routing_not_allowed"},
+		{"bank outside Canada", strings.Replace(body("ca", "1234567", routing("003", "12345")), `"CA"`, `"DE"`, 1), "partner.bank_country_mismatch"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			e.in(t).Problem(422, c.code, "POST", path, c.body, "")
@@ -77,5 +79,22 @@ func TestCanadianBankAccounts(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The fingerprint is of the sealed number alone, as key rotation
+	// recomputes it, so the same account on another partner is warned
+	// about before and after a rotation.
+	var print string
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT account_fingerprint FROM partner.bank_account WHERE id = $1`,
+		uuid.MustParse(id(got))).Scan(&print); err != nil {
+		t.Fatal(err)
+	}
+	if want := apitest.Fingerprint(t, e.ten.ID, "1234567890"); print != want {
+		t.Errorf("fingerprint: got %s, want the account number's %s", print, want)
+	}
+	other := id(e.active(t, "Copy", 0))
+	dup, _ := e.Must(201, "POST", "/v1/business-partners/"+other+"/bank-accounts", body("ca", "1234567890", routing("003", "12345")), "")
+	warnings := fmt.Sprint(dup["warnings"])
+	if !strings.Contains(warnings, "partner.duplicate_bank_account") {
+		t.Errorf("same account on another partner: got warnings %s, want partner.duplicate_bank_account", warnings)
 	}
 }

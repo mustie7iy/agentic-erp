@@ -183,10 +183,10 @@ func (h HouseBanks) Apply(ctx context.Context, doc *config.Config) error {
 // reactivates it and moves it to them.
 func (h HouseBanks) upsert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le uuid.UUID, currency string, hb config.HouseBank, account uuid.UUID) error {
 	sealed, err := h.Keys.Seal(ctx, p.TenantID, hb.Account())
-	institution, transit := hb.Routing()
 	if err != nil {
 		return err
 	}
+	institution, transit := hb.Routing()
 	var channel *uuid.UUID
 	if hb.Connector != "" {
 		id, found, err := h.Channels.ChannelByName(ctx, hb.Connector)

@@ -719,6 +719,12 @@
         "t": "CPA-005 (the Canadian Payments Association's 1464-byte AFT file) for Canadian banks that do not take pain.001",
         "r": "after T45d · ADR-0038 amendment",
         "c": []
+       },
+       {
+        "s": "T",
+        "t": "SAP load of Canadian accounts: vendor bank accounts (LFBK) as scheme ca with institution and transit numbers, and Canadian house banks (T012K) without an IBAN",
+        "r": "integration/load.go · delivery/sapconfig · after T45d",
+        "c": []
        }
       ]
      },

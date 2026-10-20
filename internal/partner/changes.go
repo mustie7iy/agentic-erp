@@ -351,10 +351,11 @@ func sealBanks(ctx context.Context, keys *fieldcrypt.Keyring, tenant uuid.UUID, 
 		if err != nil {
 			return nil, err
 		}
-		// A Canadian account number is unique only at its bank: the
-		// fingerprint that finds one account on two partners covers the
-		// bank too.
-		print, err := keys.Fingerprint(ctx, tenant, acct.identity)
+		// The fingerprint is of the sealed number alone, a Canadian
+		// account's without its bank: key rotation recomputes it from the
+		// sealed value, and a warning about the same number at two banks
+		// costs a look, where a missed duplicate costs a fraud control.
+		print, err := keys.Fingerprint(ctx, tenant, acct.number)
 		if err != nil {
 			return nil, err
 		}
@@ -365,11 +366,10 @@ func sealBanks(ctx context.Context, keys *fieldcrypt.Keyring, tenant uuid.UUID, 
 	return out, nil
 }
 
-// checkedAccount is a bank input's account, normalized: identity is what
-// its fingerprint covers, and the institution and transit numbers are set
-// only for scheme ca.
+// checkedAccount is a bank input's account, normalized: the institution
+// and transit numbers are set only for scheme ca.
 type checkedAccount struct {
-	number, identity     string
+	number               string
 	institution, transit *string
 }
 
@@ -392,13 +392,15 @@ func checkAccount(b BankInput, f string) (checkedAccount, error) {
 	case b.AccountScheme == "iban" && !bankfile.ValidIBAN(number):
 		return checkedAccount{}, invalid("partner.invalid_iban", f+"account_number", "an IBAN that passes the ISO 13616 check")
 	}
-	return checkedAccount{number: number, identity: number}, nil
+	return checkedAccount{number: number}, nil
 }
 
 // checkCanadian checks a Canadian account's three numbers.
 func checkCanadian(b BankInput, f string) (checkedAccount, error) {
 	a, err := cabank.Parse(b.InstitutionNumber, b.TransitNumber, b.AccountNumber)
 	switch {
+	case b.BankCountryCode != "CA":
+		return checkedAccount{}, invalid("partner.bank_country_mismatch", f+"bank_country_code", "CA for account_scheme ca")
 	case errors.Is(err, cabank.ErrInstitution):
 		return checkedAccount{}, invalid("partner.invalid_institution_number", f+"institution_number", "3 digits")
 	case errors.Is(err, cabank.ErrTransit):
@@ -406,7 +408,7 @@ func checkCanadian(b BankInput, f string) (checkedAccount, error) {
 	case err != nil:
 		return checkedAccount{}, invalid("partner.invalid_account_number", f+"account_number", "7-12 digits")
 	}
-	return checkedAccount{number: a.Number, identity: a.Institution + a.Transit + a.Number, institution: &a.Institution, transit: &a.Transit}, nil
+	return checkedAccount{number: a.Number, institution: &a.Institution, transit: &a.Transit}, nil
 }
 
 // warnings flags tax identifiers and bank accounts another partner already has.
