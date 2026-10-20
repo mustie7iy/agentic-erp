@@ -16,7 +16,8 @@ var _ Handler = UnimplementedHandler{}
 // ActivateChangeRequest implements activateChangeRequest operation.
 //
 // Creates and activates a new configuration version from an approved change request; each context
-// applies its part. Human-only. Requires status `approved`.
+// applies its part. Human-only. Requires status `approved`; a change of validation rules also needs a
+// passed simulation of this exact proposal (409 `config.rules_not_simulated`).
 //
 // POST /v1/change-requests/{id}:activate
 func (UnimplementedHandler) ActivateChangeRequest(ctx context.Context, params ActivateChangeRequestParams) (r ActivateChangeRequestRes, _ error) {
@@ -1712,7 +1713,11 @@ func (UnimplementedHandler) ReverseSupplierInvoice(ctx context.Context, req *Sup
 // SimulateChangeRequest implements simulateChangeRequest operation.
 //
 // Replays recent business transactions against the proposed configuration and records the result as
-// `simulation` evidence. Requires status `awaiting_evidence`.
+// `simulation` evidence. A change of validation rules (ADR-0046) also replays the recent rows of each
+// entity whose rules change (the last 30 days, at most 200, newest first) under the active and the
+// proposed rules: the evidence's `detail.rules` lists, per rule, the rows it would newly refuse and
+// newly pass, with personal custom fields masked, and the rows it cannot evaluate, which fail the
+// simulation. Requires status `awaiting_evidence`.
 //
 // POST /v1/change-requests/{id}:simulate
 func (UnimplementedHandler) SimulateChangeRequest(ctx context.Context, params SimulateChangeRequestParams) (r SimulateChangeRequestRes, _ error) {

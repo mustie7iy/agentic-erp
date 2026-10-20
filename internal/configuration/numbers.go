@@ -86,11 +86,7 @@ func (Settings) Rules(ctx context.Context, entity string) (rules.Active, error) 
 	if err != nil || c == nil {
 		return rules.Active{}, err
 	}
-	a := rules.Active{ConfigVersion: n, Rules: c.Rules[entity]}
-	if s, ok := c.Extensions[entity]; ok {
-		a.Schema = &s
-	}
-	return a, nil
+	return activeRules(c, n, entity), nil
 }
 
 // active reads the active configuration and its version number, nil for a

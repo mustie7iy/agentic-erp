@@ -29,6 +29,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -122,10 +123,37 @@ func (e *Endpoints) ports() Ports {
 // checkRules evaluates the tenant's validation rules on a business partner
 // as a write leaves it (ADR-0046); the write's audit names the object.
 func (p Ports) checkRules(ctx context.Context, action, objectType string, id uuid.UUID, bp Partner) error {
-	row := map[string]any{"kind": bp.Kind, "name": bp.Name, "legal_name": rules.Text(bp.LegalName), "country_code": bp.CountryCode,
-		"language": rules.Text(bp.Language), "roles": bp.Roles}
 	return rules.Writes{Entity: "business_partner", Source: p.Rules}.Check(ctx,
-		rules.Write{Action: action, ObjectType: objectType, ID: id, Row: row, Extensions: bp.Extensions})
+		rules.Write{Action: action, ObjectType: objectType, ID: id, Row: ruleRow(bp), Extensions: bp.Extensions})
+}
+
+// ruleRow is a business partner's header as its rules read it.
+func ruleRow(bp Partner) map[string]any {
+	return map[string]any{"kind": bp.Kind, "name": bp.Name, "legal_name": rules.Text(bp.LegalName), "country_code": bp.CountryCode,
+		"language": rules.Text(bp.Language), "roles": bp.Roles}
+}
+
+// RuleSamples reads the recent business partners on which a simulation
+// replays proposed rules (rules.Sampler, ADR-0046): those changed since
+// the time given, newest first.
+type RuleSamples struct{}
+
+// Sample implements rules.Sampler.
+func (RuleSamples) Sample(ctx context.Context, since time.Time, limit int) ([]rules.Sample, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, partnerSelect+` WHERE p.updated_at >= $1 ORDER BY p.updated_at DESC, p.id LIMIT $2`, since, limit)
+	ps, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Partner, error) { return scanPartner(r) })
+	if err != nil {
+		return nil, fmt.Errorf("partner: sample business partners for rules: %w", err)
+	}
+	out := make([]rules.Sample, len(ps))
+	for i, bp := range ps {
+		out[i] = rules.Sample{ID: bp.ID, Reference: bp.Number, Row: ruleRow(bp), Extensions: bp.Extensions}
+	}
+	return out, nil
 }
 
 // extensions checks a business partner's custom fields; the partners they

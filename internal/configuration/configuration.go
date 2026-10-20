@@ -31,6 +31,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 )
 
 // Change request statuses.
@@ -84,6 +85,9 @@ type Dependencies struct {
 	Simulator     Simulator // replays transactions for simulation evidence (the worker)
 	Regressor     Regressor // captures and replays regression suites
 	Actors        Actors    // who a queued simulation acts as (the worker)
+	// RuleSamplers read each entity's recent rows, on which a simulation
+	// replays proposed validation rules (ADR-0046), by entity.
+	RuleSamplers map[string]rules.Sampler
 }
 
 // Actors reads who deferred work acts as: the person who queued it
@@ -532,6 +536,9 @@ func ActivateChangeRequest(ctx context.Context, deps Dependencies, id uuid.UUID,
 		return ChangeRequest{}, err
 	}
 	if err := requireStatus(c, "activate", Approved); err != nil {
+		return ChangeRequest{}, err
+	}
+	if err := requireRulesSimulated(c); err != nil {
 		return ChangeRequest{}, err
 	}
 	current, err := activeVersion(ctx, tx)

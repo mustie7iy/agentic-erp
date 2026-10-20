@@ -150,6 +150,10 @@ func dateOf(s string) time.Time { v, _ := time.Parse(time.DateOnly, s); return v
 func failureCalls(e env, h *procurement.Endpoints, f failureFixture) map[string]func(ctx context.Context) error {
 	u, d := uuidOf, dateOf
 	return map[string]func(ctx context.Context) error{
+		"sample for rules": func(ctx context.Context) error {
+			_, err := procurement.RuleSamples{}.Sample(ctx, time.Time{}, 10)
+			return err
+		},
 		"create requisition": func(ctx context.Context) error {
 			_, err := h.CreateRequisition(ctx, &gen.RequisitionCreate{LegalEntityID: e.DE, Currency: "EUR", Items: f.ok, SupplierID: f.sup,
 				ContractID: gen.NewOptUUID(u(f.active))}, gen.CreateRequisitionParams{})

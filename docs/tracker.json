@@ -3716,9 +3716,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Rules simulated against recent writes (:simulate evidence)",
-        "r": "T58h",
+        "s": "D",
+        "t": "Rules simulated before activation: :simulate replays the last 30 days of each changed entity (at most 200 rows) under the active and proposed rules; per rule the rows newly refused and newly passing (custom fields masked per x-pii), unevaluable rows fail the simulation; activation needs a passed simulation of the exact proposal (409 config.rules_not_simulated); agents propose, never activate",
+        "r": "rules.Simulate · rules.Sampler · RuleSamples (payables, procurement, partner) · configuration.requireRulesSimulated · TestRulesSimulatedBeforeActivation · TestSimulate · T58h",
         "c": []
        },
        {

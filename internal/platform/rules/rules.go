@@ -14,6 +14,8 @@
 package rules
 
 import (
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
@@ -103,3 +105,6 @@ var standard = map[string][]input{
 		{"row.reference_invoice_id", tString, true}, {"row.source", tString, true},
 	},
 }
+
+// Entities are the entities rules may be written on, in name order.
+func Entities() []string { return slices.Sorted(maps.Keys(standard)) }

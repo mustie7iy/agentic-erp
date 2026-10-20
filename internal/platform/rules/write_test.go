@@ -134,6 +134,14 @@ func TestWritesUnevaluable(t *testing.T) {
 	}
 }
 
+// An unevaluable rule's error keeps its cause.
+func TestUnevaluableErrorUnwraps(t *testing.T) {
+	cause := errors.New("no such key")
+	if err := error(&UnevaluableError{Entity: "business_partner", Rule: "r", Err: cause}); !errors.Is(err, cause) {
+		t.Errorf("got %v, want it to wrap %v", err, cause)
+	}
+}
+
 // unevaluableCount is erp_rules_unevaluable_total as a scrape reads it.
 func unevaluableCount(t *testing.T) float64 {
 	t.Helper()

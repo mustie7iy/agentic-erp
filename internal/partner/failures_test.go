@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -73,6 +74,10 @@ func TestDatabaseFailures(t *testing.T) {
 			Bic: gen.NewOptString("COBADEFFXXX")}},
 		Extensions: gen.NewOptExtensions(gen.Extensions{"segment": []byte(`"x"`)})}
 	calls := map[string]func(ctx context.Context) error{
+		"sample for rules": func(ctx context.Context) error {
+			_, err := partner.RuleSamples{}.Sample(ctx, time.Time{}, 10)
+			return err
+		},
 		"create partner": func(ctx context.Context) error {
 			_, err := h.CreateBusinessPartner(ctx, newPartner, gen.CreateBusinessPartnerParams{})
 			return err

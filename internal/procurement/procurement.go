@@ -94,15 +94,42 @@ type Endpoints struct {
 // header as a write leaves it (ADR-0046); the write's audit names the
 // object. Item lines are not inputs in Phase 2.
 func (e *Endpoints) checkRules(ctx context.Context, action, objectType string, id uuid.UUID, o PurchaseOrder) error {
+	return rules.Writes{Entity: "purchase_order", Source: e.Rules}.Check(ctx,
+		rules.Write{Action: action, ObjectType: objectType, ID: id, Row: ruleRow(o), Extensions: o.Extensions})
+}
+
+// ruleRow is a purchase order's header as its rules read it.
+func ruleRow(o PurchaseOrder) map[string]any {
 	var term *string
 	if o.PaymentTermCode != "" {
 		term = &o.PaymentTermCode
 	}
-	row := map[string]any{"legal_entity_id": o.LegalEntityID.String(), "purchasing_org_id": rules.ID(o.PurchasingOrgID),
+	return map[string]any{"legal_entity_id": o.LegalEntityID.String(), "purchasing_org_id": rules.ID(o.PurchasingOrgID),
 		"supplier_id": o.SupplierID.String(), "currency": o.Currency, "order_date": o.OrderDate.Format(time.DateOnly),
 		"payment_term_code": rules.Text(term), "requisition_id": rules.ID(o.RequisitionID), "contract_id": rules.ID(o.ContractID)}
-	return rules.Writes{Entity: "purchase_order", Source: e.Rules}.Check(ctx,
-		rules.Write{Action: action, ObjectType: objectType, ID: id, Row: row, Extensions: o.Extensions})
+}
+
+// RuleSamples reads the recent purchase orders on which a simulation
+// replays proposed rules (rules.Sampler, ADR-0046): those changed since
+// the time given, newest first.
+type RuleSamples struct{}
+
+// Sample implements rules.Sampler.
+func (RuleSamples) Sample(ctx context.Context, since time.Time, limit int) ([]rules.Sample, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, orderSelect+` WHERE o.updated_at >= $1 ORDER BY o.updated_at DESC, o.id LIMIT $2`, since, limit)
+	os, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (PurchaseOrder, error) { return scanOrder(r) })
+	if err != nil {
+		return nil, fmt.Errorf("procurement: sample purchase orders for rules: %w", err)
+	}
+	out := make([]rules.Sample, len(os))
+	for i, o := range os {
+		out[i] = rules.Sample{ID: o.ID, Reference: o.DocumentNumber, Row: ruleRow(o), Extensions: o.Extensions}
+	}
+	return out, nil
 }
 
 // extensions checks a purchase order's custom fields (ADR-0046).

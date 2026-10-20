@@ -371,6 +371,37 @@ func ruleWrite(action string, id uuid.UUID, in Input, c checked, source string) 
 	return rules.Write{Action: action, ID: id, Row: row, Extensions: in.Extensions}
 }
 
+// storedRuleWrite is a stored invoice's header as its rules read it, with
+// a change applied.
+func storedRuleWrite(action string, v Invoice, ch Change) rules.Write {
+	return ruleWrite(action, v.ID, changed(v, ch),
+		checked{currency: v.Currency, gross: v.Gross, tax: v.Tax, purchaseOrder: v.PurchaseOrderID, kind: v.Kind}, v.Source)
+}
+
+// RuleSamples reads the recent supplier invoices on which a simulation
+// replays proposed rules (rules.Sampler, ADR-0046): those changed since
+// the time given, newest first, read as their rules read them.
+type RuleSamples struct{}
+
+// Sample implements rules.Sampler.
+func (RuleSamples) Sample(ctx context.Context, since time.Time, limit int) ([]rules.Sample, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, invoiceSelect+` WHERE i.updated_at >= $1 ORDER BY i.updated_at DESC, i.id LIMIT $2`, since, limit)
+	vs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Invoice, error) { return scanInvoice(r) })
+	if err != nil {
+		return nil, fmt.Errorf("payables: sample invoices for rules: %w", err)
+	}
+	out := make([]rules.Sample, len(vs))
+	for i, v := range vs {
+		w := storedRuleWrite("", v, Change{})
+		out[i] = rules.Sample{ID: v.ID, Reference: v.DocumentNumber, Row: w.Row, Extensions: w.Extensions}
+	}
+	return out, nil
+}
+
 func invalid(code, field, message string) error {
 	return problem.Unprocessable(code, message, problem.FieldError{Field: field, Code: "invalid", Message: message})
 }

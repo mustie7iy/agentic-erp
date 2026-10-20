@@ -95,8 +95,7 @@ func (e *Endpoints) postable(ctx context.Context, v Invoice, date *time.Time) er
 	if _, err := e.extensions().Check(ctx, v.Extensions); err != nil {
 		return err
 	}
-	return e.ruleWrites().Check(ctx, ruleWrite("payables.supplier_invoice.post", v.ID, changed(v, Change{PostingDate: &date}),
-		checked{currency: v.Currency, gross: v.Gross, tax: v.Tax, purchaseOrder: v.PurchaseOrderID, kind: v.Kind}, v.Source))
+	return e.ruleWrites().Check(ctx, storedRuleWrite("payables.supplier_invoice.post", v, Change{PostingDate: &date}))
 }
 
 // posting is the entry an invoice posts, with the payment terms it posts

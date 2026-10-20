@@ -182,18 +182,9 @@ func compiledSet(k setKey, a Active) (*Set, error) {
 	if ok {
 		return s, nil
 	}
-	var schema *extensions.Compiled
-	if a.Schema != nil {
-		var issues []extensions.Issue
-		if schema, issues = extensions.Compile(k.entity, *a.Schema); len(issues) > 0 {
-			return nil, fmt.Errorf("rules: the %s schema of configuration version %d does not compile: %v", k.entity, k.version, issues)
-		}
-	}
-	// The configuration context refuses rules that do not compile, or whose
-	// cases fail, before they activate.
-	s, issues := Compile(k.entity, schema, a.Rules)
-	if len(issues) > 0 {
-		return nil, fmt.Errorf("rules: the %s rules of configuration version %d do not compile: %v", k.entity, k.version, issues)
+	s, _, err := compileActive(k.entity, a)
+	if err != nil {
+		return nil, err
 	}
 	cache.Lock()
 	defer cache.Unlock()
@@ -202,6 +193,25 @@ func compiledSet(k setKey, a Active) (*Set, error) {
 	}
 	cache.sets[k] = s
 	return s, nil
+}
+
+// compileActive compiles an entity's rules in one configuration version
+// with the custom field schema they read, returned too (nil without one).
+// The configuration context refuses rules that do not compile, or whose
+// cases fail, before they activate, so a failure here is an error.
+func compileActive(entity string, a Active) (*Set, *extensions.Compiled, error) {
+	var schema *extensions.Compiled
+	if a.Schema != nil {
+		var issues []extensions.Issue
+		if schema, issues = extensions.Compile(entity, *a.Schema); len(issues) > 0 {
+			return nil, nil, fmt.Errorf("rules: the %s schema of configuration version %d does not compile: %v", entity, a.ConfigVersion, issues)
+		}
+	}
+	s, issues := Compile(entity, schema, a.Rules)
+	if len(issues) > 0 {
+		return nil, nil, fmt.Errorf("rules: the %s rules of configuration version %d do not compile: %v", entity, a.ConfigVersion, issues)
+	}
+	return s, schema, nil
 }
 
 // Text, ID and Date are optional inputs as a write path holds them: absent

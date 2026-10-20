@@ -46,6 +46,10 @@ func TestDatabaseFailures(t *testing.T) {
 	expand := []string{"supplier"}
 
 	calls := map[string]func(ctx context.Context) error{
+		"sample for rules": func(ctx context.Context) error {
+			_, err := payables.RuleSamples{}.Sample(ctx, time.Time{}, 10)
+			return err
+		},
 		"create": func(ctx context.Context) error {
 			_, err := h.CreateSupplierInvoice(ctx, &gen.SupplierInvoiceCreate{LegalEntityID: e.DE, SupplierID: e.Supplier, SupplierReference: "NEW",
 				InvoiceDate: date("2026-03-10"), GrossAmount: gen.Money{Amount: "157.80", Currency: "EUR"}, TaxAmount: gen.Money{Amount: "22.80", Currency: "EUR"},

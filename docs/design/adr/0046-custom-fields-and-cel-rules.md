@@ -137,6 +137,26 @@ needs.
 - **Governance.** Rules are versioned in configuration, compiled when
   proposed (a rule that does not compile is a validation finding), and are
   tier 3 changes, so `:simulate` evidence is mandatory before approval.
+- **Simulation (T58h).** A change of an entity's rules, or of the custom
+  field schema its rules read, is replayed by `:simulate` (the simulation
+  worker) on the entity's recent rows: those changed in the last 30 days,
+  newest first, at most 200 per entity, so the cost does not grow with the
+  tenant's history. Each context that owns an entity reads them
+  (`rules.Sampler`) as its writes present them to the rules. Every row is
+  judged by the active and the proposed rules, each rule on its own; the
+  evidence (`detail.rules`) lists per rule the rows it would newly refuse
+  and newly pass, with counts and up to 20 examples each, named by id and
+  number with their custom fields masked per `x-pii` (header fields are
+  left out: a partner's name may be personal). A proposed rule that fails
+  or exceeds a limit on a row fails the simulation, so the change cannot
+  reach approval; a row the proposed schema does not accept is counted as
+  skipped, since the custom field check refuses its next write first. The
+  evidence carries the SHA-256 of the proposal it judged, and activation
+  refuses a rules change (409 `config.rules_not_simulated`) without a
+  passed simulation of that exact proposal: a proposal is fixed once
+  submitted, and the check keeps it so should that change. Agents may
+  propose and simulate (`x-autonomy: propose`) but never approve or
+  activate (`x-agent: false`).
 - **On write (T58g).** Every create, update and change request of the
   supplier invoice, purchase order and business partner evaluates the
   entity's active rules after its fields and custom fields pass their own
