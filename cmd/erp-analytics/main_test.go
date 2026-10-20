@@ -17,6 +17,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics/extract"
 	"github.com/mustie7iy/agentic-erp/internal/analytics/reader"
+	"github.com/mustie7iy/agentic-erp/internal/platform/awscreds"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf/tlstest"
@@ -96,6 +97,17 @@ func TestDefaultsAndS3(t *testing.T) {
 	}
 	if want := (reader.Limits{Threads: 1, MemoryLimit: "512MB", MaxQueries: 8}); s.limits != want {
 		t.Errorf("limits: got %+v, want %+v", s.limits, want)
+	}
+	f.env["ERP_AWS_STS_ENDPOINT"], f.env["ERP_AWS_IMDS_ENDPOINT"] = "https://sts.eu-central-1.amazonaws.com", "http://169.254.169.254"
+	if s, err = load(context.Background(), f.getenv); err != nil {
+		t.Fatal(err)
+	}
+	chain := s.store.(blobstore.S3).Credentials.(*awscreds.Cached).Provider.(awscreds.Chain)
+	if got := chain[2].(awscreds.WebIdentity).Endpoint; got != "https://sts.eu-central-1.amazonaws.com" {
+		t.Errorf("STS endpoint: got %q, want the cell's regional one (ERP_AWS_STS_ENDPOINT)", got)
+	}
+	if got := chain[3].(awscreds.IMDS).Endpoint; got != "http://169.254.169.254" {
+		t.Errorf("IMDS endpoint: got %q, want ERP_AWS_IMDS_ENDPOINT", got)
 	}
 }
 

@@ -554,7 +554,9 @@ reader's request, the values of the companies the reader may access
 alone and recounts the differences. It fails closed: a reader of no
 company sees no value, a value of no company (a metric not broken down
 by company) is shown to a reader of every company alone, and a detail
-that does not read fails the read. The summary keeps its counts over the
+that does not read fails the read (and so, on a change request's
+submit, withdraw or activate, the action whose answer it is: a company
+directory that cannot answer holds those back too). The summary keeps its counts over the
 requester's companies (counts, not values). *The store alone (decided
 2026-10-20).* The simulation reads the analytical store only: the database path reads
 the API with a request's credentials, which a queued simulation does not

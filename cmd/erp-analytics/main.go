@@ -120,8 +120,9 @@ func objects(getenv func(string) string, t *tlsconf.Store) (blobstore.Store, err
 	case dir == "" && endpoint != "" && bucket != "":
 		client := t.HTTPClient(30 * time.Second)
 		// The deployment's ambient credentials (ADR-0024): a role allowed to
-		// read analytics/ alone.
-		creds := awscreds.Default(awscreds.Static{}, getenv, "", "", client)
+		// read analytics/ alone, exchanged at the STS endpoint the cell
+		// names (its VPC endpoint), as erp-server's are; unset, the defaults.
+		creds := awscreds.Default(awscreds.Static{}, getenv, getenv("ERP_AWS_STS_ENDPOINT"), getenv("ERP_AWS_IMDS_ENDPOINT"), client)
 		return blobstore.S3{Endpoint: endpoint, Bucket: bucket, Region: defaulted(getenv("ERP_OBJECT_S3_REGION"), "us-east-1"), Credentials: creds, Client: client}, nil
 	}
 	return nil, errors.New("ERP_OBJECT_DIR or ERP_OBJECT_S3_ENDPOINT with ERP_OBJECT_S3_BUCKET: the store to read")
