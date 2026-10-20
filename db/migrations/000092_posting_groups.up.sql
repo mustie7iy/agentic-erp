@@ -13,7 +13,8 @@ ALTER TABLE ledger.journal_entry ADD COLUMN posting_group_id uuid, ADD COLUMN le
 -- The ledgers a company keeps (ledger.company_ledger), or the leading
 -- ledger alone for a company not yet assigned any: none are backfilled,
 -- the next activation assigns them. Legal entity and ledger ids are unique
--- across tenants; row-level security scopes the reads.
+-- across tenants, so the answer is right under any role; row-level
+-- security scopes the reads to the tenant.
 CREATE FUNCTION ledger.company_keeps(entity uuid, book uuid) RETURNS boolean
 LANGUAGE sql STABLE AS $$
   SELECT EXISTS (SELECT FROM ledger.company_ledger c WHERE c.legal_entity_id = entity AND c.ledger_id = book)

@@ -183,7 +183,9 @@ func stripComments(sql string) string {
 // named after the parent's and the partition's suffix (journal_entry_y2026
 // gives <index>_y2026). A partition created meanwhile gets the index from
 // the parent's; one whose concurrent build failed, leaving an invalid
-// index, is built again.
+// index, or whose attach timed out, is built again. The parent's index and
+// each attach wait at most indexLockTimeout for the table, holding up new
+// postings while they wait.
 func partitionedIndex(ctx context.Context, conn *pgx.Conn, stmt string) error {
 	m := indexStatement.FindStringSubmatch(stmt)
 	if m == nil {

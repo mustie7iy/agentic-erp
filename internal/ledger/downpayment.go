@@ -85,10 +85,12 @@ func downPaymentLines(ctx context.Context, in DownPaymentPayment) ([]PostingLine
 // SpecialDownPayment is the special G/L indicator of down payments.
 const SpecialDownPayment = "A"
 
-// postedFor finds the entry posted for a source document, not a reversal.
+// postedFor finds the entry posted for a source document, not a reversal:
+// its posting group's first entry, the leading ledger's, not a copy.
 func postedFor(ctx context.Context, tx pgx.Tx, source string, document uuid.UUID) (Entry, bool, error) {
 	var id uuid.UUID
 	err := tx.QueryRow(ctx, `SELECT id FROM ledger.journal_entry WHERE source_context = $1 AND source_document_id = $2 AND reversal_of_id IS NULL
+			AND (posting_group_id IS NULL OR posting_group_id = id)
 		ORDER BY posted_at LIMIT 1`, source, document).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Entry{}, false, nil

@@ -10,6 +10,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -185,6 +186,9 @@ func reverseGroup(t *testing.T, p parallelEnv, body string) {
 	if want := je["id"].(string) + "," + copyID; reversed != want {
 		t.Errorf("reversal copies reverse: got %s, want %s", reversed, want)
 	}
+	if cp, _ = p.in(t).Must(200, "GET", "/v1/journal-entries/"+copyID, "", ""); cp["reversed_by_id"] == nil {
+		t.Error("copy reversed_by_id: got none, want the reversal's copy")
+	}
 }
 
 func parkedLedgers(t *testing.T, p parallelEnv, body string) {
@@ -281,5 +285,34 @@ func TestParallelDatabaseFailures(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) { apitest.EveryFailure(t, p.ten, p.ten.Human, name, call) })
+	}
+}
+
+// TestParallelDownPaymentTwice: a down payment's payment posted again, as
+// a retried release does, returns the leading ledger's entry, never a copy.
+func TestParallelDownPaymentTwice(t *testing.T) {
+	p := setupParallel(t)
+	downPayments(t, p.env)
+	in := ledger.DownPaymentPayment{LegalEntityID: p.de, SupplierID: p.supplier, BankAccountID: settleAccount(t, p.env, "2000", "100000"), DocumentType: "SA",
+		PostingDate: date("2026-03-20"), Currency: "EUR", Amount: money.Minor(10000), SourceDocumentID: uuid.New()}
+	var first ledger.Entry
+	for run := range 2 {
+		if err := apitest.Committed(t, p.ten, p.ten.Human, func(ctx context.Context) error {
+			got, err := postings().PayDownPayment(ctx, in)
+			if run == 0 {
+				first = got
+			} else if got.ID != first.ID {
+				t.Errorf("posted again: got entry %v in ledger %v, want %v", got.ID, got.LedgerID, first.ID)
+			}
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ledgers, _ := p.group(t, first.ID.String()); ledgers != "0L,2L" {
+		t.Errorf("posted to: got %s, want 0L,2L", ledgers)
+	}
+	if first.LedgerID.String() != p.leading {
+		t.Errorf("first entry's ledger: got %v, want 0L %s", first.LedgerID, p.leading)
 	}
 }

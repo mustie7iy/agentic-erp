@@ -211,16 +211,16 @@ func postingPeriod(ctx context.Context, tx pgx.Tx, e tenancy.Entity, ledgers []u
 		var t target
 		_, err = pgx.ForEachRow(rows, []any{&t.ledger, &t.code, &t.leading, &t.status}, func() error { targets = append(targets, t); return nil })
 	}
-	missing := errors.Is(err, pgx.ErrNoRows) || err == nil && len(targets) == 0
+	missing := errors.Is(err, pgx.ErrNoRows) || len(targets) == 0
 	for _, t := range targets {
 		missing = missing || t.status == nil
 	}
 	switch {
+	case err != nil && !errors.Is(err, pgx.ErrNoRows):
+		return 0, 0, nil, fmt.Errorf("ledger: posting period of %s on %s: %w", e.ID, day, err)
 	case missing:
 		return 0, 0, nil, noFiscalPeriod("posting_date", "No fiscal period of the legal entity covers "+day+
 			"; a fiscal year is set up by a number range for it in the configuration.")
-	case err != nil:
-		return 0, 0, nil, fmt.Errorf("ledger: posting period of %s on %s: %w", e.ID, day, err)
 	}
 	for _, t := range targets {
 		what := "postings dated " + day
@@ -257,31 +257,37 @@ func mustBeOpen(year, number int16, status, what string) error {
 // representative ledger's: the leading ledger's when the draft names no
 // ledgers, the one open items and clearings refer to.
 func (e *Endpoints) post(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d draft) (Entry, error) {
-	year, number, targets, err := postingPeriod(ctx, tx, d.entity, d.ledgers, d.postingDate)
+	entries, err := e.postAll(ctx, tx, p, d)
 	if err != nil {
 		return Entry{}, err
+	}
+	return entries[0], nil
+}
+
+// postAll posts the draft as post does and returns every entry of the
+// posting group, the first first.
+func (e *Endpoints) postAll(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d draft) ([]Entry, error) {
+	year, number, targets, err := postingPeriod(ctx, tx, d.entity, d.ledgers, d.postingDate)
+	if err != nil {
+		return nil, err
 	}
 	docNumber, err := e.Numbers.Next(ctx, d.entity.ID, "journal_"+strings.ToLower(d.documentType), year)
 	if err != nil {
-		return Entry{}, err
+		return nil, err
 	}
 	group := uuid.Must(uuid.NewV7())
 	cols := lineColumnsOf(d.lines)
-	var first Entry
+	entries := make([]Entry, len(targets))
 	for i, t := range targets {
 		id := group
 		if i > 0 {
 			id = uuid.Must(uuid.NewV7())
 		}
-		posted, err := insertEntry(ctx, tx, p, d, cols, header{id: id, group: group, ledger: t.ledger, year: year, period: number, number: docNumber})
-		if err != nil {
-			return Entry{}, err
-		}
-		if i == 0 {
-			first = posted
+		if entries[i], err = insertEntry(ctx, tx, p, d, cols, header{id: id, group: group, ledger: t.ledger, year: year, period: number, number: docNumber}); err != nil {
+			return nil, err
 		}
 	}
-	return first, nil
+	return entries, nil
 }
 
 // header is what one entry of a posting group is posted with.
@@ -963,14 +969,35 @@ func (e *Endpoints) postReversal(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 		text := "Reversal of " + orig.DocumentNumber
 		headerText = &text
 	}
-	rev, err := e.post(ctx, tx, p, draft{entity: le, ledgers: ledgers, ledgerGroup: orig.LedgerGroupID, documentType: orig.DocumentType, documentDate: orig.DocumentDate,
+	revs, err := e.postAll(ctx, tx, p, draft{entity: le, ledgers: ledgers, ledgerGroup: orig.LedgerGroupID, documentType: orig.DocumentType, documentDate: orig.DocumentDate,
 		postingDate: date, currencyTC: orig.CurrencyTC, currencyLC: orig.CurrencyLC, currencyGC: orig.CurrencyGC, rateTCLC: orig.RateTCLC,
 		rateLCGC: orig.RateLCGC, reference: orig.Reference, headerText: headerText, sourceContext: orig.SourceContext,
 		sourceDocumentID: orig.SourceDocumentID, reversalOf: &orig, reversedCopies: copies, lines: lines})
 	if err != nil {
 		return Entry{}, err
 	}
-	return rev, project(ctx, tx, rev)
+	if err := recordCopyReversals(ctx, tx, p, orig, copies, revs[1:]); err != nil {
+		return Entry{}, err
+	}
+	return revs[0], project(ctx, tx, revs[0])
+}
+
+// recordCopyReversals links each copy of orig to the reversal's copy in
+// its ledger (ledger.reversal), as recordReversal links the first entries:
+// a copy shows its reversal and its lines count as reversed.
+func recordCopyReversals(ctx context.Context, tx pgx.Tx, p reqctx.Principal, orig Entry, copies map[uuid.UUID]uuid.UUID, revs []Entry) error {
+	if len(revs) == 0 {
+		return nil
+	}
+	originals, reversals := make([]uuid.UUID, len(revs)), make([]uuid.UUID, len(revs))
+	for i, r := range revs {
+		originals[i], reversals[i] = copies[r.LedgerID], r.ID
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO ledger.reversal (tenant_id, original_year, original_entry_id, reversal_year, reversal_entry_id)
+		SELECT $1, $2, o, $3, r FROM unnest($4::uuid[], $5::uuid[]) AS x(o, r)`, p.TenantID, orig.FiscalYear, revs[0].FiscalYear, originals, reversals); err != nil {
+		return fmt.Errorf("ledger: reverse the copies of entry %s: %w", orig.ID, err)
+	}
+	return nil
 }
 
 // recordReversal links the reversal to its original, publishes

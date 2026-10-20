@@ -85,7 +85,10 @@ indexes built concurrently per partition and attached (the runner's
 `migrate:partitioned-index`, T52b). The old document number constraint is
 dropped in T52b (000095), not in T52e as first planned: it would refuse
 every copy, and the previous release never relies on it (numbers come from
-the number range), so dropping it is safe during a rolling deploy. Nothing
+the number range), so dropping it is safe during a rolling deploy. The copies are not: a release before
+T52b lists a copy's supplier lines as open items and reverses a copy
+alone, so no company is assigned a parallel ledger until every replica
+runs T52b. Nothing
 is backfilled: a company is assigned its ledgers by the next activation, so
 until then `GET /v1/ledgers` lists 0L without legal entities. Until T52b a
 posting may still name any ledger of the tenant; T52b limits it to the
