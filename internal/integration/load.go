@@ -85,7 +85,7 @@ func (l *loader) step(ctx context.Context, table, key string, fn func() error) (
 		if _, err := l.tx.Exec(ctx, `ROLLBACK TO SAVEPOINT item`); err != nil {
 			return false, fmt.Errorf("integration: roll back the refused %s %s: %w", table, key, err)
 		}
-		l.issue(table, key, p.Code+": "+p.Detail)
+		l.issue(table, key, refusal(p))
 		return false, nil
 	}
 	if _, err := l.tx.Exec(ctx, `RELEASE SAVEPOINT item`); err != nil {
@@ -621,4 +621,15 @@ func (l *loader) blocked(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// refusal is the issue of a refused row: the problem's code and detail,
+// and each field error, which names what refused it (a field, a rule) and
+// repeats no value.
+func refusal(p *problem.Problem) string {
+	msg := p.Code + ": " + p.Detail
+	for _, f := range p.Errors {
+		msg += " " + f.Field + ": " + f.Message
+	}
+	return msg
 }

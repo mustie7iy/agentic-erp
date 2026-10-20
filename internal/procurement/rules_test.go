@@ -1,7 +1,10 @@
 package procurement_test
 
 import (
+	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
@@ -22,19 +25,23 @@ func noSecretProject() map[string]rules.Rule {
 func ruleRefused(t *testing.T, p map[string]any) {
 	t.Helper()
 	errs, _ := p["errors"].([]any)
-	if len(errs) != 1 || errs[0].(map[string]any)["field"] != "rules.no_secret_project" {
-		t.Errorf("errors: got %v, want one on rules.no_secret_project", p["errors"])
+	if len(errs) != 1 {
+		t.Fatalf("errors: got %v, want one", p["errors"])
+	}
+	if got := errs[0].(map[string]any)["field"]; got != "rules.no_secret_project" {
+		t.Errorf("field: got %v, want rules.no_secret_project", got)
 	}
 }
 
 // audited checks one refusal of action is audited with source rule in the
-// configuration version.
-func audited(t *testing.T, e fixture.Env, action string, version int32) {
+// configuration version, on the object.
+func audited(t *testing.T, e fixture.Env, action, objectType string, object *uuid.UUID, version int32) {
 	t.Helper()
 	got := fixture.RuleAudits(t, e.Tenant.ID, action)
-	if len(got) != 1 || got[0].Outcome != "refused" || got[0].Rule != "no_secret_project" || got[0].ConfigVersion != version {
-		t.Errorf("%s audit: got %+v, want one refusal by no_secret_project in version %d", action, got, version)
+	if len(got) != 1 {
+		t.Fatalf("%s audit records: got %v, want one", action, got)
 	}
+	fixture.WantRuleAudit(t, got[0], fixture.RuleAudit{ObjectType: objectType, Outcome: "refused", Rule: "no_secret_project", ObjectID: object, ConfigVersion: version})
 }
 
 // TestRulesOnOrderWrites: the tenant's rules judge a purchase order's
@@ -47,15 +54,18 @@ func TestRulesOnOrderWrites(t *testing.T) {
 	its := items(item(e.office, "1", "EA", "1.00", "EUR", ""))
 	ruleRefused(t, e.Problem(422, "request.rule_refused", "POST", "/v1/purchase-orders", `{"legal_entity_id": "`+e.DE.String()+`", "supplier_id": "`+
 		e.Supplier.String()+`", "currency": "EUR", "order_date": "2026-03-10", "items": `+its+`, "extensions": {"project": "secret"}}`, ""))
-	audited(t, e.Env, "procurement.purchase_order.create", version)
+	audited(t, e.Env, "procurement.purchase_order.create", "procurement.purchase_order", nil, version)
 
 	o := e.order(t, its, `, "extensions": {"project": "open"}`)
 	ruleRefused(t, e.Problem(422, "request.rule_refused", "PATCH", "/v1/purchase-orders/"+id(o), `{"extensions": {"project": "secret"}}`, `"1"`))
-	audited(t, e.Env, "procurement.purchase_order.update", version)
+	orderID := uuid.MustParse(id(o))
+	audited(t, e.Env, "procurement.purchase_order.update", "procurement.purchase_order", &orderID, version)
 
 	ruleRefused(t, e.Problem(422, "request.rule_refused", "POST", path+"/changes", `{"reason": "Secret", "extensions": {"project": "secret"}}`, ""))
-	audited(t, e.Env, "procurement.purchase_order_change.create", version)
+	released := uuid.MustParse(strings.TrimPrefix(path, "/v1/purchase-orders/"))
+	audited(t, e.Env, "procurement.purchase_order_change.create", "procurement.purchase_order", &released, version)
 	ch, tag := e.Must(201, "POST", path+"/changes", `{"reason": "Later", "order_date": "2026-03-20"}`, "")
 	ruleRefused(t, e.Problem(422, "request.rule_refused", "PATCH", path+"/changes/"+id(ch), `{"extensions": {"project": "secret"}}`, tag))
-	audited(t, e.Env, "procurement.purchase_order_change.update", version)
+	changeID := uuid.MustParse(id(ch))
+	audited(t, e.Env, "procurement.purchase_order_change.update", "procurement.purchase_order_change", &changeID, version)
 }

@@ -3,6 +3,8 @@ package partner_test
 import (
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 )
@@ -23,17 +25,24 @@ func TestRulesOnPartnerWrites(t *testing.T) {
 		Cases:      []rules.Case{{Row: row("FR"), Valid: true}, {Row: row("DE"), Valid: false}},
 	}})
 	refused := e.Problem(422, "request.rule_refused", "POST", "/v1/business-partners", e.supplier("Neu", 0), "")
-	if errs, _ := refused["errors"].([]any); len(errs) != 1 || errs[0].(map[string]any)["field"] != "rules.german_segment" {
-		t.Errorf("create errors: got %v, want one on rules.german_segment", refused["errors"])
+	errs, _ := refused["errors"].([]any)
+	if len(errs) != 1 {
+		t.Fatalf("create errors: got %v, want one", refused["errors"])
+	}
+	if got := errs[0].(map[string]any)["field"]; got != "rules.german_segment" {
+		t.Errorf("create error field: got %v, want rules.german_segment", got)
 	}
 	got := fixture.RuleAudits(t, e.ten.ID, "partner.business_partner.create")
-	if len(got) != 1 || got[0].Rule != "german_segment" || got[0].ConfigVersion != version || got[0].ObjectID != nil {
-		t.Errorf("create audit: got %+v, want one refusal by german_segment in version %d", got, version)
+	if len(got) != 1 {
+		t.Fatalf("create audit records: got %v, want one", got)
 	}
+	fixture.WantRuleAudit(t, got[0], fixture.RuleAudit{ObjectType: "partner.business_partner", Outcome: "refused", Rule: "german_segment", ConfigVersion: version})
 	e.Problem(422, "request.rule_refused", "POST", "/v1/partner-changes", e.update(id(p), `{"name": "Muster AG", "legal_name": "M", "language": "de"}`), "")
 	got = fixture.RuleAudits(t, e.ten.ID, "partner.change.request")
-	if len(got) != 1 || got[0].ObjectType != "partner.business_partner" || got[0].ObjectID == nil || got[0].ObjectID.String() != id(p) {
-		t.Errorf("update audit: got %+v, want one naming partner %s", got, id(p))
+	if len(got) != 1 {
+		t.Fatalf("update audit records: got %v, want one", got)
 	}
+	partnerID := uuid.MustParse(id(p))
+	fixture.WantRuleAudit(t, got[0], fixture.RuleAudit{ObjectType: "partner.business_partner", Outcome: "refused", Rule: "german_segment", ObjectID: &partnerID, ConfigVersion: version})
 	e.Must(201, "POST", "/v1/partner-changes", e.update(id(p), `{"extensions": {"segment": "retail"}}`), "")
 }

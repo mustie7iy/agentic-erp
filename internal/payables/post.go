@@ -54,6 +54,12 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if _, err := e.extensions().Check(ctx, v.Extensions); err != nil {
 		return Invoice{}, err
 	}
+	// Nor does one a rule refuses: a captured invoice held by a rule and
+	// released by hand is judged again on its header as it stands.
+	if err := e.ruleWrites().Check(ctx, ruleWrite("payables.supplier_invoice.post", v.ID, changed(v, Change{}),
+		checked{currency: v.Currency, gross: v.Gross, tax: v.Tax, purchaseOrder: v.PurchaseOrderID, kind: v.Kind}, v.Source)); err != nil {
+		return Invoice{}, err
+	}
 	if err := requireCleanMatch(ctx, tx, v); err != nil {
 		return Invoice{}, err
 	}

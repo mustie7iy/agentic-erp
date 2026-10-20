@@ -160,8 +160,13 @@ needs.
   refusal (`audit.Refuse`), so the refusal is committed apart from the
   write, once, and a retry with the same key gets the stored answer without
   a second record. A captured invoice held by a rule is audited `held` in
-  its own transaction. Work a caller discards as though it never ran (a
-  migration rehearsal) discards its refusals with it.
+  its own transaction, and a person who releases it cannot post it while
+  a rule refuses it: posting judges the invoice's header again. Work a
+  caller rolls back to its own savepoint and discards (a migration
+  rehearsal, or a load with errors) discards its refusals with it; a
+  migration run's report names the refusing rule of each refused row.
+  Money reads as the object `rules.Money`, no longer a map of strings as
+  in T58f: no tenant had activated rules before the change.
 
 ### Agents
 Agents may propose custom fields and rules as change requests. They never

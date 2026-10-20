@@ -9,6 +9,7 @@ package fixture
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -330,4 +331,24 @@ func RuleAudits(tb testing.TB, tenant uuid.UUID, action string) []RuleAudit {
 		tb.Fatal(err)
 	}
 	return out
+}
+
+// WantRuleAudit checks an audit record against the one wanted, one field
+// at a time.
+func WantRuleAudit(tb testing.TB, got, want RuleAudit) {
+	tb.Helper()
+	id := func(p *uuid.UUID) string {
+		if p == nil {
+			return "none"
+		}
+		return p.String()
+	}
+	for _, c := range []struct{ field, got, want string }{
+		{"object type", got.ObjectType, want.ObjectType}, {"outcome", got.Outcome, want.Outcome}, {"rule", got.Rule, want.Rule},
+		{"object id", id(got.ObjectID), id(want.ObjectID)}, {"config version", fmt.Sprint(got.ConfigVersion), fmt.Sprint(want.ConfigVersion)},
+	} {
+		if c.got != c.want {
+			tb.Errorf("audit %s: got %s, want %s", c.field, c.got, c.want)
+		}
+	}
 }

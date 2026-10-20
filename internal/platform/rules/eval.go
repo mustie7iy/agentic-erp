@@ -189,6 +189,9 @@ func moneyOf(v any) (Money, bool) {
 	}
 	amount, okA := m["amount"].(string)
 	code, okC := m["currency"].(string)
+	// The seeded exponents, not ref.currency: a case has no database. They
+	// are the same while TestSeededMatchesTheDatabase holds, so a custom
+	// field the write path checked against ref.currency reads alike here.
 	exp, okE := currency.SeededExponent(code)
 	if !okA || !okC || !okE {
 		return Money{}, false

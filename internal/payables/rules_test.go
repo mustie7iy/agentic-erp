@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
@@ -62,83 +64,103 @@ func TestRulesOnInvoiceWrites(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("audit records: got %v, want one", got)
 	}
-	if a := got[0]; a.Outcome != "refused" || a.Rule != "gross_limit" || a.ConfigVersion != version || a.ObjectID != nil ||
-		a.ObjectType != "payables.supplier_invoice" {
-		t.Errorf("audit record: got %+v, want refused by gross_limit in version %d, no object", a, version)
-	}
+	fixture.WantRuleAudit(t, got[0], fixture.RuleAudit{ObjectType: "payables.supplier_invoice", Outcome: "refused", Rule: "gross_limit", ConfigVersion: version})
 
 	inv, tag := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "SMALL", "100.00", "0.00", accountItem(e.expense, "100.00")), "")
 	p = e.Problem(422, "request.rule_refused", "PATCH", "/v1/supplier-invoices/"+id(inv), `{"extensions": {"channel": "fax"}}`, tag)
 	refusedBy(t, p, "no_fax", "Fax invoices are not accepted.")
 	got = fixture.RuleAudits(t, e.Tenant.ID, "payables.supplier_invoice.update")
-	if len(got) != 1 || got[0].ObjectID == nil || got[0].ObjectID.String() != id(inv) {
-		t.Errorf("update audit: got %+v, want one naming invoice %s", got, id(inv))
+	if len(got) != 1 {
+		t.Fatalf("update audit records: got %v, want one", got)
 	}
+	invID := uuid.MustParse(id(inv))
+	fixture.WantRuleAudit(t, got[0], fixture.RuleAudit{ObjectType: "payables.supplier_invoice", Outcome: "refused", Rule: "no_fax", ObjectID: &invID, ConfigVersion: version})
 	e.Must(200, "PATCH", "/v1/supplier-invoices/"+id(inv), `{"extensions": {"channel": "mail"}}`, tag)
 }
 
-// A captured invoice a rule refuses lands held naming the rule instead of
-// being lost, and the hold is audited. One already held for a missing
-// required field is judged once a person completes it: its rules may read
-// the field.
+// A captured invoice a rule refuses lands held naming the rule, after any
+// other hold reason, instead of being lost; the hold is audited, and a
+// person who releases it cannot post it while the rule refuses it. One
+// held for a missing required field is judged once a person completes it:
+// its rules may read the field.
 func TestCaptureHeldByRule(t *testing.T) {
-	for name, c := range map[string]struct{ required, unsure bool }{"rule": {}, "missing field": {required: true}, "unsure extraction": {unsure: true}} {
-		required := c.required
+	const byRule = "Rule gross_limit refuses it: Invoices above 1000.00 need a contract."
+	for name, c := range map[string]struct {
+		required, unsure bool
+		wantPrefix       string // the hold reason starts with it
+		wantRule         bool   // the reason names the rule, and the hold is audited
+	}{
+		"rule":              {wantPrefix: byRule, wantRule: true},
+		"unsure extraction": {unsure: true, wantPrefix: "Low extraction confidence", wantRule: true},
+		"missing field":     {required: true, wantPrefix: "Required custom fields are missing: cost_center."},
+	} {
 		t.Run(name, func(t *testing.T) {
 			e := setup(t)
 			e.order(t, e.Supplier, "PO-1")
-			if required {
+			if c.required {
 				pgtest.Unguarded(t, `UPDATE config.config_version SET document = jsonb_set(document, '{extensions,supplier_invoice,required}', '["cost_center"]')
 					WHERE tenant_id = $1`, e.Tenant.ID)
 			}
-			rs := invoiceRules()
-			r := rs["gross_limit"]
-			r.Expression = `row.gross_amount.minor <= 10000`
-			r.Cases[0].Row["gross_amount"] = map[string]any{"amount": "100.00", "currency": "EUR"}
-			if required {
-				for i := range r.Cases {
-					r.Cases[i].Extensions = map[string]any{"cost_center": "CC1"}
-				}
-			}
-			version := fixture.ActivateRules(t, e.Tenant.ID, "supplier_invoice", map[string]rules.Rule{"gross_limit": r})
-			var res gen.CaptureSupplierInvoiceRes
-			if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
-				x := extraction()
-				if c.unsure {
-					x.Confidence = "low"
-				}
-				res, err = endpoints(extractor{e: x}).CaptureSupplierInvoice(ctx,
-					&gen.SupplierInvoiceCaptureMultipart{LegalEntityID: e.DE, Document: gen.NewOptString("%PDF-1 above the limit " + name)}, gen.CaptureSupplierInvoiceParams{})
-				return err
-			}); err != nil {
-				t.Fatal(err)
-			}
-			path := res.(*gen.OperationHeaders).Response.Resource.Value
-			held, _ := e.Must(200, "GET", path, "", "")
+			version := fixture.ActivateRules(t, e.Tenant.ID, "supplier_invoice", map[string]rules.Rule{"gross_limit": captureLimit(c.required)})
+			path := captured(t, e, c.unsure, name)
+			held, tag := e.Must(200, "GET", path, "", "")
 			if held["status"] != "on_hold" {
 				t.Errorf("status: got %v, want on_hold", held["status"])
 			}
 			reason, _ := held["hold_reason"].(string)
-			if got := strings.Contains(reason, "Rule gross_limit refuses it: Invoices above 1000.00 need a contract."); got == required {
-				t.Errorf("hold reason names gross_limit and its message: got %t, want %t (%q)", got, !required, reason)
+			if !strings.HasPrefix(reason, c.wantPrefix) {
+				t.Errorf("hold reason: got %q, want it to start with %q", reason, c.wantPrefix)
 			}
-			if got := strings.HasPrefix(reason, "Rule gross_limit"); !required && got == c.unsure {
-				t.Errorf("hold reason starts with the rule: got %t, want %t (%q)", got, !c.unsure, reason)
-			}
-			if got := strings.Contains(reason, "cost_center"); got != required {
-				t.Errorf("hold reason names the missing field: got %t, want %t (%q)", got, required, reason)
+			if got := strings.Contains(reason, byRule); got != c.wantRule {
+				t.Errorf("hold reason names the rule: got %t, want %t (%q)", got, c.wantRule, reason)
 			}
 			got := fixture.RuleAudits(t, e.Tenant.ID, "payables.supplier_invoice.create")
-			if required {
+			if !c.wantRule {
 				if len(got) != 0 {
 					t.Errorf("audit: got %+v, want none before the invoice is completed", got)
 				}
 				return
 			}
-			if len(got) != 1 || got[0].Outcome != "held" || got[0].ConfigVersion != version || got[0].ObjectID == nil ||
-				"/v1/supplier-invoices/"+got[0].ObjectID.String() != path {
-				t.Errorf("audit: got %+v, want one held in version %d naming %s", got, version, path)
+			if len(got) != 1 {
+				t.Fatalf("audit records: got %v, want one", got)
 			}
+			invID := uuid.MustParse(strings.TrimPrefix(path, "/v1/supplier-invoices/"))
+			fixture.WantRuleAudit(t, got[0], fixture.RuleAudit{ObjectType: "payables.supplier_invoice", Outcome: "held", Rule: "gross_limit", ObjectID: &invID, ConfigVersion: version})
+			_, tag = e.Must(200, "POST", path+":release", `{"comment": "checked"}`, tag)
+			refusedBy(t, e.Problem(422, "request.rule_refused", "POST", path+":post", "", tag), "gross_limit", "Invoices above 1000.00 need a contract.")
 		})
 	}
+}
+
+// captureLimit is gross_limit at 100.00, below the captured invoice's
+// 157.80; with the cost center required, its cases carry one.
+func captureLimit(required bool) rules.Rule {
+	r := invoiceRules()["gross_limit"]
+	r.Expression = `row.gross_amount.minor <= 10000`
+	r.Cases[0].Row["gross_amount"] = map[string]any{"amount": "100.00", "currency": "EUR"}
+	if required {
+		for i := range r.Cases {
+			r.Cases[i].Extensions = map[string]any{"cost_center": "CC1"}
+		}
+	}
+	return r
+}
+
+// captured captures the standard extraction, unsure or not, and returns the
+// invoice's path.
+func captured(t *testing.T, e env, unsure bool, document string) string {
+	t.Helper()
+	var res gen.CaptureSupplierInvoiceRes
+	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
+		x := extraction()
+		if unsure {
+			x.Confidence = "low"
+		}
+		res, err = endpoints(extractor{e: x}).CaptureSupplierInvoice(ctx,
+			&gen.SupplierInvoiceCaptureMultipart{LegalEntityID: e.DE, Document: gen.NewOptString("%PDF-1 above the limit " + document)}, gen.CaptureSupplierInvoiceParams{})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return res.(*gen.OperationHeaders).Response.Resource.Value
 }
