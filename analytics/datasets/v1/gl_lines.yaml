@@ -1,0 +1,36 @@
+# Dataset contract (ADR-0044). Additive changes only (a new nullable
+# column); a removed, renamed or retyped column or a changed grain is a new
+# version under ../v2. Columns are what the extractor writes to Parquet;
+# internal/analytics/datasets_test.go checks them against semantic.yaml.
+dataset: gl_lines
+version: 1
+kind: fact
+grain: One row per posted journal entry line of every ledger, as /v1/journal-entries returns them; amount_minor is the line's amount in local currency (amount_lc).
+# Posted lines are immutable (ADR-0006): extracts append the lines of entries
+# whose posted_xid is at least the previous cutoff and below this run's
+# snapshot xmin (the transaction-id horizon, ADR-0044); stored as UINT64.
+load: append
+watermark: posted_xid
+date: posting_date
+joins:
+  - {dataset: accounts, on: [company, account]}
+  - {dataset: vendors, on: [vendor]}
+# Clearing changes after posting, so it is not a column of the line: a
+# supplier line is cleared when it is on a reconciliation account and has no
+# open_items row.
+derived:
+  - {name: cleared, from: open_items, rule: vendor_recon and no open_items row with the same document_id and line_no}
+columns:
+  - {name: tenant_id, type: uuid, role: tenant}
+  - {name: document_id, type: uuid, role: id}
+  - {name: line_no, type: int32, role: key}
+  - {name: ledger_id, type: uuid, role: key}
+  - {name: company, type: string, role: dimension}
+  - {name: posting_date, type: date, role: date}
+  - {name: account, type: string, role: dimension}
+  - {name: document_type, type: string, role: dimension}
+  - {name: vendor, type: string, role: dimension, nullable: true}
+  - {name: amount_minor, type: int64, role: amount}
+  - {name: currency, type: string, role: currency}
+  - {name: exponent, type: int32, role: exponent}
+  - {name: posted_xid, type: xid8, role: watermark}

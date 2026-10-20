@@ -144,3 +144,17 @@ gate, the scan), T39b (signing, attestations, `verify-image.sh`) and T39c
 - Go records the commit of the repository it finds a `.git` directory in; a
   build inside a git worktree (whose `.git` is a file) stamps the enclosing
   repository's commit instead. CI and releases build from a clone.
+
+## Amendment (2026-10-19, T55, ADR-0044)
+
+One scoped cgo exception: `erp-analytics` embeds DuckDB (C++) and is built
+with `CGO_ENABLED=1` on `gcr.io/distroless/cc-debian12:nonroot` pinned by
+digest. It keeps everything else this ADR requires: `-trimpath`, an empty
+build id, the double build with matching digests, an SBOM (which then lists
+the DuckDB library and the base image's glibc), the grype scan, the
+signature and `verify-image.sh`. The exception covers that binary only:
+`erp-server`, `erp-router` and `erp` stay `CGO_ENABLED=0` on
+`static-debian12`, and a cgo import in any of them fails the build. The
+scope is narrow because the binary is narrow: read-only access to the
+bucket's `analytics/` prefix, no database credentials, reachable only from
+`erp-server` over mTLS (ADR-0033). Any other cgo binary needs its own ADR.

@@ -3340,7 +3340,7 @@
      {
       "s": "T",
       "t": "Metric changes through the configuration approval loop",
-      "r": "T55",
+      "r": "T55g",
       "c": []
      }
     ]
@@ -3363,10 +3363,47 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "Columnar store (DuckDB over Parquet via CDC)",
-      "r": "T55",
-      "c": []
+      "s": "P",
+      "t": "Columnar store (DuckDB over Parquet from per-tenant extracts)",
+      "r": "ADR-0044 · T55",
+      "c": [
+       {
+        "s": "D",
+        "t": "Analytical store decided: per-tenant incremental extracts under RLS on the read replica (not CDC), DuckDB in a separate cgo erp-analytics binary (ADR-0032 amended), Parquet layout, manifest and pointer-swap publication, three-layer isolation, PostgreSQL fallback with lineage; versioned dataset contract checked against semantic.yaml",
+        "r": "ADR-0044 · analytics/datasets/v1 · internal/analytics/datasets_test.go · T55a",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Snapshot table, extractor and Parquet writer for journal lines",
+        "r": "T55b",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Remaining datasets and the extract scheduler",
+        "r": "T55c",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "erp-analytics reader, path guard and isolation tests",
+        "r": "T55d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Semantic layer reads the store, with fallback, lineage and parity",
+        "r": "T55e",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Erasure, compaction, lifecycle, rebuild and the freshness alert",
+        "r": "T55f",
+        "c": []
+       }
+      ]
      }
     ]
    },

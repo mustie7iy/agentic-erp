@@ -89,8 +89,11 @@ also routes every lookup to one partition.
   use the primary.
 - **Trial balance and reports** read `ledger.period_balance` plus entries not
   yet projected, so they stay fast as history grows (target p95 1 s).
-- **Analytics** reads a separate read model fed from events (later: CDC into a
-  columnar store), never ad-hoc scans on the OLTP primary.
+- **Analytics** reads a columnar store (ADR-0044): per-tenant Parquet
+  extracted incrementally under the tenant's RLS on a read replica, queried
+  by DuckDB in `erp-analytics`; freshness p95 15 min, with a fallback to the
+  replica when a snapshot is missing or stale. Never ad-hoc scans on the
+  OLTP primary.
 
 ## 5.4 Cells: horizontal scale and isolation
 
@@ -173,7 +176,7 @@ and changes no API contract.
 | 4. Sub-partition the ledger | Year partitions too big in a cell | Create new years hash-sub-partitioned by `tenant_id` | Partition keys are already in every PK |
 | 5. Distribute a cell | One tenant exceeds one primary | Citus distributes tables by `tenant_id`; `ref` tables become reference tables | Keys and FKs already lead with `tenant_id`, so tables are co-located (see risks) |
 | 6. Extract a context | A context dominates load or release cadence | Move its package to its own service and its schema to its own database | No cross-schema FKs; contexts talk through interfaces and events (ADR-0001) |
-| 7. Columnar analytics | Read models lag or analytics hurts OLTP | Feed a columnar store by CDC from the outbox | Analytics already consumes events only |
+| 7. Columnar analytics | Read models lag or analytics hurts OLTP | Per-tenant incremental extracts under RLS on the read replica into Parquet, read by DuckDB in `erp-analytics`; outbox events schedule a tenant's next extract (ADR-0044) | Analytics already reads facts shaped by the semantic layer; posted rows are immutable, so extracts append |
 
 ## 5.7 Risks and how they are retired
 
@@ -195,4 +198,5 @@ and changes no API contract.
 | Soak test (24 h at sustained load) | No leaks, stable latency, projector keeps up | Before each release |
 | Resilience tests (primary failover, NATS node loss, worker kill) | RPO/RTO targets; operations resume | Quarterly and before go-live |
 | Restore and region failover drills (ADR-0040) | A restore verified within RPO/RTO; recorded in `staging/stg1/drills/restore.json` | Every 90 days at least; production promotions wait on it |
+| Analytics isolation and parity (ADR-0044) | Two tenants, a forged manifest and a path fuzzer see no other tenant's rows; every metric equal through the store and PostgreSQL | Every commit (existing test job) |
 | Tenant move rehearsal | §5.4 procedure works with verified counts and hash chain | Before the first shared cell exceeds 50% of its cap |
