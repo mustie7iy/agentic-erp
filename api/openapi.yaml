@@ -8209,6 +8209,226 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/bank-statements/{id}:match":
+    post:
+      operationId: matchBankStatement
+      tags:
+        - payments
+      summary: Match a bank statement's lines
+      description: "Runs the company's matching rules (`companies[].bank_statements.matching_rules`, ADR-0047) on the statement's unmatched lines, as the import does: in the rules' order, the first rule that finds candidates decides. A rule that finds exactly one candidate, whose payments pay the line's amount, matches the line (`matched`); one that finds several, or payments that do not pay it, leaves an open match listing them for a person (`proposed`). The rules on payments read debits, never reversals; a payment another line's match holds settles no line: the id rules leave the line open for a person, and the amount rule skips it. Lines matched, proposed or excluded before are left as they are, so running it again changes nothing. If-Match is the statement's ETag; a run that matches or leaves open a line, and a person's match or exclusion, move it on. Returns the statement with its lines; `GET /v1/bank-statements/{id}/matches` has the matches."
+      x-permission: payments.statement.match
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The bank statement, its lines matched.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankStatement"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/bank-statements/{id}/matches":
+    get:
+      operationId: listBankStatementMatches
+      tags:
+        - payments
+      summary: List a bank statement's matches
+      description: "The matches of the statement's lines, by line and in the order they were made: the live one of each line (`open`, `matched` or `excluded`) and those a person's decision replaced (`rejected`)."
+      x-permission: payments.statement.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: line_no
+          in: query
+          required: false
+          description: Only the matches of this line.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+      responses:
+        "200":
+          description: The statement's matches.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementMatchList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/bank-statements/{id}/lines/{line_no}:match":
+    post:
+      operationId: matchBankStatementLine
+      tags:
+        - payments
+      summary: Match a bank statement line by hand
+      description: "A person matches the line to the payments it clears or to a posting rule of the company (charges, interest), with a reason, whatever the rules found: the line's live match becomes `rejected` and the new one `matched` (kind `manual`). Each payment must be posted, from the statement's house bank, in its currency and matched to no other line (422 `payments.statement_match_target`). People only; a line on its way to the ledger keeps its match (409 `payments.statement_line_posting`). Audited, and published as BankStatementLineMatched."
+      x-permission: payments.statement.match
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: line_no
+          in: path
+          required: true
+          description: The line's number in the statement, from 1.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of matchBankStatementLine.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatementLineMatchInput"
+      responses:
+        "201":
+          description: The line's new match.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementMatch"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/bank-statements/{id}/lines/{line_no}:exclude":
+    post:
+      operationId: excludeBankStatementLine
+      tags:
+        - payments
+      summary: Exclude a bank statement line
+      description: "A person excludes the line from reconciliation, with a reason: the bank's booking clears nothing the ledger holds. The line's live match becomes `rejected` and the new one `excluded` (kind `manual`), with no targets; the line is `excluded`. People only; a line on its way to the ledger keeps its match (409 `payments.statement_line_posting`). Audited, and published as BankStatementLineExcluded."
+      x-permission: payments.statement.match
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: line_no
+          in: path
+          required: true
+          description: The line's number in the statement, from 1.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of excludeBankStatementLine.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonInput"
+      responses:
+        "201":
+          description: The line's new match, excluding it.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementMatch"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   "/v1/bank-files/{id}":
     get:
       operationId: getBankFile
@@ -18716,6 +18936,76 @@ components:
                 $ref: "#/components/schemas/BankStatementLine"
               description: "The booked entries, in the bank's order; absent in lists."
               readOnly: true
+    StatementMatch:
+      description: "What a bank statement line clears (ADR-0047): found by a matching rule, decided by a person, or (later) proposed by the reconciliation agent."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [bank_statement_id, line_no, kind, reason, status, targets]
+          properties:
+            bank_statement_id: {type: string, format: uuid, description: The bank statement of the line., readOnly: true}
+            line_no: {type: integer, format: int32, minimum: 1, description: "The line's number in the statement.", readOnly: true}
+            kind:
+              type: string
+              description: "Who made it. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [rule, manual, agent]
+              readOnly: true
+            rule:
+              type: string
+              description: "The matching rule of a rule's match. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [end_to_end_id, batch_id, transaction_code, amount]
+              readOnly: true
+            reason: {type: string, description: "What the rule found, or the person's reason.", readOnly: true}
+            status:
+              type: string
+              description: "open: candidates for a person to choose from; matched: the targets decided; excluded: the line clears nothing; rejected: replaced by a person's decision. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [open, matched, excluded, rejected]
+              readOnly: true
+            targets:
+              type: array
+              items: {$ref: "#/components/schemas/StatementMatchTarget"}
+              description: "What it clears: of an open match, each candidate's targets under its number; of a match decided, candidate 1's; none when excluded."
+              readOnly: true
+    StatementMatchTarget:
+      type: object
+      description: "A payment, with the bank file of a batch booking, or a posting rule."
+      required: [candidate]
+      properties:
+        candidate: {type: integer, format: int32, minimum: 1, description: "The candidate it belongs to.", readOnly: true}
+        payment_id: {type: string, format: uuid, description: The payment cleared., readOnly: true}
+        bank_file_id: {type: string, format: uuid, description: "The bank file of a batch booking the payment was in.", readOnly: true}
+        posting_rule: {type: string, description: "The transaction code of the company's posting rule.", readOnly: true}
+    StatementMatchList:
+      type: object
+      description: A bank statement's matches.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/StatementMatch"}
+    StatementLineMatchInput:
+      type: object
+      description: "A person's match of a line: the payments it clears or a posting rule, not both, and why."
+      required: [reason]
+      properties:
+        payment_ids:
+          type: array
+          items: {type: string, format: uuid}
+          minItems: 1
+          maxItems: 1000
+          uniqueItems: true
+          description: The payments the line clears.
+        posting_rule:
+          type: string
+          minLength: 1
+          maxLength: 35
+          description: The transaction code of the company's posting rule that posts the line.
+        reason:
+          type: string
+          description: "Why; recorded in the audit trail and on the resulting event."
+          minLength: 1
+          maxLength: 2000
+      additionalProperties: false
     BankStatementLine:
       type: object
       description: One booking on the account.
@@ -18776,6 +19066,8 @@ components:
           x-extensible-enum:
             - unmatched
             - proposed
+            - matched
+            - excluded
             - pending_approval
             - posted
           readOnly: true

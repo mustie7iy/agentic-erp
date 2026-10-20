@@ -643,13 +643,18 @@ func (e *Endpoints) createFile(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 	if ref == "" {
 		ref = "sha256:" + hex.EncodeToString(sum[:])
 	}
+	// The content is render's, or kept content keep compared with it: it
+	// always reads back. Its message id is what a batch booking on the
+	// bank's statement carries (T49e).
+	t, _ := transferOf(content)
 	id := uuid.Must(uuid.NewV7())
 	f, err := scanFile(tx.QueryRow(ctx, `WITH f AS (
-			INSERT INTO payments.bank_file (tenant_id, id, payment_run_id, format, object_ref, sha256, status, created_at, created_by, house_bank_id, payment_method)
-			VALUES ($1, $2, $3, $4, $5, $6, 'created', $7, $8, $10, $11) RETURNING *
+			INSERT INTO payments.bank_file (tenant_id, id, payment_run_id, format, object_ref, sha256, status, created_at, created_by, house_bank_id, payment_method,
+				message_id)
+			VALUES ($1, $2, $3, $4, $5, $6, 'created', $7, $8, $10, $11, $13) RETURNING *
 		) SELECT f.id, f.payment_run_id, $9::uuid, $12::uuid, f.payment_method, f.format, f.object_ref, f.sha256, f.status, f.version, f.created_at,
 			f.created_by, f.updated_at FROM f`,
-		p.TenantID, id, r.ID, Format, ref, sum[:], created, p.ID, r.LegalEntityID, g.v.bank, g.v.method, g.bank.ID))
+		p.TenantID, id, r.ID, Format, ref, sum[:], created, p.ID, r.LegalEntityID, g.v.bank, g.v.method, g.bank.ID, t.MessageID))
 	if err != nil {
 		return BankFile{}, fmt.Errorf("payments: record the bank file of run %s: %w", r.ID, err)
 	}

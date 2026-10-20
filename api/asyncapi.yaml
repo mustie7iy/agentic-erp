@@ -271,6 +271,8 @@ channels:
       BankStatementGapFound: {$ref: '#/components/messages/BankStatementGapFound'}
       BankStatementFileRefused: {$ref: '#/components/messages/BankStatementFileRefused'}
       BankStatementFileChanged: {$ref: '#/components/messages/BankStatementFileChanged'}
+      BankStatementLineMatched: {$ref: '#/components/messages/BankStatementLineMatched'}
+      BankStatementLineExcluded: {$ref: '#/components/messages/BankStatementLineExcluded'}
   workflow:
     address: 'erp.{cell}.workflow.{tenant}.{event}'
     title: Workflow events
@@ -447,6 +449,8 @@ operations:
       - $ref: '#/channels/payments/messages/BankStatementGapFound'
       - $ref: '#/channels/payments/messages/BankStatementFileRefused'
       - $ref: '#/channels/payments/messages/BankStatementFileChanged'
+      - $ref: '#/channels/payments/messages/BankStatementLineMatched'
+      - $ref: '#/channels/payments/messages/BankStatementLineExcluded'
   publishWorkflowEvents:
     action: send
     title: Workflow publishes
@@ -1344,6 +1348,38 @@ components:
         - name: changed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f6, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_file_changed.v1, subject: 0192a000-0000-7000-8000-000000000b31, time: '2026-10-20T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
           payload: {statement_fetch_id: 0192a000-0000-7000-8000-000000000b31, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, file_name: STMT20261020.sta, file_sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9, current_sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}
+    BankStatementLineMatched:
+      name: BankStatementLineMatched
+      title: Bank statement line matched
+      summary: A statement line was matched, or left with candidates for a person.
+      description: "Emitted when a bank statement line gets a match (T49e, ADR-0047): by a matching rule of the company, on import or when the statement is matched again, either `matched` (exactly one candidate, paying the line) or `open` (several candidates, or payments that do not pay the line, for a person to choose from); or by a person by hand (`manual`, `matched`), which rejects the line's match before. Subject is the match."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_statement_line_matched.v1}
+      payload: {$ref: '#/components/schemas/BankStatementLineMatchedV1'}
+      examples:
+        - name: matched
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f7, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_line_matched.v1, subject: 0192a000-0000-7000-8000-000000000b40, time: '2026-10-20T11:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
+          payload: {statement_match_id: 0192a000-0000-7000-8000-000000000b40, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, kind: rule, rule: end_to_end_id, status: matched, candidates: 1}
+    BankStatementLineExcluded:
+      name: BankStatementLineExcluded
+      title: Bank statement line excluded
+      summary: A person excluded a statement line from reconciliation.
+      description: "Emitted when a person excludes a bank statement line, with a reason (T49e, ADR-0047): the booking clears nothing the ledger holds, and the line's match before is rejected. Subject is the match that excludes it."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_statement_line_excluded.v1}
+      payload: {$ref: '#/components/schemas/BankStatementLineMatchedV1'}
+      examples:
+        - name: excluded
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f8, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_line_excluded.v1, subject: 0192a000-0000-7000-8000-000000000b41, time: '2026-10-20T11:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
+          payload: {statement_match_id: 0192a000-0000-7000-8000-000000000b41, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 2, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, kind: manual, rule: null, status: excluded, candidates: 0}
     BankFileTransmitted:
       name: BankFileTransmitted
       title: Bank file transmitted
@@ -3703,6 +3739,19 @@ components:
         file_name: {"type": "string", "description": "The file's name in the bank's statements directory."}
         file_sha256: {"$ref": "#/components/schemas/Sha256Hex", "description": "The content imported."}
         current_sha256: {"$ref": "#/components/schemas/Sha256Hex", "description": "The content the file holds now, imported by the next fetch."}
+    BankStatementLineMatchedV1:
+      type: object
+      required: ["statement_match_id", "bank_statement_id", "line_no", "house_bank_id", "legal_entity_id", "kind", "rule", "status", "candidates"]
+      properties:
+        statement_match_id: {"$ref": "#/components/schemas/Uuid"}
+        bank_statement_id: {"$ref": "#/components/schemas/Uuid"}
+        line_no: {"type": "integer", "minimum": 1, "description": "The line's number in the statement."}
+        house_bank_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        kind: {"type": "string", "description": "Open enum: rule, manual, agent."}
+        rule: {"type": ["string", "null"], "description": "Open enum: end_to_end_id, batch_id, transaction_code, amount; null unless kind is rule."}
+        status: {"type": "string", "description": "Open enum: open, matched (BankStatementLineMatched), excluded (BankStatementLineExcluded)."}
+        candidates: {"type": "integer", "minimum": 0, "description": "How many candidates the match lists: 1 when matched, 0 when excluded."}
     BankFileCreatedV1:
       type: object
       required: ["bank_file_id", "payment_run_id", "format", "sha256", "status"]

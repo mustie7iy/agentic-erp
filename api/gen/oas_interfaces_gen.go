@@ -209,6 +209,10 @@ type EndSodRuleRes interface {
 	endSodRuleRes()
 }
 
+type ExcludeBankStatementLineRes interface {
+	excludeBankStatementLineRes()
+}
+
 type GetAccountRes interface {
 	getAccountRes()
 }
@@ -429,6 +433,10 @@ type ListBankFilesRes interface {
 	listBankFilesRes()
 }
 
+type ListBankStatementMatchesRes interface {
+	listBankStatementMatchesRes()
+}
+
 type ListBankStatementsRes interface {
 	listBankStatementsRes()
 }
@@ -579,6 +587,14 @@ type ListSupplierInvoicesRes interface {
 
 type LockFiscalPeriodRes interface {
 	lockFiscalPeriodRes()
+}
+
+type MatchBankStatementLineRes interface {
+	matchBankStatementLineRes()
+}
+
+type MatchBankStatementRes interface {
+	matchBankStatementRes()
 }
 
 type MatchSupplierInvoiceRes interface {

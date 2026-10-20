@@ -1297,17 +1297,21 @@ erDiagram
     bigint amount "signed: credit positive"
     text transaction_code
     jsonb details "the transactions: references, counterparty"
-    text status "unmatched | proposed | pending_approval | posted" }
+    text status "unmatched | proposed | matched | excluded | pending_approval | posted" }
   statement_match { uuid id PK
     uuid statement_id
     int line_no "one live match per line"
-    text rule
+    text kind "rule | manual | agent"
+    text rule "the matching rule, of kind rule"
+    text reason
+    text status "open | matched | excluded | rejected" }
+  statement_match ||--o{ statement_match_target : clears
+  statement_match_target { uuid match_id PK
+    smallint candidate PK
+    smallint target_no PK
     uuid payment_id
-    uuid bank_file_id
-    text posting_rule
-    text status "proposed | pending_approval | posted | rejected"
-    uuid proposed_by
-    uuid decided_by "never proposed_by" }
+    uuid bank_file_id "of a batch booking"
+    text posting_rule }
   bank_file { uuid id PK
     uuid payment_run_id "unique per run, house bank and method"
     uuid house_bank_id "null: the run's (T45c)"
@@ -1349,8 +1353,13 @@ house bank and statement key (`bank_statement_key_once`) and once per file
 hash and position (`bank_statement_file_once`), so the same file again is
 the first import; its lines (`bank_statement_line`, signed minor units,
 the transactions in `details`) and the lines' matches
-(`statement_match`, T49e-f: at most one target, one live match per line,
-the posting named exactly when posted, never decided by its proposer). A
+(`statement_match`, T49e, 000109: one live match per line, made by a rule
+(naming it), a person or an agent, `open` with candidates for a person or
+`matched`, `excluded` only by a person, `rejected` when a person's decision
+replaces it; its targets in `statement_match_target`, per candidate a
+payment, with the bank file of a batch booking, or a posting rule). A bank
+file records its pain.001 message id (`bank_file.message_id`, 000109), which
+a batch booking carries. A
 statement whose opening balance is not the closing balance of the bank's
 statement before it (`previous_statement_id`) is in `gap`; a statement
 imported between two others becomes the next one's previous statement,

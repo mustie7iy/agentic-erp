@@ -559,6 +559,18 @@ func (UnimplementedHandler) EndSodRule(ctx context.Context, req *EndInput, param
 	return r, ht.ErrNotImplemented
 }
 
+// ExcludeBankStatementLine implements excludeBankStatementLine operation.
+//
+// A person excludes the line from reconciliation, with a reason: the bank's booking clears nothing the
+// ledger holds. The line's live match becomes `rejected` and the new one `excluded` (kind `manual`),
+// with no targets; the line is `excluded`. People only; a line on its way to the ledger keeps its
+// match (409 `payments.statement_line_posting`). Audited, and published as BankStatementLineExcluded.
+//
+// POST /v1/bank-statements/{id}/lines/{line_no}:exclude
+func (UnimplementedHandler) ExcludeBankStatementLine(ctx context.Context, req *ReasonInput, params ExcludeBankStatementLineParams) (r ExcludeBankStatementLineRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetAccount implements getAccount operation.
 //
 // Returns one general ledger account.
@@ -1084,6 +1096,16 @@ func (UnimplementedHandler) ListBankFiles(ctx context.Context, params ListBankFi
 	return r, ht.ErrNotImplemented
 }
 
+// ListBankStatementMatches implements listBankStatementMatches operation.
+//
+// The matches of the statement's lines, by line and in the order they were made: the live one of each
+// line (`open`, `matched` or `excluded`) and those a person's decision replaced (`rejected`).
+//
+// GET /v1/bank-statements/{id}/matches
+func (UnimplementedHandler) ListBankStatementMatches(ctx context.Context, params ListBankStatementMatchesParams) (r ListBankStatementMatchesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListBankStatements implements listBankStatements operation.
 //
 // Bank statements imported for the house banks of the companies the caller may access, without their
@@ -1436,6 +1458,38 @@ func (UnimplementedHandler) ListSupplierInvoices(ctx context.Context, params Lis
 //
 // POST /v1/fiscal-periods/{id}:lock
 func (UnimplementedHandler) LockFiscalPeriod(ctx context.Context, params LockFiscalPeriodParams) (r LockFiscalPeriodRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// MatchBankStatement implements matchBankStatement operation.
+//
+// Runs the company's matching rules (`companies[].bank_statements.matching_rules`, ADR-0047) on the
+// statement's unmatched lines, as the import does: in the rules' order, the first rule that finds
+// candidates decides. A rule that finds exactly one candidate, whose payments pay the line's amount,
+// matches the line (`matched`); one that finds several, or payments that do not pay it, leaves an open
+// match listing them for a person (`proposed`). The rules on payments read debits, never reversals; a
+// payment another line's match holds settles no line: the id rules leave the line open for a person,
+// and the amount rule skips it. Lines matched, proposed or excluded before are left as they are, so
+// running it again changes nothing. If-Match is the statement's ETag; a run that matches or leaves
+// open a line, and a person's match or exclusion, move it on. Returns the statement with its lines;
+// `GET /v1/bank-statements/{id}/matches` has the matches.
+//
+// POST /v1/bank-statements/{id}:match
+func (UnimplementedHandler) MatchBankStatement(ctx context.Context, params MatchBankStatementParams) (r MatchBankStatementRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// MatchBankStatementLine implements matchBankStatementLine operation.
+//
+// A person matches the line to the payments it clears or to a posting rule of the company (charges,
+// interest), with a reason, whatever the rules found: the line's live match becomes `rejected` and the
+// new one `matched` (kind `manual`). Each payment must be posted, from the statement's house bank, in
+// its currency and matched to no other line (422 `payments.statement_match_target`). People only; a
+// line on its way to the ledger keeps its match (409 `payments.statement_line_posting`). Audited, and
+// published as BankStatementLineMatched.
+//
+// POST /v1/bank-statements/{id}/lines/{line_no}:match
+func (UnimplementedHandler) MatchBankStatementLine(ctx context.Context, req *StatementLineMatchInput, params MatchBankStatementLineParams) (r MatchBankStatementLineRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

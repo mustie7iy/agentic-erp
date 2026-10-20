@@ -866,6 +866,10 @@ func TestBankFileOncePerBankAndMethod(t *testing.T) {
 	failsWith(t, asApp(t, f.tenant, file(other, &hb, &transfer)), "bank_file_once_per_bank")
 	mustApp(t, f.tenant, file(other, &hb, &cheque))
 	failsWith(t, asApp(t, f.tenant, file(other, nil, &cheque)), "bank_file_method_of_bank")
+	failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `INSERT INTO payments.bank_file (tenant_id, id, payment_run_id, format, object_ref, sha256, status, created_by, house_bank_id, payment_method, message_id)
+			VALUES ($1,$2,$3,'pain.001.001.03','sha256:x',decode(repeat('cd', 32), 'hex'),'created',$4,$5,'X','')`, f.tenant, id(), other, f.actor, hb)
+	}), "bank_file_message_id_check")
 }
 
 // TestPaymentsNameTheirBank: a run may have no house bank (T45c); a
@@ -3100,9 +3104,9 @@ func TestAgentCertification(t *testing.T) {
 // TestBankStatementSchema: a statement is imported once per house bank and
 // key and once per file position, names its kept file, its dates in order,
 // a gap only after a previous statement; a line belongs to a statement and keeps its details
-// a list; a match targets at most one thing, names its posting exactly when
-// posted, is live once per line and is never decided by its proposer
-// (T49c, ADR-0047).
+// a list; a match is live once per line, names its rule exactly when a
+// rule made it, is excluded only by a person, and each target is a payment
+// (with its bank file) or a posting rule (T49c, T49e, ADR-0047).
 func TestBankStatementSchema(t *testing.T) {
 	need(t)
 	f := newFixture(t)
@@ -3140,40 +3144,37 @@ func TestBankStatementSchema(t *testing.T) {
 			VALUES ($1,$2,$3,$4,'mt940',decode(repeat('ab', 32), 'hex'),1,'K1','S','1','GB33','USD',0,'2026-10-20',0,'2026-10-20',1,'imported',$5,$5,'tenants/t/bank-statements/ab')`,
 			f.tenant, first, hb, f.entity, f.actor)
 	})
-	line := func(statement uuid.UUID, no int, details string) func(tx pgx.Tx) error {
+	line := func(statement uuid.UUID, no int, details string, status ...string) func(tx pgx.Tx) error {
 		return func(tx pgx.Tx) error {
 			return exec(tx, `INSERT INTO payments.bank_statement_line (tenant_id, statement_id, line_no, amount, booking_date, value_date, transaction_code,
-					bank_reference, owner_reference, text, details, created_by, updated_by)
-				VALUES ($1,$2,$3,-100,'2026-10-20','2026-10-20','NTRF','B','O','T',$4::jsonb,$5,$5)`, f.tenant, statement, no, details, f.actor)
+					bank_reference, owner_reference, text, details, status, created_by, updated_by)
+				VALUES ($1,$2,$3,-100,'2026-10-20','2026-10-20','NTRF','B','O','T',$4::jsonb,$5,$6,$6)`, f.tenant, statement, no, details,
+				append(status, "unmatched")[0], f.actor)
 		}
 	}
 	mustApp(t, f.tenant, line(first, 1, `[]`))
 	type match struct {
-		status, posting, decided string
-		payment, entry           bool
+		kind, status string
+		rule         any
 	}
 	matchOf := func(m match) func(tx pgx.Tx) error {
 		return func(tx pgx.Tx) error {
-			var entry, year, decided, payment any
-			if m.entry {
-				entry, year = id(), 2026
-			}
-			if m.decided == "proposer" {
-				decided = f.actor
-			}
-			if m.payment {
-				payment = id()
-			}
-			var rule any = m.posting
-			if m.posting == "" {
-				rule = nil
-			}
-			return exec(tx, `INSERT INTO payments.statement_match (tenant_id, id, statement_id, line_no, rule, payment_id, posting_rule, status, proposed_by,
-					decided_by, journal_entry_year, journal_entry_id, created_by, updated_by)
-				VALUES ($1,$2,$3,1,'transaction_code',$4,$5,$6,$7,$8,$9,$10,$7,$7)`, f.tenant, id(), first, payment, rule, m.status, f.actor, decided, year, entry)
+			return exec(tx, `INSERT INTO payments.statement_match (tenant_id, id, statement_id, line_no, kind, rule, reason, status, created_by, updated_by)
+				VALUES ($1,$2,$3,1,$4,$5,'r',$6,$7,$7)`, f.tenant, id(), first, m.kind, m.rule, m.status, f.actor)
 		}
 	}
-	mustApp(t, f.tenant, matchOf(match{status: "proposed", posting: "NCHG"}))
+	live := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `INSERT INTO payments.statement_match (tenant_id, id, statement_id, line_no, kind, rule, reason, status, created_by, updated_by)
+			VALUES ($1,$2,$3,1,'rule','amount','two payments','open',$4,$4)`, f.tenant, live, first, f.actor)
+	})
+	target := func(candidate int, payment, file, rule any) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.statement_match_target (tenant_id, match_id, candidate, target_no, payment_id, bank_file_id, posting_rule, created_by)
+				VALUES ($1,$2,$3,1,$4,$5,$6,$7)`, f.tenant, live, candidate, payment, file, rule, f.actor)
+		}
+	}
+	mustApp(t, f.tenant, target(1, nil, nil, "NCHG"))
 	for _, c := range []struct {
 		name  string
 		write func(tx pgx.Tx) error
@@ -3192,17 +3193,30 @@ func TestBankStatementSchema(t *testing.T) {
 		{"a line of no statement", line(hb, 1, `[]`), "bank_statement_line_tenant_id_statement_id_fkey"},
 		{"line 0", line(first, 0, `[]`), "bank_statement_line_line_no_check"},
 		{"details not a list", line(first, 2, `{}`), "bank_statement_line_details_check"},
-		{"a second live match", matchOf(match{status: "proposed"}), "statement_match_live"},
-		{"two targets", matchOf(match{status: "rejected", posting: "NCHG", payment: true}), "statement_match_one_target"},
-		{"an entry without being posted", matchOf(match{status: "rejected", entry: true}), "statement_match_posted"},
-		{"posted without its entry", matchOf(match{status: "posted"}), "statement_match_posted"},
-		{"another rule's status", matchOf(match{status: "approved"}), "statement_match_status_check"},
-		{"decided by its proposer", matchOf(match{status: "rejected", decided: "proposer"}), "statement_match_sod"},
-		{"a payment that does not exist", matchOf(match{status: "rejected", payment: true}), "statement_match_tenant_id_payment_id_fkey"},
+		{"a second live match", matchOf(match{kind: "manual", status: "matched"}), "statement_match_live"},
+		{"a rule's match without its rule", matchOf(match{kind: "rule", status: "rejected"}), "statement_match_rule"},
+		{"a person's match naming a rule", matchOf(match{kind: "manual", status: "rejected", rule: "amount"}), "statement_match_rule"},
+		{"another kind", matchOf(match{kind: "robot", status: "rejected"}), "statement_match_kind_check"},
+		{"another rule", matchOf(match{kind: "rule", status: "rejected", rule: "iban"}), "statement_match_rule_check"},
+		{"another status", matchOf(match{kind: "manual", status: "posted"}), "statement_match_status_check"},
+		{"excluded by a rule", matchOf(match{kind: "rule", status: "excluded", rule: "amount"}), "statement_match_excluded"},
+		{"a target twice", target(1, nil, nil, "NCHG"), "statement_match_target_pkey"},
+		{"a target of nothing", target(2, nil, nil, nil), "statement_match_target_one"},
+		{"a payment and a posting rule", target(2, id(), nil, "NCHG"), "statement_match_target_one"},
+		{"a bank file without its payment", target(2, nil, id(), "NCHG"), "statement_match_target_one"},
+		{"candidate 0", target(0, nil, nil, "NCHG"), "statement_match_target_candidate_check"},
+		{"a payment that does not exist", target(2, id(), nil, nil), "statement_match_target_tenant_id_payment_id_fkey"},
+		{"a line status of no match", line(first, 3, `[]`, "approved"), "bank_statement_line_status_check"},
 	} {
 		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, c.write), c.fails) })
 	}
 	mustApp(t, f.tenant, with(func(s *stmt) { s.key, s.position, s.status, s.previous = "K2", 2, "gap", &first }))
+	mustApp(t, f.tenant, line(first, 2, `[]`, "matched"))
+	mustApp(t, f.tenant, line(first, 3, `[]`, "excluded"))
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `UPDATE payments.statement_match SET status = 'rejected', version = version + 1 WHERE id = $1`, live)
+	})
+	mustApp(t, f.tenant, matchOf(match{kind: "manual", status: "excluded"}))
 }
 
 // TestStatementFetchSchema: a fetched file is recorded once per house bank

@@ -178,8 +178,28 @@ func (e *Endpoints) importFile(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 			return nil, nil, false, err
 		}
 	}
+	if err := e.matchFile(ctx, tx, p, bank.ID, sum); err != nil {
+		return nil, nil, false, err
+	}
 	out, err := fileStatements(ctx, tx, bank.ID, sum)
 	return out, sum, true, err
+}
+
+// matchFile runs the matching rules on the statements just imported from
+// the file (T49e), in the import's transaction: an import is matched as it
+// lands.
+func (e *Endpoints) matchFile(ctx context.Context, tx pgx.Tx, p reqctx.Principal, houseBank uuid.UUID, sum []byte) error {
+	rows, _ := tx.Query(ctx, statementSelect+` WHERE s.house_bank_id = $1 AND s.file_sha256 = $2 ORDER BY s.file_position`, houseBank, sum)
+	statements, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Statement, error) { return scanStatement(r) })
+	if err != nil {
+		return fmt.Errorf("payments: statements of file %x to match: %w", sum, err)
+	}
+	for _, s := range statements {
+		if err := e.matchStatement(ctx, tx, p, s, nil); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // statementContentTypes are the content types statement files are kept

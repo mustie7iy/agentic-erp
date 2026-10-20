@@ -2698,6 +2698,7 @@ func (*BadRequestHeaders) endCompanyAccessRes()                 {}
 func (*BadRequestHeaders) endRoleAssignmentRes()                {}
 func (*BadRequestHeaders) endRolePermissionRes()                {}
 func (*BadRequestHeaders) endSodRuleRes()                       {}
+func (*BadRequestHeaders) excludeBankStatementLineRes()         {}
 func (*BadRequestHeaders) getAccountRes()                       {}
 func (*BadRequestHeaders) getAgentSessionRes()                  {}
 func (*BadRequestHeaders) getAiPolicyRes()                      {}
@@ -2753,6 +2754,7 @@ func (*BadRequestHeaders) listAuditEventsRes()                  {}
 func (*BadRequestHeaders) listBalancesRes()                     {}
 func (*BadRequestHeaders) listBankAccountsRes()                 {}
 func (*BadRequestHeaders) listBankFilesRes()                    {}
+func (*BadRequestHeaders) listBankStatementMatchesRes()         {}
 func (*BadRequestHeaders) listBankStatementsRes()               {}
 func (*BadRequestHeaders) listBusinessPartnersRes()             {}
 func (*BadRequestHeaders) listChangeRequestsRes()               {}
@@ -2791,6 +2793,8 @@ func (*BadRequestHeaders) listRolesRes()                        {}
 func (*BadRequestHeaders) listSodRulesRes()                     {}
 func (*BadRequestHeaders) listSupplierInvoicesRes()             {}
 func (*BadRequestHeaders) lockFiscalPeriodRes()                 {}
+func (*BadRequestHeaders) matchBankStatementLineRes()           {}
+func (*BadRequestHeaders) matchBankStatementRes()               {}
 func (*BadRequestHeaders) matchSupplierInvoiceRes()             {}
 func (*BadRequestHeaders) openFiscalPeriodRes()                 {}
 func (*BadRequestHeaders) parkJournalEntryRes()                 {}
@@ -7475,11 +7479,14 @@ func (*ConflictHeaders) endCompanyAccessRes()                 {}
 func (*ConflictHeaders) endRoleAssignmentRes()                {}
 func (*ConflictHeaders) endRolePermissionRes()                {}
 func (*ConflictHeaders) endSodRuleRes()                       {}
+func (*ConflictHeaders) excludeBankStatementLineRes()         {}
 func (*ConflictHeaders) getBankFileContentRes()               {}
 func (*ConflictHeaders) grantRolePermissionRes()              {}
 func (*ConflictHeaders) holdSupplierInvoiceRes()              {}
 func (*ConflictHeaders) importBankStatementsRes()             {}
 func (*ConflictHeaders) lockFiscalPeriodRes()                 {}
+func (*ConflictHeaders) matchBankStatementLineRes()           {}
+func (*ConflictHeaders) matchBankStatementRes()               {}
 func (*ConflictHeaders) matchSupplierInvoiceRes()             {}
 func (*ConflictHeaders) openFiscalPeriodRes()                 {}
 func (*ConflictHeaders) parkJournalEntryRes()                 {}
@@ -10830,6 +10837,7 @@ func (*ForbiddenHeaders) endCompanyAccessRes()                 {}
 func (*ForbiddenHeaders) endRoleAssignmentRes()                {}
 func (*ForbiddenHeaders) endRolePermissionRes()                {}
 func (*ForbiddenHeaders) endSodRuleRes()                       {}
+func (*ForbiddenHeaders) excludeBankStatementLineRes()         {}
 func (*ForbiddenHeaders) getAccountRes()                       {}
 func (*ForbiddenHeaders) getAgentSessionRes()                  {}
 func (*ForbiddenHeaders) getAiPolicyRes()                      {}
@@ -10885,6 +10893,7 @@ func (*ForbiddenHeaders) listAuditEventsRes()                  {}
 func (*ForbiddenHeaders) listBalancesRes()                     {}
 func (*ForbiddenHeaders) listBankAccountsRes()                 {}
 func (*ForbiddenHeaders) listBankFilesRes()                    {}
+func (*ForbiddenHeaders) listBankStatementMatchesRes()         {}
 func (*ForbiddenHeaders) listBankStatementsRes()               {}
 func (*ForbiddenHeaders) listBusinessPartnersRes()             {}
 func (*ForbiddenHeaders) listChangeRequestsRes()               {}
@@ -10923,6 +10932,8 @@ func (*ForbiddenHeaders) listRolesRes()                        {}
 func (*ForbiddenHeaders) listSodRulesRes()                     {}
 func (*ForbiddenHeaders) listSupplierInvoicesRes()             {}
 func (*ForbiddenHeaders) lockFiscalPeriodRes()                 {}
+func (*ForbiddenHeaders) matchBankStatementLineRes()           {}
+func (*ForbiddenHeaders) matchBankStatementRes()               {}
 func (*ForbiddenHeaders) matchSupplierInvoiceRes()             {}
 func (*ForbiddenHeaders) openFiscalPeriodRes()                 {}
 func (*ForbiddenHeaders) parkJournalEntryRes()                 {}
@@ -15069,6 +15080,78 @@ func (s *LegalEntityUpdate) SetExtensions(val OptExtensions) {
 	s.Extensions = val
 }
 
+// MatchBankStatementOKHeaders wraps BankStatement with response headers.
+type MatchBankStatementOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           BankStatement
+}
+
+// GetETag returns the value of ETag.
+func (s *MatchBankStatementOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *MatchBankStatementOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *MatchBankStatementOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *MatchBankStatementOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *MatchBankStatementOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *MatchBankStatementOKHeaders) GetResponse() BankStatement {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *MatchBankStatementOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *MatchBankStatementOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *MatchBankStatementOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *MatchBankStatementOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *MatchBankStatementOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *MatchBankStatementOKHeaders) SetResponse(val BankStatement) {
+	s.Response = val
+}
+
+func (*MatchBankStatementOKHeaders) matchBankStatementRes() {}
+
 // Whether a matched invoice is posted automatically: its gross amount, converted into the company's
 // currency at the average rate of its invoice date, compared exactly with the company's
 // `auto_post_limit`.
@@ -16146,6 +16229,7 @@ func (*NotFoundHeaders) endCompanyAccessRes()                 {}
 func (*NotFoundHeaders) endRoleAssignmentRes()                {}
 func (*NotFoundHeaders) endRolePermissionRes()                {}
 func (*NotFoundHeaders) endSodRuleRes()                       {}
+func (*NotFoundHeaders) excludeBankStatementLineRes()         {}
 func (*NotFoundHeaders) getAccountRes()                       {}
 func (*NotFoundHeaders) getAgentSessionRes()                  {}
 func (*NotFoundHeaders) getApprovalRequestRes()               {}
@@ -16192,12 +16276,15 @@ func (*NotFoundHeaders) grantRolePermissionRes()              {}
 func (*NotFoundHeaders) holdSupplierInvoiceRes()              {}
 func (*NotFoundHeaders) listAgentToolCallsRes()               {}
 func (*NotFoundHeaders) listBankAccountsRes()                 {}
+func (*NotFoundHeaders) listBankStatementMatchesRes()         {}
 func (*NotFoundHeaders) listMatchResultsRes()                 {}
 func (*NotFoundHeaders) listPaymentExclusionsRes()            {}
 func (*NotFoundHeaders) listPaymentsRes()                     {}
 func (*NotFoundHeaders) listPurchaseOrderChangesRes()         {}
 func (*NotFoundHeaders) listRolePermissionsRes()              {}
 func (*NotFoundHeaders) lockFiscalPeriodRes()                 {}
+func (*NotFoundHeaders) matchBankStatementLineRes()           {}
+func (*NotFoundHeaders) matchBankStatementRes()               {}
 func (*NotFoundHeaders) matchSupplierInvoiceRes()             {}
 func (*NotFoundHeaders) openFiscalPeriodRes()                 {}
 func (*NotFoundHeaders) postParkedJournalEntryRes()           {}
@@ -21334,8 +21421,11 @@ func (*PreconditionFailedHeaders) endCompanyAccessRes()                 {}
 func (*PreconditionFailedHeaders) endRoleAssignmentRes()                {}
 func (*PreconditionFailedHeaders) endRolePermissionRes()                {}
 func (*PreconditionFailedHeaders) endSodRuleRes()                       {}
+func (*PreconditionFailedHeaders) excludeBankStatementLineRes()         {}
 func (*PreconditionFailedHeaders) holdSupplierInvoiceRes()              {}
 func (*PreconditionFailedHeaders) lockFiscalPeriodRes()                 {}
+func (*PreconditionFailedHeaders) matchBankStatementLineRes()           {}
+func (*PreconditionFailedHeaders) matchBankStatementRes()               {}
 func (*PreconditionFailedHeaders) matchSupplierInvoiceRes()             {}
 func (*PreconditionFailedHeaders) openFiscalPeriodRes()                 {}
 func (*PreconditionFailedHeaders) postParkedJournalEntryRes()           {}
@@ -21478,10 +21568,13 @@ func (*PreconditionRequiredHeaders) endCompanyAccessRes()                 {}
 func (*PreconditionRequiredHeaders) endRoleAssignmentRes()                {}
 func (*PreconditionRequiredHeaders) endRolePermissionRes()                {}
 func (*PreconditionRequiredHeaders) endSodRuleRes()                       {}
+func (*PreconditionRequiredHeaders) excludeBankStatementLineRes()         {}
 func (*PreconditionRequiredHeaders) grantRolePermissionRes()              {}
 func (*PreconditionRequiredHeaders) holdSupplierInvoiceRes()              {}
 func (*PreconditionRequiredHeaders) importBankStatementsRes()             {}
 func (*PreconditionRequiredHeaders) lockFiscalPeriodRes()                 {}
+func (*PreconditionRequiredHeaders) matchBankStatementLineRes()           {}
+func (*PreconditionRequiredHeaders) matchBankStatementRes()               {}
 func (*PreconditionRequiredHeaders) matchSupplierInvoiceRes()             {}
 func (*PreconditionRequiredHeaders) openFiscalPeriodRes()                 {}
 func (*PreconditionRequiredHeaders) parkJournalEntryRes()                 {}
@@ -26589,12 +26682,15 @@ func (*ServiceUnavailableHeaders) endCompanyAccessRes()                 {}
 func (*ServiceUnavailableHeaders) endRoleAssignmentRes()                {}
 func (*ServiceUnavailableHeaders) endRolePermissionRes()                {}
 func (*ServiceUnavailableHeaders) endSodRuleRes()                       {}
+func (*ServiceUnavailableHeaders) excludeBankStatementLineRes()         {}
 func (*ServiceUnavailableHeaders) getBankStatementFileRes()             {}
 func (*ServiceUnavailableHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*ServiceUnavailableHeaders) grantRolePermissionRes()              {}
 func (*ServiceUnavailableHeaders) holdSupplierInvoiceRes()              {}
 func (*ServiceUnavailableHeaders) importBankStatementsRes()             {}
 func (*ServiceUnavailableHeaders) lockFiscalPeriodRes()                 {}
+func (*ServiceUnavailableHeaders) matchBankStatementLineRes()           {}
+func (*ServiceUnavailableHeaders) matchBankStatementRes()               {}
 func (*ServiceUnavailableHeaders) matchSupplierInvoiceRes()             {}
 func (*ServiceUnavailableHeaders) openFiscalPeriodRes()                 {}
 func (*ServiceUnavailableHeaders) parkJournalEntryRes()                 {}
@@ -27011,6 +27107,394 @@ func (s *SodRulePageHeaders) SetResponse(val SodRulePage) {
 }
 
 func (*SodRulePageHeaders) listSodRulesRes() {}
+
+// A person's match of a line: the payments it clears or a posting rule, not both, and why.
+// Ref: #/components/schemas/StatementLineMatchInput
+type StatementLineMatchInput struct {
+	// The payments the line clears.
+	PaymentIds []uuid.UUID `json:"payment_ids"`
+	// The transaction code of the company's posting rule that posts the line.
+	PostingRule OptString `json:"posting_rule"`
+	// Why; recorded in the audit trail and on the resulting event.
+	Reason string `json:"reason"`
+}
+
+// GetPaymentIds returns the value of PaymentIds.
+func (s *StatementLineMatchInput) GetPaymentIds() []uuid.UUID {
+	return s.PaymentIds
+}
+
+// GetPostingRule returns the value of PostingRule.
+func (s *StatementLineMatchInput) GetPostingRule() OptString {
+	return s.PostingRule
+}
+
+// GetReason returns the value of Reason.
+func (s *StatementLineMatchInput) GetReason() string {
+	return s.Reason
+}
+
+// SetPaymentIds sets the value of PaymentIds.
+func (s *StatementLineMatchInput) SetPaymentIds(val []uuid.UUID) {
+	s.PaymentIds = val
+}
+
+// SetPostingRule sets the value of PostingRule.
+func (s *StatementLineMatchInput) SetPostingRule(val OptString) {
+	s.PostingRule = val
+}
+
+// SetReason sets the value of Reason.
+func (s *StatementLineMatchInput) SetReason(val string) {
+	s.Reason = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/StatementMatch
+type StatementMatch struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The bank statement of the line.
+	BankStatementID uuid.UUID `json:"bank_statement_id"`
+	// The line's number in the statement.
+	LineNo int32 `json:"line_no"`
+	// Who made it. Open enumeration: clients must accept and preserve values not listed here; values may
+	// be added within /v1.
+	Kind string `json:"kind"`
+	// The matching rule of a rule's match. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Rule OptString `json:"rule"`
+	// What the rule found, or the person's reason.
+	Reason string `json:"reason"`
+	// Open: candidates for a person to choose from; matched: the targets decided; excluded: the line
+	// clears nothing; rejected: replaced by a person's decision. Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// What it clears: of an open match, each candidate's targets under its number; of a match decided,
+	// candidate 1's; none when excluded.
+	Targets []StatementMatchTarget `json:"targets"`
+}
+
+// GetID returns the value of ID.
+func (s *StatementMatch) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *StatementMatch) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *StatementMatch) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *StatementMatch) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *StatementMatch) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *StatementMatch) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetBankStatementID returns the value of BankStatementID.
+func (s *StatementMatch) GetBankStatementID() uuid.UUID {
+	return s.BankStatementID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *StatementMatch) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetKind returns the value of Kind.
+func (s *StatementMatch) GetKind() string {
+	return s.Kind
+}
+
+// GetRule returns the value of Rule.
+func (s *StatementMatch) GetRule() OptString {
+	return s.Rule
+}
+
+// GetReason returns the value of Reason.
+func (s *StatementMatch) GetReason() string {
+	return s.Reason
+}
+
+// GetStatus returns the value of Status.
+func (s *StatementMatch) GetStatus() string {
+	return s.Status
+}
+
+// GetTargets returns the value of Targets.
+func (s *StatementMatch) GetTargets() []StatementMatchTarget {
+	return s.Targets
+}
+
+// SetID sets the value of ID.
+func (s *StatementMatch) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *StatementMatch) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *StatementMatch) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *StatementMatch) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *StatementMatch) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *StatementMatch) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetBankStatementID sets the value of BankStatementID.
+func (s *StatementMatch) SetBankStatementID(val uuid.UUID) {
+	s.BankStatementID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *StatementMatch) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetKind sets the value of Kind.
+func (s *StatementMatch) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetRule sets the value of Rule.
+func (s *StatementMatch) SetRule(val OptString) {
+	s.Rule = val
+}
+
+// SetReason sets the value of Reason.
+func (s *StatementMatch) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetStatus sets the value of Status.
+func (s *StatementMatch) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetTargets sets the value of Targets.
+func (s *StatementMatch) SetTargets(val []StatementMatchTarget) {
+	s.Targets = val
+}
+
+// StatementMatchHeaders wraps StatementMatch with response headers.
+type StatementMatchHeaders struct {
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           StatementMatch
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *StatementMatchHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *StatementMatchHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *StatementMatchHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *StatementMatchHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *StatementMatchHeaders) GetResponse() StatementMatch {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *StatementMatchHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *StatementMatchHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *StatementMatchHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *StatementMatchHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *StatementMatchHeaders) SetResponse(val StatementMatch) {
+	s.Response = val
+}
+
+func (*StatementMatchHeaders) excludeBankStatementLineRes() {}
+func (*StatementMatchHeaders) matchBankStatementLineRes()   {}
+
+// A bank statement's matches.
+// Ref: #/components/schemas/StatementMatchList
+type StatementMatchList struct {
+	Items []StatementMatch `json:"items"`
+}
+
+// GetItems returns the value of Items.
+func (s *StatementMatchList) GetItems() []StatementMatch {
+	return s.Items
+}
+
+// SetItems sets the value of Items.
+func (s *StatementMatchList) SetItems(val []StatementMatch) {
+	s.Items = val
+}
+
+// StatementMatchListHeaders wraps StatementMatchList with response headers.
+type StatementMatchListHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           StatementMatchList
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *StatementMatchListHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *StatementMatchListHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *StatementMatchListHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *StatementMatchListHeaders) GetResponse() StatementMatchList {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *StatementMatchListHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *StatementMatchListHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *StatementMatchListHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *StatementMatchListHeaders) SetResponse(val StatementMatchList) {
+	s.Response = val
+}
+
+func (*StatementMatchListHeaders) listBankStatementMatchesRes() {}
+
+// A payment, with the bank file of a batch booking, or a posting rule.
+// Ref: #/components/schemas/StatementMatchTarget
+type StatementMatchTarget struct {
+	// The candidate it belongs to.
+	Candidate int32 `json:"candidate"`
+	// The payment cleared.
+	PaymentID OptUUID `json:"payment_id"`
+	// The bank file of a batch booking the payment was in.
+	BankFileID OptUUID `json:"bank_file_id"`
+	// The transaction code of the company's posting rule.
+	PostingRule OptString `json:"posting_rule"`
+}
+
+// GetCandidate returns the value of Candidate.
+func (s *StatementMatchTarget) GetCandidate() int32 {
+	return s.Candidate
+}
+
+// GetPaymentID returns the value of PaymentID.
+func (s *StatementMatchTarget) GetPaymentID() OptUUID {
+	return s.PaymentID
+}
+
+// GetBankFileID returns the value of BankFileID.
+func (s *StatementMatchTarget) GetBankFileID() OptUUID {
+	return s.BankFileID
+}
+
+// GetPostingRule returns the value of PostingRule.
+func (s *StatementMatchTarget) GetPostingRule() OptString {
+	return s.PostingRule
+}
+
+// SetCandidate sets the value of Candidate.
+func (s *StatementMatchTarget) SetCandidate(val int32) {
+	s.Candidate = val
+}
+
+// SetPaymentID sets the value of PaymentID.
+func (s *StatementMatchTarget) SetPaymentID(val OptUUID) {
+	s.PaymentID = val
+}
+
+// SetBankFileID sets the value of BankFileID.
+func (s *StatementMatchTarget) SetBankFileID(val OptUUID) {
+	s.BankFileID = val
+}
+
+// SetPostingRule sets the value of PostingRule.
+func (s *StatementMatchTarget) SetPostingRule(val OptString) {
+	s.PostingRule = val
+}
 
 // Company-specific supplier data.
 // Ref: #/components/schemas/SupplierCompany
@@ -28332,6 +28816,7 @@ func (*TooManyRequestsHeaders) endCompanyAccessRes()                 {}
 func (*TooManyRequestsHeaders) endRoleAssignmentRes()                {}
 func (*TooManyRequestsHeaders) endRolePermissionRes()                {}
 func (*TooManyRequestsHeaders) endSodRuleRes()                       {}
+func (*TooManyRequestsHeaders) excludeBankStatementLineRes()         {}
 func (*TooManyRequestsHeaders) getAccountRes()                       {}
 func (*TooManyRequestsHeaders) getAgentSessionRes()                  {}
 func (*TooManyRequestsHeaders) getAiPolicyRes()                      {}
@@ -28387,6 +28872,7 @@ func (*TooManyRequestsHeaders) listAuditEventsRes()                  {}
 func (*TooManyRequestsHeaders) listBalancesRes()                     {}
 func (*TooManyRequestsHeaders) listBankAccountsRes()                 {}
 func (*TooManyRequestsHeaders) listBankFilesRes()                    {}
+func (*TooManyRequestsHeaders) listBankStatementMatchesRes()         {}
 func (*TooManyRequestsHeaders) listBankStatementsRes()               {}
 func (*TooManyRequestsHeaders) listBusinessPartnersRes()             {}
 func (*TooManyRequestsHeaders) listChangeRequestsRes()               {}
@@ -28425,6 +28911,8 @@ func (*TooManyRequestsHeaders) listRolesRes()                        {}
 func (*TooManyRequestsHeaders) listSodRulesRes()                     {}
 func (*TooManyRequestsHeaders) listSupplierInvoicesRes()             {}
 func (*TooManyRequestsHeaders) lockFiscalPeriodRes()                 {}
+func (*TooManyRequestsHeaders) matchBankStatementLineRes()           {}
+func (*TooManyRequestsHeaders) matchBankStatementRes()               {}
 func (*TooManyRequestsHeaders) matchSupplierInvoiceRes()             {}
 func (*TooManyRequestsHeaders) openFiscalPeriodRes()                 {}
 func (*TooManyRequestsHeaders) parkJournalEntryRes()                 {}
@@ -28587,6 +29075,7 @@ func (*UnauthorizedHeaders) endCompanyAccessRes()                 {}
 func (*UnauthorizedHeaders) endRoleAssignmentRes()                {}
 func (*UnauthorizedHeaders) endRolePermissionRes()                {}
 func (*UnauthorizedHeaders) endSodRuleRes()                       {}
+func (*UnauthorizedHeaders) excludeBankStatementLineRes()         {}
 func (*UnauthorizedHeaders) getAccountRes()                       {}
 func (*UnauthorizedHeaders) getAgentSessionRes()                  {}
 func (*UnauthorizedHeaders) getAiPolicyRes()                      {}
@@ -28642,6 +29131,7 @@ func (*UnauthorizedHeaders) listAuditEventsRes()                  {}
 func (*UnauthorizedHeaders) listBalancesRes()                     {}
 func (*UnauthorizedHeaders) listBankAccountsRes()                 {}
 func (*UnauthorizedHeaders) listBankFilesRes()                    {}
+func (*UnauthorizedHeaders) listBankStatementMatchesRes()         {}
 func (*UnauthorizedHeaders) listBankStatementsRes()               {}
 func (*UnauthorizedHeaders) listBusinessPartnersRes()             {}
 func (*UnauthorizedHeaders) listChangeRequestsRes()               {}
@@ -28680,6 +29170,8 @@ func (*UnauthorizedHeaders) listRolesRes()                        {}
 func (*UnauthorizedHeaders) listSodRulesRes()                     {}
 func (*UnauthorizedHeaders) listSupplierInvoicesRes()             {}
 func (*UnauthorizedHeaders) lockFiscalPeriodRes()                 {}
+func (*UnauthorizedHeaders) matchBankStatementLineRes()           {}
+func (*UnauthorizedHeaders) matchBankStatementRes()               {}
 func (*UnauthorizedHeaders) matchSupplierInvoiceRes()             {}
 func (*UnauthorizedHeaders) openFiscalPeriodRes()                 {}
 func (*UnauthorizedHeaders) parkJournalEntryRes()                 {}
@@ -28831,10 +29323,13 @@ func (*UnprocessableHeaders) endCompanyAccessRes()                 {}
 func (*UnprocessableHeaders) endRoleAssignmentRes()                {}
 func (*UnprocessableHeaders) endRolePermissionRes()                {}
 func (*UnprocessableHeaders) endSodRuleRes()                       {}
+func (*UnprocessableHeaders) excludeBankStatementLineRes()         {}
 func (*UnprocessableHeaders) grantRolePermissionRes()              {}
 func (*UnprocessableHeaders) holdSupplierInvoiceRes()              {}
 func (*UnprocessableHeaders) importBankStatementsRes()             {}
 func (*UnprocessableHeaders) lockFiscalPeriodRes()                 {}
+func (*UnprocessableHeaders) matchBankStatementLineRes()           {}
+func (*UnprocessableHeaders) matchBankStatementRes()               {}
 func (*UnprocessableHeaders) matchSupplierInvoiceRes()             {}
 func (*UnprocessableHeaders) openFiscalPeriodRes()                 {}
 func (*UnprocessableHeaders) parkJournalEntryRes()                 {}

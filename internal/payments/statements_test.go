@@ -24,10 +24,18 @@ var statementPerms = []string{"payments.statement.read", "payments.statement.imp
 // and an object store that encrypts and locks for an hour.
 func statementSetup(t *testing.T) (env, *blobstoretest.Server) {
 	t.Helper()
+	return statementSetupWith(t, statementPerms)
+}
+
+// statementSetupWith is statementSetup with these permissions.
+func statementSetupWith(t *testing.T, perms []string) (env, *blobstoretest.Server) {
+	t.Helper()
 	store := blobstoretest.New(t)
 	objects := store.Store()
 	objects.Encryption = blobstore.Encryption{Algorithm: blobstore.SSEKMS}
-	return setupWith(t, statementPerms, func(cfg *app.Config) { cfg.Objects, cfg.Retention = objects, time.Hour }), store
+	e := setupWith(t, perms, func(cfg *app.Config) { cfg.Objects, cfg.Retention = objects, time.Hour })
+	e.objects = objects
+	return e, store
 }
 
 // mtStatement is an MT940 statement of house bank MAIN of company 2000

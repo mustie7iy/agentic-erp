@@ -377,3 +377,59 @@ func (e *Endpoints) ListBankStatements(ctx context.Context, params gen.ListBankS
 	items, next := apitypes.PageOf(ks, statements, func(s Statement) (string, uuid.UUID) { return s.ClosingDate.Format(time.DateOnly), s.ID }, statementToAPI)
 	return &gen.BankStatementPageHeaders{Response: gen.BankStatementPage{Items: items, NextPageToken: next}}, nil
 }
+
+// MatchBankStatement implements POST /v1/bank-statements/{id}:match.
+func (e *Endpoints) MatchBankStatement(ctx context.Context, params gen.MatchBankStatementParams) (gen.MatchBankStatementRes, error) {
+	s, err := e.MatchStatement(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	if err != nil {
+		return nil, err
+	}
+	return &gen.MatchBankStatementOKHeaders{ETag: gen.NewOptString(etag.Format(s.Version)), Response: statementToAPI(s)}, nil
+}
+
+func matchToAPI(m Match) gen.StatementMatch {
+	out := gen.StatementMatch{ID: m.ID, Version: m.Version, CreatedAt: m.CreatedAt, CreatedBy: m.CreatedBy, UpdatedAt: m.UpdatedAt,
+		UpdatedBy: gen.NewOptUUID(m.UpdatedBy), BankStatementID: m.StatementID, LineNo: m.LineNo, Kind: m.Kind, Reason: m.Reason, Status: m.Status,
+		Targets: make([]gen.StatementMatchTarget, len(m.Targets))}
+	if m.Rule != nil {
+		out.Rule.SetTo(*m.Rule)
+	}
+	for i, t := range m.Targets {
+		out.Targets[i] = gen.StatementMatchTarget{Candidate: int32(t.Candidate), PaymentID: apitypes.OptUUID(t.PaymentID), BankFileID: apitypes.OptUUID(t.BankFileID)}
+		if t.PostingRule != nil {
+			out.Targets[i].PostingRule.SetTo(*t.PostingRule)
+		}
+	}
+	return out
+}
+
+// ListBankStatementMatches implements GET /v1/bank-statements/{id}/matches.
+func (e *Endpoints) ListBankStatementMatches(ctx context.Context, params gen.ListBankStatementMatchesParams) (gen.ListBankStatementMatchesRes, error) {
+	matches, err := StatementMatches(ctx, params.ID, params.LineNo.Value)
+	if err != nil {
+		return nil, err
+	}
+	out := gen.StatementMatchList{Items: make([]gen.StatementMatch, len(matches))}
+	for i, m := range matches {
+		out.Items[i] = matchToAPI(m)
+	}
+	return &gen.StatementMatchListHeaders{Response: out}, nil
+}
+
+// MatchBankStatementLine implements POST /v1/bank-statements/{id}/lines/{line_no}:match.
+func (e *Endpoints) MatchBankStatementLine(ctx context.Context, req *gen.StatementLineMatchInput, params gen.MatchBankStatementLineParams) (gen.MatchBankStatementLineRes, error) {
+	m, err := e.MatchLine(ctx, params.ID, params.LineNo, etag.IfMatch(params.IfMatch), ManualMatch{PaymentIDs: req.PaymentIds, PostingRule: req.PostingRule.Value, Reason: req.Reason})
+	if err != nil {
+		return nil, err
+	}
+	return &gen.StatementMatchHeaders{Response: matchToAPI(m)}, nil
+}
+
+// ExcludeBankStatementLine implements POST /v1/bank-statements/{id}/lines/{line_no}:exclude.
+func (e *Endpoints) ExcludeBankStatementLine(ctx context.Context, req *gen.ReasonInput, params gen.ExcludeBankStatementLineParams) (gen.ExcludeBankStatementLineRes, error) {
+	m, err := e.ExcludeLine(ctx, params.ID, params.LineNo, etag.IfMatch(params.IfMatch), req.Reason)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.StatementMatchHeaders{Response: matchToAPI(m)}, nil
+}

@@ -94,7 +94,8 @@ Canadian bank may only offer BAI2.
   (`x-autonomy: propose`) and never posts; its proposals go through the
   same approval as a person's.
 - **Statuses and events.** A statement is `imported`, `gap`, `reconciled`;
-  a line `unmatched`, `proposed`, `pending_approval`, `posted`; the
+  a line `unmatched`, `proposed`, `matched`, `excluded`,
+  `pending_approval`, `posted`; the
   reconciliation report lists lines and balances per bank. Imports, gaps,
   matches and postings publish events through the outbox (ADR-0007) and
   write audit records (ADR-0011).
@@ -211,6 +212,39 @@ Canadian bank may only offer BAI2.
   without retries. The gauges `erp_bank_statement_files_refused` and
   `erp_bank_statement_files_unarchived` (imported over an hour ago and not
   yet moved) show what needs a person.
+- Matching (T49e, 000109): the rules run when a statement is imported, in
+  the import's transaction, and again on `POST /v1/bank-statements/{id}:match`,
+  over the lines still `unmatched`, in line order, under the house bank's
+  statement lock. The rules on payments read debits only (outgoing
+  payments; incoming ones wait for accounts receivable) and never
+  reversals, and take a payment that is posted and of the statement's
+  house bank and currency. `end_to_end_id` takes the
+  transactions' end-to-end ids (an MT940 owner's reference holds 16
+  characters, too few for ours); `batch_id` the transactions' payment
+  information and message ids, against the message id a bank file now
+  records (`payments.bank_file.message_id`; its payment information id is
+  that with `-1`; files written before have none), a file standing with
+  all its payments; `transaction_code` the line's and its transactions'
+  codes, compared exactly; `amount` the run date within the window and,
+  with `counterparty`, the payee's IBAN or holder's name (case aside), the
+  tolerance applying to a statement in the company's currency (another is
+  matched exactly). A rule that finds candidates records a match
+  (`payments.statement_match`, kind `rule`, its rule and a reason saying
+  what it found; its targets in `statement_match_target`, by candidate):
+  `matched` when it found exactly one candidate whose payments pay the
+  line's amount and that no other line's match holds, else `open` with
+  the candidates for a person, the line `proposed`. An open match reserves
+  nothing. A payment a line's match holds is no candidate of the amount
+  rule, and the id rules still find it, so a booking the bank repeats goes
+  to a person rather than to the rules after; matching again finds the
+  same. A person
+  (`payments.statement.match`, `x-agent: false`) matches a line by hand to
+  payments or a posting rule, or excludes it with a reason
+  (`POST .../lines/{line_no}:match`, `:exclude`): the line's live match
+  becomes `rejected`, both audited; a line `pending_approval` or `posted`
+  keeps its match (409). `BankStatementLineMatched` and
+  `BankStatementLineExcluded` are published. Lines become `matched`,
+  `proposed` or `excluded`; posting a match is T49f.
 - Steps: a ADR, configuration and the house bank's columns · b parsers ·
   c tables, upload, idempotency and continuity · d SFTP fetch · e rule
   matching · f posting, clearing, approval and period locks · g agent

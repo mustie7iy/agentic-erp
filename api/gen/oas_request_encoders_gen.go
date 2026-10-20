@@ -644,6 +644,20 @@ func encodeEndSodRuleRequest(
 	return nil
 }
 
+func encodeExcludeBankStatementLineRequest(
+	req *ReasonInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeGrantRolePermissionRequest(
 	req *RolePermissionCreate,
 	r *http.Request,
@@ -726,6 +740,20 @@ func encodeImportBankStatementsRequest(
 		return nil
 	})
 	ht.SetCloserBody(r, body, mime.FormatMediaType(contentType, map[string]string{"boundary": boundary}))
+	return nil
+}
+
+func encodeMatchBankStatementLineRequest(
+	req *StatementLineMatchInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
 	return nil
 }
 

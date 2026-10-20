@@ -875,9 +875,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Rule matching in priority order",
-        "r": "T49e",
+        "s": "D",
+        "t": "Rule matching in priority order (end-to-end id, batch id, transaction code, amount within tolerance, window and counterparty), exactly one candidate matches and more stay open for a person; on import and on demand, deterministic and idempotent; manual match and exclusion by people, audited",
+        "r": "db/migrations/000109 · payments.statement_match · statement_match_target · bank_file.message_id · POST /v1/bank-statements/{id}:match · GET /v1/bank-statements/{id}/matches · POST /v1/bank-statements/{id}/lines/{line_no}:match/:exclude · payments.statement.match · BankStatementLineMatched · BankStatementLineExcluded · T49e",
         "c": []
        },
        {
