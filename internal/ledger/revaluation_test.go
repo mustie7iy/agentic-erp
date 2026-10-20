@@ -78,8 +78,9 @@ func preview(le uuid.UUID, keyDate string) string {
 // date (ADR-0042): items posted after it, cleared or reversed on or
 // before it, in local currency or down payments are not valued; an item
 // cleared or reversed after it is; the rate is the legal entity's rate
-// type's; group currency is valued on its own; and a key date that is not a period end, a missing, stale or
-// unrecordable rate and an account without a valuation are refused.
+// type's; group currency is valued on its own; and a key date that is not
+// a period end, a missing, stale or unrecordable rate and an account
+// without a valuation are refused.
 func TestRevaluationPreview(t *testing.T) {
 	e := setup(t)
 	revaluationSetup(t, e, true)

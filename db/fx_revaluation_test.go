@@ -253,6 +253,10 @@ func TestRevaluationItems(t *testing.T) {
 		{"an open item without an amount", item(3, f.expense, nil, &invoice, &one, 0, -90, "0.95", "0.96"), "revaluation_item_amount"},
 		{"a balance without any amount", item(3, f.expense, nil, nil, nil, 0, 0, "0.95", "0.96"), "revaluation_item_amount"},
 		{"a rate of 0", item(3, f.expense, nil, &invoice, &one, 100, -90, "0", "0.96"), "revaluation_item_rate_check"},
+		{"a group rate without its date that is not 1", func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO ledger.revaluation_item (tenant_id, run_id, item_no, account_id, currency_tc, amount_tc, amount_lc, amount_gc, rate,
+				rate_valid_from, valued_lc, rate_gc, valued_gc) VALUES ($1,$2,3,$3,'GBP',1,1,1,1,'2026-03-01',1,0.9,1)`, f.tenant, run, f.expense)
+		}, "revaluation_item_rate_gc"},
 		{"a group rate of 0", item(3, f.expense, nil, &invoice, &one, 100, -90, "0.95", "0"), "revaluation_item_rate_gc_check"},
 		{"another run's item", func(tx pgx.Tx) error {
 			return exec(tx, `INSERT INTO ledger.revaluation_item (tenant_id, run_id, item_no, account_id, currency_tc, amount_tc, amount_lc, amount_gc, rate,

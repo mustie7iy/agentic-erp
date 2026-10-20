@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"math/big"
 	"testing"
@@ -48,8 +49,12 @@ func TestRevaluationOutOfRange(t *testing.T) {
 		if d := it.Direction(); d != "none" {
 			t.Errorf("direction: got %s, want none", d)
 		}
-		if d := (RevaluedItem{DifferenceGC: 1}).Direction(); d != "gain" {
-			t.Errorf("direction of a group difference alone: got %s, want gain", d)
+		residual := RevaluedItem{ExpTC: 2, AmountGC: 5}
+		if err := residual.value(one, two, 2, 2); err != nil {
+			t.Fatal(err)
+		}
+		if g := fmt.Sprintf("%d %d %s", residual.DifferenceLC, residual.DifferenceGC, residual.Direction()); g != "0 -5 loss" {
+			t.Errorf("a group-only residual: got %s, want 0 -5 loss", g)
 		}
 		totals, err := (Revaluation{Items: []RevaluedItem{it}}).Totals()
 		if err != nil || len(totals) != 0 {

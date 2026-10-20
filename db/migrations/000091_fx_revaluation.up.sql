@@ -225,6 +225,8 @@ CREATE TABLE ledger.revaluation_item (
     AND (journal_entry_id IS NOT NULL OR partner_id IS NULL)),
   -- An open item has an amount in its currency; a balance has one in some
   -- currency.
+  -- Only the group's own currency is valued at 1 without a recorded rate.
+  CONSTRAINT revaluation_item_rate_gc CHECK (rate_gc_valid_from IS NOT NULL OR rate_gc = 1),
   CONSTRAINT revaluation_item_amount CHECK (amount_tc <> 0 OR (journal_entry_id IS NULL AND (amount_lc <> 0 OR amount_gc <> 0)))
 );
 CREATE UNIQUE INDEX revaluation_item_line ON ledger.revaluation_item (tenant_id, run_id, fiscal_year, journal_entry_id, line_no)

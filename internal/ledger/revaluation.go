@@ -179,8 +179,11 @@ func valueRevaluation(ctx context.Context, tx pgx.Tx, le tenancy.Entity, ledgerI
 			if x[0], err = valuationRate(ctx, tx, r, it.CurrencyTC, r.CurrencyLC, start); err != nil {
 				return Revaluation{}, err
 			}
-			if x[1], err = valuationRate(ctx, tx, r, it.CurrencyTC, r.CurrencyGC, start); err != nil {
-				return Revaluation{}, err
+			x[1] = x[0]
+			if r.CurrencyGC != r.CurrencyLC {
+				if x[1], err = valuationRate(ctx, tx, r, it.CurrencyTC, r.CurrencyGC, start); err != nil {
+					return Revaluation{}, err
+				}
 			}
 			rates[it.CurrencyTC] = x
 		}
