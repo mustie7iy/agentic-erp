@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 )
@@ -74,7 +74,7 @@ func TestCheck(t *testing.T) {
 // The same input gives the same result, even where CEL iterates a map.
 func TestDeterministic(t *testing.T) {
 	r := vat()
-	r.Expression = `{"b": 2, "a": 1, "c": 3}.exists(k, k == row.country_code) || ` + vatRule
+	r.Expression = `["DE", "A", "FR"].filter(k, k != row.country_code)[0] == "DE" || ` + vatRule
 	r.Cases[1].Row = partner("DE")
 	s := mustCompile(t, map[string]Rule{"vat": r})
 	for _, country := range []string{"DE", "A", "FR"} {
@@ -116,6 +116,11 @@ func TestCompileRefuses(t *testing.T) {
 		"timestamp":          {expr(`timestamp("2026-01-01T00:00:00Z") > timestamp("2025-01-01T00:00:00Z")`), "vat.expression", "undeclared reference"},
 		"duration":           {expr(`duration("1s") == duration("1s")`), "vat.expression", "undeclared reference"},
 		"year":               {expr(`dyn(row.name).getFullYear() == 2026`), "vat.expression", "undeclared reference"},
+		"double":             {expr(`double(ext.credit_days.orValue(0)) * 1.5 > 2.0`), "vat.expression", "no floating-point"},
+		"double of amount":   {expr(`double(ext.limit.orValue({"amount": "0"})["amount"]) > 1.0`), "vat.expression", "no floating-point"},
+		"map comprehension":  {expr(`ext.limit.orValue({}).map(k, k)[0] == "amount"`), "vat.expression", "range over lists only"},
+		"map literal":        {expr(`{"a": 1, "b": 2}.filter(k, k != "")[0] == "a"`), "vat.expression", "range over lists only"},
+		"dyn comprehension":  {expr(`dyn({"a": 1}).exists(k, k == "a")`), "vat.expression", "range over lists only"},
 		"derivation":         {expr(`row.name + "!"`), "vat.expression", "must be boolean, not string"},
 		"dynamic":            {expr(`dyn(true)`), "vat.expression", "must be boolean"},
 		"too long":           {expr(strings.Repeat(" ", MaxExpressionLength) + "true"), "vat.expression", "expression code point size exceeds limit"},
@@ -127,7 +132,7 @@ func TestCompileRefuses(t *testing.T) {
 		"case fails":         {expr(`1 / (size(row.roles) - 1) == 1`), "vat.cases[0]", "evaluation: division by zero"},
 		"case required":      {with(func(r *Rule) { delete(r.Cases[0].Extensions, "vip") }), "vat.cases[0]", "ext.vip is required"},
 		"case type":          {with(func(r *Rule) { r.Cases[0].Extensions["vip"] = "yes" }), "vat.cases[0]", "ext.vip: want a boolean"},
-		"case cost exceeded": {expr(`[1,2,3,4,5,6,7,8,9,10].all(a, [1,2,3,4,5,6,7,8,9,10].all(b, [1,2,3,4,5,6,7,8,9,10].all(c, [1,2,3,4,5,6,7,8,9,10].all(d, a+b+c+d > 0))))`), "vat.cases[0]", "actual cost limit exceeded"},
+		"case cost exceeded": {with(func(r *Rule) { r.Expression, r.Cases[0].Row["name"] = longName, strings.Repeat("x", 8*CostLimit) }), "vat.cases[0]", "actual cost limit exceeded"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, issues := Compile("business_partner", partnerSchema(), c.rules)
@@ -147,15 +152,23 @@ func TestCompileRefusesEntities(t *testing.T) {
 	}
 }
 
+// longName costs a tenth of its length per concatenation: a long name
+// exceeds the cost limit in one step, long before the timeout.
+const longName = `(row.name + row.name).size() > 0`
+
 func TestCheckFails(t *testing.T) {
-	s := mustCompile(t, map[string]Rule{"vat": vat(), "roles": {
-		Expression: `row.roles.all(r, r.size() > 0)`, Message: "an empty role",
+	s := mustCompile(t, map[string]Rule{"vat": vat(), "name": {Expression: longName, Message: "a long name",
 		Cases: []Case{{Row: partner("FR"), Extensions: map[string]any{"vip": true}, Valid: true}, {Row: map[string]any{
-			"kind": "organization", "name": "Acme", "country_code": "FR", "roles": []string{""},
-		}, Extensions: map[string]any{"vip": true}, Valid: false}},
-	}})
+			"kind": "organization", "name": "", "country_code": "FR", "roles": []string{},
+		}, Extensions: map[string]any{"vip": true}, Valid: false}}},
+		"roles": {
+			Expression: `row.roles.all(r, r.size() > 0)`, Message: "an empty role",
+			Cases: []Case{{Row: partner("FR"), Extensions: map[string]any{"vip": true}, Valid: true}, {Row: map[string]any{
+				"kind": "organization", "name": "Acme", "country_code": "FR", "roles": []string{""},
+			}, Extensions: map[string]any{"vip": true}, Valid: false}},
+		}})
 	bp := partner("FR")
-	bp["roles"] = slices.Repeat([]string{"x"}, CostLimit)
+	bp["name"] = strings.Repeat("x", 8*CostLimit)
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
 	for name, c := range map[string]struct {
@@ -165,7 +178,7 @@ func TestCheckFails(t *testing.T) {
 		want string
 	}{
 		"input type":    {context.Background(), partner("FR"), map[string]any{"vip": 1}, "rules: business_partner: ext.vip: want a boolean"},
-		"cost":          {context.Background(), bp, map[string]any{"vip": true}, "rules: business_partner.roles: evaluation: operation cancelled: actual cost limit exceeded"},
+		"cost":          {context.Background(), bp, map[string]any{"vip": true}, "rules: business_partner.name: evaluation: operation cancelled: actual cost limit exceeded"},
 		"interrupted":   {cancelled, partner("FR"), map[string]any{"vip": true}, "rules: business_partner.roles: evaluation: operation interrupted: context canceled"},
 		"unknown input": {context.Background(), partner("FR"), map[string]any{"vip": true, "x": 1, "a": 2}, "rules: business_partner: ext.a, ext.x is not an input"},
 	} {
@@ -202,6 +215,9 @@ func TestConvert(t *testing.T) {
 		"money not a map": {tMoney, "1 EUR", false},
 		"string":          {tString, "a", true},
 		"string from int": {tString, 1, false},
+		"date":            {tString, time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC), true},
+		"timestamp":       {tString, time.Date(2026, 10, 20, 1, 0, 0, 0, time.UTC), false},
+		"zoned date":      {tString, time.Date(2026, 10, 20, 0, 0, 0, 0, time.FixedZone("x", 3600)), false},
 		"bool":            {tBool, true, true},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -230,5 +246,12 @@ func TestInvoiceInputs(t *testing.T) {
 func TestInputsHaveNoParent(t *testing.T) {
 	if p := (inputs{}).Parent(); p != nil {
 		t.Errorf("got parent %v, want none", p)
+	}
+}
+
+// The validator's name is unique among cel-go's own, so it replaces none.
+func TestExactName(t *testing.T) {
+	if got := (exact{}).Name(); got != "rules.exact" {
+		t.Errorf("got %q, want rules.exact", got)
 	}
 }

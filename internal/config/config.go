@@ -310,9 +310,10 @@ func Load(path string) (*Config, error) {
 
 // Marshal renders a configuration as YAML.
 func (c *Config) Marshal() ([]byte, error) {
-	// Config holds only strings, numbers, bools, slices and structs, and the
-	// buffer never fails, so encoding cannot fail; the error result is kept
-	// for API stability.
+	// Config holds only strings, numbers, bools, slices, string-keyed maps,
+	// structs and the decoded YAML values of rule cases, and the buffer
+	// never fails, so encoding cannot fail; the error result is kept for API
+	// stability.
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)

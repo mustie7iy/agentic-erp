@@ -10,7 +10,9 @@ import (
 	"unicode/utf8"
 
 	"cel.dev/cel-go/cel"
+	"cel.dev/cel-go/common/ast"
 	"cel.dev/cel-go/common/env"
+	"cel.dev/cel-go/common/types"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 )
@@ -35,6 +37,26 @@ func baseOptions() []cel.EnvOption {
 		cel.OptionalTypes(),
 		cel.ParserExpressionSizeLimit(MaxExpressionLength),
 		cel.ParserRecursionLimit(maxDepth),
+		cel.ASTValidators(exact{}),
+	}
+}
+
+// exact refuses what would make a rule inexact or its result depend on
+// more than its inputs: a floating-point value anywhere (ADR-0005), and a
+// comprehension over anything but a list, since a map's iteration order is
+// not fixed (map and filter over one return its keys in a random order).
+type exact struct{}
+
+func (exact) Name() string { return "rules.exact" }
+
+func (exact) Validate(_ *cel.Env, _ cel.ValidatorConfig, a *ast.AST, iss *cel.Issues) {
+	for _, e := range ast.MatchDescendants(ast.NavigateAST(a), ast.AllMatcher()) {
+		switch {
+		case a.GetType(e.ID()).Kind() == types.DoubleKind:
+			iss.ReportErrorAtID(e.ID(), "no floating-point numbers: amounts and quantities are exact (ADR-0005)")
+		case e.Kind() == ast.ComprehensionKind && a.GetType(e.AsComprehension().IterRange().ID()).Kind() != types.ListKind:
+			iss.ReportErrorAtID(e.ID(), "comprehensions range over lists only: a map's order is not fixed")
+		}
 	}
 }
 

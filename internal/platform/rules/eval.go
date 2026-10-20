@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"cel.dev/cel-go/common/types"
 	"cel.dev/cel-go/common/types/ref"
@@ -130,6 +131,9 @@ func convert(t typ, v any) (ref.Val, bool) {
 		m, ok := money(v)
 		return types.NewStringStringMap(types.DefaultTypeAdapter, m), ok
 	default:
+		if d, ok := v.(time.Time); ok && d.Equal(d.Truncate(24*time.Hour)) && d.Location() == time.UTC {
+			return types.String(d.Format(time.DateOnly)), true // yaml reads an unquoted date in a case so
+		}
 		s, ok := v.(string)
 		return types.String(s), ok
 	}
@@ -141,7 +145,7 @@ const maxExact = 1<<53 - 1
 // whole reads a whole number as the custom field write path does: from
 // its JSON spelling, whatever Go type decoded it.
 func whole(v any) (int64, bool) {
-	b, _ := json.Marshal(v) // decoded JSON or YAML: it always encodes
+	b, _ := json.Marshal(v) // what does not encode (NaN, a map keyed by any) leaves no digits and is refused below
 	n, err := strconv.ParseInt(string(b), 10, 64)
 	return n, err == nil && n >= -maxExact && n <= maxExact
 }

@@ -116,7 +116,13 @@ needs.
   header fields of the entity's create request, and `ext.<key>`, the custom
   fields of the schema in the same document; a field that may be absent is
   a CEL optional (`ext.x.orValue("")`), dates are `YYYY-MM-DD` strings and
-  money is `{amount, currency}` of strings. The expression must be boolean;
+  money is `{amount, currency}` of strings (an unquoted date in a case is
+  read as the date). No value may be floating-point (ADR-0005), so in
+  Phase 2 a rule compares amounts and decimals only as strings (equality,
+  currency, sign), never by size; ordered comparison of amounts needs them
+  as minor units, decided with T58g. Comprehensions range over lists only:
+  a map's iteration order is not fixed, so `map` or `filter` over one would
+  not be deterministic. The expression must be boolean;
   any other type (a derived value, a route) is refused. The standard
   library is used without its time functions (`timestamp`, `duration` and
   their accessors), with optional types and nothing else. Limits: 1000

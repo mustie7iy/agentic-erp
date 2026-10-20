@@ -31,7 +31,7 @@ func TestRulesValidate(t *testing.T) {
 	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
 		t.Errorf("got findings %v, want none", fs)
 	}
-	changes, _ := Diff(withSchema(t), c)
+	changes, _ := Diff(withSchema(t), c) // its error is always nil (Diff's contract)
 	for _, ch := range changes {
 		if ch.Tier != TierPostingRelated {
 			t.Errorf("%s: got tier %d, want %d", ch.Path, ch.Tier, TierPostingRelated)
