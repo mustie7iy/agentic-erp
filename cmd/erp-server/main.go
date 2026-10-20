@@ -882,12 +882,7 @@ func partitions(ctx context.Context, pool *database.Pool, log *slog.Logger) erro
 // only (worker.Recover): ending the loop would stop the maintenance on this
 // replica for good with nothing but a log line.
 func maintain(ctx context.Context, interval time.Duration, job func(context.Context) error, log *slog.Logger) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-		}
+	for worker.Wait(ctx, interval) {
 		err := worker.Recover(func() error { return job(ctx) })
 		if worker.Failed(ctx, err) {
 			worker.Report(ctx, log, "partition maintenance failed", err)
