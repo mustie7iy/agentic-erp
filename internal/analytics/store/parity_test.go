@@ -47,7 +47,7 @@ type parity struct {
 }
 
 var parityPerms = []string{"ledger.entry.post", "ledger.entry.read", "ledger.account.read", "payables.invoice.read", "procurement.order.read",
-	"partner.supplier.read", "tenancy.org.read", "analytics.query.run", "config.change.read", "config.change.propose", "config.change.activate"}
+	"partner.supplier.read", "tenancy.org.read", "analytics.query.run", "config.change.read", "config.change.propose", "config.change.activate", "platform.operation.read"}
 
 // post posts a journal entry in le debiting debit and crediting credit,
 // the partner on the credit line, in ledger (nil: the leading one).

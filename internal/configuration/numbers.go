@@ -83,17 +83,10 @@ func (Settings) Version(ctx context.Context, number int32) (*config.Config, erro
 	if err != nil {
 		return nil, err
 	}
-	raw, err := readVersion(ctx, tx, number)
+	c, err := versionDocument(ctx, tx, number)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, problem.Unprocessable("config.unknown_version", fmt.Sprintf("There is no configuration version %d.", number),
 			problem.FieldError{Field: "config_version", Code: "not_found", Message: "an activated configuration version"})
 	}
-	if err != nil {
-		return nil, err
-	}
-	c, err := activeConfig(ctx, raw)
-	if err != nil {
-		return nil, fmt.Errorf("configuration: read version %d: %w", number, err)
-	}
-	return c, nil
+	return c, err
 }

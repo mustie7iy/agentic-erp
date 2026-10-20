@@ -490,7 +490,8 @@ approved and activated as a configuration version. A document without the
 section reads `semantic.yaml`, which stays the seed every tenant starts
 from until its first metric change adds the section. The analytics
 context checks a proposed section on submission (`endpoint.Section`: the
-model must read, including no metric derived from itself), and the
+model must read, with no metric derived from itself, every source a fact
+dataset and every type known), and the
 endpoint reads the active version's model in each request
 (`configuration.Settings.Document`); the answer names it in
 `config_version`.
@@ -506,8 +507,13 @@ simulation and the analytics one (`configuration.Simulators`):
 through their derivations and the calendar) and records, as the evidence's
 detail, each one's value by company and fiscal year for the current and
 previous fiscal year under the base and the proposed definitions, read as
-the person who asked for the simulation, within their companies and
-permissions. It reads the analytical store only: the database path reads
+the person who asked for the simulation (who must hold
+`analytics.query.run`), within their companies and permissions. A metric
+the semantic layer refuses on the data (amounts of two currencies summed)
+fails the simulation's operation with 422 `analytics.invalid_query`, never
+retried. The values are evidence anyone who reads the change request
+sees, whatever their own company access: an open point for the product
+owner. It reads the analytical store only: the database path reads
 the API with a request's credentials, which a queued simulation does not
 have, so a store that cannot answer (none configured, stale) records a
 failed simulation that names the metrics, to be simulated again once the

@@ -152,6 +152,11 @@ func TestSimulation(t *testing.T) {
 			t.Error("invoices without payables.invoice.read: want 403")
 		}
 	})
+	inRequestWith(t, []string{"ledger.entry.read"}, 0, func(ctx context.Context) {
+		if err := errOf(sim(reader{}).Simulate(ctx, nil, margin)); problem.From(err).Code != "identity.permission_missing" {
+			t.Errorf("without analytics.query.run: got %v, want 403", err)
+		}
+	})
 	inRequestWith(t, allPermissions, 0, func(ctx context.Context) {
 		fresh(t, ctx)
 		zero := reader{rows: []wire.Row{{By: []string{"2000", "2026"}, Currency: "EUR", Exponent: 2}}}
@@ -163,7 +168,9 @@ func TestSimulation(t *testing.T) {
 			a.Metrics = append(a.Metrics, config.Metric{Name: "aa_total", Type: analytics.Money, Source: "gl_lines", Aggregate: "sum"})
 		})
 		mixed := reader{rows: []wire.Row{{Currency: "EUR", Exponent: 2, Amount: 1}, {Currency: "USD", Exponent: 2, Amount: 1}}}
-		pgtest.CheckErr(t, errOf(sim(mixed).Simulate(ctx, nil, added)), "simulate aa_total")
+		if err := errOf(sim(mixed).Simulate(ctx, nil, added)); problem.From(err).Code != "analytics.invalid_query" {
+			t.Errorf("amounts of two currencies: got %v, want 422 analytics.invalid_query (fails the operation, never retried)", err)
+		}
 	})
 }
 

@@ -14,7 +14,9 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/analytics/store"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
 // Configs reads the tenant's configuration documents in the request's
@@ -82,8 +84,8 @@ func (Section) Apply(context.Context, *config.Config) error { return nil }
 // metrics whose meaning it changes: each one's value by company and
 // fiscal year, for the current and the previous fiscal year, under the
 // base and under the proposed definitions (configuration.Simulator). It
-// reads the analytical store as the person who asked for the simulation,
-// within what they may read; the database path reads the API with a
+// reads the analytical store as the person who asked for the simulation
+// (who must hold analytics.query.run), within what they may read; the database path reads the API with a
 // request's credentials, which a queued simulation has not, so a store
 // that cannot answer fails the simulation, to be run again once the
 // store is current (ADR-0044).
@@ -133,6 +135,9 @@ func (s Simulation) Simulate(ctx context.Context, base, proposed *config.Config)
 	if len(affected) == 0 {
 		return configuration.Simulation{Passed: true}, nil
 	}
+	if err := authz.Require(ctx, "analytics.query.run"); err != nil {
+		return configuration.Simulation{}, err
+	}
 	p, err := s.Endpoints.principal(ctx, nil)
 	if err != nil {
 		return configuration.Simulation{}, err
@@ -174,7 +179,9 @@ func (s Simulation) values(ctx context.Context, m *analytics.Model, p analytics.
 		}
 		res, err := analytics.Execute(m, facts, p, q)
 		if err != nil {
-			return nil, fmt.Errorf("analytics: simulate %s: %w", name, err)
+			// The same data refuses it again: the request's problem, which
+			// fails the operation rather than retry it.
+			return nil, problem.Unprocessable("analytics.invalid_query", fmt.Sprintf("Metric %s cannot be simulated: %v.", name, err))
 		}
 		out[name] = cells(res)
 	}

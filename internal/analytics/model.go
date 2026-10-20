@@ -69,7 +69,26 @@ func FromConfig(c *config.Config) (*Model, error) {
 	if err := m.index(); err != nil {
 		return nil, err
 	}
+	if err := m.governed(); err != nil {
+		return nil, err
+	}
 	return m, nil
+}
+
+// governed refuses what a model from a change request may not hold beyond
+// what index checks: a metric over a table that is no fact dataset (which
+// no permission would gate and nothing would answer), or of a type the
+// engine does not know.
+func (m *Model) governed() error {
+	for _, met := range m.Metrics {
+		if met.Type != Money && met.Type != Count && met.Type != Ratio {
+			return fmt.Errorf("semantic model: %s has unknown type %q", met.Name, met.Type)
+		}
+		if met.Source != "" && !slices.ContainsFunc(FactDatasets, func(d struct{ Dataset, Permission string }) bool { return d.Dataset == met.Source }) {
+			return fmt.Errorf("semantic model: %s reads unknown dataset %q", met.Name, met.Source)
+		}
+	}
+	return nil
 }
 
 // ParseModel reads a semantic model from YAML.

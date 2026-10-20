@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -13,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/analytics/endpoint"
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -83,6 +85,31 @@ func (p parity) metricChange(t *testing.T) {
 		}
 	}
 	c.Problem(422, "config.unknown_version", "POST", "/v1/analytics-queries", `{"measures": ["expenses"], "config_version": 9}`, "")
+	p.unanswerable(t, agent, w, doc)
+}
+
+// unanswerable: a proposed metric the semantic layer refuses on the data
+// (EUR and USD summed, no company to keep them apart) fails its
+// simulation's operation for good rather than retry it.
+func (p parity) unanswerable(t *testing.T, agent apitest.Client, w *configuration.SimulationWorker, doc *config.Config) {
+	t.Helper()
+	doc.Analytics.Metrics = append(doc.Analytics.Metrics, config.Metric{Name: "aa_total", Label: "Total", Type: analytics.Money, Source: "gl_lines",
+		Aggregate: "sum", Dimensions: []string{"fiscal_year"}})
+	b, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cr, _ := agent.Must(201, "POST", "/v1/change-requests", `{"title": "Total", "base_version": 2, "proposed": `+string(b)+`}`, "")
+	path := "/v1/change-requests/" + apitest.String(t, cr, "id")
+	_, tag := agent.Must(200, "POST", path+":submit", "", `"1"`)
+	op, _ := agent.Must(202, "POST", path+":simulate", "", tag)
+	if n, err := w.RunOnce(context.Background()); err != nil || n < 1 {
+		t.Fatalf("simulation: got %d %v, want a job run", n, err)
+	}
+	got, _ := agent.Must(200, "GET", "/v1/operations/"+apitest.String(t, op, "id"), "", "")
+	if got["status"] != "failed" || !strings.Contains(fmt.Sprint(got["error"]), "analytics.invalid_query") {
+		t.Errorf("operation: got %v, want failed with analytics.invalid_query", got)
+	}
 }
 
 // simulated checks the simulation evidence: the affected metrics, the

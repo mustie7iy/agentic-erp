@@ -2,6 +2,7 @@ package analytics
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -36,9 +37,18 @@ func TestFromConfig(t *testing.T) {
 	if got := section.Metrics[0].Sign; got != 0 {
 		t.Errorf("the document's sign: got %d, want it unchanged (0)", got)
 	}
-	section.Metrics = append(section.Metrics, config.Metric{Name: "b", Type: Money})
-	if _, err := FromConfig(&config.Config{Analytics: section}); err == nil || !strings.Contains(err.Error(), "needs a source") {
-		t.Errorf("invalid section: got %v, want its error", err)
+	for want, bad := range map[string]config.Metric{
+		"needs a source":          {Name: "b", Type: Money},
+		`unknown type "amount"`:   {Name: "b", Type: "amount", Source: "gl_lines", Aggregate: "sum"},
+		`unknown dataset "gl_li"`: {Name: "b", Type: Money, Source: "gl_li", Aggregate: "sum"},
+	} {
+		t.Run(want, func(t *testing.T) {
+			s := *section
+			s.Metrics = append(slices.Clone(section.Metrics), bad)
+			if _, err := FromConfig(&config.Config{Analytics: &s}); err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("got %v, want an error containing %s", err, want)
+			}
+		})
 	}
 }
 

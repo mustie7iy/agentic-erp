@@ -54,14 +54,6 @@ type Endpoints struct {
 	slots chan struct{}
 }
 
-// factDatasets are the store's fact datasets and the permission that reads
-// what each holds, as the API would.
-var factDatasets = []struct{ dataset, permission string }{
-	{"gl_lines", "ledger.entry.read"},
-	{"po_lines", "procurement.order.read"},
-	{"ap_invoices", "payables.invoice.read"},
-}
-
 // RunAnalyticsQuery implements gen.Handler.
 func (e *Endpoints) RunAnalyticsQuery(ctx context.Context, req *gen.AnalyticsQuery, _ gen.RunAnalyticsQueryParams) (gen.RunAnalyticsQueryRes, error) {
 	m, version, err := e.model(ctx, req.ConfigVersion.Or(0))
@@ -192,14 +184,14 @@ func (e *Endpoints) datasets(ctx context.Context, m *analytics.Model, q analytic
 		}
 	}
 	out := []string{}
-	for _, f := range factDatasets {
-		if !needed[f.dataset] {
+	for _, f := range analytics.FactDatasets {
+		if !needed[f.Dataset] {
 			continue
 		}
-		if !perms[f.permission] {
-			return nil, problem.Forbidden("identity.permission_missing", "This query reads "+f.dataset+", which requires the permission "+f.permission+".")
+		if !perms[f.Permission] {
+			return nil, problem.Forbidden("identity.permission_missing", "This query reads "+f.Dataset+", which requires the permission "+f.Permission+".")
 		}
-		out = append(out, f.dataset)
+		out = append(out, f.Dataset)
 	}
 	return out, nil
 }

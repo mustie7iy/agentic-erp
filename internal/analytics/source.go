@@ -36,14 +36,20 @@ func (s Source) Permissions() []string {
 	if s.builds("gl_lines") || s.builds("po_lines") {
 		out = append(out, "ledger.account.read")
 	}
-	for _, d := range []struct{ dataset, permission string }{
-		{"gl_lines", "ledger.entry.read"}, {"po_lines", "procurement.order.read"}, {"ap_invoices", "payables.invoice.read"},
-	} {
-		if s.builds(d.dataset) {
-			out = append(out, d.permission)
+	for _, d := range FactDatasets {
+		if s.builds(d.Dataset) {
+			out = append(out, d.Permission)
 		}
 	}
 	return out
+}
+
+// FactDatasets are the fact tables a metric reads, in the order Facts
+// builds them, and the permission that reads each through the API: the
+// endpoint refuses a query over one the caller does not read, and a
+// governed model names no other (FromConfig).
+var FactDatasets = []struct{ Dataset, Permission string }{
+	{"gl_lines", "ledger.entry.read"}, {"po_lines", "procurement.order.read"}, {"ap_invoices", "payables.invoice.read"},
 }
 
 // builds reports whether the source builds a fact table.
