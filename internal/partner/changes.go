@@ -603,23 +603,20 @@ func CreatePartner(ctx context.Context, ports Ports, in NewPartner) (Partner, Ch
 	if err != nil {
 		return Partner{}, Change{}, err
 	}
-	ev, err := created(ctx, ports.extensions(), bp, c)
-	if err != nil {
-		return Partner{}, Change{}, err
-	}
-	return bp, c, audit.Record(ctx, "partner.business_partner.create", "partner.business_partner", id,
-		map[string]any{"number": number, "partner_change_id": c.ID, "warnings": len(warns)}, ev)
+	return bp, c, recordCreated(ctx, ports.extensions(), bp, c, len(warns))
 }
 
-// created is BusinessPartnerCreated, with the partner's custom fields
-// masked (ADR-0046).
-func created(ctx context.Context, w extensions.Writes, bp Partner, c Change) (outbox.Event, error) {
+// recordCreated audits the new partner and publishes
+// BusinessPartnerCreated, with its custom fields masked (ADR-0046).
+func recordCreated(ctx context.Context, w extensions.Writes, bp Partner, c Change, warnings int) error {
 	payload := map[string]any{"partner_id": bp.ID, "number": bp.Number, "kind": bp.Kind, "name": bp.Name, "country_code": bp.CountryCode,
 		"roles": bp.Roles, "status": Pending, "partner_change_id": c.ID}
 	if err := w.Event(ctx, payload, bp.Extensions, bp.ExtensionsSchema); err != nil {
-		return outbox.Event{}, err
+		return err
 	}
-	return event("business_partner_created", bp.ID, "partner.business_partner", payload), nil
+	return audit.Record(ctx, "partner.business_partner.create", "partner.business_partner", bp.ID,
+		map[string]any{"number": bp.Number, "partner_change_id": c.ID, "warnings": warnings},
+		event("business_partner_created", bp.ID, "partner.business_partner", payload))
 }
 
 // checkNewPartner requires a known partner kind and known roles; the
