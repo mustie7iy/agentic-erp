@@ -4671,6 +4671,173 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/ledger-reconciliation:
+    get:
+      operationId: listLedgerReconciliation
+      tags:
+        - ledger
+      summary: Reconcile two ledgers
+      description: "Compares two ledgers a legal entity keeps (ADR-0045): per account and transaction currency, the balances in the ledger and in the compared ledger and their difference in transaction, local and group currency; only accounts that differ are listed. The figures are the balances' (`GET /v1/balances`): exact at the moment of the read, of one period or, without `fiscal_period`, of the year. `trial_balances`, on the first page, checks each of the two ledgers: its debits and credits net to zero. The entries behind a difference are listed by `GET /v1/ledger-reconciliation/entries`. A legal entity the caller cannot act in, or a ledger it does not keep, has no differences and no trial balances. Sortable by: `account_id`."
+      x-permission: ledger.entry.read
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: ledger_id
+          in: query
+          required: false
+          description: "The ledger reconciled; defaults to the leading ledger."
+          schema:
+            type: string
+            format: uuid
+        - name: compare_ledger_id
+          in: query
+          required: true
+          description: The ledger it is compared with (required).
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: Fiscal year (required).
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: fiscal_period
+          in: query
+          required: false
+          description: Only this period.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: account_id
+          in: query
+          required: false
+          description: Only this account.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of ledger differences.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LedgerReconciliationPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/ledger-reconciliation/entries:
+    get:
+      operationId: listLedgerReconciliationEntries
+      tags:
+        - ledger
+      summary: List the entries behind a ledger difference
+      description: "The journal lines on one account, of the ledger and the compared ledger, whose entry has no copy in the other ledger (ADR-0045): the ledger-specific postings, and entries posted before the ledger was assigned, that make up the difference `GET /v1/ledger-reconciliation` shows. The parameters are its own, with `account_id` required. Sortable by: `posting_date`."
+      x-permission: ledger.entry.read
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: ledger_id
+          in: query
+          required: false
+          description: "The ledger reconciled; defaults to the leading ledger."
+          schema:
+            type: string
+            format: uuid
+        - name: compare_ledger_id
+          in: query
+          required: true
+          description: The ledger it is compared with (required).
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: Fiscal year (required).
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: fiscal_period
+          in: query
+          required: false
+          description: Only this period.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: account_id
+          in: query
+          required: true
+          description: Account (required).
+          schema:
+            type: string
+            format: uuid
+        - name: currency
+          in: query
+          required: false
+          description: Only entries in this transaction currency.
+          schema:
+            type: string
+            pattern: "^[A-Z]{3}$"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of ledger-specific journal lines.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LedgerReconciliationEntryPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/exchange-rates:
     get:
       operationId: listExchangeRates
@@ -15660,6 +15827,303 @@ components:
                 amount: "1080.00"
                 currency: EUR
               updated_at: "2026-10-09T14:03:11Z"
+    LedgerDifference:
+      type: object
+      description: "One account and transaction currency whose balance differs between two ledgers; amounts are signed, debit positive."
+      required:
+        - account_id
+        - currency
+        - balance
+        - compare_balance
+        - difference
+        - difference_lc
+        - difference_gc
+      properties:
+        account_id:
+          type: string
+          format: uuid
+          description: G/L account.
+          readOnly: true
+        currency:
+          type: string
+          description: Transaction currency.
+          pattern: "^[A-Z]{3}$"
+          readOnly: true
+        balance:
+          $ref: "#/components/schemas/Money"
+          description: Balance in the ledger, in transaction currency.
+          readOnly: true
+        compare_balance:
+          $ref: "#/components/schemas/Money"
+          description: Balance in the compared ledger, in transaction currency.
+          readOnly: true
+        difference:
+          $ref: "#/components/schemas/Money"
+          description: "`balance` less `compare_balance`."
+          readOnly: true
+        difference_lc:
+          $ref: "#/components/schemas/Money"
+          description: The difference in local currency.
+          readOnly: true
+        difference_gc:
+          $ref: "#/components/schemas/Money"
+          description: The difference in group currency.
+          readOnly: true
+      examples:
+        - account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+          currency: EUR
+          balance:
+            amount: "1200.00"
+            currency: EUR
+          compare_balance:
+            amount: "1000.00"
+            currency: EUR
+          difference:
+            amount: "200.00"
+            currency: EUR
+          difference_lc:
+            amount: "200.00"
+            currency: EUR
+          difference_gc:
+            amount: "200.00"
+            currency: EUR
+    LedgerTrialBalance:
+      type: object
+      description: "One ledger's trial balance check: its debits and credits in local and group currency, which net to zero."
+      required:
+        - ledger_id
+        - debit_lc
+        - credit_lc
+        - debit_gc
+        - credit_gc
+        - balanced
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: Ledger.
+          readOnly: true
+        debit_lc:
+          $ref: "#/components/schemas/Money"
+          description: Debit total in local currency.
+          readOnly: true
+        credit_lc:
+          $ref: "#/components/schemas/Money"
+          description: Credit total in local currency (positive).
+          readOnly: true
+        debit_gc:
+          $ref: "#/components/schemas/Money"
+          description: Debit total in group currency.
+          readOnly: true
+        credit_gc:
+          $ref: "#/components/schemas/Money"
+          description: Credit total in group currency (positive).
+          readOnly: true
+        balanced:
+          type: boolean
+          description: "Whether debits equal credits in local and in group currency."
+          readOnly: true
+      examples:
+        - ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+          debit_lc:
+            amount: "5000.00"
+            currency: EUR
+          credit_lc:
+            amount: "5000.00"
+            currency: EUR
+          debit_gc:
+            amount: "5000.00"
+            currency: EUR
+          credit_gc:
+            amount: "5000.00"
+            currency: EUR
+          balanced: true
+    LedgerReconciliationPage:
+      type: object
+      description: "One page of the differences between two ledgers, with each ledger's trial balance check."
+      required:
+        - ledger_id
+        - compare_ledger_id
+        - trial_balances
+        - items
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: The ledger reconciled.
+          readOnly: true
+        compare_ledger_id:
+          type: string
+          format: uuid
+          description: The ledger it is compared with.
+          readOnly: true
+        trial_balances:
+          type: array
+          items:
+            $ref: "#/components/schemas/LedgerTrialBalance"
+          description: "The ledger's trial balance check, then the compared ledger's, on the first page; empty on the next pages and when the legal entity is not visible or does not keep both ledgers."
+          maxItems: 2
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/LedgerDifference"
+          description: The differences on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+          compare_ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
+          trial_balances:
+            - ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+              debit_lc:
+                amount: "5000.00"
+                currency: EUR
+              credit_lc:
+                amount: "5000.00"
+                currency: EUR
+              debit_gc:
+                amount: "5000.00"
+                currency: EUR
+              credit_gc:
+                amount: "5000.00"
+                currency: EUR
+              balanced: true
+          items:
+            - account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+              currency: EUR
+              balance:
+                amount: "1200.00"
+                currency: EUR
+              compare_balance:
+                amount: "1000.00"
+                currency: EUR
+              difference:
+                amount: "200.00"
+                currency: EUR
+              difference_lc:
+                amount: "200.00"
+                currency: EUR
+              difference_gc:
+                amount: "200.00"
+                currency: EUR
+    LedgerReconciliationEntry:
+      type: object
+      description: "A journal line of an entry posted in one of two ledgers and not in the other; amounts are signed, debit positive."
+      required:
+        - ledger_id
+        - journal_entry_id
+        - fiscal_year
+        - line_no
+        - document_number
+        - posting_date
+        - fiscal_period
+        - amount
+        - amount_lc
+        - amount_gc
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: The ledger the entry was posted in.
+          readOnly: true
+        journal_entry_id:
+          type: string
+          format: uuid
+          description: Journal entry.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year of the entry.
+          minimum: 1900
+          maximum: 2999
+          readOnly: true
+        line_no:
+          type: integer
+          format: int32
+          description: Line number.
+          minimum: 1
+          readOnly: true
+        document_number:
+          type: string
+          description: Document number.
+          readOnly: true
+        posting_date:
+          type: string
+          format: date
+          description: Posting date.
+          readOnly: true
+        fiscal_period:
+          type: integer
+          format: int32
+          description: Posting period.
+          minimum: 1
+          maximum: 16
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: Amount in transaction currency.
+          readOnly: true
+        amount_lc:
+          $ref: "#/components/schemas/Money"
+          description: Amount in local currency.
+          readOnly: true
+        amount_gc:
+          $ref: "#/components/schemas/Money"
+          description: Amount in group currency.
+          readOnly: true
+      examples:
+        - ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+          journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d09"
+          fiscal_year: 2026
+          line_no: 1
+          document_number: "1000000042"
+          posting_date: "2026-10-09"
+          fiscal_period: 10
+          amount:
+            amount: "200.00"
+            currency: EUR
+          amount_lc:
+            amount: "200.00"
+            currency: EUR
+          amount_gc:
+            amount: "200.00"
+            currency: EUR
+    LedgerReconciliationEntryPage:
+      type: object
+      description: One page of ledger-specific journal lines.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/LedgerReconciliationEntry"
+          description: The lines on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items:
+            - ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+              journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d09"
+              fiscal_year: 2026
+              line_no: 1
+              document_number: "1000000042"
+              posting_date: "2026-10-09"
+              fiscal_period: 10
+              amount:
+                amount: "200.00"
+                currency: EUR
+              amount_lc:
+                amount: "200.00"
+                currency: EUR
+              amount_gc:
+                amount: "200.00"
+                currency: EUR
     ExchangeRate:
       type: object
       description: "An exchange rate. Insert-only; (rate_type, from_currency, to_currency, valid_from) is unique, and a correction is a new rate."

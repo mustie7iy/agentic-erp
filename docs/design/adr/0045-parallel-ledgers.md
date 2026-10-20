@@ -106,9 +106,24 @@ valuation on its adjustment account (ADR-0042), never on the
 reconciliation account itself. Depreciation runs per
 depreciation area, each posting to its ledger (T57).
 
-**Reconciliation (T52e).** `GET /v1/ledger-reconciliation` compares the
-ledgers of a company per account and period, with drill-down to the
-entries that differ, and the trial balance is checked per ledger.
+**Reconciliation (T52e).** `GET /v1/ledger-reconciliation` compares two
+ledgers a company keeps per account and transaction currency, over a
+period or the year, from the balances the trial balance reads (projected
+balances plus the lines not yet projected, so exact at the read), listing
+only the accounts that differ in transaction, local or group currency.
+Its first page checks each of the two ledgers' trial balance: debits equal
+credits in local and group currency. `GET
+/v1/ledger-reconciliation/entries` drills down from an account to the
+lines behind its difference: the entries of either ledger whose posting
+group has no entry in the other (ledger-specific postings, and entries
+posted before T52b, which have no posting group). Both are reads with
+`ledger.entry.read`, as the balances, at the default autonomy for reads.
+No check looks for leading-ledger-only items on reconciliation accounts
+posted before the T52d rule: they cannot exist in real data, because the
+rollout rule below assigns no company a parallel ledger until every
+replica runs T52b, which ships with the T52d rule; before a parallel
+ledger is assigned, every posting is the leading ledger's alone
+(coordinator, 2026-10-20).
 
 **Analytics and agents.** Analytics read the leading ledger by default
 (product owner): they read the journal list and open items, both the
@@ -117,9 +132,11 @@ postings by agents are propose-only.
 
 **Migrations are expand-only.** New tables and nullable columns; unique
 indexes built concurrently per partition and attached (the runner's
-`migrate:partitioned-index`, T52b). The old document number constraint is
-dropped in T52b (000095), not in T52e as first planned: it would refuse
-every copy, and the previous release never relies on it (numbers come from
+`migrate:partitioned-index`, T52b). T52e's contract step is empty: the
+old document number constraint is dropped in T52b (000095), not in T52e as
+first planned, and nothing else of the expand is contracted
+(`posting_group_id` stays nullable: entries posted before T52b have
+none). The constraint went early because it would refuse every copy, and the previous release never relies on it (numbers come from
 the number range), so dropping it is safe during a rolling deploy. The copies are not: a release before
 T52b lists a copy's supplier lines as open items and reverses a copy
 alone, so no company is assigned a parallel ledger until every replica

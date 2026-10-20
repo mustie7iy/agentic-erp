@@ -1177,6 +1177,34 @@ func (UnimplementedHandler) ListLedgerGroups(ctx context.Context, params ListLed
 	return r, ht.ErrNotImplemented
 }
 
+// ListLedgerReconciliation implements listLedgerReconciliation operation.
+//
+// Compares two ledgers a legal entity keeps (ADR-0045): per account and transaction currency, the
+// balances in the ledger and in the compared ledger and their difference in transaction, local and
+// group currency; only accounts that differ are listed. The figures are the balances'
+// (`GET /v1/balances`): exact at the moment of the read, of one period or, without `fiscal_period`, of
+// the year. `trial_balances`, on the first page, checks each of the two ledgers: its debits and
+// credits net to zero. The entries behind a difference are listed by
+// `GET /v1/ledger-reconciliation/entries`. A legal entity the caller cannot act in, or a ledger it
+// does not keep, has no differences and no trial balances. Sortable by: `account_id`.
+//
+// GET /v1/ledger-reconciliation
+func (UnimplementedHandler) ListLedgerReconciliation(ctx context.Context, params ListLedgerReconciliationParams) (r ListLedgerReconciliationRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListLedgerReconciliationEntries implements listLedgerReconciliationEntries operation.
+//
+// The journal lines on one account, of the ledger and the compared ledger, whose entry has no copy in
+// the other ledger (ADR-0045): the ledger-specific postings, and entries posted before the ledger was
+// assigned, that make up the difference `GET /v1/ledger-reconciliation` shows. The parameters are its
+// own, with `account_id` required. Sortable by: `posting_date`.
+//
+// GET /v1/ledger-reconciliation/entries
+func (UnimplementedHandler) ListLedgerReconciliationEntries(ctx context.Context, params ListLedgerReconciliationEntriesParams) (r ListLedgerReconciliationEntriesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListLedgers implements listLedgers operation.
 //
 // The leading ledger 0L and the parallel ledgers kept under other accounting principles, with the

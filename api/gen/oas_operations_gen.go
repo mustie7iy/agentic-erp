@@ -124,6 +124,8 @@ const (
 	ListGrIrBalancesOperation                 OperationName = "ListGrIrBalances"
 	ListJournalEntriesOperation               OperationName = "ListJournalEntries"
 	ListLedgerGroupsOperation                 OperationName = "ListLedgerGroups"
+	ListLedgerReconciliationOperation         OperationName = "ListLedgerReconciliation"
+	ListLedgerReconciliationEntriesOperation  OperationName = "ListLedgerReconciliationEntries"
 	ListLedgersOperation                      OperationName = "ListLedgers"
 	ListLegalEntitiesOperation                OperationName = "ListLegalEntities"
 	ListMatchResultsOperation                 OperationName = "ListMatchResults"

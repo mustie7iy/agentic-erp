@@ -2,7 +2,6 @@ package ledger
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -408,13 +407,9 @@ func (e *Endpoints) ListBalances(ctx context.Context, params gen.ListBalancesPar
 	if !ok || !access.Allows(le.ID) {
 		return empty, nil
 	}
-	var ledger uuid.UUID
-	err = tx.QueryRow(ctx, `SELECT id FROM ledger.ledger WHERE ($1::uuid IS NULL AND is_leading) OR id = $1`, apitypes.Ptr[uuid.UUID](params.LedgerID)).Scan(&ledger)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return empty, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("ledger: list balances %s: find ledger: %w", le.ID, err)
+	ledger, ok, err := ledgerOrLeading(ctx, tx, apitypes.Ptr[uuid.UUID](params.LedgerID))
+	if err != nil || !ok {
+		return empty, err
 	}
 	group, err := e.LegalEntities.GroupCurrency(ctx)
 	if err != nil {
@@ -424,7 +419,7 @@ func (e *Endpoints) ListBalances(ctx context.Context, params gen.ListBalancesPar
 	if err != nil {
 		return nil, err
 	}
-	q, args := ks.SQL(balanceSelect+` WHERE true`, []any{le.ID, ledger, params.FiscalYear, period, account})
+	q, args := ks.SQL(balanceSelect+` WHERE true`, []any{le.ID, []uuid.UUID{ledger}, params.FiscalYear, period, account})
 	rows, _ := tx.Query(ctx, q, args...)
 	balances, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Balance, error) { return scanBalance(r) })
 	if err != nil {

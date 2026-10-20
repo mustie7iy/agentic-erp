@@ -473,6 +473,14 @@ type ListLedgerGroupsRes interface {
 	listLedgerGroupsRes()
 }
 
+type ListLedgerReconciliationEntriesRes interface {
+	listLedgerReconciliationEntriesRes()
+}
+
+type ListLedgerReconciliationRes interface {
+	listLedgerReconciliationRes()
+}
+
 type ListLedgersRes interface {
 	listLedgersRes()
 }

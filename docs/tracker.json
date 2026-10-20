@@ -939,15 +939,15 @@
       ]
      },
      {
-      "s": "T",
-      "t": "Ledger-specific postings",
-      "r": "T52",
+      "s": "D",
+      "t": "Ledger-specific postings: a manual or parked entry names a ledger or ledger group, never on a supplier or customer reconciliation account",
+      "r": "ledger_id · ledger_group · ADR-0045 · T52b · T52d",
       "c": []
      },
      {
-      "s": "T",
-      "t": "Ledger reconciliation",
-      "r": "T52",
+      "s": "D",
+      "t": "Ledger reconciliation: differences between two ledgers of a company per account and currency, each ledger's trial balance checked, drill-down to the ledger-specific entries; perf budget; T52b's contract step found empty",
+      "r": "GET /v1/ledger-reconciliation · GET /v1/ledger-reconciliation/entries · TestLedgerReconciliationBudget · ADR-0045 · T52e",
       "c": []
      }
     ]

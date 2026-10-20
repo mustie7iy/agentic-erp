@@ -713,6 +713,14 @@ Rules enforced in the database:
   with `clearing_item` rows for the copies of the cleared lines (an item
   with its offset, only where both have a copy); the leading ledger's is
   the one read and announced.
+- Ledger reconciliation (ADR-0045, T52e) needs no table: it reads the
+  balances the trial balance reads (`period_balance` plus the lines not
+  yet projected) for two ledgers, and finds the entries behind a
+  difference as those whose `posting_group_id` has no entry in the other
+  ledger (`journal_entry_posting_group`). The contract step of T52b's
+  expand is empty: the old document number constraint went in 000095, and
+  `posting_group_id` stays nullable, entries posted before T52b having
+  none.
 
 Enforced by the ledger, not the database (T32c): `:unlock` (permission
 `ledger.period.lock`, people only) opens the `period_unlock` request with
