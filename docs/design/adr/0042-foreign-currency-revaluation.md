@@ -99,8 +99,12 @@ posting.
   (account, currency, direction) two lines: the local and group
   differences on the flagged account itself, or on the reconciliation
   account's adjustment account, and their offset on the unrealised gain
-  or loss account; the header's local-to-group rate is the posting date's
-  average rate, for the record only. The reset entry, dated the next day,
+  or loss account, each checked postable in the legal entity as every
+  posting's; the header's local-to-group rate is the posting date's
+  average rate, for the record only, so a run fails without one as any
+  posting would. A run's entries are not reversed one by one
+  (`ledger.entry_owned_elsewhere`); cancelling the run (T48d) reverses
+  both. The reset entry, dated the next day,
   has the same lines negated. Both periods must be open
   (`ledger.period_not_open`), also for a run without differences, which
   is recorded with its items and no entries. Running needs

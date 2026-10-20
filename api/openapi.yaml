@@ -4456,7 +4456,6 @@ paths:
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
-        - $ref: "#/components/parameters/Include"
       responses:
         "200":
           description: One page of revaluation runs.
@@ -15445,11 +15444,6 @@ components:
           type: string
           description: "Opaque cursor for the next page; absent on the last page."
           maxLength: 2048
-        total_estimate:
-          type: integer
-          format: int64
-          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
-          minimum: 0
     RevaluationPreviewRequest:
       type: object
       description: Parameters of a revaluation preview.

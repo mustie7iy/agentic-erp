@@ -34669,18 +34669,11 @@ func (s *RevaluationRunPage) encodeFields(e *jx.Encoder) {
 			s.NextPageToken.Encode(e)
 		}
 	}
-	{
-		if s.TotalEstimate.Set {
-			e.FieldStart("total_estimate")
-			s.TotalEstimate.Encode(e)
-		}
-	}
 }
 
-var jsonFieldsNameOfRevaluationRunPage = [3]string{
+var jsonFieldsNameOfRevaluationRunPage = [2]string{
 	0: "items",
 	1: "next_page_token",
-	2: "total_estimate",
 }
 
 // Decode decodes RevaluationRunPage from json.
@@ -34719,16 +34712,6 @@ func (s *RevaluationRunPage) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"next_page_token\"")
-			}
-		case "total_estimate":
-			if err := func() error {
-				s.TotalEstimate.Reset()
-				if err := s.TotalEstimate.Decode(d); err != nil {
-					return err
-				}
-				return nil
-			}(); err != nil {
-				return errors.Wrap(err, "decode field \"total_estimate\"")
 			}
 		default:
 			return d.Skip()

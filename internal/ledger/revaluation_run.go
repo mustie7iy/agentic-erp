@@ -42,6 +42,8 @@ type RevaluationRun struct {
 	Totals                      []RevaluationTotal
 }
 
+// The item count is read, not kept on the run: the items are inserted
+// after the run, which is fixed once posted.
 const revaluationRunSelect = `SELECT r.id, r.legal_entity_id, r.ledger_id, r.key_date, r.rate_type, r.status,
 		(SELECT count(*) FROM ledger.revaluation_item i WHERE i.tenant_id = r.tenant_id AND i.run_id = r.id)::int,
 		r.valuation_entry_year, r.valuation_entry_id, r.reversal_entry_year, r.reversal_entry_id, r.created_at, r.created_by
@@ -139,6 +141,11 @@ func (e *Endpoints) postRevaluation(ctx context.Context, tx pgx.Tx, p reqctx.Pri
 	if len(totals) > 0 {
 		lines, err := revaluationLines(ctx, tx, r, totals)
 		if err != nil {
+			return RevaluationRun{}, err
+		}
+		// As every posting: the valuation accounts may since have been
+		// blocked for posting in the legal entity. The reset posts to the same.
+		if err := e.checkAccounts(ctx, tx, le.ID, lines, false); err != nil {
 			return RevaluationRun{}, err
 		}
 		valuation, err := e.postRevaluationEntry(ctx, tx, p, le, r, run.ID, r.KeyDate, "Foreign-currency revaluation at ", lines)
@@ -316,6 +323,7 @@ func (e *Endpoints) GetRevaluationRun(ctx context.Context, params gen.GetRevalua
 	if err != nil {
 		return nil, err
 	}
+	// A run is recorded for an existing legal entity, which is never deleted.
 	le, _, err := e.LegalEntities.Entity(ctx, run.LegalEntityID)
 	if err != nil {
 		return nil, err

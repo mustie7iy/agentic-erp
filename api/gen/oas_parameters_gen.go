@@ -29034,9 +29034,6 @@ type ListRevaluationRunsParams struct {
 	// Sort order as `field [asc|desc]`, comma-separated. Only the fields listed in the operation
 	// description are accepted; others return 400.
 	OrderBy OptString `json:",omitempty,omitzero"`
-	// Optional extras. `total_estimate` adds a planner estimate of the number of matches where it is
-	// cheap.
-	Include OptString `json:",omitempty,omitzero"`
 }
 
 func unpackListRevaluationRunsParams(packed middleware.Parameters) (params ListRevaluationRunsParams) {
@@ -29074,15 +29071,6 @@ func unpackListRevaluationRunsParams(packed middleware.Parameters) (params ListR
 		}
 		if v, ok := packed[key]; ok {
 			params.OrderBy = v.(OptString)
-		}
-	}
-	{
-		key := middleware.ParameterKey{
-			Name: "include",
-			In:   "query",
-		}
-		if v, ok := packed[key]; ok {
-			params.Include = v.(OptString)
 		}
 	}
 	return params
@@ -29334,47 +29322,6 @@ func decodeListRevaluationRunsParams(args [0]string, argsEscaped bool, r *http.R
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "order_by",
-			In:   "query",
-			Err:  err,
-		}
-	}
-	// Decode query: include.
-	if err := func() error {
-		cfg := uri.QueryParameterDecodingConfig{
-			Name:    "include",
-			Style:   uri.QueryStyleForm,
-			Explode: true,
-		}
-
-		if err := q.HasParam(cfg); err == nil {
-			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
-				var paramsDotIncludeVal string
-				if err := func() error {
-					val, err := d.DecodeValue()
-					if err != nil {
-						return err
-					}
-
-					c, err := conv.ToString(val)
-					if err != nil {
-						return err
-					}
-
-					paramsDotIncludeVal = c
-					return nil
-				}(); err != nil {
-					return err
-				}
-				params.Include.SetTo(paramsDotIncludeVal)
-				return nil
-			}); err != nil {
-				return err
-			}
-		}
-		return nil
-	}(); err != nil {
-		return params, &ogenerrors.DecodeParamError{
-			Name: "include",
 			In:   "query",
 			Err:  err,
 		}

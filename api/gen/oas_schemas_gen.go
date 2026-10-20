@@ -25103,9 +25103,6 @@ type RevaluationRunPage struct {
 	Items []RevaluationRun `json:"items"`
 	// Opaque cursor for the next page; absent on the last page.
 	NextPageToken OptString `json:"next_page_token"`
-	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
-	// requested and the estimate is cheap.
-	TotalEstimate OptInt64 `json:"total_estimate"`
 }
 
 // GetItems returns the value of Items.
@@ -25118,11 +25115,6 @@ func (s *RevaluationRunPage) GetNextPageToken() OptString {
 	return s.NextPageToken
 }
 
-// GetTotalEstimate returns the value of TotalEstimate.
-func (s *RevaluationRunPage) GetTotalEstimate() OptInt64 {
-	return s.TotalEstimate
-}
-
 // SetItems sets the value of Items.
 func (s *RevaluationRunPage) SetItems(val []RevaluationRun) {
 	s.Items = val
@@ -25131,11 +25123,6 @@ func (s *RevaluationRunPage) SetItems(val []RevaluationRun) {
 // SetNextPageToken sets the value of NextPageToken.
 func (s *RevaluationRunPage) SetNextPageToken(val OptString) {
 	s.NextPageToken = val
-}
-
-// SetTotalEstimate sets the value of TotalEstimate.
-func (s *RevaluationRunPage) SetTotalEstimate(val OptInt64) {
-	s.TotalEstimate = val
 }
 
 // RevaluationRunPageHeaders wraps RevaluationRunPage with response headers.

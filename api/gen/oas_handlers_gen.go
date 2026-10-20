@@ -27509,10 +27509,6 @@ func (s *Server) handleListRevaluationRunsRequest(args [0]string, argsEscaped bo
 					Name: "order_by",
 					In:   "query",
 				}: params.OrderBy,
-				{
-					Name: "include",
-					In:   "query",
-				}: params.Include,
 			},
 			Raw: r,
 		}

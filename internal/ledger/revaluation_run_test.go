@@ -157,6 +157,14 @@ func TestRevaluationRun(t *testing.T) {
 		}
 		e.in(t).Problem(400, "request.invalid_page_token", "GET", "/v1/revaluation-runs?page_token=garbage", "", "")
 	})
+	t.Run("its entries are not reversed alone", func(t *testing.T) {
+		for _, k := range []string{"valuation_entry_id", "reversal_entry_id"} {
+			p := e.in(t).Problem(409, "ledger.entry_owned_elsewhere", "POST", "/v1/journal-entries/"+apitest.String(t, run, k)+":reverse", "", "*")
+			if !strings.Contains(fmt.Sprint(p["detail"]), id) {
+				t.Errorf("%s: detail %v, want it to name run %s", k, p["detail"], id)
+			}
+		}
+	})
 	t.Run("an unknown run", func(t *testing.T) {
 		e.in(t).Problem(404, "request.not_found", "GET", "/v1/revaluation-runs/"+uuid.NewString(), "", "")
 	})
@@ -227,6 +235,11 @@ func TestRevaluationRunRefused(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) { e.in(t).Problem(422, c.code, "POST", "/v1/revaluation-runs", c.body, "") })
 	}
+	t.Run("a loss account blocked for posting", func(t *testing.T) {
+		pgtest.Exec(t, `UPDATE ledger.company_account SET is_posting_blocked = true, version = version + 1 WHERE legal_entity_id = $1 AND account_id = $2`,
+			e.de, settleAccount(t, e, "2000", "610000"))
+		e.in(t).Problem(422, "ledger.account_not_postable", "POST", "/v1/revaluation-runs", preview(e.de, "2026-03-31"), "")
+	})
 }
 
 // TestRevaluationRunFailures fails each statement of a run that posts

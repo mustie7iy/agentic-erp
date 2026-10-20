@@ -908,8 +908,10 @@ func recordReversal(ctx context.Context, tx pgx.Tx, p reqctx.Principal, orig, re
 	return clearReversal(ctx, tx, p, orig, rev)
 }
 
-// requireReversible refuses to reverse a reversed entry, a reversal, or an
-// entry with cleared lines.
+// requireReversible refuses to reverse a reversed entry, a reversal, an
+// entry with cleared lines, or a revaluation run's entry: reversing one
+// alone would leave the run posted with its other entry still in force
+// (ADR-0042; a run's entries are reversed together by cancelling it).
 func requireReversible(ctx context.Context, tx pgx.Tx, orig Entry) error {
 	switch {
 	case orig.ReversedByID != nil:
@@ -918,12 +920,18 @@ func requireReversible(ctx context.Context, tx pgx.Tx, orig Entry) error {
 		return problem.Conflict("ledger.cannot_reverse_reversal", "The journal entry is itself a reversal; post a new entry instead.")
 	}
 	var cleared bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM ledger.clearing_item WHERE fiscal_year = $1 AND journal_entry_id = $2)`,
-		orig.FiscalYear, orig.ID).Scan(&cleared); err != nil {
+	var run *uuid.UUID
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM ledger.clearing_item WHERE fiscal_year = $1 AND journal_entry_id = $2),
+			(SELECT id FROM ledger.revaluation_run WHERE (valuation_entry_year = $1 AND valuation_entry_id = $2) OR (reversal_entry_year = $1 AND reversal_entry_id = $2))`,
+		orig.FiscalYear, orig.ID).Scan(&cleared, &run); err != nil {
 		return fmt.Errorf("ledger: reverse entry %s: %w", orig.ID, err)
 	}
-	if cleared {
+	switch {
+	case cleared:
 		return problem.Conflict("ledger.entry_cleared", "Lines of the journal entry are cleared; an entry with cleared lines cannot be reversed.")
+	case run != nil:
+		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted by revaluation run "+run.String()+
+			"; a run's valuation and reset entries are reversed together by cancelling the run.")
 	}
 	return nil
 }

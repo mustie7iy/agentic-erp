@@ -1037,7 +1037,7 @@
        },
        {
         "s": "T",
-        "t": "Cancel and close-out: cancel reverses both entries, RevaluationRunCancelled; rerun after cancel",
+        "t": "Cancel and close-out: cancel reverses both entries (which :reverse refuses alone, ledger.entry_owned_elsewhere), RevaluationRunCancelled; rerun after cancel",
         "r": "T48d",
         "c": []
        },
