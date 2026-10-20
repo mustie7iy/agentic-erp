@@ -32,6 +32,9 @@ func floatIn(n *yaml.Node, t reflect.Type, path string) (*yaml.Node, string) {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
+	if t.Kind() == reflect.Interface { // yaml keeps a number's own type in an any: nothing is truncated
+		return nil, ""
+	}
 	switch n.Kind {
 	case yaml.DocumentNode:
 		return floatIn(n.Content[0], t, path)
