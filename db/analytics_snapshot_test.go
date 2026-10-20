@@ -98,8 +98,9 @@ func inRole(t *testing.T, role string, fn func(tx pgx.Tx) error) error {
 	return tx.Commit(ctx)
 }
 
-// TestExtractQueue (000092): the relay marks tenants changed, the worker
-// claims and finishes their runs, the application only reads its own row.
+// TestExtractQueue (000092, 000093): the relay and the sweep mark tenants
+// changed, the worker claims and finishes their runs, the application only
+// reads its own row.
 func TestExtractQueue(t *testing.T) {
 	need(t)
 	a, b := newFixture(t), newFixture(t)
@@ -111,9 +112,15 @@ func TestExtractQueue(t *testing.T) {
 		t.Fatalf("relay mark: %v", err)
 	}
 	if err := inRole(t, "erp_worker", func(tx pgx.Tx) error {
-		return exec(tx, `UPDATE analytics.extract_due SET started_at = now(), done_at = now() WHERE tenant_id = $1`, a.tenant)
+		return exec(tx, `UPDATE analytics.extract_due SET started_at = now(), done_at = now(), claimed_lsn = pg_current_wal_lsn() WHERE tenant_id = $1`, a.tenant)
 	}); err != nil {
 		t.Fatalf("worker claim: %v", err)
+	}
+	if err := inRole(t, "erp_worker", func(tx pgx.Tx) error {
+		return exec(tx, `INSERT INTO analytics.extract_due AS d (tenant_id, changed_at) VALUES ($1, now())
+			ON CONFLICT (tenant_id) DO UPDATE SET changed_at = excluded.changed_at`, a.tenant)
+	}); err != nil {
+		t.Fatalf("worker sweep: %v", err)
 	}
 	for name, c := range map[string]struct {
 		role, sql string
@@ -121,7 +128,6 @@ func TestExtractQueue(t *testing.T) {
 	}{
 		"application queues":    {"erp_app", mark, "permission denied"},
 		"relay claims":          {"erp_relay", `UPDATE analytics.extract_due SET started_at = now()`, "permission denied"},
-		"worker marks":          {"erp_worker", `UPDATE analytics.extract_due SET changed_at = now()`, "permission denied"},
 		"worker deletes":        {"erp_worker", `DELETE FROM analytics.extract_due`, "permission denied"},
 		"done before its claim": {"erp_worker", `UPDATE analytics.extract_due SET done_at = started_at + interval '1 second'`, "extract_due_done_at_claim"},
 	} {
@@ -140,6 +146,63 @@ func TestExtractQueue(t *testing.T) {
 		})
 		if n != 0 {
 			t.Errorf("queue rows seen by tenant B: got %d, want 0", n)
+		}
+	})
+}
+
+// TestSupersededList (000093): the manifests a tenant's publications
+// replaced, under row-level security, named for the tenant; the
+// application lists its own, the worker forgets them and clears a
+// tenant's store for a rebuild.
+func TestSupersededList(t *testing.T) {
+	need(t)
+	a, b := newFixture(t), newFixture(t)
+	key := func(tenant uuid.UUID, wm string) string {
+		return "analytics/v1/tenant=" + tenant.String() + "/manifest-" + wm + ".json"
+	}
+	list := `INSERT INTO analytics.superseded (tenant_id, manifest_key) VALUES ($1, $2)
+		ON CONFLICT (tenant_id, manifest_key) DO UPDATE SET superseded_at = excluded.superseded_at`
+	mustApp(t, a.tenant, func(tx pgx.Tx) error { return exec(tx, list, a.tenant, key(a.tenant, "00000000000000000007")) })
+	mustApp(t, a.tenant, func(tx pgx.Tx) error { return exec(tx, list, a.tenant, key(a.tenant, "00000000000000000007")) })
+	for name, c := range map[string]struct {
+		as   uuid.UUID
+		args []any
+		want string
+	}{
+		"other tenant's manifest": {b.tenant, []any{b.tenant, key(a.tenant, "00000000000000000008")}, "superseded_manifest_key_check"},
+		"not a manifest":          {b.tenant, []any{b.tenant, "analytics/v1/tenant=" + b.tenant.String() + "/gl_lines/x.parquet"}, "superseded_manifest_key_check"},
+		"another tenant's row":    {b.tenant, []any{a.tenant, key(a.tenant, "00000000000000000008")}, "row-level security"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			failsWith(t, asApp(t, c.as, func(tx pgx.Tx) error { return exec(tx, list, c.args...) }), c.want)
+		})
+	}
+	t.Run("invisible to another tenant", func(t *testing.T) {
+		var n int
+		mustApp(t, b.tenant, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(), `SELECT count(*) FROM analytics.superseded`).Scan(&n)
+		})
+		if n != 0 {
+			t.Errorf("superseded rows seen by tenant B: got %d, want 0", n)
+		}
+	})
+	t.Run("forgotten by the worker alone", func(t *testing.T) {
+		failsWith(t, asApp(t, a.tenant, func(tx pgx.Tx) error { return exec(tx, `DELETE FROM analytics.superseded`) }), "permission denied")
+		if err := inRole(t, "erp_worker", func(tx pgx.Tx) error {
+			return exec(tx, `DELETE FROM analytics.superseded WHERE tenant_id = $1`, a.tenant)
+		}); err != nil {
+			t.Fatalf("worker forgets: %v", err)
+		}
+	})
+	t.Run("rebuilt by the worker", func(t *testing.T) {
+		mustApp(t, a.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO analytics.snapshot (tenant_id, manifest_key, watermark, as_of) VALUES ($1, $2, '7', now())`,
+				a.tenant, key(a.tenant, "00000000000000000007"))
+		})
+		if err := inRole(t, "erp_worker", func(tx pgx.Tx) error {
+			return exec(tx, `DELETE FROM analytics.snapshot WHERE tenant_id = $1`, a.tenant)
+		}); err != nil {
+			t.Fatalf("worker rebuild: %v", err)
 		}
 	})
 }

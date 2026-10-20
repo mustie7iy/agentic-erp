@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -52,7 +53,7 @@ func setup(t *testing.T) env {
 	pool := pgtest.Pool(t)
 	srv := blobstoretest.New(t)
 	return env{Env: fixture.New(t, "ledger.entry.post"), server: srv,
-		x: extract.Extractor{Replica: pool.Begin, Primary: pool.Begin, Role: "erp_app", Store: srv.Store()}}
+		x: extract.Extractor{Replica: pool.Begin, Primary: pool.Begin, Role: "erp_app", WorkerRole: "erp_worker", Store: srv.Store()}}
 }
 
 // post posts an entry of company 2000 on date: the expense debited, the
@@ -240,6 +241,8 @@ func TestRunBehindTheWatermark(t *testing.T) {
 	key := extract.ManifestKey(e.Tenant.ID, ahead, "")
 	pgtest.Exec(t, `INSERT INTO analytics.snapshot (tenant_id, manifest_key, watermark, as_of) VALUES ($1, $2, $3::text::xid8, now())`,
 		e.Tenant.ID, key, fmt.Sprint(ahead))
+	// A pointer ahead of the database is rebuilt by the scheduler's tests.
+	t.Cleanup(func() { pgtest.Exec(t, `DELETE FROM analytics.snapshot WHERE tenant_id = $1`, e.Tenant.ID) })
 	if _, err := e.x.Run(context.Background(), e.Tenant.ID); !errors.Is(err, extract.ErrBehind) {
 		t.Errorf("run: got %v, want ErrBehind", err)
 	}
@@ -271,8 +274,9 @@ func TestRunLosesTheRace(t *testing.T) {
 			}
 			moved := extract.ManifestKey(e.Tenant.ID, 1, "")
 			primary := e.x.Primary
+			var once sync.Once
 			e.x.Primary = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-				pgtest.Exec(t, c.move, e.Tenant.ID, moved)
+				once.Do(func() { pgtest.Exec(t, c.move, e.Tenant.ID, moved) })
 				return primary(ctx, s)
 			}
 			_, err := e.x.Run(context.Background(), e.Tenant.ID)
@@ -284,7 +288,36 @@ func TestRunLosesTheRace(t *testing.T) {
 			if key != moved {
 				t.Errorf("pointer: got %s, want %s", key, moved)
 			}
+			// The lost run's manifest is listed for collection.
+			var lost int
+			pgtest.Scan(t, `SELECT count(*) FROM analytics.superseded WHERE tenant_id = $1 AND manifest_key <> $2`, []any{e.Tenant.ID, moved}, &lost)
+			if want := map[bool]int{true: 1, false: 0}[c.ok]; lost != want {
+				t.Errorf("superseded lost manifests: got %d, want %d", lost, want)
+			}
 		})
+	}
+}
+
+// TestLostRunNotListed: a lost run whose manifest cannot be listed for
+// collection reports both.
+func TestLostRunNotListed(t *testing.T) {
+	e := setup(t)
+	e.post(t, "2026-03-02", "1.00")
+	pool := pgtest.Pool(t)
+	begins := 0
+	e.x.Primary = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+		begins++
+		tx, err := pool.Begin(ctx, s)
+		if begins == 1 {
+			pgtest.Exec(t, `INSERT INTO analytics.snapshot (tenant_id, manifest_key, watermark, as_of) VALUES ($1, $2, '1', now())`,
+				e.Tenant.ID, extract.ManifestKey(e.Tenant.ID, 1, ""))
+			return tx, err
+		}
+		return &pgtest.FailingTx{Tx: tx, FailAt: 1}, err
+	}
+	_, err := e.x.Run(context.Background(), e.Tenant.ID)
+	if !errors.Is(err, extract.ErrMoved) || !errors.Is(err, pgtest.ErrInjected) {
+		t.Errorf("run: got %v, want ErrMoved and the listing's failure", err)
 	}
 }
 
@@ -380,6 +413,10 @@ func TestDatabaseFailures(t *testing.T) {
 		t.Errorf("run with nothing new: got %+v, want a check only", res)
 	}
 	e.post(t, "2026-03-03", "1.00")
+	if res := failEach(t, e); !res.Published { // over a pointer: the superseded list too
+		t.Errorf("second run: got %+v, want published", res)
+	}
+	e.post(t, "2026-03-04", "1.00")
 	pool := pgtest.Pool(t)
 	x := e.x
 	x.Primary = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {

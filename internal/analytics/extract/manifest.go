@@ -18,7 +18,7 @@ import (
 
 // Prefix is the first segment of every key of the store: the layout's
 // version, then the tenant (ADR-0044).
-const Prefix = "analytics/v1"
+const Prefix = blobstore.AnalyticsPrefix
 
 // Manifest names everything a run published for a tenant: the reader takes
 // one manifest and reads only the files it lists.

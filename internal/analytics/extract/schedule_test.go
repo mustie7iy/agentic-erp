@@ -3,7 +3,6 @@ package extract_test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"sync"
@@ -15,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics/extract"
+	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -31,7 +31,7 @@ func newScheduled(t *testing.T) scheduled {
 	// The scheduler claims any due tenant of the database; only this
 	// package's tests queue any, and each removes its own.
 	t.Cleanup(func() { pgtest.Exec(t, `DELETE FROM analytics.extract_due WHERE tenant_id = $1`, e.Tenant.ID) })
-	return scheduled{env: e, s: extract.Scheduler{Extractor: e.x, Begin: pgtest.Pool(t).Begin, WorkerRole: "erp_worker",
+	return scheduled{env: e, s: extract.Scheduler{Extractor: e.x, Begin: pgtest.Pool(t).Begin, WorkerRole: "erp_worker", SweepEvery: -1,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil))}}
 }
 
@@ -117,17 +117,15 @@ func TestSchedulerRunsChangedTenants(t *testing.T) {
 func TestSchedulerRetriesAFailedRun(t *testing.T) {
 	c := newScheduled(t)
 	c.post(t, "2026-03-02", "1.00")
-	ahead := uint64(1) << 62
-	pgtest.Exec(t, `INSERT INTO analytics.snapshot (tenant_id, manifest_key, watermark, as_of) VALUES ($1, $2, $3::text::xid8, now())`,
-		c.Tenant.ID, extract.ManifestKey(c.Tenant.ID, ahead, ""), fmt.Sprint(ahead))
+	c.s.Extractor.Store = failingStore{Store: c.server.Store(), method: "put", part: "gl_lines"}
 	c.mark(t, "ledger")
-	if _, err := c.s.RunOnce(context.Background()); !errors.Is(err, extract.ErrBehind) {
-		t.Fatalf("round: got %v, want ErrBehind", err)
+	if _, err := c.s.RunOnce(context.Background()); !errors.Is(err, blobstore.ErrLocked) {
+		t.Fatalf("round: got %v, want the store's failure", err)
 	}
 	if _, done := c.due(t); done != nil {
 		t.Fatalf("done: got %v, want none", done)
 	}
-	pgtest.Exec(t, `DELETE FROM analytics.snapshot WHERE tenant_id = $1`, c.Tenant.ID)
+	c.s.Extractor.Store = c.server.Store()
 	c.aged(t)
 	c.runOnce(t)
 	if _, done := c.due(t); done == nil {

@@ -96,6 +96,7 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 	env := environment(t, is, natsURL)
 	env["ERP_MODEL_API_KEY"] = "test" // the model gateway and invoice capture are wired; nothing calls the model here
 	env["ERP_BANK_OUTBOX_DIR"] = t.TempDir()
+	env["DATABASE_REPLICA_URL"] = pgtest.URL(t) // the analytics extract reads a replica, here the primary itself
 	maintenanceInterval = 10 * time.Millisecond // the partition maintenance runs while the server serves
 	defer func() { maintenanceInterval = 6 * time.Hour }()
 	ten := pgtest.NewTenant(t, "platform.operation.read", "platform.operation.cancel")
@@ -148,7 +149,7 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 			strings.Contains(string(scraped), "erp_payment_proposals_queued 0") && strings.Contains(string(scraped), "erp_simulations_queued 0")
 	}, "metrics lack a backlog:\n%s", lazy(func() string { return string(scraped) }))
 	for _, want := range []string{"erp_outbox_backlog ", "erp_projection_backlog 0", "erp_payment_proposals_queued 0", "erp_simulations_queued 0",
-		"erp_outbox_lag_seconds ", "erp_projection_lag_seconds 0"} {
+		"erp_outbox_lag_seconds ", "erp_projection_lag_seconds 0", "erp_analytics_lag_seconds ", "erp_analytics_stale_tenants "} {
 		if !strings.Contains(string(scraped), want) {
 			t.Errorf("metrics lack %q:\n%s", want, scraped)
 		}
@@ -2281,5 +2282,16 @@ func TestModelClient(t *testing.T) {
 	_ = resp.Body.Close() // only the status is asserted
 	if resp.StatusCode != http.StatusTemporaryRedirect {
 		t.Errorf("redirect: got %d, want it answered, not followed", resp.StatusCode)
+	}
+}
+
+// TestReplicaDown: a configured read replica the server cannot reach stops
+// it at startup, as the primary does.
+func TestReplicaDown(t *testing.T) {
+	env := environment(t, authntest.New(t), "")
+	env["DATABASE_REPLICA_URL"] = "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"
+	var stderr bytes.Buffer
+	if code := cli(context.Background(), nil, func(k string) string { return env[k] }, io.Discard, &stderr, nil); code != 1 || !strings.Contains(stderr.String(), "the read replica") {
+		t.Errorf("got %d %s, want 1 and the read replica's failure", code, stderr.String())
 	}
 }

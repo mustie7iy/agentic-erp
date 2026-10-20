@@ -3404,9 +3404,21 @@
         "c": []
        },
        {
+        "s": "P",
+        "t": "Lifecycle: publications list the manifest they replace (analytics.superseded) and a lost run its own; after each run the scheduler collects, past 7 days, the files no manifest in use lists, then the manifest and (as erp_worker) its row; a month's journal parts merged at 8 into one file named by the interval they cover; erasure deletes analytics/v1/tenant=<id>/ with the tenant's objects (blobstore.TenantPrefixes); a run behind its watermark rebuilds the store when the primary is behind it too (restore) and is retried when only the replica lags; erp-server dr reconcile rebuilds every store ahead of the restored database; the claim records the primary's WAL position and the run reads the replica (DATABASE_REPLICA_URL) only once it has replayed past it, else the primary; hourly sweep of active tenants not found current; gauges erp_analytics_lag_seconds and erp_analytics_stale_tenants. The dedicated test database was dropped: each package has one, and the snapshot horizon is the cluster's. Next: the server-side analytics query endpoint",
+        "r": "migration 000093 · internal/analytics/extract lifecycle.go · offboarding.eraseObjects · drverify.Reconciler.Analytics · erp-server DATABASE_REPLICA_URL · ADR-0044 · T55f",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Erasure, compaction, lifecycle, rebuild, the hourly sweep of tenants whose checked_at is stale, the extract waiting for the replica to replay its claim's WAL position (the scheduler reads on the primary until then), and the freshness alert; a dedicated test database for the extract tests, so their wait for the cluster-wide snapshot horizon is short; a lagging-replica run (cutoff below the watermark) stops with ErrBehind and is retried, never published",
-        "r": "T55f",
+        "t": "Reconciliation per tenant and month with the sweep (rows and the sum of amount_minor against the database, as ADR-0030's fingerprint), re-extracting a month that disagrees",
+        "r": "T55i",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Freshness alert rules on erp_analytics_lag_seconds (p95 target 15 minutes) and erp_analytics_stale_tenants in the cell's Prometheus rules, once T54's rules (T54e) are on main; the gauges move to cmd/erp-server/gauges.go with T54b's",
+        "r": "T55j",
         "c": []
        }
       ]

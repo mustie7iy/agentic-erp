@@ -662,6 +662,9 @@ func TestProductionFailsClosed(t *testing.T) {
 		{"production database without verified TLS", prod(map[string]string{"DATABASE_URL": "postgres://u:p@db.example.com/erp?sslmode=require"}), []string{dbRefused}},
 		{"production database by default", prod(map[string]string{"DATABASE_URL": "postgres://u:p@db.example.com/erp"}), []string{dbRefused}},
 		{"production directory", prod(directory), nil},
+		{"production replica", prod(map[string]string{"DATABASE_REPLICA_URL": verified}), nil},
+		{"production replica without verified TLS", prod(map[string]string{"DATABASE_REPLICA_URL": "postgres://u:p@replica.example.com/erp?sslmode=require"}),
+			[]string{"DATABASE_REPLICA_URL: sslmode must be verify-full"}},
 		{"production directory without verified TLS", prod(with(directory, map[string]string{"ERP_DIRECTORY_URL": "postgres://u:p@dir.example.com/erp?sslmode=prefer"})), []string{dirRefused}},
 		{"development NATS without TLS", map[string]string{"ERP_ENV": "development", "ERP_NATS_URL": "nats://localhost:4222"}, nil},
 		{"production NATS over mutual TLS", prod(with(identity, map[string]string{"ERP_NATS_URL": "tls://nats-1:4222,tls://nats-2:4222", "ERP_AT_REST": statement + ",nats=volume"})), nil},
@@ -845,6 +848,36 @@ func TestTrustDomain(t *testing.T) {
 			}
 			if cfg.TrustDomain != c.value {
 				t.Errorf("TrustDomain: got %q, want %q", cfg.TrustDomain, c.value)
+			}
+		})
+	}
+}
+
+// TestAnalyticsURL: erp-analytics is reached over https as its SPIFFE
+// identity, so its URL needs the trust domain (ADR-0044).
+func TestAnalyticsURL(t *testing.T) {
+	for _, c := range []struct {
+		name, url, domain, wantErr string
+	}{
+		{"none", "", "", ""},
+		{"https", "https://erp-analytics:8443", "erp.example", ""},
+		{"plain", "http://erp-analytics:8443", "erp.example", "ERP_ANALYTICS_URL must be an https URL"},
+		{"without a trust domain", "https://erp-analytics:8443", "", "ERP_ANALYTICS_URL must be an https URL"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := valid()
+			maps.Copy(m, tlsFiles(t))
+			m["ERP_ANALYTICS_URL"], m["ERP_TRUST_DOMAIN"], m["DATABASE_REPLICA_URL"] = c.url, c.domain, "postgres://u:p@replica/erp"
+			cfg, err := Load(env(m))
+			if c.wantErr != "" {
+				pgtest.CheckErr(t, err, c.wantErr)
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.AnalyticsURL != c.url || cfg.DatabaseReplicaURL != "postgres://u:p@replica/erp" {
+				t.Errorf("analytics: got %q and replica %q, want %q and the replica", cfg.AnalyticsURL, cfg.DatabaseReplicaURL, c.url)
 			}
 		})
 	}

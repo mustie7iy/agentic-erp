@@ -4,7 +4,9 @@
 T55b: one pointer row per tenant, the leading ledger by default; T55c:
 manifests named by cutoff and digest, `checked_at`, the scheduler; T55d:
 `partners` in place of `vendors`, the reader; T55e: the semantic layer on
-the store, the ledger filter, the reader's limits)
+the store, the ledger filter, the reader's limits; T55f: lifecycle,
+compaction, erasure, rebuild, the sweep, the replica wait, freshness
+metrics)
 
 ## Context
 The semantic layer (`internal/analytics`, `semantic.yaml`) answers every
@@ -235,12 +237,10 @@ file written when the next month begins, so a first run over any backlog
 holds one month in memory. The scheduler is `extract.Scheduler`
 (`erp_worker` claims; the extract itself runs as `erp_app` under the
 tenant's RLS); the server starts it, and sets the relay's hook, with the
-reader in T55e. Until the run waits for the replica to replay the WAL
-position recorded at its claim (`pg_current_wal_lsn()` on the primary
-against `pg_last_wal_replay_lsn()`, T55f), the scheduler reads on the
-primary: a lagging replica would find nothing new, record `checked_at` and
-mark the change done, and the entry would wait for the tenant's next
-change.
+reader in T55e. The run waits for the replica to replay the WAL position
+recorded at its claim (T55f, below): a lagging replica would find nothing
+new, record `checked_at` and mark the change done, and the entry would
+wait for the tenant's next change.
 
 **Reader (T55d).** `internal/analytics/reader`, served by
 `cmd/erp-analytics` on one mTLS listener (TLS 1.3, a client certificate
@@ -347,6 +347,82 @@ one.
 T55f. The semantic layer itself still runs as an API client (`erp
 analytics`); serving it from erp-server, where the store source can read
 the pointer and call erp-analytics, is a separate step.
+
+**Lifecycle, rebuild and freshness (T55f).** Migration 000093.
+
+*Superseded files.* A publication lists the manifest it replaced in
+`analytics.superseded (tenant_id, manifest_key, superseded_at)` (RLS, a
+check ties the key to the tenant), and a run that lost the race
+(`ErrMoved`) lists its own. After each tenant's run, in the same claim, the
+scheduler collects (`Extractor.Collect`): for every manifest superseded
+more than seven days ago (`Keep`), it deletes the files no manifest in use
+lists (the pointer's, and those superseded since), then the manifest, then,
+as `erp_worker` (the application deletes no row, `TestDesignRules`), its
+row. A manifest already gone lists nothing; an object already gone is
+nothing to delete; a manifest the pointer names again is kept. Run twice it
+deletes nothing more. Files a crashed run wrote before its manifest are
+listed by no manifest and stay until a rebuild or the erasure (accepted:
+bounded by crashes). Collection and the run of a tenant are serialized by
+its claim; two claims overlap only when a run outlasts five minutes, and
+then a content-named file the newer run takes up again could be deleted
+under it: the reader refuses the manifest, the semantic layer answers from
+the database, and the month's next change writes the file again
+(accepted).
+
+*Compaction.* Each run that posts to a month adds a small journal part. When
+a month would hold `CompactAt` (8) parts, the run merges them with its new
+lines into one file sorted as the extract orders them and named by the
+interval they cover together (the first part's start to the run's cutoff:
+every line of the month in it is in those parts), so a repeated run writes
+the same bytes under the same key; each part read back is checked against
+its manifest's SHA-256. The parts it replaced leave with the superseded
+manifest.
+
+*Erasure.* An offboarded tenant's erasure (ADR-0021) deletes its objects
+under `blobstore.TenantPrefixes`, its own and `analytics/v1/tenant=<id>/`;
+its pointer, queue and superseded rows go with its other rows
+(`platform.erase_tenant`). Repeated, it finds nothing to delete.
+
+*Rebuild.* A run whose cutoff is below the watermark (`ErrBehind`) asks the
+primary, as the worker, whether the watermark is ahead of the database
+itself (`watermark > pg_snapshot_xmax(pg_current_snapshot())`, `Ahead`):
+then the database was restored or moved under the store (ADR-0040), and the
+scheduler rebuilds the tenant (`Rebuild`: its files deleted first, so a
+reader of the old pointer falls back, then its pointer and superseded rows
+as the worker, and the tenant marked due) and runs it again from the start.
+Ahead of the replica alone, the replica lags: the run is retried at the next
+claim and never publishes. `erp-server dr reconcile` rebuilds every tenant
+ahead of the restored database before the workloads start
+(`analytics_rebuilt` in its report).
+
+*Replica wait.* The claim records `pg_current_wal_lsn()` (`claimed_lsn`).
+The run asks the replica, in a transaction of its own, whether it is the
+primary or has replayed past that position
+(`pg_last_wal_replay_lsn() >= claimed_lsn`; replay only advances, so the
+reading transaction begun after sees at least as much) and reads there;
+otherwise it reads on the primary. erp-server reads `DATABASE_REPLICA_URL`
+(verified TLS in production, a pool of two connections); without it the
+primary.
+
+*Sweep.* Every hour each scheduler marks due every active tenant whose
+pointer is missing or whose `checked_at` is older than the freshness target
+(`Sweep`, as the worker, which may now insert and update `changed_at`), so a
+lost event delays data and never loses it. The per-month reconciliation
+against the database (rows and the sum of `amount_minor`) is not built yet
+(T55i).
+
+*Freshness metrics.* erp-server exports `erp_analytics_lag_seconds` (the
+age of the oldest journal entry of an active tenant at or above its
+watermark: the target's measure, posting to the store) and
+`erp_analytics_stale_tenants` (active tenants whose store is not found
+current within fifteen minutes, answered from the database), read as the
+worker (column grants on `ledger.journal_entry`). The alert rules on them
+are T55j, once T54's rules are merged.
+
+*Tests.* Each test package already migrates a database of its own
+(`pgtest.Main`); the extract tests' wait is for the snapshot horizon, which
+is the cluster's, so a dedicated database cannot shorten it (a cluster of
+their own could; not worth it while the wait is seconds).
 
 **Steps.** T55a this ADR and the dataset contract; T55b the snapshot
 migration, extractor and Parquet writer for journal lines; T55c the other

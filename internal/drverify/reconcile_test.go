@@ -267,3 +267,30 @@ func TestReconcileDirectory(t *testing.T) {
 		}
 	})
 }
+
+// TestReconcileAnalytics: the analytical stores the hook rebuilds are
+// reported; its failure stops the reconciliation.
+func TestReconcileAnalytics(t *testing.T) {
+	ctx := context.Background()
+	c := newCell(t)
+	store := blobstore.Dir{Root: t.TempDir()}
+	rc := c.reconciler(store, nil, "erp_worker")
+	rep, err := rc.Reconcile(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.AnalyticsRebuilt) != 0 {
+		t.Errorf("rebuilt without a hook: got %v, want none", rep.AnalyticsRebuilt)
+	}
+	tenant := uuid.New()
+	rc.Analytics = func(context.Context) ([]uuid.UUID, error) { return []uuid.UUID{tenant}, nil }
+	if rep, err = rc.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.AnalyticsRebuilt) != 1 || rep.AnalyticsRebuilt[0] != tenant {
+		t.Errorf("rebuilt: got %v, want [%s]", rep.AnalyticsRebuilt, tenant)
+	}
+	rc.Analytics = func(context.Context) ([]uuid.UUID, error) { return nil, errors.New("store gone") }
+	_, err = rc.Reconcile(ctx)
+	pgtest.WantErr(t, err, "analytical store: store gone")
+}

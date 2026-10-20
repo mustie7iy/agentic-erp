@@ -137,6 +137,12 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 		return err
 	}
 	defer s.pool.Close()
+	if s.replica, err = openReplica(ctx, cfg); err != nil {
+		return err
+	}
+	if s.replica != nil {
+		defer s.replica.Close()
+	}
 	if err := s.prepare(ctx); err != nil {
 		return err
 	}
@@ -215,6 +221,9 @@ type server struct {
 	log  *slog.Logger
 	tp   *sdktrace.TracerProvider
 	pool *database.Pool
+	// replica is the cell's read replica, which the analytics extract
+	// reads (DATABASE_REPLICA_URL); nil: the primary.
+	replica *database.Pool
 
 	static       []authn.Static
 	dev          *authn.DevIssuer
@@ -256,6 +265,21 @@ func openPool(ctx context.Context, cfg config.Config) (*database.Pool, error) {
 	settings := database.DefaultSettings
 	settings.MaxConns = cfg.DBMaxConns
 	return database.Open(ctx, cfg.DatabaseURL, settings)
+}
+
+// openReplica opens the read replica's pool when one is configured, sized
+// for the extract alone: one tenant's run at a time per replica.
+func openReplica(ctx context.Context, cfg config.Config) (*database.Pool, error) {
+	if cfg.DatabaseReplicaURL == "" {
+		return nil, nil
+	}
+	settings := database.DefaultSettings
+	settings.MaxConns = 2
+	pool, err := database.Open(ctx, cfg.DatabaseReplicaURL, settings)
+	if err != nil {
+		return nil, fmt.Errorf("the read replica: %w", err)
+	}
+	return pool, nil
 }
 
 // prepareSchema migrates when configured to, and creates the partitions
@@ -569,14 +593,19 @@ func (s *server) startWorkers(runCtx context.Context) {
 }
 
 // startAnalytics starts, with an object store, the analytical store's
-// extract scheduler (ADR-0044). The extract reads on the primary until it
-// waits for the replica to replay its claim's position (T55f): a lagging
-// replica would find nothing new and mark the change done.
+// extract scheduler (ADR-0044): the extract reads on the read replica once
+// it has replayed past the change, on the primary until then and without
+// a replica; it collects superseded files, rebuilds a store the database
+// is behind, and sweeps stale tenants hourly.
 func (s *server) startAnalytics(runCtx context.Context) {
 	if s.store == nil {
 		return
 	}
-	scheduler := &extract.Scheduler{Extractor: extract.Extractor{Replica: s.pool.Begin, Primary: s.pool.Begin, Role: s.cfg.AppRole, Store: s.store},
+	replica := s.pool.Begin
+	if s.replica != nil {
+		replica = s.replica.Begin
+	}
+	scheduler := &extract.Scheduler{Extractor: extract.Extractor{Replica: replica, Primary: s.pool.Begin, Role: s.cfg.AppRole, WorkerRole: s.cfg.WorkerRole, Store: s.store},
 		Begin: s.pool.Begin, WorkerRole: s.cfg.WorkerRole, Log: s.log}
 	s.spawn("analytics extract", func() { scheduler.Run(runCtx) })
 }
@@ -990,6 +1019,18 @@ func backlogs(pool *database.Pool, cfg config.Config, m *telemetry.Metrics) {
 	m.Gauge("erp_audit_chains_unanchored", "Tenants whose audit chain head moved since its last anchor.",
 		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM audit.chain_head h
 			WHERE h.seq > coalesce((SELECT max(x.seq) FROM audit.anchor x WHERE x.tenant_id = h.tenant_id), 0)`))
+	// The analytical store's freshness (ADR-0044), which its alert
+	// watches: the age of the oldest journal entry of an active tenant not
+	// yet in its store (the target is p95 of fifteen minutes from posting),
+	// and the tenants whose store is not found current within the target,
+	// whose analytics are answered from the database.
+	m.Gauge("erp_analytics_lag_seconds", "Age of the oldest journal entry of an active tenant not yet in its analytical store.",
+		count(cfg.WorkerRole, `SELECT coalesce(extract(epoch FROM now() - min(e.posted_at)), 0)::float8 FROM tenancy.tenant t
+			JOIN ledger.journal_entry e ON e.tenant_id = t.id LEFT JOIN analytics.snapshot s ON s.tenant_id = t.id
+			WHERE t.status = 'active' AND (s.tenant_id IS NULL OR e.posted_xid >= s.watermark)`))
+	m.Gauge("erp_analytics_stale_tenants", "Active tenants whose analytical store was not found current within 15 minutes.",
+		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM tenancy.tenant t WHERE t.status = 'active'
+			AND NOT EXISTS (SELECT FROM analytics.snapshot s WHERE s.tenant_id = t.id AND s.checked_at >= now() - interval '15 minutes')`))
 	m.Gauge("erp_audit_chains_tampered", "Tenants whose latest scheduled audit verification found the chain broken.",
 		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM (SELECT DISTINCT ON (tenant_id) ok FROM audit.verification ORDER BY tenant_id, verified_at DESC) v WHERE NOT v.ok`))
 }

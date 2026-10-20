@@ -249,11 +249,16 @@ func days(date time.Time) int32 {
 // key is where a run stores a dataset's file: under its month for a fact
 // dataset, directly under the dataset for a dimension.
 func (r *run) key(dataset, month, name string) string {
+	return r.dir(dataset, month) + name + ".parquet"
+}
+
+// dir is the directory of a dataset's files, of a month for a fact dataset.
+func (r *run) dir(dataset, month string) string {
 	dir := tenantPrefix(r.tenant) + "/" + dataset
 	if month != "" {
 		dir += "/month=" + month
 	}
-	return dir + "/" + name + ".parquet"
+	return dir + "/"
 }
 
 // put stores rows as one Parquet file.
