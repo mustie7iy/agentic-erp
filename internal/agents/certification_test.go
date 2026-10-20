@@ -67,6 +67,11 @@ func TestRecordCertification(t *testing.T) {
 // route back; a cell that runs evaluations waives it (ADR-0039).
 func TestUncertifiedRoute(t *testing.T) {
 	two, one := pgtest.Certify(t, "ap_exceptions", 2), pgtest.Certify(t, "ap_exceptions", 1)
+	// The aliases this test leaves alone keep their default route, which a
+	// policy change checks is priced too.
+	for _, model := range agents.DefaultRoutes {
+		priced(t, model)
+	}
 	ten := pgtest.NewTenant(t)
 	pgtest.Route(t, ten.ID, "erp-default", two)
 	typed := func(level int) {
