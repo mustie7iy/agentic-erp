@@ -908,6 +908,12 @@
        },
        {
         "s": "T",
+        "t": "Postings copied to every ledger of the company (posting_group_id, one document number); a posting naming a ledger or group limited to the company's ledgers",
+        "r": "T52b",
+        "c": []
+       },
+       {
+        "s": "T",
         "t": "Revaluation per ledger and valuation area (fx_valuation keyed by ledger)",
         "r": "T52d",
         "c": []

@@ -7,12 +7,12 @@
 -- 06 §6.4).
 
 -- The leading ledger is 0L and 0L is the leading ledger. Existing rows are
--- all 0L and leading (ledger.Setup created them so); the check is added NOT
--- VALID and validated by the contract migration of T52e, new rows are
--- checked from here on. A ledger's name may change through configuration;
+-- all 0L and leading (ledger.Setup created them so), one per tenant, so the
+-- check validates at once. A ledger's name may change through configuration;
 -- its code, principle and role never do (only name and version are granted).
-ALTER TABLE ledger.ledger ADD CONSTRAINT ledger_leading_is_0l CHECK (is_leading = (code = '0L')) NOT VALID;
+ALTER TABLE ledger.ledger ADD CONSTRAINT ledger_leading_is_0l CHECK (is_leading = (code = '0L'));
 ALTER TABLE ledger.ledger ADD COLUMN version integer NOT NULL DEFAULT 1;
+ALTER TABLE ledger.ledger ADD CONSTRAINT ledger_name_check CHECK (length(trim(name)) BETWEEN 1 AND 200);
 ALTER TABLE ledger.ledger ADD CONSTRAINT ledger_role_key UNIQUE (tenant_id, id, is_leading);
 GRANT UPDATE (name, version) ON ledger.ledger TO erp_app;
 

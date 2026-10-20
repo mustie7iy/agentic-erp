@@ -125,8 +125,16 @@ func readLedgers(t *testing.T, e env) {
 		t.Fatalf("groups: got %d, want 2", got)
 	}
 	all := groups["items"].([]any)[0].(map[string]any)
-	if all["code"] != "ALL" || all["representative_ledger_id"] != leading["id"] || len(all["ledger_ids"].([]any)) != 2 {
-		t.Errorf("group ALL: got %v, want 0L representing 0L and 2L", all)
+	for _, c := range []struct {
+		name      string
+		got, want any
+	}{
+		{"group code", all["code"], "ALL"}, {"representative", all["representative_ledger_id"], leading["id"]},
+		{"members", len(all["ledger_ids"].([]any)), 2},
+	} {
+		if c.got != c.want {
+			t.Errorf("group ALL %s: got %v, want %v", c.name, c.got, c.want)
+		}
 	}
 	if page, _ := e.Must(200, "GET", "/v1/ledger-groups?ledger_id="+leading["id"].(string), "", ""); len(page["items"].([]any)) != 1 {
 		t.Errorf("groups with 0L: got %v, want ALL alone", page["items"])

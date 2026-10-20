@@ -67,9 +67,11 @@ postings by agents are propose-only.
 
 **Migrations are expand-only.** New tables and nullable columns; unique
 indexes built concurrently per partition and attached; the old document
-number constraint is dropped by a later contract migration (T52e), which
-also validates the leading-ledger check added `NOT VALID` here. Nothing is
-backfilled: a company is assigned its ledgers by the next activation.
+number constraint is dropped by a later contract migration (T52e). Nothing
+is backfilled: a company is assigned its ledgers by the next activation, so
+until then `GET /v1/ledgers` lists 0L without legal entities. Until T52b a
+posting may still name any ledger of the tenant; T52b limits it to the
+company's ledgers.
 
 ## Consequences
 - Every company's postings are written once per ledger it keeps, which

@@ -43,6 +43,9 @@ func TestParallelLedgerRules(t *testing.T) {
 			return exec(tx, `INSERT INTO ledger.ledger (tenant_id, id, code, name, is_leading, accounting_principle, created_by) VALUES ($1, $2, '2L', 'x', true, 'HGB', $3)`,
 				f.tenant, id(), f.actor)
 		}, "ledger_leading_is_0l"},
+		{"a ledger name too long", func(tx pgx.Tx, f fixture) error {
+			return exec(tx, `UPDATE ledger.ledger SET name = repeat('x', 201), version = version + 1 WHERE id = $1`, f.ledger)
+		}, "ledger_name_check"},
 		{"a ledger's code changed", func(tx pgx.Tx, f fixture) error {
 			return exec(tx, `UPDATE ledger.ledger SET code = '1L' WHERE id = $1`, f.ledger)
 		}, "permission denied"},

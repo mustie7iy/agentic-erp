@@ -48,6 +48,7 @@ func TestLedgerValidation(t *testing.T) {
 		{"ledger code", func(c *Config) { c.Ledgers[1].Code = "2" }, "ledgers[2].code: ledger codes are two"},
 		{"duplicate ledger", func(c *Config) { c.Ledgers = append(c.Ledgers, c.Ledgers[1]) }, "ledgers[2L]: duplicate ledger"},
 		{"ledger name", func(c *Config) { c.Ledgers[1].Name = " " }, "ledgers[2L].name: name is required"},
+		{"long ledger name", func(c *Config) { c.Ledgers[1].Name = strings.Repeat("x", 201) }, "ledgers[2L].name: names are at most 200 characters"},
 		{"principle", func(c *Config) { c.Ledgers[1].AccountingPrinciple = "us gaap" }, "ledgers[2L].accounting_principle"},
 		{"no leading ledger", func(c *Config) { c.Ledgers = c.Ledgers[1:] }, "ledgers: the leading ledger 0L is required"},
 		{"unknown company ledger", func(c *Config) { c.Companies[1].Ledgers = []string{"0L", "3L"} }, "companies[2000].ledgers[3L]: no ledger 3L"},

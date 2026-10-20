@@ -233,21 +233,30 @@ func walk(path, field string, v any, out map[string]string) {
 	case []any:
 		key := listKeys[field]
 		for i, item := range x {
-			id := fmt.Sprint(i)
-			if s, ok := item.(string); ok && key != "" { // a list of codes (a company's ledgers): each code is its own identity
-				id = s
-			}
-			if m, ok := item.(map[string]any); ok && key != "" {
-				var parts []string
-				for _, k := range strings.Split(key, ",") {
-					parts = append(parts, fmt.Sprint(m[k]))
-				}
-				id = strings.Join(parts, "/")
-			}
+			id := itemID(key, i, item)
 			walk(fmt.Sprintf("%s[%s]", path, id), "", item, out)
 		}
 	case nil:
 	default:
 		out[path] = fmt.Sprint(x)
 	}
+}
+
+// itemID is a list item's identity: the fields key names of an object, a
+// code itself in a list of codes (a company's ledgers), else its position.
+func itemID(key string, i int, item any) string {
+	if key == "" {
+		return fmt.Sprint(i)
+	}
+	switch it := item.(type) {
+	case string:
+		return it
+	case map[string]any:
+		var parts []string
+		for _, k := range strings.Split(key, ",") {
+			parts = append(parts, fmt.Sprint(it[k]))
+		}
+		return strings.Join(parts, "/")
+	}
+	return fmt.Sprint(i)
 }

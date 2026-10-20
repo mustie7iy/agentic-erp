@@ -28,9 +28,7 @@ func (v *validator) ledgers(c *Config) {
 			v.err(p, "duplicate ledger")
 		}
 		known[l.Code] = true
-		if strings.TrimSpace(l.Name) == "" {
-			v.err(p+".name", "name is required")
-		}
+		v.ledgerName(p, l.Name)
 		if !principleRe.MatchString(l.AccountingPrinciple) {
 			v.err(p+".accounting_principle", "accounting principle %q must be 2-20 upper-case letters, digits or underscores (IFRS, US_GAAP, HGB)", l.AccountingPrinciple)
 		}
@@ -63,9 +61,7 @@ func (v *validator) ledgerGroups(c *Config, known map[string]bool) {
 			v.err(p+".code", "a ledger group's code differs from every ledger's")
 		}
 		seen[g.Code] = true
-		if strings.TrimSpace(g.Name) == "" {
-			v.err(p+".name", "name is required")
-		}
+		v.ledgerName(p, g.Name)
 		v.codes(p+".ledgers", g.Ledgers, known)
 		switch {
 		case !slices.Contains(g.Ledgers, g.Representative):
@@ -87,5 +83,16 @@ func (v *validator) codes(p string, codes []string, known map[string]bool) {
 			v.err(p+"["+code+"]", "ledger %s is named twice", code)
 		}
 		seen[code] = true
+	}
+}
+
+// ledgerName checks a ledger's or group's name: 1-200 characters, as the
+// database holds them.
+func (v *validator) ledgerName(p, name string) {
+	switch n := len([]rune(strings.TrimSpace(name))); {
+	case n == 0:
+		v.err(p+".name", "name is required")
+	case n > 200:
+		v.err(p+".name", "names are at most 200 characters")
 	}
 }
