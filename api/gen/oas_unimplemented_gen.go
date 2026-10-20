@@ -602,6 +602,20 @@ func (UnimplementedHandler) GetAiUsage(ctx context.Context, params GetAiUsagePar
 	return r, ht.ErrNotImplemented
 }
 
+// GetAnalyticsModel implements getAnalyticsModel operation.
+//
+// The governed metrics, their dimensions, the fiscal calendar and what everyday words mean, as
+// runAnalyticsQuery answers them: the active configuration version's `analytics` section
+// (`semantic.yaml` until a change request adds one), or `config_version`'s. Agents and the CLI
+// describe metrics from it, so a metric a change request added is offered and a changed definition
+// described as it now is (ADR-0044). A tenant without a configuration is 409
+// `config.not_bootstrapped`; an unknown version is 422 `config.unknown_version`.
+//
+// GET /v1/analytics-model
+func (UnimplementedHandler) GetAnalyticsModel(ctx context.Context, params GetAnalyticsModelParams) (r GetAnalyticsModelRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetApprovalRequest implements getApprovalRequest operation.
 //
 // Returns one approval request with steps and decisions.

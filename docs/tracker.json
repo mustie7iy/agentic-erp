@@ -3446,9 +3446,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "The analytics agent's tool descriptions, erp ask and erp query describe the tenant's active metrics (the active configuration version's analytics section, read through the endpoint) instead of the built-in defaults, so a metric a change request added is offered and a changed definition described as it now is",
-        "r": "T55n",
+        "s": "D",
+        "t": "The analytics agent's tool descriptions and erp metrics, query, ask and report describe the tenant's active metrics instead of the built-in defaults, read through GET /v1/analytics-model (getAnalyticsModel, analytics.query.run: the active configuration version's analytics section, or config_version's; analytics.Remote.Model), so a metric a change request added is offered and a changed definition described as it now is",
+        "r": "api/openapi.yaml getAnalyticsModel · endpoint.GetAnalyticsModel · analytics.Remote.Model · cmd/erp analytics.go · ADR-0044 · T55n",
         "c": []
        },
        {

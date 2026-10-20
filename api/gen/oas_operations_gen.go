@@ -62,6 +62,7 @@ const (
 	GetAgentSessionOperation                  OperationName = "GetAgentSession"
 	GetAiPolicyOperation                      OperationName = "GetAiPolicy"
 	GetAiUsageOperation                       OperationName = "GetAiUsage"
+	GetAnalyticsModelOperation                OperationName = "GetAnalyticsModel"
 	GetApprovalRequestOperation               OperationName = "GetApprovalRequest"
 	GetBankAccountOperation                   OperationName = "GetBankAccount"
 	GetBankFileOperation                      OperationName = "GetBankFile"

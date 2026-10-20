@@ -29,41 +29,35 @@ func addAnalyticsFlags(fs *flag.FlagSet) analyticsFlags {
 	}
 }
 
-func loadModel(path string) (*analytics.Model, error) {
-	if path != "" {
-		return analytics.LoadModel(path)
-	}
-	return analytics.DefaultModel()
-}
-
 // session runs its queries on erp-server's analytics endpoint with the
 // person's token, which answers from the analytical store or the database
 // over only the companies and data the person may read (ADR-0044). The
-// governed model it shows the agent is the server's, built in.
-func (f analyticsFlags) session(c *apitools.Client) (*analytics.Session, error) {
-	m, err := governedModel()
-	if err != nil {
-		return nil, err
-	}
+// model it shows the agent is the tenant's active one, read from the
+// endpoint, so a metric a change request added is offered (T55n).
+func (f analyticsFlags) session(ctx context.Context, c *apitools.Client) (*analytics.Session, error) {
 	p := analytics.Principal{ID: "token"}
 	if *f.companies != "" {
 		p.Companies = strings.Split(*f.companies, ",")
 	}
+	remote := analytics.Remote{API: c, Companies: p.Companies}
+	m, err := remote.Model(ctx)
+	if err != nil {
+		return nil, err
+	}
 	s := analytics.NewSession(m, nil, p)
-	s.Runner = analytics.Remote{API: c, Companies: p.Companies}
+	s.Runner = remote
 	return s, nil
 }
 
-// governedModel is the server's governed model, built in; tests replace it.
-var governedModel = analytics.DefaultModel
-
-func metricsCmd(_ context.Context, args []string) error {
+// metricsCmd lists the tenant's governed metrics as its queries are
+// answered, or a semantic model file's.
+func metricsCmd(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("metrics", flag.ContinueOnError)
-	semantic := fs.String("semantic", "", "semantic model YAML (default: built-in governed model)")
+	semantic := fs.String("semantic", "", "semantic model YAML (default: the tenant's active model, read with ERP_TOKEN)")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
-	m, err := loadModel(*semantic)
+	m, err := tenantModel(ctx, *semantic)
 	if err != nil {
 		return err
 	}
@@ -73,6 +67,18 @@ func metricsCmd(_ context.Context, args []string) error {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", met.Name, met.Type, met.Description, strings.Join(m.AllowedDimensions(met.Name), ", "))
 	}
 	return errs.Wrapf(tw.Flush(), "metrics: print")
+}
+
+// tenantModel is the model in the file path, or the tenant's active one.
+func tenantModel(ctx context.Context, path string) (*analytics.Model, error) {
+	if path != "" {
+		return analytics.LoadModel(path)
+	}
+	c, err := client("ERP_TOKEN")
+	if err != nil {
+		return nil, err
+	}
+	return analytics.Remote{API: c}.Model(ctx)
 }
 
 // queryCmd runs a semantic query directly, without the agent.
@@ -101,7 +107,7 @@ func queryCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	sess, err := af.session(c)
+	sess, err := af.session(ctx, c)
 	if err != nil {
 		return err
 	}
@@ -170,7 +176,7 @@ func askCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	sess, err := af.session(c)
+	sess, err := af.session(ctx, c)
 	if err != nil {
 		return err
 	}
@@ -211,7 +217,7 @@ func reportCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	sess, err := af.session(c)
+	sess, err := af.session(ctx, c)
 	if err != nil {
 		return err
 	}

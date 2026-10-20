@@ -90,6 +90,44 @@ func TestRemoteFailures(t *testing.T) {
 	pgtest.CheckErr(t, err, "apitools")
 }
 
+// TestRemoteModel: the CLI and the agent describe the model the endpoint
+// returns (a metric a change request added among it), not the seed; one
+// that is refused, does not read or does not validate fails.
+func TestRemoteModel(t *testing.T) {
+	const answer = `{"config_version": 2, "model": {"calendar": {"fiscal_year_start_month": 4},
+		"dimensions": [{"name": "company", "label": "Company"}],
+		"metrics": [{"name": "aa_total", "label": "Total", "description": "Everything posted", "type": "money", "source": "gl_lines", "aggregate": "sum"}]}}`
+	m, err := remote(t, 200, answer, nil).Model(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Metric("aa_total"); got == nil || got.Description != "Everything posted" {
+		t.Errorf("aa_total: got %+v, want the endpoint's metric", got)
+	}
+	if m.Metric("revenue") != nil {
+		t.Error("revenue: got the seed's metric, want the endpoint's model alone")
+	}
+	if got := m.Calendar.FiscalYearStartMonth; got != 4 {
+		t.Errorf("fiscal year start: got %d, want 4", got)
+	}
+	for name, c := range map[string]struct {
+		status int
+		body   string
+		want   string
+	}{
+		"refused":      {403, `{"status": 403, "code": "identity.permission_missing", "detail": "analytics.query.run"}`, "analytics: the semantic model"},
+		"not JSON":     {200, `{`, "decode the semantic model"},
+		"not governed": {200, `{"model": {"metrics": [{"name": "x", "type": "money", "source": "nowhere", "aggregate": "sum"}]}}`, "unknown dataset"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := remote(t, c.status, c.body, nil).Model(context.Background())
+			pgtest.CheckErr(t, err, c.want)
+		})
+	}
+	_, err = Remote{API: &apitools.Client{BaseURL: "http://127.0.0.1:1"}}.Model(context.Background())
+	pgtest.CheckErr(t, err, "apitools")
+}
+
 // TestSessionRunner: a session with a Runner keeps its answers, and its
 // data reaches the latest of theirs.
 func TestSessionRunner(t *testing.T) {

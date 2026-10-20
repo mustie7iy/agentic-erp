@@ -107,6 +107,7 @@ var operationRolesOidc = map[string][]string{
 	GetAgentSessionOperation:                  []string{},
 	GetAiPolicyOperation:                      []string{},
 	GetAiUsageOperation:                       []string{},
+	GetAnalyticsModelOperation:                []string{},
 	GetApprovalRequestOperation:               []string{},
 	GetBankAccountOperation:                   []string{},
 	GetBankFileOperation:                      []string{},

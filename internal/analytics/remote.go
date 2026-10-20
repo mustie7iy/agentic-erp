@@ -9,11 +9,15 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 )
 
 // QueryPath is erp-server's analytics endpoint (runAnalyticsQuery).
 const QueryPath = "/v1/analytics-queries"
+
+// ModelPath is erp-server's governed semantic model (getAnalyticsModel).
+const ModelPath = "/v1/analytics-model"
 
 // Remote runs semantic queries on erp-server's analytics endpoint as the
 // API client's principal: the server answers from the analytical store or
@@ -78,6 +82,27 @@ func (r Remote) Query(ctx context.Context, q Query) (*Result, error) {
 		res.Rows = append(res.Rows, row)
 	}
 	return &res, nil
+}
+
+// Model is the tenant's governed model as the endpoint answers under it:
+// the active configuration version's, so what is described to a person or
+// the agent is what their queries are answered with, a metric a change
+// request added among it (ADR-0044, T55n).
+func (r Remote) Model(ctx context.Context) (*Model, error) {
+	resp, err := r.API.Do(ctx, http.MethodGet, ModelPath, nil, nil, "")
+	if err != nil {
+		return nil, err
+	}
+	if err := resp.Err(); err != nil {
+		return nil, fmt.Errorf("analytics: the semantic model: %w", err)
+	}
+	var out struct {
+		Model config.Analytics `json:"model"`
+	}
+	if err := json.Unmarshal(resp.Body, &out); err != nil {
+		return nil, fmt.Errorf("analytics: decode the semantic model: %w", err)
+	}
+	return FromConfig(&config.Config{Analytics: &out.Model})
 }
 
 // cell is a cell as Execute writes it: a dimension's string, a measure's

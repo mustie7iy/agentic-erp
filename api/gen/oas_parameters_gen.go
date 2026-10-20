@@ -7815,6 +7815,96 @@ func decodeGetAiUsageParams(args [0]string, argsEscaped bool, r *http.Request) (
 	return params, nil
 }
 
+// GetAnalyticsModelParams is parameters of getAnalyticsModel operation.
+type GetAnalyticsModelParams struct {
+	// The configuration version whose model to return; absent, the active one.
+	ConfigVersion OptInt32 `json:",omitempty,omitzero"`
+}
+
+func unpackGetAnalyticsModelParams(packed middleware.Parameters) (params GetAnalyticsModelParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "config_version",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.ConfigVersion = v.(OptInt32)
+		}
+	}
+	return params
+}
+
+func decodeGetAnalyticsModelParams(args [0]string, argsEscaped bool, r *http.Request) (params GetAnalyticsModelParams, _ error) {
+	q := uri.NewQueryDecoder(r.URL.Query())
+	// Decode query: config_version.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "config_version",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotConfigVersionVal int32
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToInt32(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotConfigVersionVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.ConfigVersion.SetTo(paramsDotConfigVersionVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.ConfigVersion.Get(); ok {
+					if err := func() error {
+						if err := (validate.Int{
+							MinSet:        true,
+							Min:           1,
+							MaxSet:        false,
+							Max:           0,
+							MinExclusive:  false,
+							MaxExclusive:  false,
+							MultipleOfSet: false,
+							MultipleOf:    0,
+							Pattern:       nil,
+						}).Validate(int64(value)); err != nil {
+							return errors.Wrap(err, "int")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "config_version",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
 // GetApprovalRequestParams is parameters of getApprovalRequest operation.
 type GetApprovalRequestParams struct {
 	// Resource identifier (UUIDv7).

@@ -8704,6 +8704,49 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/analytics-model:
+    get:
+      operationId: getAnalyticsModel
+      tags:
+        - analytics
+      summary: Get the governed semantic model
+      description: "The governed metrics, their dimensions, the fiscal calendar and what everyday words mean, as runAnalyticsQuery answers them: the active configuration version's `analytics` section (`semantic.yaml` until a change request adds one), or `config_version`'s. Agents and the CLI describe metrics from it, so a metric a change request added is offered and a changed definition described as it now is (ADR-0044). A tenant without a configuration is 409 `config.not_bootstrapped`; an unknown version is 422 `config.unknown_version`."
+      x-permission: analytics.query.run
+      parameters:
+        - name: config_version
+          in: query
+          required: false
+          description: The configuration version whose model to return; absent, the active one.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+      responses:
+        "200":
+          description: The semantic model and the version it is of.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsModel"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/connectors:
     get:
       operationId: listConnectors
@@ -18946,6 +18989,22 @@ components:
           items:
             type: string
             maxLength: 200
+      additionalProperties: false
+    AnalyticsModel:
+      type: object
+      description: A configuration version's governed semantic model.
+      required:
+        - config_version
+        - model
+      properties:
+        config_version:
+          type: integer
+          format: int32
+          description: The configuration version the model is of.
+        model:
+          type: object
+          additionalProperties: true
+          description: "The model as the configuration document's `analytics` section holds it: `calendar`, `defaults`, `dimensions` and `metrics` (each with its name, label, description, synonyms, type, dimensions and definition)."
       additionalProperties: false
     AnalyticsResult:
       type: object

@@ -11,12 +11,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
@@ -433,8 +435,22 @@ const answer = `{"query_id": "q_0123456789ab", "columns": [{"name": "fiscal_mont
 // refused is erp-server refusing a query the semantic layer cannot answer.
 var refused = reply{422, `{"type": "about:blank", "title": "Unprocessable", "status": 422, "code": "analytics.invalid_query", "detail": "unknown metric nope"}`}
 
-// answers serves the analytics endpoint's replies in order.
-func answers(r ...reply) routes { return routes{"POST /v1/analytics-queries": r} }
+// tenantModelJSON is erp-server's semantic model for the tenant: the seed's,
+// and aa_total, which a change request added.
+var tenantModelJSON = func() string {
+	m, _ := analytics.DefaultModel() // embedded, and TestModelLoadsAndValidates proves it parses
+	a := m.Analytics
+	a.Metrics = append(slices.Clone(a.Metrics), config.Metric{Name: "aa_total", Label: "Total", Description: "Everything posted, added by a change request",
+		Type: analytics.Money, Source: "gl_lines", Aggregate: "sum"})
+	b, _ := json.Marshal(map[string]any{"config_version": 2, "model": a}) // strings, numbers and slices of them
+	return string(b)
+}()
+
+// answers serves the analytics endpoint's replies in order, and the
+// tenant's model.
+func answers(r ...reply) routes {
+	return routes{"POST /v1/analytics-queries": r, "GET /v1/analytics-model": {ok(tenantModelJSON)}}
+}
 
 func TestAnalyticsErrors(t *testing.T) {
 	t.Chdir(t.TempDir())
@@ -446,6 +462,9 @@ func TestAnalyticsErrors(t *testing.T) {
 	fails(t, "want \"dim op values\"", "query", "-where", "fiscal_year 2026")
 	fails(t, "nope", "query", "-measures", "nope")
 	fakeAPI(t, answers(ok(answer)))
+	if got := must(t, "metrics"); !strings.Contains(got, "added by a change request") {
+		t.Errorf("metrics: got %s, want the tenant's aa_total listed", got)
+	}
 	fails(t, "not a directory", "query", "-measures", "invoice_count", "-csv", "file/q.csv")
 	// A month without revenue shows a dash; the answer says where it came from.
 	got := must(t, "query", "-measures", "revenue,invoice_count", "-by", "fiscal_month")
@@ -464,8 +483,11 @@ func TestAnalyticsErrors(t *testing.T) {
 	}
 	t.Cleanup(func() { newAgent = defaultAgent })
 	fails(t, "script exhausted", "ask", "how", "much")
+	// The agent is described the tenant's metrics, aa_total among them.
 	ask = llmtest.New(t,
-		llmtest.Tool("run_query", map[string]any{"measures": []string{"invoice_count"}}),
+		llmtest.Tool("list_metrics", map[string]any{}),
+		llmtest.Step{Tool: "run_query", Input: func(string) any { return map[string]any{"measures": []string{"invoice_count"}} },
+			Expect: "added by a change request"},
 		llmtest.ToolFn("build_dashboard", func(b string) any {
 			return map[string]any{"spec": analytics.Spec{Title: "Invoices", Tables: []analytics.Table{{Title: "t", QueryID: qidRe.FindString(b)}}}}
 		}),
@@ -493,14 +515,14 @@ func TestAnalyticsErrors(t *testing.T) {
 	fails(t, "not a directory", "report", "-file", rep("good.json", "invoice_count"), "-out", "file/reports")
 	printFails(t, "report", "-file", "good.json", "-out", "reports")
 
-	governedModel = func() (*analytics.Model, error) { return nil, errors.New("model unreadable") }
-	for _, args := range [][]string{{"query", "-measures", "revenue"}, {"ask", "why"}, {"report", "-file", "good.json"}} {
-		fails(t, "model unreadable", args...)
+	fakeAPI(t, routes{"POST /v1/analytics-queries": {ok(answer)}, "GET /v1/analytics-model": {{403, `{"code": "identity.permission_missing"}`}}})
+	for _, args := range [][]string{{"metrics"}, {"query", "-measures", "revenue"}, {"ask", "why"}, {"report", "-file", "good.json"}} {
+		fails(t, "the semantic model", args...)
 	}
-	governedModel = analytics.DefaultModel
-	fakeAPI(t, routes{})
+	fakeAPI(t, routes{"GET /v1/analytics-model": {ok(tenantModelJSON)}})
 	fails(t, "404", "query", "-measures", "revenue")
 	fakeAPI(t, routes{}, "ERP_TOKEN", "")
+	fails(t, "ERP_TOKEN", "metrics")
 	fails(t, "ERP_TOKEN", "query", "-measures", "revenue")
 	fails(t, "ERP_TOKEN", "ask", "why")
 	fails(t, "ERP_TOKEN", "report", "-file", "good.json")

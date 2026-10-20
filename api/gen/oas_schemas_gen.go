@@ -2075,6 +2075,101 @@ func (s *AnalyticsFilter) SetValues(val []string) {
 	s.Values = val
 }
 
+// A configuration version's governed semantic model.
+// Ref: #/components/schemas/AnalyticsModel
+type AnalyticsModel struct {
+	// The configuration version the model is of.
+	ConfigVersion int32 `json:"config_version"`
+	// The model as the configuration document's `analytics` section holds it: `calendar`, `defaults`,
+	// `dimensions` and `metrics` (each with its name, label, description, synonyms, type, dimensions and
+	// definition).
+	Model AnalyticsModelModel `json:"model"`
+}
+
+// GetConfigVersion returns the value of ConfigVersion.
+func (s *AnalyticsModel) GetConfigVersion() int32 {
+	return s.ConfigVersion
+}
+
+// GetModel returns the value of Model.
+func (s *AnalyticsModel) GetModel() AnalyticsModelModel {
+	return s.Model
+}
+
+// SetConfigVersion sets the value of ConfigVersion.
+func (s *AnalyticsModel) SetConfigVersion(val int32) {
+	s.ConfigVersion = val
+}
+
+// SetModel sets the value of Model.
+func (s *AnalyticsModel) SetModel(val AnalyticsModelModel) {
+	s.Model = val
+}
+
+// AnalyticsModelHeaders wraps AnalyticsModel with response headers.
+type AnalyticsModelHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           AnalyticsModel
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *AnalyticsModelHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *AnalyticsModelHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *AnalyticsModelHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *AnalyticsModelHeaders) GetResponse() AnalyticsModel {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *AnalyticsModelHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *AnalyticsModelHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *AnalyticsModelHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AnalyticsModelHeaders) SetResponse(val AnalyticsModel) {
+	s.Response = val
+}
+
+func (*AnalyticsModelHeaders) getAnalyticsModelRes() {}
+
+// The model as the configuration document's `analytics` section holds it: `calendar`, `defaults`,
+// `dimensions` and `metrics` (each with its name, label, description, synonyms, type, dimensions and
+// definition).
+type AnalyticsModelModel map[string]jx.Raw
+
+func (s *AnalyticsModelModel) init() AnalyticsModelModel {
+	m := *s
+	if m == nil {
+		m = map[string]jx.Raw{}
+		*s = m
+	}
+	return m
+}
+
 // A semantic query: governed metrics, the dimensions to break them down by, filters on dimensions,
 // ordering and a row limit. Unknown metrics or dimensions, dimensions the metrics do not share and
 // malformed filters are 422 `analytics.invalid_query`.
@@ -3263,6 +3358,7 @@ func (*BadRequestHeaders) getAccountRes()                       {}
 func (*BadRequestHeaders) getAgentSessionRes()                  {}
 func (*BadRequestHeaders) getAiPolicyRes()                      {}
 func (*BadRequestHeaders) getAiUsageRes()                       {}
+func (*BadRequestHeaders) getAnalyticsModelRes()                {}
 func (*BadRequestHeaders) getApprovalRequestRes()               {}
 func (*BadRequestHeaders) getBankAccountRes()                   {}
 func (*BadRequestHeaders) getBankFileContentRes()               {}
@@ -7191,6 +7287,7 @@ func (*ConflictHeaders) endCompanyAccessRes()                 {}
 func (*ConflictHeaders) endRoleAssignmentRes()                {}
 func (*ConflictHeaders) endRolePermissionRes()                {}
 func (*ConflictHeaders) endSodRuleRes()                       {}
+func (*ConflictHeaders) getAnalyticsModelRes()                {}
 func (*ConflictHeaders) getBankFileContentRes()               {}
 func (*ConflictHeaders) grantRolePermissionRes()              {}
 func (*ConflictHeaders) holdSupplierInvoiceRes()              {}
@@ -10538,6 +10635,7 @@ func (*ForbiddenHeaders) getAccountRes()                       {}
 func (*ForbiddenHeaders) getAgentSessionRes()                  {}
 func (*ForbiddenHeaders) getAiPolicyRes()                      {}
 func (*ForbiddenHeaders) getAiUsageRes()                       {}
+func (*ForbiddenHeaders) getAnalyticsModelRes()                {}
 func (*ForbiddenHeaders) getApprovalRequestRes()               {}
 func (*ForbiddenHeaders) getBankAccountRes()                   {}
 func (*ForbiddenHeaders) getBankFileContentRes()               {}
@@ -28112,6 +28210,7 @@ func (*TooManyRequestsHeaders) getAccountRes()                       {}
 func (*TooManyRequestsHeaders) getAgentSessionRes()                  {}
 func (*TooManyRequestsHeaders) getAiPolicyRes()                      {}
 func (*TooManyRequestsHeaders) getAiUsageRes()                       {}
+func (*TooManyRequestsHeaders) getAnalyticsModelRes()                {}
 func (*TooManyRequestsHeaders) getApprovalRequestRes()               {}
 func (*TooManyRequestsHeaders) getBankAccountRes()                   {}
 func (*TooManyRequestsHeaders) getBankFileContentRes()               {}
@@ -28364,6 +28463,7 @@ func (*UnauthorizedHeaders) getAccountRes()                       {}
 func (*UnauthorizedHeaders) getAgentSessionRes()                  {}
 func (*UnauthorizedHeaders) getAiPolicyRes()                      {}
 func (*UnauthorizedHeaders) getAiUsageRes()                       {}
+func (*UnauthorizedHeaders) getAnalyticsModelRes()                {}
 func (*UnauthorizedHeaders) getApprovalRequestRes()               {}
 func (*UnauthorizedHeaders) getBankAccountRes()                   {}
 func (*UnauthorizedHeaders) getBankFileContentRes()               {}
@@ -28601,6 +28701,7 @@ func (*UnprocessableHeaders) endCompanyAccessRes()                 {}
 func (*UnprocessableHeaders) endRoleAssignmentRes()                {}
 func (*UnprocessableHeaders) endRolePermissionRes()                {}
 func (*UnprocessableHeaders) endSodRuleRes()                       {}
+func (*UnprocessableHeaders) getAnalyticsModelRes()                {}
 func (*UnprocessableHeaders) grantRolePermissionRes()              {}
 func (*UnprocessableHeaders) holdSupplierInvoiceRes()              {}
 func (*UnprocessableHeaders) lockFiscalPeriodRes()                 {}

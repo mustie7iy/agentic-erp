@@ -566,10 +566,12 @@ the API with a request's credentials, which a queued simulation does not
 have, so a store that cannot answer (none configured, stale) records a
 failed simulation that names the metrics, to be simulated again once the
 store is current. Every cell runs erp-analytics (T55h), so no database
-path for a queued simulation is built. The analytics agent's tool
-descriptions and the CLI still describe the seed's metrics to the model;
-T55n makes them describe the tenant's active metrics (from the active
-configuration version through the endpoint), not the defaults.
+path for a queued simulation is built. The analytics agent's tools and
+the CLI (`erp metrics`, `query`, `ask`, `report`) describe the tenant's
+active metrics, read through the endpoint (`getAnalyticsModel`,
+`analytics.query.run`: the active version's section, or
+`config_version`'s), not the seed, so a metric a change request added is
+offered and a changed definition described as it now is (T55n).
 
 *Agents propose, people activate.* An agent may create, submit and
 simulate a change request (`x-autonomy: propose`); activation is

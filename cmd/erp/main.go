@@ -142,7 +142,7 @@ the API (ERP_API_URL, ERP_TOKEN):
   migrate        run a migration scope from a connector: start, reconcile, print the report
   invoices       match parked supplier invoices and post the clean ones (-agent: investigate held ones)
   capture        capture a supplier invoice from a document file (large ones through an upload)
-  metrics        list the governed metrics
+  metrics        list the tenant's governed metrics
   query          run a semantic query over the data you may read
   ask            ask a question; the analytics agent builds a dashboard on demand
   report         rerun a saved report on current data

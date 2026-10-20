@@ -9,6 +9,7 @@ package endpoint
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -89,6 +90,21 @@ func (e *Endpoints) RunAnalyticsQuery(ctx context.Context, req *gen.AnalyticsQue
 	}
 	res.ConfigVersion = version
 	return &gen.AnalyticsResultHeaders{Response: toAPI(res)}, nil
+}
+
+// GetAnalyticsModel implements gen.Handler: the model queries are
+// answered under, which agents and the CLI describe metrics from.
+func (e *Endpoints) GetAnalyticsModel(ctx context.Context, params gen.GetAnalyticsModelParams) (gen.GetAnalyticsModelRes, error) {
+	m, version, err := e.model(ctx, params.ConfigVersion.Or(0))
+	if err != nil {
+		return nil, err
+	}
+	// The section's types are strings, numbers, slices and maps of them,
+	// which marshal without fail into an object, which reads back.
+	b, _ := json.Marshal(m.Analytics)
+	var model gen.AnalyticsModelModel
+	_ = json.Unmarshal(b, &model)
+	return &gen.AnalyticsModelHeaders{Response: gen.AnalyticsModel{ConfigVersion: version, Model: model}}, nil
 }
 
 // invalid is a query the semantic layer refuses: 422.

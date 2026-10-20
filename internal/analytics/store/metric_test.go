@@ -86,7 +86,27 @@ func (p parity) metricChange(t *testing.T) {
 		}
 	}
 	c.Problem(422, "config.unknown_version", "POST", "/v1/analytics-queries", `{"measures": ["expenses"], "config_version": 9}`, "")
+	p.described(t, c)
 	p.unanswerable(t, agent, w, doc)
+}
+
+// described: the model agents and the CLI describe is the active
+// version's (expenses of 610000 alone), or the one asked for (the seed's).
+func (p parity) described(t *testing.T, c apitest.Client) {
+	t.Helper()
+	for query, want := range map[string]string{"": "2 map[account:[610000] account_type:[expense]]", "?config_version=1": "1 map[account_type:[expense]]"} {
+		got, _ := c.Must(200, "GET", "/v1/analytics-model"+query, "", "")
+		filter := any(nil)
+		for _, met := range apitest.List(t, got["model"].(map[string]any), "metrics") {
+			if met := met.(map[string]any); met["name"] == "expenses" {
+				filter = met["filter"]
+			}
+		}
+		if got := fmt.Sprint(got["config_version"], " ", filter); got != want {
+			t.Errorf("model%s: got version and expenses filter %s, want %s", query, got, want)
+		}
+	}
+	c.Problem(422, "config.unknown_version", "GET", "/v1/analytics-model?config_version=9", "", "")
 }
 
 // unanswerable: a proposed metric the semantic layer refuses on the data

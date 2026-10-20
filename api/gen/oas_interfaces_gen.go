@@ -225,6 +225,10 @@ type GetAiUsageRes interface {
 	getAiUsageRes()
 }
 
+type GetAnalyticsModelRes interface {
+	getAnalyticsModelRes()
+}
+
 type GetApprovalRequestRes interface {
 	getApprovalRequestRes()
 }
