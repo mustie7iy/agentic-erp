@@ -5315,7 +5315,14 @@
       "s": "D",
       "t": "Strict typed YAML (unknown fields are errors)",
       "r": "config.Parse",
-      "c": []
+      "c": [
+       {
+        "s": "D",
+        "t": "A floating-point number in an integer field (net_days: 1.5, 1.0, 1e0, !!float 5) is refused with its line and path instead of truncated, through aliases and merge keys too",
+        "r": "config.Parse, notWhole · TestParseRefusesFloatsInIntegerFields",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",
