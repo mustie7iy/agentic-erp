@@ -27,7 +27,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	docs := make([][]byte, 2)
 	for i, path := range args {
-		b, err := os.ReadFile(path)
+		b, err := os.ReadFile(path) // #nosec G304 G703 -- CI names the two spec files on the command line
 		if err != nil {
 			_, _ = fmt.Fprintln(stderr, "eventcompat:", err) // best effort: the exit code reports it
 			return 2
