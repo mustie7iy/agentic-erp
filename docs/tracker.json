@@ -1020,7 +1020,7 @@
        {
         "s": "D",
         "t": "ADR-0042 and schema: flagged G/L accounts (company_account.revalue_foreign_currency), one valuation rate type per legal entity, unrealised gain/loss and adjustment accounts per revalued account from companies[].fx_valuation, revaluation runs per legal entity, ledger and key date (one posted per key date) and their valued items",
-        "r": "db/migrations/000091 · config.FXValuation · ledger.fx_valuation_account · ledger.revaluation_run · T48a",
+        "r": "db/migrations/000107 · config.FXValuation · ledger.fx_valuation_account · ledger.revaluation_run · T48a",
         "c": []
        },
        {

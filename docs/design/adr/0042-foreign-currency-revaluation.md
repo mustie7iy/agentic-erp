@@ -165,7 +165,7 @@ posting.
   previous one, and cancelling one would invalidate those after it.
 
 ## Consequences
-- Steps: a ADR and schema (000091) · b valuation engine and preview · c
+- Steps: a ADR and schema (000107) · b valuation engine and preview · c
   posting run · d cancel and close-out, all done; e (follow-ups: paging
   of very large previews, one shared definition of "reversed" for
   open-item reads, a budget run with reversals) is open.

@@ -753,7 +753,7 @@ the supplier's invoice (T46d) or by a reversal, which keeps the indicator.
 Listing the `down_payment` account's open items (`account_id`) lists the
 supplier's down payments.
 
-Foreign-currency revaluation (T48, ADR-0042, migration 000091). The
+Foreign-currency revaluation (T48, ADR-0042, migration 000107). The
 document currency is the entry's `currency_tc`; lines carry no currency of
 their own. `company_account.revalue_foreign_currency` flags an asset or
 liability that reconciles no partner whose balance per currency is revalued

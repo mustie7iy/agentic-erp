@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Foreign-currency revaluation (T48a, ADR-0042, migration 000091): the
+// Foreign-currency revaluation (T48a, ADR-0042, migration 000107): the
 // rules the database keeps for revalued accounts, their valuation
 // accounts, revaluation runs and the items they valued.
 
