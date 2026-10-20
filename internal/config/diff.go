@@ -82,6 +82,10 @@ var tierRules = []struct {
 	// Submission only lets new ranges and raised upper limits through, so
 	// issued numbers stay valid.
 	{rx(`^number_ranges`), TierCosmetic},
+	// Which pack version a company adopted posts nothing itself; the
+	// settings applying it changes carry their own tiers. It decides what
+	// the next upgrade merges from, so it is not cosmetic (ADR-0048).
+	{rx(`^packs`), TierOperational},
 }
 
 func rx(s string) *regexp.Regexp { return regexp.MustCompile(s) }
@@ -105,6 +109,7 @@ var listKeys = map[string]string{
 	"house_banks": "name", "payment_methods": "code", "ranking": "currency",
 	"payment_terms": "key",
 	"number_ranges": "company,document_type,fiscal_year",
+	"packs":         "company",
 }
 
 // Diff lists every setting that differs from old to new, with its tier.

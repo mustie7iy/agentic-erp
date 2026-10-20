@@ -3698,9 +3698,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Apply a pack to a company: three-way merge (adopted version, tenant document, new version) into a draft document with notes; the packs provenance section",
-        "r": "T62b",
+        "s": "D",
+        "t": "Apply a pack to a company: three-way merge (adopted version, tenant document, new version) by account number, account determination field, tax code, number range key and payment term into a draft document with notes; the rate in force on the date of application, later rates noted (until T61); the packs provenance section (company, country, version, applied on), validated, operational tier",
+        "r": "countrypack.Apply · config.PackAdoption · T62b",
         "c": []
        },
        {

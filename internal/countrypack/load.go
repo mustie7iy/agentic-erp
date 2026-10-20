@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -109,6 +110,8 @@ func loadReleased(fsys fs.FS, dir string, released map[string]string) (*Pack, []
 	return Load(fsys, dir)
 }
 
+var hashRe = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
 // readReleased reads the hash list: "<sha256>  <cc>/<version>" per line,
 // with # comments and blank lines.
 func readReleased(fsys fs.FS) (map[string]string, error) {
@@ -124,7 +127,7 @@ func readReleased(fsys fs.FS) (map[string]string, error) {
 			continue
 		}
 		fields := strings.Fields(line)
-		if len(fields) != 2 || len(fields[0]) != sha256.Size*2 {
+		if len(fields) != 2 || !hashRe.MatchString(fields[0]) {
 			return nil, fmt.Errorf("countrypack: %s line %d: want <sha256> <cc>/<version>", ReleasedFile, n)
 		}
 		if _, dup := out[fields[1]]; dup {
@@ -170,7 +173,7 @@ func Load(fsys fs.FS, dir string) (*Pack, []config.Finding, error) {
 	}
 	p, err := Parse(files)
 	if err != nil {
-		return nil, nil, fmt.Errorf("countrypack: %s: %w", dir, err)
+		return nil, nil, fmt.Errorf("%s: %w", dir, err)
 	}
 	findings := Validate(p)
 	if config.HasErrors(findings) {

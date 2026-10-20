@@ -23,6 +23,28 @@ type Config struct {
 	Payments     Payments      `yaml:"payments" json:"payments"`
 	Output       Output        `yaml:"output" json:"output"`
 	NumberRanges []NumberRange `yaml:"number_ranges,omitempty" json:"number_ranges,omitempty"`
+	// Packs records, per company, the country pack it adopted (ADR-0048):
+	// the base the next upgrade of the pack merges from.
+	Packs []PackAdoption `yaml:"packs,omitempty" json:"packs,omitempty"`
+}
+
+// PackAdoption is the country pack version a company adopted and the date
+// it was applied on, which picked the tax rates then in force.
+type PackAdoption struct {
+	Company   string `yaml:"company" json:"company"`
+	Country   string `yaml:"country" json:"country"`
+	Version   string `yaml:"version" json:"version"`
+	AppliedOn string `yaml:"applied_on" json:"applied_on"`
+}
+
+// Pack is the adoption recorded for a company, or nil.
+func (c *Config) Pack(company string) *PackAdoption {
+	for i := range c.Packs {
+		if c.Packs[i].Company == company {
+			return &c.Packs[i]
+		}
+	}
+	return nil
 }
 
 // NumberRange is a document number interval for one company, document type

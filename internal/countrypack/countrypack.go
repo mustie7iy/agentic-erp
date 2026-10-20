@@ -140,6 +140,9 @@ func Parse(files map[string][]byte) (*Pack, error) {
 		if err := dec.Decode(targets[i]); err != nil && !errors.Is(err, io.EOF) { // an empty file is an empty section
 			return nil, fmt.Errorf("countrypack: %s: %w", name, err)
 		}
+		if err := dec.Decode(new(any)); !errors.Is(err, io.EOF) { // a second document would be dropped
+			return nil, fmt.Errorf("countrypack: %s: one YAML document expected", name)
+		}
 	}
 	return p, nil
 }
@@ -149,8 +152,10 @@ func (p *Pack) Dir() string { return strings.ToLower(p.Manifest.Country) + "/" +
 
 // SignedOff reports whether a tax specialist signed the pack off, which the
 // pilot requires.
-func (p *Pack) SignedOff() bool {
-	return p.Manifest.SignOff != nil && strings.TrimSpace(p.Manifest.SignOff.TaxSpecialist) != ""
+func (p *Pack) SignedOff() bool { return p.Manifest.signedOff() }
+
+func (m *Manifest) signedOff() bool {
+	return m.SignOff != nil && strings.TrimSpace(m.SignOff.TaxSpecialist) != ""
 }
 
 // ParseVersion splits a version YYYY.N into its year and sequence number.

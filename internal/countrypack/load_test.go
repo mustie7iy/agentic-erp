@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -54,6 +55,22 @@ func release(t *testing.T, m fstest.MapFS) {
 func TestReleasedPacks(t *testing.T) {
 	if _, err := LoadAll(packs.FS); err != nil {
 		t.Fatalf("LoadAll(packs.FS): %v", err)
+	}
+}
+
+// Every pack directory on disk is embedded: one left out of the embed
+// pattern would be silently missing from the image.
+func TestEveryPackEmbedded(t *testing.T) {
+	onDisk, err := packDirs(os.DirFS("../../packs"))
+	if err != nil {
+		t.Fatalf("packDirs(disk): %v", err)
+	}
+	embedded, err := packDirs(packs.FS)
+	if err != nil {
+		t.Fatalf("packDirs(embedded): %v", err)
+	}
+	if !slices.Equal(onDisk, embedded) {
+		t.Errorf("embedded packs: got %v, want %v (the packs on disk)", embedded, onDisk)
 	}
 }
 
@@ -145,6 +162,14 @@ func TestLoadAllRefuses(t *testing.T) {
 			m["zz/2026.1/payments.yaml"].Data = []byte("payment_term: []\n")
 			return m
 		}, "zz/2026.1: countrypack: payments.yaml"},
+		{"two documents in a file", func(m fstest.MapFS) fs.FS {
+			m["zz/2026.1/payments.yaml"].Data = []byte("payment_terms: []\n---\npayment_terms: []\n")
+			return m
+		}, "one YAML document expected"},
+		{"upper-case hash", func(m fstest.MapFS) fs.FS {
+			m[ReleasedFile].Data = []byte(strings.ToUpper(string(m[ReleasedFile].Data)))
+			return m
+		}, "line 3: want <sha256>"},
 		{"pack in the wrong directory", func(m fstest.MapFS) fs.FS {
 			for _, f := range Files {
 				m["zz/2027.1/"+f] = m["zz/2026.1/"+f]
@@ -156,7 +181,7 @@ func TestLoadAllRefuses(t *testing.T) {
 		{"pack unreadable", func(m fstest.MapFS) fs.FS { return failFS{m, "zz/2026.1"} }, "disk on fire"},
 		{"file unreadable", func(m fstest.MapFS) fs.FS { return failFS{m, "zz/2026.1/tax.yaml"} }, "disk on fire"},
 	}
-	rereleased := map[string]bool{"invalid pack": true, "unparsable pack": true, "pack in the wrong directory": true}
+	rereleased := map[string]bool{"invalid pack": true, "two documents in a file": true, "unparsable pack": true, "pack in the wrong directory": true}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fsys := tt.change(testFS(t))

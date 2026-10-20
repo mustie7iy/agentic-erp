@@ -72,7 +72,7 @@ func (v *validator) manifest(m *Manifest) {
 		v.date(p+".retrieved", s.Retrieved)
 	}
 	switch {
-	case m.SignOff == nil || strings.TrimSpace(m.SignOff.TaxSpecialist) == "":
+	case !m.signedOff():
 		v.out = append(v.out, config.Finding{Severity: config.SevWarning, Path: "pack.yaml: sign_off",
 			Message: "no tax specialist has signed the pack off; it may not be used in the pilot"})
 	default:
@@ -95,21 +95,22 @@ func (v *validator) accounts(a *Accounts) {
 			v.err(p+".type", "type %q must be asset, liability, equity, revenue or expense", acc.Type)
 		}
 	}
-	ad := determination(a.AccountDetermination)
+	ad := determination(&a.AccountDetermination)
 	for _, field := range slices.Sorted(maps.Keys(ad)) {
-		if number := ad[field]; number != "" && !seen[number] {
+		if number := *ad[field]; number != "" && !seen[number] {
 			v.err("accounts.yaml: account_determination."+field, "account %s is not in the pack's accounts", number)
 		}
 	}
 }
 
-// determination lists the account determination by field name; it is what
-// account references are checked against and what applying merges.
-func determination(ad config.AccountDetermination) map[string]string {
-	return map[string]string{
-		"ap_reconciliation": ad.APReconciliation, "input_tax": ad.InputTax, "bank": ad.Bank,
-		"fx_gain": ad.FXGain, "fx_loss": ad.FXLoss, "gr_ir": ad.GRIR, "price_difference": ad.PriceDifference,
-		"cash_discount": ad.CashDiscount, "down_payment": ad.DownPayment,
+// determination is the account determination by field name: what account
+// references are checked against and what applying a pack merges field by
+// field.
+func determination(ad *config.AccountDetermination) map[string]*string {
+	return map[string]*string{
+		"ap_reconciliation": &ad.APReconciliation, "input_tax": &ad.InputTax, "bank": &ad.Bank,
+		"fx_gain": &ad.FXGain, "fx_loss": &ad.FXLoss, "gr_ir": &ad.GRIR, "price_difference": &ad.PriceDifference,
+		"cash_discount": &ad.CashDiscount, "down_payment": &ad.DownPayment,
 	}
 }
 
