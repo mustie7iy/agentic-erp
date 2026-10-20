@@ -119,6 +119,10 @@ func Execute(m *Model, f *Facts, p Principal, q Query) (*Result, error) {
 	return res, nil
 }
 
+// Validate rejects a query the model cannot answer before any data is
+// read: erp-server answers it 422 rather than reading facts for it.
+func Validate(m *Model, q Query) error { return validateQuery(m, q) }
+
 // validateQuery rejects a query before any facts are read: unknown
 // metrics, dimensions or filters the measures do not share, malformed
 // filters and an order_by that names no column.

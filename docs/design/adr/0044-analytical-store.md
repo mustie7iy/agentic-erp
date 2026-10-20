@@ -6,7 +6,7 @@ manifests named by cutoff and digest, `checked_at`, the scheduler; T55d:
 `partners` in place of `vendors`, the reader; T55e: the semantic layer on
 the store, the ledger filter, the reader's limits; T55f: lifecycle,
 compaction, erasure, rebuild, the sweep, the replica wait, freshness
-metrics)
+metrics, the query endpoint)
 
 ## Context
 The semantic layer (`internal/analytics`, `semantic.yaml`) answers every
@@ -319,7 +319,11 @@ fallback. The store path reads `analytics.snapshot`, `ledger.ledger` and
 `ledger.journal_entry` read-only, as the extractor does (above). Every
 `Result` names its `source` (`store` or `database`) and `as_of` (the
 manifest's, or the time of the database read); `data_through` is the
-latest date of the datasets the query read.
+latest date of the datasets the query read. On the store path that is only
+the datasets the query's plans read, where the database path's is the
+latest date of every fact table it built (coordinator, 2026-10-20): a
+revenue query from the store says how far the journal reaches, not the
+invoices.
 
 *Limits.* Each query's DuckDB is set to `threads` (default 2) and
 `memory_limit` (default 1GB) before the configuration is locked, and the
@@ -344,9 +348,7 @@ one.
 *erp-server.* With an object store configured, erp-server starts
 `extract.Scheduler` and sets the relay's `Relayed` hook to
 `extract.MarkChanged`; the scheduler's extract reads on the primary until
-T55f. The semantic layer itself still runs as an API client (`erp
-analytics`); serving it from erp-server, where the store source can read
-the pointer and call erp-analytics, is a separate step.
+T55f. erp-server serves the semantic layer from T55f (below).
 
 **Lifecycle, rebuild and freshness (T55f).** Migration 000093.
 
@@ -418,6 +420,38 @@ watermark: the target's measure, posting to the store) and
 current within fifteen minutes, answered from the database), read as the
 worker (column grants on `ledger.journal_entry`). The alert rules on them
 are T55j, once T54's rules are merged.
+
+*The query endpoint.* erp-server answers `POST /v1/analytics-queries`
+(`runAnalyticsQuery`, contract first: a semantic query of metric names,
+breakdowns, filters, ordering, a limit, an optional `ledger` (a ledger id;
+the leading one when omitted), an optional `as_of` (data checked no
+earlier) and optional `companies`; never SQL), with `x-permission:
+analytics.query.run` and `x-autonomy: read` (it changes no business data,
+so an agent of any level runs it). `internal/analytics/endpoint` validates
+the query against the governed model (422 `analytics.invalid_query`),
+scopes it to the caller's companies (`authz.Companies`, named by code) and
+to the fact datasets of the fact types its permissions read
+(`ledger.entry.read`, `procurement.order.read`,
+`payables.invoice.read`), runs `store.Source` (the store when
+`ERP_ANALYTICS_URL` names erp-analytics, over mTLS as
+`spiffe://<domain>/<cell>/erp-analytics`, and the snapshot is current;
+else the database) and `analytics.Execute`, and returns the rows (each
+measure an exact decimal string with its currency) with `source`, `as_of`,
+`data_through` and the definitions. The database path is `BuildFacts`
+over the API itself, read in-process as the caller (`httpapi.Loopback`:
+the request's verified claims and client certificate go through the unit
+of work and the generated server, in transactions of their own beside the
+request's), so a person or agent sees in analytics exactly what the API
+lets them read, and data it may not read refuses the query with the API's
+403. Each answer holds its request's transaction while it reads, so at most
+two answer at once per replica; another is 503 `analytics.busy` with
+`Retry-After: 1`, never a wait on the pool. `erp query`, `erp ask` and `erp
+report` and the analytics agent's `run_query` tool call the endpoint
+(`analytics.Remote`, a session's `Runner`) and compute nothing
+client-side; the evaluation harness keeps reading the facts itself, since
+it grades the companies the agent's data came from. The agent's tool takes
+a `ledger` argument once `GET /v1/ledgers` lists the ledgers (T55k, after
+T52a).
 
 *Tests.* Each test package already migrates a database of its own
 (`pgtest.Main`); the extract tests' wait is for the snapshot horizon, which

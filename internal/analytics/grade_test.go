@@ -1,6 +1,7 @@
 package analytics
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -12,7 +13,7 @@ import (
 // not, and every figure stated is listed.
 func TestGrade(t *testing.T) {
 	s := session(t, us)
-	r, err := s.Run(salesQuery())
+	r, err := s.Run(context.Background(), salesQuery())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +43,7 @@ func TestGrade(t *testing.T) {
 	if g := ans.Grade(s.Results, []*Result{r}); !slices.Contains(g.Unsupported, "$9.99M") {
 		t.Errorf("an invented figure: got %v, want $9.99M unsupported", g.Unsupported)
 	}
-	other, err := s.Run(Query{Measures: []string{"revenue"}, By: []string{"fiscal_year"}, Where: []Filter{{Dim: "fiscal_year", Op: "in", Values: []string{"2025"}}}})
+	other, err := s.Run(context.Background(), Query{Measures: []string{"revenue"}, By: []string{"fiscal_year"}, Where: []Filter{{Dim: "fiscal_year", Op: "in", Values: []string{"2025"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}

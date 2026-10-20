@@ -7,15 +7,20 @@
 package app
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/agents"
+	"github.com/mustie7iy/agentic-erp/internal/analytics"
+	"github.com/mustie7iy/agentic-erp/internal/analytics/endpoint"
+	"github.com/mustie7iy/agentic-erp/internal/analytics/store"
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/audit"
 	"github.com/mustie7iy/agentic-erp/internal/capture"
@@ -61,6 +66,7 @@ type (
 	auditAPI       = audit.Endpoints
 	integrationAPI = integration.Endpoints
 	agentsAPI      = agents.Endpoints
+	analyticsAPI   = endpoint.Endpoints
 )
 
 // handler is the generated Handler: one embedded endpoint set per context.
@@ -79,6 +85,7 @@ type handler struct {
 	*auditAPI
 	*integrationAPI
 	*agentsAPI
+	*analyticsAPI
 }
 
 // Config is what the API needs.
@@ -114,6 +121,10 @@ type Config struct {
 	RefuseEBICS bool
 	// Model is the model gateway (agents.Gateway, ADR-0036); nil answers 503.
 	Model http.Handler
+	// Analytics is erp-analytics, which answers semantic queries from the
+	// analytical store (store.Client, ADR-0044); nil answers them from the
+	// database.
+	Analytics store.Querier
 	// EvalCell lifts the bound of agents' autonomy by their type's
 	// certification, on a cell that runs live evaluations (ERP_EVAL_CELL,
 	// ADR-0039): a type's first run needs agents at its suite's levels.
@@ -129,6 +140,8 @@ func certifications(cfg Config) agents.Certifications {
 // New builds the public API handler.
 func New(cfg Config) (http.Handler, error) {
 	upload := uploads(cfg)
+	loopback := &httpapi.Loopback{}
+	model, _ := analytics.DefaultModel() // embedded, and TestModelLoadsAndValidates proves it parses
 	h := handler{
 		operationsAPI: &operations.Endpoints{Pages: cfg.Pages, Workflows: cfg.Workflows, Log: cfg.Log},
 		tenancyAPI:    &tenancy.Endpoints{Pages: cfg.Pages},
@@ -154,6 +167,8 @@ func New(cfg Config) (http.Handler, error) {
 		auditAPI:       &audit.Endpoints{Pages: cfg.Pages, Anchors: cfg.Objects},
 		integrationAPI: Integration(cfg),
 		agentsAPI:      &agents.Endpoints{Pages: cfg.Pages, Countries: tenancy.Countries, Certifications: certifications(cfg)},
+		analyticsAPI: (&endpoint.Endpoints{Model: model, Companies: companyCodes{}, Reader: cfg.Analytics, Loopback: loopback,
+			Log: cfg.Log, Now: cfg.Now}).Init(),
 	}
 	return httpapi.New(h, httpapi.Pipeline{
 		Pool: cfg.Pool, AppRole: cfg.AppRole, Verifier: cfg.Verifier, Limits: cfg.Limits, RequestTimeout: cfg.RequestTimeout,
@@ -168,7 +183,16 @@ func New(cfg Config) (http.Handler, error) {
 		RequireBoundAgents: cfg.RequireBoundAgents,
 		Agents:             agents.Admit,
 		Model:              cfg.Model,
+		Loopback:           loopback,
 	})
+}
+
+// companyCodes names legal entities by their company codes for analytics.
+type companyCodes struct{}
+
+func (companyCodes) CompanyCode(ctx context.Context, id uuid.UUID) (string, bool, error) {
+	le, ok, err := tenancy.Directory{}.Entity(ctx, id)
+	return le.Code, ok, err
 }
 
 // Configuration is the configuration context's dependencies as the API

@@ -316,7 +316,7 @@ func TestQueryOperatorsAndBranches(t *testing.T) {
 	s := session(t, us)
 	run := func(q Query) *Result {
 		t.Helper()
-		r, err := s.Run(q)
+		r, err := s.Run(context.Background(), q)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -361,7 +361,7 @@ func TestQueryOperatorsAndBranches(t *testing.T) {
 		t.Fatal("a margin without revenue in the group must be empty (nil)")
 	}
 	// Measures with different dimensions restrict the allowed breakdowns.
-	if _, err := s.Run(Query{Measures: []string{"revenue", "invoice_value"}, By: []string{"vendor"}}); err == nil {
+	if _, err := s.Run(context.Background(), Query{Measures: []string{"revenue", "invoice_value"}, By: []string{"vendor"}}); err == nil {
 		t.Fatal("vendor is not shared by revenue and invoice_value")
 	}
 	errs := []Query{
@@ -373,7 +373,7 @@ func TestQueryOperatorsAndBranches(t *testing.T) {
 	}
 	for i, q := range errs {
 		t.Run(fmt.Sprintf("query %d", i), func(t *testing.T) {
-			if _, err := s.Run(q); err == nil {
+			if _, err := s.Run(context.Background(), q); err == nil {
 				t.Errorf("got no error for %+v, want it refused", q)
 			}
 		})
@@ -689,7 +689,7 @@ func TestSessionErrorPaths(t *testing.T) {
 	}
 
 	ok := session(t, us)
-	r, _ := ok.Run(salesQuery())
+	r, _ := ok.Run(context.Background(), salesQuery())
 	rep, _ := ok.Build(salesSpec(r.ID), "x")
 	blocked := filepath.Join(dir, "file")
 	if err := os.WriteFile(blocked, nil, 0o644); err != nil {
@@ -714,11 +714,11 @@ func TestSessionErrorPaths(t *testing.T) {
 
 	// Rerun: a query that no longer runs, and a spec that no longer validates.
 	broken := &Report{Spec: salesSpec("monthly"), Queries: map[string]Query{"monthly": {Measures: []string{"gone"}}}}
-	if _, _, err := ok.Rerun(broken); err == nil {
+	if _, _, err := ok.Rerun(context.Background(), broken); err == nil {
 		t.Fatal("rerun with a failing query")
 	}
 	stale := &Report{Spec: salesSpec("other"), Queries: map[string]Query{"monthly": salesQuery()}}
-	_, _, err = ok.Rerun(stale)
+	_, _, err = ok.Rerun(context.Background(), stale)
 	pgtest.WantErr(t, err, "no longer valid")
 }
 

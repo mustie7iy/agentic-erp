@@ -20,12 +20,11 @@ const defaultReports = "data/reports"
 
 // analyticsFlags are shared by the analytics commands.
 type analyticsFlags struct {
-	model, companies *string
+	companies *string
 }
 
 func addAnalyticsFlags(fs *flag.FlagSet) analyticsFlags {
 	return analyticsFlags{
-		model:     fs.String("semantic", "", "semantic model YAML (default: built-in governed model)"),
 		companies: fs.String("companies", "", "comma-separated company codes to restrict to (default: all you may read)"),
 	}
 }
@@ -37,26 +36,23 @@ func loadModel(path string) (*analytics.Model, error) {
 	return analytics.DefaultModel()
 }
 
-// session reads the facts through the API with the person's token: only
-// the legal entities and data they may read.
-func (f analyticsFlags) session(ctx context.Context) (*analytics.Session, error) {
-	m, err := loadModel(*f.model)
-	if err != nil {
-		return nil, err
-	}
+// session runs its queries on erp-server's analytics endpoint with the
+// person's token, which answers from the analytical store or the database
+// over only the companies and data the person may read (ADR-0044). The
+// governed model it shows the agent is the server's, built in.
+func (f analyticsFlags) session() (*analytics.Session, error) {
 	c, err := client("ERP_TOKEN")
 	if err != nil {
 		return nil, err
 	}
-	facts, err := analytics.Source{API: c}.Facts(ctx, m, time.Now())
-	if err != nil {
-		return nil, err
-	}
+	m, _ := analytics.DefaultModel() // embedded, and TestModelLoadsAndValidates proves it parses
 	p := analytics.Principal{ID: "token"}
 	if *f.companies != "" {
 		p.Companies = strings.Split(*f.companies, ",")
 	}
-	return analytics.NewSession(m, facts, p), nil
+	s := analytics.NewSession(m, nil, p)
+	s.Runner = analytics.Remote{API: c, Companies: p.Companies}
+	return s, nil
 }
 
 func metricsCmd(_ context.Context, args []string) error {
@@ -99,11 +95,11 @@ func queryCmd(ctx context.Context, args []string) error {
 		}
 		q.Where = append(q.Where, f)
 	}
-	sess, err := af.session(ctx)
+	sess, err := af.session()
 	if err != nil {
 		return err
 	}
-	r, err := sess.Run(q)
+	r, err := sess.Run(ctx, q)
 	if err != nil {
 		return err
 	}
@@ -112,7 +108,8 @@ func queryCmd(ctx context.Context, args []string) error {
 	if err := tw.Flush(); err != nil {
 		return fmt.Errorf("query: print: %w", err)
 	}
-	if _, err := fmt.Fprintf(out, "\n%s · %d rows · data through %s\n", r.ID, len(r.Rows), r.DataThrough); err != nil {
+	if _, err := fmt.Fprintf(out, "\n%s · %d rows · data through %s · from the %s as of %s\n", r.ID, len(r.Rows), r.DataThrough, r.Source,
+		r.AsOf.UTC().Format(time.RFC3339)); err != nil {
 		return fmt.Errorf("query: print summary: %w", err)
 	}
 	if *csvOut != "" {
@@ -167,7 +164,7 @@ func askCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	sess, err := af.session(ctx)
+	sess, err := af.session()
 	if err != nil {
 		return err
 	}
@@ -204,11 +201,11 @@ func reportCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	sess, err := af.session(ctx)
+	sess, err := af.session()
 	if err != nil {
 		return err
 	}
-	fresh, results, err := sess.Rerun(rep)
+	fresh, results, err := sess.Rerun(ctx, rep)
 	if err != nil {
 		return err
 	}
@@ -216,7 +213,7 @@ func reportCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return printf("report", "Refreshed %q with data through %s\nDashboard: %s\n", fresh.Spec.Title, sess.Facts.DataThrough, html)
+	return printf("report", "Refreshed %q with data through %s\nDashboard: %s\n", fresh.Spec.Title, sess.DataThrough(), html)
 }
 
 func splitList(s string) []string {

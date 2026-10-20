@@ -60,6 +60,8 @@ tags:
     description: Approval requests and decisions. Decisions are human-only.
   - name: audit
     description: Tamper-evident audit trail.
+  - name: analytics
+    description: Governed metrics answered by the semantic layer, from the analytical store or the database, with their lineage.
   - name: agents
     description: Agent sessions, their tool calls and recommendations for people to decide.
   - name: integration
@@ -8636,6 +8638,56 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Operation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/analytics-queries:
+    post:
+      operationId: runAnalyticsQuery
+      tags:
+        - analytics
+      summary: Run a semantic analytics query
+      description: "Answers governed metrics (the semantic layer's `semantic.yaml`), broken down by its dimensions and filtered on them, for the companies the principal may read. A query names metrics and dimensions, never SQL. It is answered from the analytical store when the tenant's store was found current within the freshness target and no earlier than `as_of`, else from the database; `source` and `as_of` say which (ADR-0044). The database answers through the API's own reads as the caller, so a metric over data the caller may not read is 403 as that read is. A query the semantic layer refuses (an unknown metric or dimension, a filter it cannot apply, amounts of two currencies summed) is 422 `analytics.invalid_query`; too many queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. Changes nothing: agents of any autonomy level may run it."
+      x-permission: analytics.query.run
+      x-autonomy: read
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The semantic query.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalyticsQuery"
+      responses:
+        "200":
+          description: The query's result and its lineage.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsResult"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -18799,6 +18851,235 @@ components:
       additionalProperties: false
       examples:
         - from_seq: 1
+    AnalyticsQuery:
+      type: object
+      description: "A semantic query: governed metrics, the dimensions to break them down by, filters on dimensions, ordering and a row limit. Unknown metrics or dimensions, dimensions the metrics do not share and malformed filters are 422 `analytics.invalid_query`."
+      required:
+        - measures
+      properties:
+        measures:
+          type: array
+          description: Metric names of the semantic model.
+          minItems: 1
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 100
+        by:
+          type: array
+          description: Dimensions to break the metrics down by.
+          maxItems: 10
+          items:
+            type: string
+            maxLength: 100
+        where:
+          type: array
+          description: Filters on dimensions, all of which a row must meet.
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/AnalyticsFilter"
+        order_by:
+          type: string
+          description: A measure or dimension of the query to order rows by.
+          maxLength: 100
+        desc:
+          type: boolean
+          description: Order descending.
+        limit:
+          type: integer
+          description: At most this many rows; the result is cut at 500 in any case.
+          minimum: 1
+          maximum: 500
+        ledger:
+          type: string
+          format: uuid
+          description: "The ledger journal metrics read; the tenant's leading ledger when omitted (ADR-0044)."
+        as_of:
+          type: string
+          format: date-time
+          description: "The answer must reflect the data as of this time or later: a store found current earlier is not used, and the database answers."
+        companies:
+          type: array
+          description: Company codes to restrict the answer to, within those the principal may read; all of those when omitted.
+          maxItems: 100
+          items:
+            type: string
+            maxLength: 20
+      additionalProperties: false
+      examples:
+        - measures: [revenue]
+          by: [fiscal_year, fiscal_month]
+          where:
+            - dim: fiscal_year
+              op: in
+              values: ["2026"]
+    AnalyticsFilter:
+      type: object
+      description: A filter on a dimension.
+      required:
+        - dim
+        - op
+        - values
+      properties:
+        dim:
+          type: string
+          description: The dimension filtered.
+          maxLength: 100
+        op:
+          type: string
+          description: "`in` and `not_in` take any number of values, `<=` and `>=` one, `between` two."
+          x-extensible-enum:
+            - in
+            - not_in
+            - "<="
+            - ">="
+            - between
+        values:
+          type: array
+          description: The values compared with.
+          maxItems: 1000
+          items:
+            type: string
+            maxLength: 200
+      additionalProperties: false
+    AnalyticsResult:
+      type: object
+      description: "A query's columns and rows, with its lineage: the source it was answered from, as of when, the latest date in the data read, and each measure's definition."
+      required:
+        - query_id
+        - columns
+        - rows
+        - source
+        - as_of
+        - data_through
+        - definitions
+        - truncated
+      properties:
+        query_id:
+          type: string
+          description: Stable for the same query and company scope, so saved reports can refer to it.
+        columns:
+          type: array
+          description: The dimensions, then the measures, in the order of each row's cells.
+          items:
+            $ref: "#/components/schemas/AnalyticsColumn"
+        rows:
+          type: array
+          description: One array of cells per row, in the order of `columns`.
+          items:
+            type: array
+            items:
+              $ref: "#/components/schemas/AnalyticsCell"
+        source:
+          type: string
+          description: "`store` (the analytical store) or `database`."
+          x-extensible-enum:
+            - store
+            - database
+        as_of:
+          type: string
+          format: date-time
+          description: "The state of the data answered: the store's snapshot, or the time of the database read."
+        data_through:
+          type: string
+          description: "The latest posting or document date in the data read (YYYY-MM-DD); from the store, of the datasets the query read only."
+        definitions:
+          type: array
+          description: The metric definitions that produced the measures.
+          items:
+            $ref: "#/components/schemas/AnalyticsDefinition"
+        truncated:
+          type: boolean
+          description: The rows were cut at the limit.
+    AnalyticsColumn:
+      type: object
+      description: A column of a result.
+      required:
+        - name
+        - label
+        - kind
+      properties:
+        name:
+          type: string
+          description: The dimension or metric name.
+        label:
+          type: string
+          description: Its label.
+        kind:
+          type: string
+          description: "`dimension` or `measure`."
+          x-extensible-enum:
+            - dimension
+            - measure
+        type:
+          type: string
+          description: "A measure's type: `money`, `count` or `ratio`."
+          x-extensible-enum:
+            - money
+            - count
+            - ratio
+        currency:
+          type: string
+          description: A money measure's currency, when every row's is the same.
+    AnalyticsCell:
+      type: object
+      description: "A cell: a dimension's value, or a measure as an exact decimal with exactly its digits (an amount at its currency's exponent, a count whole, a ratio to 4 digits); null when it cannot be computed, as a ratio over zero."
+      required:
+        - value
+      properties:
+        value:
+          type:
+            - string
+            - "null"
+          description: The value.
+        currency:
+          type: string
+          description: A money measure's currency.
+    AnalyticsDefinition:
+      type: object
+      description: The definition that produced a measure.
+      required:
+        - name
+        - description
+      properties:
+        name:
+          type: string
+          description: The metric.
+        description:
+          type: string
+          description: What it measures.
+        source:
+          type: string
+          description: The fact table a base metric sums or counts.
+        filter:
+          type: object
+          description: The base metric's fixed filter, by dimension.
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        derived:
+          $ref: "#/components/schemas/AnalyticsDerived"
+    AnalyticsDerived:
+      type: object
+      description: A derived metric's operation on two others.
+      required:
+        - op
+        - left
+        - right
+      properties:
+        op:
+          type: string
+          description: "`subtract` or `divide`."
+          x-extensible-enum:
+            - subtract
+            - divide
+        left:
+          type: string
+          description: The left metric.
+        right:
+          type: string
+          description: The right metric.
     Connector:
       description: A configured connection to an external system. Secrets live in the vault and are referenced, never stored or returned.
       allOf:

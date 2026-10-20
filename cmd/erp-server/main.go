@@ -29,6 +29,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/db"
 	"github.com/mustie7iy/agentic-erp/internal/agents"
 	"github.com/mustie7iy/agentic-erp/internal/analytics/extract"
+	"github.com/mustie7iy/agentic-erp/internal/analytics/store"
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/audit"
 	"github.com/mustie7iy/agentic-erp/internal/capture"
@@ -557,6 +558,10 @@ func (s *server) dialEngine(ctx context.Context) (*workflow.Temporal, error) {
 	return engine, nil
 }
 
+// analyticsTimeout bounds a call to erp-analytics; past it the query is
+// answered from the database.
+const analyticsTimeout = 30 * time.Second
+
 // newAPI builds the public API's handler.
 func (s *server) newAPI() error {
 	cfg := s.cfg
@@ -570,6 +575,12 @@ func (s *server) newAPI() error {
 	}
 	if s.gateway != nil {
 		s.apiCfg.Model = s.gateway
+	}
+	if cfg.AnalyticsURL != "" {
+		// erp-analytics over mTLS as its SPIFFE identity (ADR-0044);
+		// config.Load requires the trust domain, and so the TLS material.
+		s.apiCfg.Analytics = &store.Client{URL: cfg.AnalyticsURL, Peer: tlsconf.ID(cfg.TrustDomain, cfg.Cell, "erp-analytics"),
+			HTTP: s.tls.InternalClient(analyticsTimeout)}
 	}
 	var err error
 	if s.apiHandler, err = app.New(s.apiCfg); err != nil {

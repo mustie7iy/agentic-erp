@@ -19,6 +19,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/analytics/store"
 	"github.com/mustie7iy/agentic-erp/internal/analytics/wire"
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
@@ -41,10 +43,11 @@ type parity struct {
 	src      *store.Source
 	parallel uuid.UUID
 	asOf     time.Time // the manifest's
+	r        *reader.Reader
 }
 
 var parityPerms = []string{"ledger.entry.post", "ledger.entry.read", "ledger.account.read", "payables.invoice.read", "procurement.order.read",
-	"partner.supplier.read", "tenancy.org.read"}
+	"partner.supplier.read", "tenancy.org.read", "analytics.query.run"}
 
 // post posts a journal entry in le debiting debit and crediting credit,
 // the partner on the credit line, in ledger (nil: the leading one).
@@ -152,6 +155,7 @@ func (p *parity) extract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	p.r = r
 	p.src = source(direct{r}, p.db)
 	p.src.Now = nil
 }
@@ -210,6 +214,7 @@ func TestParity(t *testing.T) {
 			}
 		}
 	}
+	t.Run("endpoint", p.endpoint)
 	t.Run("not vacuous", func(t *testing.T) {
 		m := model(t)
 		dbFacts, err := p.db.Facts(context.Background(), m, p.asOf)
@@ -264,5 +269,21 @@ func (p parity) same(t *testing.T, m *analytics.Model, dbFacts *analytics.Facts,
 	}
 	if got.Source != analytics.SourceStore || !got.AsOf.Equal(p.asOf) || want.Source != analytics.SourceDatabase {
 		t.Errorf("lineage: got %s as of %s and %s, want store as of %s and database", got.Source, got.AsOf, want.Source, p.asOf)
+	}
+}
+
+// endpoint: erp-server's analytics endpoint answers from the store, and
+// from the database when asked for data newer than the store's, alike.
+func (p parity) endpoint(t *testing.T) {
+	api := apitest.NewWith(t, func(c *app.Config) { c.Analytics = direct{p.r} })
+	c := apitest.Client{T: t, API: api, Tenant: p.Tenant, As: p.Tenant.Human}
+	q := `{"measures": ["revenue", "expenses", "invoice_count"], "by": ["company", "fiscal_quarter"], "order_by": "company"%s}`
+	fromStore, _ := c.Must(200, "POST", "/v1/analytics-queries", fmt.Sprintf(q, ""), "")
+	fromDB, _ := c.Must(200, "POST", "/v1/analytics-queries", fmt.Sprintf(q, `, "as_of": "2999-01-01T00:00:00Z"`), "")
+	if fromStore["source"] != "store" || fromDB["source"] != "database" {
+		t.Errorf("sources: got %v and %v, want store and database", fromStore["source"], fromDB["source"])
+	}
+	if !reflect.DeepEqual(fromStore["rows"], fromDB["rows"]) || len(fromStore["rows"].([]any)) == 0 {
+		t.Errorf("rows: got %v from the store and %v from the database, want the same", fromStore["rows"], fromDB["rows"])
 	}
 }

@@ -781,6 +781,7 @@ func TestProductionOperatorWithoutRoles(t *testing.T) {
 	env := environment(t, is, "")
 	env["DATABASE_URL"] = pgtest.EmptyDatabase(t) // a cell whose active tenants each have one
 	_, ca := production(t, env)
+	env["ERP_ANALYTICS_URL"] = "https://127.0.0.1:1" // wired as erp-analytics' client; nothing queries it here
 	router := peerClient(t, ca, tlsconf.ID(trustDomain, "global", "erp-router"))
 	ctx, cancel := context.WithCancel(context.Background())
 	var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads

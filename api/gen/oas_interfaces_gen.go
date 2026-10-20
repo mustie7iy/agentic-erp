@@ -657,6 +657,10 @@ type ReverseSupplierInvoiceRes interface {
 	reverseSupplierInvoiceRes()
 }
 
+type RunAnalyticsQueryRes interface {
+	runAnalyticsQueryRes()
+}
+
 type SimulateChangeRequestRes interface {
 	simulateChangeRequestRes()
 }

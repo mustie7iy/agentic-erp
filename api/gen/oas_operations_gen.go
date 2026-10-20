@@ -170,6 +170,7 @@ const (
 	ReverseGoodsReceiptOperation              OperationName = "ReverseGoodsReceipt"
 	ReverseJournalEntryOperation              OperationName = "ReverseJournalEntry"
 	ReverseSupplierInvoiceOperation           OperationName = "ReverseSupplierInvoice"
+	RunAnalyticsQueryOperation                OperationName = "RunAnalyticsQuery"
 	SimulateChangeRequestOperation            OperationName = "SimulateChangeRequest"
 	StartAgentSessionOperation                OperationName = "StartAgentSession"
 	StartMigrationRunOperation                OperationName = "StartMigrationRun"

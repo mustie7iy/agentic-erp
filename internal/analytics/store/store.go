@@ -105,35 +105,49 @@ func (s *Source) target() time.Duration {
 // freshness target alone), else from the database. It runs in a request's
 // unit of work, whose transaction is scoped to the tenant.
 func (s *Source) Facts(ctx context.Context, m *analytics.Model, p analytics.Principal, q analytics.Query, notBefore time.Time) (*analytics.Facts, error) {
-	tx, _, err := reqctx.Request(ctx)
-	if err != nil {
-		return nil, err
-	}
-	snap, ok, err := ReadSnapshot(ctx, tx, s.target())
-	if err != nil {
-		return nil, err
-	}
-	reason := ""
-	switch {
-	case !ok:
-		reason = "no snapshot"
-	case !snap.Fresh:
-		reason = "snapshot stale"
-	case snap.CheckedAt.Before(notBefore):
-		reason = "snapshot older than asked"
-	default:
-		f, err := s.fromStore(ctx, m, p, q, snap)
-		if err == nil {
-			return f, nil
-		}
-		reason = err.Error()
+	f, reason, err := s.fromStoreIfFresh(ctx, m, p, q, notBefore)
+	if f != nil || err != nil {
+		return f, err
 	}
 	s.log().InfoContext(ctx, "analytics answered from the database", "reason", reason)
-	f, err := s.Database.Facts(ctx, m, s.now())
+	f, err = s.Database.Facts(ctx, m, s.now())
 	if err != nil {
 		return nil, fmt.Errorf("analytics: database facts: %w", err)
 	}
 	return f, nil
+}
+
+// fromStoreIfFresh answers from the store when it may, else says why not.
+// Without a reader (no erp-analytics configured) the pointer is not read.
+func (s *Source) fromStoreIfFresh(ctx context.Context, m *analytics.Model, p analytics.Principal, q analytics.Query, notBefore time.Time) (*analytics.Facts, string, error) {
+	if s.Reader == nil {
+		return nil, "no erp-analytics configured", nil
+	}
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	snap, ok, err := ReadSnapshot(ctx, tx, s.target())
+	switch {
+	case err != nil:
+		return nil, "", err
+	case !ok:
+		return nil, "no snapshot", nil
+	case !snap.Fresh:
+		return nil, "snapshot stale", nil
+	case snap.CheckedAt.Before(notBefore):
+		return nil, "snapshot older than asked", nil
+	}
+	f, failed := s.fromStore(ctx, m, p, q, snap)
+	return f, reason(failed), nil
+}
+
+// reason is why the store could not answer, which the database then does.
+func reason(failed error) string {
+	if failed == nil {
+		return ""
+	}
+	return failed.Error()
 }
 
 func (s *Source) now() time.Time { return clock.Now(s.Now) }

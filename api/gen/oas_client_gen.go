@@ -1219,6 +1219,20 @@ type Invoker interface {
 	//
 	// POST /v1/supplier-invoices/{id}:reverse
 	ReverseSupplierInvoice(ctx context.Context, request *SupplierInvoiceReverse, params ReverseSupplierInvoiceParams) (ReverseSupplierInvoiceRes, error)
+	// RunAnalyticsQuery invokes runAnalyticsQuery operation.
+	//
+	// Answers governed metrics (the semantic layer's `semantic.yaml`), broken down by its dimensions and
+	// filtered on them, for the companies the principal may read. A query names metrics and dimensions,
+	// never SQL. It is answered from the analytical store when the tenant's store was found current within
+	// the freshness target and no earlier than `as_of`, else from the database; `source` and `as_of` say
+	// which (ADR-0044). The database answers through the API's own reads as the caller, so a metric over
+	// data the caller may not read is 403 as that read is. A query the semantic layer refuses (an unknown
+	// metric or dimension, a filter it cannot apply, amounts of two currencies summed) is 422
+	// `analytics.invalid_query`; too many queries answering at once on the server is 503 `analytics.busy`
+	// with `Retry-After`. Changes nothing: agents of any autonomy level may run it.
+	//
+	// POST /v1/analytics-queries
+	RunAnalyticsQuery(ctx context.Context, request *AnalyticsQuery, params RunAnalyticsQueryParams) (RunAnalyticsQueryRes, error)
 	// SimulateChangeRequest invokes simulateChangeRequest operation.
 	//
 	// Replays recent business transactions against the proposed configuration and records the result as
@@ -29107,6 +29121,144 @@ func (c *Client) sendReverseSupplierInvoice(ctx context.Context, request *Suppli
 
 	stage = "DecodeResponse"
 	result, err := decodeReverseSupplierInvoiceResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// RunAnalyticsQuery invokes runAnalyticsQuery operation.
+//
+// Answers governed metrics (the semantic layer's `semantic.yaml`), broken down by its dimensions and
+// filtered on them, for the companies the principal may read. A query names metrics and dimensions,
+// never SQL. It is answered from the analytical store when the tenant's store was found current within
+// the freshness target and no earlier than `as_of`, else from the database; `source` and `as_of` say
+// which (ADR-0044). The database answers through the API's own reads as the caller, so a metric over
+// data the caller may not read is 403 as that read is. A query the semantic layer refuses (an unknown
+// metric or dimension, a filter it cannot apply, amounts of two currencies summed) is 422
+// `analytics.invalid_query`; too many queries answering at once on the server is 503 `analytics.busy`
+// with `Retry-After`. Changes nothing: agents of any autonomy level may run it.
+//
+// POST /v1/analytics-queries
+func (c *Client) RunAnalyticsQuery(ctx context.Context, request *AnalyticsQuery, params RunAnalyticsQueryParams) (RunAnalyticsQueryRes, error) {
+	res, err := c.sendRunAnalyticsQuery(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendRunAnalyticsQuery(ctx context.Context, request *AnalyticsQuery, params RunAnalyticsQueryParams) (res RunAnalyticsQueryRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("runAnalyticsQuery"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/analytics-queries"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RunAnalyticsQueryOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/analytics-queries"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeRunAnalyticsQueryRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RunAnalyticsQueryOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRunAnalyticsQueryResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

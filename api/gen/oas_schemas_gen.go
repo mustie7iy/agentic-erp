@@ -1821,6 +1821,541 @@ func (s *AiUsagePrincipal) SetCost(val Money) {
 	s.Cost = val
 }
 
+// A cell: a dimension's value, or a measure as an exact decimal with exactly its digits (an amount at
+// its currency's exponent, a count whole, a ratio to 4 digits); null when it cannot be computed, as a
+// ratio over zero.
+// Ref: #/components/schemas/AnalyticsCell
+type AnalyticsCell struct {
+	// The value.
+	Value NilString `json:"value"`
+	// A money measure's currency.
+	Currency OptString `json:"currency"`
+}
+
+// GetValue returns the value of Value.
+func (s *AnalyticsCell) GetValue() NilString {
+	return s.Value
+}
+
+// GetCurrency returns the value of Currency.
+func (s *AnalyticsCell) GetCurrency() OptString {
+	return s.Currency
+}
+
+// SetValue sets the value of Value.
+func (s *AnalyticsCell) SetValue(val NilString) {
+	s.Value = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *AnalyticsCell) SetCurrency(val OptString) {
+	s.Currency = val
+}
+
+// A column of a result.
+// Ref: #/components/schemas/AnalyticsColumn
+type AnalyticsColumn struct {
+	// The dimension or metric name.
+	Name string `json:"name"`
+	// Its label.
+	Label string `json:"label"`
+	// `dimension` or `measure`.
+	Kind string `json:"kind"`
+	// A measure's type: `money`, `count` or `ratio`.
+	Type OptString `json:"type"`
+	// A money measure's currency, when every row's is the same.
+	Currency OptString `json:"currency"`
+}
+
+// GetName returns the value of Name.
+func (s *AnalyticsColumn) GetName() string {
+	return s.Name
+}
+
+// GetLabel returns the value of Label.
+func (s *AnalyticsColumn) GetLabel() string {
+	return s.Label
+}
+
+// GetKind returns the value of Kind.
+func (s *AnalyticsColumn) GetKind() string {
+	return s.Kind
+}
+
+// GetType returns the value of Type.
+func (s *AnalyticsColumn) GetType() OptString {
+	return s.Type
+}
+
+// GetCurrency returns the value of Currency.
+func (s *AnalyticsColumn) GetCurrency() OptString {
+	return s.Currency
+}
+
+// SetName sets the value of Name.
+func (s *AnalyticsColumn) SetName(val string) {
+	s.Name = val
+}
+
+// SetLabel sets the value of Label.
+func (s *AnalyticsColumn) SetLabel(val string) {
+	s.Label = val
+}
+
+// SetKind sets the value of Kind.
+func (s *AnalyticsColumn) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetType sets the value of Type.
+func (s *AnalyticsColumn) SetType(val OptString) {
+	s.Type = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *AnalyticsColumn) SetCurrency(val OptString) {
+	s.Currency = val
+}
+
+// The definition that produced a measure.
+// Ref: #/components/schemas/AnalyticsDefinition
+type AnalyticsDefinition struct {
+	// The metric.
+	Name string `json:"name"`
+	// What it measures.
+	Description string `json:"description"`
+	// The fact table a base metric sums or counts.
+	Source OptString `json:"source"`
+	// The base metric's fixed filter, by dimension.
+	Filter  OptAnalyticsDefinitionFilter `json:"filter"`
+	Derived OptAnalyticsDerived          `json:"derived"`
+}
+
+// GetName returns the value of Name.
+func (s *AnalyticsDefinition) GetName() string {
+	return s.Name
+}
+
+// GetDescription returns the value of Description.
+func (s *AnalyticsDefinition) GetDescription() string {
+	return s.Description
+}
+
+// GetSource returns the value of Source.
+func (s *AnalyticsDefinition) GetSource() OptString {
+	return s.Source
+}
+
+// GetFilter returns the value of Filter.
+func (s *AnalyticsDefinition) GetFilter() OptAnalyticsDefinitionFilter {
+	return s.Filter
+}
+
+// GetDerived returns the value of Derived.
+func (s *AnalyticsDefinition) GetDerived() OptAnalyticsDerived {
+	return s.Derived
+}
+
+// SetName sets the value of Name.
+func (s *AnalyticsDefinition) SetName(val string) {
+	s.Name = val
+}
+
+// SetDescription sets the value of Description.
+func (s *AnalyticsDefinition) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetSource sets the value of Source.
+func (s *AnalyticsDefinition) SetSource(val OptString) {
+	s.Source = val
+}
+
+// SetFilter sets the value of Filter.
+func (s *AnalyticsDefinition) SetFilter(val OptAnalyticsDefinitionFilter) {
+	s.Filter = val
+}
+
+// SetDerived sets the value of Derived.
+func (s *AnalyticsDefinition) SetDerived(val OptAnalyticsDerived) {
+	s.Derived = val
+}
+
+// The base metric's fixed filter, by dimension.
+type AnalyticsDefinitionFilter map[string][]string
+
+func (s *AnalyticsDefinitionFilter) init() AnalyticsDefinitionFilter {
+	m := *s
+	if m == nil {
+		m = map[string][]string{}
+		*s = m
+	}
+	return m
+}
+
+// A derived metric's operation on two others.
+// Ref: #/components/schemas/AnalyticsDerived
+type AnalyticsDerived struct {
+	// `subtract` or `divide`.
+	Op string `json:"op"`
+	// The left metric.
+	Left string `json:"left"`
+	// The right metric.
+	Right string `json:"right"`
+}
+
+// GetOp returns the value of Op.
+func (s *AnalyticsDerived) GetOp() string {
+	return s.Op
+}
+
+// GetLeft returns the value of Left.
+func (s *AnalyticsDerived) GetLeft() string {
+	return s.Left
+}
+
+// GetRight returns the value of Right.
+func (s *AnalyticsDerived) GetRight() string {
+	return s.Right
+}
+
+// SetOp sets the value of Op.
+func (s *AnalyticsDerived) SetOp(val string) {
+	s.Op = val
+}
+
+// SetLeft sets the value of Left.
+func (s *AnalyticsDerived) SetLeft(val string) {
+	s.Left = val
+}
+
+// SetRight sets the value of Right.
+func (s *AnalyticsDerived) SetRight(val string) {
+	s.Right = val
+}
+
+// A filter on a dimension.
+// Ref: #/components/schemas/AnalyticsFilter
+type AnalyticsFilter struct {
+	// The dimension filtered.
+	Dim string `json:"dim"`
+	// `in` and `not_in` take any number of values, `<=` and `>=` one, `between` two.
+	Op string `json:"op"`
+	// The values compared with.
+	Values []string `json:"values"`
+}
+
+// GetDim returns the value of Dim.
+func (s *AnalyticsFilter) GetDim() string {
+	return s.Dim
+}
+
+// GetOp returns the value of Op.
+func (s *AnalyticsFilter) GetOp() string {
+	return s.Op
+}
+
+// GetValues returns the value of Values.
+func (s *AnalyticsFilter) GetValues() []string {
+	return s.Values
+}
+
+// SetDim sets the value of Dim.
+func (s *AnalyticsFilter) SetDim(val string) {
+	s.Dim = val
+}
+
+// SetOp sets the value of Op.
+func (s *AnalyticsFilter) SetOp(val string) {
+	s.Op = val
+}
+
+// SetValues sets the value of Values.
+func (s *AnalyticsFilter) SetValues(val []string) {
+	s.Values = val
+}
+
+// A semantic query: governed metrics, the dimensions to break them down by, filters on dimensions,
+// ordering and a row limit. Unknown metrics or dimensions, dimensions the metrics do not share and
+// malformed filters are 422 `analytics.invalid_query`.
+// Ref: #/components/schemas/AnalyticsQuery
+type AnalyticsQuery struct {
+	// Metric names of the semantic model.
+	Measures []string `json:"measures"`
+	// Dimensions to break the metrics down by.
+	By []string `json:"by"`
+	// Filters on dimensions, all of which a row must meet.
+	Where []AnalyticsFilter `json:"where"`
+	// A measure or dimension of the query to order rows by.
+	OrderBy OptString `json:"order_by"`
+	// Order descending.
+	Desc OptBool `json:"desc"`
+	// At most this many rows; the result is cut at 500 in any case.
+	Limit OptInt `json:"limit"`
+	// The ledger journal metrics read; the tenant's leading ledger when omitted (ADR-0044).
+	Ledger OptUUID `json:"ledger"`
+	// The answer must reflect the data as of this time or later: a store found current earlier is not
+	// used, and the database answers.
+	AsOf OptDateTime `json:"as_of"`
+	// Company codes to restrict the answer to, within those the principal may read; all of those when
+	// omitted.
+	Companies []string `json:"companies"`
+}
+
+// GetMeasures returns the value of Measures.
+func (s *AnalyticsQuery) GetMeasures() []string {
+	return s.Measures
+}
+
+// GetBy returns the value of By.
+func (s *AnalyticsQuery) GetBy() []string {
+	return s.By
+}
+
+// GetWhere returns the value of Where.
+func (s *AnalyticsQuery) GetWhere() []AnalyticsFilter {
+	return s.Where
+}
+
+// GetOrderBy returns the value of OrderBy.
+func (s *AnalyticsQuery) GetOrderBy() OptString {
+	return s.OrderBy
+}
+
+// GetDesc returns the value of Desc.
+func (s *AnalyticsQuery) GetDesc() OptBool {
+	return s.Desc
+}
+
+// GetLimit returns the value of Limit.
+func (s *AnalyticsQuery) GetLimit() OptInt {
+	return s.Limit
+}
+
+// GetLedger returns the value of Ledger.
+func (s *AnalyticsQuery) GetLedger() OptUUID {
+	return s.Ledger
+}
+
+// GetAsOf returns the value of AsOf.
+func (s *AnalyticsQuery) GetAsOf() OptDateTime {
+	return s.AsOf
+}
+
+// GetCompanies returns the value of Companies.
+func (s *AnalyticsQuery) GetCompanies() []string {
+	return s.Companies
+}
+
+// SetMeasures sets the value of Measures.
+func (s *AnalyticsQuery) SetMeasures(val []string) {
+	s.Measures = val
+}
+
+// SetBy sets the value of By.
+func (s *AnalyticsQuery) SetBy(val []string) {
+	s.By = val
+}
+
+// SetWhere sets the value of Where.
+func (s *AnalyticsQuery) SetWhere(val []AnalyticsFilter) {
+	s.Where = val
+}
+
+// SetOrderBy sets the value of OrderBy.
+func (s *AnalyticsQuery) SetOrderBy(val OptString) {
+	s.OrderBy = val
+}
+
+// SetDesc sets the value of Desc.
+func (s *AnalyticsQuery) SetDesc(val OptBool) {
+	s.Desc = val
+}
+
+// SetLimit sets the value of Limit.
+func (s *AnalyticsQuery) SetLimit(val OptInt) {
+	s.Limit = val
+}
+
+// SetLedger sets the value of Ledger.
+func (s *AnalyticsQuery) SetLedger(val OptUUID) {
+	s.Ledger = val
+}
+
+// SetAsOf sets the value of AsOf.
+func (s *AnalyticsQuery) SetAsOf(val OptDateTime) {
+	s.AsOf = val
+}
+
+// SetCompanies sets the value of Companies.
+func (s *AnalyticsQuery) SetCompanies(val []string) {
+	s.Companies = val
+}
+
+// A query's columns and rows, with its lineage: the source it was answered from, as of when, the
+// latest date in the data read, and each measure's definition.
+// Ref: #/components/schemas/AnalyticsResult
+type AnalyticsResult struct {
+	// Stable for the same query and company scope, so saved reports can refer to it.
+	QueryID string `json:"query_id"`
+	// The dimensions, then the measures, in the order of each row's cells.
+	Columns []AnalyticsColumn `json:"columns"`
+	// One array of cells per row, in the order of `columns`.
+	Rows [][]AnalyticsCell `json:"rows"`
+	// `store` (the analytical store) or `database`.
+	Source string `json:"source"`
+	// The state of the data answered: the store's snapshot, or the time of the database read.
+	AsOf time.Time `json:"as_of"`
+	// The latest posting or document date in the data read (YYYY-MM-DD); from the store, of the datasets
+	// the query read only.
+	DataThrough string `json:"data_through"`
+	// The metric definitions that produced the measures.
+	Definitions []AnalyticsDefinition `json:"definitions"`
+	// The rows were cut at the limit.
+	Truncated bool `json:"truncated"`
+}
+
+// GetQueryID returns the value of QueryID.
+func (s *AnalyticsResult) GetQueryID() string {
+	return s.QueryID
+}
+
+// GetColumns returns the value of Columns.
+func (s *AnalyticsResult) GetColumns() []AnalyticsColumn {
+	return s.Columns
+}
+
+// GetRows returns the value of Rows.
+func (s *AnalyticsResult) GetRows() [][]AnalyticsCell {
+	return s.Rows
+}
+
+// GetSource returns the value of Source.
+func (s *AnalyticsResult) GetSource() string {
+	return s.Source
+}
+
+// GetAsOf returns the value of AsOf.
+func (s *AnalyticsResult) GetAsOf() time.Time {
+	return s.AsOf
+}
+
+// GetDataThrough returns the value of DataThrough.
+func (s *AnalyticsResult) GetDataThrough() string {
+	return s.DataThrough
+}
+
+// GetDefinitions returns the value of Definitions.
+func (s *AnalyticsResult) GetDefinitions() []AnalyticsDefinition {
+	return s.Definitions
+}
+
+// GetTruncated returns the value of Truncated.
+func (s *AnalyticsResult) GetTruncated() bool {
+	return s.Truncated
+}
+
+// SetQueryID sets the value of QueryID.
+func (s *AnalyticsResult) SetQueryID(val string) {
+	s.QueryID = val
+}
+
+// SetColumns sets the value of Columns.
+func (s *AnalyticsResult) SetColumns(val []AnalyticsColumn) {
+	s.Columns = val
+}
+
+// SetRows sets the value of Rows.
+func (s *AnalyticsResult) SetRows(val [][]AnalyticsCell) {
+	s.Rows = val
+}
+
+// SetSource sets the value of Source.
+func (s *AnalyticsResult) SetSource(val string) {
+	s.Source = val
+}
+
+// SetAsOf sets the value of AsOf.
+func (s *AnalyticsResult) SetAsOf(val time.Time) {
+	s.AsOf = val
+}
+
+// SetDataThrough sets the value of DataThrough.
+func (s *AnalyticsResult) SetDataThrough(val string) {
+	s.DataThrough = val
+}
+
+// SetDefinitions sets the value of Definitions.
+func (s *AnalyticsResult) SetDefinitions(val []AnalyticsDefinition) {
+	s.Definitions = val
+}
+
+// SetTruncated sets the value of Truncated.
+func (s *AnalyticsResult) SetTruncated(val bool) {
+	s.Truncated = val
+}
+
+// AnalyticsResultHeaders wraps AnalyticsResult with response headers.
+type AnalyticsResultHeaders struct {
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           AnalyticsResult
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AnalyticsResultHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *AnalyticsResultHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *AnalyticsResultHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *AnalyticsResultHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *AnalyticsResultHeaders) GetResponse() AnalyticsResult {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AnalyticsResultHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *AnalyticsResultHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *AnalyticsResultHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *AnalyticsResultHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AnalyticsResultHeaders) SetResponse(val AnalyticsResult) {
+	s.Response = val
+}
+
+func (*AnalyticsResultHeaders) runAnalyticsQueryRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/ApprovalRequest
 type ApprovalRequest struct {
@@ -2810,6 +3345,7 @@ func (*BadRequestHeaders) requestBankAccountEndRes()            {}
 func (*BadRequestHeaders) reverseGoodsReceiptRes()              {}
 func (*BadRequestHeaders) reverseJournalEntryRes()              {}
 func (*BadRequestHeaders) reverseSupplierInvoiceRes()           {}
+func (*BadRequestHeaders) runAnalyticsQueryRes()                {}
 func (*BadRequestHeaders) simulateChangeRequestRes()            {}
 func (*BadRequestHeaders) startAgentSessionRes()                {}
 func (*BadRequestHeaders) startMigrationRunRes()                {}
@@ -6656,6 +7192,7 @@ func (*ConflictHeaders) requestBankAccountEndRes()            {}
 func (*ConflictHeaders) reverseGoodsReceiptRes()              {}
 func (*ConflictHeaders) reverseJournalEntryRes()              {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()           {}
+func (*ConflictHeaders) runAnalyticsQueryRes()                {}
 func (*ConflictHeaders) simulateChangeRequestRes()            {}
 func (*ConflictHeaders) startAgentSessionRes()                {}
 func (*ConflictHeaders) startMigrationRunRes()                {}
@@ -10083,6 +10620,7 @@ func (*ForbiddenHeaders) requestBankAccountEndRes()            {}
 func (*ForbiddenHeaders) reverseGoodsReceiptRes()              {}
 func (*ForbiddenHeaders) reverseJournalEntryRes()              {}
 func (*ForbiddenHeaders) reverseSupplierInvoiceRes()           {}
+func (*ForbiddenHeaders) runAnalyticsQueryRes()                {}
 func (*ForbiddenHeaders) simulateChangeRequestRes()            {}
 func (*ForbiddenHeaders) startAgentSessionRes()                {}
 func (*ForbiddenHeaders) startMigrationRunRes()                {}
@@ -16380,6 +16918,98 @@ func (o OptAiPolicyUpdateRoutes) Or(d AiPolicyUpdateRoutes) AiPolicyUpdateRoutes
 	return d
 }
 
+// NewOptAnalyticsDefinitionFilter returns new OptAnalyticsDefinitionFilter with value set to v.
+func NewOptAnalyticsDefinitionFilter(v AnalyticsDefinitionFilter) OptAnalyticsDefinitionFilter {
+	return OptAnalyticsDefinitionFilter{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAnalyticsDefinitionFilter is optional AnalyticsDefinitionFilter.
+type OptAnalyticsDefinitionFilter struct {
+	Value AnalyticsDefinitionFilter
+	Set   bool
+}
+
+// IsSet returns true if OptAnalyticsDefinitionFilter was set.
+func (o OptAnalyticsDefinitionFilter) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAnalyticsDefinitionFilter) Reset() {
+	var v AnalyticsDefinitionFilter
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAnalyticsDefinitionFilter) SetTo(v AnalyticsDefinitionFilter) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAnalyticsDefinitionFilter) Get() (v AnalyticsDefinitionFilter, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAnalyticsDefinitionFilter) Or(d AnalyticsDefinitionFilter) AnalyticsDefinitionFilter {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAnalyticsDerived returns new OptAnalyticsDerived with value set to v.
+func NewOptAnalyticsDerived(v AnalyticsDerived) OptAnalyticsDerived {
+	return OptAnalyticsDerived{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAnalyticsDerived is optional AnalyticsDerived.
+type OptAnalyticsDerived struct {
+	Value AnalyticsDerived
+	Set   bool
+}
+
+// IsSet returns true if OptAnalyticsDerived was set.
+func (o OptAnalyticsDerived) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAnalyticsDerived) Reset() {
+	var v AnalyticsDerived
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAnalyticsDerived) SetTo(v AnalyticsDerived) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAnalyticsDerived) Get() (v AnalyticsDerived, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAnalyticsDerived) Or(d AnalyticsDerived) AnalyticsDerived {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptBool returns new OptBool with value set to v.
 func NewOptBool(v bool) OptBool {
 	return OptBool{
@@ -16834,6 +17464,52 @@ func (o OptGoodsReceiptReverse) Get() (v GoodsReceiptReverse, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptGoodsReceiptReverse) Or(d GoodsReceiptReverse) GoodsReceiptReverse {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptInt returns new OptInt with value set to v.
+func NewOptInt(v int) OptInt {
+	return OptInt{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptInt is optional int.
+type OptInt struct {
+	Value int
+	Set   bool
+}
+
+// IsSet returns true if OptInt was set.
+func (o OptInt) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptInt) Reset() {
+	var v int
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptInt) SetTo(v int) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptInt) Get() (v int, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptInt) Or(d int) int {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -20579,6 +21255,7 @@ func (*PreconditionRequiredHeaders) requestBankAccountEndRes()            {}
 func (*PreconditionRequiredHeaders) reverseGoodsReceiptRes()              {}
 func (*PreconditionRequiredHeaders) reverseJournalEntryRes()              {}
 func (*PreconditionRequiredHeaders) reverseSupplierInvoiceRes()           {}
+func (*PreconditionRequiredHeaders) runAnalyticsQueryRes()                {}
 func (*PreconditionRequiredHeaders) simulateChangeRequestRes()            {}
 func (*PreconditionRequiredHeaders) startAgentSessionRes()                {}
 func (*PreconditionRequiredHeaders) startMigrationRunRes()                {}
@@ -25690,6 +26367,7 @@ func (*ServiceUnavailableHeaders) requestBankAccountEndRes()            {}
 func (*ServiceUnavailableHeaders) reverseGoodsReceiptRes()              {}
 func (*ServiceUnavailableHeaders) reverseJournalEntryRes()              {}
 func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()           {}
+func (*ServiceUnavailableHeaders) runAnalyticsQueryRes()                {}
 func (*ServiceUnavailableHeaders) simulateChangeRequestRes()            {}
 func (*ServiceUnavailableHeaders) startAgentSessionRes()                {}
 func (*ServiceUnavailableHeaders) startMigrationRunRes()                {}
@@ -27516,6 +28194,7 @@ func (*TooManyRequestsHeaders) requestBankAccountEndRes()            {}
 func (*TooManyRequestsHeaders) reverseGoodsReceiptRes()              {}
 func (*TooManyRequestsHeaders) reverseJournalEntryRes()              {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()           {}
+func (*TooManyRequestsHeaders) runAnalyticsQueryRes()                {}
 func (*TooManyRequestsHeaders) simulateChangeRequestRes()            {}
 func (*TooManyRequestsHeaders) startAgentSessionRes()                {}
 func (*TooManyRequestsHeaders) startMigrationRunRes()                {}
@@ -27767,6 +28446,7 @@ func (*UnauthorizedHeaders) requestBankAccountEndRes()            {}
 func (*UnauthorizedHeaders) reverseGoodsReceiptRes()              {}
 func (*UnauthorizedHeaders) reverseJournalEntryRes()              {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()           {}
+func (*UnauthorizedHeaders) runAnalyticsQueryRes()                {}
 func (*UnauthorizedHeaders) simulateChangeRequestRes()            {}
 func (*UnauthorizedHeaders) startAgentSessionRes()                {}
 func (*UnauthorizedHeaders) startMigrationRunRes()                {}
@@ -27921,6 +28601,7 @@ func (*UnprocessableHeaders) requestBankAccountEndRes()            {}
 func (*UnprocessableHeaders) reverseGoodsReceiptRes()              {}
 func (*UnprocessableHeaders) reverseJournalEntryRes()              {}
 func (*UnprocessableHeaders) reverseSupplierInvoiceRes()           {}
+func (*UnprocessableHeaders) runAnalyticsQueryRes()                {}
 func (*UnprocessableHeaders) simulateChangeRequestRes()            {}
 func (*UnprocessableHeaders) startAgentSessionRes()                {}
 func (*UnprocessableHeaders) startMigrationRunRes()                {}

@@ -3404,9 +3404,9 @@
         "c": []
        },
        {
-        "s": "P",
-        "t": "Lifecycle: publications list the manifest they replace (analytics.superseded) and a lost run its own; after each run the scheduler collects, past 7 days, the files no manifest in use lists, then the manifest and (as erp_worker) its row; a month's journal parts merged at 8 into one file named by the interval they cover; erasure deletes analytics/v1/tenant=<id>/ with the tenant's objects (blobstore.TenantPrefixes); a run behind its watermark rebuilds the store when the primary is behind it too (restore) and is retried when only the replica lags; erp-server dr reconcile rebuilds every store ahead of the restored database; the claim records the primary's WAL position and the run reads the replica (DATABASE_REPLICA_URL) only once it has replayed past it, else the primary; hourly sweep of active tenants not found current; gauges erp_analytics_lag_seconds and erp_analytics_stale_tenants. The dedicated test database was dropped: each package has one, and the snapshot horizon is the cluster's. Next: the server-side analytics query endpoint",
-        "r": "migration 000093 · internal/analytics/extract lifecycle.go · offboarding.eraseObjects · drverify.Reconciler.Analytics · erp-server DATABASE_REPLICA_URL · ADR-0044 · T55f",
+        "s": "D",
+        "t": "Lifecycle: publications list the manifest they replace (analytics.superseded) and a lost run its own; after each run the scheduler collects, past 7 days, the files no manifest in use lists, then the manifest and (as erp_worker) its row; a month's journal parts merged at 8 into one file named by the interval they cover; erasure deletes analytics/v1/tenant=<id>/ with the tenant's objects (blobstore.TenantPrefixes); a run behind its watermark rebuilds the store when the primary is behind it too (restore) and is retried when only the replica lags; erp-server dr reconcile rebuilds every store ahead of the restored database; the claim records the primary's WAL position and the run reads the replica (DATABASE_REPLICA_URL) only once it has replayed past it, else the primary; hourly sweep of active tenants not found current; gauges erp_analytics_lag_seconds and erp_analytics_stale_tenants. The dedicated test database was dropped: each package has one, and the snapshot horizon is the cluster's. erp-server answers POST /v1/analytics-queries (runAnalyticsQuery: metric names, breakdowns, filters, as_of, optional ledger and companies, never SQL; analytics.query.run, x-autonomy read) with the store Source and its database fallback, the database path reading the API in-process as the caller (httpapi.Loopback), at most 2 answering at once per replica (503 analytics.busy), with lineage (source, as_of, data_through of the datasets read); erp query, ask and report and the agent's run_query call it (analytics.Remote). Parity data without customer journal lines accepted for now (coordinator, 2026-10-20)",
+        "r": "migration 000093 · internal/analytics/extract lifecycle.go · offboarding.eraseObjects · drverify.Reconciler.Analytics · erp-server DATABASE_REPLICA_URL, ERP_ANALYTICS_URL · api/openapi.yaml runAnalyticsQuery · internal/analytics/endpoint · httpapi.Loopback · analytics.Remote · ADR-0044 · T55f",
         "c": []
        },
        {
@@ -3419,6 +3419,12 @@
         "s": "T",
         "t": "Freshness alert rules on erp_analytics_lag_seconds (p95 target 15 minutes) and erp_analytics_stale_tenants in the cell's Prometheus rules, once T54's rules (T54e) are on main; the gauges move to cmd/erp-server/gauges.go with T54b's",
         "r": "T55j",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The analytics agent's run_query takes an optional ledger (a ledger id from GET /v1/ledgers) once T52a is on main; the endpoint already accepts it",
+        "r": "T55k",
         "c": []
        }
       ]

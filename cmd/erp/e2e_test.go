@@ -28,7 +28,7 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 var perms = []string{"integration.connector.read", "integration.connector.manage", "integration.migration.read", "integration.migration.run",
 	"platform.operation.read", "ledger.entry.read", "ledger.account.read", "payables.invoice.read", "payables.invoice.capture", "payables.invoice.post", "payables.invoice.hold",
 	"procurement.order.read", "procurement.receipt.read", "partner.supplier.read", "tenancy.org.read", "config.change.read",
-	"config.change.propose", "config.version.read", "agents.session.read", "agents.session.record"}
+	"config.change.propose", "config.version.read", "agents.session.read", "agents.session.record", "analytics.query.run"}
 
 // env is a configured tenant behind an API server the CLI talks to, with
 // the mock SAP extract of 2026 in the server's extract directory.
