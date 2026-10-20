@@ -13,7 +13,66 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
-func TestMain(m *testing.M) { pgtest.Main(m) }
+// today is the one date every expected date in these tests is computed from.
+// The code reads the database's current_date, which moves at midnight UTC;
+// day() read the wall clock at each call, so a run crossing midnight compared
+// a date sent before it with one computed after. TestMain starts the run far
+// enough from midnight that neither clock can change date while it runs.
+var today time.Time
+
+func TestMain(m *testing.M) {
+	today = startDay(time.Now, func(d time.Duration) { <-time.After(d) })
+	pgtest.Main(m)
+}
+
+// dayMargin is well over how long this package's tests take under -race
+// (about 16 s); TestMain runs once per binary, so -count=N must fit in it too.
+const dayMargin = 2 * time.Minute
+
+// startDay returns the UTC date the tests run on; within dayMargin of
+// midnight it first waits for the new day.
+func startDay(now func() time.Time, wait func(time.Duration)) time.Time {
+	t := now().UTC()
+	midnight := t.Truncate(24 * time.Hour).Add(24 * time.Hour)
+	if left := midnight.Sub(t); left < dayMargin {
+		wait(left)
+		t = midnight
+	}
+	return t.Truncate(24 * time.Hour)
+}
+
+func TestStartDay(t *testing.T) {
+	at := func(s string) func() time.Time {
+		return func() time.Time { v, _ := time.Parse(time.RFC3339, s); return v } // the literals parse
+	}
+	for name, tc := range map[string]struct {
+		now        string
+		want       string
+		wantWaited time.Duration
+	}{
+		"midday":                     {"2026-10-20T12:00:00Z", "2026-10-20", 0},
+		"one second before midnight": {"2026-10-20T23:59:59Z", "2026-10-21", time.Second},
+		"just outside the margin":    {"2026-10-20T23:58:00Z", "2026-10-20", 0},
+		"local time east of UTC":     {"2026-10-21T01:30:00+02:00", "2026-10-20", 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var waited time.Duration
+			got := startDay(at(tc.now), func(d time.Duration) { waited = d })
+			if got.Format(time.DateOnly) != tc.want {
+				t.Errorf("day: got %s, want %s", got.Format(time.DateOnly), tc.want)
+			}
+			if waited != tc.wantWaited {
+				t.Errorf("waited: got %v, want %v", waited, tc.wantWaited)
+			}
+		})
+	}
+	// The expectations agree with the date the code reads.
+	var db time.Time
+	pgtest.Scan(t, `SELECT current_date`, nil, &db)
+	if !db.Equal(today) {
+		t.Errorf("database date: got %s, want %s", db.Format(time.DateOnly), today.Format(time.DateOnly))
+	}
+}
 
 var perms = []string{"identity.access.read", "identity.access.manage"}
 
@@ -38,7 +97,7 @@ func events(t *testing.T, ten pgtest.Tenant, name string) []map[string]any {
 	return apitest.Published(t, ten, outbox.Event{Context: "identity", Name: name})
 }
 
-func day(offset int) string { return time.Now().UTC().AddDate(0, 0, offset).Format(time.DateOnly) }
+func day(offset int) string { return today.AddDate(0, 0, offset).Format(time.DateOnly) }
 
 func TestPrincipals(t *testing.T) {
 	c, ten := admin(t)
