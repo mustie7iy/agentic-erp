@@ -3880,7 +3880,7 @@ paths:
       tags:
         - ledger
       summary: Post a journal entry
-      description: "Posts a manual journal entry at once: the request is validated (balance in every currency, open period, postable accounts, partner on reconciliation lines) and either fully posted or rejected. Journal entries are insert-only; an entry that should wait, for a person to post it or for approval, is parked (`parked-journal-entries`). An entry whose debits, converted exactly into the legal entity's currency at the average rate of its posting date, exceed the company's `manual_entry_approval_limit` is 409 `ledger.approval_required` (after the period is found open: a closed one is 409 `ledger.period_not_open` first): park it and post it with `:post`, which asks someone else's approval (T35). A line on the legal entity's GR/IR account (account determination `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. Human-only: agents propose entries by parking them."
+      description: "Posts a manual journal entry at once: the request is validated (balance in every currency, open period, postable accounts, partner on reconciliation lines) and either fully posted or rejected. Journal entries are insert-only; an entry that should wait, for a person to post it or for approval, is parked (`parked-journal-entries`). An entry whose debits, converted exactly into the legal entity's currency at the average rate of its posting date, exceed the company's `manual_entry_approval_limit` is 409 `ledger.approval_required` (after the period is found open: a closed one is 409 `ledger.period_not_open` first): park it and post it with `:post`, which asks someone else's approval (T35). A line on the legal entity's GR/IR account (account determination `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. It posts to every ledger its company keeps as linked entries of one posting group sharing the document number (`posting_group_id`), each period checked open in its ledger, and returns the leading ledger's; `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to those ledgers only (ADR-0045). Human-only: agents propose entries by parking them."
       x-permission: ledger.entry.post
       x-agent: false
       parameters:
@@ -4040,7 +4040,7 @@ paths:
       tags:
         - ledger
       summary: Reverse a journal entry
-      description: "Posts a reversal entry with every amount negated and links both entries. Open-item lines of the original are cleared against the reversal's lines in the same transaction (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal entry. Human-only."
+      description: "Reverses every entry of the posting group (one reversal entry per ledger, the first returned); a copy in a parallel ledger is reversed only through its group's first entry (409 `ledger.entry_is_copy`). Posts a reversal entry with every amount negated and links both entries. Open-item lines of the original are cleared against the reversal's lines in the same transaction (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal entry. Human-only."
       x-permission: ledger.entry.post
       x-agent: false
       parameters:
@@ -14627,7 +14627,7 @@ components:
           readOnly: true
         document_number:
           type: string
-          description: Document number, unique per legal entity, document type and fiscal year.
+          description: "Document number, unique per legal entity, ledger, document type and fiscal year; the entries of a posting group share it."
           readOnly: true
         document_date:
           type: string
@@ -14694,6 +14694,16 @@ components:
           type: string
           format: uuid
           description: Entry this one reverses.
+          readOnly: true
+        posting_group_id:
+          type: string
+          format: uuid
+          description: "The first entry of the posting group this entry belongs to (the entry itself on the first): a posting is written to every ledger its company keeps, or to the ledger or ledger group it names, as linked entries sharing one document number (ADR-0045). Absent on entries posted before posting groups."
+          readOnly: true
+        ledger_group_id:
+          type: string
+          format: uuid
+          description: The ledger group the posting named, if any.
           readOnly: true
         reversed_by_id:
           type: string
@@ -14810,7 +14820,11 @@ components:
         ledger_id:
           type: string
           format: uuid
-          description: "Ledger; defaults to the leading ledger."
+          description: "The one ledger the entry posts to (a ledger-specific posting), one its company keeps (422 `ledger.ledger_not_kept`). Without `ledger_id` and `ledger_group` the entry posts to every ledger its company keeps, as linked entries sharing one document number; the leading ledger's entry is the one returned."
+        ledger_group:
+          type: string
+          description: "Code of the ledger group the entry posts to (`GET /v1/ledger-groups`): one entry per member, the representative's returned; every member a ledger its company keeps (422 `ledger.ledger_not_kept`). Not with `ledger_id` (422 `ledger.ledger_or_group`); an unknown code is 422 `ledger.unknown_ledger_group`."
+          pattern: "^[0-9A-Z]{1,4}$"
         document_type:
           type: string
           description: Document type.
@@ -15006,7 +15020,15 @@ components:
             ledger_id:
               type: string
               format: uuid
-              description: Ledger.
+              description: "The ledger named (`ledger_specific`), the ledger group's representative, or the leading ledger when it posts to every ledger its company keeps."
+              readOnly: true
+            ledger_specific:
+              type: boolean
+              description: It posts to `ledger_id` alone.
+              readOnly: true
+            ledger_group:
+              type: string
+              description: Code of the ledger group it posts to, if any.
               readOnly: true
             document_type:
               type: string

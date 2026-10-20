@@ -12818,7 +12818,8 @@ type JournalEntry struct {
 	FiscalPeriod int32 `json:"fiscal_period"`
 	// Document type (SA general, KR supplier invoice, KZ payment...).
 	DocumentType string `json:"document_type"`
-	// Document number, unique per legal entity, document type and fiscal year.
+	// Document number, unique per legal entity, ledger, document type and fiscal year; the entries of a
+	// posting group share it.
 	DocumentNumber string `json:"document_number"`
 	// Document date.
 	DocumentDate time.Time `json:"document_date"`
@@ -12845,6 +12846,13 @@ type JournalEntry struct {
 	SourceDocumentID OptUUID `json:"source_document_id"`
 	// Entry this one reverses.
 	ReversalOfID OptUUID `json:"reversal_of_id"`
+	// The first entry of the posting group this entry belongs to (the entry itself on the first): a
+	// posting is written to every ledger its company keeps, or to the ledger or ledger group it names, as
+	// linked entries sharing one document number (ADR-0045). Absent on entries posted before posting
+	// groups.
+	PostingGroupID OptUUID `json:"posting_group_id"`
+	// The ledger group the posting named, if any.
+	LedgerGroupID OptUUID `json:"ledger_group_id"`
 	// Entry that reversed this one, if any.
 	ReversedByID OptUUID `json:"reversed_by_id"`
 	// Lines; they balance to zero in every currency.
@@ -12948,6 +12956,16 @@ func (s *JournalEntry) GetSourceDocumentID() OptUUID {
 // GetReversalOfID returns the value of ReversalOfID.
 func (s *JournalEntry) GetReversalOfID() OptUUID {
 	return s.ReversalOfID
+}
+
+// GetPostingGroupID returns the value of PostingGroupID.
+func (s *JournalEntry) GetPostingGroupID() OptUUID {
+	return s.PostingGroupID
+}
+
+// GetLedgerGroupID returns the value of LedgerGroupID.
+func (s *JournalEntry) GetLedgerGroupID() OptUUID {
+	return s.LedgerGroupID
 }
 
 // GetReversedByID returns the value of ReversedByID.
@@ -13065,6 +13083,16 @@ func (s *JournalEntry) SetReversalOfID(val OptUUID) {
 	s.ReversalOfID = val
 }
 
+// SetPostingGroupID sets the value of PostingGroupID.
+func (s *JournalEntry) SetPostingGroupID(val OptUUID) {
+	s.PostingGroupID = val
+}
+
+// SetLedgerGroupID sets the value of LedgerGroupID.
+func (s *JournalEntry) SetLedgerGroupID(val OptUUID) {
+	s.LedgerGroupID = val
+}
+
 // SetReversedByID sets the value of ReversedByID.
 func (s *JournalEntry) SetReversedByID(val OptUUID) {
 	s.ReversedByID = val
@@ -13091,8 +13119,16 @@ func (s *JournalEntry) SetPostedBy(val uuid.UUID) {
 type JournalEntryCreate struct {
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// Ledger; defaults to the leading ledger.
+	// The one ledger the entry posts to (a ledger-specific posting), one its company keeps (422
+	// `ledger.ledger_not_kept`). Without `ledger_id` and `ledger_group` the entry posts to every ledger
+	// its company keeps, as linked entries sharing one document number; the leading ledger's entry is the
+	// one returned.
 	LedgerID OptUUID `json:"ledger_id"`
+	// Code of the ledger group the entry posts to (`GET /v1/ledger-groups`): one entry per member, the
+	// representative's returned; every member a ledger its company keeps (422 `ledger.ledger_not_kept`).
+	// Not with `ledger_id` (422 `ledger.ledger_or_group`); an unknown code is 422
+	// `ledger.unknown_ledger_group`.
+	LedgerGroup OptString `json:"ledger_group"`
 	// Document type.
 	DocumentType OptString `json:"document_type"`
 	// Document date.
@@ -13117,6 +13153,11 @@ func (s *JournalEntryCreate) GetLegalEntityID() uuid.UUID {
 // GetLedgerID returns the value of LedgerID.
 func (s *JournalEntryCreate) GetLedgerID() OptUUID {
 	return s.LedgerID
+}
+
+// GetLedgerGroup returns the value of LedgerGroup.
+func (s *JournalEntryCreate) GetLedgerGroup() OptString {
+	return s.LedgerGroup
 }
 
 // GetDocumentType returns the value of DocumentType.
@@ -13162,6 +13203,11 @@ func (s *JournalEntryCreate) SetLegalEntityID(val uuid.UUID) {
 // SetLedgerID sets the value of LedgerID.
 func (s *JournalEntryCreate) SetLedgerID(val OptUUID) {
 	s.LedgerID = val
+}
+
+// SetLedgerGroup sets the value of LedgerGroup.
+func (s *JournalEntryCreate) SetLedgerGroup(val OptString) {
+	s.LedgerGroup = val
 }
 
 // SetDocumentType sets the value of DocumentType.
@@ -18549,8 +18595,13 @@ type ParkedJournalEntry struct {
 	UpdatedBy OptUUID `json:"updated_by"`
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// Ledger.
+	// The ledger named (`ledger_specific`), the ledger group's representative, or the leading ledger when
+	// it posts to every ledger its company keeps.
 	LedgerID uuid.UUID `json:"ledger_id"`
+	// It posts to `ledger_id` alone.
+	LedgerSpecific OptBool `json:"ledger_specific"`
+	// Code of the ledger group it posts to, if any.
+	LedgerGroup OptString `json:"ledger_group"`
 	// Document type.
 	DocumentType string `json:"document_type"`
 	// Document date.
@@ -18621,6 +18672,16 @@ func (s *ParkedJournalEntry) GetLegalEntityID() uuid.UUID {
 // GetLedgerID returns the value of LedgerID.
 func (s *ParkedJournalEntry) GetLedgerID() uuid.UUID {
 	return s.LedgerID
+}
+
+// GetLedgerSpecific returns the value of LedgerSpecific.
+func (s *ParkedJournalEntry) GetLedgerSpecific() OptBool {
+	return s.LedgerSpecific
+}
+
+// GetLedgerGroup returns the value of LedgerGroup.
+func (s *ParkedJournalEntry) GetLedgerGroup() OptString {
+	return s.LedgerGroup
 }
 
 // GetDocumentType returns the value of DocumentType.
@@ -18726,6 +18787,16 @@ func (s *ParkedJournalEntry) SetLegalEntityID(val uuid.UUID) {
 // SetLedgerID sets the value of LedgerID.
 func (s *ParkedJournalEntry) SetLedgerID(val uuid.UUID) {
 	s.LedgerID = val
+}
+
+// SetLedgerSpecific sets the value of LedgerSpecific.
+func (s *ParkedJournalEntry) SetLedgerSpecific(val OptBool) {
+	s.LedgerSpecific = val
+}
+
+// SetLedgerGroup sets the value of LedgerGroup.
+func (s *ParkedJournalEntry) SetLedgerGroup(val OptString) {
+	s.LedgerGroup = val
 }
 
 // SetDocumentType sets the value of DocumentType.

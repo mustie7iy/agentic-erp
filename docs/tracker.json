@@ -907,9 +907,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Postings copied to every ledger of the company (posting_group_id, one document number); a posting naming a ledger or group limited to the company's ledgers",
-        "r": "T52b",
+        "r": "db/migrations/000092-000095 · migrate:partitioned-index · ledger_group on manual and parked entries · reversal of every copy · open items on the leading ledger · ADR-0045 · T52b",
         "c": []
        },
        {

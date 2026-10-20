@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +17,25 @@ import (
 // as CREATE INDEX CONCURRENTLY (06-engineering-process §6.4). Such a
 // migration holds exactly one statement.
 const NoTransaction = "-- migrate:no-transaction"
+
+// PartitionedIndex marks a migration that builds an index on a partitioned
+// table without blocking writes (06-engineering-process §6.4): the index
+// ON ONLY the parent, then per partition CREATE INDEX CONCURRENTLY and
+// ATTACH PARTITION, the parent's index valid once every partition has its
+// own. Such a migration holds exactly one CREATE [UNIQUE] INDEX statement
+// naming the parent; it runs outside a transaction and may run again after
+// a failure, picking up the partitions still without the index.
+const PartitionedIndex = "-- migrate:partitioned-index"
+
+// indexStatement is the statement a PartitionedIndex migration holds:
+// unique, index name, table schema and name, and the rest (columns, WHERE).
+var indexStatement = regexp.MustCompile(`(?s)^CREATE (UNIQUE )?INDEX (\w+) ON (\w+)\.(\w+) (\([^;]+?);?\s*$`)
+
+// indexLockTimeout bounds the waits for the parent's lock when its index
+// is created and attached to: a long transaction on the table fails the
+// migration, run again later, rather than queueing every posting behind
+// it. A variable so tests can shorten it.
+var indexLockTimeout = "10s"
 
 // lockKey serializes migrations across replicas starting at the same time.
 const lockKey = 7_428_361
@@ -124,6 +144,13 @@ func migrate(ctx context.Context, conn *pgx.Conn, ms []Migration) (applied []str
 
 func apply(ctx context.Context, conn *pgx.Conn, m Migration, v int) error {
 	record := "INSERT INTO public.erp_schema_migration (version, name) VALUES ($1, $2)"
+	if body, ok := strings.CutPrefix(m.Up, PartitionedIndex); ok {
+		if err := partitionedIndex(ctx, conn, stripComments(body)); err != nil {
+			return fmt.Errorf("build a partitioned index: %w", err)
+		}
+		_, err := conn.Exec(ctx, record, v, m.Name)
+		return errs.Wrapf(err, "record version %d", v)
+	}
 	if strings.HasPrefix(m.Up, NoTransaction) {
 		if _, err := conn.Exec(ctx, m.Up); err != nil {
 			return fmt.Errorf("run without a transaction: %w", err)
@@ -138,6 +165,65 @@ func apply(ctx context.Context, conn *pgx.Conn, m Migration, v int) error {
 		_, err := tx.Exec(ctx, record, v, m.Name)
 		return errs.Wrapf(err, "record version %d", v)
 	}), "in a transaction")
+}
+
+// stripComments drops the -- comment lines of a migration.
+func stripComments(sql string) string {
+	var kept []string
+	for line := range strings.Lines(sql) {
+		if !strings.HasPrefix(strings.TrimSpace(line), "--") {
+			kept = append(kept, line)
+		}
+	}
+	return strings.TrimSpace(strings.Join(kept, ""))
+}
+
+// partitionedIndex builds the index stmt names on its partitioned table,
+// one partition at a time (PartitionedIndex). Each partition's index is
+// named after the parent's and the partition's suffix (journal_entry_y2026
+// gives <index>_y2026). A partition created meanwhile gets the index from
+// the parent's; one whose concurrent build failed, leaving an invalid
+// index, is built again.
+func partitionedIndex(ctx context.Context, conn *pgx.Conn, stmt string) error {
+	m := indexStatement.FindStringSubmatch(stmt)
+	if m == nil {
+		return fmt.Errorf("want one CREATE [UNIQUE] INDEX name ON schema.table (...) statement, got %q", stmt)
+	}
+	unique, name, schema, table, rest := m[1], m[2], m[3], m[4], m[5]
+	parent := pgx.Identifier{schema, name}.Sanitize()
+	// Statements built from the migration's own text, never from input.
+	if err := runSQL(ctx, conn, "SET LOCAL lock_timeout = '"+indexLockTimeout+"'; CREATE "+unique+"INDEX IF NOT EXISTS "+pgx.Identifier{name}.Sanitize()+
+		" ON ONLY "+pgx.Identifier{schema, table}.Sanitize()+" "+rest); err != nil {
+		return err
+	}
+	rows, _ := conn.Query(ctx, `SELECT c.relname FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid
+		WHERE i.inhparent = $1::regclass AND NOT EXISTS (SELECT FROM pg_inherits x JOIN pg_index ix ON ix.indexrelid = x.inhrelid
+			WHERE x.inhparent = $2::regclass AND ix.indrelid = i.inhrelid)
+		ORDER BY 1`, pgx.Identifier{schema, table}.Sanitize(), parent)
+	partitions, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return fmt.Errorf("partitions of %s.%s: %w", schema, table, err)
+	}
+	for _, p := range partitions {
+		child := name + "_" + strings.TrimPrefix(p, table+"_")
+		qualified := pgx.Identifier{schema, child}.Sanitize()
+		if err := runSQL(ctx, conn, "DROP INDEX CONCURRENTLY IF EXISTS "+qualified); err != nil {
+			return err
+		}
+		if err := runSQL(ctx, conn, "CREATE "+unique+"INDEX CONCURRENTLY "+pgx.Identifier{child}.Sanitize()+" ON "+pgx.Identifier{schema, p}.Sanitize()+" "+rest); err != nil {
+			return err
+		}
+		if err := runSQL(ctx, conn, "SET LOCAL lock_timeout = '"+indexLockTimeout+"'; ALTER INDEX "+parent+" ATTACH PARTITION "+qualified); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// runSQL executes sql, one statement or several in one implicit transaction.
+func runSQL(ctx context.Context, conn *pgx.Conn, sql string) error {
+	_, err := conn.PgConn().Exec(ctx, sql).ReadAll()
+	return errs.Wrapf(err, "%s", sql)
 }
 
 // CurrentVersion is the highest applied version, or 0 on an empty database.

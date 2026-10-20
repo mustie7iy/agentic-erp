@@ -22,6 +22,7 @@ func parkedToAPI(pe ParkedEntry) gen.ParkedJournalEntry {
 		DocumentDate: pe.DocumentDate, PostingDate: pe.PostingDate, Currency: pe.Currency, Reference: apitypes.OptString(pe.Reference),
 		HeaderText: apitypes.OptString(pe.HeaderText), Status: pe.Status, CreatedByKind: pe.CreatedByKind, OwnerID: apitypes.OptUUID(pe.OwnerID),
 		ApprovalRequestID: apitypes.OptUUID(pe.ApprovalRequestID), JournalEntryID: apitypes.OptUUID(pe.JournalEntryID),
+		LedgerSpecific: gen.NewOptBool(pe.LedgerSpecific), LedgerGroup: apitypes.OptString(pe.LedgerGroup),
 		Lines: make([]gen.ParkedJournalLine, len(pe.Lines))}
 	if pe.JournalFiscalYear != nil {
 		out.JournalFiscalYear.SetTo(int32(*pe.JournalFiscalYear))

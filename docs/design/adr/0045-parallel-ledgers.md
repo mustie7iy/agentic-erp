@@ -48,10 +48,25 @@ those the caller may see) and `GET /v1/ledger-groups`, read with
 **Postings (T52b, T52c).** A posting without a group goes to every ledger
 of the company as linked entries sharing a `posting_group_id` and one
 document number; document number uniqueness gains `ledger_id`. Manual and
-parked entries may name a ledger group (or a ledger), posting to its
-ledgers only, checked against the representative's period. Open items stay
-on the leading ledger; a clearing is applied to every copy through the
-`posting_group_id`. Reports read one ledger, the leading ledger by default.
+parked entries may name a ledger group (`ledger_group`, its code) or a
+ledger (`ledger_id`), posting to those ledgers only; every ledger posted
+to must be one the company keeps (422 `ledger.ledger_not_kept`; a group
+with a ledger the company does not keep is refused, not narrowed). The
+first entry is the representative ledger's (the leading ledger's without a
+group) and is the one returned, audited and referred to by open items and
+clearings; each entry publishes its own `JournalEntryPosted` and is
+projected. The period must be open in every ledger posted to, each held
+FOR SHARE as before, so a parallel ledger closed or locked refuses the
+posting (the representative's period is among them). A reversal reverses
+every entry of the group, each copy by the reversal's copy in its ledger;
+a copy is not reversed by itself. Every posting through the ledger,
+including clearings and the contexts' postings, goes to every ledger of
+the company. Open items are the leading ledger's (the open item list and
+clearing read only its lines, T52b); a clearing's own entry is posted to
+every ledger, and applying it to the copies' lines through the
+`posting_group_id` is T52c. Reports read one ledger, the leading ledger by
+default. Agents keep proposing only: posting stays human-only and parking,
+with a ledger or group, is how they propose.
 
 **Revaluation and depreciation.** Foreign-currency revaluation runs per
 ledger (`fx_valuation` keyed by `ledger_id`, T52d); depreciation runs per
@@ -66,8 +81,11 @@ entries that differ, and the trial balance is checked per ledger.
 postings by agents are propose-only.
 
 **Migrations are expand-only.** New tables and nullable columns; unique
-indexes built concurrently per partition and attached; the old document
-number constraint is dropped by a later contract migration (T52e). Nothing
+indexes built concurrently per partition and attached (the runner's
+`migrate:partitioned-index`, T52b). The old document number constraint is
+dropped in T52b (000095), not in T52e as first planned: it would refuse
+every copy, and the previous release never relies on it (numbers come from
+the number range), so dropping it is safe during a rolling deploy. Nothing
 is backfilled: a company is assigned its ledgers by the next activation, so
 until then `GET /v1/ledgers` lists 0L without legal entities. Until T52b a
 posting may still name any ledger of the tenant; T52b limits it to the

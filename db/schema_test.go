@@ -50,7 +50,8 @@ func TestMain(m *testing.M) {
 		fmt.Println("connect test database:", err)
 		os.Exit(1)
 	}
-	if err := applyAll(ctx, testDB, true); err != nil {
+	// As the server migrates: partitioned indexes are built per partition.
+	if _, err := migrate(ctx, testDB, Migrations()); err != nil {
 		fmt.Println("migrate:", err)
 		os.Exit(1)
 	}

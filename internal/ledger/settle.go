@@ -204,7 +204,7 @@ func (p Postings) Settle(ctx context.Context, in Settlement) (Entry, error) {
 	if err := e.checkAccounts(ctx, tx, le.ID, lines, false); err != nil {
 		return Entry{}, err
 	}
-	entry, err := e.post(ctx, tx, actor, draft{entity: le, ledgerID: items[0].ledger, documentType: in.DocumentType, documentDate: in.PostingDate,
+	entry, err := e.post(ctx, tx, actor, draft{entity: le, documentType: in.DocumentType, documentDate: in.PostingDate,
 		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: le.LocalCurrency, currencyGC: bank.group, rateTCLC: bank.rateLC.shown, rateLCGC: bank.rateGC.shown,
 		reference: in.Reference, headerText: in.HeaderText, sourceContext: in.SourceContext, sourceDocumentID: &in.SourceDocumentID, lines: lines})
 	if err != nil {

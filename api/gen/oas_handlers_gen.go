@@ -29637,8 +29637,11 @@ func (s *Server) handlePostGoodsReceiptRequest(args [0]string, argsEscaped bool,
 // `manual_entry_approval_limit` is 409 `ledger.approval_required` (after the period is found open: a
 // closed one is 409 `ledger.period_not_open` first): park it and post it with `:post`, which asks
 // someone else's approval (T35). A line on the legal entity's GR/IR account (account determination
-// `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. Human-only:
-// agents propose entries by parking them.
+// `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. It posts to
+// every ledger its company keeps as linked entries of one posting group sharing the document number
+// (`posting_group_id`), each period checked open in its ledger, and returns the leading ledger's;
+// `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to those ledgers
+// only (ADR-0045). Human-only: agents propose entries by parking them.
 //
 // POST /v1/journal-entries
 func (s *Server) handlePostJournalEntryRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -33197,16 +33200,19 @@ func (s *Server) handleReverseGoodsReceiptRequest(args [1]string, argsEscaped bo
 
 // handleReverseJournalEntryRequest handles reverseJournalEntry operation.
 //
-// Posts a reversal entry with every amount negated and links both entries. Open-item lines of the
-// original are cleared against the reversal's lines in the same transaction (the reversal entry is the
-// clearing document), so the pair leaves the open items. An entry can be reversed at most once (409).
-// Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and
-// payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409
-// `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a
-// goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt
-// is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any
-// other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet.
-// Returns the new reversal entry. Human-only.
+// Reverses every entry of the posting group (one reversal entry per ledger, the first returned); a
+// copy in a parallel ledger is reversed only through its group's first entry (409
+// `ledger.entry_is_copy`). Posts a reversal entry with every amount negated and links both entries.
+// Open-item lines of the original are cleared against the reversal's lines in the same transaction
+// (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be
+// reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run
+// loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's
+// entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with
+// `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409
+// `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with
+// `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any other context are
+// 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new
+// reversal entry. Human-only.
 //
 // POST /v1/journal-entries/{id}:reverse
 func (s *Server) handleReverseJournalEntryRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

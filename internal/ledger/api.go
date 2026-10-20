@@ -25,7 +25,8 @@ func entryToAPI(e Entry) gen.JournalEntry {
 		Currency: e.CurrencyTC, LocalCurrency: e.CurrencyLC, GroupCurrency: e.CurrencyGC, RateTcLc: gen.Decimal(e.RateTCLC),
 		RateLcGc: gen.Decimal(e.RateLCGC), Reference: apitypes.OptString(e.Reference), HeaderText: apitypes.OptString(e.HeaderText),
 		SourceContext: e.SourceContext, SourceDocumentID: apitypes.OptUUID(e.SourceDocumentID), ReversalOfID: apitypes.OptUUID(e.ReversalOfID),
-		ReversedByID: apitypes.OptUUID(e.ReversedByID), PostedAt: e.PostedAt, PostedBy: e.PostedBy, Lines: make([]gen.JournalLine, len(e.Lines)),
+		ReversedByID: apitypes.OptUUID(e.ReversedByID), PostingGroupID: apitypes.OptUUID(e.PostingGroupID), LedgerGroupID: apitypes.OptUUID(e.LedgerGroupID),
+		PostedAt: e.PostedAt, PostedBy: e.PostedBy, Lines: make([]gen.JournalLine, len(e.Lines)),
 	}
 	for i, l := range e.Lines {
 		line := gen.JournalLine{LineNo: l.LineNo, AccountID: l.AccountID, Amount: apitypes.Money(l.TC, e.CurrencyTC, e.ExpTC),
@@ -212,7 +213,8 @@ func (e *Endpoints) UnlockFiscalPeriod(ctx context.Context, req *gen.ReasonInput
 
 // newEntry is the manual entry a create request describes.
 func newEntry(req *gen.JournalEntryCreate) NewEntry {
-	in := NewEntry{LegalEntityID: req.LegalEntityID, LedgerID: apitypes.Ptr[uuid.UUID](req.LedgerID), DocumentType: req.DocumentType.Or("SA"),
+	in := NewEntry{LegalEntityID: req.LegalEntityID, LedgerID: apitypes.Ptr[uuid.UUID](req.LedgerID), LedgerGroup: apitypes.Ptr[string](req.LedgerGroup),
+		DocumentType: req.DocumentType.Or("SA"),
 		DocumentDate: req.DocumentDate, PostingDate: req.PostingDate, Currency: req.Currency, Reference: apitypes.Ptr[string](req.Reference),
 		HeaderText: apitypes.Ptr[string](req.HeaderText), Lines: make([]NewLine, len(req.Lines))}
 	for i, l := range req.Lines {

@@ -697,6 +697,17 @@ Rules enforced in the database:
   `ledger_group_fixed`). All from the configuration's `ledgers`,
   `companies[].ledgers` and `ledger_groups`; `period_status` has rows for
   every ledger the legal entity keeps.
+- Posting groups (ADR-0045, T52b): a posting is written once per ledger
+  it goes to, as `journal_entry` rows sharing `posting_group_id` (the
+  first entry's id, the representative ledger's) and the document number,
+  now unique per ledger (`journal_entry_document`, built per partition;
+  the constraint without the ledger is dropped). The insert trigger
+  `journal_entry_ledger` holds an entry to a ledger its company keeps
+  (`ledger.company_keeps`: its `company_ledger` rows, or the leading
+  ledger alone before any are assigned), to a member of the
+  `ledger_group_id` it names, and a copy to its group's first entry's
+  header in another ledger. `parked_entry` keeps what it posts to
+  (`ledger_specific`, `ledger_group_id`, not both, fixed once parked).
 
 Enforced by the ledger, not the database (T32c): `:unlock` (permission
 `ledger.period.lock`, people only) opens the `period_unlock` request with

@@ -128,7 +128,7 @@ func (e *Endpoints) createClearing(ctx context.Context, legalEntity uuid.UUID, d
 		return Clearing{}, err
 	}
 	first := items[0]
-	entry, err := e.post(ctx, tx, p, draft{entity: le, ledgerID: first.ledger, documentType: ClearingDocumentType, documentDate: date, postingDate: date,
+	entry, err := e.post(ctx, tx, p, draft{entity: le, documentType: ClearingDocumentType, documentDate: date, postingDate: date,
 		currencyTC: first.currency, currencyLC: first.currencyLC, currencyGC: first.currencyGC, rateTCLC: first.rateTCLC,
 		rateLCGC: first.rateLCGC, headerText: &text, sourceContext: "ledger", lines: lines})
 	if err != nil {
@@ -280,7 +280,8 @@ const reversedLine = `EXISTS (SELECT FROM ledger.reversal r WHERE r.tenant_id = 
 					OR (r.reversal_year = l.fiscal_year AND r.reversal_entry_id = l.journal_entry_id)))`
 
 // loadItems reads the journal lines to clear, in the order of refs; lines
-// that do not exist come back with found false, and lines of a reversed
+// that do not exist, or are a parallel ledger's (open items are the
+// leading ledger's, ADR-0045), come back with found false, and lines of a reversed
 // entry or of a reversal with reversed true.
 func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
 	years, entries, nos := columns(refs)
@@ -297,6 +298,7 @@ func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
 			ir.owner_id, coalesce(ir.owner_context, ''), coalesce(ir.owner_reference, ''), l.special_gl
 		FROM unnest($1::smallint[], $2::uuid[], $3::int[]) WITH ORDINALITY AS x(y, je, n, ord)
 		LEFT JOIN ledger.journal_line l ON l.fiscal_year = x.y AND l.journal_entry_id = x.je AND l.line_no = x.n
+			AND EXISTS (SELECT FROM ledger.ledger g WHERE g.tenant_id = l.tenant_id AND g.id = l.ledger_id AND g.is_leading)
 		LEFT JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
 		LEFT JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id
 		LEFT JOIN ledger.clearing_item ci ON ci.tenant_id = l.tenant_id AND ci.fiscal_year = l.fiscal_year
