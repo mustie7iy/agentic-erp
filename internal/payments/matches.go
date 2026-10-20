@@ -106,7 +106,8 @@ func (e *Endpoints) decideLine(ctx context.Context, statement uuid.UUID, lineNo 
 	if err != nil {
 		return Match{}, err
 	}
-	if err := bumpStatement(ctx, tx, p, statement); err != nil {
+	version, err := bumpStatement(ctx, tx, p, statement)
+	if err != nil {
 		return Match{}, err
 	}
 	rows, _ := tx.Query(ctx, matchSelect+` WHERE m.id = $1`, id)
@@ -114,6 +115,7 @@ func (e *Endpoints) decideLine(ctx context.Context, statement uuid.UUID, lineNo 
 	if err != nil {
 		return Match{}, fmt.Errorf("payments: read match %s: %w", id, err)
 	}
+	out.StatementVersion = version
 	return out, nil
 }
 

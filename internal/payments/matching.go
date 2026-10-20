@@ -68,6 +68,9 @@ type Match struct {
 	Version              int32
 	CreatedAt, UpdatedAt time.Time
 	CreatedBy, UpdatedBy uuid.UUID
+	// StatementVersion is the statement's version after a person's
+	// decision, its ETag for the next one; 0 when read.
+	StatementVersion int32
 }
 
 // matchLine is what the rules read of a line.
@@ -78,6 +81,7 @@ type matchLine struct {
 	BookingDate     time.Time
 	TransactionCode string
 	Details         []LineDetail
+	Open            *string // the signature of the line's open match by a rule, which a run takes up again
 }
 
 // found is what a rule found for a line: its candidates, each a list of
@@ -110,11 +114,22 @@ func (e *Endpoints) matchStatement(ctx context.Context, tx pgx.Tx, p reqctx.Prin
 	if err != nil || co == nil || len(co.BankStatements.MatchingRules) == 0 {
 		return err
 	}
-	rows, _ := tx.Query(ctx, `SELECT line_no, amount, is_reversal, booking_date, transaction_code, details
-		FROM payments.bank_statement_line WHERE statement_id = $1 AND status = 'unmatched' ORDER BY line_no FOR UPDATE`, s.ID)
+	// The lines no match holds, and those a rule left open: the open ones
+	// are compared again with what the rules find now. Matched and excluded
+	// lines, and an agent's proposals, are left as they are.
+	rows, _ := tx.Query(ctx, `SELECT l.line_no, l.amount, l.is_reversal, l.booking_date, l.transaction_code, l.details,
+			(SELECT m.rule || '|open|' || coalesce((SELECT string_agg(t.candidate || ':' || coalesce(t.payment_id::text, '') || ':' ||
+				coalesce(t.bank_file_id::text, '') || ':' || coalesce(t.posting_rule, ''), ' ' ORDER BY t.candidate, t.target_no)
+				FROM payments.statement_match_target t WHERE t.tenant_id = m.tenant_id AND t.match_id = m.id), '')
+			FROM payments.statement_match m WHERE m.tenant_id = l.tenant_id AND m.statement_id = l.statement_id AND m.line_no = l.line_no
+				AND m.status = 'open' AND m.kind = 'rule')
+		FROM payments.bank_statement_line l WHERE l.statement_id = $1 AND (l.status = 'unmatched' OR (l.status = 'proposed'
+			AND EXISTS (SELECT FROM payments.statement_match m WHERE m.tenant_id = l.tenant_id AND m.statement_id = l.statement_id
+				AND m.line_no = l.line_no AND m.status = 'open' AND m.kind = 'rule')))
+		ORDER BY l.line_no FOR UPDATE OF l`, s.ID)
 	lines, err := pgx.CollectRows(rows, pgx.RowToStructByPos[matchLine])
 	if err != nil {
-		return fmt.Errorf("payments: unmatched lines of statement %s: %w", s.ID, err)
+		return fmt.Errorf("payments: lines of statement %s to match: %w", s.ID, err)
 	}
 	m := matcher{e: e, tx: tx, p: p, s: s, rules: co.BankStatements.MatchingRules, co: co}
 	changed := false
@@ -128,7 +143,8 @@ func (e *Endpoints) matchStatement(ctx context.Context, tx pgx.Tx, p reqctx.Prin
 	if !changed {
 		return nil
 	}
-	return bumpStatement(ctx, tx, p, s.ID)
+	_, err = bumpStatement(ctx, tx, p, s.ID)
+	return err
 }
 
 // lockStatement takes the bank's statement lock and the statement's row,
@@ -149,11 +165,13 @@ func lockStatement(ctx context.Context, tx pgx.Tx, s Statement, ifMatch func(int
 
 // bumpStatement moves the statement's version on: its lines' matches
 // changed, so a client's ETag of it no longer holds.
-func bumpStatement(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID) error {
-	if _, err := tx.Exec(ctx, `UPDATE payments.bank_statement SET version = version + 1, updated_by = $2 WHERE id = $1`, id, p.ID); err != nil {
-		return fmt.Errorf("payments: the version of statement %s: %w", id, err)
+func bumpStatement(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID) (int32, error) {
+	var version int32
+	if err := tx.QueryRow(ctx, `UPDATE payments.bank_statement SET version = version + 1, updated_by = $2 WHERE id = $1 RETURNING version`, id, p.ID).
+		Scan(&version); err != nil {
+		return 0, fmt.Errorf("payments: the version of statement %s: %w", id, err)
 	}
-	return nil
+	return version, nil
 }
 
 // statementCompany is the configuration of the statement's company; nil
@@ -173,10 +191,36 @@ func (e *Endpoints) statementCompany(ctx context.Context, legalEntity uuid.UUID)
 // line tries the rules in order on one line; the first that finds
 // candidates records its match.
 func (m matcher) line(ctx context.Context, l matchLine) (bool, error) {
+	next, ok, err := m.decide(ctx, l)
+	if err != nil {
+		return false, err
+	}
+	sig := ""
+	if ok {
+		sig = signature(next)
+	}
+	if l.Open != nil {
+		if *l.Open == sig {
+			return false, nil // the rules find what they found before
+		}
+		if err := rejectLive(ctx, m.tx, m.p, m.s.ID, l.LineNo); err != nil {
+			return false, err
+		}
+	}
+	if !ok {
+		return l.Open != nil, reopenLine(ctx, m.tx, m.p, m.s.ID, l)
+	}
+	_, err = writeMatch(ctx, m.tx, m.p, m.s, l.LineNo, next)
+	return true, err
+}
+
+// decide is the match the first rule that finds candidates makes; false
+// when none does.
+func (m matcher) decide(ctx context.Context, l matchLine) (newMatch, bool, error) {
 	for _, r := range m.rules {
 		f, err := m.find(ctx, r, l)
 		if err != nil {
-			return false, err
+			return newMatch{}, false, err
 		}
 		if len(f.candidates) == 0 {
 			continue
@@ -186,10 +230,49 @@ func (m matcher) line(ctx context.Context, l matchLine) (bool, error) {
 			status = MatchMatched
 		}
 		rule := r.Kind
-		_, err = writeMatch(ctx, m.tx, m.p, m.s, l.LineNo, newMatch{kind: MatchRule, rule: &rule, reason: f.reason, status: status, candidates: f.candidates})
-		return true, err
+		return newMatch{kind: MatchRule, rule: &rule, reason: f.reason, status: status, candidates: f.candidates}, true, nil
 	}
-	return false, nil
+	return newMatch{}, false, nil
+}
+
+// signature is what a rule's match is compared by when the rules run
+// again: its rule, status and targets, as the lines query writes an open
+// match's.
+func signature(n newMatch) string {
+	var ts []string
+	for _, c := range n.candidates {
+		for _, t := range c {
+			ts = append(ts, fmt.Sprintf("%d:%s:%s:%s", t.Candidate, optID(t.PaymentID), optID(t.BankFileID), deref(t.PostingRule)))
+		}
+	}
+	return *n.rule + "|" + n.status + "|" + strings.Join(ts, " ")
+}
+
+func optID(id *uuid.UUID) string {
+	if id == nil {
+		return ""
+	}
+	return id.String()
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// reopenLine makes a line whose open match was rejected unmatched again,
+// when the rules find nothing for it now; an unmatched line stays so.
+func reopenLine(ctx context.Context, tx pgx.Tx, p reqctx.Principal, statement uuid.UUID, l matchLine) error {
+	if l.Open == nil {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `UPDATE payments.bank_statement_line SET status = 'unmatched', version = version + 1, updated_by = $3
+		WHERE statement_id = $1 AND line_no = $2`, statement, l.LineNo, p.ID); err != nil {
+		return fmt.Errorf("payments: reopen line %d of statement %s: %w", l.LineNo, statement, err)
+	}
+	return nil
 }
 
 // find runs one rule. The rules on payments read only debits (outgoing

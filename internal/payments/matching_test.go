@@ -212,18 +212,21 @@ func TestMatchLinesByHand(t *testing.T) {
 	}
 	tag := func() string { _, tag := e.Must(200, "GET", "/v1/bank-statements/"+sc.statement, "", ""); return tag }
 	stale := tag()
-	m, _ := e.Must(201, "POST", line(4, "match"), `{"payment_ids": ["`+pays[2].payment+`"], "reason": "Remittance names INV-3."}`, stale)
+	m, next := e.Must(201, "POST", line(4, "match"), `{"payment_ids": ["`+pays[2].payment+`"], "reason": "Remittance names INV-3."}`, stale)
+	if got := tag(); next != got || next == stale {
+		t.Errorf("ETag after a decision: got %s, want the statement's new one %s", next, got)
+	}
 	if m["kind"] != "manual" || m["status"] != "matched" || strings.Join(targetsOf(m), "") != "1:"+pays[2].payment {
 		t.Errorf("match by hand: got %v", m)
 	}
 	if got := e.matchesOf(t, sc.statement, 4); len(got) != 2 || got[0].(map[string]any)["status"] != "rejected" {
 		t.Errorf("line 4's matches: got %v, want the rule's rejected and the person's", got)
 	}
-	x, _ := e.Must(201, "POST", line(6, "exclude"), `{"reason": "Interest from another bank's correction."}`, tag())
+	x, next := e.Must(201, "POST", line(6, "exclude"), `{"reason": "Interest from another bank's correction."}`, next) // the ETag returned is the next If-Match
 	if x["status"] != "excluded" || len(x["targets"].([]any)) != 0 {
 		t.Errorf("exclude: got %v", x)
 	}
-	e.Must(201, "POST", line(7, "match"), `{"posting_rule": "NCHG", "reason": "Charges reversed."}`, tag())
+	e.Must(201, "POST", line(7, "match"), `{"posting_rule": "NCHG", "reason": "Charges reversed."}`, next)
 	want := []string{"matched", "matched", "matched", "matched", "unmatched", "excluded", "matched", "proposed", "proposed"}
 	if got := e.lineStatuses(t, sc.statement); strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("line statuses: got %v, want %v", got, want)
@@ -262,6 +265,55 @@ func TestMatchLinesByHand(t *testing.T) {
 
 // anyVersion passes any version, as If-Match: * does.
 func anyVersion(int32) error { return nil }
+
+// TestMatchOpenLinesAgain: running the rules again takes up the lines a
+// rule left open against the candidates there are now, and leaves matched
+// and excluded lines; a second run changes nothing (T49e).
+func TestMatchOpenLinesAgain(t *testing.T) {
+	sc := matchStatementSetup(t)
+	e, pays, line := sc.e, sc.pays, func(n int, action string) string {
+		return fmt.Sprintf("/v1/bank-statements/%s/lines/%d:%s", sc.statement, n, action)
+	}
+	_, next := e.Must(200, "GET", "/v1/bank-statements/"+sc.statement, "", "")
+	_, next = e.Must(201, "POST", line(5, "match"), `{"payment_ids": ["`+pays[2].payment+`"], "reason": "x"}`, next)
+	_, next = e.Must(201, "POST", line(8, "match"), `{"payment_ids": ["`+pays[3].payment+`"], "reason": "x"}`, next)
+	h := endpoints(nil)
+	h.Objects = e.objects
+	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "an open line taken up again", func(ctx context.Context) error {
+		_, err := h.MatchStatement(ctx, uuidOf(sc.statement), anyVersion)
+		return err
+	})
+	_, next = e.Must(200, "POST", "/v1/bank-statements/"+sc.statement+":match", "", next)
+	if got := e.lineStatuses(t, sc.statement)[3]; got != "unmatched" {
+		t.Errorf("line 4, its candidates taken: got %s, want unmatched again", got)
+	}
+	_, next = e.Must(201, "POST", line(4, "exclude"), `{"reason": "x"}`, next)
+	_, next = e.Must(201, "POST", line(1, "exclude"), `{"reason": "Booked twice by the bank; line 9 stands."}`, next)
+	_, after := e.Must(200, "POST", "/v1/bank-statements/"+sc.statement+":match", "", next)
+	want := []string{"excluded", "matched", "matched", "excluded", "matched", "unmatched", "unmatched", "matched", "matched"}
+	if got := e.lineStatuses(t, sc.statement); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("line statuses: got %v, want %v", got, want)
+	}
+	for n, statuses := range map[int]string{4: "rejected excluded", 9: "rejected matched", 1: "rejected excluded", 2: "matched"} {
+		var got []string
+		for _, m := range e.matchesOf(t, sc.statement, n) {
+			got = append(got, m.(map[string]any)["status"].(string))
+		}
+		if strings.Join(got, " ") != statuses {
+			t.Errorf("line %d's matches: got %v, want %s", n, got, statuses)
+		}
+	}
+	if m := e.matchesOf(t, sc.statement, 9)[1].(map[string]any); m["kind"] != "rule" || strings.Join(targetsOf(m), "") != "1:"+pays[0].payment {
+		t.Errorf("line 9: got %v, want the rule's match of the payment line 1 no longer holds", m)
+	}
+	count := len(e.matchesOf(t, sc.statement, 0))
+	t.Run("twice", func(t *testing.T) {
+		_, again := e.in(t).Must(200, "POST", "/v1/bank-statements/"+sc.statement+":match", "", after)
+		if got := len(e.in(t).matchesOf(t, sc.statement, 0)); again != after || got != count {
+			t.Errorf("second run: got ETag %s and %d matches, want %s and %d", again, got, after, count)
+		}
+	})
+}
 
 // TestMatchingDatabaseFailures: every statement of matching fails in turn,
 // and none runs outside a unit of work.

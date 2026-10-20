@@ -217,8 +217,16 @@ Canadian bank may only offer BAI2.
   yet moved) show what needs a person.
 - Matching (T49e, 000109): the rules run when a statement is imported, in
   the import's transaction, and again on `POST /v1/bank-statements/{id}:match`,
-  over the lines still `unmatched`, in line order, under the house bank's
-  statement lock. The rules on payments read debits only (outgoing
+  over the lines still `unmatched` and those a rule left `open`, in line
+  order, under the house bank's statement lock. An open line is compared
+  with what the rules find now (rule, status and targets): the same leaves
+  it, anything else rejects its open match (audited) and records the new
+  one, or makes it `unmatched` again; matched and excluded lines, and an
+  agent's proposals, are never touched, so a second run changes nothing
+  (product owner 2026-10-20). The statement-level run is open to agents
+  with the permission: it only applies the rules, and what they cannot
+  decide stays open for a person; the line decisions are people's
+  (`x-agent: false`, product owner 2026-10-20). The rules on payments read debits only (outgoing
   payments; incoming ones wait for accounts receivable) and never
   reversals, and take a payment that is posted and of the statement's
   house bank and currency. `end_to_end_id` takes the
@@ -231,7 +239,9 @@ Canadian bank may only offer BAI2.
   codes, compared exactly; `amount` the run date within the window and,
   with `counterparty`, the payee's IBAN or holder's name (case aside), the
   tolerance applying to a statement in the company's currency (another is
-  matched exactly). A rule that finds candidates records a match
+  matched exactly; accepted, coordinator 2026-10-20). Bank files written
+  before 000109 have no message id and are not found by `batch_id`
+  (accepted before the pilot). A rule that finds candidates records a match
   (`payments.statement_match`, kind `rule`, its rule and a reason saying
   what it found; its targets in `statement_match_target`, by candidate):
   `matched` when it found exactly one candidate whose payments pay the
@@ -245,7 +255,9 @@ Canadian bank may only offer BAI2.
   payments or a posting rule, or excludes it with a reason
   (`POST .../lines/{line_no}:match`, `:exclude`): the line's live match
   becomes `rejected`, both audited; a line `pending_approval` or `posted`
-  keeps its match (409). `BankStatementLineMatched` and
+  keeps its match (409). Each takes the statement's ETag as If-Match and
+  answers with its new one, the If-Match of the next decision (product
+  owner 2026-10-20). `BankStatementLineMatched` and
   `BankStatementLineExcluded` are published. Lines become `matched`,
   `proposed` or `excluded`; posting a match is T49f.
 - Steps: a ADR, configuration and the house bank's columns · b parsers ·

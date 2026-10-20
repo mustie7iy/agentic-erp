@@ -422,7 +422,7 @@ func (e *Endpoints) MatchBankStatementLine(ctx context.Context, req *gen.Stateme
 	if err != nil {
 		return nil, err
 	}
-	return &gen.StatementMatchHeaders{Response: matchToAPI(m)}, nil
+	return &gen.StatementMatchHeaders{ETag: gen.NewOptString(etag.Format(m.StatementVersion)), Response: matchToAPI(m)}, nil
 }
 
 // ExcludeBankStatementLine implements POST /v1/bank-statements/{id}/lines/{line_no}:exclude.
@@ -431,5 +431,5 @@ func (e *Endpoints) ExcludeBankStatementLine(ctx context.Context, req *gen.Reaso
 	if err != nil {
 		return nil, err
 	}
-	return &gen.StatementMatchHeaders{Response: matchToAPI(m)}, nil
+	return &gen.StatementMatchHeaders{ETag: gen.NewOptString(etag.Format(m.StatementVersion)), Response: matchToAPI(m)}, nil
 }

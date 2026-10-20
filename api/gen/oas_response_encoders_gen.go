@@ -37870,10 +37870,25 @@ func encodeExcludeBankStatementLineResponse(response ExcludeBankStatementLineRes
 	switch response := response.(type) {
 	case *StatementMatchHeaders:
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.Header().Set("Access-Control-Expose-Headers", "Idempotent-Replayed,Ratelimit-Limit,Ratelimit-Remaining,Ratelimit-Reset")
+		w.Header().Set("Access-Control-Expose-Headers", "Etag,Idempotent-Replayed,Ratelimit-Limit,Ratelimit-Remaining,Ratelimit-Reset")
 		// Encoding response headers.
 		{
 			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "ETag" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "ETag",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.ETag.Get(); ok {
+						return e.EncodeValue(conv.StringToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode ETag header")
+				}
+			}
 			// Encode "Idempotent-Replayed" header.
 			{
 				cfg := uri.HeaderParameterEncodingConfig{
@@ -77595,10 +77610,25 @@ func encodeMatchBankStatementLineResponse(response MatchBankStatementLineRes, w 
 	switch response := response.(type) {
 	case *StatementMatchHeaders:
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.Header().Set("Access-Control-Expose-Headers", "Idempotent-Replayed,Ratelimit-Limit,Ratelimit-Remaining,Ratelimit-Reset")
+		w.Header().Set("Access-Control-Expose-Headers", "Etag,Idempotent-Replayed,Ratelimit-Limit,Ratelimit-Remaining,Ratelimit-Reset")
 		// Encoding response headers.
 		{
 			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "ETag" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "ETag",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.ETag.Get(); ok {
+						return e.EncodeValue(conv.StringToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode ETag header")
+				}
+			}
 			// Encode "Idempotent-Replayed" header.
 			{
 				cfg := uri.HeaderParameterEncodingConfig{

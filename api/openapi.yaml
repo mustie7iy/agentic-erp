@@ -8215,7 +8215,7 @@ paths:
       tags:
         - payments
       summary: Match a bank statement's lines
-      description: "Runs the company's matching rules (`companies[].bank_statements.matching_rules`, ADR-0047) on the statement's unmatched lines, as the import does: in the rules' order, the first rule that finds candidates decides. A rule that finds exactly one candidate, whose payments pay the line's amount, matches the line (`matched`); one that finds several, or payments that do not pay it, leaves an open match listing them for a person (`proposed`). The rules on payments read debits, never reversals; a payment another line's match holds settles no line: the id rules leave the line open for a person, and the amount rule skips it. Lines matched, proposed or excluded before are left as they are, so running it again changes nothing. If-Match is the statement's ETag; a run that matches or leaves open a line, and a person's match or exclusion, move it on. Returns the statement with its lines; `GET /v1/bank-statements/{id}/matches` has the matches."
+      description: "Runs the company's matching rules (`companies[].bank_statements.matching_rules`, ADR-0047) on the statement's unmatched lines, and again on the lines a rule left open, as the import does: in the rules' order, the first rule that finds candidates decides. A rule that finds exactly one candidate, whose payments pay the line's amount, matches the line (`matched`); one that finds several, or payments that do not pay it, leaves an open match listing them for a person (`proposed`). The rules on payments read debits, never reversals; a payment another line's match holds settles no line: the id rules leave the line open for a person, and the amount rule skips it. A line a rule left open is compared with what the rules find now: the same candidates leave it as it is, others reject its open match and record the new one (or make it unmatched again). Lines matched or excluded, and an agent's proposals, are never touched, so running it twice changes nothing the second time. Agents may call it: it only applies the rules, and what they cannot decide stays open for a person. If-Match is the statement's ETag; a run that matches or leaves open a line, and a person's match or exclusion, move it on. Returns the statement with its lines; `GET /v1/bank-statements/{id}/matches` has the matches."
       x-permission: payments.statement.match
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -8307,7 +8307,7 @@ paths:
       tags:
         - payments
       summary: Match a bank statement line by hand
-      description: "A person matches the line to the payments it clears or to a posting rule of the company (charges, interest), with a reason, whatever the rules found: the line's live match becomes `rejected` and the new one `matched` (kind `manual`). Each payment must be posted, from the statement's house bank, in its currency and matched to no other line (422 `payments.statement_match_target`). People only; a line on its way to the ledger keeps its match (409 `payments.statement_line_posting`). Audited, and published as BankStatementLineMatched."
+      description: "A person matches the line to the payments it clears or to a posting rule of the company (charges, interest), with a reason, whatever the rules found: the line's live match becomes `rejected` and the new one `matched` (kind `manual`). Each payment must be posted, from the statement's house bank, in its currency and matched to no other line (422 `payments.statement_match_target`). People only; a line on its way to the ledger keeps its match (409 `payments.statement_line_posting`). Audited, and published as BankStatementLineMatched. The response's ETag is the statement's new one, the If-Match of the next decision on its lines."
       x-permission: payments.statement.match
       x-agent: false
       parameters:
@@ -8333,6 +8333,8 @@ paths:
         "201":
           description: The line's new match.
           headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
             RateLimit-Limit:
@@ -8371,7 +8373,7 @@ paths:
       tags:
         - payments
       summary: Exclude a bank statement line
-      description: "A person excludes the line from reconciliation, with a reason: the bank's booking clears nothing the ledger holds. The line's live match becomes `rejected` and the new one `excluded` (kind `manual`), with no targets; the line is `excluded`. People only; a line on its way to the ledger keeps its match (409 `payments.statement_line_posting`). Audited, and published as BankStatementLineExcluded."
+      description: "A person excludes the line from reconciliation, with a reason: the bank's booking clears nothing the ledger holds. The line's live match becomes `rejected` and the new one `excluded` (kind `manual`), with no targets; the line is `excluded`. People only; a line on its way to the ledger keeps its match (409 `payments.statement_line_posting`). Audited, and published as BankStatementLineExcluded. The response's ETag is the statement's new one, the If-Match of the next decision on its lines."
       x-permission: payments.statement.match
       x-agent: false
       parameters:
@@ -8397,6 +8399,8 @@ paths:
         "201":
           description: The line's new match, excluding it.
           headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
             RateLimit-Limit:

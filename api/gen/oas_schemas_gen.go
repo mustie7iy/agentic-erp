@@ -27317,11 +27317,17 @@ func (s *StatementMatch) SetTargets(val []StatementMatchTarget) {
 
 // StatementMatchHeaders wraps StatementMatch with response headers.
 type StatementMatchHeaders struct {
+	ETag               OptString
 	IdempotentReplayed OptBool
 	RateLimitLimit     OptInt32
 	RateLimitRemaining OptInt32
 	RateLimitReset     OptInt32
 	Response           StatementMatch
+}
+
+// GetETag returns the value of ETag.
+func (s *StatementMatchHeaders) GetETag() OptString {
+	return s.ETag
 }
 
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
@@ -27347,6 +27353,11 @@ func (s *StatementMatchHeaders) GetRateLimitReset() OptInt32 {
 // GetResponse returns the value of Response.
 func (s *StatementMatchHeaders) GetResponse() StatementMatch {
 	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *StatementMatchHeaders) SetETag(val OptString) {
+	s.ETag = val
 }
 
 // SetIdempotentReplayed sets the value of IdempotentReplayed.
