@@ -165,8 +165,14 @@ func TestSimulation(t *testing.T) {
 		fresh(t, ctx)
 		zero := reader{rows: []wire.Row{{By: []string{"2000", "2026"}, Currency: "EUR", Exponent: 2}}}
 		got, err := sim(zero).Simulate(ctx, nil, margin)
-		if err != nil || !got.Passed || got.Summary != "Metric definitions change for operating_margin: values by company and fiscal year since 2025." {
-			t.Errorf("a ratio over zero: got %+v, %v; want a summary of no count", got, err)
+		if err != nil {
+			t.Fatalf("a ratio over zero: %v", err)
+		}
+		if !got.Passed {
+			t.Errorf("a ratio over zero: got not passed, want passed")
+		}
+		if want := "Metric definitions change for operating_margin: values by company and fiscal year since 2025."; got.Summary != want {
+			t.Errorf("a ratio over zero: got summary %q, want %q (no count)", got.Summary, want)
 		}
 		if values := got.Detail["metrics"].([]MetricChange)[0].Values; len(values) != 1 || values[0].Before != "" || values[0].After != "" {
 			t.Errorf("a ratio over zero: got %+v, want one blank value on both sides", values)

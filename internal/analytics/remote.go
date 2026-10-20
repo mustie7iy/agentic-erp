@@ -91,7 +91,7 @@ func (r Remote) Query(ctx context.Context, q Query) (*Result, error) {
 func (r Remote) Model(ctx context.Context) (*Model, error) {
 	resp, err := r.API.Do(ctx, http.MethodGet, ModelPath, nil, nil, "")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("analytics: the semantic model: %w", err)
 	}
 	if err := resp.Err(); err != nil {
 		return nil, fmt.Errorf("analytics: the semantic model: %w", err)
