@@ -46,6 +46,6 @@ spec:
               kubernetes.io/metadata.name: {{ required "monitoringNamespace is required" .Values.monitoringNamespace }}
           podSelector:
             matchLabels:
-              app.kubernetes.io/name: prometheus
+              operator.prometheus.io/name: erp-monitoring-prometheus
       ports:
         - {protocol: TCP, port: 9090}

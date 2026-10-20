@@ -242,7 +242,13 @@ extraManifests:
                 group_wait: 30s
                 group_interval: 5m
                 repeat_interval: 4h
-              receivers: {{ "{{" }} .receivers | nindent 2 {{ "}}" }}
+                # The default rules' always-firing alerts notify no one.
+                routes:
+                  - receiver: erp-null
+                    matchers: ['alertname=~"Watchdog|InfoInhibitor"']
+              receivers:
+                - name: erp-null
+              {{ "{{-" }} .receivers | nindent 2 {{ "}}" }}
       data:
         - secretKey: receivers
           remoteRef:

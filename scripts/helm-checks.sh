@@ -271,7 +271,7 @@ if not monitors or [(e["port"], e["path"], e["scheme"], e["tlsConfig"]["ca"]["co
 scrape = [d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == "erp-server-metrics"]
 if not scrape or [(f["namespaceSelector"]["matchLabels"], f["podSelector"]["matchLabels"], [p["port"] for p in r["ports"]])
                   for r in scrape[0]["spec"]["ingress"] for f in r["from"]] \
-        != [({"kubernetes.io/metadata.name": "monitoring"}, {"app.kubernetes.io/name": "prometheus"}, [9090])]:
+        != [({"kubernetes.io/metadata.name": "monitoring"}, {"operator.prometheus.io/name": "erp-monitoring-prometheus"}, [9090])]:
     sys.exit("helm-checks: erp-cell's erp-server-metrics policy must admit the monitoring namespace's Prometheus to 9090 alone")
 PY
 (cd temporal && go build -o "$work/erp-temporal" ./cmd/erp-temporal)
