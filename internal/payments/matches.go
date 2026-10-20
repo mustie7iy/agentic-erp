@@ -21,7 +21,8 @@ import (
 // live match, which becomes rejected; both are audited.
 
 // MatchStatement runs the matching rules on the statement's unmatched
-// lines and returns the statement with its lines.
+// lines and those a rule left open, and returns the statement with its
+// lines.
 func (e *Endpoints) MatchStatement(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (Statement, error) {
 	_, p, err := reqctx.Request(ctx)
 	if err != nil {

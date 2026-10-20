@@ -221,12 +221,16 @@ Canadian bank may only offer BAI2.
   order, under the house bank's statement lock. An open line is compared
   with what the rules find now (rule, status and targets): the same leaves
   it, anything else rejects its open match (audited) and records the new
-  one, or makes it `unmatched` again; matched and excluded lines, and an
-  agent's proposals, are never touched, so a second run changes nothing
-  (product owner 2026-10-20). The statement-level run is open to agents
+  one, or makes it `unmatched` again (the rejection is audited; no event
+  says the line is unmatched, as none says so of a new line); matched and
+  excluded lines, and an agent's proposals, are never touched (product
+  owner 2026-10-20). A line matched in a pass takes its payments from
+  open lines before it, so passes repeat until one changes nothing, and a
+  second run then changes nothing. The statement-level run is open to agents
   with the permission: it only applies the rules, and what they cannot
   decide stays open for a person; the line decisions are people's
-  (`x-agent: false`, product owner 2026-10-20). The rules on payments read debits only (outgoing
+  (`x-agent: false`, product owner 2026-10-20). The rules on payments
+  read debits only (outgoing
   payments; incoming ones wait for accounts receivable) and never
   reversals, and take a payment that is posted and of the statement's
   house bank and currency. `end_to_end_id` takes the

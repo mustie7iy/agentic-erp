@@ -315,6 +315,28 @@ func TestMatchOpenLinesAgain(t *testing.T) {
 	})
 }
 
+// TestMatchToAFixedPoint: a line matched after an open one takes a payment
+// the open one counted, and the open one is taken up again in the same
+// run, so a second run changes nothing.
+func TestMatchToAFixedPoint(t *testing.T) {
+	e := matchSetup(t)
+	a, b := e.paidOne(t, "INV-A", "2026-04-15"), e.paidOne(t, "INV-B", "2026-04-16")
+	s := e.imported(t, "mt940", mtStatement("P1", "1", "500,00", "260416", "300,00", "260417",
+		":61:2604170417D100,00NTRFNONREF//B1\n:86:/NAME/supplier\n",                       // 1: both payments by amount, until line 2 takes one
+		":61:2604170417D100,00NTRFNONREF//B2\n:86:/EREF/"+a.e2e+"\n"))[0].(map[string]any) // 2: the first by its end-to-end id
+	if got := e.lineStatuses(t, id(s)); strings.Join(got, ",") != "matched,matched" {
+		t.Errorf("line statuses: got %v, want both matched", got)
+	}
+	ms := e.matchesOf(t, id(s), 1)
+	if len(ms) != 2 || strings.Join(targetsOf(ms[1].(map[string]any)), "") != "1:"+b.payment {
+		t.Errorf("line 1's matches: got %v, want its open match rejected and the second payment matched", ms)
+	}
+	_, tag := e.Must(200, "GET", "/v1/bank-statements/"+id(s), "", "")
+	if _, again := e.Must(200, "POST", "/v1/bank-statements/"+id(s)+":match", "", tag); again != tag {
+		t.Errorf("second run: got ETag %s, want %s unchanged", again, tag)
+	}
+}
+
 // TestMatchingDatabaseFailures: every statement of matching fails in turn,
 // and none runs outside a unit of work.
 func TestMatchingDatabaseFailures(t *testing.T) {

@@ -102,10 +102,13 @@ type matcher struct {
 	co    *config.Company
 }
 
-// matchStatement matches the statement's unmatched lines by the rules of
-// its company, in line order, under the bank's statement lock, once the
-// statement's version passes ifMatch (nil: no check, as on import). A run
-// that matched or left open a line moves the statement's version on.
+// matchStatement matches the statement's unmatched lines, and takes up
+// again those a rule left open, by the rules of its company, in line
+// order, under the bank's statement lock, once the statement's version
+// passes ifMatch (nil: no check, as on import). A line matched in a pass
+// takes its payments from the lines before it, so passes repeat until one
+// changes nothing: a second run then finds nothing to change. A run that
+// changed a line moves the statement's version on.
 func (e *Endpoints) matchStatement(ctx context.Context, tx pgx.Tx, p reqctx.Principal, s Statement, ifMatch func(int32) error) error {
 	if err := lockStatement(ctx, tx, s, ifMatch); err != nil {
 		return err
@@ -114,10 +117,33 @@ func (e *Endpoints) matchStatement(ctx context.Context, tx pgx.Tx, p reqctx.Prin
 	if err != nil || co == nil || len(co.BankStatements.MatchingRules) == 0 {
 		return err
 	}
-	// The lines no match holds, and those a rule left open: the open ones
-	// are compared again with what the rules find now. Matched and excluded
-	// lines, and an agent's proposals, are left as they are.
-	rows, _ := tx.Query(ctx, `SELECT l.line_no, l.amount, l.is_reversal, l.booking_date, l.transaction_code, l.details,
+	m := matcher{e: e, tx: tx, p: p, s: s, rules: co.BankStatements.MatchingRules, co: co}
+	// A pass after the first changes a line only when the pass before
+	// matched one, which takes payments no rule run gives back: the passes
+	// end.
+	changed := false
+	for {
+		again, err := m.pass(ctx)
+		if err != nil {
+			return err
+		}
+		if !again {
+			break
+		}
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	_, err = bumpStatement(ctx, tx, p, s.ID)
+	return err
+}
+
+// pass runs the rules once over the lines no match holds and those a rule
+// left open, in line order, and reports whether it changed one. Matched and
+// excluded lines, and an agent's proposals, are left as they are.
+func (m matcher) pass(ctx context.Context) (bool, error) {
+	rows, _ := m.tx.Query(ctx, `SELECT l.line_no, l.amount, l.is_reversal, l.booking_date, l.transaction_code, l.details,
 			(SELECT m.rule || '|open|' || coalesce((SELECT string_agg(t.candidate || ':' || coalesce(t.payment_id::text, '') || ':' ||
 				coalesce(t.bank_file_id::text, '') || ':' || coalesce(t.posting_rule, ''), ' ' ORDER BY t.candidate, t.target_no)
 				FROM payments.statement_match_target t WHERE t.tenant_id = m.tenant_id AND t.match_id = m.id), '')
@@ -126,25 +152,20 @@ func (e *Endpoints) matchStatement(ctx context.Context, tx pgx.Tx, p reqctx.Prin
 		FROM payments.bank_statement_line l WHERE l.statement_id = $1 AND (l.status = 'unmatched' OR (l.status = 'proposed'
 			AND EXISTS (SELECT FROM payments.statement_match m WHERE m.tenant_id = l.tenant_id AND m.statement_id = l.statement_id
 				AND m.line_no = l.line_no AND m.status = 'open' AND m.kind = 'rule')))
-		ORDER BY l.line_no FOR UPDATE OF l`, s.ID)
+		ORDER BY l.line_no FOR UPDATE OF l`, m.s.ID)
 	lines, err := pgx.CollectRows(rows, pgx.RowToStructByPos[matchLine])
 	if err != nil {
-		return fmt.Errorf("payments: lines of statement %s to match: %w", s.ID, err)
+		return false, fmt.Errorf("payments: lines of statement %s to match: %w", m.s.ID, err)
 	}
-	m := matcher{e: e, tx: tx, p: p, s: s, rules: co.BankStatements.MatchingRules, co: co}
 	changed := false
 	for _, l := range lines {
 		ok, err := m.line(ctx, l)
 		if err != nil {
-			return err
+			return false, err
 		}
 		changed = changed || ok
 	}
-	if !changed {
-		return nil
-	}
-	_, err = bumpStatement(ctx, tx, p, s.ID)
-	return err
+	return changed, nil
 }
 
 // lockStatement takes the bank's statement lock and the statement's row,
@@ -242,7 +263,11 @@ func signature(n newMatch) string {
 	var ts []string
 	for _, c := range n.candidates {
 		for _, t := range c {
-			ts = append(ts, fmt.Sprintf("%d:%s:%s:%s", t.Candidate, optID(t.PaymentID), optID(t.BankFileID), deref(t.PostingRule)))
+			rule := ""
+			if t.PostingRule != nil {
+				rule = *t.PostingRule
+			}
+			ts = append(ts, fmt.Sprintf("%d:%s:%s:%s", t.Candidate, optID(t.PaymentID), optID(t.BankFileID), rule))
 		}
 	}
 	return *n.rule + "|" + n.status + "|" + strings.Join(ts, " ")
@@ -253,13 +278,6 @@ func optID(id *uuid.UUID) string {
 		return ""
 	}
 	return id.String()
-}
-
-func deref(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
 }
 
 // reopenLine makes a line whose open match was rejected unmatched again,
