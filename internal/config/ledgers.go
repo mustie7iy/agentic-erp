@@ -86,10 +86,10 @@ func (v *validator) codes(p string, codes []string, known map[string]bool) {
 	}
 }
 
-// ledgerName checks a ledger's or group's name: 1-200 characters, as the
-// database holds them.
+// ledgerName checks a ledger's or group's name: 1-200 characters without
+// the spaces around it, as the database's trim() counts them.
 func (v *validator) ledgerName(p, name string) {
-	switch n := len([]rune(strings.TrimSpace(name))); {
+	switch n := len([]rune(strings.Trim(name, " "))); {
 	case n == 0:
 		v.err(p+".name", "name is required")
 	case n > 200:

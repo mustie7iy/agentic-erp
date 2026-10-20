@@ -245,18 +245,16 @@ func walk(path, field string, v any, out map[string]string) {
 // itemID is a list item's identity: the fields key names of an object, a
 // code itself in a list of codes (a company's ledgers), else its position.
 func itemID(key string, i int, item any) string {
-	if key == "" {
+	if s, ok := item.(string); ok && key != "" {
+		return s
+	}
+	m, ok := item.(map[string]any)
+	if !ok || key == "" {
 		return fmt.Sprint(i)
 	}
-	switch it := item.(type) {
-	case string:
-		return it
-	case map[string]any:
-		var parts []string
-		for _, k := range strings.Split(key, ",") {
-			parts = append(parts, fmt.Sprint(it[k]))
-		}
-		return strings.Join(parts, "/")
+	var parts []string
+	for _, k := range strings.Split(key, ",") {
+		parts = append(parts, fmt.Sprint(m[k]))
 	}
-	return fmt.Sprint(i)
+	return strings.Join(parts, "/")
 }
