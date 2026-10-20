@@ -16,6 +16,7 @@ require (
 	github.com/nats-io/nats.go v1.54.0
 	github.com/ogen-go/ogen v1.24.0
 	github.com/pkg/sftp v1.13.10
+	github.com/parquet-go/parquet-go v0.32.0
 	github.com/prometheus/client_golang v1.25.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.47.0
@@ -31,6 +32,7 @@ require (
 )
 
 require (
+	github.com/andybalholm/brotli v1.2.2 // indirect
 	github.com/antithesishq/antithesis-sdk-go v0.8.0-default-no-op // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -64,7 +66,10 @@ require (
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/nexus-rpc/nexus-proto-annotations v0.1.0 // indirect
 	github.com/nexus-rpc/sdk-go v0.7.0 // indirect
+	github.com/parquet-go/bitpack v1.0.0 // indirect
+	github.com/parquet-go/jsonlite v1.0.0 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
+	github.com/pierrec/lz4/v4 v4.1.21 // indirect
 	github.com/prometheus/client_model v0.6.3 // indirect
 	github.com/prometheus/common v0.72.0 // indirect
 	github.com/prometheus/procfs v0.22.0 // indirect
@@ -79,6 +84,7 @@ require (
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
+	github.com/twpayne/go-geom v1.6.1 // indirect
 	github.com/yuin/goldmark v1.8.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.47.0 // indirect

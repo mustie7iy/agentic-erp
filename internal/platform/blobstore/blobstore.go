@@ -97,7 +97,8 @@ func Key(tenant uuid.UUID, kind, name string) string {
 // (rather than a bare content hash recorded before object storage existed).
 func IsKey(ref string) bool { return strings.HasPrefix(ref, Prefix+"/") }
 
-var keyPattern = regexp.MustCompile(`^[A-Za-z0-9_.~/-]+$`)
+// "=" names a Hive-style partition (analytics/v1/tenant=<id>/..., ADR-0044).
+var keyPattern = regexp.MustCompile(`^[A-Za-z0-9_.~/=-]+$`)
 
 // checkKey refuses keys that could escape a directory or confuse a URL.
 func checkKey(key string) error {

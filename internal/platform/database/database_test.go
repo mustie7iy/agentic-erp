@@ -66,6 +66,18 @@ func TestScopeSetsRoleTenantAndTimeouts(t *testing.T) {
 	if err == nil {
 		t.Fatal("write in read-only transaction")
 	}
+	// An extract asks for one database state across its statements.
+	for level, want := range map[pgx.TxIsoLevel]string{"": "read committed", pgx.RepeatableRead: "repeatable read"} {
+		var got string
+		if err := pool.InTx(ctx, database.Scope{Isolation: level}, func(ctx context.Context, tx pgx.Tx) error {
+			return tx.QueryRow(ctx, "SHOW transaction_isolation").Scan(&got)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("isolation %q: got %q, want %q", level, got, want)
+		}
+	}
 	// The setting does not leak to the next transaction on the same pool.
 	if err := pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
 		var tenant string

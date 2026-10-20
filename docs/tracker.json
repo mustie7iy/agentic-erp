@@ -3374,9 +3374,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Snapshot table, extractor and Parquet writer for journal lines",
-        "r": "T55b",
+        "s": "D",
+        "t": "Snapshot pointer (one row per tenant, RLS, manifest named by its watermark) and journal posted_xid (expand); per-tenant extractor of gl_lines in one REPEATABLE READ transaction under the tenant's RLS, appending by xid8 watermark, Parquet (parquet-go, no cgo) per posting month through blobstore, write-once files and manifest, guarded pointer swap; run twice writes nothing",
+        "r": "migration 000091 · internal/analytics/extract · db/analytics_snapshot_test.go · ADR-0044 · T55b",
         "c": []
        },
        {

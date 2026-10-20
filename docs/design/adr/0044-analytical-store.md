@@ -1,6 +1,7 @@
 # ADR-0044: Analytical store
 
-**Status:** accepted (product owner, 2026-10-19, T55)
+**Status:** accepted (product owner, 2026-10-19, T55; amended 2026-10-19,
+T55b: one pointer row per tenant, the leading ledger by default)
 
 ## Context
 The semantic layer (`internal/analytics`, `semantic.yaml`) answers every
@@ -25,7 +26,9 @@ that tenant's RLS (`app.tenant_id` set, the application role, never a
 immutable (ADR-0006), so the journal is extracted by watermark and
 appended. The watermark is a transaction-id horizon, not a clock: each journal entry
 gets `posted_xid xid8 DEFAULT pg_current_xact_id()` (an expand migration in
-T55b), and an extract's cutoff is the `xmin` of its own snapshot on the
+T55b, 000091: the column is added without a default, so no partition is
+rewritten, and the default set after; entries posted before it keep NULL,
+which a tenant's first run reads and Parquet stores as 0), and an extract's cutoff is the `xmin` of its own snapshot on the
 replica (`pg_snapshot_xmin(pg_current_snapshot())`). Every transaction below
 `xmin` has finished, so its rows are visible in that snapshot or were never
 committed, however long the posting transaction ran: no timeout has to be
@@ -45,7 +48,8 @@ tenant's rows. **One run per tenant extracts every dataset in one
 (the open items `cleared` is derived from among them) come from the same
 database state, and the run writes one manifest naming all of them. A run the standby cancels for a recovery
 conflict (`max_standby_streaming_delay`) is retried by the sweep;
-`hot_standby_feedback` stays off, so analytics never bloats the primary. The
+`hot_standby_feedback` stays off, so analytics never bloats the primary
+(accepted by the product owner, 2026-10-19). The
 outbox (ADR-0007) drives timing only: a consumer of the
 tenant's domain events marks the tenant changed, and the scheduler runs its
 next extract after a short debounce; an hourly sweep extracts any tenant
@@ -101,13 +105,24 @@ column, a changed grain) is a new dataset version (`v2/`), written next to
 each file written once through `blobstore` and never overwritten. A
 per-tenant manifest (`analytics/v1/tenant=<id>/manifest-<seq>.json`)
 lists, for each dataset, its files with size and SHA-256, the watermark,
-the row count and `as_of`. Table `analytics.snapshot (tenant_id, dataset,
-manifest_key, watermark, as_of)`, keyed by `(tenant_id, dataset)` and
-under RLS, points at the current manifest. A run publishes by updating all
-of the tenant's rows to its manifest in one transaction, each guarded by
-its previous `manifest_key` (ADR-0008), so a reader sees an old or a new
-run, never half of one, and never a fact dataset from one run with a
-dimension dataset from another. The reader takes one manifest per tenant
+the row count and `as_of`; an append dataset's manifest lists its earlier
+runs' files too. `<seq>` is the run's cutoff, zero-padded to 20 digits, so
+names sort by run and a run repeated with the same cutoff (its publication
+lost) writes the same bytes under the same keys and goes on; other bytes
+under a key stop the run, never overwrite it. Table `analytics.snapshot
+(tenant_id, manifest_key, watermark, as_of, published_at)` holds **one row
+per tenant**, under RLS, pointing at the current manifest; a check
+constraint ties the manifest's name to the tenant and the watermark. All
+of a tenant's datasets are swapped together: a run publishes by updating
+that one row, guarded by the `manifest_key` it read (ADR-0008), so a
+reader sees an old or a new run, never half of one, and never a fact
+dataset from one run with a dimension dataset from another. A run that
+lost the race (`ErrMoved`) leaves its files unreferenced and the sweep's
+next run starts from the newer pointer. A run that finds nothing new
+writes nothing and leaves the pointer, so running it twice leaves the
+store as one run did. The pointer is derived bookkeeping, rebuilt from the
+database, not a business state change: it writes no audit record
+(ADR-0011), and the manifest it names is the record of what was published. The reader takes one manifest per tenant
 and refuses (falling back to the database) a manifest whose datasets do not
 share one `as_of`.
 
@@ -143,8 +158,11 @@ same seeded tenant through the store and through the PostgreSQL path
 (`BuildFacts`) and requires equal results. Parity holds the extractor to
 `BuildFacts`' choices: journal lines of every ledger the API returns (a
 `ledger_id` key keeps them apart), local-currency amounts, order values
-rounded by `money.Scale`; whether metrics should read the leading ledger
-only is a semantic-layer change, made in both paths at once. The freshness target is p95 of
+rounded by `money.Scale`. **Metrics read the leading ledger by default,
+and another ledger only when the question names it** (product owner,
+2026-10-19). That is a semantic-layer change, made in both paths at once in
+T55e; the datasets keep every ledger's lines and their `ledger_id`, so it
+needs no re-extract. The freshness target is p95 of
 fifteen minutes from posting to `as_of`; when a tenant's snapshot is
 missing or older than that, the semantic layer answers from PostgreSQL
 instead, and every answer's lineage names its source (`store` or
@@ -153,6 +171,17 @@ instead, and every answer's lineage names its source (`store` or
 **No new per-PR CI.** The contract, isolation and parity tests run in the
 existing test job; the cgo build of `erp-analytics` runs in the image job
 that already builds the binaries.
+
+**Extractor (T55b).** `internal/analytics/extract` reads, as the
+application role in a read-only `REPEATABLE READ` transaction scoped to
+the tenant (`database.Scope.Isolation`), the pointer, the cutoff and the
+lines, so all three come from one database state. It reads the ledger's,
+the directory's and the partners' tables directly and read-only: it is the
+store's copy of what the API returns, held to it by the parity test, not a
+second owner of that data. Parquet is written with
+`github.com/parquet-go/parquet-go` (pure Go: `erp-server` stays
+`CGO_ENABLED=0`). Keys use Hive-style `name=value` segments, which
+`blobstore` accepts (`=` is percent-encoded in the signed S3 path).
 
 **Steps.** T55a this ADR and the dataset contract; T55b the snapshot
 migration, extractor and Parquet writer for journal lines; T55c the other
