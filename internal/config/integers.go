@@ -18,7 +18,7 @@ import (
 // 1e0, !!float 5) is refused too: the field asks for an integer.
 func notWhole(b []byte) error {
 	var root yaml.Node
-	_ = yaml.Unmarshal(b, &root) // Parse decoded the same bytes already, so this cannot fail
+	_ = yaml.Unmarshal(b, &root) // Parse decoded the same bytes already (both read the first document), so this cannot fail
 	n, path := floatIn(&root, reflect.TypeFor[Config](), "")
 	if n == nil {
 		return nil
@@ -105,7 +105,8 @@ func floatInMerge(v *yaml.Node, t reflect.Type, path string) (*yaml.Node, string
 
 // valueType is the type a mapping key's value decodes into: the struct
 // field the key names in its yaml tag, or a map's element type. A key that
-// names nothing was refused by the strict decode already.
+// names nothing was refused by the strict decode already. Only the tag
+// name is matched: TestConfigFieldsAreNamed keeps every field named.
 func valueType(t reflect.Type, key string) (reflect.Type, bool) {
 	if t.Kind() == reflect.Map {
 		return t.Elem(), true

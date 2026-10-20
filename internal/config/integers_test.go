@@ -37,6 +37,39 @@ func TestParseRefusesFloatsInIntegerFields(t *testing.T) {
 	}
 }
 
+// The error gives the line, so the reader finds the number.
+func TestParseNamesTheLine(t *testing.T) {
+	_, err := Parse([]byte("version: 1\npayment_terms:\n  - {key: n, net_days: 1.5}\n"))
+	if want := "configuration: line 3: payment_terms[0].net_days: 1.5 is not a whole number"; err == nil || err.Error() != want {
+		t.Errorf("got %v, want %s", err, want)
+	}
+}
+
+// The walk matches a key to a field by its yaml tag name only, so every
+// field of Config, however deep, has one and none is inline.
+func TestConfigFieldsAreNamed(t *testing.T) {
+	seen := map[reflect.Type]bool{}
+	var walk func(reflect.Type)
+	walk = func(typ reflect.Type) {
+		for typ.Kind() == reflect.Pointer || typ.Kind() == reflect.Slice || typ.Kind() == reflect.Map {
+			typ = typ.Elem()
+		}
+		if typ.Kind() != reflect.Struct || seen[typ] {
+			return
+		}
+		seen[typ] = true
+		for i := range typ.NumField() {
+			f := typ.Field(i)
+			name, opts, _ := strings.Cut(f.Tag.Get("yaml"), ",")
+			if f.IsExported() && (name == "" || strings.Contains(opts, "inline")) {
+				t.Errorf("%s.%s: got yaml tag %q, want a named, non-inline field", typ.Name(), f.Name, f.Tag.Get("yaml"))
+			}
+			walk(f.Type)
+		}
+	}
+	walk(reflect.TypeFor[Config]())
+}
+
 // Whole numbers, and floats in fields that are not integers, still read.
 func TestParseAcceptsIntegers(t *testing.T) {
 	for _, doc := range []string{
