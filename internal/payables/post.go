@@ -49,15 +49,11 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err := requireReference(ctx, tx, v); err != nil {
 		return Invoice{}, err
 	}
-	// A captured invoice may have landed without a required custom field
-	// (capturedExtensions); none posts without its required fields.
-	if _, err := e.extensions().Check(ctx, v.Extensions); err != nil {
+	date, err := invoicePostingDate(ctx, tx, v, postingDate)
+	if err != nil {
 		return Invoice{}, err
 	}
-	// Nor does one a rule refuses: a captured invoice held by a rule and
-	// released by hand is judged again on its header as it stands.
-	if err := e.ruleWrites().Check(ctx, ruleWrite("payables.supplier_invoice.post", v.ID, changed(v, Change{}),
-		checked{currency: v.Currency, gross: v.Gross, tax: v.Tax, purchaseOrder: v.PurchaseOrderID, kind: v.Kind}, v.Source)); err != nil {
+	if err := e.postable(ctx, v, date); err != nil {
 		return Invoice{}, err
 	}
 	if err := requireCleanMatch(ctx, tx, v); err != nil {
@@ -67,10 +63,6 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 		return Invoice{}, problem.Unprocessable("payables.amounts_mismatch", "The gross amount must equal the items plus tax.")
 	}
 	sup, err := e.postableSupplier(ctx, v)
-	if err != nil {
-		return Invoice{}, err
-	}
-	date, err := invoicePostingDate(ctx, tx, v, postingDate)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -90,6 +82,21 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 		return Invoice{}, err
 	}
 	return posted, e.recordPosted(ctx, posted, entry)
+}
+
+// postable judges an invoice's custom fields and rules before it posts. A
+// captured invoice may have landed without a required custom field
+// (capturedExtensions); none posts without its required fields. Nor does
+// one a rule refuses: a captured invoice held by a rule and released by
+// hand is judged again on its header as it stands, with the posting date
+// the post uses (the request's, else the invoice's, else today), not the
+// one stored.
+func (e *Endpoints) postable(ctx context.Context, v Invoice, date *time.Time) error {
+	if _, err := e.extensions().Check(ctx, v.Extensions); err != nil {
+		return err
+	}
+	return e.ruleWrites().Check(ctx, ruleWrite("payables.supplier_invoice.post", v.ID, changed(v, Change{PostingDate: &date}),
+		checked{currency: v.Currency, gross: v.Gross, tax: v.Tax, purchaseOrder: v.PurchaseOrderID, kind: v.Kind}, v.Source))
 }
 
 // posting is the entry an invoice posts, with the payment terms it posts

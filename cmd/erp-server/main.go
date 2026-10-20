@@ -52,6 +52,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
@@ -484,6 +485,7 @@ func (s *server) collaborators() {
 		s.connector = payments.DirConnector{Dir: s.cfg.BankOutboxDir}
 	}
 	s.metrics = telemetry.NewMetrics()
+	s.metrics.Registry.MustRegister(rules.Unevaluable)
 	backlogs(s.pool, s.cfg, s.metrics)
 	atRest(s.cfg.AtRest, s.metrics, s.log)
 }

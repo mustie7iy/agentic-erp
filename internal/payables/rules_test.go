@@ -17,15 +17,41 @@ import (
 // invoiceRules are a tenant's rules on supplier invoices: a size limit
 // read in minor units, and one on a custom field.
 func invoiceRules() map[string]rules.Rule {
-	row := func(gross string) map[string]any {
-		return map[string]any{"legal_entity_id": "le", "supplier_id": "s", "supplier_reference": "r", "invoice_date": "2026-03-10",
-			"gross_amount": map[string]any{"amount": gross, "currency": "EUR"}, "tax_amount": map[string]any{"amount": "0.00", "currency": "EUR"}}
-	}
 	return map[string]rules.Rule{
 		"gross_limit": {Expression: `row.gross_amount.minor <= 100000`, Message: "Invoices above 1000.00 need a contract.",
 			Cases: []rules.Case{{Row: row("1000.00"), Valid: true}, {Row: row("1000.01"), Valid: false}}},
 		"no_fax": {Expression: `ext.channel.orValue("") != "fax"`, Message: "Fax invoices are not accepted.",
 			Cases: []rules.Case{{Row: row("1.00"), Valid: true}, {Row: row("1.00"), Extensions: map[string]any{"channel": "fax"}, Valid: false}}},
+	}
+}
+
+// row is a rule case's invoice header with the gross amount given.
+func row(gross string) map[string]any {
+	return map[string]any{"legal_entity_id": "le", "supplier_id": "s", "supplier_reference": "r", "invoice_date": "2026-03-10",
+		"gross_amount": map[string]any{"amount": gross, "currency": "EUR"}, "tax_amount": map[string]any{"amount": "0.00", "currency": "EUR"}}
+}
+
+// TestRulesSeeThePostingDateOfThePost: at posting a rule reads the posting
+// date the post uses, the request's or else today, not the one stored on
+// the invoice (here none, which the rule accepts).
+func TestRulesSeeThePostingDateOfThePost(t *testing.T) {
+	e := setup(t)
+	inv, tag := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "DATED", "100.00", "0.00", accountItem(e.expense, "100.00")), "")
+	dated := func(d string) map[string]any { r := row("1.00"); r["posting_date"] = d; return r }
+	fixture.ActivateRules(t, e.Tenant.ID, "supplier_invoice", map[string]rules.Rule{"march": {
+		Expression: `!row.posting_date.hasValue() || (row.posting_date.value() >= "2026-03-15" && row.posting_date.value() < "2026-04-01")`,
+		Message:    "Invoices post in the second half of March.",
+		Cases:      []rules.Case{{Row: row("1.00"), Valid: true}, {Row: dated("2026-03-21"), Valid: true}, {Row: dated("2026-03-10"), Valid: false}},
+	}})
+	path := "/v1/supplier-invoices/" + id(inv) + ":post"
+	for name, body := range map[string]string{"the request's": `{"posting_date": "2026-03-10"}`, "today": ""} {
+		t.Run(name, func(t *testing.T) {
+			refusedBy(t, e.Problem(422, "request.rule_refused", "POST", path, body, tag), "march", "Invoices post in the second half of March.")
+		})
+	}
+	posted, _ := e.Must(200, "POST", path, `{"posting_date": "2026-03-21"}`, tag)
+	if posted["status"] != "posted" {
+		t.Errorf("status: got %v, want posted", posted["status"])
 	}
 }
 

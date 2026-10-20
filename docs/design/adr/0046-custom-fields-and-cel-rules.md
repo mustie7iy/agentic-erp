@@ -147,8 +147,16 @@ needs.
   captured invoice is not refused: it lands held, the hold reason naming
   each refusing rule and its message, like a missing required field; one
   held for a missing required field is judged when a person completes it,
-  since its rules may read the field. A rule that fails to evaluate, or
-  exceeds a limit, is an internal error, never a pass. Rules compile once
+  since its rules may read the field. A rule that fails on a real input,
+  or exceeds its cost or its time, fails the write closed: 422
+  `request.rule_unevaluable` with a field error `rules.<name>` naming the
+  rule (a captured invoice alike), never a pass and not a 500, since the
+  rule, not the system, must be fixed; each one is logged with the tenant,
+  rule and configuration version and counted in
+  `erp_rules_unevaluable_total` by entity, so operations see it
+  (coordinator, 2026-10-20). At posting, an invoice's rules read the
+  posting date the post uses (the request's, else the invoice's, else
+  today), not only the one stored. Rules compile once
   per tenant, configuration version and entity (versions are immutable),
   in a bounded cache.
 - **Audit.** Rule outcomes are audited with `source: rule`, the rule's

@@ -3711,8 +3711,8 @@
        },
        {
         "s": "D",
-        "t": "Validation rules on every create, update and change request of the three entities, after the schema check: 422 request.rule_refused naming the rule, refusals audited with source: rule, the rule and the configuration version, kept although the write rolls back; captured invoices held naming the rule and judged again at posting; money inputs carry minor units",
-        "r": "rules.Writes · rules.Money · configuration.Settings.Rules · audit.Refuse · TestRulesOnInvoiceWrites · TestCaptureHeldByRule · TestRulesOnOrderWrites · TestRulesOnPartnerWrites · T58g",
+        "t": "Validation rules on every create, update and change request of the three entities, after the schema check: 422 request.rule_refused naming the rule, refusals audited with source: rule, the rule and the configuration version, kept although the write rolls back; captured invoices held naming the rule and judged again at posting, on the posting date the post uses; a rule that fails or exceeds a limit on a real input refuses with 422 request.rule_unevaluable naming it, logged and counted (erp_rules_unevaluable_total); money inputs carry minor units",
+        "r": "rules.Writes · rules.Money · configuration.Settings.Rules · audit.Refuse · TestRulesOnInvoiceWrites · TestCaptureHeldByRule · TestRulesOnOrderWrites · TestRulesOnPartnerWrites · TestWritesUnevaluable · TestRulesSeeThePostingDateOfThePost · T58g",
         "c": []
        },
        {

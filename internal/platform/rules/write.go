@@ -3,12 +3,15 @@ package rules
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
@@ -123,10 +126,33 @@ func (w Writes) violations(ctx context.Context, wr Write) ([]Violation, int32, e
 		return nil, 0, err
 	}
 	vs, err := s.Check(ctx, wr.Row, wr.Extensions)
+	if u := (*UnevaluableError)(nil); errors.As(err, &u) {
+		return nil, 0, unevaluable(ctx, p.TenantID, a.ConfigVersion, u)
+	}
 	if err != nil {
 		return nil, 0, fmt.Errorf("rules: configuration version %d: %w", a.ConfigVersion, err)
 	}
 	return vs, a.ConfigVersion, nil
+}
+
+// Unevaluable counts the writes refused because a rule could not be
+// evaluated, by entity; the process registers it with its metrics. The
+// rule and the tenant are in the log line, not labels, so the series stay
+// few however many rules tenants write.
+var Unevaluable = prometheus.NewCounterVec(prometheus.CounterOpts{
+	Name: "erp_rules_unevaluable_total", Help: "Writes refused because a tenant's validation rule could not be evaluated, by entity.",
+}, []string{"entity"})
+
+// unevaluable fails a write closed on a rule that failed or exceeded a
+// limit on its input (ADR-0046): neither a pass nor a 500, but 422
+// request.rule_unevaluable naming the rule, so the caller knows which rule
+// to have fixed; it is logged and counted so that operations see it.
+func unevaluable(ctx context.Context, tenant uuid.UUID, version int32, u *UnevaluableError) error {
+	Unevaluable.WithLabelValues(u.Entity).Inc()
+	slog.WarnContext(ctx, "a validation rule could not be evaluated; the write is refused", "tenant_id", tenant,
+		"entity", u.Entity, "rule", u.Rule, "config_version", version, "error", u.Err.Error())
+	return problem.Unprocessable("request.rule_unevaluable", "A validation rule of the tenant cannot be evaluated on the write.",
+		problem.FieldError{Field: "rules." + u.Rule, Code: "rule_unevaluable", Message: "The rule fails or exceeds its limits on this input; have the rule corrected."})
 }
 
 // setKey names an entity's rules in one tenant's configuration version.

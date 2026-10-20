@@ -1,13 +1,16 @@
 package rules
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
@@ -91,6 +94,62 @@ func TestWritesHold(t *testing.T) {
 	if buf.Len() != 1 {
 		t.Errorf("audit of the hold: got %d entries, want 1", buf.Len())
 	}
+}
+
+// TestWritesUnevaluable: a rule that fails on a real input (here an index
+// its cases never miss) refuses the write, held or not, with 422
+// request.rule_unevaluable naming the rule, never a pass and never a 500,
+// and is counted and logged for operations.
+func TestWritesUnevaluable(t *testing.T) {
+	roles := func(r ...any) map[string]any { p := partner("DE"); p["roles"] = r; return p }
+	a := Active{ConfigVersion: 9, Rules: map[string]Rule{"second_role": {Expression: `row.roles[1] != "x"`, Message: "m",
+		Cases: []Case{{Row: roles("supplier", "customer"), Valid: true}, {Row: roles("supplier", "x"), Valid: false}}}}}
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) }) // the process's logger, for the tests after this one
+	w := Writes{Entity: "business_partner", Source: source{a: a}}
+	before := unevaluableCount(t)
+	ctx, buf := inRequest(t)
+	_, held := w.Hold(ctx, write("DE"))
+	for name, err := range map[string]error{"check": w.Check(ctx, write("DE")), "hold": held} {
+		t.Run(name, func(t *testing.T) {
+			var p *problem.Problem
+			if !errors.As(err, &p) || p.Status != 422 || p.Code != "request.rule_unevaluable" {
+				t.Fatalf("got %v, want 422 request.rule_unevaluable", err)
+			}
+			if len(p.Errors) != 1 || p.Errors[0].Field != "rules.second_role" {
+				t.Errorf("field errors: got %v, want one on rules.second_role", p.Errors)
+			}
+		})
+	}
+	if got := unevaluableCount(t) - before; got != 2 {
+		t.Errorf("counted: got %v, want 2", got)
+	}
+	if !strings.Contains(logs.String(), "rule=second_role") || !strings.Contains(logs.String(), "config_version=9") {
+		t.Errorf("log: got %q, want the rule and the configuration version", logs.String())
+	}
+	if buf.Len() != 0 {
+		t.Errorf("audit: got %d entries, want none", buf.Len())
+	}
+}
+
+// unevaluableCount is erp_rules_unevaluable_total as a scrape reads it.
+func unevaluableCount(t *testing.T) float64 {
+	t.Helper()
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(Unevaluable)
+	fams, err := reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var n float64
+	for _, f := range fams {
+		for _, m := range f.GetMetric() {
+			n += m.GetCounter().GetValue()
+		}
+	}
+	return n
 }
 
 // TestWritesFailures: what keeps the rules from judging a write is an

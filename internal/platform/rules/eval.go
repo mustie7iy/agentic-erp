@@ -37,7 +37,7 @@ func (s *Set) Check(ctx context.Context, row, ext map[string]any) ([]Violation, 
 	for _, r := range s.rules {
 		ok, err := r.eval(ctx, act)
 		if err != nil {
-			return nil, fmt.Errorf("rules: %s.%s: %w", s.Entity, r.name, err)
+			return nil, &UnevaluableError{Entity: s.Entity, Rule: r.name, Err: err}
 		}
 		if !ok {
 			out = append(out, Violation{r.name, r.message})
@@ -45,6 +45,20 @@ func (s *Set) Check(ctx context.Context, row, ext map[string]any) ([]Violation, 
 	}
 	return out, nil
 }
+
+// UnevaluableError is a rule that failed on an input, or exceeded its cost
+// or its time: the input can be neither shown to pass nor refused by the
+// rule, so the write fails closed (ADR-0046).
+type UnevaluableError struct {
+	Entity, Rule string
+	Err          error
+}
+
+func (e *UnevaluableError) Error() string {
+	return fmt.Sprintf("rules: %s.%s: %v", e.Entity, e.Rule, e.Err)
+}
+
+func (e *UnevaluableError) Unwrap() error { return e.Err }
 
 // eval runs one rule within the timeout of ADR-0046. The checker proved
 // the result boolean.
