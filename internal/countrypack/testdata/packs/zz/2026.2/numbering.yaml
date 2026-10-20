@@ -1,0 +1,3 @@
+number_ranges:
+  - {document_type: supplier_invoice, prefix: SI, first: 1, last: 9999999, gapless: true}
+  - {document_type: payment_run, prefix: PY, first: 1, last: 99999}

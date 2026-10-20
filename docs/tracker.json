@@ -3687,10 +3687,47 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Country packs",
-      "r": "T62",
-      "c": []
+      "r": "ADR-0048 · T62 (split T62a-T62f)",
+      "c": [
+       {
+        "s": "D",
+        "t": "Pack schema, loader and validation: versioned YAML bundles under packs/<cc>/<version>/ embedded in the image; rates 0-100%, non-overlapping effective dates, account references, sources; released versions immutable by a committed hash list; tax specialist sign-off warned until given (pilot gate)",
+        "r": "internal/countrypack · packs/released.sha256 · ADR-0048 · T62a",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Apply a pack to a company: three-way merge (adopted version, tenant document, new version) into a draft document with notes; the packs provenance section",
+        "r": "T62b",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The calendars section: a company's holidays",
+        "r": "T62c",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "API: list packs and apply one as a configuration change request",
+        "r": "T62d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Canada pack",
+        "r": "T62e",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "UAE pack",
+        "r": "T62f",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",

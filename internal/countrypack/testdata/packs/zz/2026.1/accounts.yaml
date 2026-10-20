@@ -1,0 +1,10 @@
+accounts:
+  - {number: "1000", name: Bank, type: asset}
+  - {number: "1400", name: Input VAT, type: asset}
+  - {number: "2000", name: Trade payables, type: liability, vendor_reconciliation: true}
+  - {number: "2100", name: Output VAT, type: liability}
+  - {number: "6000", name: Office expenses, type: expense}
+account_determination:
+  ap_reconciliation: "2000"
+  input_tax: "1400"
+  bank: "1000"
