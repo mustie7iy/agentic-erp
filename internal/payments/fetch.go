@@ -115,6 +115,11 @@ func (e *Endpoints) ImportFetched(ctx context.Context, houseBank uuid.UUID, name
 	}
 	digest := sha256.Sum256(file)
 	f := Fetched{SHA256: digest[:], Status: FetchImported}
+	// Overlapping fetches of the bank wait here, so the second finds the
+	// first's record rather than recording the file again.
+	if err := lockStatements(ctx, tx, houseBank); err != nil {
+		return Fetched{}, err
+	}
 	err = tx.QueryRow(ctx, `SELECT status FROM payments.statement_fetch WHERE house_bank_id = $1 AND file_sha256 = $2`, houseBank, f.SHA256).Scan(&f.Status)
 	if err == nil {
 		return f, nil

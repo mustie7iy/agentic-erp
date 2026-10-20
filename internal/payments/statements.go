@@ -49,13 +49,6 @@ const (
 	StatementReconciled = "reconciled"
 )
 
-func init() {
-	problem.RegisterConstraint("bank_statement_key_once", func() *problem.Problem {
-		return problem.Conflict("payments.statement_conflict", "A statement with the statement id, account and sequence of one in this file "+
-			"was already imported, from another file or earlier in this one.")
-	})
-}
-
 // Statement is a row of payments.bank_statement with its lines; amounts
 // are minor units of Currency, whose minor-unit digits are Exponent.
 type Statement struct {
@@ -158,8 +151,8 @@ func (e *Endpoints) importFile(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 	}
 	digest := sha256.Sum256(file)
 	sum = digest[:]
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('payments.bank_statement:' || $1::text, 0))`, bank.ID); err != nil {
-		return nil, nil, false, fmt.Errorf("payments: lock statements of house bank %s: %w", bank.ID, err)
+	if err := lockStatements(ctx, tx, bank.ID); err != nil {
+		return nil, nil, false, err
 	}
 	if before, err := fileStatements(ctx, tx, bank.ID, sum); err != nil || len(before) > 0 {
 		return before, sum, false, err
@@ -172,6 +165,9 @@ func (e *Endpoints) importFile(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 	if err != nil {
 		return nil, nil, false, problem.Unprocessable("payments.statement_unreadable", "The file cannot be read as "+format+".",
 			problem.FieldError{Field: "file", Code: "unreadable", Message: strings.TrimPrefix(err.Error(), bankstatement.ErrMalformed.Error()+": ")})
+	}
+	if err := importable(ctx, tx, bank, parsed); err != nil {
+		return nil, nil, false, err
 	}
 	ref, err := e.keepStatementFile(ctx, p.TenantID, sum, format, file)
 	if err != nil {
@@ -239,14 +235,45 @@ func (e *Endpoints) statementBank(ctx context.Context, tx pgx.Tx, tenant, id uui
 	return b, nil
 }
 
+// lockStatements makes the house bank's imports wait for each other until
+// the transaction ends; a transaction holding it may take it again.
+func lockStatements(ctx context.Context, tx pgx.Tx, houseBank uuid.UUID) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('payments.bank_statement:' || $1::text, 0))`, houseBank); err != nil {
+		return fmt.Errorf("payments: lock statements of house bank %s: %w", houseBank, err)
+	}
+	return nil
+}
+
+// importable refuses a file before anything of it is kept: each statement
+// must be of the bank's account and currency, and its key new to the bank
+// and to the file, so a file the import refuses leaves no locked object
+// behind. Under the bank's lock no other import inserts a key meanwhile;
+// bank_statement_key_once is the database's guard of the same rule.
+func importable(ctx context.Context, tx pgx.Tx, bank statementBank, parsed []bankstatement.Statement) error {
+	keys := make([]string, len(parsed))
+	for i, s := range parsed {
+		if fieldcrypt.Normalize(s.Account.Identifier()) != fieldcrypt.Normalize(bank.IBAN) || s.Currency != bank.Currency {
+			return problem.Unprocessable("payments.statement_not_of_bank", fmt.Sprintf("Statement %s is of account %s in %s; the house bank's account is in %s.",
+				s.ID, s.Account.Identifier(), s.Currency, bank.Currency), problem.FieldError{Field: "file", Code: "other_account", Message: "a statement of the house bank's account"})
+		}
+		keys[i] = s.Key()
+	}
+	var conflict bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM payments.bank_statement WHERE house_bank_id = $1 AND statement_key = ANY($2))
+		OR (SELECT count(DISTINCT k) FROM unnest($2::text[]) k) < cardinality($2::text[])`, bank.ID, keys).Scan(&conflict); err != nil {
+		return fmt.Errorf("payments: statement keys of house bank %s: %w", bank.ID, err)
+	}
+	if conflict {
+		return problem.Conflict("payments.statement_conflict", "A statement with the statement id, account and sequence of one in this file "+
+			"was already imported, from another file or earlier in this one.")
+	}
+	return nil
+}
+
 // importStatement inserts one statement of the file at its position, after
 // the bank's statement before it, and its lines, and closes the gap of the
 // bank's statement after it that it was missing.
 func importStatement(ctx context.Context, tx pgx.Tx, p reqctx.Principal, bank statementBank, f statementFile, s bankstatement.Statement, exp int) error {
-	if fieldcrypt.Normalize(s.Account.Identifier()) != fieldcrypt.Normalize(bank.IBAN) || s.Currency != bank.Currency {
-		return problem.Unprocessable("payments.statement_not_of_bank", fmt.Sprintf("Statement %s is of account %s in %s; the house bank's account is in %s.",
-			s.ID, s.Account.Identifier(), s.Currency, bank.Currency), problem.FieldError{Field: "file", Code: "other_account", Message: "a statement of the house bank's account"})
-	}
 	var prevID *uuid.UUID
 	var prevClosing money.Minor
 	err := tx.QueryRow(ctx, `SELECT id, closing_balance FROM payments.bank_statement WHERE house_bank_id = $1 AND closing_date <= $2

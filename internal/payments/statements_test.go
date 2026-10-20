@@ -341,6 +341,26 @@ func TestStatementFile(t *testing.T) {
 			t.Errorf("again: got the same statement %v, want a new one", again["id"])
 		}
 	})
+	t.Run("a file refused leaves nothing kept", func(t *testing.T) {
+		before := len(store.Keys())
+		other := strings.Replace(mtStatement("K9", "9", "1,00", "261009", "1,00", "261009"), "DE89370400440532013000", "GB33BUKB20201555555555", 1)
+		twice := mtStatement("K8", "8", "1,00", "261008", "1,00", "261008")
+		for name, c := range map[string]struct {
+			file, code string
+			status     int
+		}{
+			"another account": {other, "payments.statement_not_of_bank", 422},
+			"an imported key": {mtStatement("K1", "1", "1,00", "261001", "1,00", "261001") + "\n", "payments.statement_conflict", 409},
+			"a key twice":     {twice + twice, "payments.statement_conflict", 409},
+		} {
+			if code, body := e.in(t).upload(t, e.bank.String(), "mt940", c.file); code != c.status || body["code"] != c.code {
+				t.Errorf("%s: got %d %v, want %d %s", name, code, body, c.status, c.code)
+			}
+		}
+		if got := len(store.Keys()); got != before {
+			t.Errorf("objects: got %d, want %d", got, before)
+		}
+	})
 	t.Run("the store fails", func(t *testing.T) {
 		store.Fail = 500
 		defer func() { store.Fail = 0 }()

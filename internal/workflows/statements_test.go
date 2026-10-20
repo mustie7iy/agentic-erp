@@ -253,8 +253,11 @@ func TestFetchActivitiesRunTwice(t *testing.T) {
 			t.Fatalf("archive %d: %v", i+1, err)
 		}
 	}
-	if got, ok := s.server.Read(t, archived("b.sta", content)); !ok || got != content || s.fetchState(t, content) != "archived" {
-		t.Errorf("archived: got %v %q, status %s", ok, got, s.fetchState(t, content))
+	if got, _ := s.server.Read(t, archived("b.sta", content)); got != content {
+		t.Errorf("archived file: got %q, want %q", got, content)
+	}
+	if got := s.fetchState(t, content); got != "archived" {
+		t.Errorf("status: got %q, want archived", got)
 	}
 	bad := "x"
 	s.server.Put(t, "/in/x.sta", bad)

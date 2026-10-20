@@ -157,8 +157,10 @@ Canadian bank may only offer BAI2.
   exports (ADR-0021). Offboarding's erasure deletes the tenant's prefix and
   keeps what is locked until its retention ends, as for the other financial
   records that outlive the tenant; a re-onboarded tenant's statements
-  (ADR-0029) name the same keys. The file is written before the statements
-  are inserted, so a statement never names a missing file; without object
+  (ADR-0029) name the same keys. The file is written once it is known to be
+  imported (every statement of the bank's account and currency, every key
+  new) and before the statements are inserted, so a refused file leaves no
+  locked object and a statement never names a missing file; without object
   storage, or when the store does not take it, nothing is imported (503).
   `GET /v1/bank-statements/{id}/file` downloads it, byte for byte, with
   `payments.statement.read`. Permissions: `payments.statement.import`
