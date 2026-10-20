@@ -88,8 +88,8 @@ func TestParseAcceptsIntegers(t *testing.T) {
 	}
 }
 
-// Config has no maps or pointers today; the walk reads them as yaml does,
-// so a field added with one is covered without changing it.
+// The walk reads maps and pointers as yaml does, so a field added with
+// one is covered without changing it.
 func TestFloatInMapsAndPointers(t *testing.T) {
 	type entry struct {
 		Days *int `yaml:"days,omitempty"`
@@ -100,5 +100,17 @@ func TestFloatInMapsAndPointers(t *testing.T) {
 	}
 	if _, path := floatIn(&root, reflect.TypeFor[*map[string]entry](), ""); path != "b.days" {
 		t.Errorf("got path %q, want b.days", path)
+	}
+}
+
+// A value decoded into any keeps its own type, floats included, so the
+// walk does not descend into it.
+func TestFloatInAny(t *testing.T) {
+	var root yaml.Node
+	if err := yaml.Unmarshal([]byte("a: {days: 2.5}\nb: [1.5]\n"), &root); err != nil {
+		t.Fatal(err)
+	}
+	if n, path := floatIn(&root, reflect.TypeFor[map[string]any](), ""); n != nil {
+		t.Errorf("got %q at %s, want nothing", n.Value, path)
 	}
 }
