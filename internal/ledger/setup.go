@@ -37,7 +37,10 @@ import (
 //   - withholding tax codes (T46e) are kept per legal entity, changed in
 //     place (what an invoice withheld is kept with its entry, T46f) and
 //     deactivated when removed, which the partner context refuses while a
-//     supplier has the code (partner.WithholdingCodes).
+//     supplier has the code (partner.WithholdingCodes);
+//   - the foreign-currency valuation (T48a, ADR-0042) is kept per legal
+//     entity: its rate type, the flagged accounts and each revalued
+//     account's valuation accounts, deactivated when removed.
 type Setup struct {
 	LegalEntities LegalEntities
 }
@@ -217,7 +220,8 @@ func (s Setup) Apply(ctx context.Context, doc *config.Config) error {
 }
 
 // applyCompany makes one company's chart of accounts, account
-// determination, fiscal calendar and tax codes match the document.
+// determination, fiscal calendar, tax codes and foreign-currency valuation
+// match the document.
 func (s Setup) applyCompany(ctx context.Context, tx pgx.Tx, p reqctx.Principal, co config.Company, doc *config.Config) error {
 	le, ok, err := s.LegalEntities.EntityByCode(ctx, co.Code)
 	if err != nil {
@@ -253,7 +257,10 @@ func (s Setup) applyCompany(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	if err := taxCodes(ctx, tx, p, le.ID, le.FiscalCalendarID, chart, co); err != nil {
 		return err
 	}
-	return withholdingTaxCodes(ctx, tx, p, le.ID, chart, co)
+	if err := withholdingTaxCodes(ctx, tx, p, le.ID, chart, co); err != nil {
+		return err
+	}
+	return fxValuation(ctx, tx, p, le.ID, chart, co)
 }
 
 // withholdingTaxCodes makes the legal entity's withholding tax codes the

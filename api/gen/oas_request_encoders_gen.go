@@ -133,6 +133,20 @@ func encodeCancelParkedJournalEntryRequest(
 	return nil
 }
 
+func encodeCancelRevaluationRunRequest(
+	req *ReasonInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCancelSupplierInvoiceRequest(
 	req *ReasonInput,
 	r *http.Request,
@@ -728,6 +742,20 @@ func encodePostJournalEntryRequest(
 	return nil
 }
 
+func encodePostRevaluationRunRequest(
+	req *RevaluationPreviewRequest,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodePostSupplierInvoiceRequest(
 	req OptSupplierInvoicePost,
 	r *http.Request,
@@ -742,6 +770,20 @@ func encodePostSupplierInvoiceRequest(
 		if req.Set {
 			req.Encode(e)
 		}
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodePreviewRevaluationRequest(
+	req *RevaluationPreviewRequest,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
 	}
 	encoded := e.Bytes()
 	ht.SetBody(r, bytes.NewReader(encoded), contentType)

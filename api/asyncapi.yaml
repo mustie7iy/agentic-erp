@@ -212,6 +212,8 @@ channels:
       PeriodUnlocked: {$ref: '#/components/messages/PeriodUnlocked'}
       ParkedJournalEntryChanged: {$ref: '#/components/messages/ParkedJournalEntryChanged'}
       ExchangeRateMaintained: {$ref: '#/components/messages/ExchangeRateMaintained'}
+      RevaluationRunPosted: {$ref: '#/components/messages/RevaluationRunPosted'}
+      RevaluationRunCancelled: {$ref: '#/components/messages/RevaluationRunCancelled'}
   procurement:
     address: 'erp.{cell}.procurement.{tenant}.{event}'
     title: Procurement events
@@ -389,6 +391,8 @@ operations:
       - $ref: '#/channels/ledger/messages/PeriodUnlocked'
       - $ref: '#/channels/ledger/messages/ParkedJournalEntryChanged'
       - $ref: '#/channels/ledger/messages/ExchangeRateMaintained'
+      - $ref: '#/channels/ledger/messages/RevaluationRunPosted'
+      - $ref: '#/channels/ledger/messages/RevaluationRunCancelled'
   publishProcurementEvents:
     action: send
     title: Procurement publishes
@@ -1834,6 +1838,39 @@ components:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000053", "source": "/erp/eu-1/ledger", "type": "com.example.erp.ledger.exchange_rate_maintained.v1", "subject": "0192a000-0000-7000-8000-000000000206", "time": "2026-10-08T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
           payload: {"exchange_rate_id": "0192a000-0000-7000-8000-000000000206", "rate_type": "average", "from_currency": "USD", "to_currency": "EUR", "valid_from": "2026-10-08", "rate": "0.925900000000", "source": "ECB"}
+    RevaluationRunPosted:
+      name: RevaluationRunPosted
+      title: Foreign-currency revaluation run posted
+      summary: "A revaluation run of a legal entity and ledger at a key date was recorded, with its valuation and reversal entries."
+      description: "Emitted by `POST /v1/revaluation-runs` (ADR-0042) when a `ledger.revaluation_run` is recorded. Its valuation entry (dated the key date) and reversal entry (the first day of the next period) each publish their own `JournalEntryPosted` in the same transaction; a run that found no difference posts neither, and its entry fields are null. Subject is the run id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.ledger.revaluation_run_posted.v1}
+      payload: {$ref: '#/components/schemas/RevaluationRunPostedV1'}
+      examples:
+        - name: month-end
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000071", "source": "/erp/eu-1/ledger", "type": "com.example.erp.ledger.revaluation_run_posted.v1", "subject": "0192a000-0000-7000-8000-000000000701", "time": "2026-04-01T06:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
+          payload: {"run_id": "0192a000-0000-7000-8000-000000000701", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "ledger_id": "0192a000-0000-7000-8000-000000000202", "key_date": "2026-03-31", "rate_type": "bank_selling", "item_count": 4, "valuation_entry_id": "0192a000-0000-7000-8000-000000000702", "valuation_entry_year": 2026, "reversal_entry_id": "0192a000-0000-7000-8000-000000000703", "reversal_entry_year": 2026}
+
+    RevaluationRunCancelled:
+      name: RevaluationRunCancelled
+      title: Foreign-currency revaluation run cancelled
+      summary: "A posted revaluation run was cancelled: its valuation and reset entries were reversed and its key date is free for another run."
+      description: "Emitted by `POST /v1/revaluation-runs/{id}:cancel` (ADR-0042, T48d) when a `ledger.revaluation_run` goes from `posted` to `cancelled`. Each reversed entry publishes its own `JournalEntryReversed` in the same transaction; a run without entries reverses none, and the reversal fields are null. Subject is the run id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.ledger.revaluation_run_cancelled.v1}
+      payload: {$ref: '#/components/schemas/RevaluationRunCancelledV1'}
+      examples:
+        - name: corrected-rate
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000072", "source": "/erp/eu-1/ledger", "type": "com.example.erp.ledger.revaluation_run_cancelled.v1", "subject": "0192a000-0000-7000-8000-000000000701", "time": "2026-04-02T08:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
+          payload: {"run_id": "0192a000-0000-7000-8000-000000000701", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "ledger_id": "0192a000-0000-7000-8000-000000000202", "key_date": "2026-03-31", "reason": "The USD rate was keyed wrongly.", "valuation_reversal_entry_id": "0192a000-0000-7000-8000-000000000704", "valuation_reversal_entry_year": 2026, "reset_reversal_entry_id": "0192a000-0000-7000-8000-000000000705", "reset_reversal_entry_year": 2026}
 
     # ------------------------------------------------ further state changes
     TenantStatusChanged:
@@ -3396,6 +3433,33 @@ components:
         valid_from: {"$ref": "#/components/schemas/Date"}
         rate: {"type": "string", "description": "Decimal string, up to 12 decimals; units of `to_currency` per unit of `from_currency`.", "pattern": "^[0-9]+(\\.[0-9]{1,12})?$"}
         source: {"type": "string", "description": "Where the rate came from, e.g. ECB, manual."}
+    RevaluationRunPostedV1:
+      type: object
+      required: ["run_id", "legal_entity_id", "ledger_id", "key_date", "rate_type", "item_count", "valuation_entry_id", "valuation_entry_year", "reversal_entry_id", "reversal_entry_year"]
+      properties:
+        run_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        ledger_id: {"$ref": "#/components/schemas/Uuid"}
+        key_date: {"$ref": "#/components/schemas/Date"}
+        rate_type: {"type": "string", "description": "Open enum: average, bank_buying, bank_selling, planning."}
+        item_count: {"type": "integer", "minimum": 0, "description": "Items valued, with or without a difference."}
+        valuation_entry_id: {"$ref": "#/components/schemas/NullableUuid", "description": "Null when the run found no difference."}
+        valuation_entry_year: {"type": ["integer", "null"], "minimum": 1900, "maximum": 2999}
+        reversal_entry_id: {"$ref": "#/components/schemas/NullableUuid", "description": "Null when the run found no difference."}
+        reversal_entry_year: {"type": ["integer", "null"], "minimum": 1900, "maximum": 2999}
+    RevaluationRunCancelledV1:
+      type: object
+      required: ["run_id", "legal_entity_id", "ledger_id", "key_date", "reason", "valuation_reversal_entry_id", "valuation_reversal_entry_year", "reset_reversal_entry_id", "reset_reversal_entry_year"]
+      properties:
+        run_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        ledger_id: {"$ref": "#/components/schemas/Uuid"}
+        key_date: {"$ref": "#/components/schemas/Date"}
+        reason: {"type": "string", "minLength": 1, "maxLength": 2000}
+        valuation_reversal_entry_id: {"$ref": "#/components/schemas/NullableUuid", "description": "The reversal of the valuation entry; null when the run posted no entries."}
+        valuation_reversal_entry_year: {"type": ["integer", "null"], "minimum": 1900, "maximum": 2999}
+        reset_reversal_entry_id: {"$ref": "#/components/schemas/NullableUuid", "description": "The reversal of the reset entry; null when the run posted no entries."}
+        reset_reversal_entry_year: {"type": ["integer", "null"], "minimum": 1900, "maximum": 2999}
 
     # ------------------------------------------------ further state changes
     TenantStatusChangedV1:

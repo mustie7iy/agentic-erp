@@ -65,6 +65,10 @@ type CancelRequisitionRes interface {
 	cancelRequisitionRes()
 }
 
+type CancelRevaluationRunRes interface {
+	cancelRevaluationRunRes()
+}
+
 type CancelSupplierInvoiceRes interface {
 	cancelSupplierInvoiceRes()
 }
@@ -357,6 +361,10 @@ type GetRequisitionRes interface {
 	getRequisitionRes()
 }
 
+type GetRevaluationRunRes interface {
+	getRevaluationRunRes()
+}
+
 type GetRoleAssignmentRes interface {
 	getRoleAssignmentRes()
 }
@@ -557,6 +565,10 @@ type ListRequisitionsRes interface {
 	listRequisitionsRes()
 }
 
+type ListRevaluationRunsRes interface {
+	listRevaluationRunsRes()
+}
+
 type ListRoleAssignmentsRes interface {
 	listRoleAssignmentsRes()
 }
@@ -621,8 +633,16 @@ type PostParkedJournalEntryRes interface {
 	postParkedJournalEntryRes()
 }
 
+type PostRevaluationRunRes interface {
+	postRevaluationRunRes()
+}
+
 type PostSupplierInvoiceRes interface {
 	postSupplierInvoiceRes()
+}
+
+type PreviewRevaluationRes interface {
+	previewRevaluationRes()
 }
 
 type ProposePaymentRunRes interface {

@@ -162,6 +162,7 @@ func (v *validator) company(p string, co *Company) {
 	v.accountDetermination(p, co)
 	v.taxCodes(p, co)
 	v.withholdingTaxCodes(p, co)
+	v.fxValuation(p, co)
 	if co.InvoiceTolerance.PricePercent < 0 || co.InvoiceTolerance.PricePercent > 100 {
 		v.err(p+".invoice_tolerance.price_percent", "must be 0-100")
 	}

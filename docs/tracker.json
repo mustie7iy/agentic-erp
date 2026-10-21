@@ -1001,9 +1001,9 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "Document currency separate from company currency",
-      "r": "T48",
+      "s": "D",
+      "t": "Document currency separate from company currency: on the entry header (journal_entry.currency_tc), every posting path takes one other than local currency",
+      "r": "ADR-0042 · ledger.TestDocumentCurrencyOnEveryPostingPath · T48a",
       "c": []
      },
      {
@@ -1013,10 +1013,41 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Open-item revaluation run",
       "r": "T48",
-      "c": []
+      "c": [
+       {
+        "s": "D",
+        "t": "ADR-0042 and schema: flagged G/L accounts (company_account.revalue_foreign_currency), one valuation rate type per legal entity, unrealised gain/loss and adjustment accounts per revalued account from companies[].fx_valuation, revaluation runs per legal entity, ledger and key date (one posted per key date) and their valued items",
+        "r": "db/migrations/000107 · config.FXValuation · ledger.fx_valuation_account · ledger.revaluation_run · T48a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Valuation engine and preview (open to agents): open items of reconciliation accounts and balances of flagged accounts (also a residual in local or group currency of a balance zero in its own) at the key date's rate; group currency valued on its own at the rate tc→gc (PO 2026-10-19); stale rate refused (ledger.rate_stale)",
+        "r": "POST /v1/revaluation-runs/preview (x-autonomy: read) · ledger.valueRevaluation · key date a period end · account without valuation fails closed (ledger.revaluation_account_missing) · budget 10,000 open items p95 1 s · T48b",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Posting run: valuation entry on the key date, reversal on the 1st of the next period, both periods open; 409 ledger.revaluation_exists; audit and RevaluationRunPosted",
+        "r": "POST/GET /v1/revaluation-runs (x-agent: false) · document type SA in local currency · run without differences recorded without entries · tenant's entry locks exclusive · RevaluationRunPosted · T48c",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Cancel and close-out: cancel reverses both entries through the ledger's reversal path (which :reverse refuses alone, ledger.entry_owned_elsewhere), refused when either entry's period is not open (T32) or the run is cancelled; RevaluationRunCancelled; rerun after cancel; a balance zero in its currency valued without a rate (coordinator 2026-10-19)",
+        "r": "POST /v1/revaluation-runs/{id}:cancel (x-agent: false, If-Match the run's version) · 409 ledger.revaluation_not_posted · item rates nullable for a zero balance (revaluation_item_rates) · T48d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Follow-ups from T48b review: paging of very large previews; one shared definition of \"reversed\" for open-item reads; a budget run with reversals seeded, and an index on the reversal lookup if it needs one",
+        "r": "T48e",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",
