@@ -8,6 +8,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -152,6 +153,11 @@ func certifications(cfg Config) agents.Certifications {
 
 // New builds the public API handler.
 func New(cfg Config) (http.Handler, error) {
+	if cfg.Log == nil {
+		// Required, not defaulted: what the start finds (a country pack
+		// without its sign-off) must reach the server's log.
+		return nil, errors.New("app: a logger is required (Config.Log)")
+	}
 	library, err := countryPacks(cfg)
 	if err != nil {
 		return nil, err
