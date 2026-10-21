@@ -252,6 +252,28 @@ func (Accounts) Determination(ctx context.Context, legalEntity uuid.UUID, key st
 	return id, true, nil
 }
 
+// Balances returns the leading ledger's balance of the account in the
+// legal entity's local currency, debit positive, from the entries posted
+// on or before each of the dates, in their order: what a house bank's main
+// bank account holds on its statements' closing dates (ADR-0047, T49h).
+// The ledger posts no year-end carry-forward entries, so every year's
+// lines are summed.
+func (Accounts) Balances(ctx context.Context, legalEntity, account uuid.UUID, dates []time.Time) ([]money.Minor, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT coalesce((SELECT sum(l.amount_lc) FROM ledger.journal_line l
+			WHERE l.legal_entity_id = $1 AND l.account_id = $2 AND l.posting_date <= x.d
+				AND l.ledger_id = (SELECT id FROM ledger.ledger WHERE is_leading)), 0)::bigint
+		FROM unnest($3::date[]) WITH ORDINALITY AS x(d, n) ORDER BY x.n`, legalEntity, account, dates)
+	out, err := pgx.CollectRows(rows, pgx.RowTo[money.Minor])
+	if err != nil {
+		return nil, fmt.Errorf("ledger: balances of account %s in %s: %w", account, legalEntity, err)
+	}
+	return out, nil
+}
+
 // IsPostable reports whether the account is active, set up and not blocked
 // for posting in the legal entity, and neither a reconciliation account
 // (those are posted only through their subledger) nor the legal entity's

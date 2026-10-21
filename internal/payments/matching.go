@@ -48,13 +48,15 @@ const (
 var lineStatus = map[string]string{MatchOpen: "proposed", MatchMatched: MatchMatched, MatchExcluded: MatchExcluded}
 
 // MatchTarget is what a match clears: a payment, with the bank file of a
-// batch booking, or a posting rule; Candidate tells an open match's
+// batch booking, a posting rule, or (Incoming, T49h) the house bank's
+// incoming payments clearing account; Candidate tells an open match's
 // candidates apart (1 for a match decided).
 type MatchTarget struct {
 	Candidate   int16      `json:"candidate"`
 	PaymentID   *uuid.UUID `json:"payment_id,omitempty"`
 	BankFileID  *uuid.UUID `json:"bank_file_id,omitempty"`
 	PostingRule *string    `json:"posting_rule,omitempty"`
+	Incoming    bool       `json:"incoming,omitempty"`
 }
 
 // Match is a row of payments.statement_match with its targets.
@@ -119,12 +121,24 @@ type matcher struct {
 // passes ifMatch (nil: no check, as on import). A line matched in a pass
 // takes its payments from the lines before it, so passes repeat until one
 // changes nothing: a second run then finds nothing to change. The lines the
-// rules matched are then posted (autoPost, T49f). A run that changed a
-// line moves the statement's version on.
+// rules matched are then posted (autoPost, T49f), and the bank's
+// statements reconciled that now are (T49h). A run that changed a line
+// moves the statement's version on.
 func (e *Endpoints) matchStatement(ctx context.Context, tx pgx.Tx, p reqctx.Principal, s Statement, ifMatch func(int32) error) error {
 	if err := lockStatement(ctx, tx, s, ifMatch); err != nil {
 		return err
 	}
+	if err := e.applyRules(ctx, tx, p, s); err != nil {
+		return err
+	}
+	// A run also takes up what changed in the ledger since: a statement
+	// whose lines are decided reconciles once the ledger agrees (T49h).
+	return e.reconcile(ctx, tx, p, s)
+}
+
+// applyRules runs the company's matching rules on the statement and posts
+// what they matched.
+func (e *Endpoints) applyRules(ctx context.Context, tx pgx.Tx, p reqctx.Principal, s Statement) error {
 	co, err := e.statementCompany(ctx, s.LegalEntityID)
 	if err != nil || co == nil || len(co.BankStatements.MatchingRules) == 0 {
 		return err
@@ -544,14 +558,18 @@ func writeMatch(ctx context.Context, tx pgx.Tx, p reqctx.Principal, s Statement,
 	var cands, nos []int16
 	var pays, files []*uuid.UUID
 	var rules []*string
+	var incoming []bool
 	for _, c := range m.candidates {
 		for i, t := range c {
 			cands, nos, pays, files, rules = append(cands, t.Candidate), append(nos, int16(i+1)), append(pays, t.PaymentID), append(files, t.BankFileID), append(rules, t.PostingRule)
+			incoming = append(incoming, t.Incoming)
 		}
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO payments.statement_match_target (tenant_id, match_id, candidate, target_no, payment_id, bank_file_id, posting_rule, created_by)
-		SELECT $1, $2, c, n, pay, file, rule, $3 FROM unnest($4::smallint[], $5::smallint[], $6::uuid[], $7::uuid[], $8::text[]) AS x(c, n, pay, file, rule)`,
-		p.TenantID, id, p.ID, cands, nos, pays, files, rules); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO payments.statement_match_target (tenant_id, match_id, candidate, target_no, payment_id, bank_file_id, posting_rule,
+			incoming, created_by)
+		SELECT $1, $2, c, n, pay, file, rule, inc, $3 FROM unnest($4::smallint[], $5::smallint[], $6::uuid[], $7::uuid[], $8::text[], $9::boolean[])
+			AS x(c, n, pay, file, rule, inc)`,
+		p.TenantID, id, p.ID, cands, nos, pays, files, rules, incoming); err != nil {
 		return uuid.Nil, fmt.Errorf("payments: record the targets of the match of line %d of statement %s: %w", lineNo, s.ID, err)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payments.bank_statement_line SET status = $3, version = version + 1, updated_by = $4 WHERE statement_id = $1 AND line_no = $2`,
@@ -574,7 +592,7 @@ func writeMatch(ctx context.Context, tx pgx.Tx, p reqctx.Principal, s Statement,
 // matchSelect reads matches with their targets as JSON.
 const matchSelect = `SELECT m.id, m.statement_id, m.line_no, m.kind, m.rule, m.reason, m.status,
 	coalesce((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('candidate', t.candidate, 'payment_id', t.payment_id, 'bank_file_id', t.bank_file_id,
-		'posting_rule', t.posting_rule)) ORDER BY t.candidate, t.target_no)
+		'posting_rule', t.posting_rule, 'incoming', CASE WHEN t.incoming THEN true END)) ORDER BY t.candidate, t.target_no)
 		FROM payments.statement_match_target t WHERE t.tenant_id = m.tenant_id AND t.match_id = m.id), '[]'),
 	m.version, m.created_at, m.updated_at, m.created_by, m.updated_by, m.posting_date, m.posting_reason, m.approval_request_id,
 	m.journal_entry_year, m.journal_entry_id, m.session_id, m.proposal, m.outcome FROM payments.statement_match m`

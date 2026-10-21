@@ -8342,7 +8342,7 @@ paths:
       tags:
         - payments
       summary: Match a bank statement line by hand
-      description: "A person matches the line to the payments it clears or to a posting rule of the company (charges, interest), with a reason, whatever the rules found: the line's live match becomes `rejected` and the new one `matched` (kind `manual`). Each payment must be posted, from the statement's house bank, in its currency and matched to no other line (422 `payments.statement_match_target`). People only; a line on its way to the ledger keeps its match (409 `payments.statement_line_posting`). Audited, and published as BankStatementLineMatched. The response's ETag is the statement's new one, the If-Match of the next decision on its lines."
+      description: "A person matches the line to the payments it clears, to a posting rule of the company (charges, interest), or, for an incoming payment, to the house bank's incoming payments clearing account (`incoming: true`, T49h), with a reason, whatever the rules found: the line's live match becomes `rejected` and the new one `matched` (kind `manual`). Each payment must be posted, from the statement's house bank, in its currency and matched to no other line, and an incoming payment a credit that reverses nothing, of a house bank with `incoming_gl_account` (422 `payments.statement_match_target`). People only; a line on its way to the ledger keeps its match (409 `payments.statement_line_posting`), and a reconciled statement's lines are decided for good (409 `payments.statement_reconciled`). Audited, and published as BankStatementLineMatched. The response's ETag is the statement's new one, the If-Match of the next decision on its lines."
       x-permission: payments.statement.match
       x-agent: false
       parameters:
@@ -8408,7 +8408,7 @@ paths:
       tags:
         - payments
       summary: Exclude a bank statement line
-      description: "A person excludes the line from reconciliation, with a reason: the bank's booking clears nothing the ledger holds. The line's live match becomes `rejected` and the new one `excluded` (kind `manual`), with no targets; the line is `excluded`. People only; a line on its way to the ledger keeps its match (409 `payments.statement_line_posting`). Audited, and published as BankStatementLineExcluded. The response's ETag is the statement's new one, the If-Match of the next decision on its lines."
+      description: "A person excludes the line from reconciliation, with a reason: the bank's booking clears nothing the ledger holds. The line's live match becomes `rejected` and the new one `excluded` (kind `manual`), with no targets; the line is `excluded`; a statement whose last line to decide this was may become `reconciled` (T49h). People only; a line on its way to the ledger keeps its match (409 `payments.statement_line_posting`), and a reconciled statement's lines are decided for good (409 `payments.statement_reconciled`). Audited, and published as BankStatementLineExcluded. The response's ETag is the statement's new one, the If-Match of the next decision on its lines."
       x-permission: payments.statement.match
       x-agent: false
       parameters:
@@ -8474,7 +8474,7 @@ paths:
       tags:
         - payments
       summary: Post a matched bank statement line
-      description: "Posts a `matched` line (ADR-0047) to the house bank's main bank account (`main_gl_account`) against what its match clears: for payments, each payment's line on the bank's clearing account, which must be open-item managed (422 `ledger.not_open_item_managed`), is offset at its original amounts and cleared with the posting, and the payments must pay the line's amount (409 `payments.statement_amount_differs`); for a posting rule, the rule's account (409 `payments.statement_posting_rule_gone` when the company no longer has the rule). A statement in another currency than the company's is converted at the posting date's rates, and the difference to the payments' amounts is a realized exchange difference (fx_gain/fx_loss). The posting is dated on the line's booking date, or on `posting_date` with a `reason` (both audited); a locked or closed period refuses it (409 `ledger.period_not_open`). The posting is routed by the line's amount in the company's currency through `companies[].bank_statements.approval_tiers` (`bank_clearing` approval requests): a tier without steps posts at once (`posted`); otherwise the line waits for the request (`pending_approval`), whose approval posts it, checked again, and whose rejection or withdrawal returns it to `matched`. A company without tiers has every posting approved by the `controller` role. Whoever matched the line by hand cannot approve its posting. A house bank without a main bank account never posts (409 `payments.statement_bank_not_posting`), nor one with a statement in `gap` (409 `payments.statement_gap`). A line not matched is 409 `payments.statement_line_not_matched`; one posted or waiting already is 409 `payments.statement_line_posting`. People only. Audited; the posting publishes BankStatementLinePosted, and the ledger JournalEntryPosted and ItemsCleared. The response's ETag is the statement's new one, the If-Match of the next decision on its lines."
+      description: "Posts a `matched` line (ADR-0047) to the house bank's main bank account (`main_gl_account`) against what its match clears: for payments, each payment's line on the bank's clearing account, which must be open-item managed (422 `ledger.not_open_item_managed`), is offset at its original amounts and cleared with the posting, and the payments must pay the line's amount (409 `payments.statement_amount_differs`); for a posting rule, the rule's account (409 `payments.statement_posting_rule_gone` when the company no longer has the rule); for an incoming payment, the house bank's incoming payments clearing account, where the line stays an open item until accounts receivable clears it (409 `payments.statement_incoming_gone` when the bank no longer names one). A statement in another currency than the company's is converted at the posting date's rates, and the difference to the payments' amounts is a realized exchange difference (fx_gain/fx_loss). The posting is dated on the line's booking date, or on `posting_date` with a `reason` (both audited); a locked or closed period refuses it (409 `ledger.period_not_open`). The posting is routed by the line's amount in the company's currency through `companies[].bank_statements.approval_tiers` (`bank_clearing` approval requests): a tier without steps posts at once (`posted`); otherwise the line waits for the request (`pending_approval`), whose approval posts it, checked again, and whose rejection or withdrawal returns it to `matched`. A company without tiers has every posting approved by the `controller` role. Whoever matched the line by hand cannot approve its posting. A house bank without a main bank account never posts (409 `payments.statement_bank_not_posting`), nor one with a statement in `gap` (409 `payments.statement_gap`). A line not matched is 409 `payments.statement_line_not_matched`; one posted or waiting already is 409 `payments.statement_line_posting`. A statement whose last line to decide this was becomes `reconciled` once the ledger agrees (T49h). People only. Audited; the posting publishes BankStatementLinePosted, and the ledger JournalEntryPosted and ItemsCleared. The response's ETag is the statement's new one, the If-Match of the next decision on its lines."
       x-permission: payments.statement.post
       x-agent: false
       parameters:
@@ -8796,6 +8796,67 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/house-banks/{id}/reconciliation":
+    get:
+      operationId: getBankReconciliation
+      tags:
+        - payments
+      summary: Reconcile a house bank's statements with the ledger
+      description: "The reconciliation report of a house bank (ADR-0047, T49h) over its statements closing in the period (`closing_date_from`, `closing_date_to`; without them, all): per statement, its balances as the bank gave them, the ledger's balance of the house bank's main bank account (`main_gl_account`) on its closing date, and what explains the difference, from the lines of the bank's statements up to that date: those excluded, those not posted yet (`in_transit`: unmatched, proposed, matched or waiting for approval) and those posted after the date (`posted_later`, on another date a person gave); what is left is `unexplained` (an opening balance the ledger never received, or an entry on the bank account that no statement line made). Each statement lists its lines with their status, their live match (kind, rule, posting) and the outcome of the latest agent proposal a person decided, optionally only the lines of one status (`line_status`). `summary` is the period's, on its last closing date. A statement becomes `reconciled` once nothing is in transit or unexplained on its closing date. The ledger's balances are in the legal entity's local currency, which is a house bank's currency; a house bank without a main bank account has no ledger balance, nor anything unexplained. The report names no account numbers, so agents read it as people do. Paged by statement, by closing date. Sortable by: `closing_date`."
+      x-permission: payments.statement.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: closing_date_from
+          in: query
+          required: false
+          description: Only statements closing on or after this date.
+          schema:
+            type: string
+            format: date
+        - name: closing_date_to
+          in: query
+          required: false
+          description: Only statements closing on or before this date; not before closing_date_from.
+          schema:
+            type: string
+            format: date
+        - name: line_status
+          in: query
+          required: false
+          description: Only the lines in this status, such as `unmatched` for what is left to do; the figures and counts are all lines'.
+          schema:
+            type: string
+            description: "Bank statement line status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [unmatched, proposed, matched, excluded, pending_approval, posted]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of the house bank's reconciliation report.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankReconciliation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   "/v1/bank-files/{id}":
@@ -19297,7 +19358,7 @@ components:
               readOnly: true
             status:
               type: string
-              description: "`imported`; `gap` when its opening balance is not the previous statement's closing balance (automatic posting stops for the bank); `reconciled`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "`imported`; `gap` when its opening balance is not the previous statement's closing balance (automatic posting stops for the bank); `reconciled` once every line of it and of the bank's statements before it is posted or excluded and its closing balance, less the lines excluded and those posted after its closing date, is the ledger's balance of the main bank account on that date (T49h): set once, never undone by the server, and its lines are then decided for good. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - imported
                 - gap
@@ -19308,6 +19369,16 @@ components:
               items:
                 $ref: "#/components/schemas/BankStatementLine"
               description: "The booked entries, in the bank's order; absent in lists."
+              readOnly: true
+            reconciled_at:
+              type: string
+              format: date-time
+              description: "When the statement became `reconciled`; absent before."
+              readOnly: true
+            reconciled_by:
+              type: string
+              format: uuid
+              description: "Whose action reconciled it: the person, integration or agent whose posting, exclusion or run of the rules left nothing unexplained."
               readOnly: true
     StatementMatch:
       description: "What a bank statement line clears (ADR-0047): found by a matching rule, decided by a person, or proposed by the reconciliation agent for a person to decide (kind `agent`, T49g)."
@@ -19359,13 +19430,14 @@ components:
               readOnly: true
     StatementMatchTarget:
       type: object
-      description: "A payment, with the bank file of a batch booking, or a posting rule."
+      description: "A payment, with the bank file of a batch booking, a posting rule, or the incoming payments clearing account."
       required: [candidate]
       properties:
         candidate: {type: integer, format: int32, minimum: 1, description: "The candidate it belongs to.", readOnly: true}
         payment_id: {type: string, format: uuid, description: The payment cleared., readOnly: true}
         bank_file_id: {type: string, format: uuid, description: "The bank file of a batch booking the payment was in.", readOnly: true}
         posting_rule: {type: string, description: "The transaction code of the company's posting rule.", readOnly: true}
+        incoming: {type: boolean, description: "True for an incoming payment, posted to the house bank's incoming payments clearing account; absent otherwise.", readOnly: true}
     StatementMatchList:
       type: object
       description: A bank statement's matches.
@@ -19457,6 +19529,140 @@ components:
           maxLength: 2048
       examples:
         - {items: [{id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, code: MAIN, currency: EUR, account_last4: "3000", bic: COBADEFFXXX, status: active}]}
+    BankReconciliation:
+      type: object
+      description: "One page of a house bank's reconciliation report (ADR-0047, T49h): the period's figures, and its statements on this page with their figures and lines. Amounts are signed: a credit to the account is positive, as on the statements; a ledger balance is debit positive, so the two agree when equal."
+      required: [house_bank_id, legal_entity_id, currency, summary, items]
+      properties:
+        house_bank_id: {type: string, format: uuid, description: The house bank., readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The house bank's legal entity.", readOnly: true}
+        currency: {type: string, description: "The house bank's currency (ISO 4217), its statements' and the ledger balances'.", readOnly: true}
+        closing_date_from: {type: string, format: date, description: "The period's first day, when given.", readOnly: true}
+        closing_date_to: {type: string, format: date, description: "The period's last day, when given.", readOnly: true}
+        summary: {$ref: "#/components/schemas/BankReconciliationSummary"}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/BankReconciliationStatement"}
+          description: "The period's statements on this page, by closing date."
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - house_bank_id: 0192a000-0000-7000-8000-000000000b01
+          legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          currency: EUR
+          closing_date_from: "2026-04-01"
+          closing_date_to: "2026-04-30"
+          summary: {statements: 1, opening_balance: {amount: "1000.00", currency: EUR}, opening_date: "2026-04-16", figures: {as_of: "2026-04-17", closing_balance: {amount: "929.50", currency: EUR}, ledger_balance: {amount: "989.50", currency: EUR}, excluded: {amount: "0.00", currency: EUR}, in_transit: {amount: "-60.00", currency: EUR}, posted_later: {amount: "0.00", currency: EUR}, unexplained: {amount: "0.00", currency: EUR}}, lines: {unmatched: 1, proposed: 0, matched: 0, excluded: 0, pending_approval: 0, posted: 1}}
+          items:
+            - bank_statement_id: 0192a000-0000-7000-8000-000000000b20
+              statement_ref: "2026-04-17"
+              sequence: "107"
+              status: imported
+              opening_date: "2026-04-16"
+              opening_balance: {amount: "1000.00", currency: EUR}
+              figures: {as_of: "2026-04-17", closing_balance: {amount: "929.50", currency: EUR}, ledger_balance: {amount: "989.50", currency: EUR}, excluded: {amount: "0.00", currency: EUR}, in_transit: {amount: "-60.00", currency: EUR}, posted_later: {amount: "0.00", currency: EUR}, unexplained: {amount: "0.00", currency: EUR}}
+              line_counts: {unmatched: 1, proposed: 0, matched: 0, excluded: 0, pending_approval: 0, posted: 1}
+              lines:
+                - {line_no: 1, booking_date: "2026-04-17", amount: {amount: "-10.50", currency: EUR}, is_reversal: false, transaction_code: NCHG, status: posted, match_id: 0192a000-0000-7000-8000-000000000b40, match_kind: rule, match_rule: transaction_code, match_status: matched, posting_date: "2026-04-17", journal_entry_id: 0192a000-0000-7000-8000-000000000d01, journal_entry_year: 2026}
+                - {line_no: 2, booking_date: "2026-04-17", amount: {amount: "-60.00", currency: EUR}, is_reversal: false, transaction_code: NTRF, status: unmatched, proposal_outcome: rejected}
+    BankReconciliationSummary:
+      type: object
+      description: "The period's figures: its statements, the first one's opening balance, the figures on the last closing date, and the lines of its statements by status."
+      required: [statements, lines]
+      properties:
+        statements: {type: integer, format: int32, minimum: 0, description: "How many statements close in the period.", readOnly: true}
+        opening_balance: {$ref: "#/components/schemas/Money"}
+        opening_date: {type: string, format: date, description: "The first statement's opening date; absent without statements.", readOnly: true}
+        figures: {$ref: "#/components/schemas/BankReconciliationFigures"}
+        lines: {$ref: "#/components/schemas/BankReconciliationLineCounts"}
+    BankReconciliationFigures:
+      type: object
+      description: "A closing balance compared with the ledger on its date (`as_of`): the ledger's balance of the main bank account, what the lines of the bank's statements up to that date explain of the difference (`excluded`, `in_transit`, `posted_later`), and what is left (`unexplained` = closing balance − ledger balance − excluded − in transit − posted later). Absent ledger balance: the house bank has no main bank account."
+      required: [as_of, closing_balance, excluded, in_transit, posted_later]
+      properties:
+        as_of: {type: string, format: date, description: "The closing date compared on.", readOnly: true}
+        closing_balance: {$ref: "#/components/schemas/Money"}
+        ledger_balance: {$ref: "#/components/schemas/Money"}
+        excluded: {$ref: "#/components/schemas/Money"}
+        in_transit: {$ref: "#/components/schemas/Money"}
+        posted_later: {$ref: "#/components/schemas/Money"}
+        unexplained: {$ref: "#/components/schemas/Money"}
+    BankReconciliationLineCounts:
+      type: object
+      description: "How many lines are in each status."
+      required: [unmatched, proposed, matched, excluded, pending_approval, posted]
+      properties:
+        unmatched: {type: integer, format: int32, minimum: 0, description: "Open: nothing matched them yet.", readOnly: true}
+        proposed: {type: integer, format: int32, minimum: 0, description: "With candidates or an agent's proposal for a person.", readOnly: true}
+        matched: {type: integer, format: int32, minimum: 0, description: "Matched, not posted yet.", readOnly: true}
+        excluded: {type: integer, format: int32, minimum: 0, description: "Excluded by a person.", readOnly: true}
+        pending_approval: {type: integer, format: int32, minimum: 0, description: "Waiting for the approval of their posting.", readOnly: true}
+        posted: {type: integer, format: int32, minimum: 0, description: "Posted.", readOnly: true}
+    BankReconciliationStatement:
+      type: object
+      description: "A statement of the report with its figures on its closing date and its lines."
+      required: [bank_statement_id, statement_ref, sequence, status, opening_date, opening_balance, figures, line_counts, lines]
+      properties:
+        bank_statement_id: {type: string, format: uuid, description: The statement., readOnly: true}
+        statement_ref: {type: string, description: "The bank's statement id.", readOnly: true}
+        sequence: {type: string, description: "The statement's number in the account's series.", readOnly: true}
+        status:
+          type: string
+          description: "The statement's status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [imported, gap, reconciled]
+          readOnly: true
+        opening_date: {type: string, format: date, description: Date of the opening balance., readOnly: true}
+        opening_balance: {$ref: "#/components/schemas/Money"}
+        figures: {$ref: "#/components/schemas/BankReconciliationFigures"}
+        line_counts: {$ref: "#/components/schemas/BankReconciliationLineCounts"}
+        lines:
+          type: array
+          items: {$ref: "#/components/schemas/BankReconciliationLine"}
+          description: "Its lines in the bank's order, those of `line_status` only when given."
+          readOnly: true
+    BankReconciliationLine:
+      type: object
+      description: "A line of a statement in the report, with its live match and the outcome of the latest agent proposal a person decided."
+      required: [line_no, booking_date, amount, is_reversal, transaction_code, status]
+      properties:
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line's number in the statement.", readOnly: true}
+        booking_date: {type: string, format: date, description: The booking date., readOnly: true}
+        amount: {$ref: "#/components/schemas/Money"}
+        is_reversal: {type: boolean, description: "True when the bank reverses an earlier booking.", readOnly: true}
+        transaction_code: {type: string, description: "The bank's transaction code.", readOnly: true}
+        status:
+          type: string
+          description: "The line's status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [unmatched, proposed, matched, excluded, pending_approval, posted]
+          readOnly: true
+        match_id: {type: string, format: uuid, description: "The live match; absent for an unmatched line.", readOnly: true}
+        match_kind:
+          type: string
+          description: "Who made the live match. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [rule, manual, agent]
+          readOnly: true
+        match_rule:
+          type: string
+          description: "The matching rule of a rule's match. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [end_to_end_id, batch_id, transaction_code, amount]
+          readOnly: true
+        match_status:
+          type: string
+          description: "The live match's status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [open, matched, excluded]
+          readOnly: true
+        incoming: {type: boolean, description: "True when the match posts the line to the incoming payments clearing account; absent otherwise.", readOnly: true}
+        posting_date: {type: string, format: date, description: "The date the line posts on, or was asked to post on.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The posting (ledger context), once posted.", readOnly: true}
+        journal_entry_year: {type: integer, format: int32, description: "The fiscal year of the posting.", readOnly: true}
+        approval_request_id: {type: string, format: uuid, description: "The latest `bank_clearing` approval request of the posting.", readOnly: true}
+        proposal_outcome:
+          type: string
+          description: "What a person did with the latest agent proposal for the line they decided: `accepted`, `rejected` or `overridden`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [accepted, rejected, overridden]
+          readOnly: true
     BankStatementRules:
       type: object
       description: "The posting and matching rules of a bank statement's company (`companies[].bank_statements`)."
@@ -19511,7 +19717,7 @@ components:
         - {posting_date: "2026-05-04", reason: "April is locked; the bank booked it on 30 April."}
     StatementLineMatchInput:
       type: object
-      description: "A person's match of a line: the payments it clears or a posting rule, not both, and why."
+      description: "A person's match of a line: the payments it clears, a posting rule, or the house bank's incoming payments clearing account (one of them), and why."
       required: [reason]
       properties:
         payment_ids:
@@ -19528,6 +19734,9 @@ components:
           minLength: 1
           maxLength: 35
           description: The transaction code of the company's posting rule that posts the line.
+        incoming:
+          type: boolean
+          description: "True for an incoming payment (a credit that reverses nothing): it posts to the house bank's incoming payments clearing account (`incoming_gl_account`), where it stays an open item until accounts receivable clears it (ADR-0047)."
         reason:
           type: string
           description: "Why; recorded in the audit trail and on the resulting event."
@@ -19536,6 +19745,7 @@ components:
       additionalProperties: false
       examples:
         - {payment_ids: [0192a000-0000-7000-8000-000000000c01], reason: "The remittance names INV-3."}
+        - {incoming: true, reason: "Customer 4711 paid invoice AR-2026-118."}
     BankStatementLine:
       type: object
       description: One booking on the account.

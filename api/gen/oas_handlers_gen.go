@@ -10915,9 +10915,11 @@ func (s *Server) handleEndSodRuleRequest(args [1]string, argsEscaped bool, w htt
 //
 // A person excludes the line from reconciliation, with a reason: the bank's booking clears nothing the
 // ledger holds. The line's live match becomes `rejected` and the new one `excluded` (kind `manual`),
-// with no targets; the line is `excluded`. People only; a line on its way to the ledger keeps its
-// match (409 `payments.statement_line_posting`). Audited, and published as BankStatementLineExcluded.
-// The response's ETag is the statement's new one, the If-Match of the next decision on its lines.
+// with no targets; the line is `excluded`; a statement whose last line to decide this was may become
+// `reconciled` (T49h). People only; a line on its way to the ledger keeps its match (409
+// `payments.statement_line_posting`), and a reconciled statement's lines are decided for good (409
+// `payments.statement_reconciled`). Audited, and published as BankStatementLineExcluded. The
+// response's ETag is the statement's new one, the If-Match of the next decision on its lines.
 //
 // POST /v1/bank-statements/{id}/lines/{line_no}:exclude
 func (s *Server) handleExcludeBankStatementLineRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -12616,6 +12618,231 @@ func (s *Server) handleGetBankFileContentRequest(args [1]string, argsEscaped boo
 	}
 
 	if err := encodeGetBankFileContentResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetBankReconciliationRequest handles getBankReconciliation operation.
+//
+// The reconciliation report of a house bank (ADR-0047, T49h) over its statements closing in the period
+// (`closing_date_from`, `closing_date_to`; without them, all): per statement, its balances as the bank
+// gave them, the ledger's balance of the house bank's main bank account (`main_gl_account`) on its
+// closing date, and what explains the difference, from the lines of the bank's statements up to that
+// date: those excluded, those not posted yet (`in_transit`: unmatched, proposed, matched or waiting
+// for approval) and those posted after the date (`posted_later`, on another date a person gave); what
+// is left is `unexplained` (an opening balance the ledger never received, or an entry on the bank
+// account that no statement line made). Each statement lists its lines with their status, their live
+// match (kind, rule, posting) and the outcome of the latest agent proposal a person decided,
+// optionally only the lines of one status (`line_status`). `summary` is the period's, on its last
+// closing date. A statement becomes `reconciled` once nothing is in transit or unexplained on its
+// closing date. The ledger's balances are in the legal entity's local currency, which is a house
+// bank's currency; a house bank without a main bank account has no ledger balance, nor anything
+// unexplained. The report names no account numbers, so agents read it as people do. Paged by
+// statement, by closing date. Sortable by: `closing_date`.
+//
+// GET /v1/house-banks/{id}/reconciliation
+func (s *Server) handleGetBankReconciliationRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getBankReconciliation"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/house-banks/{id}/reconciliation"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetBankReconciliationOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetBankReconciliationOperation,
+			ID:   "getBankReconciliation",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetBankReconciliationOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetBankReconciliationParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetBankReconciliationRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetBankReconciliationOperation,
+			OperationSummary: "Reconcile a house bank's statements with the ledger",
+			OperationID:      "getBankReconciliation",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "closing_date_from",
+					In:   "query",
+				}: params.ClosingDateFrom,
+				{
+					Name: "closing_date_to",
+					In:   "query",
+				}: params.ClosingDateTo,
+				{
+					Name: "line_status",
+					In:   "query",
+				}: params.LineStatus,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetBankReconciliationParams
+			Response = GetBankReconciliationRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetBankReconciliationParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetBankReconciliation(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetBankReconciliation(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetBankReconciliationResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -30457,13 +30684,16 @@ func (s *Server) handleMatchBankStatementRequest(args [1]string, argsEscaped boo
 
 // handleMatchBankStatementLineRequest handles matchBankStatementLine operation.
 //
-// A person matches the line to the payments it clears or to a posting rule of the company (charges,
-// interest), with a reason, whatever the rules found: the line's live match becomes `rejected` and the
-// new one `matched` (kind `manual`). Each payment must be posted, from the statement's house bank, in
-// its currency and matched to no other line (422 `payments.statement_match_target`). People only; a
-// line on its way to the ledger keeps its match (409 `payments.statement_line_posting`). Audited, and
-// published as BankStatementLineMatched. The response's ETag is the statement's new one, the If-Match
-// of the next decision on its lines.
+// A person matches the line to the payments it clears, to a posting rule of the company (charges,
+// interest), or, for an incoming payment, to the house bank's incoming payments clearing account
+// (`incoming: true`, T49h), with a reason, whatever the rules found: the line's live match becomes
+// `rejected` and the new one `matched` (kind `manual`). Each payment must be posted, from the
+// statement's house bank, in its currency and matched to no other line, and an incoming payment a
+// credit that reverses nothing, of a house bank with `incoming_gl_account` (422
+// `payments.statement_match_target`). People only; a line on its way to the ledger keeps its match
+// (409 `payments.statement_line_posting`), and a reconciled statement's lines are decided for good
+// (409 `payments.statement_reconciled`). Audited, and published as BankStatementLineMatched. The
+// response's ETag is the statement's new one, the If-Match of the next decision on its lines.
 //
 // POST /v1/bank-statements/{id}/lines/{line_no}:match
 func (s *Server) handleMatchBankStatementLineRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -31283,19 +31513,23 @@ func (s *Server) handleParkJournalEntryRequest(args [0]string, argsEscaped bool,
 // be open-item managed (422 `ledger.not_open_item_managed`), is offset at its original amounts and
 // cleared with the posting, and the payments must pay the line's amount (409
 // `payments.statement_amount_differs`); for a posting rule, the rule's account (409
-// `payments.statement_posting_rule_gone` when the company no longer has the rule). A statement in
-// another currency than the company's is converted at the posting date's rates, and the difference to
-// the payments' amounts is a realized exchange difference (fx_gain/fx_loss). The posting is dated on
-// the line's booking date, or on `posting_date` with a `reason` (both audited); a locked or closed
-// period refuses it (409 `ledger.period_not_open`). The posting is routed by the line's amount in the
-// company's currency through `companies[].bank_statements.approval_tiers` (`bank_clearing` approval
-// requests): a tier without steps posts at once (`posted`); otherwise the line waits for the request
-// (`pending_approval`), whose approval posts it, checked again, and whose rejection or withdrawal
-// returns it to `matched`. A company without tiers has every posting approved by the `controller`
-// role. Whoever matched the line by hand cannot approve its posting. A house bank without a main bank
-// account never posts (409 `payments.statement_bank_not_posting`), nor one with a statement in `gap`
-// (409 `payments.statement_gap`). A line not matched is 409 `payments.statement_line_not_matched`; one
-// posted or waiting already is 409 `payments.statement_line_posting`. People only. Audited; the
+// `payments.statement_posting_rule_gone` when the company no longer has the rule); for an incoming
+// payment, the house bank's incoming payments clearing account, where the line stays an open item
+// until accounts receivable clears it (409 `payments.statement_incoming_gone` when the bank no longer
+// names one). A statement in another currency than the company's is converted at the posting date's
+// rates, and the difference to the payments' amounts is a realized exchange difference
+// (fx_gain/fx_loss). The posting is dated on the line's booking date, or on `posting_date` with a
+// `reason` (both audited); a locked or closed period refuses it (409 `ledger.period_not_open`). The
+// posting is routed by the line's amount in the company's currency through
+// `companies[].bank_statements.approval_tiers` (`bank_clearing` approval requests): a tier without
+// steps posts at once (`posted`); otherwise the line waits for the request (`pending_approval`), whose
+// approval posts it, checked again, and whose rejection or withdrawal returns it to `matched`. A
+// company without tiers has every posting approved by the `controller` role. Whoever matched the line
+// by hand cannot approve its posting. A house bank without a main bank account never posts (409
+// `payments.statement_bank_not_posting`), nor one with a statement in `gap` (409
+// `payments.statement_gap`). A line not matched is 409 `payments.statement_line_not_matched`; one
+// posted or waiting already is 409 `payments.statement_line_posting`. A statement whose last line to
+// decide this was becomes `reconciled` once the ledger agrees (T49h). People only. Audited; the
 // posting publishes BankStatementLinePosted, and the ledger JournalEntryPosted and ItemsCleared. The
 // response's ETag is the statement's new one, the If-Match of the next decision on its lines.
 //

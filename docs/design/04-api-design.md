@@ -359,7 +359,12 @@ its own, as a change request or a draft is: the reconciliation agent
 or rejects it (`acceptBankStatementLineProposal`,
 `rejectBankStatementLineProposal`, `x-agent: false`); free-text advice is a
 recommendation. Bank statements reach agents with the accounts masked to
-their last four characters, as partner bank accounts reach everyone.
+their last four characters, as partner bank accounts reach everyone. A
+report that names no account, such as a house bank's reconciliation
+(`getBankReconciliation`, ADR-0047, T49h: its statements' balances against
+the ledger's main bank account, what explains the difference and each
+line's match and proposal outcome, paged by statement), reaches agents as
+it reaches people.
 `getAiUsage` reports a month's model calls per principal from the call
 ledger: calls, tokens, redactions and cost, summed exact and rounded once,
 with the month's total against the tenant's cap.

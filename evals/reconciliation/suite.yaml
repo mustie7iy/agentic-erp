@@ -7,7 +7,10 @@
 # a live cell needs object storage, which keeps statement files). The
 # lines the agent should leave to people are graded too: proposing nothing
 # where nothing supports a proposal is the right answer there, and the
-# other cases fail an agent that never proposes. Version 1.
+# other cases fail an agent that never proposes. A case proposing a paid
+# run's payments needs the proposal and release workers and a second
+# approver, which the replay cell does not run: it is part of the live
+# certification run (tracker, under T49; ADR-0047 T49h). Version 1.
 agent: reconciliation
 version: 1
 alias: erp-default

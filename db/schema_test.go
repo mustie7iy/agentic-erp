@@ -3219,6 +3219,39 @@ func TestBankStatementSchema(t *testing.T) {
 	mustApp(t, f.tenant, matchOf(match{kind: "manual", status: "excluded"}))
 	statementPostingSchema(t, f, first)
 	statementProposalSchema(t, f, first)
+	statementReconciliationSchema(t, f, first, live)
+}
+
+// statementReconciliationSchema: a reconciled statement, and only one,
+// says when and by whom; a target is one of a payment, a posting rule or
+// the incoming payments clearing account (T49h, 000112).
+func statementReconciliationSchema(t *testing.T, f fixture, statement, match uuid.UUID) {
+	t.Helper()
+	set := func(columns string, args ...any) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE payments.bank_statement SET `+columns+`, version = version + 1 WHERE id = $1`, append([]any{statement}, args...)...)
+		}
+	}
+	target := func(candidate int, rule any, incoming bool) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.statement_match_target (tenant_id, match_id, candidate, target_no, posting_rule, incoming, created_by)
+				VALUES ($1,$2,$3,1,$4,$5,$6)`, f.tenant, match, candidate, rule, incoming, f.actor)
+		}
+	}
+	for _, c := range []struct {
+		name  string
+		write func(tx pgx.Tx) error
+		fails string
+	}{
+		{"reconciled without when", set(`status = 'reconciled'`), "bank_statement_reconciled"},
+		{"reconciled without whom", set(`status = 'reconciled', reconciled_at = now()`), "bank_statement_reconciled"},
+		{"imported with when", set(`reconciled_at = now(), reconciled_by = $2`, f.actor), "bank_statement_reconciled"},
+		{"incoming and a posting rule", target(5, "NCHG", true), "statement_match_target_one"},
+	} {
+		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, c.write), c.fails) })
+	}
+	mustApp(t, f.tenant, set(`status = 'reconciled', reconciled_at = now(), reconciled_by = $2`, f.actor))
+	mustApp(t, f.tenant, target(6, nil, true))
 }
 
 // statementProposalSchema: an agent's match, and only one, names its

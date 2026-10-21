@@ -249,6 +249,10 @@ type GetBankFileRes interface {
 	getBankFileRes()
 }
 
+type GetBankReconciliationRes interface {
+	getBankReconciliationRes()
+}
+
 type GetBankStatementFileRes interface {
 	getBankStatementFileRes()
 }

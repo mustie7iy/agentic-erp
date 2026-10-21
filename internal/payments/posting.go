@@ -90,6 +90,9 @@ func (e *Endpoints) PostLine(ctx context.Context, statement uuid.UUID, lineNo in
 	if err := e.submit(ctx, tx, p, s, l, date, in.Reason); err != nil {
 		return Match{}, err
 	}
+	if err := e.reconcile(ctx, tx, p, s); err != nil {
+		return Match{}, err
+	}
 	version, err := bumpStatement(ctx, tx, p, statement)
 	if err != nil {
 		return Match{}, err
@@ -207,8 +210,9 @@ func postMatch(ctx context.Context, tx pgx.Tx, p reqctx.Principal, postings Post
 // be the company's.
 func (e *Endpoints) bankPosting(ctx context.Context, tx pgx.Tx, s Statement, l postable, date time.Time) (ledger.BankPosting, error) {
 	var clearing uuid.UUID
-	var main *uuid.UUID
-	if err := tx.QueryRow(ctx, `SELECT gl_account_id, main_gl_account_id FROM payments.house_bank WHERE id = $1`, s.HouseBankID).Scan(&clearing, &main); err != nil {
+	var main, incoming *uuid.UUID
+	if err := tx.QueryRow(ctx, `SELECT gl_account_id, main_gl_account_id, incoming_gl_account_id FROM payments.house_bank WHERE id = $1`, s.HouseBankID).
+		Scan(&clearing, &main, &incoming); err != nil {
 		return ledger.BankPosting{}, fmt.Errorf("payments: accounts of house bank %s: %w", s.HouseBankID, err)
 	}
 	if main == nil {
@@ -226,7 +230,7 @@ func (e *Endpoints) bankPosting(ctx context.Context, tx pgx.Tx, s Statement, l p
 	text := fmt.Sprintf("Bank statement %s line %d", s.Ref, l.LineNo)
 	in := ledger.BankPosting{LegalEntityID: s.LegalEntityID, DocumentType: StatementDocumentType, PostingDate: date, Currency: s.Currency,
 		BankAccountID: *main, Amount: l.Amount, ClearingAccountID: clearing, HeaderText: &text, SourceContext: "payments", SourceDocumentID: *l.MatchID}
-	return in, e.postingTargets(ctx, tx, s, l, &in)
+	return in, e.postingTargets(ctx, tx, s, l, incoming, &in)
 }
 
 // inGap reports whether the house bank has a statement in gap: its lines
@@ -240,26 +244,39 @@ func inGap(ctx context.Context, tx pgx.Tx, houseBank uuid.UUID) (bool, error) {
 }
 
 // matchedTarget is a target of a match as it posts: a payment's posting
-// and amount, or a posting rule.
+// and amount, a posting rule, or the incoming payments clearing account.
 type matchedTarget struct {
-	Year   *int16
-	Entry  *uuid.UUID
-	Amount *money.Minor
-	Rule   *string
+	Year     *int16
+	Entry    *uuid.UUID
+	Amount   *money.Minor
+	Rule     *string
+	Incoming bool
 }
 
-// postingTargets sets what the posting clears, or posts against.
-func (e *Endpoints) postingTargets(ctx context.Context, tx pgx.Tx, s Statement, l postable, in *ledger.BankPosting) error {
-	rows, _ := tx.Query(ctx, `SELECT p.journal_entry_year, p.journal_entry_id, p.amount, t.posting_rule FROM payments.statement_match_target t
+// postingTargets sets what the posting clears, or posts against: an
+// incoming payment posts against the house bank's incoming payments
+// clearing account (incoming), where it is an open item until accounts
+// receivable clears it (ADR-0047).
+func (e *Endpoints) postingTargets(ctx context.Context, tx pgx.Tx, s Statement, l postable, incoming *uuid.UUID, in *ledger.BankPosting) error {
+	rows, _ := tx.Query(ctx, `SELECT p.journal_entry_year, p.journal_entry_id, p.amount, t.posting_rule, t.incoming FROM payments.statement_match_target t
 		LEFT JOIN payments.payment p ON p.tenant_id = t.tenant_id AND p.id = t.payment_id
 		WHERE t.match_id = $1 ORDER BY t.candidate, t.target_no`, *l.MatchID)
 	targets, err := pgx.CollectRows(rows, pgx.RowToStructByPos[matchedTarget])
 	if err != nil {
 		return fmt.Errorf("payments: targets of the match of line %d of statement %s: %w", l.LineNo, s.ID, err)
 	}
-	if targets[0].Rule != nil { // a match decided has one candidate: a posting rule, or payments (statement_match_target_one)
+	// A match decided has one candidate: a posting rule, the incoming
+	// account, or payments (statement_match_target_one).
+	switch {
+	case targets[0].Rule != nil:
 		in.CounterAccountID, err = e.ruleAccount(ctx, s, *targets[0].Rule)
 		return err
+	case targets[0].Incoming && incoming == nil:
+		return problem.Conflict("payments.statement_incoming_gone", "The house bank no longer has an incoming payments clearing account "+
+			"(incoming_gl_account); match the line again.")
+	case targets[0].Incoming:
+		in.CounterAccountID = *incoming
+		return nil
 	}
 	var paid money.Minor
 	for _, t := range targets {

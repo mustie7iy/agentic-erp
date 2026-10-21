@@ -200,6 +200,8 @@ type Accounts interface {
 	Determination(ctx context.Context, legalEntity uuid.UUID, key string) (uuid.UUID, bool, error)
 	TaxCode(ctx context.Context, legalEntity uuid.UUID, code string, date time.Time) (ledger.TaxCode, bool, error)
 	Chart(ctx context.Context, legalEntity uuid.UUID) (map[string]ledger.ChartAccount, error) // a posting rule's account (T49f)
+	// Balances are the main bank account's on statements' closing dates (T49h).
+	Balances(ctx context.Context, legalEntity, account uuid.UUID, dates []time.Time) ([]money.Minor, error)
 }
 
 // Run is a row of payments.payment_run. Amounts are minor units of
