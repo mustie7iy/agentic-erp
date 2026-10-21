@@ -3,6 +3,8 @@ package payments
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -100,7 +102,7 @@ func (e *Endpoints) figures(ctx context.Context, tx pgx.Tx, b reconBank, dates [
 	}
 	ledger, err := e.Accounts.Balances(ctx, b.LegalEntityID, *b.Main, dates)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("payments: ledger balances of house bank %s: %w", b.ID, err)
 	}
 	for i := range figs {
 		figs[i].Ledger = &ledger[i]
@@ -180,6 +182,9 @@ func recordReconciled(ctx context.Context, s Statement, f Figures) error {
 				"posted_later": amount(f.PostedLater), "line_count": s.LineCount, "status": StatementReconciled}})
 }
 
+// lineStatuses are the statuses of statement lines.
+var lineStatuses = []string{"unmatched", "proposed", MatchMatched, MatchExcluded, "pending_approval", "posted"}
+
 // LineCounts are lines by status.
 type LineCounts map[string]int32
 
@@ -251,6 +256,10 @@ func (e *Endpoints) BankReconciliation(ctx context.Context, houseBank uuid.UUID,
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return Reconciliation{}, err
+	}
+	if q.LineStatus != "" && !slices.Contains(lineStatuses, q.LineStatus) {
+		return Reconciliation{}, problem.Unprocessable("request.validation_failed", "line_status is not a line status.",
+			problem.FieldError{Field: "line_status", Code: "invalid", Message: strings.Join(lineStatuses, ", ")})
 	}
 	if q.From != nil && q.To != nil && q.To.Before(*q.From) {
 		return Reconciliation{}, problem.Unprocessable("request.validation_failed", "The period ends before it starts.",

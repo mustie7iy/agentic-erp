@@ -1635,10 +1635,12 @@ func (UnimplementedHandler) ParkJournalEntry(ctx context.Context, req *JournalEn
 // by hand cannot approve its posting. A house bank without a main bank account never posts (409
 // `payments.statement_bank_not_posting`), nor one with a statement in `gap` (409
 // `payments.statement_gap`). A line not matched is 409 `payments.statement_line_not_matched`; one
-// posted or waiting already is 409 `payments.statement_line_posting`. A statement whose last line to
-// decide this was becomes `reconciled` once the ledger agrees (T49h). People only. Audited; the
-// posting publishes BankStatementLinePosted, and the ledger JournalEntryPosted and ItemsCleared. The
-// response's ETag is the statement's new one, the If-Match of the next decision on its lines.
+// posted or waiting already is 409 `payments.statement_line_posting`. A `posting_date` before the
+// booking date is refused (422): a later one takes the line out of a locked period, an earlier one
+// would book it before the bank did. A statement whose last line to decide this was becomes
+// `reconciled` once the ledger agrees (T49h). People only. Audited; the posting publishes
+// BankStatementLinePosted, and the ledger JournalEntryPosted and ItemsCleared. The response's ETag is
+// the statement's new one, the If-Match of the next decision on its lines.
 //
 // POST /v1/bank-statements/{id}/lines/{line_no}:post
 func (UnimplementedHandler) PostBankStatementLine(ctx context.Context, req OptStatementLinePostInput, params PostBankStatementLineParams) (r PostBankStatementLineRes, _ error) {

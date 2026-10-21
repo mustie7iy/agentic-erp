@@ -5,7 +5,6 @@ DO $$ BEGIN
     RAISE EXCEPTION 'payments.statement_match_target has incoming payments; 000112 is undone only without them';
   END IF;
 END $$;
-DROP INDEX payments.statement_match_line;
 ALTER TABLE payments.statement_match_target
   DROP CONSTRAINT statement_match_target_one,
   DROP COLUMN incoming,

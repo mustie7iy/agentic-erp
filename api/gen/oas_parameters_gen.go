@@ -8680,7 +8680,7 @@ type GetBankReconciliationParams struct {
 	// Only statements closing on or before this date; not before closing_date_from.
 	ClosingDateTo OptDate `json:",omitempty,omitzero"`
 	// Only the lines in this status, such as `unmatched` for what is left to do; the figures and counts
-	// are all lines'.
+	// are all lines'. Another value is refused (422).
 	LineStatus OptString `json:",omitempty,omitzero"`
 	// Maximum number of items to return. Defaults to 50, maximum 500.
 	PageSize OptInt32 `json:",omitempty,omitzero"`

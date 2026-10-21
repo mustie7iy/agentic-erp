@@ -388,7 +388,7 @@ Canadian bank may only offer BAI2.
   proposes nothing (the session must be the caller's); agents see
   statements' accounts masked; the agent proposes at most once per line
   and session and may propose nothing.
-- Incoming payments (T49h, 000112): a person matches a credit that
+- Incoming payments (T49h, 000112-000114): a person matches a credit that
   reverses nothing to the house bank's incoming payments clearing account
   (`:match` with `incoming: true`; 422 `payments.statement_match_target`
   for a debit, a reversal, or a bank without `incoming_gl_account`); the
@@ -403,14 +403,16 @@ Canadian bank may only offer BAI2.
   `transaction_code` rule and posted as charges are; matching a credit to
   a customer's open items, by rule or agent, waits for accounts
   receivable (Phase 3).
-- Reconciliation (T49h, 000112): on a statement's closing date the
+- Reconciliation (T49h, 000112-000114): on a statement's closing date the
   bank's closing balance and the ledger's balance of the main bank account
   (the leading ledger, in the legal entity's local currency, which is the
   house bank's; `ledger.Accounts.Balances`) differ by the lines of the
   bank's statements up to that date the ledger does not hold yet: those
   `excluded`, those `in_transit` (unmatched, proposed, matched or waiting
   for approval) and those `posted_later` (on a date a person gave after the
-  closing date, a locked period's lines). What they leave is
+  closing date, a locked period's lines; a date before the booking date is
+  refused, 422, so no line reaches the ledger before an earlier statement
+  closes). What they leave is
   `unexplained`: an opening balance the ledger never received, or an entry
   on the bank account no statement line made. A statement `imported` (never
   one in `gap`) becomes `reconciled` once nothing is in transit or
@@ -420,7 +422,9 @@ Canadian bank may only offer BAI2.
   (`POST /v1/bank-statements/{id}:match`), which takes up what changed in
   the ledger since (an opening entry posted later), for all the bank's
   statements whose lines are decided. It records `reconciled_at` and
-  `reconciled_by` (`bank_statement_reconciled`), is audited
+  `reconciled_by` (`bank_statement_reconciled`; 000112 adds the checks
+  `NOT VALID`, 000113 validates them, 000114 builds `statement_match_line`
+  concurrently), is audited
   (`payments.bank_statement.reconcile`) and publishes
   `BankStatementReconciled` once: the update takes only a statement still
   `imported`. It never reopens by itself (conservative, no rule asked
@@ -439,7 +443,10 @@ Canadian bank may only offer BAI2.
   incoming, posting date, entry, approval request) and the outcome of the
   latest agent proposal a person decided; `summary` is the period's (its
   first opening balance, the figures on its last closing date, its lines by
-  status). Paged by statement, by closing date, as the statement list is.
+  status; another `line_status` than a line's is 422). Paged by statement,
+  by closing date, as the statement list is. Each check reads the bank's
+  statements and lines from its first: fine for the pilot, bounded later
+  (from the earliest statement not reconciled; tracked).
   A bank without a main bank account has no ledger balance and nothing
   unexplained. Conservative choices for the product owner: excluded lines
   and lines posted on a later date are reconciling items, so a statement

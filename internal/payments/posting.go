@@ -87,6 +87,13 @@ func (e *Endpoints) PostLine(ctx context.Context, statement uuid.UUID, lineNo in
 	if in.Date != nil {
 		date = *in.Date
 	}
+	// A later date takes a line out of a locked period; an earlier one
+	// would book it before the bank did, which no statement's figures
+	// explain (T49h).
+	if date.Before(l.BookingDate) {
+		return Match{}, problem.Unprocessable("request.validation_failed", "A line posts on its booking date or later.",
+			problem.FieldError{Field: "posting_date", Code: "invalid", Message: "on or after the booking date " + l.BookingDate.Format(time.DateOnly)})
+	}
 	if err := e.submit(ctx, tx, p, s, l, date, in.Reason); err != nil {
 		return Match{}, err
 	}

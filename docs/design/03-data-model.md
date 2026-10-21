@@ -1387,7 +1387,8 @@ managed account, `ledger.company_account`), or posts a posting rule's
 account, or (T49h, 000112) the incoming payments clearing account for an
 incoming payment a person matched there (`statement_match_target.incoming`;
 a target is one of a payment, a posting rule or it), against the main bank
-account. A statement becomes `reconciled` (T49h) once every line of it and
+account. A statement becomes `reconciled` (T49h; checks added `NOT VALID`
+in 000112 and validated in 000113, the index in 000114) once every line of it and
 of the bank's statements before it is posted or excluded and its closing
 balance, less the lines excluded and those posted after its closing date,
 is the ledger's balance of the main bank account on that date; it records

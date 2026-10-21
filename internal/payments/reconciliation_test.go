@@ -143,6 +143,9 @@ func TestIncomingPaymentRefused(t *testing.T) {
 		e.in(t).Problem(422, "payments.statement_match_target", "POST", "/v1/bank-statements/"+reversal+"/lines/1:match", `{"incoming": true, "reason": "x"}`, tag)
 	})
 	_, tag = e.Must(201, "POST", sc.line(2, "match"), `{"incoming": true, "reason": "x"}`, sc.tag(t))
+	t.Run("a posting before the booking date", func(t *testing.T) {
+		e.in(t).Problem(422, "request.validation_failed", "POST", sc.line(2, "post"), `{"posting_date": "2026-04-16", "reason": "x"}`, tag)
+	})
 	pgtest.Exec(t, `UPDATE payments.house_bank SET incoming_gl_account_id = NULL, version = version + 1 WHERE id = $1`, e.bank)
 	t.Run("the account dropped since", func(t *testing.T) {
 		e.in(t).Problem(409, "payments.statement_incoming_gone", "POST", sc.line(2, "post"), "", tag)
@@ -301,6 +304,12 @@ func TestReconciliationReport(t *testing.T) {
 	})
 	t.Run("a period ending first", func(t *testing.T) {
 		e.in(t).Problem(422, "request.validation_failed", "GET", "/v1/house-banks/"+e.bank.String()+"/reconciliation?closing_date_from=2026-04-18&closing_date_to=2026-04-17", "", "")
+	})
+	t.Run("an unknown line status", func(t *testing.T) {
+		e.in(t).Problem(422, "request.validation_failed", "GET", "/v1/house-banks/"+e.bank.String()+"/reconciliation?line_status=open", "", "")
+	})
+	t.Run("a page token of no report", func(t *testing.T) {
+		e.in(t).Problem(400, "request.invalid_page_token", "GET", "/v1/house-banks/"+e.bank.String()+"/reconciliation?page_token=x.y", "", "")
 	})
 	t.Run("another bank", func(t *testing.T) {
 		e.in(t).Problem(404, "request.not_found", "GET", "/v1/house-banks/"+uuid.NewString()+"/reconciliation", "", "")
