@@ -3502,6 +3502,12 @@
         "c": []
        },
        {
+        "s": "T",
+        "t": "Remove the .grype.yaml exception for libssl3 3.0.20 in distroless/cc-debian12 (six CVEs; erp-analytics links no libssl) by its expiry on 2026-11-20: move to the fixed base digest when distroless publishes it, or to cc-debian13 by an ADR-0044 amendment",
+        "r": ".grype.yaml · ADR-0044 · T55h follow-up",
+        "c": []
+       },
+       {
         "s": "D",
         "t": "erp-analytics image in the ADR-0032 pipeline: scripts/images.sh builds it after ko's images (buildx one platform at a time, OCI archives dated at the epoch without buildx attestations, joined into an OCI index written by the script, pushed with crane under each tag and refused unless the pushed digest is the one built) into images.txt; its SBOMs (syft: Go modules, DuckDB, the cc base's Debian packages; the index's naming its images) in sign-images.sh's convention (scripts/lib/sbom-root.py, shared with mirror-images.sh); images-reproducible.sh gives each build a buildx builder of its own, removed with its cache; image-scan.sh scans its SBOMs and the cc base; base-image-current.sh checks the builder and the cc base besides ko's; the provenance names them; CI, weekly and the release create a docker-container builder; the release pushes, signs and verifies it, so release.json takes images.analytics from the release's images.txt; scripts/test-images.sh checks the scripts with fake tools; make image-analytics gone",
         "r": "scripts/images.sh · images-reproducible.sh · image-scan.sh · base-image-current.sh · provenance.sh · lib/sbom-root.py · test-images.sh · ci-changes.sh · ci.yml · weekly.yml · release.yml · ADR-0032 · ADR-0044 · T55p",
