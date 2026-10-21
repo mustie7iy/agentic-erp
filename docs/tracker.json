@@ -517,6 +517,12 @@
       "t": "Index payables.supplier_invoice_item (tenant_id, purchase_order_id, po_item_no) for the invoiced quantities read at :match and under the item locks at :post",
       "r": "follow-up of the overpayment fix · invoicedQuantities",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "Tests: an invoice's posting against a goods receipt reversal (apitest.Serialized) and against an order change applied through procurement",
+      "r": "follow-up of the overpayment fix · 03 §3.9",
+      "c": []
      }
     ]
    },

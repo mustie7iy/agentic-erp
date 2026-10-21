@@ -1311,10 +1311,11 @@ tolerances), under the locks of the order items it names
 invoice's row and before the ledger's GR/IR lock, as goods movements take
 them before it), and refuses it with 409 `payables.match_outdated`, leaving
 it parked, if that finds an issue its basis did not show: on a clean match
-any issue; on an approved exception an issue, by code and item, that the
-match the approval was asked on (the latest before `exception_version`)
-did not have, as the approvers decided on those issues and not on
-documents posted since (F16 authorises the invoice's version, not the
+any issue; on an approved exception an issue the approvers did not see, one
+not in the latest match before `exception_version` with the same message
+(its figures: the quantities invoiced and received, the amounts and the
+tolerance), as they decided on those issues and not on documents posted
+since (F16 authorises the invoice's version, not the
 order's later state). Two invoices on one order item, each matched clean
 before either posted, would otherwise both post past the received quantity
 (two credit memos past the invoiced quantity, a subsequent debit matched
@@ -1322,9 +1323,11 @@ before its invoice was reversed), and an order change, an order closed, or
 tolerances tightened since would go unseen. The second posting waits for
 the first's locks and then reads it posted; a goods receipt, return or
 reversal on the items waits too, so the received quantities and the other
-postings the check read hold until the posting commits. An issue the
-approvers saw that has grown since (more invoiced past the same receipt) is
-not told apart from the one they approved. `:match` takes no lock: its
+postings the check read hold until the posting commits. An approved issue
+that has grown since (more invoiced past the same receipt) counts as new, as
+does one whose figures moved otherwise (more received); `:match` then holds
+the invoice for a new exception request rather than leaving it parked on
+the approval (F18 holds only while the issues are those approved). `:match` takes no lock: its
 verdict is advice the posting checks again under the lock, so reading the
 received quantities `FOR SHARE` there would only make receipts wait for
 matches.
@@ -1348,7 +1351,8 @@ would post on an approval of different amounts. An invoice changed after
 its approval is matched clean, or held and approved again, before it posts.
 Approvals before 000041, or by the previous release, have no version and
 count for none. A match of an invoice parked on an approval of its current
-version leaves it parked rather than holding it for a new request (F18).
+version leaves it parked rather than holding it for a new request (F18),
+while its issues are those the approvers saw (below).
 The column is again the expand step (nullable, its check of
 `0 < exception_version <= version` `NOT VALID`, validated by 000044, no
 backfill); it is not tied

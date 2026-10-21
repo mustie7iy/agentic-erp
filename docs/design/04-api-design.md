@@ -447,7 +447,9 @@ parked invoice leaves valid, so an edit in between fails with 412 and the
 invoice is left parked for the next run rather than acted on unmatched.
 A match of a parked invoice whose exception was approved at its current
 version records its issues but leaves it parked on that approval: it is not
-held again nor its approvers asked again (F18). `erp invoices` does not
+held again nor its approvers asked again (F18), unless it has an issue the
+approvers did not see (a new one, or one whose figures moved since), which
+holds it for a new request, as `:post` refuses it. `erp invoices` does not
 match such an invoice (`workflow_request_id` set) at all, nor post it: a
 match with issues answers no decision and `:post` does not check the
 auto-post limit, so the rule cannot tell an approved exception it may post

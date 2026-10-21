@@ -95,6 +95,31 @@ func TestPostRechecksTheMatch(t *testing.T) {
 		e.posted(t, e.matched(t, inv(po, "Q7-B", "6", "72.00", "13.68", "85.68")))
 		pgtest.WantErr(t, apitest.Committed(t, e.Tenant, e.Tenant.Human, postIn(a)), "payables.match_outdated")
 		e.wantParked(t, a)
+		// Matched again, it is held for the approvers to decide on the new
+		// issue, and posts once they approve it.
+		e.act(t, 200, id(a), "match", "")
+		if got, _ := e.Must(200, "GET", "/v1/supplier-invoices/"+id(a), "", ""); got["status"] != "on_hold" {
+			t.Fatalf("A matched again: got %v, want on_hold", got["status"])
+		}
+		e.Approve(t, id(a))
+		if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, postIn(a)); err != nil {
+			t.Errorf("A on its new approval: got %v, want it posted", err)
+		}
+	})
+	t.Run("approved quantity issue grown since", func(t *testing.T) {
+		e := e.in(t)
+		po := e.order(t, e.Supplier, "PO-Q9")
+		e.receive(t, po, 1, "10")
+		// A invoices 12 of 10 received: the approvers excuse 2 over.
+		a, _ := e.Must(201, "POST", "/v1/supplier-invoices", inv(po, "Q9-A", "12", "144.00", "27.36", "171.36"), "")
+		if got := issueCodes(e.act(t, 200, id(a), "match", "")); got != "quantity_exceeds_received" {
+			t.Fatalf("match of A: got %v, want quantity_exceeds_received", got)
+		}
+		e.Approve(t, id(a))
+		e.posted(t, e.matched(t, inv(po, "Q9-B", "6", "72.00", "13.68", "85.68")))
+		// Now 18 of 10: not the 2 over the approvers excused.
+		pgtest.WantErr(t, apitest.Committed(t, e.Tenant, e.Tenant.Human, postIn(a)), "payables.match_outdated")
+		e.wantParked(t, a)
 	})
 	t.Run("approved exception with the issues it was approved on", func(t *testing.T) {
 		e := e.in(t)
@@ -155,6 +180,10 @@ func TestPostRechecksTheMatch(t *testing.T) {
 		e.act(t, 200, id(over), "match", "")
 		e.Approve(t, id(over))
 		apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "post on an approved exception", postIn(over))
+		apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "match on an approved exception", func(ctx context.Context) error {
+			_, err := endpoints(nil).MatchSupplierInvoice(ctx, gen.MatchSupplierInvoiceParams{ID: uuid.MustParse(id(over)), IfMatch: "*"})
+			return err
+		})
 	})
 	t.Run("within what the item allows", func(t *testing.T) {
 		e := e.in(t)

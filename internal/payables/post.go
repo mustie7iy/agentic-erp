@@ -241,9 +241,8 @@ func (e *Endpoints) postableSupplier(ctx context.Context, v Invoice) (partner.Su
 // The invoice is matched again there, as :match would match it now, and
 // refused (409 payables.match_outdated, left parked) if that finds an
 // issue its basis did not show: on a clean match, any; on an approved
-// exception, one (by code and item) the match the approval was asked on
-// did not have, as the approvers decided on those issues (F16) and not on
-// documents posted since. A match is clean only for the documents posted
+// exception, one the approvers did not see (newSinceApproval), as they
+// decided on those issues (F16) and not on documents posted since. A match is clean only for the documents posted
 // on the order before it: two invoices matched clean before either posts
 // would otherwise both post, together invoicing more than was received
 // (two credit memos crediting more than was invoiced, a subsequent debit
@@ -279,12 +278,16 @@ func (e *Endpoints) lockedOrder(ctx context.Context, tx pgx.Tx, v Invoice) (*pro
 	return &j.r.Order, nil
 }
 
-// newSinceApproval are the issues an invoice posting on its approved
-// exception has now that the match its approval was asked on did not:
-// the latest match before the approval moved the invoice to the version
-// it was approved at (exception_version, v.Version here). Issues are
-// compared by code and item; one the approvers saw that has grown since
-// (more invoiced past the same receipt) is not told apart.
+// newSinceApproval are the issues an invoice on its approved exception
+// has now that the approvers did not see: those not in the latest match
+// before the approval moved the invoice to the version it was approved at
+// (exception_version, v.Version here), which is the match the request was
+// opened on or a later one while it was on hold. Issues are compared with
+// their messages, which carry the figures (the quantities invoiced and
+// received, the amounts and the tolerance): one that has grown since (more
+// invoiced past the same receipt) is new, and so is one whose figures
+// moved otherwise (more received since), which a match then holds for the
+// approvers to decide again (applyMatch).
 func newSinceApproval(ctx context.Context, tx pgx.Tx, v Invoice, issues []Issue) ([]Issue, error) {
 	var seen []Issue
 	err := tx.QueryRow(ctx, `SELECT issues FROM payables.match_result WHERE supplier_invoice_id = $1 AND invoice_version < $2
@@ -292,12 +295,7 @@ func newSinceApproval(ctx context.Context, tx pgx.Tx, v Invoice, issues []Issue)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("payables: read the match invoice %s was approved on: %w", v.ID, err)
 	}
-	key := func(is Issue) string {
-		if is.ItemNo == nil {
-			return is.Code
-		}
-		return fmt.Sprintf("%s/%d", is.Code, *is.ItemNo)
-	}
+	key := func(is Issue) string { return is.Code + "\x00" + is.Message }
 	approved := map[string]bool{}
 	for _, is := range seen {
 		approved[key(is)] = true

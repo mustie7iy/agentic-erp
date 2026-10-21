@@ -309,7 +309,7 @@ func (e *Endpoints) MatchInvoice(ctx context.Context, id uuid.UUID, ifMatch func
 	}
 	// The hold or release the match causes comes first, so the result
 	// records the version the invoice is left at: the one it lets post.
-	after, followUp, err := e.applyMatch(ctx, tx, p, v, len(j.issues))
+	after, followUp, err := e.applyMatch(ctx, tx, p, v, j.issues)
 	if err != nil {
 		return Match{}, err
 	}
@@ -366,22 +366,27 @@ func (e *Endpoints) judge(ctx context.Context, tx pgx.Tx, v Invoice) (judgement,
 	return judgement{r: r, version: version, decision: decision, issues: issues}, nil
 }
 
-// applyMatch acts on a match with issueCount issues: issues hold the
-// invoice and open an invoice_exception request (unless a held invoice
-// already has one); a clean match releases a hold the match had set. It
-// returns the invoice as the match leaves it and the events of the
-// transition, if any. A parked invoice whose exception was approved at its
-// current version is left as it is: the approval covers the invoice as it
-// stands, which :post accepts whatever a later match finds (F16), so
-// holding it would only ask the approvers again, on every match (F18).
-func (e *Endpoints) applyMatch(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Invoice, issueCount int) (Invoice, []outbox.Event, error) {
+// applyMatch acts on a match with issues: issues hold the invoice and
+// open an invoice_exception request (unless a held invoice already has
+// one); a clean match releases a hold the match had set. It returns the
+// invoice as the match leaves it and the events of the transition, if
+// any. A parked invoice whose exception was approved at its current
+// version is left as it is while it has only the issues it was approved
+// on (newSinceApproval), which :post accepts (F16): holding it would only
+// ask the approvers again, on every match (F18). One with an issue the
+// approvers did not see, which :post refuses, is held for a new request.
+func (e *Endpoints) applyMatch(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Invoice, issues []Issue) (Invoice, []outbox.Event, error) {
+	issueCount := len(issues)
 	if issueCount > 0 && v.Status == Parked && v.WorkflowRequestID != nil {
 		var approved *int32
 		if err := tx.QueryRow(ctx, `SELECT exception_version FROM payables.supplier_invoice WHERE id = $1`, v.ID).Scan(&approved); err != nil {
 			return Invoice{}, nil, fmt.Errorf("payables: read the approval of invoice %s: %w", v.ID, err)
 		}
 		if approvedAsIs(v, approved) {
-			return v, nil, nil
+			newer, err := newSinceApproval(ctx, tx, v, issues)
+			if err != nil || len(newer) == 0 {
+				return v, nil, err
+			}
 		}
 	}
 	switch {
