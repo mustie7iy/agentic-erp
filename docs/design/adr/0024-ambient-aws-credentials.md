@@ -1,6 +1,6 @@
 # ADR-0024: Ambient AWS credentials for the platform's own clients
 
-**Status:** proposed
+**Status:** accepted (product owner, 2026-10-21: implemented by internal/platform/awscreds)
 
 ## Context
 The S3 store (ADR-0016) and the KMS master (ADR-0019) speak their services'

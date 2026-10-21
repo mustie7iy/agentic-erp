@@ -352,9 +352,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "P",
         "t": "Evaluation against the live Claude API",
-        "r": "T43",
+        "r": "T43 (waits on: the user: a live Claude API key and spend)",
         "c": []
        }
       ]
@@ -399,19 +399,19 @@
      {
       "s": "T",
       "t": "Quantity re-checked at :post under the order's lock (invoices and credit memos)",
-      "r": "",
+      "r": "T72a",
       "c": []
      },
      {
       "s": "T",
       "t": "Load SAP credit memos and subsequent debits/credits by kind (RBKP XRECH/TBTKZ)",
-      "r": "",
+      "r": "T72b",
       "c": []
      },
      {
       "s": "T",
       "t": "Capture subsequent debits/credits from documents (optional)",
-      "r": "",
+      "r": "(post-pilot, PO 2026-10-21)",
       "c": []
      },
      {
@@ -428,7 +428,7 @@
        {
         "s": "T",
         "t": "SAP load of open down payments (BSIK with UMSKZ A) on the down payment account with the indicator; the migration reconciliation's open payables then decide whether they count",
-        "r": "internal/integration load · Reports.OpenPayables · follow-up of the SAP load",
+        "r": "internal/integration load · Reports.OpenPayables · follow-up of the SAP load · T72c",
         "c": []
        },
        {
@@ -483,7 +483,7 @@
        {
         "s": "T",
         "t": "SAP load of withholding tax codes (T059P/T059Z) and suppliers' codes (LFBW)",
-        "r": "follow-up of the SAP load",
+        "r": "follow-up of the SAP load (post-pilot, PO 2026-10-21)",
         "c": []
        }
       ]
@@ -503,7 +503,7 @@
      {
       "s": "T",
       "t": "Payables reads received quantities FOR SHARE when matching and posting",
-      "r": "",
+      "r": "T72a",
       "c": []
      }
     ]
@@ -619,15 +619,9 @@
       ]
      },
      {
-      "s": "T",
-      "t": "Cash discounts granted to customers (SAP SKT, an expense) need an account determination key of their own",
-      "r": "",
-      "c": []
-     },
-     {
       "s": "P",
       "t": "Bank transmission (EBICS, SFTP, host-to-host)",
-      "r": "payments.Connector · DirConnector drops files for a transfer agent · ADR-0038 · T44 (split T44a-T44f, after T45c)",
+      "r": "payments.Connector · DirConnector drops files for a transfer agent · ADR-0038 · T44 (split T44a-T44f, after T45c) · also the phase 1 Integrations item \"Transmission (EBICS, SFTP, host-to-host)\" (triage, PO 2026-10-21)",
       "c": [
        {
         "s": "D",
@@ -656,13 +650,13 @@
        {
         "s": "T",
         "t": "Deferred until a pilot in an EBICS country (product owner, 2026-10-19; the pilots are Canada and the UAE). EBICS key initialisation: INI (A006) and HIA (X002, E002) sent, the bank's keys (HPB) fetched and pinned against the hashes the bank gave, the subscriber's key state kept per connector",
-        "r": "T44d2",
+        "r": "T44d2 (post-pilot, PO 2026-10-21)",
         "c": []
        },
        {
         "s": "T",
         "t": "Deferred until a pilot in an EBICS country (product owner, 2026-10-19; the pilots are Canada and the UAE). EBICS upload: BTU (EBICS 3.0, H005) of a pain.001 signed with A006 and encrypted with E002, over HTTPS, against an in-process stand-in bank; bank_ebics a bank channel behind payments.Connector",
-        "r": "T44d3",
+        "r": "T44d3 (post-pilot, PO 2026-10-21)",
         "c": []
        },
        {
@@ -674,7 +668,7 @@
        {
         "s": "T",
         "t": "The sweep that removes bank files a cancelled release left in object storage",
-        "r": "T44f",
+        "r": "T44f · internal/payments (post-pilot, PO 2026-10-21)",
         "c": []
        }
       ]
@@ -686,7 +680,7 @@
       "c": []
      },
      {
-      "s": "D",
+      "s": "P",
       "t": "Multiple house banks and payment methods",
       "r": "ADR-0038 · T45 (split T45a, T45b, T45c; then T44)",
       "c": [
@@ -717,13 +711,13 @@
        {
         "s": "T",
         "t": "CPA-005 (the Canadian Payments Association's 1464-byte AFT file) for Canadian banks that do not take pain.001",
-        "r": "after T45d · ADR-0038 amendment",
+        "r": "after T45d · ADR-0038 amendment (waits on: the pilot bank: whether it takes pain.001, with its check of the Canadian member id)",
         "c": []
        },
        {
         "s": "T",
         "t": "SAP load of Canadian accounts: vendor bank accounts (LFBK) as scheme ca with institution and transit numbers, and Canadian house banks (T012K) without an IBAN",
-        "r": "integration/load.go · delivery/sapconfig · after T45d",
+        "r": "integration/load.go · delivery/sapconfig · after T45d · T72d",
         "c": []
        }
       ]
@@ -781,12 +775,6 @@
       "t": "F5b: contract step of the ledger item reservations (000042): the reservations no live payment run holds are released, the items live runs hold without one are reserved, and a live item its run already released stops the migration; schema tests of each",
       "r": "db/migrations/000042 · T31",
       "c": []
-     },
-     {
-      "s": "T",
-      "t": "Sweep for bank files a cancelled release leaves in object storage",
-      "r": "internal/payments · T44",
-      "c": []
      }
     ]
    },
@@ -817,6 +805,12 @@
       "s": "T",
       "t": "AR aging report",
       "r": "",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Cash discounts granted to customers (SAP SKT, an expense) need an account determination key of their own",
+      "r": "(post-pilot, PO 2026-10-21; moved from phase 1 Finance / Payments and bank communication: customer side, with AR)",
       "c": []
      }
     ]
@@ -866,7 +860,7 @@
      {
       "s": "D",
       "t": "Bank statement import (camt.053, MT940)",
-      "r": "ADR-0047 · T49 (split T49a-T49h)",
+      "r": "ADR-0047 · T49 (split T49a-T49h) · also the phase 1 Integrations item \"Statement import (camt.053, MT940)\" (triage, PO 2026-10-21)",
       "c": [
        {
         "s": "D",
@@ -1306,7 +1300,7 @@
        {
         "s": "T",
         "t": "Engine connector port (deferred, P1): quote stored on parked documents, posting uses the stored quote, commit through the outbox; provider chosen when a country needs one",
-        "r": "T61m",
+        "r": "T61m · also the phase 1 Integrations item \"Tax engine (Avalara, Vertex)\" (triage, PO 2026-10-21)",
         "c": []
        }
       ]
@@ -1479,6 +1473,12 @@
       "s": "T",
       "t": "Budget control (industry pack)",
       "r": "",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Budget availability check",
+      "r": "(post-pilot, PO 2026-10-21; moved from phase 1 Sourcing and procurement / Purchase requisitions and approvals: overlaps budget control)",
       "c": []
      }
     ]
@@ -1767,18 +1767,6 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "Requisitions from catalogs",
-      "r": "",
-      "c": []
-     },
-     {
-      "s": "T",
-      "t": "Budget availability check",
-      "r": "",
-      "c": []
-     },
-     {
       "s": "D",
       "t": "On foundation: requisitions through the API, approved on workflow approval requests by amount tier",
       "r": "internal/procurement · internal/approvals",
@@ -1815,15 +1803,15 @@
       "r": "prototype removed in T6; no API yet (07-transition)",
       "c": [
        {
-        "s": "D",
-        "t": "Email / print text form",
-        "r": "",
+        "s": "T",
+        "t": "Print/PDF form",
+        "r": "prototype removed in T6 · T72g; sending by email is post-pilot, with \"Actual email and EDI transmission\"",
         "c": []
        },
        {
-        "s": "D",
+        "s": "T",
         "t": "EDI ANSI X12 850",
-        "r": "",
+        "r": "prototype removed in T6; also \"X12 850 purchase order generation\" (Integrations, EDI), folded in (post-pilot, PO 2026-10-21)",
         "c": []
        },
        {
@@ -1834,8 +1822,8 @@
        },
        {
         "s": "T",
-        "t": "Actual email and EDI transmission",
-        "r": "",
+        "t": "Actual email and EDI transmission; transmission channels per document type; purchase order sending by email",
+        "r": "prototype removed in T6; no API yet (07-transition) (post-pilot, PO 2026-10-21)",
         "c": []
        }
       ]
@@ -1893,7 +1881,7 @@
      {
       "s": "T",
       "t": "Approving and closing an order take their locks in one order (today a detected deadlock, retryable)",
-      "r": "",
+      "r": "(post-pilot, PO 2026-10-21)",
       "c": []
      },
      {
@@ -1955,7 +1943,7 @@
      {
       "s": "T",
       "t": "Scheduling agreements",
-      "r": "",
+      "r": "(post-pilot, PO 2026-10-21)",
       "c": []
      },
      {
@@ -2053,25 +2041,25 @@
      {
       "s": "T",
       "t": "GR/IR maintenance: clear residual positions on closed orders (SAP MR11)",
-      "r": "",
+      "r": "T72e",
       "c": []
      },
      {
       "s": "T",
       "t": "GR/IR regrouping at period end (SAP F.19)",
-      "r": "",
+      "r": "(post-pilot, PO 2026-10-21)",
       "c": []
      },
      {
       "s": "T",
       "t": "Migrate open GR/IR positions from SAP (ACDOCA EBELN/EBELP)",
-      "r": "",
+      "r": "T72f",
       "c": []
      },
      {
       "s": "T",
       "t": "Move open direct-valued orders onto GR/IR (optional)",
-      "r": "",
+      "r": "T72f",
       "c": []
      }
     ]
@@ -2108,7 +2096,7 @@
      {
       "s": "T",
       "t": "erp invoices settles every invoice when :post or :hold is refused (422) or :match finds the invoice no longer parked (409), lists it and fails at the end, as for a refused match",
-      "r": "cmd/erp",
+      "r": "cmd/erp (post-pilot, PO 2026-10-21)",
       "c": []
      },
      {
@@ -2175,13 +2163,13 @@
      {
       "s": "P",
       "t": "Evaluation against the live Claude API",
-      "r": "T43",
+      "r": "T43 (waits on: the user: a live Claude API key and spend)",
       "c": []
      },
      {
       "s": "T",
       "t": "Email inbox intake",
-      "r": "",
+      "r": "the invoice inbox of \"Email: purchase order sending and invoice inbox\" folded in (triage, PO 2026-10-21) (post-pilot, PO 2026-10-21)",
       "c": []
      },
      {
@@ -2243,13 +2231,13 @@
      {
       "s": "T",
       "t": "Supplier self-service portal",
-      "r": "",
+      "r": "(post-pilot, PO 2026-10-21)",
       "c": []
      },
      {
       "s": "T",
       "t": "Supplier risk screening agent",
-      "r": "",
+      "r": "(post-pilot, PO 2026-10-21)",
       "c": []
      },
      {
@@ -2294,6 +2282,12 @@
       "s": "T",
       "t": "Catalog connector (punch-out)",
       "r": "",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Requisitions from catalogs",
+      "r": "(post-pilot, PO 2026-10-21; moved from phase 1 Sourcing and procurement / Purchase requisitions and approvals: catalogs and guided buying)",
       "c": []
      }
     ]
@@ -2369,6 +2363,12 @@
       "s": "T",
       "t": "Governed changes",
       "r": "",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Governance for materials and customers",
+      "r": "(post-pilot, PO 2026-10-21; moved from phase 1 Master data / Master data governance workflows: customers with the customer master (phase 3); materials with the material master (phase 4))",
       "c": []
      }
     ]
@@ -2502,6 +2502,12 @@
       "s": "T",
       "t": "CRM connector",
       "r": "",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "CRM, payroll and T&E connectors (later phases)",
+      "r": "(CRM overlaps \"CRM connector\" here; post-pilot, PO 2026-10-21; moved from phase 1 Non-functional and infrastructure / Integrations: CRM with sales (phase 3); payroll and T&E with human capital and travel (phase 8))",
       "c": []
      }
     ]
@@ -3269,9 +3275,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Unified business partner for customers and vendors",
-      "r": "",
+      "r": "one model already: partner.business_partner with role supplier or customer (db/migrations/000004_partner.up.sql, internal/partner/changes.go) (triage, PO 2026-10-21)",
       "c": []
      }
     ]
@@ -3291,12 +3297,6 @@
       "s": "D",
       "t": "Decision rolled back if applying it fails",
       "r": "internal/approvals (decision and effect in one transaction)",
-      "c": []
-     },
-     {
-      "s": "T",
-      "t": "Governance for materials and customers",
-      "r": "",
       "c": []
      },
      {
@@ -3327,13 +3327,13 @@
      {
       "s": "T",
       "t": "Cleansing proposals with owners",
-      "r": "prototype removed in T6; no API yet (07-transition)",
+      "r": "prototype removed in T6; no API yet (07-transition) · also the migration agent's (triage: duplicate folded, PO 2026-10-21) (post-pilot, PO 2026-10-21)",
       "c": []
      },
      {
       "s": "T",
       "t": "Continuous data-quality monitoring",
-      "r": "",
+      "r": "(post-pilot, PO 2026-10-21)",
       "c": []
      }
     ]
@@ -3451,7 +3451,7 @@
      {
       "s": "T",
       "t": "Periodic access reviews",
-      "r": "",
+      "r": "(post-pilot, PO 2026-10-21)",
       "c": []
      },
      {
@@ -3489,12 +3489,6 @@
       "s": "D",
       "t": "Single sign-on (OIDC)",
       "r": "ADR-0031 · T37",
-      "c": []
-     },
-     {
-      "s": "T",
-      "t": "Access agent: least-privilege roles from usage",
-      "r": "",
       "c": []
      },
      {
@@ -3694,7 +3688,7 @@
      {
       "s": "P",
       "t": "Columnar store (DuckDB over Parquet from per-tenant extracts)",
-      "r": "ADR-0044 · T55",
+      "r": "ADR-0044 · T55 · also the phase 1 Integrations item \"Analytical store (DuckDB over Parquet via CDC)\" (triage, PO 2026-10-21)",
       "c": [
        {
         "s": "D",
@@ -4040,7 +4034,7 @@
      {
       "s": "P",
       "t": "Escalation and substitution rules",
-      "r": "escalation: workflows.ApprovalDeadline (T29); substitution to come",
+      "r": "escalation: workflows.ApprovalDeadline (T29); substitution to come (post-pilot, PO 2026-10-21)",
       "c": []
      },
      {
@@ -4065,19 +4059,13 @@
      {
       "s": "T",
       "t": "Purchase order output (text and X12 850)",
-      "r": "prototype removed in T6; no API yet (07-transition)",
+      "r": "prototype removed in T6; no API yet (07-transition) · T72g",
       "c": []
      },
      {
       "s": "T",
       "t": "Form templates per document type",
-      "r": "",
-      "c": []
-     },
-     {
-      "s": "T",
-      "t": "Transmission channels",
-      "r": "",
+      "r": "(post-pilot, PO 2026-10-21)",
       "c": []
      }
     ]
@@ -4275,7 +4263,7 @@
       "c": []
      },
      {
-      "s": "D",
+      "s": "P",
       "t": "Model routing, cost per agent, spend caps, kill switch",
       "r": "internal/agents · agents.Gateway (api/model.yaml) · T42",
       "c": [
@@ -4336,7 +4324,7 @@
        {
         "s": "T",
         "t": "Tax-identifier formats per country reviewed by a tax specialist before the pilot",
-        "r": "platform/redact taxIDs · T42e",
+        "r": "platform/redact taxIDs · T42e (waits on: a tax specialist's sign-off)",
         "c": []
        },
        {
@@ -4348,7 +4336,7 @@
        {
         "s": "T",
         "t": "Agents offered only the tools their autonomy level allows",
-        "r": "internal/apitools · T42 follow-up",
+        "r": "internal/apitools · T42 follow-up (post-pilot, PO 2026-10-21)",
         "c": []
        },
        {
@@ -4399,7 +4387,7 @@
      {
       "s": "T",
       "t": "Server-rendered web workspaces (templ + HTMX)",
-      "r": "",
+      "r": "T72k",
       "c": []
      },
      {
@@ -4736,12 +4724,6 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "Analytical store (DuckDB over Parquet via CDC)",
-      "r": "",
-      "c": []
-     },
-     {
       "s": "D",
       "t": "Read-only cross-tenant maintenance role for the control plane (erp_control: BYPASSRLS, SELECT on tenants and idempotency keys only)",
       "r": "000019_control_plane · TestControlRoleIsReadOnly",
@@ -4922,43 +4904,43 @@
        {
         "s": "T",
         "t": "Before rollout: production agents need a provider registered with certificate_bound_tokens",
-        "r": "T38d",
+        "r": "T38d (waits on: an operator registering the pilot's identity provider at rollout)",
         "c": []
        },
        {
         "s": "T",
         "t": "A CHECK migration on the acr and amr values a policy may require",
-        "r": "",
+        "r": "(post-pilot, PO 2026-10-21)",
         "c": []
        },
        {
         "s": "T",
         "t": "The cost of the session sweeper's ranking query, measured and bounded",
-        "r": "",
+        "r": "(post-pilot, PO 2026-10-21)",
         "c": []
        },
        {
         "s": "T",
         "t": "An -operator flag for the CLI register-provider and provision commands",
-        "r": "",
+        "r": "(post-pilot, PO 2026-10-21)",
         "c": []
        },
        {
         "s": "T",
         "t": "Session revocation",
-        "r": "",
+        "r": "(post-pilot, PO 2026-10-21)",
         "c": []
        },
        {
         "s": "T",
         "t": "Tenant self-service for identity providers",
-        "r": "",
+        "r": "(post-pilot, PO 2026-10-21)",
         "c": []
        },
        {
         "s": "T",
         "t": "SCIM and just-in-time provisioning of principals from the identity provider",
-        "r": "",
+        "r": "also \"Identity provider (user provisioning via SCIM)\" (Integrations), folded in (post-pilot, PO 2026-10-21)",
         "c": []
        }
       ]
@@ -5032,7 +5014,7 @@
          {
           "s": "T",
           "t": "Ambient cloud credentials; GCP KMS and Azure Key Vault masters",
-          "r": "",
+          "r": "(post-pilot, PO 2026-10-21)",
           "c": []
          }
         ]
@@ -5104,7 +5086,7 @@
      {
       "s": "T",
       "t": "External penetration test",
-      "r": "",
+      "r": "(waits on: an outside penetration testing firm)",
       "c": []
      }
     ]
@@ -5370,19 +5352,13 @@
        {
         "s": "T",
         "t": "Validation against a live system's $metadata",
-        "r": "",
+        "r": "(waits on: access to the pilot's SAP system)",
         "c": []
        }
       ]
      },
      {
-      "s": "T",
-      "t": "SAP change data capture for the parallel run (SLT/ODP)",
-      "r": "",
-      "c": []
-     },
-     {
-      "s": "P",
+      "s": "D",
       "t": "Banks",
       "r": "",
       "c": [
@@ -5390,18 +5366,6 @@
         "s": "D",
         "t": "ISO 20022 pain.001 file generation",
         "r": "internal/bankfile",
-        "c": []
-       },
-       {
-        "s": "T",
-        "t": "Transmission (EBICS, SFTP, host-to-host)",
-        "r": "T44",
-        "c": []
-       },
-       {
-        "s": "T",
-        "t": "Statement import (camt.053, MT940)",
-        "r": "",
         "c": []
        },
        {
@@ -5419,53 +5383,17 @@
       "c": [
        {
         "s": "T",
-        "t": "X12 850 purchase order generation",
-        "r": "prototype removed in T6; no API yet (07-transition)",
-        "c": []
-       },
-       {
-        "s": "T",
         "t": "VAN/AS2 transmission",
-        "r": "",
+        "r": "(post-pilot, PO 2026-10-21)",
         "c": []
        },
        {
         "s": "T",
         "t": "Inbound 810 invoices and 856 shipping notices",
-        "r": "",
+        "r": "(post-pilot, PO 2026-10-21)",
         "c": []
        }
       ]
-     },
-     {
-      "s": "T",
-      "t": "Email: purchase order sending and invoice inbox",
-      "r": "",
-      "c": []
-     },
-     {
-      "s": "T",
-      "t": "Tax engine (Avalara, Vertex)",
-      "r": "",
-      "c": []
-     },
-     {
-      "s": "T",
-      "t": "Identity provider (user provisioning via SCIM)",
-      "r": "",
-      "c": []
-     },
-     {
-      "s": "T",
-      "t": "Ticketing (ServiceNow, Jira) for the support agent",
-      "r": "",
-      "c": []
-     },
-     {
-      "s": "T",
-      "t": "CRM, payroll and T&E connectors (later phases)",
-      "r": "",
-      "c": []
      },
      {
       "s": "D",
@@ -5536,43 +5464,43 @@
        {
         "s": "T",
         "t": "Logins of their own in the directory for the router and the cells, in place of its master user",
-        "r": "deploy/helm/erp-global · deploy/helm/erp-cell",
+        "r": "deploy/helm/erp-global · deploy/helm/erp-cell · T72h",
         "c": []
        },
        {
         "s": "T",
         "t": "Cells outside the home cell's VPC: reach the directory, and the router reaches them",
-        "r": "ADR-0035",
+        "r": "ADR-0035 (post-pilot, PO 2026-10-21)",
         "c": []
        },
        {
         "s": "T",
         "t": "Wire mirror-images into the release before signing, with copy provenance for mirrored images",
-        "r": "scripts/mirror-images.sh · .github/workflows/release.yml",
+        "r": "scripts/mirror-images.sh · .github/workflows/release.yml · T72i",
         "c": []
        },
        {
         "s": "T",
         "t": "At first apply: check that the VPC CNI policy agent lets probes through, fill the page-token-key and database-client-password secrets, and load the router's public certificate, key and page-token key into erp/global/",
-        "r": "",
+        "r": "(waits on: an operator, at the first AWS apply)",
         "c": []
        },
        {
         "s": "T",
         "t": "A PgBouncer preStop drain",
-        "r": "deploy/helm/erp-cell",
+        "r": "deploy/helm/erp-cell (post-pilot, PO 2026-10-21)",
         "c": []
        },
        {
         "s": "T",
         "t": "Pin the NATS route identity",
-        "r": "deploy/helm/erp-cell (nats)",
+        "r": "deploy/helm/erp-cell (nats) (post-pilot, PO 2026-10-21)",
         "c": []
        },
        {
         "s": "T",
         "t": "The SCRAM verifier in setup-schema",
-        "r": "temporal/cmd/erp-temporal schema.go",
+        "r": "temporal/cmd/erp-temporal schema.go (post-pilot, PO 2026-10-21)",
         "c": []
        }
       ]
@@ -5628,7 +5556,7 @@
        {
         "s": "T",
         "t": "List a second production approver in .github/approvers: until then no production promotion can merge",
-        "r": ".github/approvers · ADR-0035",
+        "r": ".github/approvers · ADR-0035 (waits on: a second production approver (a person))",
         "c": []
        },
        {
@@ -5640,7 +5568,7 @@
        {
         "s": "T",
         "t": "Pre-pilot: the first rollback drill on AWS staging (stg1), with a smoke suite through the router; confirm on the first promotion pull request that the promotion jobs are reported on its head",
-        "r": "scripts/rollback-drill.sh · ADR-0035",
+        "r": "scripts/rollback-drill.sh · ADR-0035 (waits on: the AWS staging account)",
         "c": []
        }
       ]
@@ -5858,25 +5786,25 @@
      {
       "s": "P",
       "t": "Load tests against PostgreSQL at production volumes",
-      "r": "internal/nfr load and soak suites meet the §1.3 budgets at ~500 req/s locally; the largest tenant's peak needs a cell-sized environment",
+      "r": "internal/nfr load and soak suites meet the §1.3 budgets at ~500 req/s locally; the largest tenant's peak needs a cell-sized environment (post-pilot, PO 2026-10-21)",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Horizontal scaling of stateless services",
-      "r": "",
+      "r": "server and router run 3 replicas with PodDisruptionBudgets (deploy/helm/erp-cell values.yaml, erp-global values.yaml); autoscaling not needed for the pilot (triage, PO 2026-10-21)",
       "c": []
      },
      {
       "s": "T",
       "t": "Caching of configuration and reference data",
-      "r": "",
+      "r": "(post-pilot, PO 2026-10-21)",
       "c": []
      },
      {
       "s": "T",
       "t": "Lock-contention relief (a large proposal holds most of its tenant's buckets; a period close can be starved), only if real load shows it",
-      "r": "internal/payments · internal/ledger",
+      "r": "internal/payments · internal/ledger (post-pilot, PO 2026-10-21)",
       "c": []
      }
     ]
@@ -5961,7 +5889,7 @@
        {
         "s": "T",
         "t": "The pilot light made runnable: a DR node group at zero the runbook scales up, the workload roles trusting the DR cluster's OIDC provider, their permissions on the DR bucket and keys, Argo CD synced there on failover; confirmed on staging that replicate_source_db takes the cluster's ARN (the API's SourceDBClusterIdentifier), the cluster's engine version pinned so the replica is upgraded first, the master credentials after promotion (RDS-managed in the home region)",
-        "r": "T41b3",
+        "r": "T41b3 · T72j",
         "c": []
        },
        {
@@ -5973,13 +5901,13 @@
        {
         "s": "T",
         "t": "The region failover rehearsed on the production pilot cell before it takes live traffic (a pre-pilot gate), then yearly in a maintenance window (PO, 2026-10-19)",
-        "r": "ADR-0040 · T41g",
+        "r": "ADR-0040 · T41g (waits on: the production AWS pilot cell, after T72j)",
         "c": []
        },
        {
         "s": "T",
         "t": "Before T41b is applied to a cell holding objects: a one-off S3 Batch Replication job for the existing objects; the plan checked to create the field key as a multi-Region key from the start",
-        "r": "ADR-0040 · T41h (pre-apply)",
+        "r": "ADR-0040 · T41h (pre-apply) (waits on: an operator on AWS, before T41b is applied to a cell holding objects)",
         "c": []
        },
        {
@@ -5991,7 +5919,7 @@
        {
         "s": "T",
         "t": "Pre-pilot: the first restore drills on AWS staging (stg1), point in time and from the copies, recorded in restore.json; until one has passed every production promotion is refused (scripts/promotion-checks.sh). Confirm there: the restore metadata's DBSubnetGroupName and VpcSecurityGroupIds, the managed secret's aws:rds:primaryDBClusterArn tag the task's role is scoped by and its KMS key (the execution role decrypts none), and the DR region in the registry's replication regions",
-        "r": "ADR-0040 · T41e2",
+        "r": "ADR-0040 · T41e2 (waits on: the AWS staging account)",
         "c": []
        }
       ]
@@ -6003,9 +5931,9 @@
       "c": []
      },
      {
-      "s": "P",
+      "s": "D",
       "t": "Graceful shutdown and retry policies for integrations",
-      "r": "shutdown under load proven (TestResilienceShutdownUnderLoad); retry policies for integrations to come · T44",
+      "r": "shutdown under load proven (TestResilienceShutdownUnderLoad) · T44 · retries with backoff: bank transmission (payments.Transmitter, T44), webhooks (integration dispatch, deliveries); SAP loads are idempotent re-runs (triage, PO 2026-10-21)",
       "c": []
      },
      {
@@ -6164,13 +6092,13 @@
      {
       "s": "T",
       "t": "Git-backed repository with pull requests",
-      "r": "",
+      "r": "(post-pilot, PO 2026-10-21)",
       "c": []
      },
      {
       "s": "T",
       "t": "CUE constraints",
-      "r": "",
+      "r": "(post-pilot, PO 2026-10-21)",
       "c": []
      }
     ]
@@ -6213,13 +6141,13 @@
      {
       "s": "T",
       "t": "Release strategies (T16FS) to approval tiers",
-      "r": "",
+      "r": "(post-pilot, PO 2026-10-21)",
       "c": []
      },
      {
       "s": "T",
       "t": "Number ranges (NRIV)",
-      "r": "",
+      "r": "(post-pilot, PO 2026-10-21)",
       "c": []
      }
     ]
@@ -6263,13 +6191,13 @@
      {
       "s": "T",
       "t": "Replay of payments and requisitions",
-      "r": "",
+      "r": "(post-pilot, PO 2026-10-21)",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Postgres template-database sandboxes",
-      "r": "",
+      "r": "not needed, as for \"Sandbox clones of the live store\": the replay reads committed data in the worker's read-only pass (triage, PO 2026-10-21)",
       "c": []
      },
      {
@@ -6350,7 +6278,7 @@
      {
       "s": "P",
       "t": "Evaluation against the live Claude API",
-      "r": "T43",
+      "r": "T43 (waits on: the user: a live Claude API key and spend)",
       "c": []
      },
      {
@@ -6379,12 +6307,6 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "Cleansing proposals with owners",
-      "r": "prototype removed in T6; no API yet (07-transition)",
-      "c": []
-     },
-     {
       "s": "D",
       "t": "Never loads into production",
       "r": "",
@@ -6393,7 +6315,7 @@
      {
       "s": "P",
       "t": "Evaluation against the live Claude API",
-      "r": "T43",
+      "r": "T43 (waits on: the user: a live Claude API key and spend)",
       "c": []
      },
      {
@@ -6424,7 +6346,7 @@
      {
       "s": "P",
       "t": "Evaluation against the live Claude API",
-      "r": "T43",
+      "r": "T43 (waits on: the user: a live Claude API key and spend)",
       "c": []
      },
      {
@@ -6512,7 +6434,7 @@
      {
       "s": "T",
       "t": "Roles from actual usage",
-      "r": "T67",
+      "r": "T67 · also the phase 1 GRC item \"Access agent: least-privilege roles from usage\" (triage, PO 2026-10-21)",
       "c": []
      },
      {
@@ -6588,6 +6510,12 @@
       "s": "T",
       "t": "Fixes as configuration change requests",
       "r": "",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Ticketing (ServiceNow, Jira) for the support agent",
+      "r": "(post-pilot, PO 2026-10-21; moved from phase 1 Non-functional and infrastructure / Integrations: the support agent is phase 3)",
       "c": []
      }
     ]
@@ -6673,7 +6601,7 @@
      {
       "s": "T",
       "t": "Change data capture for the parallel run (SLT/ODP)",
-      "r": "",
+      "r": "(post-pilot, PO 2026-10-21)",
       "c": []
      }
     ]
@@ -6803,13 +6731,86 @@
      {
       "s": "T",
       "t": "Pilot company code cut over (needs a client)",
-      "r": "",
+      "r": "(waits on: a client)",
       "c": []
      },
      {
       "s": "T",
       "t": "Consultant hours measured against the integrator's quote",
-      "r": "",
+      "r": "(waits on: the integrator and the pilot)",
+      "c": []
+     }
+    ]
+   },
+   {
+    "t": "Pilot readiness",
+    "sap": "—",
+    "ph": 1,
+    "c": [
+     {
+      "s": "T",
+      "t": "Two invoices matched against one order item cannot both post past its received quantity: :post re-checks the quantities under the order's lock, and matching and posting read received quantities FOR SHARE",
+      "r": "Phase 1 triage (PO 2026-10-21) · internal/payables post.go requireCleanMatch, invoicedQuantities · T72a",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A parked SAP credit memo or subsequent debit/credit (RBKP XRECH/TBTKZ) loads as its kind, never as a positive invoice that gets paid",
+      "r": "Phase 1 triage (PO 2026-10-21) · internal/integration load.go loader.invoices · sap.RBKP · T72b",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Open SAP down payments (BSIK UMSKZ A) load on the down payment account with their special G/L indicator: a payment run never nets them and their input tax can be reversed (needed if the pilot has open down payments)",
+      "r": "Phase 1 triage (PO 2026-10-21) · internal/integration load.go openingLines · T46a · T72c",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Canadian vendor bank accounts (LFBK) load as scheme ca with institution and transit numbers, and Canadian house banks (T012K) load without an IBAN, so migrated Canadian suppliers can be paid",
+      "r": "Phase 1 triage (PO 2026-10-21) · internal/integration load.go newSupplier · delivery/sapconfig house banks · T45d · T72d",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Residual GR/IR positions of closed orders can be cleared (SAP MR11) through the API, approved and audited, before the first month-end close",
+      "r": "Phase 1 triage (PO 2026-10-21) · 03-data-model GR/IR (not yet built) · T33a · T72e",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Open GR/IR positions migrate with their order item (ACDOCA EBELN/EBELP): an invoice after cutover for goods received in SAP clears the GR/IR credit instead of booking the expense again; optionally, open direct-valued orders can be moved onto GR/IR",
+      "r": "Phase 1 triage (PO 2026-10-21) · procurement purchase_orders.go valuation(loaded) · 03-data-model migrated GR/IR lines · T72f",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A purchase order document (a text/PDF form) is produced for the supplier through the API; email and EDI transmission stay post-pilot",
+      "r": "Phase 1 triage (PO 2026-10-21) · internal/config output.purchase_order_channel · prototype removed in T6 · T72g",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "The router and the cells connect to the directory with logins of their own and least privilege, never as the RDS master user erp_admin",
+      "r": "Phase 1 triage (PO 2026-10-21) · deploy/helm/erp-global values.yaml · deploy/helm/erp-cell values.yaml · T72h",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "The release mirrors the PgBouncer and NATS images (scripts/mirror-images.sh) before signing, with copy provenance, so Kyverno's erp-release-signed admits them in production",
+      "r": "Phase 1 triage (PO 2026-10-21) · scripts/mirror-images.sh · .github/workflows/release.yml · erp-cluster image-policy.yaml · T72i",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "The pilot light is runnable (DR node group, IRSA trust of the DR cluster's OIDC provider, Argo CD in Terraform), so the region failover rehearsal (T41g) can run; its confirmation needs AWS staging",
+      "r": "Phase 1 triage (PO 2026-10-21) · T41b3 · ADR-0040 · T72j",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Web UI for pilot finance users — proposal pending (PO 2026-10-21: needed for the pilot)",
+      "r": "Phase 1 triage (PO 2026-10-21) · \"Server-rendered web workspaces (templ + HTMX)\" (Platform / User interface) · T72k",
       "c": []
      }
     ]
@@ -6911,13 +6912,13 @@
        {
         "s": "T",
         "t": "Sweep the remaining catch-all filter lists (68 sites in 26 files) onto the list helper",
-        "r": "",
+        "r": "(post-pilot, PO 2026-10-21)",
         "c": []
        },
        {
         "s": "T",
         "t": "Confirm the two-hour weekly soak passes once the list fix and the log limit are on main",
-        "r": ".github/workflows/weekly.yml",
+        "r": ".github/workflows/weekly.yml (post-pilot, PO 2026-10-21)",
         "c": []
        }
       ]
@@ -6937,19 +6938,19 @@
      {
       "s": "T",
       "t": "Contract step: drop ledger.journal_entry_posting, replaced by journal_entry_page_posting (000055)",
-      "r": "",
+      "r": "(post-pilot, PO 2026-10-21)",
       "c": []
      },
      {
       "s": "T",
       "t": "Migration runner builds an index on a partitioned table per partition CONCURRENTLY and attaches it, under lock_timeout (needed before production-sized journals; 06 §6.4)",
-      "r": "",
+      "r": "(post-pilot, PO 2026-10-21)",
       "c": []
      },
      {
       "s": "T",
       "t": "Indexes ending in (sort column, id) for the other lists' sorts: purchase orders by order_date per legal entity, requisitions by created_at",
-      "r": "",
+      "r": "(post-pilot, PO 2026-10-21)",
       "c": []
      }
     ]
