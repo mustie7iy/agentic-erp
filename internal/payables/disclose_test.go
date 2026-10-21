@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
@@ -57,7 +58,7 @@ func (e env) reader(t *testing.T, name string, legalEntities ...uuid.UUID) pgtes
 }
 
 // simulatedChange proposes lower auto-post limits in both companies and a
-// tax rate of company 2000, and has the simulation worker record its
+// tax code account of company 2000, and has the simulation worker record its
 // evidence as of day; it returns the change request's path and the
 // operation's.
 func (e env) simulatedChange(t *testing.T) (string, string) {
@@ -73,7 +74,11 @@ func (e env) simulatedChange(t *testing.T) (string, string) {
 	}
 	doc := fixture.Document(t)
 	doc.Companies[0].AutoPostLimit, doc.Companies[1].AutoPostLimit = "100.00", "100.00"
-	doc.Companies[1].TaxCodes[0].RatePercent = "9"
+	// The tax code's account moves (a rate change would re-rate the invoice
+	// posted today, which submission refuses: ledger.tax_rate_in_use).
+	de := &doc.Companies[1]
+	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "141000", Name: "Input tax, new", Type: config.Asset})
+	de.TaxCodes[0].Account = "141000"
 	proposed, err := json.Marshal(doc)
 	if err != nil {
 		t.Fatal(err)
