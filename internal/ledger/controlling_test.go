@@ -312,6 +312,8 @@ func TestDefaultCentersStayUsable(t *testing.T) {
 	_, tag = c.Must(200, "GET", pc, "", "")
 	c.Problem(409, "ledger.default_center_in_use", "POST", pc+":lock", `{"valid_from": "2027-01-01", "locked": true, "reason": "r"}`, tag)
 	c.Problem(409, "ledger.default_center_in_use", "POST", pc+":redate", `{"valid_to": "2030-01-01", "reason": "r"}`, tag)
+	// A lock that ended before today leaves it usable.
+	c.Must(200, "POST", pc+":lock", `{"valid_from": "2026-02-01", "valid_to": "2026-03-01", "locked": true, "reason": "Past audit"}`, tag)
 }
 
 // TestControllingDatabaseFailures checks and applies controlling rules

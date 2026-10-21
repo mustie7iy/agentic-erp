@@ -378,12 +378,12 @@ func keepsDefaultCostCenter(ctx context.Context, tx pgx.Tx, id uuid.UUID, spans 
 // a default from today on (409 ledger.default_center_in_use).
 func keepsDefaultProfitCenter(ctx context.Context, tx pgx.Tx, id uuid.UUID, spans []span[ProfitCenterAttrs]) error {
 	var today time.Time
-	var companies int
-	if err := tx.QueryRow(ctx, `SELECT current_date, count(*) FROM ledger.company_controlling WHERE default_profit_center_id = $1`, id).
-		Scan(&today, &companies); err != nil {
+	var isDefault bool
+	if err := tx.QueryRow(ctx, `SELECT current_date, EXISTS (SELECT FROM ledger.company_controlling WHERE default_profit_center_id = $1)`, id).
+		Scan(&today, &isDefault); err != nil {
 		return fmt.Errorf("ledger: companies defaulting to profit center %s: %w", id, err)
 	}
-	if companies == 0 {
+	if !isDefault {
 		return nil
 	}
 	if why := unusableDefault(spans, today, func(a ProfitCenterAttrs) bool { return a.Locked }); why != "" {
