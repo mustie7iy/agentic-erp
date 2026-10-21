@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 	"time"
 
@@ -271,6 +272,33 @@ func (e Env) Withholding(tb testing.TB, codes ...config.WithholdingTaxCode) {
 	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "236000", Name: "Withholding tax payable", Type: config.Liability})
 	de.WithholdingTaxCodes = codes
 	if err := apitest.Committed(tb, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		return ledger.Setup{LegalEntities: tenancy.Directory{}}.Apply(ctx, doc)
+	}); err != nil {
+		tb.Fatal(err)
+	}
+}
+
+// TaxCodes gives company 2000 the tax codes in the ledger, beside or in
+// place of the prototype's codes of the same name, as an activated
+// configuration with them would (T61a).
+func (e Env) TaxCodes(tb testing.TB, codes ...config.TaxCode) {
+	tb.Helper()
+	TaxCodes(tb, e.Tenant, Document(tb), codes...)
+}
+
+// TaxCodes applies doc to the tenant's ledger with company 2000's tax codes
+// beside or in place of doc's codes of the same name.
+func TaxCodes(tb testing.TB, ten pgtest.Tenant, doc *config.Config, codes ...config.TaxCode) {
+	tb.Helper()
+	de := doc.Company("2000")
+	for _, c := range codes {
+		if i := slices.IndexFunc(de.TaxCodes, func(t config.TaxCode) bool { return t.Code == c.Code }); i >= 0 {
+			de.TaxCodes[i] = c
+		} else {
+			de.TaxCodes = append(de.TaxCodes, c)
+		}
+	}
+	if err := apitest.Committed(tb, ten, ten.Human, func(ctx context.Context) error {
 		return ledger.Setup{LegalEntities: tenancy.Directory{}}.Apply(ctx, doc)
 	}); err != nil {
 		tb.Fatal(err)

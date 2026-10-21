@@ -273,29 +273,64 @@ func (Accounts) IsPostable(ctx context.Context, legalEntity, account uuid.UUID) 
 	return ok, nil
 }
 
-// TaxCode is a tax code valid on a date.
+// TaxCode is a tax code as it is on a date (ADR-0049 §3): its definition
+// and the components with a rate in force then.
 type TaxCode struct {
-	Code      string
-	Direction string
-	RatePct   string // decimal, e.g. "19.000000"
-	AccountID uuid.UUID
+	Code       string
+	Direction  string // input or output
+	Kind       string // standard, zero, exempt, out_of_scope, reverse_charge or import
+	Category   string // UN/CEFACT 5305, "" when none
+	Components []TaxComponent
 }
 
-// TaxCode returns the legal entity's tax code valid on the date.
+// TaxComponent is a component of a tax code with its rate on the date.
+type TaxComponent struct {
+	Key            string
+	Jurisdiction   string // "" when none
+	AccountKey     string // input, output, non_deductible, self_output or self_input
+	RecoverablePct string // decimal, e.g. "100"
+	AccountID      *uuid.UUID
+	RatePct        string // decimal, e.g. "19.000000"
+}
+
+// Single is the code's one component when it has exactly one, which posts
+// to a tax account of its own and is wholly recoverable: what supplier
+// invoices and down payments post until T61d posts every component.
+func (t TaxCode) Single() (TaxComponent, bool) {
+	if len(t.Components) != 1 {
+		return TaxComponent{}, false
+	}
+	c := t.Components[0]
+	ok := (c.AccountKey == "input" || c.AccountKey == "output") && c.AccountID != nil && c.RecoverablePct == "100"
+	return c, ok
+}
+
+// TaxCode returns the legal entity's tax code valid on the date: one with a
+// rate in force then.
 func (Accounts) TaxCode(ctx context.Context, legalEntity uuid.UUID, code string, date time.Time) (TaxCode, bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return TaxCode{}, false, err
 	}
 	t := TaxCode{Code: code}
-	err = tx.QueryRow(ctx, `SELECT direction, rate_pct::text, account_id FROM ledger.tax_code
-		WHERE legal_entity_id = $1 AND code = $2 AND valid_from <= $3 AND (valid_to IS NULL OR valid_to > $3)`,
-		legalEntity, code, date).Scan(&t.Direction, &t.RatePct, &t.AccountID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return TaxCode{}, false, nil
+	rows, _ := tx.Query(ctx, `SELECT d.direction, d.kind, coalesce(d.category, ''), c.component, coalesce(c.jurisdiction, ''), c.account_key,
+			trim_scale(c.recoverable_pct)::text, c.account_id, r.rate_pct::text
+		FROM ledger.tax_code_definition d
+		JOIN ledger.tax_component c ON c.tenant_id = d.tenant_id AND c.legal_entity_id = d.legal_entity_id AND c.code = d.code
+		JOIN ledger.tax_rate r ON r.tenant_id = c.tenant_id AND r.legal_entity_id = c.legal_entity_id AND r.code = c.code AND r.component = c.component
+		WHERE d.legal_entity_id = $1 AND d.code = $2 AND r.withdrawn_at IS NULL AND r.valid_from <= $3 AND (r.valid_to IS NULL OR r.valid_to > $3)
+		ORDER BY c.component`, legalEntity, code, date)
+	var c TaxComponent
+	if _, err := pgx.ForEachRow(rows, []any{&t.Direction, &t.Kind, &t.Category, &c.Key, &c.Jurisdiction, &c.AccountKey, &c.RecoverablePct,
+		&c.AccountID, &c.RatePct}, func() error {
+		t.Components = append(t.Components, c)
+		c = TaxComponent{} // the next row's account is scanned into a new value, not this one's
+		return nil
+	}); err != nil {
+		return TaxCode{}, false, fmt.Errorf("ledger: tax code %s in %s: %w", code, legalEntity, err)
 	}
-	if err != nil {
-		return t, false, fmt.Errorf("ledger: tax code %s in %s: %w", code, legalEntity, err)
+	if len(t.Components) == 0 {
+		return TaxCode{}, false, nil
 	}
 	return t, true, nil
 }

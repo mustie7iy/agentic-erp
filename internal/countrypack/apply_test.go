@@ -2,6 +2,7 @@ package countrypack
 
 import (
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -99,12 +100,12 @@ func TestFirstAdoption(t *testing.T) {
 	if ad := co.AccountDetermination; ad.Bank != "1000" || ad.APReconciliation != "2000" || ad.InputTax != "1400" {
 		t.Errorf("account determination: got %+v, want bank 1000, AP 2000, input tax 1400", ad)
 	}
-	if want := []config.TaxCode{{Code: "V1", Description: "Standard rate", RatePercent: "15", Account: "1400"},
-		{Code: "V0", Description: "Zero rate", RatePercent: "0", Account: "1400"}}; !slices.Equal(co.TaxCodes, want) {
-		t.Errorf("tax codes: got %+v, want %+v", co.TaxCodes, want)
+	// Every rate is written, the future one too (T61a).
+	if want := lib.Get("ZZ", "2026.1").Tax.TaxCodes; !reflect.DeepEqual(co.TaxCodes, want) {
+		t.Errorf("tax codes: got %+v, want the pack's %+v", co.TaxCodes, want)
 	}
-	if !hasNote(notes, "companies[C1].tax_codes[V1].rate_percent", "becomes 17.5% on 2027-01-01") {
-		t.Errorf("notes: got %v, want the future rate of V1", notes)
+	if rates := co.TaxCodes[0].Components[0].Rates; len(rates) != 2 || rates[1].RatePercent != "17.5" {
+		t.Errorf("V1's rates: got %+v, want 15%% and 17.5%% from 2027-01-01", rates)
 	}
 	if n := len(got.NumberRanges); n != 2 || got.NumberRanges[0].Key() != "C1/supplier_invoice/2026" {
 		t.Errorf("number ranges: got %+v, want C1's two of 2026", got.NumberRanges)
@@ -148,7 +149,7 @@ func TestUpgrade(t *testing.T) {
 		{"new account", co.Account("6100") != nil, true},
 		{"new determination field", co.AccountDetermination.CashDiscount, "6000"},
 		{"determination kept", co.AccountDetermination.Bank, "1000"},
-		{"rate in force now taken", co.TaxCodes[0].RatePercent, "17.5"},
+		{"the pack's new rate taken", co.TaxCodes[0].Components[0].Rates[2].RatePercent, "18"},
 		{"dropped tax code kept", co.TaxCodes[1].Code, "V0"},
 		{"new tax code", co.TaxCodes[2].Code, "V2"},
 		{"ranges of the new year", len(got.NumberRanges), 4},
@@ -179,9 +180,6 @@ func TestApplyNotes(t *testing.T) {
 	if !hasNote(notes, "packs[C1]", "no tax specialist") {
 		t.Errorf("notes: got %v, want the missing sign-off", notes)
 	}
-	if !hasNote(notes, "companies[C1].tax_codes[V1]", "no rate is in force on 2019-06-01") {
-		t.Errorf("notes: got %v, want V1 without a rate in force", notes)
-	}
 }
 
 func TestApplyRefuses(t *testing.T) {
@@ -202,7 +200,6 @@ func TestApplyRefuses(t *testing.T) {
 		{"another country's pack adopted", adopted(config.PackAdoption{Company: "C1", Country: "CA", Version: "2026.1", AppliedOn: "2026-01-01"}), "C1", "adopted the CA pack"},
 		{"downgrade", adopted(config.PackAdoption{Company: "C1", Country: "ZZ", Version: "2026.3", AppliedOn: "2026-01-01"}), "C1", ErrDowngrade.Error()},
 		{"adopted version not in the image", adopted(config.PackAdoption{Company: "C1", Country: "ZZ", Version: "2025.1", AppliedOn: "2026-01-01"}), "C1", "not in the image"},
-		{"bad adoption date", adopted(config.PackAdoption{Company: "C1", Country: "ZZ", Version: "2026.1", AppliedOn: "soon"}), "C1", `adopted its pack on "soon"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

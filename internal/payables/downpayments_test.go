@@ -10,6 +10,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -107,8 +108,7 @@ func TestDownPaymentRequestRefusals(t *testing.T) {
 	otherPO := e.order(t, e.Vendor, "PO-2")
 	blocked := e.NewSupplier(t, "BP90000003")
 	pgtest.Exec(t, `UPDATE partner.supplier_company SET is_posting_blocked = true, version = version + 1 WHERE partner_id = $1`, blocked)
-	pgtest.Exec(t, `INSERT INTO ledger.tax_code (tenant_id, legal_entity_id, code, description, direction, rate_pct, account_id, valid_from, created_by)
-		VALUES ($1, $2, 'A1', 'Output tax', 'output', 19, $3, '2026-01-01', $4)`, e.Tenant.ID, e.DE, e.tax, e.Tenant.Human.ID)
+	e.TaxCodes(t, config.TaxCode{Code: "A1", Description: "Output tax", Direction: config.TaxOutput, RatePercent: "19", Account: "140000"}, twoParts)
 	cases := map[string]struct {
 		body   string
 		status int
@@ -126,6 +126,7 @@ func TestDownPaymentRequestRefusals(t *testing.T) {
 		"blank reference":      {e.downPayment(e.Supplier, "1.00", "EUR", `, "reference": "  "`), 422, "payables.invalid_reference"},
 		"no fiscal year":       {strings.Replace(e.downPayment(e.Supplier, "1.00", "EUR", ""), "2026-03-15", "2031-03-15", 1), 422, "ledger.no_fiscal_period"},
 		"output tax code":      {e.downPayment(e.Supplier, "1.00", "EUR", `, "tax_code": "A1"`), 422, "payables.unknown_tax_code"},
+		"code with components": {e.downPayment(e.Supplier, "1.00", "EUR", `, "tax_code": "V2"`), 422, "payables.tax_code_components"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

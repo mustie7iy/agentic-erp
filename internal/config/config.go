@@ -244,13 +244,6 @@ type AccountDetermination struct {
 	DownPayment string `yaml:"down_payment,omitempty" json:"down_payment,omitempty"`
 }
 
-type TaxCode struct {
-	Code        string `yaml:"code" json:"code"`
-	Description string `yaml:"description" json:"description"`
-	RatePercent string `yaml:"rate_percent" json:"rate_percent"`
-	Account     string `yaml:"account" json:"account"`
-}
-
 // WithholdingTaxCode is a withholding tax deducted from what a supplier is
 // paid and owed to the tax authority instead: a rate of the invoice's net
 // (the default) or gross, deducted when the invoice posts or when it is

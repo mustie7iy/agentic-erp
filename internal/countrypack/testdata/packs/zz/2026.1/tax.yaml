@@ -1,12 +1,21 @@
 tax_codes:
   - code: V1
     description: Standard rate
-    account: "1400"
-    rates:
-      - {rate_percent: "15", valid_from: 2020-01-01, valid_to: 2026-12-31}
-      - {rate_percent: "17.5", valid_from: 2027-01-01}
+    category: S
+    components:
+      - key: vat
+        account_key: input
+        account: "1400"
+        rates:
+          - {rate_percent: "15", valid_from: 2020-01-01, valid_to: 2026-12-31}
+          - {rate_percent: "17.5", valid_from: 2027-01-01}
   - code: V0
     description: Zero rate
-    account: "1400"
-    rates:
-      - {rate_percent: "0", valid_from: 2020-01-01}
+    kind: zero
+    category: Z
+    components:
+      - key: vat
+        account_key: input
+        account: "1400"
+        rates:
+          - {rate_percent: "0", valid_from: 2020-01-01}

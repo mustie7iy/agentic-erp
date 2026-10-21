@@ -10,8 +10,9 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
-	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -214,8 +215,7 @@ func (d *ledgerDocs) post(t *testing.T) {
 	var revenue string
 	d.bank, revenue, d.ap = e.account(t, "2000", "100000"), e.account(t, "2000", "400000"), e.account(t, "2000", "211000")
 	e.rate(t, "USD", "EUR", "2026-01-01", "0.9")
-	pgtest.Exec(t, `INSERT INTO ledger.tax_code (tenant_id, legal_entity_id, code, description, direction, rate_pct, account_id, valid_from, created_by)
-		VALUES ($1, $2, 'V9', 'Input', 'input', 19, $3, '2026-01-01', $4)`, e.ten.ID, e.de, e.account(t, "2000", "140000"), e.ten.Human.ID)
+	fixture.TaxCodes(t, e.ten, document(t), config.TaxCode{Code: "V9", Description: "Input", RatePercent: "19", Account: "140000"})
 	bank, ap := d.bank, d.ap
 	d.je, _ = e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "1.00", ""}, line{revenue, "-1.00", ""}), "")
 	inv, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "5.00", ""}, line{ap, "-5.00", e.supplier.String()}), "")

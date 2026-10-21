@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 )
@@ -175,6 +176,7 @@ func TestOrderRefusals(t *testing.T) {
 		return fmt.Sprintf(`{"legal_entity_id": %q, "supplier_id": %q, "currency": "EUR", "order_date": "2026-03-10", "items": %s%s}`, e.DE, e.Supplier, its, extra)
 	}
 	contract := e.contract(t, e.Supplier.String(), "")
+	e.TaxCodes(t, config.TaxCode{Code: "A1", Description: "Output tax", Direction: config.TaxOutput, RatePercent: "19", Account: "140000"})
 	for name, c := range map[string]struct {
 		body   string
 		status int
@@ -185,6 +187,7 @@ func TestOrderRefusals(t *testing.T) {
 		"other company":     {body(fmt.Sprintf(`, "requisition_id": %q`, id(usReq)), ok), 422, "procurement.requisition_mismatch"},
 		"payment terms":     {body(`, "payment_term_code": "NOPE"`, ok), 422, "procurement.unknown_payment_term"},
 		"tax code":          {body("", items(item(e.office, "1", "EA", "1.00", "EUR", `, "tax_code": "ZZ"`))), 422, "procurement.unknown_tax_code"},
+		"output tax code":   {body("", items(item(e.office, "1", "EA", "1.00", "EUR", `, "tax_code": "A1"`))), 422, "procurement.unknown_tax_code"},
 		"tolerance":         {body("", items(item(e.office, "1", "EA", "1.00", "EUR", `, "over_delivery_pct": "101"`))), 422, "procurement.invalid_tolerance"},
 		"contract item":     {body("", items(item(e.office, "1", "EA", "1.00", "EUR", `, "contract_item_no": 1`))), 422, "procurement.invalid_contract_item"},
 		"draft contract":    {body(fmt.Sprintf(`, "contract_id": %q`, id(contract)), ok), 422, "procurement.invalid_contract"},

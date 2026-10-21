@@ -737,7 +737,16 @@ items that named it before stay as they are, and posting them is refused;
 and for down payments (T46, ADR-0037) `down_payment`, the alternative
 reconciliation account of special G/L items: an asset that is a vendor
 reconciliation account, fixed once determined),
-`tax_code` (rate, account, direction), `withholding_tax_code` (T46e: the
+the tax codes (T61a, ADR-0049 §3; migration 000124): `tax_code_definition`
+(direction, never changed; kind; UN/CEFACT category), `tax_component` (one
+per tax a code levies: jurisdiction, account key, never changed;
+recoverable share; account, none when non-deductible, and the former
+accounts) and `tax_rate` (a component's dated rates, a GiST exclusion over
+the live ones; a rate's value and start never change, a rate no posting
+used is withdrawn rather than deleted, and the database refuses withdrawing
+or re-dating a rate past a posting of its code or adding one over posted
+dates, `ledger.tax_rate_in_use`); the former `tax_code` (one rate and
+account per validity) is copied into them and dropped later, `withholding_tax_code` (T46e: the
 configuration's `companies[].withholding_tax_codes`, SAP T059P/T059Z, kept
 by the setup per legal entity: a rate above 0 and below 100% of the
 invoice's net, the default, or gross, deducted at invoice or at payment, to
@@ -1896,7 +1905,7 @@ line or reservation. An agent's budget is identity's
 | REGUH/REGUP (F110) | `payments.payment_run`, `payment`, `payment_item` |
 | T012K | `payments.house_bank` |
 | T052 | `partner.payment_term` |
-| T007A | `ledger.tax_code` |
+| T007A, KONP/A003 (tax rates per condition), T030K (account keys MWS, VST, NVV, ESA/ESE) | `ledger.tax_code_definition`, `tax_component`, `tax_rate` (T61a) |
 | T030 | `ledger.account_determination` (VST, BNK, WRX, PRD, SKE) |
 | AGR_* | `identity.role`, `role_permission`, `principal_role` |
 | NRIV | `config.number_range` |

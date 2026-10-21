@@ -396,12 +396,20 @@ func grirItem(o procurement.Order, kind string, it Item) (ledger.GRIRItem, error
 }
 
 // taxAccount is the account of the tax code valid on the date, else the
-// legal entity's input tax account.
+// legal entity's input tax account. A code with components an invoice
+// cannot post yet is refused (T61d posts them).
 func (e *Endpoints) taxAccount(ctx context.Context, le uuid.UUID, code *string, date time.Time) (uuid.UUID, bool, error) {
 	if code != nil {
 		t, ok, err := e.Accounts.TaxCode(ctx, le, *code, date)
-		if err != nil || ok {
-			return t.AccountID, ok, err
+		if err != nil {
+			return uuid.Nil, false, err
+		}
+		if ok {
+			single, ok := t.Single()
+			if !ok {
+				return uuid.Nil, false, componentsUnsupported("items.tax_code", *code)
+			}
+			return *single.AccountID, true, nil
 		}
 	}
 	return e.Accounts.Determination(ctx, le, "input_tax")

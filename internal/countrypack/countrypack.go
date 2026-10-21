@@ -64,26 +64,11 @@ type Accounts struct {
 	AccountDetermination config.AccountDetermination `yaml:"account_determination"`
 }
 
-// Tax is tax.yaml.
+// Tax is tax.yaml: the country's tax codes as the configuration keeps
+// them (ADR-0049 §3), each with its components and all their dated rates,
+// future ones included.
 type Tax struct {
-	TaxCodes []TaxCode `yaml:"tax_codes"`
-}
-
-// TaxCode is a tax code with its rates over time; config.TaxCode has one
-// rate until T61, so applying a pack writes the rate in force.
-type TaxCode struct {
-	Code        string `yaml:"code"`
-	Description string `yaml:"description"`
-	Account     string `yaml:"account"`
-	Rates       []Rate `yaml:"rates"`
-}
-
-// Rate is a rate in force from ValidFrom through ValidTo (inclusive; open
-// when empty). Dates are YYYY-MM-DD.
-type Rate struct {
-	RatePercent string `yaml:"rate_percent"`
-	ValidFrom   string `yaml:"valid_from"`
-	ValidTo     string `yaml:"valid_to,omitempty"`
+	TaxCodes []config.TaxCode `yaml:"tax_codes"`
 }
 
 // Calendar is calendar.yaml: the country's public holidays.

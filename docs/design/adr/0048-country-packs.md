@@ -1,6 +1,7 @@
 # ADR-0048: Country packs
 
-**Status:** accepted (T62, product owner 2026-10-20)
+**Status:** accepted (T62, product owner 2026-10-20); amended by T61a
+(tax codes with components and all dated rates)
 
 ## Context
 A company in a new country needs a chart of accounts, tax codes, a holiday
@@ -47,11 +48,16 @@ settings cannot simply overwrite their document.
 - **Provenance**: the document's `packs` section records, per company, the
   country, the pack version and the date it was applied on; the next
   upgrade reads its base from there.
-- **Tax rates**: `config.TaxCode` keeps one rate until effective-dated tax
-  codes come with T61, so the applier writes the rate in force on the date
-  of application and notes the future rates; applying the pack again once a
-  new rate is in force takes it (the base is converted at the recorded
-  application date, so the change is seen as the pack's).
+- **Tax rates** (amended by T61a, ADR-0049 §3): `tax.yaml` holds the tax
+  codes in the configuration's own schema (`config.TaxCode`): direction,
+  kind, UN/CEFACT category and components (key, jurisdiction, account key,
+  recoverable share, account), each with **all** its dated rates, future
+  ones included. Validation is the configuration's (`config.CheckTaxCodes`)
+  against the pack's accounts, and a pack's code always has components (the
+  undated single-rate form is not a pack's). The applier writes the codes
+  as they are, whatever the date of application, and the ledger sets up
+  every rate ahead; the earlier "rate in force, later rates noted, apply
+  again" behaviour is gone.
 - **Scope**: tax calculation and returns are T61, e-invoicing T65 and the
   regulatory agent that proposes new pack versions T71. Steps: T62a schema,
   loader and validation; T62b apply and merge with provenance; T62c the
@@ -63,7 +69,7 @@ settings cannot simply overwrite their document.
   see each conflict as a note in the change request.
 - Adding or correcting a pack is a release, reviewed and signed with the
   image; there is no runtime download of packs.
-- Until T61, a rate change needs the pack applied again after it takes
-  effect; the notes of the earlier application name the date.
+- A known future rate is in the pack and set up once, ahead (T61a); a rate
+  change not yet in the pack is a new pack version.
 - The base of an upgrade must still be in the image, so released versions
   are never removed (the hash list enforces it).

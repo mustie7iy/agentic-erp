@@ -196,12 +196,12 @@ func (e *Endpoints) orderItem(ctx context.Context, h orderHeader, i int, it Item
 		return Item{}, err
 	}
 	if it.TaxCode != nil {
-		_, ok, err := e.Accounts.TaxCode(ctx, h.le.ID, *it.TaxCode, h.orderDate)
+		t, ok, err := e.Accounts.TaxCode(ctx, h.le.ID, *it.TaxCode, h.orderDate)
 		if err != nil {
 			return Item{}, err
 		}
-		if !ok {
-			return Item{}, invalid("procurement.unknown_tax_code", field+".tax_code", "a tax code of the legal entity valid on the order date")
+		if !ok || t.Direction != "input" { // an order's invoices post input tax
+			return Item{}, invalid("procurement.unknown_tax_code", field+".tax_code", "an input tax code of the legal entity valid on the order date")
 		}
 	}
 	return item, nil
