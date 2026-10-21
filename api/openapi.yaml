@@ -8077,7 +8077,7 @@ paths:
       tags:
         - payments
       summary: Import a bank statement file
-      description: "Imports the statements of a bank's file (ADR-0047) for one house bank: camt.053 (.001.02 or .001.08) or MT940, read as UTF-8, at most 4 MB. Each statement must be of the house bank's account and currency, and its entries must take its opening balance to its closing balance. The same file again for the house bank (by its SHA-256) answers 200 with the statements it imported; another file with a statement already imported (the same statement id, account and sequence) is refused with 409 `payments.statement_conflict`. A statement whose opening balance is not the closing balance of the house bank's statement before it is imported in status `gap`, and automatic posting stops for the bank; a statement imported between two others becomes the next one's previous statement, whose status follows the comparison again. A file that cannot be read is refused with 422 `payments.statement_unreadable`, naming the line where what is wrong starts. Imports are made by people and integrations; agents read statements, and an agent's import is refused with 403 `identity.agent_not_allowed`. The file is kept as accounting evidence in object storage (`GET /v1/bank-statements/{id}/file`), so without object storage, or when the store does not take it, nothing is imported (503)."
+      description: "Imports the statements of a bank's file (ADR-0047) for one house bank: camt.053 (.001.02 or .001.08) or MT940, read as UTF-8, at most 4 MB. Each statement must be of the house bank's account and currency, and its entries must take its opening balance to its closing balance. The same file again for the house bank (by its SHA-256) answers 200 with the statements it imported; another file with a statement already imported (the same statement id, account and sequence) is refused with 409 `payments.statement_conflict`. A statement whose opening balance is not the closing balance of the house bank's statement before it is imported in status `gap`, and automatic posting stops for the bank; the lines the rules match on import are posted as `POST /v1/bank-statements/{id}:match` posts them; a statement imported between two others becomes the next one's previous statement, whose status follows the comparison again. A file that cannot be read is refused with 422 `payments.statement_unreadable`, naming the line where what is wrong starts. Imports are made by people and integrations; agents read statements, and an agent's import is refused with 403 `identity.agent_not_allowed`. The file is kept as accounting evidence in object storage (`GET /v1/bank-statements/{id}/file`), so without object storage, or when the store does not take it, nothing is imported (503)."
       x-permission: payments.statement.import
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -8215,7 +8215,7 @@ paths:
       tags:
         - payments
       summary: Match a bank statement's lines
-      description: "Runs the company's matching rules (`companies[].bank_statements.matching_rules`, ADR-0047) on the statement's unmatched lines, and again on the lines a rule left open, as the import does: in the rules' order, the first rule that finds candidates decides. A rule that finds exactly one candidate, whose payments pay the line's amount, matches the line (`matched`); one that finds several, or payments that do not pay it, leaves an open match listing them for a person (`proposed`). The rules on payments read debits, never reversals; a payment another line's match holds settles no line: the id rules leave the line open for a person, and the amount rule skips it. A line a rule left open is compared with what the rules find now: the same candidates leave it as it is, others reject its open match and record the new one (or make it unmatched again). Lines matched or excluded, and an agent's proposals, are never touched, so running it twice changes nothing the second time. Agents may call it: it only applies the rules, and what they cannot decide stays open for a person. If-Match is the statement's ETag; a run that matches or leaves open a line, and a person's match or exclusion, move it on. Returns the statement with its lines; `GET /v1/bank-statements/{id}/matches` has the matches."
+      description: "Runs the company's matching rules (`companies[].bank_statements.matching_rules`, ADR-0047) on the statement's unmatched lines, and again on the lines a rule left open, as the import does: in the rules' order, the first rule that finds candidates decides. A rule that finds exactly one candidate, whose payments pay the line's amount, matches the line (`matched`); one that finds several, or payments that do not pay it, leaves an open match listing them for a person (`proposed`). The rules on payments read debits, never reversals; a payment another line's match holds settles no line: the id rules leave the line open for a person, and the amount rule skips it. A line a rule left open is compared with what the rules find now: the same candidates leave it as it is, others reject its open match and record the new one (or make it unmatched again). Lines matched or excluded, and an agent's proposals, are never touched, so running it twice changes nothing the second time. Agents may call it: it only applies the rules, and what they cannot decide stays open for a person. The lines the rules matched are then posted as `POST .../lines/{line_no}:post` posts them, by the caller, unless the caller is an agent (agents never post) or the house bank has a statement in `gap`: each is posted (`posted`) or waits for the approval of its posting (`pending_approval`); one the ledger refuses (a locked period, no exchange rate) stays `matched` for a person, and the refusal is audited. A line whose posting was rejected or withdrawn is not submitted again by a run. If-Match is the statement's ETag; a run that matches, leaves open or posts a line, and a person's match, exclusion or posting, move it on. Returns the statement with its lines; `GET /v1/bank-statements/{id}/matches` has the matches."
       x-permission: payments.statement.match
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -8433,6 +8433,76 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/bank-statements/{id}/lines/{line_no}:post":
+    post:
+      operationId: postBankStatementLine
+      tags:
+        - payments
+      summary: Post a matched bank statement line
+      description: "Posts a `matched` line (ADR-0047) to the house bank's main bank account (`main_gl_account`) against what its match clears: for payments, each payment's line on the bank's clearing account, which must be open-item managed (422 `ledger.not_open_item_managed`), is offset at its original amounts and cleared with the posting, and the payments must pay the line's amount (409 `payments.statement_amount_differs`); for a posting rule, the rule's account (409 `payments.statement_posting_rule_gone` when the company no longer has the rule). A statement in another currency than the company's is converted at the posting date's rates, and the difference to the payments' amounts is a realized exchange difference (fx_gain/fx_loss). The posting is dated on the line's booking date, or on `posting_date` with a `reason` (both audited); a locked or closed period refuses it (409 `ledger.period_not_open`). The posting is routed by the line's amount in the company's currency through `companies[].bank_statements.approval_tiers` (`bank_clearing` approval requests): a tier without steps posts at once (`posted`); otherwise the line waits for the request (`pending_approval`), whose approval posts it, checked again, and whose rejection or withdrawal returns it to `matched`. A company without tiers has every posting approved by the `controller` role. Whoever matched the line by hand cannot approve its posting. A house bank without a main bank account never posts (409 `payments.statement_bank_not_posting`), nor one with a statement in `gap` (409 `payments.statement_gap`). A line not matched is 409 `payments.statement_line_not_matched`; one posted or waiting already is 409 `payments.statement_line_posting`. People only. Audited; the posting publishes BankStatementLinePosted, and the ledger JournalEntryPosted and ItemsCleared. The response's ETag is the statement's new one, the If-Match of the next decision on its lines."
+      x-permission: payments.statement.post
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: line_no
+          in: path
+          required: true
+          description: The line's number in the statement, from 1.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of postBankStatementLine.
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatementLinePostInput"
+      responses:
+        "200":
+          description: The line's match, posted or waiting for the approval of its posting.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementMatch"
+              examples:
+                posted:
+                  summary: Posted on its booking date
+                  value: {id: 0192a000-0000-7000-8000-000000000b40, version: 2, created_at: "2026-10-20T11:00:00Z", created_by: 0192a000-0000-7000-8000-000000000105, updated_at: "2026-10-20T11:05:00Z", updated_by: 0192a000-0000-7000-8000-000000000105, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, kind: rule, rule: end_to_end_id, reason: "End-to-end ids 2000-PR100000-000001: 1 of 1 are payments, paying 100.00 of 100.00.", status: matched, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c01}], posting_date: "2026-04-17", journal_entry_id: 0192a000-0000-7000-8000-000000000d01, journal_entry_year: 2026}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   "/v1/bank-files/{id}":
     get:
       operationId: getBankFile
@@ -8595,6 +8665,7 @@ paths:
               - manual_entry
               - purchase_order
               - order_change
+              - bank_clearing
         - name: object_id
           in: query
           required: false
@@ -8727,7 +8798,7 @@ paths:
       tags:
         - workflow
       summary: Approve an approval request
-      description: "Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`); the requester cannot approve; a person approves a request at most once. Besides `workflow.request.decide` the caller must hold the step's role and the approval permission of the object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The request is `approved` when the last step is complete, and the object moves on (a requisition becomes `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry is posted). A manual entry is checked again as it is posted: when that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name the parked entry's), the approval is refused and the request stays pending."
+      description: "Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`); the requester cannot approve; a person approves a request at most once. Besides `workflow.request.decide` the caller must hold the step's role and the approval permission of the object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The request is `approved` when the last step is complete, and the object moves on (a requisition becomes `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry is posted, a bank statement line is posted). A manual entry is checked again as it is posted: when that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name the parked entry's), the approval is refused and the request stays pending; so is a bank statement line's posting (`bank_clearing`), and whoever matched the line by hand cannot approve its posting (403 `workflow.segregation_of_duties`)."
       x-permission: workflow.request.decide
       x-agent: false
       parameters:
@@ -8825,6 +8896,7 @@ paths:
         manual_entry: ledger.entry.approve
         purchase_order: procurement.order.approve
         order_change: procurement.order.approve
+        bank_clearing: payments.statement.clearing.approve
   "/v1/approval-requests/{id}:reject":
     post:
       operationId: rejectApprovalRequest
@@ -8892,6 +8964,7 @@ paths:
         manual_entry: ledger.entry.approve
         purchase_order: procurement.order.approve
         order_change: procurement.order.approve
+        bank_clearing: payments.statement.clearing.approve
   "/v1/approval-requests/{id}:cancel":
     post:
       operationId: cancelApprovalRequest
@@ -18972,6 +19045,11 @@ components:
               items: {$ref: "#/components/schemas/StatementMatchTarget"}
               description: "What it clears: of an open match, each candidate's targets under its number; of a match decided, candidate 1's; none when excluded."
               readOnly: true
+            posting_date: {type: string, format: date, description: "The date the line posts on, or was asked to post on: its booking date or the one a person gave.", readOnly: true}
+            posting_reason: {type: string, description: "Why a person dated the posting otherwise than the booking date.", readOnly: true}
+            approval_request_id: {type: string, format: uuid, description: "The latest `bank_clearing` approval request of the posting (workflow context), also once rejected or withdrawn.", readOnly: true}
+            journal_entry_id: {type: string, format: uuid, description: "The posting (ledger context), once the line is posted.", readOnly: true}
+            journal_entry_year: {type: integer, format: int32, description: "The fiscal year of the posting.", readOnly: true}
     StatementMatchTarget:
       type: object
       description: "A payment, with the bank file of a batch booking, or a posting rule."
@@ -18993,6 +19071,22 @@ components:
             - [{id: 0192a000-0000-7000-8000-000000000b40, version: 1, created_at: "2026-10-20T11:00:00Z", created_by: 0192a000-0000-7000-8000-000000000105, updated_at: "2026-10-20T11:00:00Z", updated_by: 0192a000-0000-7000-8000-000000000105, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, kind: rule, rule: end_to_end_id, reason: "End-to-end ids 2000-PR100000-000001: 1 of 1 are payments, paying 100.00 of 100.00.", status: matched, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c01}]}]
       examples:
         - {items: [{id: 0192a000-0000-7000-8000-000000000b40, version: 1, created_at: "2026-10-20T11:00:00Z", created_by: 0192a000-0000-7000-8000-000000000105, updated_at: "2026-10-20T11:00:00Z", updated_by: 0192a000-0000-7000-8000-000000000105, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, kind: rule, rule: end_to_end_id, reason: "End-to-end ids 2000-PR100000-000001: 1 of 1 are payments, paying 100.00 of 100.00.", status: matched, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c01}]}]}
+    StatementLinePostInput:
+      type: object
+      description: "A person's posting of a matched line: on its booking date, or on another date with the reason."
+      properties:
+        posting_date:
+          type: string
+          format: date
+          description: "The date to post on instead of the booking date, in an open period; with `reason`."
+        reason:
+          type: string
+          description: "Why the posting is dated otherwise; recorded in the audit trail. Only with `posting_date`."
+          minLength: 1
+          maxLength: 2000
+      additionalProperties: false
+      examples:
+        - {posting_date: "2026-05-04", reason: "April is locked; the bank booked it on 30 April."}
     StatementLineMatchInput:
       type: object
       description: "A person's match of a line: the payments it clears or a posting rule, not both, and why."
@@ -19354,6 +19448,7 @@ components:
                 - manual_entry
                 - purchase_order
                 - order_change
+                - bank_clearing
               readOnly: true
             object_id:
               type: string

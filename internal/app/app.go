@@ -148,6 +148,7 @@ func New(cfg Config) (http.Handler, error) {
 			approvals.ManualEntry:      ledger.ManualEntries{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}},
 			approvals.PurchaseOrder:    procurement.OrderReleases{Endpoints: procurementEndpoints(cfg)},
 			approvals.OrderChange:      procurement.OrderChanges{Endpoints: procurementEndpoints(cfg)},
+			approvals.BankClearing:     payments.BankClearings{Endpoints: Payments(cfg)},
 		}}},
 		procurementAPI: procurementEndpoints(cfg),
 		payablesAPI:    payablesEndpoints(cfg, upload),
@@ -196,7 +197,7 @@ func Payments(cfg Config) *payments.Endpoints {
 		Payees:   partner.Payees{Keys: cfg.FieldKeys}, Numbers: configuration.Numbers{}, Calendar: calendar(),
 		Settings: configuration.Settings{}, Actors: identity.Actors{}, Keys: cfg.FieldKeys, Connector: cfg.Connector, Objects: cfg.Objects,
 		Retention: cfg.Retention, Channels: integration.BankChannels{Secrets: resolver(cfg.Secrets)},
-		Accounts: ledger.Accounts{}, DownPayments: downPayments{}, Now: cfg.Now}
+		Accounts: ledger.Accounts{}, DownPayments: downPayments{}, Approvals: opener(), Now: cfg.Now}
 }
 
 // Integration is the integration context as the API wires it: migration

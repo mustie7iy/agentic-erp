@@ -158,6 +158,7 @@ const (
 	MatchSupplierInvoiceOperation             OperationName = "MatchSupplierInvoice"
 	OpenFiscalPeriodOperation                 OperationName = "OpenFiscalPeriod"
 	ParkJournalEntryOperation                 OperationName = "ParkJournalEntry"
+	PostBankStatementLineOperation            OperationName = "PostBankStatementLine"
 	PostGoodsReceiptOperation                 OperationName = "PostGoodsReceipt"
 	PostJournalEntryOperation                 OperationName = "PostJournalEntry"
 	PostParkedJournalEntryOperation           OperationName = "PostParkedJournalEntry"

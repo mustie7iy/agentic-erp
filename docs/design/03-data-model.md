@@ -1304,7 +1304,10 @@ erDiagram
     text kind "rule | manual | agent"
     text rule "the matching rule, of kind rule"
     text reason
-    text status "open | matched | excluded | rejected" }
+    text status "open | matched | excluded | rejected"
+    date posting_date "booking date, or a person's with posting_reason"
+    uuid approval_request_id "bank_clearing (workflow)"
+    uuid journal_entry_id "the posting (ledger), one match per entry" }
   statement_match ||--o{ statement_match_target : clears
   statement_match_target { uuid match_id PK
     smallint candidate PK
@@ -1357,7 +1360,17 @@ the transactions in `details`) and the lines' matches
 (naming it), a person or an agent, `open` with candidates for a person or
 `matched`, `excluded` only by a person, `rejected` when a person's decision
 replaces it; its targets in `statement_match_target`, per candidate a
-payment, with the bank file of a batch booking, or a posting rule). A bank
+payment, with the bank file of a batch booking, or a posting rule). A
+matched line is posted (T49f, 000110): its match records the posting date
+(the booking date, or one a person gives with `posting_reason`), the
+latest `bank_clearing` approval request (kept when rejected or withdrawn)
+and the journal entry (`statement_match_journal_entry`: one match per
+entry; `statement_match_posted`: a posted match stays `matched`); the
+line becomes `pending_approval`, then `posted`, or `matched` again when
+the request is rejected or withdrawn. The posting debits the bank's
+clearing account and clears each payment's line on it (an open-item
+managed account, `ledger.company_account`), or posts a posting rule's
+account, against the main bank account. A bank
 file records its pain.001 message id (`bank_file.message_id`, 000109), which
 a batch booking carries. A
 statement whose opening balance is not the closing balance of the bank's

@@ -80,6 +80,23 @@ func ObjectTypeOf(action string) string {
 	return action
 }
 
+// Mark is how many entries the request has buffered: the point
+// DiscardFrom returns to. It is 0 outside a unit of work.
+func Mark(ctx context.Context) int {
+	if b, ok := ctx.Value(bufferKey{}).(*Buffer); ok {
+		return len(b.entries)
+	}
+	return 0
+}
+
+// DiscardFrom drops the entries buffered since the mark, for work rolled
+// back to a savepoint taken there: what came before it stands.
+func DiscardFrom(ctx context.Context, mark int) {
+	if b, ok := ctx.Value(bufferKey{}).(*Buffer); ok && mark < len(b.entries) {
+		b.entries = b.entries[:mark]
+	}
+}
+
 // Discard drops the entries buffered so far, for work rolled back to a
 // savepoint.
 func Discard(ctx context.Context) {

@@ -203,6 +203,7 @@ var operationRolesOidc = map[string][]string{
 	MatchSupplierInvoiceOperation:             []string{},
 	OpenFiscalPeriodOperation:                 []string{},
 	ParkJournalEntryOperation:                 []string{},
+	PostBankStatementLineOperation:            []string{},
 	PostGoodsReceiptOperation:                 []string{},
 	PostJournalEntryOperation:                 []string{},
 	PostParkedJournalEntryOperation:           []string{},

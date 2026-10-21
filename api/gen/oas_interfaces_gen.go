@@ -609,6 +609,10 @@ type ParkJournalEntryRes interface {
 	parkJournalEntryRes()
 }
 
+type PostBankStatementLineRes interface {
+	postBankStatementLineRes()
+}
+
 type PostGoodsReceiptRes interface {
 	postGoodsReceiptRes()
 }

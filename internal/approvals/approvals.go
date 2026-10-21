@@ -19,7 +19,9 @@
 // company's manual_entry_approval_limit by DefaultManualEntryRole (T35),
 // and purchase orders released without an approved requisition, and
 // changes raising an order's total, by amount tier
-// (purchasing.order_release_approval, T47).
+// (purchasing.order_release_approval, T47), and the posting of a matched
+// bank statement line by its company's bank_statements.approval_tiers, or
+// by DefaultBankClearingRole until the company has tiers (ADR-0047, T49f).
 // Roles are the identity context's roles with the document's role names as
 // codes.
 package approvals
@@ -55,6 +57,7 @@ const (
 	ManualEntry      = "manual_entry"
 	PurchaseOrder    = "purchase_order" // the release of an order without an approved requisition (T47)
 	OrderChange      = "order_change"   // a change that raises a released order's total (T47)
+	BankClearing     = "bank_clearing"  // the posting of a matched bank statement line (ADR-0047, T49f)
 )
 
 // Request statuses.
@@ -79,6 +82,12 @@ const DefaultPeriodUnlockRole = "controller"
 // unlocks.
 const DefaultManualEntryRole = "controller"
 
+// DefaultBankClearingRole approves the posting of every matched bank
+// statement line of a company without bank_statements.approval_tiers: there
+// is no default tier, so a company that never set them posts nothing
+// unchecked (ADR-0047, fail closed).
+const DefaultBankClearingRole = "controller"
+
 // ObjectPermissions is the approval permission of each object type
 // (x-object-permissions of approveApprovalRequest).
 var ObjectPermissions = map[string]string{
@@ -86,6 +95,7 @@ var ObjectPermissions = map[string]string{
 	InvoiceException: "payables.invoice.approve", ConfigChange: "config.change.approve",
 	PeriodUnlock: "ledger.period.unlock.approve", ManualEntry: "ledger.entry.approve",
 	PurchaseOrder: "procurement.order.approve", OrderChange: "procurement.order.approve",
+	BankClearing: "payments.statement.clearing.approve",
 }
 
 func init() {
@@ -114,6 +124,14 @@ type Handler interface {
 	Approved(ctx context.Context, objectID, requestID uuid.UUID) error
 	Rejected(ctx context.Context, objectID, requestID uuid.UUID, comment string) error
 	Cancelled(ctx context.Context, objectID, requestID uuid.UUID, comment string) error
+}
+
+// Barrer is a Handler whose objects some people may not approve besides
+// their requester, by a segregation of duties the owning context knows:
+// whoever matched a bank statement line by hand does not approve its
+// posting (ADR-0047). Barred is asked before each approval.
+type Barrer interface {
+	Barred(ctx context.Context, objectID, actor uuid.UUID) (bool, error)
 }
 
 // Step is one approval step of a request.
@@ -234,7 +252,8 @@ type NewRequest struct {
 	Date          time.Time
 	// Company is the configuration's code of LegalEntityID (its tenancy
 	// code), whose manual_entry_approval_limit a manual entry is measured
-	// against; the ledger passes both from the one legal entity it posts in.
+	// against, and whose bank_statements.approval_tiers route a bank
+	// clearing; the owner passes both from the one legal entity it posts in.
 	Company string
 }
 
@@ -317,6 +336,19 @@ func manualEntrySteps(ctx context.Context, rates Rates, doc *config.Config, in N
 	return []policyStep{{DefaultManualEntryRole, 1}}, nil
 }
 
+// bankClearingSteps route a matched bank statement line's posting by the
+// line's amount, in its company's currency, through the company's
+// bank_statements.approval_tiers; a tier without steps posts without
+// approval. A company without tiers, or one the configuration lacks, has
+// every posting approved by DefaultBankClearingRole (ADR-0047).
+func bankClearingSteps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) ([]policyStep, error) {
+	co := doc.Company(in.Company)
+	if co == nil || len(co.BankStatements.ApprovalTiers) == 0 {
+		return []policyStep{{DefaultBankClearingRole, 1}}, nil
+	}
+	return tierSteps(ctx, rates, co.BankStatements.ApprovalTiers, in)
+}
+
 // steps resolves the steps the active configuration requires.
 func steps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) ([]policyStep, error) {
 	var out []policyStep
@@ -337,6 +369,8 @@ func steps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) 
 		return manualEntrySteps(ctx, rates, doc, in)
 	case PurchaseOrder, OrderChange:
 		return orderSteps(ctx, rates, doc, in)
+	case BankClearing:
+		return bankClearingSteps(ctx, rates, doc, in)
 	default:
 		return nil, fmt.Errorf("approvals: unknown object type %q", in.ObjectType)
 	}
@@ -529,6 +563,23 @@ func (d Decider) notify(r Request, call func(Handler) error) error {
 	return call(h)
 }
 
+// barred refuses an approval by someone the owning context bars from
+// approving the object (Barrer).
+func (d Decider) barred(ctx context.Context, r Request, actor uuid.UUID) error {
+	b, ok := d.Handlers[r.ObjectType].(Barrer)
+	if !ok {
+		return nil
+	}
+	barred, err := b.Barred(ctx, r.ObjectID, actor)
+	if err != nil {
+		return err
+	}
+	if barred {
+		return problem.Forbidden("workflow.segregation_of_duties", "Segregation of duties bars you from approving this request.")
+	}
+	return nil
+}
+
 // Approve records the caller's approval for the current step. When the
 // step has its approvals the request moves to the next step, or is
 // approved after the last one and the owning context moves the object on.
@@ -541,6 +592,9 @@ func (d Decider) Approve(ctx context.Context, id uuid.UUID, ifMatch func(int32) 
 		if dec.ActorID == p.ID && dec.Decision == "approve" {
 			return Request{}, problem.Conflict("workflow.already_approved", "You have already approved this request.")
 		}
+	}
+	if err := d.barred(ctx, r, p.ID); err != nil {
+		return Request{}, err
 	}
 	if err := d.insertDecision(ctx, tx, p, r, "approve", comment); err != nil {
 		return Request{}, err

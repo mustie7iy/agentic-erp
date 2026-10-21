@@ -108,12 +108,15 @@ type OpenItems interface {
 
 // Postings posts payments and reserves the open items a live run holds
 // (ledger context): the reservation makes the ledger refuse to clear or
-// reverse them by hand while the run is about to pay them.
+// reverse them by hand while the run is about to pay them. It posts
+// matched bank statement lines too.
 type Postings interface {
 	Settle(ctx context.Context, in ledger.Settlement) (ledger.Entry, error)
 	PayDownPayment(ctx context.Context, in ledger.DownPaymentPayment) (ledger.Entry, error)
 	Reserve(ctx context.Context, owner ledger.Owner, items []ledger.ItemRef) error
 	Release(ctx context.Context, owner uuid.UUID, items []ledger.ItemRef) error
+	PostBank(ctx context.Context, in ledger.BankPosting) (ledger.Entry, error) // a matched bank statement line (T49f)
+	Postable(ctx context.Context, legalEntity uuid.UUID, date time.Time) error // its date, before it waits for approval
 }
 
 // Payees is what payments reads about the suppliers it pays (partner context).
@@ -161,6 +164,7 @@ type Endpoints struct {
 	Retention     time.Duration       // how long statement files are locked against deletion (ERP_OBJECT_RETENTION); 0: not locked
 	Accounts      Accounts            // the cash discount account a run with discounts posts to
 	DownPayments  DownPayments        // the down payment requests runs pay (T46c)
+	Approvals     Approvals           // the approval of statement lines' postings (T49f)
 	Now           func() time.Time    // the release's day; nil: time.Now
 }
 
@@ -191,6 +195,7 @@ type DownPayment struct {
 type Accounts interface {
 	Determination(ctx context.Context, legalEntity uuid.UUID, key string) (uuid.UUID, bool, error)
 	TaxCode(ctx context.Context, legalEntity uuid.UUID, code string, date time.Time) (ledger.TaxCode, bool, error)
+	Chart(ctx context.Context, legalEntity uuid.UUID) (map[string]ledger.ChartAccount, error) // a posting rule's account (T49f)
 }
 
 // Run is a row of payments.payment_run. Amounts are minor units of

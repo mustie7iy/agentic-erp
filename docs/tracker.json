@@ -881,9 +881,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Posting and clearing, approvals.BankClearing, period locks",
-        "r": "T49f",
+        "s": "D",
+        "t": "Matched lines posted to the main bank account, clearing the payments' lines on the open-item managed clearing account (or to a posting rule's account), FX as a settlement; on the booking date or a person's date with a reason, refused in a locked or closed period; routed by approval_tiers (approvals.BankClearing, controller without tiers), the hand-matcher barred from approving; the rules' matches posted as they are made, except by agents or while the bank is in gap",
+        "r": "db/migrations/000110 · ledger.Postings.PostBank/Postable · POST /v1/bank-statements/{id}/lines/{line_no}:post · payments.statement.post · payments.statement.clearing.approve · approvals.BankClearing · approvals.Barrer (workflow.segregation_of_duties) · BankStatementLinePosted · T49f",
         "c": []
        },
        {

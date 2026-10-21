@@ -103,6 +103,10 @@ func (failingAccounts) TaxCode(context.Context, uuid.UUID, string, time.Time) (l
 	return ledger.TaxCode{}, false, errors.New("ledger unavailable")
 }
 
+func (failingAccounts) Chart(context.Context, uuid.UUID) (map[string]ledger.ChartAccount, error) {
+	return nil, errors.New("ledger unavailable")
+}
+
 // TestCashDiscountAccountUnread: a run that takes a discount does not
 // propose when the cash discount account cannot be read.
 func TestCashDiscountAccountUnread(t *testing.T) {

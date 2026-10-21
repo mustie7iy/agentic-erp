@@ -394,6 +394,13 @@ func matchToAPI(m Match) gen.StatementMatch {
 	if m.Rule != nil {
 		out.Rule.SetTo(*m.Rule)
 	}
+	if m.PostingDate != nil {
+		out.PostingDate.SetTo(*m.PostingDate)
+	}
+	out.PostingReason, out.ApprovalRequestID, out.JournalEntryID = apitypes.OptString(m.PostingReason), apitypes.OptUUID(m.ApprovalRequestID), apitypes.OptUUID(m.JournalEntryID)
+	if m.JournalEntryYear != nil {
+		out.JournalEntryYear.SetTo(int32(*m.JournalEntryYear))
+	}
 	for i, t := range m.Targets {
 		out.Targets[i] = gen.StatementMatchTarget{Candidate: int32(t.Candidate), PaymentID: apitypes.OptUUID(t.PaymentID), BankFileID: apitypes.OptUUID(t.BankFileID)}
 		if t.PostingRule != nil {
@@ -428,6 +435,16 @@ func (e *Endpoints) MatchBankStatementLine(ctx context.Context, req *gen.Stateme
 // ExcludeBankStatementLine implements POST /v1/bank-statements/{id}/lines/{line_no}:exclude.
 func (e *Endpoints) ExcludeBankStatementLine(ctx context.Context, req *gen.ReasonInput, params gen.ExcludeBankStatementLineParams) (gen.ExcludeBankStatementLineRes, error) {
 	m, err := e.ExcludeLine(ctx, params.ID, params.LineNo, etag.IfMatch(params.IfMatch), req.Reason)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.StatementMatchHeaders{ETag: gen.NewOptString(etag.Format(m.StatementVersion)), Response: matchToAPI(m)}, nil
+}
+
+// PostBankStatementLine implements POST /v1/bank-statements/{id}/lines/{line_no}:post.
+func (e *Endpoints) PostBankStatementLine(ctx context.Context, req gen.OptStatementLinePostInput, params gen.PostBankStatementLineParams) (gen.PostBankStatementLineRes, error) {
+	m, err := e.PostLine(ctx, params.ID, params.LineNo, etag.IfMatch(params.IfMatch),
+		LinePosting{Date: apitypes.Ptr[time.Time](req.Value.PostingDate), Reason: req.Value.Reason.Value})
 	if err != nil {
 		return nil, err
 	}
