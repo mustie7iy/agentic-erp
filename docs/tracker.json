@@ -4427,7 +4427,7 @@
        },
        {
         "s": "T",
-        "t": "Sign-in through the BFF (P2, P3, P4; G8, G9): web_client and login code on identity provider registrations (api/control.yaml) and the directory projection; authorization code flow with PKCE, state, nonce and private_key_jwt; ID token through authn; web schema in the directory database with sealed tokens and an hourly sweep; __Host-Http- Strict session cookie, Lax login cookie; CSRF by CrossOriginProtection and synchronizer token; refresh; 401 and RFC 9470 step-up handled; endCurrentSession and RP-initiated logout; authntest gains an authorization endpoint; production startup checks; security tests",
+        "t": "Sign-in through the BFF (P2, P3, P4; G8, G9): web_client and login code on identity provider registrations (api/control.yaml) and the directory projection; authorization code flow with PKCE, state, nonce and private_key_jwt; ID token through authn; web schema in the directory database with sealed tokens and an hourly sweep; __Host-Http- Strict session cookie, Lax login cookie; CSRF by CrossOriginProtection and synchronizer token; refresh; 401 and RFC 9470 step-up handled; endCurrentSession and RP-initiated logout; authntest gains an authorization endpoint; production startup checks; security tests; from T73a's review: the rollback drill checks erp-web in erp-global too, and a check that the pods' subnets never overlap the balancers' (erp-web's calls to the router carry no PROXY header)",
         "r": "T73b",
         "c": []
        },
