@@ -49,6 +49,10 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          # It builds two tools; the test job's cache under go.sum's key
+          # would cost two minutes to restore, and a save from here would
+          # take that key from the test job.
+          cache: false
       - name: Install Terraform, tflint, conftest and actionlint (pinned)
         run: |
           cd "$RUNNER_TEMP"
@@ -90,10 +94,11 @@ jobs:
         with:
           go-version-file: go.mod
           # No module and build cache: under go.sum's key it is the test
-          # job's (2 GB compressed, several times that unpacked), which this
-          # job never uses and which, with the erp-temporal build and the
-          # renders, filled the runner's disk and killed it without a log
-          # (runs 39597088469). It builds four tools and two binaries cold.
+          # job's (2 GB compressed, several times that unpacked), of which
+          # this job needs only nats-server's share; with the erp-temporal
+          # build and the renders it filled the runner's disk and killed it
+          # without a log (run 39597088469, both attempts). It builds three
+          # tools and two binaries cold, within the timeout.
           cache: false
       - name: Install Helm, kubeconform, Kyverno, zot, syft, promtool, cosign, crane and conftest (pinned)
         run: |
@@ -117,13 +122,19 @@ jobs:
           GOBIN="$RUNNER_TEMP/bin" go install github.com/google/go-containerregistry/cmd/crane@v0.20.6
           GOBIN="$RUNNER_TEMP/bin" go install github.com/open-policy-agent/conftest@v0.71.0
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Disk and memory before the checks
+        # Its own step: a runner that dies in the checks loses that step's
+        # log, but keeps this one.
+        run: df -h / && free -m
       - name: Helm and admission checks
-        # Disk and memory before and after, so a runner that dies in the
-        # step leaves what it had in the log of the steps before it.
+        # The disk every 15 s while the checks run, and once after: the
+        # peak (go builds, renders) is gone by the end, as their temporary
+        # files are.
         run: |
-          df -h / "$RUNNER_TEMP" && free -m
+          while :; do echo "disk: $(df -h / | tail -1)"; sleep 15; done &
+          trap 'kill $!' EXIT
           ./scripts/helm-checks.sh
-          df -h / "$RUNNER_TEMP" && free -m
+          df -h / && free -m
       - name: Mirroring of the upstream images
         run: ./scripts/test-mirror-images.sh
       - name: NATS authorization by SPIFFE identity
