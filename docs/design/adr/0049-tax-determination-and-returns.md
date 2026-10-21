@@ -301,10 +301,30 @@ tax_codes:
   day or later (it would re-rate it), where it used to pass. Codes copied
   from `ledger.tax_code` have the component `tax`: moving one to the dated
   form keeps that key, since another key would add rates over posted dates.
+  **Submission predicts the refusal** (T61a follow-up): `ledger.Setup.Check`
+  plans the change as the activation would, on the day of submission, and
+  reports each component whose planned withdrawal, moved end or new rate
+  covers a posting of its code (422 finding on
+  `companies[…].tax_codes[…].components[…].rates`, or on the code's
+  components or the list when the proposal removes the component or code,
+  naming the code's last posting), so a change request that would fail with
+  409 at activation is refused before two approvers approve it. A change in
+  the single-rate form, or a removal, starts "today", so one refused for a
+  posting dated today passes when submitted after it. A posting made, or a
+  later day of activation, between submission and activation can still make
+  the activation refuse what passed; the database stays the rule.
+- **Operational constraint (accepted, coordinator 2026-10-21):** a tax code
+  change is activated only after a rolling upgrade to T61a has completed on
+  every instance. Until then an instance of the previous release still reads
+  and writes `ledger.tax_code`, which T61a no longer maintains, so a rate
+  activated meanwhile would be invisible to it (it would post with the old
+  rate) and its setup would not write `ledger.tax_rate`. The runbook for the
+  release says so; no code enforces it.
 - A rate change is **posting-relevant** (tier 3, two approvers), as rate
   changes were: the diff carries no date, so a change only of future rates is
   not told apart (a lower tier for those would need the date of activation in
-  the diff; not built). The payables simulation of rate changes (07, T22)
+  the diff; not built). **Accepted** (coordinator 2026-10-21): future-only rate
+  changes stay tier 3. The payables simulation of rate changes (07, T22)
   compares the rate in force on each replayed invoice's date, per component.
 - Until T61d posts every component, supplier invoices and down payments take
   only a code with one component on an account of its own, wholly recoverable
@@ -404,6 +424,36 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   conversion (ADR-0005). Which rate type the ledger has for these authorities
   is checked in T61c, with T48's document currency.
 - All amounts `money.Minor`; rates and percentages decimal strings as today.
+- **As built (T61b):** `internal/tax` (imports only `money`) holds the
+  `Calculator` port and `BuiltIn`, which calls the pure `tax.Calculate`. A
+  `tax.Document` carries the tax date, the codes its lines name with their
+  components' dated rates (from inclusive, until exclusive, the ledger's
+  dates; one undated rate for a code already resolved on the tax date), an
+  inclusive flag, the rounding mode (`document` by default, or `line`) and
+  an optional conversion to local currency; the partner and place fields
+  are for an engine and unused. The result is per line and per code and
+  component (the items): base, tax, recoverable and non-recoverable parts,
+  in transaction and local currency. Rules as built: rates are below 100%
+  and recoverable shares 0-100%, both plain decimals; a zero, exempt or
+  out-of-scope code's rates are 0; self-assessed components are exactly
+  one `self_output` and one `self_input` at the same rate; an inclusive
+  line's divisor is 100 plus the rates charged (self-assessed ones are not
+  charged), its base the gross less the tax charged, and the self-assessed
+  pair is on that base. The recoverable part is the tax × the share rounded
+  the same way (once per item, allocated). Tax has the sign of the line's
+  amount, except `self_output`, which is the negation of `self_input`, so a
+  pair nets to zero on every line (on an inclusive document of tiny grosses
+  every component's allocated unit can fall on one line, whose base then
+  turns negative). The allocation is `money.Allocate` (largest remainder
+  in the direction of the sum, so a negated document gives the negated
+  result; each result between the floor and ceiling of its exact amount).
+  Local currency: each item's base and tax converted once (exactly, then
+  allocated to the lines, which add up to the item); a line's local
+  recoverable part is its share of the line's local tax, rounded as the
+  tax is, so 0 ≤ recoverable ≤ tax holds per line in both currencies.
+  Determination (which code a line has) stays the caller's. The country
+  pack's `rounding` setting is not yet in the pack schema: T61c/T61d add it
+  with the first caller.
 
 ### 9. Reverse charge and self-assessment
 A `reverse_charge` or `import` code has a `self_output` and a `self_input`
@@ -533,7 +583,7 @@ coverage 100%, reviewer) like every step.
 | Step | Work | Acceptance criteria |
 |---|---|---|
 | T61a (done) | **Dated tax codes with components** (config + ledger) | `config.TaxCode` with direction, kind, category, components (key, jurisdiction, account key, recoverable %, account, dated rates); old one-rate codes still load; validation as §3; `ledger.tax_rate` with a GiST exclusion per component; setup writes future rates, never edits a used rate (409 `ledger.tax_rate_in_use`, enforced by the database), no "changed today" refusal; `Accounts.TaxCode` returns the components at a date; the payables rate simulation reads dated rates; the pack schema carries the components and `countrypack.Apply` merges them; schema tests for each database rule; ADR-0048 amended (packs write all rates, the note goes) |
-| T61b | **The calculator** (`internal/tax`, pure) | Exclusive and inclusive bases; per document, code and component rounding half away from zero with largest-remainder allocation (and `line` mode); recoverable split; reverse-charge pairs; LC conversion at a given rate; the `Calculator` port; table tests incl. NS 15→14%, BC GST+PST, UAE 5%/0%/exempt; fuzz test that line tax sums to document tax and recoverable + non-recoverable = tax |
+| T61b (done) | **The calculator** (`internal/tax`, pure) | Exclusive and inclusive bases; per document, code and component rounding half away from zero with largest-remainder allocation (and `line` mode); recoverable split; reverse-charge pairs; LC conversion at a given rate; the `Calculator` port; table tests incl. NS 15→14%, BC GST+PST, UAE 5%/0%/exempt; fuzz test that line tax sums to document tax and recoverable + non-recoverable = tax |
 | T61c | **Tax items in the ledger** | `ledger.tax_item` (insert-only, RLS, `tenant_id` first) written by every posting path that carries a tax code (journal entries, invoices, GR/IR, down payments, settlements' discount correction, reversals negated); commit-time check that items match tax lines per entry and account; tax date on the entry (default as §4); `ledger.TaxItems` port; `FailingTx` tests on every path; the stale `capture.checkTaxRate` tracker entry corrected |
 | T61d | **Input tax on supplier invoices** | Tax calculated per item code at the tax date; one tax line per code and component account; non-deductible tax on the item's line; supplier's stated tax posted within the configured tolerance, else 422 `payables.tax_mismatch` with each code's figures; credit memos at the named invoice's tax date and rates; down payment requests' tax checked at the run date's rate; capture agent proposes codes (eval cases added) and flags mismatches; documentary-requirement warnings for CA/AE |
 | T61e | **Reverse charge, self-assessment and import tax** | `reverse_charge` and `import` codes post output and input lines and two items, the supplier owed the base; import tax from a customs declaration entry; UAE domestic RCM codes with the declaration as evidence; Canada line-405 codes; tests that a fully recoverable reverse charge nets to zero and a partly recoverable one leaves the blocked share on expense |

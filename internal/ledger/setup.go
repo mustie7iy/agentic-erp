@@ -59,7 +59,10 @@ var accountNumber = regexp.MustCompile(`^[0-9A-Z]{1,10}$`)
 // Check reports what the ledger cannot apply: companies without a legal
 // entity, a currency that is not the legal entity's, account numbers the
 // ledger does not accept, a start month that contradicts the legal
-// entity's existing calendar, and changes to activated accounts.
+// entity's existing calendar, changes to activated accounts, a tax code's
+// direction or account key changed, a rate change that would re-rate
+// postings (predicting 409 ledger.tax_rate_in_use), a GR/IR account
+// already posted and open-item management turned on for a posted account.
 func (s Setup) Check(ctx context.Context, base, proposed *config.Config) ([]config.Finding, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -91,10 +94,10 @@ func (f *findings) add(path, format string, a ...any) {
 
 // checkCompany checks one proposed company against its legal entity: the
 // account numbers, the legal entity's existence and currency, the start
-// month of its calendar, a tax code's direction or account key changed, a new GR/IR
-// account that is already posted, and open-item management turned on for
-// an account with postings. was is the activated company, nil for a new
-// one.
+// month of its calendar, a tax code's direction or account key changed, a
+// rate change that would re-rate postings, a new GR/IR account that is
+// already posted, and open-item management turned on for an account with
+// postings. was is the activated company, nil for a new one.
 func (s Setup) checkCompany(ctx context.Context, tx pgx.Tx, co config.Company, was *config.Company, out *findings) error {
 	p := "companies[" + co.Code + "]"
 	for _, a := range co.ChartOfAccounts {
@@ -123,6 +126,9 @@ func (s Setup) checkCompany(ctx context.Context, tx pgx.Tx, co config.Company, w
 		out.add(p+".fiscal_year_start_month", "the legal entity's fiscal calendar starts its years in month %d", months[0])
 	}
 	if err := checkTaxCodesFixed(ctx, tx, p, le.ID, co, out); err != nil {
+		return err
+	}
+	if err := checkTaxRatesUnposted(ctx, tx, p, le.ID, le.FiscalCalendarID, co, out); err != nil {
 		return err
 	}
 	if err := checkOpenItemsUnposted(ctx, tx, p, le.ID, co, was, out); err != nil {

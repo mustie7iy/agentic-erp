@@ -1172,14 +1172,20 @@
       "c": [
        {
         "s": "D",
-        "t": "Dated tax codes with components (account key, jurisdiction, recoverable %, UN/CEFACT category) in configuration and ledger: ledger.tax_rate with dated rates written ahead, a rate a posting used never edited (database-enforced), country packs carrying components and all their rates",
+        "t": "Dated tax codes with components (account key, jurisdiction, recoverable %, UN/CEFACT category) in configuration and ledger: ledger.tax_rate with dated rates written ahead, a rate a posting used never edited (database-enforced, predicted on submission by ledger.Setup.Check), country packs carrying components and all their rates",
         "r": "config.TaxCode · ledger.tax_code_definition/tax_component/tax_rate · db/migrations/000124 · countrypack Tax · T61a",
         "c": []
        },
        {
+        "s": "D",
+        "t": "The calculator (internal/tax, pure): exclusive and inclusive bases, rounding per document, code and component with largest-remainder allocation (or per line), recoverable split, reverse-charge pairs netting to zero, local currency conversion, the Calculator port; worked CA and AE examples, property and fuzz tests of the invariants",
+        "r": "internal/tax · tax.Calculator · tax.Calculate · money.Allocate · FuzzCalculate · T61b",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "The calculator (internal/tax, pure): exclusive and inclusive bases, rounding per document, code and component with largest-remainder allocation, recoverable split, reverse-charge pairs, the Calculator port",
-        "r": "T61b",
+        "t": "The ledger's cash discount tax split (ledger.itemTaxShares, T36d) uses money.Allocate instead of its own largest-remainder loop",
+        "r": "internal/ledger/discounttax.go · money.Allocate · with T61c",
         "c": []
        },
        {
