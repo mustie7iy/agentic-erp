@@ -1,8 +1,8 @@
 # ADR-0049: Tax determination, calculation and returns
 
-**Status:** proposed (T61, for the product owner, 2026-10-20). Nothing here is
-built; the split into steps (T61a-T61m) and the decisions at the end wait for
-the product owner.
+**Status:** accepted (T61, product owner 2026-10-20). The product owner took
+every decision as recommended (P1-P8, recorded at the end); the steps
+T61a-T61m are in the tracker.
 
 ## Context
 The pilots are a Canadian and a UAE company (07 §7.6, Phase 2 decisions). Both
@@ -166,7 +166,7 @@ Sources are listed at the end; where I am unsure, it says so.
   T65; it matters here because the e-invoice carries the tax category and tax
   per line that T61 determines.
 
-## Decision (proposed)
+## Decision
 
 ### 1. Scope of T61
 In: effective-dated tax codes with components; calculation of input tax on
@@ -498,7 +498,7 @@ T43 grants. The return endpoints carry `x-autonomy: none` for the transitions.
 - Packs gain `returns.yaml` and component schemas; T62f and T71 build on them.
 - No return is ever filed by the system; the filed state is a person's record.
 
-## Steps (proposed; the tracker gets them when the product owner approves)
+## Steps
 Ordered so the pilot's must-haves come first; each ends green (lint, tests,
 coverage 100%, reviewer) like every step.
 
@@ -535,6 +535,30 @@ when lane F is not changing `journal.go`.
 | P6 | Tax date | (a) posting date; (b) a separate tax date, default the invoice date, editable by a person within open returns | (b): matches SAP's tax reporting date, lets Canadian ITCs be claimed later within the limit, and keeps rate and return period right when posting lags the invoice |
 | P7 | An item dated in a filed period | (a) always the next return as a prior-period adjustment; (b) always an amendment; (c) next return up to a threshold per country (UAE AED 10,000 of tax), above it a person must choose amendment or voluntary disclosure | (c), the threshold in the country pack, zero for Canada (always next return unless a person amends) |
 | P8 | Partial recovery | (a) fixed recoverable % per code (meals 50%, blocked UAE input 0%); (b) plus annual apportionment for businesses with exempt supplies | (a) for the pilot unless a pilot company makes exempt supplies; (b) is a later step |
+
+**Decided (product owner, 2026-10-20), all as recommended:**
+- **P1** (a): calculation in-house for Canada and the UAE behind the
+  `Calculator` port; no provider now. T61m stays deferred until a country
+  needs an engine.
+- **P2** (a) with (b): the pilot's output tax comes as journal entries from
+  its billing system through the journal-entry API, one per sales invoice;
+  summary entries per code and jurisdiction are allowed (low-value volume).
+- **P3** (a): the ERP prepares and approves returns; a person files on the
+  authority's portal and records the confirmation. No electronic filing.
+- **P4** (b): the GST/HST return, plus the QST through Revenu Québec's
+  FPZ-500 only if the company is registered in Quebec; PST is self-assessed
+  and reported (PST paid), with no PST return.
+- **P5** (a): the supplier's stated tax is posted when it is within a
+  per-company tolerance (default one minor unit per tax code); beyond it
+  posting is refused with 422 `payables.tax_mismatch`.
+- **P6** (b): a separate tax date, defaulting to the invoice date, editable
+  by a person while its return is open, never by an agent.
+- **P7** (c): a late item goes into the next return as a prior-period
+  adjustment up to a per-country threshold in the pack (UAE AED 10,000 of
+  tax; zero for Canada); above it a person chooses amendment or voluntary
+  disclosure.
+- **P8** (a): a fixed recoverable percentage per code; apportionment is a
+  later step, only if a pilot company needs it.
 
 Information needed from the pilot (not decisions): each pilot company's
 province or emirate, registrations (BN/RT, QST, PST, TRN, tax group), filing
