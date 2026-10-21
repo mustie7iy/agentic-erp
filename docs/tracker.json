@@ -4413,6 +4413,91 @@
       "t": "Command line for operators: erp tenants list | get | create | suspend | resume | offboard",
       "r": "cmd/erp/tenants.go · TestTenantsCommand",
       "c": []
+     },
+     {
+      "s": "P",
+      "t": "Web workspace decided: server-rendered Go (templ + htmx, no hand-written JavaScript) in a new erp-web beside the router on its own hostname; a backend-for-frontend holding tokens server-side in sealed sessions; tenant login code in the URL; only the public API through the ogen client; agents' proposals shown for people to decide; English, French if Québec staff, Arabic when asked, RTL-ready; WCAG 2.2 AA; go-live screens approvals, invoices, payment runs, bank reconciliation, manual entries, period close, reports; desktop browsers, approvals also on phones (product owner 2026-10-21, P1-P8 as recommended)",
+      "r": "ADR-0052 · T73 (split T73a-T73m)",
+      "c": [
+       {
+        "s": "T",
+        "t": "Skeleton: cmd/erp-web and internal/web with templ (make generate, CI diff check), vendored htmx pinned by hash with allowEval and allowScriptTags off, layout, navigation shell and base CSS (logical properties only), message catalog with English and two pseudo-locales (long text, RTL), security headers and CSP with nonces, health and /version, TestImportRules entries, ko image and release, the erp-global chart's Deployment and network policy under helm-checks.sh, chromedp and axe harness in CI; ADR-0022/0032/0035 amended",
+        "r": "T73a",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Sign-in through the BFF (P2, P3, P4; G8, G9): web_client and login code on identity provider registrations (api/control.yaml) and the directory projection; authorization code flow with PKCE, state, nonce and private_key_jwt; ID token through authn; web schema in the directory database with sealed tokens and an hourly sweep; __Host-Http- Strict session cookie, Lax login cookie; CSRF by CrossOriginProtection and synchronizer token; refresh; 401 and RFC 9470 step-up handled; endCurrentSession and RP-initiated logout; authntest gains an authorization endpoint; production startup checks; security tests",
+        "r": "T73b",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "API for the workspace (G1, G2, G3, G7), contract first: listApprovalRequests decidable_by=me with its index, getCurrentPrincipal (GET /v1/me) with identity.self.read granted to every role, listPrincipalNames, x-problem-codes on every operation with a spec test against the registered codes; schema and FailingTx tests",
+        "r": "T73c",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Approvals inbox: decidable by me, my requests, all I can see; detail per object type with summary, steps and decisions; approve and reject with reason, cancel own; SoD and permission refusals shown by code; requester and deciders by name and kind; usable at 390 px; walked through by a pilot approver",
+        "r": "T73d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Invoices and the AP exception queue: queue by status and exception, invoice detail with the sandboxed document beside it, match results, hold, release, post, cancel and reverse with ETags and idempotency keys, capture by upload through the API's signed path, the agent's recommendation with decide, agent text escaped and inert; walked through by a pilot AP clerk",
+        "r": "T73e",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Payment runs: propose (202 with progress), run detail with payments and exclusions, release and reject with SoD (the proposer refused), operation cancel and resume, bank file status and transmit",
+        "r": "T73f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Bank statements and reconciliation: import by upload, statements and lines by status, agent proposals accepted or rejected, manual match from open items and payments, exclude, post with the clearing approval (the matcher refused as approver), reconciliation report per house bank, masked accounts",
+        "r": "T73g",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Manual journal entries: entry form with lines (accounts, centers, partner, tax code) with and without htmx, CSV upload of lines into a parked entry, park and post with approval above the limit, withdraw, agents' parked entries taken on, journal browse and reverse; keyboard-only entry of a ten-line entry",
+        "r": "T73h",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Period close screens: periods per company and ledger, open, close and lock, unlock request and its approval, revaluation preview and post, pre-close checks (GR/IR, ledger reconciliation, statements not reconciled) linked to their reports",
+        "r": "T73i",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Reports (G4, G5): trial balance, supplier open items with due dates and aging (contract change), GR/IR, bank and ledger reconciliation, a document's audit history, drill-down to entries, CSV up to 10,000 rows; page budgets met at the pilot's volumes",
+        "r": "T73j",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Master data and change request screens, after go-live (PO P6; CLI meanwhile): suppliers and bank account change requests under dual control, partner changes, cost and profit centers and segments with their change requests, configuration change requests with diff, simulation and regression evidence, submit, withdraw, activate",
+        "r": "T73k",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Languages (P5): French (Canada) complete and reviewed by a native finance user if the Canadian company has Québec staff; Arabic with RTL when the UAE pilot asks; locale preference; every problem code translated; RTL and long-text scenarios green",
+        "r": "T73l",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Pilot readiness of the workspace: every pilot scenario green on the staging cell with the pilot's identity provider; external WCAG 2.2 AA audit with no open AA finding; penetration test with no open high finding; weekly ZAP clean; runbook (sign-in failures, session store, rotating sealing and client keys); pilot users trained",
+        "r": "T73m",
+        "c": []
+       }
+      ]
      }
     ]
    }

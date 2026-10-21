@@ -1,8 +1,10 @@
 # ADR-0052: Web workspace for pilot finance users
 
-**Status:** proposed (T72, for the product owner: decisions P1-P8 at the
-end). The steps T72a-T72m enter the tracker once the product owner has
-decided.
+**Status:** accepted (T73, product owner 2026-10-21: P1-P3 and P5-P8 as
+recommended, P4 as recommended and accepted by the coordinator, see
+"Decisions taken"). The steps T73a-T73m are in the tracker. The tracker's
+pilot readiness item T72k ("Web UI for pilot finance users") is built by
+T73.
 
 ## Context
 The product owner decided on 2026-10-21 that **the pilot's finance users
@@ -121,7 +123,7 @@ items.
 
 ## Decision
 
-### 1. Scope of T72
+### 1. Scope of T73
 In:
 - a **web workspace** for the pilot's finance and AP users, served by a
   new binary `erp-web`;
@@ -136,7 +138,7 @@ Out (where each goes):
   workspace once it exists;
 - a chat with agents: T59 and T67;
 - report scheduling, sharing and Excel/PDF export: T63;
-- the close checklist: T64. T72i shows periods and their states only;
+- the close checklist: T64. T73i shows periods and their states only;
 - procurement buyers' screens (requisitions and orders beyond approving
   them), operators' screens (the control and directory planes stay
   operator tooling and CLI) and tenant administration (roles, SoD,
@@ -169,14 +171,14 @@ calls. **Gaps** are numbered G1-G9 and described in §3.
 Jobs the API has no operations for yet, so the pilot UI does not have them
 either:
 - tax returns (T61, ADR-0049 accepted, not built here);
-- the cash position and forecast (T53, ADR-0051 proposed);
+- the cash position and forecast (T53, ADR-0051 accepted);
 - the close checklist (T64);
 - exports above a page (T63);
 - receivables (phase 3).
 
 Each of these gets its screen in the step that builds its API, against
 the conventions of this ADR. That is a line in each future step's
-acceptance criteria, "screens in the workspace", once T72 exists.
+acceptance criteria, "screens in the workspace", once T73 exists.
 
 ### 3. API gaps a UI needs
 Each gap traces to a job in §2 and is a contract-first, additive change in
@@ -229,7 +231,7 @@ partners get the same operations.
 - **G5: exports of report pages.** A trial balance or open-item list of
   more than a few pages is downloaded, not paged on screen. Up to 10,000
   rows, the UI streams the pages it reads into a CSV (§8). Above that, the
-  export operation of T63 is needed. **No new endpoint in T72.** The UI
+  export operation of T63 is needed. **No new endpoint in T73.** The UI
   says when a report is over the limit.
 - **G6: document search.** "Find 5100000123" spans invoices, journal
   entries, payment runs, goods receipts and orders, each of which has a
@@ -633,7 +635,7 @@ Which languages ship at the pilot is P5:
     and amounts and codes isolated with `<bdi>`/`dir="ltr"` so an IBAN's
     last four or a document number never reorders.
   - A pseudo-locale (accented, 30% longer) and an RTL pseudo-locale run in
-    the end-to-end suite from T72a. Adding Arabic is then translation and
+    the end-to-end suite from T73a. Adding Arabic is then translation and
     review, not a rework.
 
 **Accessibility: WCAG 2.2 level AA** (W3C Recommendation, current version
@@ -667,7 +669,7 @@ that are not Go get gates of equal force.
 | CSS | Plain CSS files, no preprocessor; a test fails on physical direction properties (`left`, `right`, `margin-left`, …) outside an allow-list, so RTL cannot regress |
 | Security | Tests for:<br>• cookie attributes;<br>• session id rotation at sign-in;<br>• CSRF refusal (cross-site `Sec-Fetch-Site`, missing or wrong token);<br>• no state change on safe methods (a walk of the routes);<br>• CSP and the other headers on every route;<br>• open redirect on the return path;<br>• a 401 ending the session;<br>• the step-up challenge restarting the flow;<br>• sign-out ending the API session (G9);<br>• document responses sandboxed;<br>• agent and supplier text escaped (a planted `<script>`, `javascript:` link and markdown link in a recommendation).<br>Weekly OWASP ZAP baseline scan against the staging cell, findings triaged like grype's |
 | End to end | Go tests driving headless Chromium with **chromedp** (Go, CDP) against a **real cell**: `erp-server`, `erp-router` and `erp-web`, PostgreSQL, and `authntest` extended with an authorization endpoint (code flow, PKCE, `private_key_jwt`), in CI's integration job. Each pilot job of §2 is one scenario run as the pilot's roles, including SoD refusals and a stale-version conflict, at 1280 px and 390 px widths and in the RTL pseudo-locale |
-| Accessibility | axe-core injected by the end-to-end tests into each page and state, **zero violations** at WCAG 2.2 A/AA rules; keyboard-only walk-through of each scenario (focus order, visible focus, no traps); manual screen-reader review (NVDA with Firefox, VoiceOver with Safari) of each pilot screen before its step is done; an external audit before go-live (T72m). axe-core is test tooling run in the test browser, not part of the platform |
+| Accessibility | axe-core injected by the end-to-end tests into each page and state, **zero violations** at WCAG 2.2 A/AA rules; keyboard-only walk-through of each scenario (focus order, visible focus, no traps); manual screen-reader review (NVDA with Firefox, VoiceOver with Safari) of each pilot screen before its step is done; an external audit before go-live (T73m). axe-core is test tooling run in the test browser, not part of the platform |
 | Performance | Budgets in 05's style: server time of a page ≤ the API calls it makes + 30 ms p95; at most 6 API calls per page render (the per-principal limit is 50/s); HTML ≤ 100 KB, htmx the only script; measured in the perf job |
 | Review | The `go-reviewer` agent on every step; plus a pilot user's walk-through of each screen against its job before the step is done (the acceptance criteria say which role) |
 
@@ -756,10 +758,10 @@ and agents use it" in 06 §6.6's table for the UI's part. The CLI's
   constraint: one vendored JavaScript file, no hand-written scripts.
 
 ## Boundaries with the other steps
-- **T37 (identity):** T72b reuses the verifier, key cache and session
+- **T37 (identity):** T73b reuses the verifier, key cache and session
   semantics; G8 and G9 extend the registry and the session table.
 - **T49 (bank statements), T35 and T32 (approvals, period lock), T36 and
-  T45 (payment runs):** their screens are T72d-T72i; no rule moves into
+  T45 (payment runs):** their screens are T73d-T73i; no rule moves into
   the UI.
 - **T42 and T43 (agents):** recommendations and proposals are shown and
   decided here; no agent runs in `erp-web`.
@@ -767,7 +769,7 @@ and agents use it" in 06 §6.6's table for the UI's part. The CLI's
   under the breaking-change check.
 - **T53, T61, T64:** their screens follow when their APIs exist.
 - **T59 (dashboards):** renders inside this workspace (the analytics HTML
-  embedded under the same CSP, no scripts) after T72a.
+  embedded under the same CSP, no scripts) after T73a.
 - **T63 (delivery, export):** exports above 10,000 rows and scheduled
   reports.
 - **T67 (MCP, access agent):** none.
@@ -776,34 +778,61 @@ and agents use it" in 06 §6.6's table for the UI's part. The CLI's
 These steps are ordered so the pilot's must-haves come first (P6). Each
 ends green: lint, tests, coverage at 100%, the end-to-end scenarios of its
 screens, axe at zero, and the reviewer. Lane A builds the screens. Lane P
-builds T72a-T72c's platform parts (the image, the chart, the control
+builds T73a-T73c's platform parts (the image, the chart, the control
 plane). The API gaps go to the lane that owns each context. Sizes: S up to
 three days, M about a week, L about two weeks.
 
 | Step | Size | Work | Acceptance criteria |
 |---|---|---|---|
-| T72a | M | **Skeleton** | `cmd/erp-web` and `internal/web` with templ (`make generate`, CI diff check), the vendored htmx pinned by hash with `allowEval`/`allowScriptTags` off, layout, navigation shell and base CSS (logical properties only), message catalog with English and the two pseudo-locales, security headers and CSP with nonces, health and `/version`, `TestImportRules` entries, ko image in `.ko.yaml` and the release, the `erp-global` chart's Deployment and network policy with `helm-checks.sh`, chromedp + axe harness in CI with one page; ADR-0022/0032/0035 amended |
-| T72b | L | **Sign-in (BFF)** (P2, P3, G8, G9) | `web_client` on identity provider registrations in `api/control.yaml` and the directory projection; login code; authorization code flow with PKCE, `state`, `nonce`, `private_key_jwt`; ID token through `authn`; `web` schema and its login in the directory database, sealed tokens, hourly sweep; cookies as §5; CSRF (CrossOriginProtection, synchronizer token); refresh; 401 and RFC 9470 step-up handling; `endCurrentSession` in the API and RP-initiated logout; `authntest` gains the authorization endpoint; production startup checks; the security tests of §10 |
-| T72c | M | **API for the workspace** (G1, G2, G3, G7) | Contract first: `decidable_by=me` with its index, `getCurrentPrincipal` with `identity.self.read` granted to every role by migration, `listPrincipalNames`, `x-problem-codes` on every operation with the spec test against the registered codes; each with schema and `FailingTx` tests; the CLI and agent tools pick them up unchanged |
-| T72d | M | **Approvals inbox** | Inbox (decidable by me, my requests, all I can see), detail per object type with its summary, steps and decisions, approve/reject with reason, cancel own; SoD and permission refusals shown by code; requester and deciders by name and kind; usable at 390 px; scenarios as approver, requester and a person without the role; walked through by a pilot approver |
-| T72e | L | **Invoices and the AP exception queue** | Queue by status and exception, invoice detail with the sandboxed document beside it, match results, hold/release/post/cancel/reverse with ETags and idempotency keys, capture by upload through the API's signed path, the agent's recommendation panel with decide, escaped agent text; scenarios: clean post, price variance held and released, exception approved by someone else, stale version, planted instruction in the recommendation shown inert; walked through by a pilot AP clerk |
-| T72f | M | **Payment runs** | Propose (202 with progress), run detail with payments and exclusions, release and reject with SoD (the proposer refused), operation cancel and resume, bank file status and transmit; scenarios as proposer and releaser |
-| T72g | L | **Bank statements and reconciliation** | Import by upload, statement and line views by status, agent proposals accepted or rejected, manual match from open items and payments, exclude, post with the clearing approval (the matcher refused as approver), reconciliation report per house bank; masked accounts; a foreign-currency statement where the pilot has one |
-| T72h | L | **Manual journal entries** | Entry form with lines (accounts, centers, partner, tax code), add and remove rows with and without htmx, CSV upload of lines into a parked entry, park/post with the approval above the limit, withdraw, agents' parked entries listed and taken on, journal browse and reverse (refused for entries owned elsewhere, as the API says); keyboard-only entry of a ten-line entry within the scenario |
-| T72i | M | **Period close** | Periods per company and ledger, open/close/lock, unlock request and its approval, revaluation preview and post, the pre-close checks (GR/IR, ledger reconciliation, statements not reconciled) on one page as links to their reports |
-| T72j | M | **Reports** (G4, G5) | Trial balance, supplier open items with due dates and aging (G4's contract change), GR/IR, bank and ledger reconciliation, a document's audit history; drill-down to entries; CSV up to 10,000 rows; budgets of §10 met at the pilot's volumes |
-| T72k | L | **Master data and change requests** | Suppliers and bank account change requests (dual control shown: requester cannot approve), partner changes, cost/profit centers and segments with their change requests; configuration change requests with diff, simulation and regression evidence, submit, withdraw, activate |
-| T72l | M | **Languages** (P5) | French (Canada) complete and reviewed by a native finance user; Arabic with RTL reviewed by a native finance user if chosen; locale preference; every problem code translated; RTL and long-text scenarios green |
-| T72m | M | **Pilot readiness** | Every pilot scenario of §2 green against the staging cell with the pilot's identity provider; external WCAG 2.2 AA audit with no open AA finding; penetration test of `erp-web` with no open high finding; ZAP weekly clean; runbook (sign-in failures, session store, rotating the sealing and client keys); pilot users trained on the staging cell |
+| T73a | M | **Skeleton** | `cmd/erp-web` and `internal/web` with templ (`make generate`, CI diff check), the vendored htmx pinned by hash with `allowEval`/`allowScriptTags` off, layout, navigation shell and base CSS (logical properties only), message catalog with English and the two pseudo-locales, security headers and CSP with nonces, health and `/version`, `TestImportRules` entries, ko image in `.ko.yaml` and the release, the `erp-global` chart's Deployment and network policy with `helm-checks.sh`, chromedp + axe harness in CI with one page; ADR-0022/0032/0035 amended |
+| T73b | L | **Sign-in (BFF)** (P2, P3, G8, G9) | `web_client` on identity provider registrations in `api/control.yaml` and the directory projection; login code; authorization code flow with PKCE, `state`, `nonce`, `private_key_jwt`; ID token through `authn`; `web` schema and its login in the directory database, sealed tokens, hourly sweep; cookies as §5; CSRF (CrossOriginProtection, synchronizer token); refresh; 401 and RFC 9470 step-up handling; `endCurrentSession` in the API and RP-initiated logout; `authntest` gains the authorization endpoint; production startup checks; the security tests of §10 |
+| T73c | M | **API for the workspace** (G1, G2, G3, G7) | Contract first: `decidable_by=me` with its index, `getCurrentPrincipal` with `identity.self.read` granted to every role by migration, `listPrincipalNames`, `x-problem-codes` on every operation with the spec test against the registered codes; each with schema and `FailingTx` tests; the CLI and agent tools pick them up unchanged |
+| T73d | M | **Approvals inbox** | Inbox (decidable by me, my requests, all I can see), detail per object type with its summary, steps and decisions, approve/reject with reason, cancel own; SoD and permission refusals shown by code; requester and deciders by name and kind; usable at 390 px; scenarios as approver, requester and a person without the role; walked through by a pilot approver |
+| T73e | L | **Invoices and the AP exception queue** | Queue by status and exception, invoice detail with the sandboxed document beside it, match results, hold/release/post/cancel/reverse with ETags and idempotency keys, capture by upload through the API's signed path, the agent's recommendation panel with decide, escaped agent text; scenarios: clean post, price variance held and released, exception approved by someone else, stale version, planted instruction in the recommendation shown inert; walked through by a pilot AP clerk |
+| T73f | M | **Payment runs** | Propose (202 with progress), run detail with payments and exclusions, release and reject with SoD (the proposer refused), operation cancel and resume, bank file status and transmit; scenarios as proposer and releaser |
+| T73g | L | **Bank statements and reconciliation** | Import by upload, statement and line views by status, agent proposals accepted or rejected, manual match from open items and payments, exclude, post with the clearing approval (the matcher refused as approver), reconciliation report per house bank; masked accounts; a foreign-currency statement where the pilot has one |
+| T73h | L | **Manual journal entries** | Entry form with lines (accounts, centers, partner, tax code), add and remove rows with and without htmx, CSV upload of lines into a parked entry, park/post with the approval above the limit, withdraw, agents' parked entries listed and taken on, journal browse and reverse (refused for entries owned elsewhere, as the API says); keyboard-only entry of a ten-line entry within the scenario |
+| T73i | M | **Period close** | Periods per company and ledger, open/close/lock, unlock request and its approval, revaluation preview and post, the pre-close checks (GR/IR, ledger reconciliation, statements not reconciled) on one page as links to their reports |
+| T73j | M | **Reports** (G4, G5) | Trial balance, supplier open items with due dates and aging (G4's contract change), GR/IR, bank and ledger reconciliation, a document's audit history; drill-down to entries; CSV up to 10,000 rows; budgets of §10 met at the pilot's volumes |
+| T73k | L | **Master data and change requests** | Suppliers and bank account change requests (dual control shown: requester cannot approve), partner changes, cost/profit centers and segments with their change requests; configuration change requests with diff, simulation and regression evidence, submit, withdraw, activate |
+| T73l | M | **Languages** (P5) | French (Canada) complete and reviewed by a native finance user; Arabic with RTL reviewed by a native finance user if chosen; locale preference; every problem code translated; RTL and long-text scenarios green |
+| T73m | M | **Pilot readiness** | Every pilot scenario of §2 green against the staging cell with the pilot's identity provider; external WCAG 2.2 AA audit with no open AA finding; penetration test of `erp-web` with no open high finding; ZAP weekly clean; runbook (sign-in failures, session store, rotating the sealing and client keys); pilot users trained on the staging cell |
 
-The pilot's must-haves, per P6's recommendation, are T72a-T72j, T72l (if
-French is required) and T72m. T72k can follow in the pilot's first month,
+The pilot's must-haves, as P6 decided, are T73a-T73j, T73l (if
+French is required) and T73m. T73k can follow in the pilot's first month,
 with master data and configuration done meanwhile through the CLI by the
-implementation team, as today. T72c can run in parallel with T72b, and
-T72d-T72k in parallel lanes once T72a-T72c are done, since they touch
+implementation team, as today. T73c can run in parallel with T73b, and
+T73d-T73k in parallel lanes once T73a-T73c are done, since they touch
 different screens.
 
-## Decisions for the product owner
+## Decisions taken (product owner, 2026-10-21)
+All eight as recommended:
+- **P1** (a): `erp-web` is server-rendered Go with templ and htmx, calling
+  the API through the typed ogen client, with no hand-written JavaScript
+  (§4).
+- **P2** (a): a backend-for-frontend. Tokens stay on the server and the
+  browser holds an HttpOnly session cookie (§5).
+- **P3** (a): `erp-web` runs in the global chart next to the router, on its
+  own hostname and balancer, with sealed server-side sessions in a `web`
+  schema of the directory database (§6).
+- **P4** (a): a tenant login code in the URL (`/login/<code>`), remembered
+  in a cookie. This one was not put to the product owner separately: the
+  coordinator accepted the recommendation (§5).
+- **P5** (a): English at go-live, plus French if the Canadian company has
+  staff in Québec; Arabic when the UAE pilot asks for it. The layout is
+  RTL-ready from T73a (§9).
+- **P6** (a): at go-live, the approvals inbox, invoices and AP exceptions,
+  payment runs, bank statements and reconciliation, manual journal
+  entries, period close and reports (T73d-T73j). Master data and
+  configuration screens (T73k) follow about a month after go-live, done
+  through the CLI meanwhile.
+- **P7** (a): our own small set of plain-CSS components on an open,
+  accessibility-tested design system's patterns, with the product's brand.
+- **P8** (a): desktop browsers, the current and previous versions of Edge,
+  Chrome, Firefox and Safari, at 1280 px or wider; the inbox and approvals
+  also on phones (390 px or wider).
+
+The options as proposed:
 
 | # | Decision | Options | Recommendation |
 |---|---|---|---|
@@ -811,8 +840,8 @@ different screens.
 | P2 | Where tokens live | (a) a BFF: `erp-web` is a confidential client (`private_key_jwt`), the browser holds an HttpOnly session cookie; (b) a token-mediating backend (tokens handed to the browser); (c) a public client in the browser with PKCE | (a): RFC 10017 ranks it first and recommends it for business applications; a payment-releasing app should not have tokens in JavaScript's reach |
 | P3 | Where `erp-web` runs and keeps sessions | (a) in the global chart next to the router, own hostname and balancer, sessions sealed in a `web` schema of the directory database; (b) per cell, with a cell hostname chosen before sign-in; (c) global with stateless sealed cookies | (a): the router is already global, the browser stays away from its certificate request, and server-side sessions can be revoked and fit large tokens |
 | P4 | How a person finds their sign-in | (a) a tenant login code in the URL (`/login/acme`), remembered in a cookie; (b) e-mail domain discovery (needs verified domains per tenant); (c) one hostname per tenant | (a): simple and explicit; (b) later if tenants ask; (c) leaks tenant identity into DNS, as ADR-0022 rejected |
-| P5 | Languages at the pilot | (a) English and French (Canada) at go-live, Arabic later on an RTL-ready layout; (b) English only; (c) English, French and Arabic at go-live | (a) if the Canadian company has staff in Québec (Charter of the French Language), else (b) with French soon after; Arabic when the UAE pilot asks for it. The layout is RTL-ready from T72a in every option |
-| P6 | Pilot must-have screens | (a) approvals, invoices and exceptions, payment runs, bank reconciliation, manual entries, period close and reports (T72d-T72j) at go-live, master data and configuration screens a month after; (b) approvals and invoices only, the rest by CLI; (c) all of §2 including master data and configuration at go-live | (a): these are the daily and month-end jobs of AP, treasury and GL; master data and configuration changes are rare in the pilot's first month and done by the implementation team |
+| P5 | Languages at the pilot | (a) English and French (Canada) at go-live, Arabic later on an RTL-ready layout; (b) English only; (c) English, French and Arabic at go-live | (a) if the Canadian company has staff in Québec (Charter of the French Language), else (b) with French soon after; Arabic when the UAE pilot asks for it. The layout is RTL-ready from T73a in every option |
+| P6 | Pilot must-have screens | (a) approvals, invoices and exceptions, payment runs, bank reconciliation, manual entries, period close and reports (T73d-T73j) at go-live, master data and configuration screens a month after; (b) approvals and invoices only, the rest by CLI; (c) all of §2 including master data and configuration at go-live | (a): these are the daily and month-end jobs of AP, treasury and GL; master data and configuration changes are rare in the pilot's first month and done by the implementation team |
 | P7 | Design system and brand | (a) our own small set of components in plain CSS, following an openly licensed, accessibility-tested public design system's patterns (for example the GOV.UK Design System), with the product's name and colours from the product owner; (b) a precompiled CSS framework (for example Bootstrap 5, which ships an RTL build); (c) a commissioned design from an agency | (a): about fifteen components cover §2, no build step, logical properties for RTL, and accessibility patterns that are already tested; (c) can restyle it later, since components are templ |
 | P8 | Browsers and devices | (a) the current and previous major versions of Edge, Chrome, Firefox and Safari on desktop and laptop (≥1280 px), the inbox and approvals also on phones (≥390 px); (b) desktop only; (c) full mobile support | (a): finance work is at a desk, approvals are not; (c) multiplies the test matrix for jobs nobody does on a phone |
 
@@ -888,14 +917,20 @@ Information needed from the pilot (not decisions):
   adding s. 52.1:
   https://www.publicationsduquebec.gouv.qc.ca/fileadmin/gazette/pdf_encrypte/lois_reglements/1997A/101438.pdf
 
-**From memory, to check:**
-- the SAP Fiori app names in "What SAP gives these users";
-- browsers showing a certificate picker when a server requests an optional
-  client certificate;
-- English as the usual working language of UAE finance teams;
-- AODA and the Accessible Canada Act referencing WCAG 2.0/2.1 AA;
-- Bootstrap 5 shipping an RTL build;
-- the GOV.UK Design System's licence (MIT for its code, as I recall);
-- Entra ID tokens exceeding a cookie's size with group claims;
-- chromedp and axe-core's licences (MIT and MPL-2.0 as I recall), to
-  confirm before T72a adds them.
+**From memory, to verify.** Each is an open item. The step named
+verifies it and records the source here, or corrects the text:
+- (T73d-T73k, with the pilot) the SAP Fiori app names in "What SAP gives these users";
+- (T73b) browsers showing a certificate picker when a server requests an
+  optional client certificate;
+- (T73l, with the pilot) English as the usual working language of UAE
+  finance teams;
+- (T73m) AODA and the Accessible Canada Act referencing WCAG 2.0/2.1 AA;
+- (T73a) Bootstrap 5 shipping an RTL build (only relevant to the option
+  not taken in P7);
+- (T73a) the GOV.UK Design System's licence (MIT for its code, as I
+  recall);
+- (T73b) Entra ID tokens exceeding a cookie's size with group claims;
+- (T73a) chromedp and axe-core's licences (MIT and MPL-2.0 as I recall),
+  to confirm before T73a adds them;
+- (T73l) the Charter of the French Language's consolidated text (ss. 41
+  and 52.1), and whether the Canadian company is in scope.
