@@ -159,15 +159,16 @@ func (w Writes) violations(ctx context.Context, wr Write) ([]Violation, int32, e
 // be evaluated, by entity; the process registers it with its metrics. The
 // rule and the tenant are in the log line, not labels, so the series stay
 // few however many rules tenants write.
-var Unevaluable = prometheus.NewCounterVec(prometheus.CounterOpts{Name: UnevaluableName, Help: UnevaluableHelp}, []string{UnevaluableLabel})
+var Unevaluable = prometheus.NewCounterVec(UnevaluableOpts, []string{UnevaluableLabel})
 
-// Unevaluable's name, help and one label, which the process's metrics
-// catalog records with it (ADR-0043).
-const (
-	UnevaluableName  = "erp_rules_unevaluable_total"
-	UnevaluableHelp  = "Writes refused or held because a tenant's validation rule could not be evaluated, by entity."
-	UnevaluableLabel = "entity"
-)
+// UnevaluableOpts are Unevaluable's name and help, which the process's
+// metrics catalog records with it (ADR-0043).
+var UnevaluableOpts = prometheus.CounterOpts{
+	Name: "erp_rules_unevaluable_total", Help: "Writes refused or held because a tenant's validation rule could not be evaluated, by entity.",
+}
+
+// UnevaluableLabel is Unevaluable's one label.
+const UnevaluableLabel = "entity"
 
 // unevaluable logs and counts a rule that failed or exceeded a limit on a
 // write's input (ADR-0046), so that operations see it.

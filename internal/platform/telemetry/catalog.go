@@ -61,9 +61,10 @@ func (m *Metrics) counterVec(name, help string, labels ...string) *prometheus.Co
 
 // Counter registers a counter vector another package owns, one it counts
 // where no Metrics is at hand (rules.Unevaluable), with its catalog entry,
-// so Check and Series hold it to the catalog like the rest.
-func (m *Metrics) Counter(c *prometheus.CounterVec, name, help string, labels ...string) {
-	m.register(c, family{name: name, help: help, kind: dto.MetricType_COUNTER, labels: labels})
+// so Check and Series hold it to the catalog like the rest. opts and labels
+// are the ones the vector was made with, which its owner exports.
+func (m *Metrics) Counter(c *prometheus.CounterVec, opts prometheus.CounterOpts, labels ...string) {
+	m.register(c, family{name: opts.Name, help: opts.Help, kind: dto.MetricType_COUNTER, labels: labels})
 }
 
 func (m *Metrics) histogramVec(name, help string, buckets []float64, labels ...string) *prometheus.HistogramVec {

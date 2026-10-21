@@ -534,7 +534,7 @@ func (s *server) collaborators() {
 // for a cell with an object store (ADR-0044).
 func newMetrics(pool *database.Pool, cfg config.Config, log *slog.Logger, analytics bool) *telemetry.Metrics {
 	m := telemetry.NewMetrics()
-	m.Counter(rules.Unevaluable, rules.UnevaluableName, rules.UnevaluableHelp, rules.UnevaluableLabel)
+	m.Counter(rules.Unevaluable, rules.UnevaluableOpts, rules.UnevaluableLabel)
 	backlogs(pool, cfg, m)
 	businessGauges(pool, cfg, m)
 	if analytics {

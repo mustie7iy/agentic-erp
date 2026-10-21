@@ -224,14 +224,12 @@ func TestInfo(t *testing.T) {
 	}
 }
 
-// The catalog (ADR-0043) holds every registered metric: names that pass
-// promlint, labels from the allow-list, series under the ceiling.
 // TestCounter: a counter another package owns is registered with its
 // catalog entry, so Check holds it and Series names it.
 func TestCounter(t *testing.T) {
 	m := NewMetrics()
-	c := prometheus.NewCounterVec(prometheus.CounterOpts{Name: "erp_owned_total", Help: "Owned elsewhere."}, []string{"tenant_id"})
-	m.Counter(c, "erp_owned_total", "Owned elsewhere.", "tenant_id")
+	opts := prometheus.CounterOpts{Name: "erp_owned_total", Help: "Owned elsewhere."}
+	m.Counter(prometheus.NewCounterVec(opts, []string{"tenant_id"}), opts, "tenant_id")
 	if got := fmt.Sprint(m.Series()["erp_owned_total"]); got != "[tenant_id]" {
 		t.Errorf("series: got %s, want [tenant_id]", got)
 	}
@@ -240,6 +238,8 @@ func TestCounter(t *testing.T) {
 	}
 }
 
+// The catalog (ADR-0043) holds every registered metric: names that pass
+// promlint, labels from the allow-list, series under the ceiling.
 func TestCatalog(t *testing.T) {
 	m := NewMetrics()
 	m.Gauge("erp_outbox_backlog", "Events waiting.", func(context.Context) (float64, error) { return 0, nil })
