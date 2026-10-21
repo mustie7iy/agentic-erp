@@ -100,8 +100,10 @@ with a ledger or group, is how they propose.
 
 **Tax items (T61c, ADR-0049 §5).** A posting's tax items are its leading
 ledger's entry's alone: returns are statutory and read the leading ledger,
-so a copy, with the same tax lines, has none, and neither has an entry of a
-parallel ledger alone (`tax_item_leading`).
+so a copy, with the same tax lines, has none (`tax_item_leading`). A
+posting that leaves out the leading ledger may carry no tax code (product
+owner, 2026-10-21; 422 `ledger.tax_code_off_leading`, and the commit-time
+check `tax_code_off_leading`): tax comes only from postings the returns see.
 
 **Revaluation and depreciation.** Foreign-currency revaluation runs per
 ledger (T52f, as built): a run names its ledger (`ledger_id`, the leading

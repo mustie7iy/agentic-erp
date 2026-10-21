@@ -901,6 +901,9 @@ func (e *Endpoints) prepareFor(ctx context.Context, tx pgx.Tx, le tenancy.Entity
 	if err := commonOnReconciliation(choice, lines, accounts); err != nil {
 		return prepared{}, err
 	}
+	if err := taxOnLeading(choice, lines); err != nil {
+		return prepared{}, err
+	}
 	if err := checkTaxCodes(ctx, tx, le.ID, in.taxDay(), lines, in.taxItems != nil); err != nil {
 		return prepared{}, err
 	}

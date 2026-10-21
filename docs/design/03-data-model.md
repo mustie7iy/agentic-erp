@@ -823,16 +823,17 @@ used is withdrawn rather than deleted, and the database refuses withdrawing
 or re-dating a rate past a posting of its code or adding one over posted
 dates, `ledger.tax_rate_in_use`, read from the tax items by tax date since
 T61c); the former `tax_code` (one rate and account per validity) was copied
-into them and is dropped (000140, T61c), `withholding_tax_code` (T46e: the
+into them and is dropped (000142, T61c), `withholding_tax_code` (T46e: the
 configuration's `companies[].withholding_tax_codes`, SAP T059P/T059Z, kept
 by the setup per legal entity: a rate above 0 and below 100% of the
 invoice's net, the default, or gross, deducted at invoice or at payment, to
 a liability that reconciles no supplier, the withholding tax payable; a code
 the document no longer has is deactivated).
 
-Tax items (T61c, ADR-0049 §5; migrations 000139-000140): `tax_item`, one per
+Tax items (T61c, ADR-0049 §5; migrations 000141-000142): `tax_item`, one per
 entry of the leading ledger (a parallel ledger's copies and entries have
-none, `tax_item_leading`), tax code, component and tax line account, written with every entry
+none, `tax_item_leading`; a parallel ledger's entry that is no copy of a
+leading ledger's carries no tax code, `tax_code_off_leading`), tax code, component and tax line account, written with every entry
 that carries a tax code in its transaction (from its lines, or a reversal's
 and a down payment transfer's negated from the entries they reverse, a cash
 discount's from its items' at their rates): the tax date, the rate row and
@@ -1224,7 +1225,7 @@ erDiagram
     int invoice_version }
 ```
 
-A supplier invoice's `tax_date` (migration 000141, T61d, ADR-0049 §4) is
+A supplier invoice's `tax_date` (migration 000143, T61d, ADR-0049 §4) is
 the date its codes' rates apply on and its tax is reported in, set by a
 person only; none: the invoice date, or for a correction naming an invoice
 that invoice's. Its tax is calculated per item code when it posts, held to

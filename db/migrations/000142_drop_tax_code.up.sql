@@ -3,6 +3,6 @@
 -- tax_rate by 000124 and neither read nor written since that release, is
 -- dropped; and the index of journal lines by tax code and posting date,
 -- which the rate check read before tax items, goes with it: the check reads
--- ledger.tax_item (000139).
+-- ledger.tax_item (000141).
 DROP TABLE ledger.tax_code;
 DROP INDEX ledger.journal_line_tax_code;

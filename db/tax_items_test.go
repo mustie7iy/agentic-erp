@@ -239,17 +239,23 @@ func TestTaxItemRules(t *testing.T) {
 				step(`INSERT INTO ledger.period_status (tenant_id, id, legal_entity_id, ledger_id, calendar_id, fiscal_year, period, status, updated_by)
 					VALUES ($1, gen_random_uuid(), $2, $3, $4, 2026, 3, 'open', $5)`, s.tenant, s.entity, local, s.calendar, s.actor))
 		})
+		lines := func(tx pgx.Tx, ledger, je uuid.UUID) (err error) {
+			for i, l := range []struct {
+				account uuid.UUID
+				amount  int64
+				code    string
+			}{{s.bank, -10500, ""}, {s.expense, 10000, "I5"}, {s.tax, 500, "I5"}} {
+				if err == nil {
+					err = s.taxLineIn(tx, ledger, je, i+1, l.account, l.amount, l.code)
+				}
+			}
+			return err
+		}
 		entry := func(items bool) func(tx pgx.Tx) error {
 			return func(tx pgx.Tx) error {
 				je, err := s.headerIn(tx, local, true)
-				for i, l := range []struct {
-					account uuid.UUID
-					amount  int64
-					code    string
-				}{{s.bank, -10500, ""}, {s.expense, 10000, "I5"}, {s.tax, 500, "I5"}} {
-					if err == nil {
-						err = s.taxLineIn(tx, local, je, i+1, l.account, l.amount, l.code)
-					}
+				if err == nil {
+					err = lines(tx, local, je)
 				}
 				if err == nil && items {
 					err = exec(tx, `SELECT ledger.write_tax_items($1, 2026::smallint, $2, '2026-03-10'::date, false)`, s.tenant, je)
@@ -257,8 +263,33 @@ func TestTaxItemRules(t *testing.T) {
 				return err
 			}
 		}
-		// Its tax lines need no items; it may have none (ADR-0045).
-		mustApp(t, s.tenant, entry(false))
+		// A copy of a leading ledger's entry carries its tax lines without
+		// items (ADR-0045).
+		mustApp(t, s.tenant, func(tx pgx.Tx) error {
+			first, copied := id(), id()
+			err := all(tx, step(`INSERT INTO ledger.journal_entry (tenant_id, fiscal_year, id, legal_entity_id, ledger_id, fiscal_period, document_type,
+				document_number, document_date, posting_date, tax_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc, source_context, posted_by,
+				posting_group_id) VALUES ($1,2026,$2,$3,$4,3,'SA','GROUP1','2026-03-10','2026-03-10','2026-03-10','USD','USD','EUR',1,0.9,'ledger',$5,$2)`,
+				s.tenant, first, s.entity, s.ledger, s.actor),
+				step(`INSERT INTO ledger.journal_entry (tenant_id, fiscal_year, id, legal_entity_id, ledger_id, fiscal_period, document_type, document_number,
+				document_date, posting_date, tax_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc, source_context, posted_by, posting_group_id)
+				SELECT tenant_id, fiscal_year, $2, legal_entity_id, $3, fiscal_period, document_type, document_number, document_date, posting_date, tax_date,
+					currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc, source_context, posted_by, id FROM ledger.journal_entry WHERE id = $1`,
+					first, copied, local))
+			if err == nil {
+				err = lines(tx, s.ledger, first)
+			}
+			if err == nil {
+				err = lines(tx, local, copied)
+			}
+			if err == nil {
+				err = exec(tx, `SELECT ledger.write_tax_items($1, 2026::smallint, $2, '2026-03-10'::date, false)`, s.tenant, first)
+			}
+			return err
+		})
+		// Alone, it may carry no tax code (product owner, 2026-10-21), nor
+		// items.
+		failsOn(t, asApp(t, s.tenant, entry(false)), "tax_code_off_leading")
 		failsOn(t, asApp(t, s.tenant, entry(true)), "tax_item_leading")
 	})
 	t.Run("an item of an entry committed before", func(t *testing.T) {
@@ -293,7 +324,7 @@ func TestTaxItemRules(t *testing.T) {
 	})
 }
 
-// TestTaxItemsBackfilled: 000139 writes the items of the entries posted
+// TestTaxItemsBackfilled: 000141 writes the items of the entries posted
 // before, from their lines at their posting date: a tax line on a
 // component's former account is its tax as one on its current account is,
 // the code's other lines its base, once per component; an entry without
@@ -301,7 +332,7 @@ func TestTaxItemRules(t *testing.T) {
 // reads them.
 func TestTaxItemsBackfilled(t *testing.T) {
 	conn := emptyDatabase(t)
-	migrateBefore(t, conn, 139)
+	migrateBefore(t, conn, 141)
 	f := fixtureIDs()
 	rate := id()
 	var taxed, plain, local uuid.UUID

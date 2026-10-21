@@ -163,6 +163,17 @@ BEGIN
       RAISE EXCEPTION 'journal entry % is not the leading ledger''s: it has no tax items', e
         USING ERRCODE = 'check_violation', CONSTRAINT = 'tax_item_leading';
     END IF;
+    -- Tax codes only on postings the returns see (product owner,
+    -- 2026-10-21): a parallel ledger's entry carries them as a copy of a
+    -- leading ledger's entry in its posting group, never alone.
+    IF EXISTS (SELECT FROM ledger.journal_line l WHERE l.tenant_id = t AND l.fiscal_year = y AND l.journal_entry_id = e AND l.tax_code IS NOT NULL)
+      AND NOT EXISTS (SELECT FROM ledger.journal_entry j
+        JOIN ledger.journal_entry p ON p.tenant_id = j.tenant_id AND p.fiscal_year = j.fiscal_year AND p.id = j.posting_group_id
+        JOIN ledger.ledger g ON g.tenant_id = p.tenant_id AND g.id = p.ledger_id
+        WHERE j.tenant_id = t AND j.fiscal_year = y AND j.id = e AND g.is_leading) THEN
+      RAISE EXCEPTION 'journal entry % carries tax codes in a posting that leaves out the leading ledger', e
+        USING ERRCODE = 'check_violation', CONSTRAINT = 'tax_code_off_leading';
+    END IF;
     RETURN;
   END IF;
   -- A code whose components post to no account (all non-deductible) has

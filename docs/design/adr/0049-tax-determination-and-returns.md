@@ -279,7 +279,7 @@ tax_codes:
   code is valid on a date when one of its components has a rate then. The old
   `ledger.tax_code` (one row per validity, one rate and account) was copied
   into them, each code one component `tax`, and is no longer read or written;
-  a later release drops it (contract, with T61c: dropped by 000140). Rates in the future are
+  a later release drops it (contract, with T61c: dropped by 000142). Rates in the future are
   written when the configuration is activated, so a known change (NS HST 15%
   to 14%) is set up once, ahead. The "changed today" refusal goes: a rate's
   dates are explicit, a different rate is a new row (a rate's value and start
@@ -377,7 +377,7 @@ writes items too. A schema test enforces that every tax line has its item and
 that items balance with the tax lines per entry and account (the ledger's
 commit-time check, like the balance trigger).
 
-- **As built (T61c, migrations 000139-000140):** `ledger.tax_item`, keyed by
+- **As built (T61c, migrations 000141-000142):** `ledger.tax_item`, keyed by
   entry and item number, `tenant_id` first, RLS, fixed but for `reported_in`
   (set once, `tax_item_fixed`; the application may update that column only).
   An item names its code, component, jurisdiction, direction, kind, account
@@ -401,7 +401,7 @@ commit-time check, like the balance trigger).
   and the discount's net that is a code's base is posted on `cash_discount`
   with the code, the untaxed rest without one. The cash discount split reads
   the paid entries' items, so it needs no account history
-  (`former_account_ids` is read only by 000139's migration of the entries
+  (`former_account_ids` is read only by 000141's migration of the entries
   posted before, which writes their items from their lines at their posting
   date, former accounts included), and allocates with `money.Allocate`.
   **Commit-time check** (`journal_entry_tax_items`, `tax_item_checked`,
@@ -415,21 +415,24 @@ commit-time check, like the balance trigger).
   memo naming an invoice that invoice's (P6, T61d §6); a reversal's the original's; other postings' their
   posting date. Codes are validated on the tax date. The in-use check of
   rates (`ledger.tax_code_posted`) reads items by tax date, and `ledger.tax_code`
-  and the index of lines by tax code are dropped (000140). `ledger.TaxItems`
+  and the index of lines by tax code are dropped (000142). `ledger.TaxItems`
   is the port: `Of` an entry, `Dated` by legal entity and tax date range.
   **Parallel ledgers (ADR-0045):** tax items are the leading ledger's
   entry's alone. Returns are statutory and read the leading ledger; a
   posting's copy in a parallel ledger carries the same tax lines and has
-  no items, which would count the tax twice, and an entry of a parallel
-  ledger alone has none either. The commit-time check holds a parallel
-  ledger's entry to having none (`tax_item_leading`), and the migration
-  writes items for the leading ledger's entries only. So the rate in-use
-  check (`tax_code_posted`) no longer sees a posting to a parallel ledger
-  alone, as T61a's line-based check did: such a posting's lines name a code,
-  not a rate, and no return reads them, so withdrawing or re-dating a rate
-  only they used re-rates nothing. Whether tax codes should be refused on
-  postings that leave out the leading ledger, as SAP is often configured,
-  is a question for the product owner.
+  no items, which would count the tax twice. The commit-time check holds a
+  parallel ledger's entry to having none (`tax_item_leading`), and the
+  migration writes items for the leading ledger's entries only. **A posting
+  that leaves out the leading ledger may carry no tax code** (product owner,
+  2026-10-21, as SAP is often configured), so tax only ever comes from
+  postings the returns see: a manual entry to a parallel ledger, or to a
+  ledger group without the leading ledger, with a taxed line is refused
+  (422 `ledger.tax_code_off_leading`), and the commit-time check refuses a
+  parallel ledger's entry with tax codes that is no copy of a leading
+  ledger's entry in its posting group (`tax_code_off_leading`). A ledger's
+  difference on tax is posted without a code. Entries posted to a parallel
+  ledger alone before the rule keep their codes; reversing one is refused
+  the same way (none exist before the pilot).
   A tax line names its account and code, not its component, so the ledger
   refuses on a posting that derives its items from its lines a code two
   of whose components with a rate on the tax date post to one account (422
@@ -479,7 +482,7 @@ commit-time check, like the balance trigger).
 - A recoverable share below 100% (meals 50%, blocked UAE input) splits each item
   into recoverable (on the tax account, in the return's input box) and
   non-recoverable (on the expense).
-- **As built (T61d, migration 000141):** payables calculates an invoice's tax
+- **As built (T61d, migration 000143):** payables calculates an invoice's tax
   when it posts (`calculateTax`, `internal/tax`) per item code at the tax
   date: `supplier_invoice.tax_date`, set by a person only (403
   `payables.tax_date_human_only` for an agent that sets, changes or clears
@@ -520,7 +523,7 @@ commit-time check, like the balance trigger).
   proposes it (a warning in the operation's result); none, several or no
   number hold the invoice for a person to choose; and a stated tax the
   codes do not bear out holds it with the figures (eval suite capture,
-  version 3). **Rolling upgrade (06 §6.4):** 000141 adds a nullable
+  version 3). **Rolling upgrade (06 §6.4):** 000143 adds a nullable
   column the previous release neither reads nor writes (its statements name
   their columns), so it runs ahead of the code; but an instance of the
   previous release posts an invoice with the first item's code at the
@@ -808,7 +811,11 @@ the UAE company's revenue reaches AED 50m (e-invoicing from 2027-01-01, T65).
 
 **Unsure, for the tax specialist:** rounding per line or per invoice in either
 country; the FPZ-500 lines; the exact VAT 201 labels on EmaraTax; the scope of
-the 2026 five-year limit; the UAE six-month payment rule and the AED 10,000
+the 2026 five-year limit; on an invoice mixing a recoverable code with a
+cost one (V1 with BC PST), whether a rounding difference to the supplier's
+tax may be recovered as the recoverable code's input tax, as T61d posts it
+(the recovering components take it before the cost components), or should
+stay a cost (product owner, 2026-10-21: to the tax specialist list); the UAE six-month payment rule and the AED 10,000
 correction threshold after the 2026 procedures amendments; the CRA's reporting
 period thresholds and ITC time limit as stated here from memory; the currency
 conversion articles cited from memory.

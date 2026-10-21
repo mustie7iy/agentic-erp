@@ -321,8 +321,8 @@ func (p parallelEnv) groupItems(t *testing.T, first string) string {
 // items are its leading ledger's entry's alone (ADR-0045, ADR-0049 §5):
 // returns are statutory and read the leading ledger, so its copy, which
 // carries the same tax lines, has none; so for a reversal, a cash
-// discount's correction, a down payment and its transfer; and an entry of
-// 2L alone has none either.
+// discount's correction, a down payment and its transfer; and a posting
+// leaving out 0L may carry no tax code (422 ledger.tax_code_off_leading).
 func TestTaxItemsInParallelLedgers(t *testing.T) {
 	p := setupParallel(t)
 	je, tag := p.Must(201, "POST", "/v1/journal-entries", taxedEntry(t, p.env, "2026-03-10", ""), "")
@@ -337,9 +337,24 @@ func TestTaxItemsInParallelLedgers(t *testing.T) {
 	if got := taxItemsOf(t, p.env, uuid.MustParse(apitest.String(t, rev, "id"))); !strings.Contains(got, "V1/tax 2026-03-10 -10000 -1900") {
 		t.Errorf("reversal's items: got %s, want V1's negated", got)
 	}
-	local, _ := p.in(t).Must(201, "POST", "/v1/journal-entries", with(taxedEntry(t, p.env, "2026-03-11", ""), `"ledger_id": "`+p.local+`"`), "")
-	if got := p.groupItems(t, apitest.String(t, local, "id")); got != "2L:0" {
-		t.Errorf("2L's own entry: got %s, want no items", got)
+	// Tax codes only on postings the returns see (product owner,
+	// 2026-10-21): not in 2L alone, by ledger or by group; in a group with
+	// 0L, or 0L alone, they post.
+	for name, target := range map[string]string{"2L": `"ledger_id": "` + p.local + `"`, "group LOC": `"ledger_group": "LOC"`} {
+		t.Run(name, func(t *testing.T) {
+			p.in(t).Problem(422, "ledger.tax_code_off_leading", "POST", "/v1/journal-entries", with(taxedEntry(t, p.env, "2026-03-11", ""), target), "")
+		})
+	}
+	for name, c := range map[string]struct{ target, items string }{
+		"group ALL": {`"ledger_group": "ALL"`, "0L:2,2L:0"},
+		"0L":        {`"ledger_id": "` + p.leading + `"`, "0L:2"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			je, _ := p.in(t).Must(201, "POST", "/v1/journal-entries", with(taxedEntry(t, p.env, "2026-03-11", ""), c.target), "")
+			if got := p.groupItems(t, apitest.String(t, je, "id")); got != c.items {
+				t.Errorf("items: got %s, want %s", got, c.items)
+			}
+		})
 	}
 
 	determine(t, p.env, p.de, "cash_discount", settleAccount(t, p.env, "2000", "400000"))

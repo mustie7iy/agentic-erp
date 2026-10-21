@@ -1246,7 +1246,7 @@
        {
         "s": "D",
         "t": "Tax items in the ledger: ledger.tax_item written by every posting path that carries a tax code, reversals negated, checked against the tax lines at commit; the tax date on the entry; the ledger.TaxItems port; the contract step dropping the former ledger.tax_code (copied by 000124, no longer read), and the in-use check (ledger.tax_code_posted) reading tax items; internal/tax in the shared kernel",
-        "r": "db/migrations/000139-000140 · ledger.tax_item · ledger.write_tax_items · ledger.TaxItems · journal_entry.tax_date · internal/layout shared tax · ADR-0049 · T61c",
+        "r": "db/migrations/000141-000142 · ledger.tax_item · ledger.write_tax_items · ledger.TaxItems · journal_entry.tax_date · internal/layout shared tax · ADR-0049 · T61c",
         "c": []
        },
        {
@@ -1258,7 +1258,13 @@
        {
         "s": "D",
         "t": "Input tax on supplier invoices: tax per item code at the tax date, one tax line per code and component, non-deductible tax on the item's line, the supplier's tax within the company's tolerance else 422 payables.tax_mismatch (P5), credit memos at the invoice's tax date, capture proposes codes and flags mismatches",
-        "r": "db/migrations/000141 · supplier_invoice.tax_date · payables.calculateTax · invoice_tolerance.tax_units_per_code · ledger.PostingTaxItem · PostingLine.LC · capture.Line.TaxRate · ADR-0049 · T61d",
+        "r": "db/migrations/000143 · supplier_invoice.tax_date · payables.calculateTax · invoice_tolerance.tax_units_per_code · ledger.PostingTaxItem · PostingLine.LC · capture.Line.TaxRate · ADR-0049 · T61d",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Tax codes only on postings the returns see (product owner, 2026-10-21): a posting leaving out the leading ledger with a taxed line is refused, 422 ledger.tax_code_off_leading; the commit-time check refuses a parallel ledger's entry with tax codes that is no copy of a leading ledger's (tax_code_off_leading)",
+        "r": "ledger.taxOnLeading · ledger.check_tax_items · ADR-0049 §5 · ADR-0045 · T61d follow-up",
         "c": []
        },
        {
