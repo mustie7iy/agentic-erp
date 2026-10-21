@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
@@ -106,7 +107,8 @@ func (a *Agent) Review(ctx context.Context, statement string) (Result, error) {
 
 // open is the statement's lines to propose for, in line order.
 func (a *Agent) open(ctx context.Context, statement string) ([]int32, error) {
-	resp, err := a.API.Do(ctx, http.MethodGet, "/v1/bank-statements/"+statement, nil, nil, "")
+	path := "/v1/bank-statements/" + url.PathEscape(statement)
+	resp, err := a.API.Do(ctx, http.MethodGet, path, nil, nil, "")
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +116,7 @@ func (a *Agent) open(ctx context.Context, statement string) ([]int32, error) {
 	if err := resp.Decode(&s); err != nil {
 		return nil, fmt.Errorf("reconagent: statement %s: %w", statement, err)
 	}
-	resp, err = a.API.Do(ctx, http.MethodGet, "/v1/bank-statements/"+statement+"/matches", nil, nil, "")
+	resp, err = a.API.Do(ctx, http.MethodGet, path+"/matches", nil, nil, "")
 	if err != nil {
 		return nil, err
 	}
@@ -140,9 +142,16 @@ func (a *Agent) investigate(ctx context.Context, statement string, lineNo int32)
 	if err != nil {
 		return false, err
 	}
-	tools, _ := apitools.Tools(a.API, s, Tools...) // the operations are in the contract and open to agents
+	tools, err := apitools.Tools(a.API, s, Tools...)
+	if err != nil {
+		return false, err
+	}
 	made := false
-	tools[len(tools)-1].Observe(func(r apitools.Response) { made = made || r.OK() })
+	for _, t := range tools {
+		if t.Name() == "proposeBankStatementLine" {
+			t.Observe(func(r apitools.Response) { made = made || r.OK() })
+		}
+	}
 	prompt := fmt.Sprintf("Bank statement %s, line %d, needs a proposal.\nYour session id is %s.", statement, lineNo, s.ID)
 	_, err = apitools.Run(ctx, a.LLM, s, tools, a.LLM.Params(system, anthropic.NewBetaTextBlock(prompt)), 16)
 	return made, err

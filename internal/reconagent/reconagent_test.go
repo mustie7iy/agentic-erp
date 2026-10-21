@@ -3,6 +3,7 @@ package reconagent_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -97,30 +98,72 @@ func TestReview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("review: %v", err)
 	}
-	if !slices.Equal(res.Reviewed, []int32{1, 2, 3}) || res.Proposals != 1 || !slices.Equal(res.Declined, []int32{2, 3}) || len(res.Errors) != 0 {
-		t.Errorf("review: got %+v, want lines 1-3 reviewed, one proposal, 2 and 3 declined", res)
-	}
-	if names := model.ToolNames(); len(names) != len(reconagent.Tools) {
-		t.Errorf("tools offered: got %v, want %v", names, reconagent.Tools)
-	}
 	ms, _ := f.Must(200, "GET", "/v1/bank-statements/"+s+"/matches", "", "")
-	if items := ms["items"].([]any); len(items) != 1 || items[0].(map[string]any)["proposal"] != "exclude" {
-		t.Fatalf("matches: got %v, want the one exclusion proposed", items)
+	items := ms["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("matches: got %v, want the one proposal", items)
 	}
+	checks{
+		"reviewed":         {fmt.Sprint(res.Reviewed), "[1 2 3]"},
+		"proposals":        {res.Proposals, 1},
+		"declined":         {fmt.Sprint(res.Declined), "[2 3]"},
+		"errors":           {len(res.Errors), 0},
+		"tools offered":    {len(model.ToolNames()), len(reconagent.Tools)},
+		"what it proposed": {items[0].(map[string]any)["proposal"], "exclude"},
+	}.check(t)
 	_, tag := f.Must(200, "GET", "/v1/bank-statements/"+s, "", "")
 	f.Must(200, "POST", "/v1/bank-statements/"+s+"/lines/1:rejectProposal", `{"reason": "A charge: post it."}`, tag)
 	again, err := (&reconagent.Agent{LLM: llmtest.New(t, llmtest.Final("No.")).Runner(), API: api, MaxLines: 1}).Review(context.Background(), s)
-	if err != nil || !slices.Equal(again.Reviewed, []int32{2}) || !slices.Equal(again.Declined, []int32{2}) {
-		t.Errorf("review again: got %+v, %v, want line 2 only (1 rejected, at most one line)", again, err)
+	if err != nil {
+		t.Fatalf("review again: %v", err)
 	}
 	failed, err := (&reconagent.Agent{LLM: llmtest.New(t).Runner(), API: api}).Review(context.Background(), s)
-	if err != nil || len(failed.Errors) != 2 || !strings.HasPrefix(failed.Errors[0], "line 2: ") {
-		t.Errorf("a model that does not answer: got %+v, %v, want an error for lines 2 and 3", failed, err)
+	if err != nil {
+		t.Fatalf("a model that does not answer: %v", err)
 	}
 	person := &apitools.Client{BaseURL: api.BaseURL, Token: f.API.Issuer.Token(t, f.Tenant.ID, f.Tenant.Human.Subject, nil)}
-	if res, _ := (&reconagent.Agent{LLM: model.Runner(), API: person}).Review(context.Background(), s); len(res.Errors) != 2 ||
-		!strings.Contains(res.Errors[0], "not_an_agent") {
-		t.Errorf("a person: got %+v, want the sessions refused", res)
+	refused, _ := (&reconagent.Agent{LLM: model.Runner(), API: person}).Review(context.Background(), s)
+	checks{
+		"again, line 2 only (1 rejected, one line at most)": {fmt.Sprint(again.Reviewed), "[2]"},
+		"again, line 2 declined":                            {fmt.Sprint(again.Declined), "[2]"},
+		"a model that does not answer, an error a line":     {len(failed.Errors), 2},
+		"a model that does not answer, the line named":      {strings.HasPrefix(failed.Errors[0], "line 2: "), true},
+		"a person, an error a line":                         {len(refused.Errors), 2},
+		"a person, no session":                              {strings.Contains(refused.Errors[0], "not_an_agent"), true},
+	}.check(t)
+}
+
+// checks are values and what each should be, checked as subtests.
+type checks map[string][2]any
+
+func (cs checks) check(t *testing.T) {
+	t.Helper()
+	for name, c := range cs {
+		t.Run(name, func(t *testing.T) {
+			if c[0] != c[1] {
+				t.Errorf("got %v, want %v", c[0], c[1])
+			}
+		})
+	}
+}
+
+// TestReviewToolsUnknown: a tool the contract does not have fails the
+// line's review rather than run the model without it.
+func TestReviewToolsUnknown(t *testing.T) {
+	f, api, _ := setup(t)
+	s := statement(t, f)
+	tools := reconagent.Tools
+	reconagent.Tools = append(slices.Clone(tools), "noSuchOperation")
+	t.Cleanup(func() { reconagent.Tools = tools })
+	res, err := (&reconagent.Agent{LLM: llmtest.New(t).Runner(), API: api, MaxLines: 1}).Review(context.Background(), s)
+	if err != nil {
+		t.Fatalf("review: %v", err)
+	}
+	if len(res.Errors) != 1 {
+		t.Fatalf("errors: got %v, want line 1's", res.Errors)
+	}
+	if !strings.Contains(res.Errors[0], "noSuchOperation") {
+		t.Errorf("error: got %s, want the tool named", res.Errors[0])
 	}
 }
 

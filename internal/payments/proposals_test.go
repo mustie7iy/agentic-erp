@@ -64,31 +64,27 @@ func TestProposeStatementLines(t *testing.T) {
 	if code != 201 {
 		t.Fatalf("propose: got %d %v, want 201", code, m)
 	}
-	if m["kind"] != "agent" || m["status"] != "open" || m["proposal"] != "match" || m["session_id"] != session {
-		t.Errorf("proposal: got %v, want an open match proposal of kind agent in the session", m)
-	}
-	if got := strings.Join(targetsOf(m), ""); got != "1:"+pays[2].payment {
-		t.Errorf("proposal's targets: got %s, want the proposed payment", got)
-	}
-	if now := sc.tag(t); tag != now || tag == before {
-		t.Errorf("ETag after a proposal: got %s, want the statement's new one %s", tag, now)
-	}
 	ms := e.matchesOf(t, sc.statement, 4)
-	if len(ms) != 2 || ms[0].(map[string]any)["status"] != "rejected" || ms[0].(map[string]any)["outcome"] != nil {
-		t.Errorf("line 4's matches: got %v, want the rule's rejected without an outcome, then the proposal", ms)
-	}
-	if got := e.lineStatuses(t, sc.statement)[3]; got != "proposed" {
-		t.Errorf("line 4: got %s, want proposed", got)
-	}
 	ev := events(t, e.Tenant, "bank_statement_line_proposed")
-	if len(ev) != 1 || ev[0]["proposal"] != "match" || ev[0]["session_id"] != session {
-		t.Errorf("proposed events: got %v, want one of the match proposal", ev)
-	}
-	t.Run("the same again", func(t *testing.T) {
+	checks{
+		"the proposal's kind":             {m["kind"], "agent"},
+		"the proposal's status":           {m["status"], "open"},
+		"what it proposes":                {m["proposal"], "match"},
+		"its session":                     {m["session_id"], session},
+		"its targets":                     {strings.Join(targetsOf(m), ""), "1:" + pays[2].payment},
+		"the ETag, the statement's":       {tag, sc.tag(t)},
+		"the ETag, moved on":              {tag != before, true},
+		"line 4's matches":                {len(ms), 2},
+		"the rule's match":                {field(ms[0], "status"), "rejected"},
+		"the rule's match has no outcome": {field(ms[0], "outcome"), nil},
+		"line 4":                          {e.lineStatuses(t, sc.statement)[3], "proposed"},
+		"proposed events":                 {len(ev), 1},
+		"the event's proposal":            {ev[0]["proposal"], "match"},
+		"the event's session":             {ev[0]["session_id"], session},
+	}.check(t)
+	t.Run("the same again, on the ETag read before", func(t *testing.T) {
 		code, again, againTag := sc.proposeIf(t, 4, session, `"payment_ids": ["`+pays[2].payment+`"], "reason": "Said again."`, before)
-		if code != 200 || id(again) != id(m) || againTag != tag {
-			t.Errorf("the same proposal again, on the ETag read before: got %d %v ETag %s, want 200 with proposal %s and ETag %s", code, again, againTag, id(m), tag)
-		}
+		checks{"status": {code, 200}, "the first proposal": {id(again), id(m)}, "the ETag": {againTag, tag}}.check(t)
 	})
 	t.Run("a statement changed since it was read", func(t *testing.T) {
 		if code, body, _ := sc.proposeIf(t, 5, session, `"exclude": true, "reason": "x"`, before); code != 412 {
@@ -96,22 +92,34 @@ func TestProposeStatementLines(t *testing.T) {
 		}
 	})
 	_, after := e.Must(200, "POST", "/v1/bank-statements/"+sc.statement+":match", "", sc.tag(t))
-	if live := sc.live(t, 4); live["kind"] != "agent" || after != tag {
-		t.Errorf("after the rules ran again: got %v, ETag %s, want the proposal left and ETag %s", live, after, tag)
-	}
-	code, x, _ := sc.propose(t, 6, session, `"exclude": true, "reason": "Interest from another bank's correction."`)
-	if code != 201 || x["proposal"] != "exclude" || len(x["targets"].([]any)) != 0 {
-		t.Errorf("an exclusion proposed: got %d %v", code, x)
-	}
-	code, r, _ := sc.propose(t, 5, session, `"posting_rule": "NCHG", "reason": "Charges."`)
-	if code != 201 || strings.Join(targetsOf(r), "") != "1:NCHG" {
-		t.Errorf("a posting rule proposed: got %d %v", code, r)
-	}
-	if code, again, _ := sc.propose(t, 5, session, `"posting_rule": "NCHG", "reason": "Charges."`); code != 200 || id(again) != id(r) {
-		t.Errorf("the posting rule again: got %d %v, want 200 with proposal %s", code, again, id(r))
-	}
-	if got := len(events(t, e.Tenant, "bank_statement_line_matched")); got != 6 {
-		t.Errorf("matched events: got %d, want the import's 6 and none for proposals", got)
+	xCode, x, _ := sc.propose(t, 6, session, `"exclude": true, "reason": "Interest from another bank's correction."`)
+	rCode, r, _ := sc.propose(t, 5, session, `"posting_rule": "NCHG", "reason": "Charges."`)
+	againCode, again, _ := sc.propose(t, 5, session, `"posting_rule": "NCHG", "reason": "Charges."`)
+	checks{
+		"the rules leave the proposal":       {sc.live(t, 4)["kind"], "agent"},
+		"the rules change nothing":           {after, tag},
+		"an exclusion proposed":              {xCode, 201},
+		"the exclusion's proposal":           {x["proposal"], "exclude"},
+		"the exclusion's targets":            {len(x["targets"].([]any)), 0},
+		"a posting rule proposed":            {rCode, 201},
+		"the posting rule's targets":         {strings.Join(targetsOf(r), ""), "1:NCHG"},
+		"the posting rule again":             {againCode, 200},
+		"the posting rule again, the first":  {id(again), id(r)},
+		"matched events, the import's alone": {len(events(t, e.Tenant, "bank_statement_line_matched")), 6},
+	}.check(t)
+}
+
+// checks are values and what each should be, checked as subtests.
+type checks map[string][2]any
+
+func (cs checks) check(t *testing.T) {
+	t.Helper()
+	for name, c := range cs {
+		t.Run(name, func(t *testing.T) {
+			if c[0] != c[1] {
+				t.Errorf("got %v, want %v", c[0], c[1])
+			}
+		})
 	}
 }
 
@@ -154,9 +162,7 @@ func TestProposalRefusals(t *testing.T) {
 				return
 			}
 			got, body, _ := sc.propose(t, c.line, c.session, c.body)
-			if got != c.status || body["code"] != c.code {
-				t.Errorf("got %d %v, want %d %s", got, body, c.status, c.code)
-			}
+			checks{"status": {got, c.status}, "code": {body["code"], c.code}}.check(t)
 		})
 	}
 	t.Run("a person, who has no session", func(t *testing.T) {
@@ -177,18 +183,23 @@ func TestAcceptProposal(t *testing.T) {
 	}
 	e.agent().Problem(403, "identity.agent_not_allowed", "POST", sc.line(4, "acceptProposal"), "", sc.tag(t))
 	m, tag := e.As(e.Approver).Must(201, "POST", sc.line(4, "acceptProposal"), `{"comment": "Checked."}`, sc.tag(t))
-	if m["kind"] != "manual" || m["status"] != "matched" || m["created_by"] != e.Approver.ID.String() || strings.Join(targetsOf(m), "") != "1:"+pays[2].payment {
-		t.Errorf("accepted: got %v, want the approver's match of the proposed payment", m)
-	}
-	if want := "Accepted the agent's proposal: The remittance names INV-3. Checked."; m["reason"] != want {
-		t.Errorf("reason: got %v, want %s", m["reason"], want)
-	}
-	if p := e.matchesOf(t, sc.statement, 4)[1].(map[string]any); p["status"] != "rejected" || p["outcome"] != "accepted" {
-		t.Errorf("the proposal: got %v, want rejected with outcome accepted", p)
-	}
-	if ev := events(t, e.Tenant, "bank_statement_line_proposal_decided"); len(ev) != 1 || ev[0]["outcome"] != "accepted" || ev[0]["session_id"] != session {
-		t.Errorf("decided events: got %v, want one accepted", ev)
-	}
+	againCode, again, _ := sc.propose(t, 4, session, `"payment_ids": ["`+pays[2].payment+`"], "reason": "Retried."`)
+	p := e.matchesOf(t, sc.statement, 4)[1]
+	ev := events(t, e.Tenant, "bank_statement_line_proposal_decided")
+	checks{
+		"the match's kind":                 {m["kind"], "manual"},
+		"the match's status":               {m["status"], "matched"},
+		"the match, the accepter's":        {m["created_by"], e.Approver.ID.String()},
+		"the match's targets":              {strings.Join(targetsOf(m), ""), "1:" + pays[2].payment},
+		"the match's reason":               {m["reason"], "Accepted the agent's proposal: The remittance names INV-3. Checked."},
+		"the proposal again once accepted": {againCode, 200},
+		"the proposal again, as accepted":  {again["outcome"], "accepted"},
+		"the proposal's status":            {field(p, "status"), "rejected"},
+		"the proposal's outcome":           {field(p, "outcome"), "accepted"},
+		"decided events":                   {len(ev), 1},
+		"the decided event's outcome":      {ev[0]["outcome"], "accepted"},
+		"the decided event's session":      {ev[0]["session_id"], session},
+	}.check(t)
 	posted, _ := e.Must(200, "POST", sc.line(4, "post"), "", tag)
 	r := e.Pending(t, id(posted))
 	e.As(e.Approver).Problem(403, "workflow.segregation_of_duties", "POST", "/v1/approval-requests/"+r["id"].(string)+":approve", `{"comment": "ok"}`,
@@ -201,15 +212,17 @@ func TestAcceptProposal(t *testing.T) {
 		t.Fatalf("propose an exclusion: got %d %v", code, body)
 	}
 	x, _ := e.Must(201, "POST", sc.line(6, "acceptProposal"), "", sc.tag(t))
-	if x["kind"] != "manual" || x["status"] != "excluded" || x["reason"] != "Accepted the agent's proposal: Interest from another bank's correction." {
-		t.Errorf("an exclusion accepted: got %v", x)
-	}
 	if code, body, _ := sc.propose(t, 7, session, `"posting_rule": "NCHG", "reason": "Charges reversed."`); code != 201 {
 		t.Fatalf("propose a posting rule: got %d %v", code, body)
 	}
-	if r, _ := e.Must(201, "POST", sc.line(7, "acceptProposal"), "", sc.tag(t)); r["status"] != "matched" || strings.Join(targetsOf(r), "") != "1:NCHG" {
-		t.Errorf("a posting rule accepted: got %v", r)
-	}
+	rule, _ := e.Must(201, "POST", sc.line(7, "acceptProposal"), "", sc.tag(t))
+	checks{
+		"an exclusion accepted, the kind":   {x["kind"], "manual"},
+		"an exclusion accepted, the status": {x["status"], "excluded"},
+		"an exclusion accepted, the reason": {x["reason"], "Accepted the agent's proposal: Interest from another bank's correction."},
+		"a posting rule accepted":           {rule["status"], "matched"},
+		"a posting rule accepted, its rule": {strings.Join(targetsOf(rule), ""), "1:NCHG"},
+	}.check(t)
 }
 
 // TestRejectProposal: a person rejects the agent's proposal with a reason
@@ -229,15 +242,15 @@ func TestRejectProposal(t *testing.T) {
 	}
 	e.agent().Problem(403, "identity.agent_not_allowed", "POST", sc.line(5, "rejectProposal"), `{"reason": "x"}`, sc.tag(t))
 	r, tag := e.Must(200, "POST", sc.line(5, "rejectProposal"), `{"reason": "Not a charge: a refund."}`, sc.tag(t))
-	if r["kind"] != "agent" || r["status"] != "rejected" || r["outcome"] != "rejected" {
-		t.Errorf("rejected: got %v, want the proposal rejected", r)
-	}
-	if tag != sc.tag(t) {
-		t.Errorf("ETag after a rejection: got %s, want the statement's new one", tag)
-	}
+	checks{
+		"the proposal's kind":    {r["kind"], "agent"},
+		"the proposal's status":  {r["status"], "rejected"},
+		"the proposal's outcome": {r["outcome"], "rejected"},
+		"the statement's ETag":   {tag, sc.tag(t)},
+	}.check(t)
 	_, tag = e.Must(201, "POST", sc.line(6, "match"), `{"posting_rule": "NCHG", "reason": "Charges."}`, tag)
-	if p := e.matchesOf(t, sc.statement, 6)[0].(map[string]any); p["outcome"] != "overridden" {
-		t.Errorf("line 6's proposal after the person's match: got %v, want overridden", p)
+	if got := field(e.matchesOf(t, sc.statement, 6)[0], "outcome"); got != "overridden" {
+		t.Errorf("line 6's proposal after the person's match: got %v, want overridden", got)
 	}
 	want := []string{"matched", "matched", "matched", "proposed", "unmatched", "matched", "unmatched", "proposed", "proposed"}
 	if got := e.lineStatuses(t, sc.statement); strings.Join(got, ",") != strings.Join(want, ",") {
@@ -335,9 +348,10 @@ func TestListHouseBanks(t *testing.T) {
 	}
 	page, _ := e.Must(200, "GET", "/v1/house-banks?page_size=1", "", "")
 	next, _ := e.Must(200, "GET", "/v1/house-banks?page_size=1&page_token="+page["next_page_token"].(string), "", "")
-	if a, b := pageFirstID(page), pageFirstID(next); a == b || a == "" || b == "" {
-		t.Errorf("two pages of one: got %s and %s, want both house banks", a, b)
-	}
+	checks{
+		"two pages of one, each its bank": {pageFirstID(page) != pageFirstID(next), true},
+		"the last page":                   {next["next_page_token"], nil},
+	}.check(t)
 	e.Problem(400, "request.invalid_order_by", "GET", "/v1/house-banks?order_by=iban", "", "")
 }
 
@@ -425,19 +439,20 @@ func TestStatementRules(t *testing.T) {
 	e.Tenant.AllCompanies(t, e.Tenant.Agent)
 	r, _ := e.agent().Must(200, "GET", "/v1/bank-statements/"+sc.statement+"/rules", "", "")
 	posting, matching := r["posting_rules"].([]any), r["matching_rules"].([]any)
-	if len(posting) != 2 || field(posting[0], "transaction_code") != "NCHG" || field(posting[0], "account") != "520000" {
-		t.Errorf("posting rules: got %v, want NCHG and PMNT-CCRD-CHRG to 520000", posting)
-	}
-	if len(matching) != 4 || field(matching[0], "kind") != "end_to_end_id" || field(matching[0], "date_window_days") != nil {
-		t.Errorf("matching rules: got %v, want the four in order", matching)
-	}
-	if amount := matching[3]; field(amount, "amount_tolerance") != "0.50" || field(amount, "date_window_days") != float64(3) || field(amount, "counterparty") != true {
-		t.Errorf("the amount rule: got %v", amount)
-	}
 	pgtest.Exec(t, `UPDATE tenancy.legal_entity SET code = '2999', version = version + 1 WHERE id = $1`, e.DE)
 	none, _ := e.Must(200, "GET", "/v1/bank-statements/"+sc.statement+"/rules", "", "")
-	if len(none["posting_rules"].([]any)) != 0 || len(none["matching_rules"].([]any)) != 0 {
-		t.Errorf("a company the configuration does not have: got %v, want no rules", none)
-	}
+	checks{
+		"posting rules":                   {len(posting), 2},
+		"the first's code":                {field(posting[0], "transaction_code"), "NCHG"},
+		"the first's account":             {field(posting[0], "account"), "520000"},
+		"matching rules":                  {len(matching), 4},
+		"the first, in order":             {field(matching[0], "kind"), "end_to_end_id"},
+		"no window but the amount rule's": {field(matching[0], "date_window_days"), nil},
+		"the amount rule's tolerance":     {field(matching[3], "amount_tolerance"), "0.50"},
+		"the amount rule's window":        {field(matching[3], "date_window_days"), float64(3)},
+		"the amount rule's counterparty":  {field(matching[3], "counterparty"), true},
+		"no company: no posting rules":    {len(none["posting_rules"].([]any)), 0},
+		"no company: no matching rules":   {len(none["matching_rules"].([]any)), 0},
+	}.check(t)
 	e.Problem(404, "request.not_found", "GET", "/v1/bank-statements/"+uuid.NewString()+"/rules", "", "")
 }

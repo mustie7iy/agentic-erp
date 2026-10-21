@@ -493,7 +493,8 @@ type Handler interface {
 	//
 	// The file a bank statement was imported from, byte for byte as the bank sent it (camt.053 XML or
 	// MT940 text): kept as accounting evidence in object storage, written once, encrypted and locked for
-	// the retention of financial records (ADR-0047). The statements of one file share it. 503 while the
+	// the retention of financial records (ADR-0047). The statements of one file share it. People and
+	// integrations only: the file holds the accounts whole, which agents see masked (T49g). 503 while the
 	// server has no object storage or the store does not answer.
 	//
 	// GET /v1/bank-statements/{id}/file

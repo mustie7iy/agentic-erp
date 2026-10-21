@@ -280,11 +280,12 @@ func (e *Endpoints) TransmitBankFile(ctx context.Context, params gen.TransmitBan
 	return &gen.OperationHeaders{Location: gen.NewOptString("/v1/operations/" + op.ID.String()), Response: operations.ToAPI(op)}, nil
 }
 
-// forAgent reports whether the caller is an agent, who sees bank accounts
-// on statements masked as partner bank accounts show them (T49g).
+// forAgent reports whether statements are shown to the caller masked, as
+// partner bank accounts are shown (T49g): to an agent, and to a caller
+// the request does not name (fail closed).
 func forAgent(ctx context.Context) bool {
-	p, _ := reqctx.PrincipalFrom(ctx) // every request has its principal; none is no agent
-	return p.Kind == reqctx.KindAgent
+	p, ok := reqctx.PrincipalFrom(ctx)
+	return !ok || p.Kind == reqctx.KindAgent
 }
 
 // statementToAPI is the statement as the caller sees it: masked, an agent.

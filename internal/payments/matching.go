@@ -302,9 +302,14 @@ func reopenLine(ctx context.Context, tx pgx.Tx, p reqctx.Principal, statement uu
 	if l.Open == nil {
 		return nil
 	}
+	return unmatchLine(ctx, tx, p, statement, l.LineNo)
+}
+
+// unmatchLine makes the line unmatched again: its live match was rejected.
+func unmatchLine(ctx context.Context, tx pgx.Tx, p reqctx.Principal, statement uuid.UUID, lineNo int32) error {
 	if _, err := tx.Exec(ctx, `UPDATE payments.bank_statement_line SET status = 'unmatched', version = version + 1, updated_by = $3
-		WHERE statement_id = $1 AND line_no = $2`, statement, l.LineNo, p.ID); err != nil {
-		return fmt.Errorf("payments: reopen line %d of statement %s: %w", l.LineNo, statement, err)
+		WHERE statement_id = $1 AND line_no = $2`, statement, lineNo, p.ID); err != nil {
+		return fmt.Errorf("payments: reopen line %d of statement %s: %w", lineNo, statement, err)
 	}
 	return nil
 }

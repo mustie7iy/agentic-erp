@@ -57,6 +57,18 @@ func (in LineProposal) what() string {
 	return ProposeMatch
 }
 
+// asked is what the proposal names, as targets of one candidate, unchecked.
+func (in LineProposal) asked() []MatchTarget {
+	if in.PostingRule != "" {
+		return []MatchTarget{{Candidate: 1, PostingRule: &in.PostingRule}}
+	}
+	out := make([]MatchTarget, len(in.PaymentIDs))
+	for i := range in.PaymentIDs {
+		out[i] = MatchTarget{Candidate: 1, PaymentID: &in.PaymentIDs[i]}
+	}
+	return out
+}
+
 // ProposeLine records the calling agent's proposal for a line of a
 // statement it may access, whose version passes ifMatch. created is false
 // when the session proposed the same for the line before: that proposal is
@@ -82,11 +94,9 @@ func (e *Endpoints) ProposeLine(ctx context.Context, statement uuid.UUID, lineNo
 	if err := lockStatement(ctx, tx, s, func(v int32) error { version = v; return nil }); err != nil {
 		return Match{}, false, err
 	}
-	targets, err := e.proposedTargets(ctx, tx, s, in)
-	if err != nil {
-		return Match{}, false, err
-	}
-	if prior, ok, err := sessionProposal(ctx, tx, in, statement, lineNo, targets); ok || err != nil {
+	// The session's proposal made before answers as it stands, before its
+	// targets are checked again: accepted since, its payments are taken.
+	if prior, ok, err := sessionProposal(ctx, tx, in, statement, lineNo); ok || err != nil {
 		prior.StatementVersion = version
 		return prior, false, err
 	}
@@ -94,6 +104,10 @@ func (e *Endpoints) ProposeLine(ctx context.Context, statement uuid.UUID, lineNo
 		return Match{}, false, err
 	}
 	if err := proposable(ctx, tx, statement, lineNo); err != nil {
+		return Match{}, false, err
+	}
+	targets, err := e.proposedTargets(ctx, tx, s, in)
+	if err != nil {
 		return Match{}, false, err
 	}
 	d := openLine{p: p, tx: tx, s: s, lineNo: lineNo}
@@ -125,7 +139,7 @@ func (e *Endpoints) proposedTargets(ctx context.Context, tx pgx.Tx, s Statement,
 // sessionProposal is the session's proposal for the line, when it made
 // one: the same proposal (what it proposes and its targets) answers it
 // again, another is refused.
-func sessionProposal(ctx context.Context, tx pgx.Tx, in LineProposal, statement uuid.UUID, lineNo int32, targets []MatchTarget) (Match, bool, error) {
+func sessionProposal(ctx context.Context, tx pgx.Tx, in LineProposal, statement uuid.UUID, lineNo int32) (Match, bool, error) {
 	rows, _ := tx.Query(ctx, matchSelect+` WHERE m.session_id = $1 AND m.statement_id = $2 AND m.line_no = $3`, in.SessionID, statement, lineNo)
 	prior, err := pgx.CollectRows(rows, scanMatch)
 	if err != nil {
@@ -135,7 +149,7 @@ func sessionProposal(ctx context.Context, tx pgx.Tx, in LineProposal, statement 
 		return Match{}, false, nil
 	}
 	m := prior[0] // a session proposes once per line (statement_match_session)
-	if *m.Proposal != in.what() || !sameTargets(m.Targets, targets) {
+	if *m.Proposal != in.what() || !sameTargets(m.Targets, in.asked()) {
 		return Match{}, false, problem.Conflict("payments.statement_line_proposed", fmt.Sprintf("This session proposed otherwise for line %d already.", lineNo))
 	}
 	return m, true, nil
@@ -224,9 +238,8 @@ func (e *Endpoints) RejectProposal(ctx context.Context, statement uuid.UUID, lin
 	if err := rejectLive(ctx, d.tx, d.p, d.s, lineNo, rejection{outcome: OutcomeRejected, reason: reason}); err != nil {
 		return Match{}, err
 	}
-	if _, err := d.tx.Exec(ctx, `UPDATE payments.bank_statement_line SET status = 'unmatched', version = version + 1, updated_by = $3
-		WHERE statement_id = $1 AND line_no = $2`, statement, lineNo, d.p.ID); err != nil {
-		return Match{}, fmt.Errorf("payments: reopen line %d of statement %s: %w", lineNo, statement, err)
+	if err := unmatchLine(ctx, d.tx, d.p, statement, lineNo); err != nil {
+		return Match{}, err
 	}
 	return d.answer(ctx, d.live.ID)
 }
