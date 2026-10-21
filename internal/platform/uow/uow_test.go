@@ -158,6 +158,16 @@ func newApp(t *testing.T, pool *database.Pool, also ...*authntest.Issuer) *app {
 		info := reqctx.InfoFrom(r.Context())
 		a.check(json.NewEncoder(w).Encode(map[string]string{"principal": p.ID.String(), "kind": p.Kind, "info": info.PrincipalID.String()}))
 	})
+	isolation := func(w http.ResponseWriter, r *http.Request) {
+		tx, _ := reqctx.TxFrom(r.Context()) // the unit of work always sets it before the handler runs
+		var level string
+		a.check(tx.QueryRow(r.Context(), `SHOW transaction_isolation`).Scan(&level))
+		w.Header().Set("Content-Type", "application/json")
+		a.check(json.NewEncoder(w).Encode(level))
+	}
+	mux.HandleFunc("GET /isolation", isolation)
+	mux.HandleFunc("GET /snapshot", isolation)
+	mux.HandleFunc("POST /snapshot", isolation)
 	mux.HandleFunc("GET /missing", func(w http.ResponseWriter, r *http.Request) {
 		problem.Write(w, r, problem.NotFound("nothing here"))
 	})
@@ -416,6 +426,29 @@ func TestSafeRequests(t *testing.T) {
 	}
 	if r := a.do(call{method: "GET", path: "/missing", tenant: ten.ID, subject: ten.Human.Subject}); r.Code != 404 {
 		t.Fatal(r.Code)
+	}
+}
+
+// TestSnapshotRequests: a safe request the Snapshot hook marks reads at
+// REPEATABLE READ, any other request at READ COMMITTED; an unsafe request
+// is never marked, whatever the hook says.
+func TestSnapshotRequests(t *testing.T) {
+	a := newApp(t, pgtest.Pool(t))
+	a.mw.Snapshot = func(r *http.Request) bool { return r.URL.Path == "/snapshot" }
+	ten := pgtest.NewTenant(t)
+	for _, c := range []struct {
+		name, method, path, want string
+	}{
+		{"marked", "GET", "/snapshot", "repeatable read"},
+		{"not marked", "GET", "/isolation", "read committed"},
+		{"unsafe", "POST", "/snapshot", "read committed"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := a.in(t).do(call{method: c.method, path: c.path, key: "snapshot-" + uuid.NewString(), tenant: ten.ID, subject: ten.Human.Subject})
+			if got := strings.TrimSpace(r.Body.String()); r.Code != 200 || got != `"`+c.want+`"` {
+				t.Errorf("isolation: got %d %q, want 200 %q", r.Code, got, c.want)
+			}
+		})
 	}
 }
 

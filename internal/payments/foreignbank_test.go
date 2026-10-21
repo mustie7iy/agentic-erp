@@ -25,36 +25,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
-// maple is company 3000, Maple Inc, a Canadian company in CAD (ADR-0051
-// §3, T53a): company 2000's chart and settings, a CAD house bank MAIN and a
-// USD house bank USD, both at a Canadian bank, the USD bank's clearing
-// (102000), main (103000) and incoming (104000) accounts revalued at period
-// end; payment method T ranks MAIN in CAD and USD in USD; its statements
-// match by end-to-end id and post without approval.
-func maple(doc *config.Config) {
-	co := *doc.Company("2000")
-	co.Code, co.Name, co.Currency, co.Country = "3000", "Maple Inc", "CAD", "CA"
-	co.ChartOfAccounts = append(slices.Clone(co.ChartOfAccounts),
-		config.Account{Number: "102000", Name: "Bank clearing - USD", Type: config.Asset, OpenItems: true, RevalueForeignCurrency: true},
-		config.Account{Number: "103000", Name: "Bank - USD", Type: config.Asset, RevalueForeignCurrency: true},
-		config.Account{Number: "104000", Name: "Bank incoming - USD", Type: config.Asset, OpenItems: true, RevalueForeignCurrency: true},
-		config.Account{Number: "420000", Name: "Exchange gains", Type: config.Revenue},
-		config.Account{Number: "630000", Name: "Exchange losses", Type: config.Expense})
-	co.TaxCodes = slices.Clone(co.TaxCodes)
-	co.AccountDetermination.FXGain, co.AccountDetermination.FXLoss = "420000", "630000"
-	co.HouseBank = config.HouseBank{Name: "MAIN", BIC: "ROYCCAT2", InstitutionNumber: "003", TransitNumber: "00002", AccountNumber: "1000001"}
-	co.HouseBanks = []config.HouseBank{{Name: "USD", BIC: "ROYCCAT2", InstitutionNumber: "003", TransitNumber: "00002", AccountNumber: "4000001",
-		GLAccount: "102000", MainGLAccount: "103000", IncomingGLAccount: "104000", Currency: "USD"}}
-	co.PaymentMethods = []config.PaymentMethod{{Code: "T", Description: "Bank transfer",
-		Ranking: []config.BankRanking{{Currency: "CAD", HouseBanks: []string{"MAIN"}}, {Currency: "USD", HouseBanks: []string{"USD"}}}}}
-	co.FXValuation = config.FXValuation{}
-	for _, n := range []string{"102000", "103000", "104000"} {
-		co.FXValuation.Accounts = append(co.FXValuation.Accounts, config.FXValuationAccount{Account: n, UnrealisedGain: "420000", UnrealisedLoss: "630000"})
-	}
-	co.BankStatements = config.BankStatements{MatchingRules: []config.MatchingRule{{Kind: config.MatchEndToEndID}}, ApprovalTiers: []config.ApprovalTier{{}}}
-	doc.Companies = append(doc.Companies, co)
-}
-
 // mapleScenario is a tenant with Maple Inc configured, its legal entity
 // and its USD house bank.
 type mapleScenario struct {
@@ -67,8 +37,8 @@ func mapleSetup(t *testing.T) mapleScenario {
 	store := blobstoretest.New(t)
 	objects := store.Store()
 	objects.Encryption = blobstore.Encryption{Algorithm: blobstore.SSEKMS}
-	f := fixture.NewWithCompanies(t, []fixture.Company{{Code: "3000", Name: "Maple Inc", Country: "CA", Currency: "CAD"}}, maple,
-		append(append(slices.Clone(perms), statementPerms...), "payments.statement.match", "payments.statement.post")...)
+	f := fixture.NewWithCompanies(t, []fixture.Company{fixture.MapleCompany}, fixture.Maple,
+		append(append(slices.Clone(perms), statementPerms...), "payments.statement.match", "payments.statement.post", "cash.position.read")...)
 	e := setupIn(t, f, func(cfg *app.Config) { cfg.Objects, cfg.Retention = objects, time.Hour })
 	e.objects = objects
 	sc := mapleScenario{e: e}
@@ -103,9 +73,11 @@ func TestForeignCurrencyHouseBankEndToEnd(t *testing.T) {
 	)
 	_ = t.Run("configuration", func(t *testing.T) { sc.configured(t) }) &&
 		t.Run("payment run in USD", func(t *testing.T) { run, payment = sc.paymentRun(t) }) &&
+		t.Run("cash position: the payment in transit", func(t *testing.T) { sc.inTransit(t) }) &&
 		t.Run("bank file", func(t *testing.T) { sc.bankFile(t, run) }) &&
 		t.Run("statement imported, matched and posted", func(t *testing.T) { statement = sc.statement(t, payment) }) &&
 		t.Run("reconciled", func(t *testing.T) { sc.reconciled(t, statement) }) &&
+		t.Run("cash position: the statement", func(t *testing.T) { sc.positionAfterStatement(t) }) &&
 		t.Run("revalued at the month's end", func(t *testing.T) { sc.revalued(t) })
 }
 
@@ -254,6 +226,53 @@ func (sc mapleScenario) statement(t *testing.T, payment map[string]any) string {
 		t.Errorf("open lines on the USD clearing account: got %d, want 0", open)
 	}
 	return id(s)
+}
+
+// position reads the company's cash position as the API does on the day
+// (ADR-0051 §8, T53c): from it, for one day.
+func (sc mapleScenario) position(t *testing.T, day string) map[string]any {
+	t.Helper()
+	read := date(day).Add(15 * time.Hour)
+	c := sc.e.in(t).Env
+	c.API = apitest.NewWith(t, func(cfg *app.Config) { cfg.Now = func() time.Time { return read } })
+	p, _ := c.Must(200, "GET", "/v1/cash-position?days=1&legal_entity_id="+sc.le.String(), "", "")
+	for _, b := range p["banks"].([]any) {
+		if m := b.(map[string]any); m["code"] == "USD" {
+			return m
+		}
+	}
+	t.Fatalf("banks: got %v, want the USD bank", p["banks"])
+	return nil
+}
+
+// inTransit: on the run date the released payment is in transit from the
+// USD bank, in USD, until its statement comes; the bank has none yet.
+func (sc mapleScenario) inTransit(t *testing.T) {
+	t.Helper()
+	b := sc.position(t, "2026-04-15")
+	day := b["days"].([]any)[0].(map[string]any)
+	flow := day["flows"].([]any)[0].(map[string]any)
+	got := fmt.Sprint(b["currency"], " stale ", field(b, "opening", "stale"), " ", field(day, "opening", "amount"), ">", field(day, "closing", "amount"), " ",
+		flow["source"], " ", field(flow, "amount", "amount"), " ", field(flow, "amount", "currency"))
+	if want := "USD stale true 0.00>-1000.00 in_transit -1000.00 USD"; got != want {
+		t.Errorf("USD bank on the run date: got %s, want %s", got, want)
+	}
+}
+
+// positionAfterStatement: once the statement is posted, the USD bank opens
+// at its closing balance, nothing is in transit, and the book balance
+// agrees with it in USD.
+func (sc mapleScenario) positionAfterStatement(t *testing.T) {
+	t.Helper()
+	b := sc.position(t, "2026-04-20")
+	day := b["days"].([]any)[0].(map[string]any)
+	figures := field(b, "book_balance", "figures").(map[string]any)
+	got := fmt.Sprint(field(b, "opening", "statement_date"), " stale ", field(b, "opening", "stale"), " ", field(day, "opening", "amount"), ">",
+		field(day, "closing", "amount"), " flows ", len(day["flows"].([]any)), " ledger ", field(figures, "ledger_balance", "amount"), " unexplained ",
+		field(figures, "unexplained", "amount"), " in transit ", field(b, "book_balance", "payments_in_transit", "amount"))
+	if want := "2026-04-17 stale false 4000.00>4000.00 flows 0 ledger 4000.00 unexplained 0.00 in transit 0.00"; got != want {
+		t.Errorf("USD bank after its statement: got %s, want %s", got, want)
+	}
 }
 
 // reconciled: compared in USD, the ledger's bank account holds the

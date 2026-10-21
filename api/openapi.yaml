@@ -57,6 +57,8 @@ tags:
     description: Supplier invoices and three-way match results.
   - name: payments
     description: Payment runs, payments and bank files.
+  - name: cash
+    description: "Cash management (ADR-0051): the daily cash position, computed from statements, payments and runs."
   - name: workflow
     description: Approval requests and decisions. Decisions are human-only.
   - name: audit
@@ -10611,6 +10613,74 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BankReconciliation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/cash-position:
+    get:
+      operationId: getCashPosition
+      tags:
+        - cash
+      summary: Get a company's daily cash position
+      description: "The daily cash position of a legal entity (ADR-0051 §8, T53c), computed at the read from one database state (a repeatable-read snapshot): per house bank, in its own currency, and day from `from` (default the read date, UTC; an earlier day is 422, past days being actuals) for `days` days (1-31, default 14), the opening balance, the flows of the day by source and certainty, and the closing balance. The first day opens at the closing balance of the bank's latest statement closing before it (`opening.statement_date`; none: zero), plus the flows dated before it; it is `stale` when that statement closes before the working day before the read date (the company's calendar: weekends and its holidays) or there is none, and `gap` when a statement of the bank up to it does not open at its previous one's closing balance (ADR-0047). Flows: `in_transit`, the released payments whose line on the bank's clearing account is still open and that no statement line up to the opening statement matches (a revaluation's valuation and reset lines on the account are not payments and never count), and `payment_run`, the payments of runs `proposed` or `releasing` not posted yet, both `confirmed`, each dated its run date plus the bank's `cash.value_days` (by method), moved to the next working day; one dated before the read date is expected the working day after it and marked `late`. `book_balance` checks the opening statement against the ledger as the reconciliation report does (`GET /v1/house-banks/{id}/reconciliation`: the main bank account's balance on the statement's date, in the bank's currency, and what the statement lines explain of the difference), with the payments in transit, posted and not yet at the bank. A bank's `cash.credit_lines` amount is shown, and added to its closing balance as `available`; no limit is enforced. `currencies` sums the banks of each currency. `converted` totals every currency in `display_currency` (default the company's currency) at the latest rate of the company's `cash.rate_type` (default `planning`; with no planning rate, `average`) valid on the read date, one rate for every day; a rate valid from more than `cash.rate_max_age_days` (default 7) before the read date is used and marked `stale`, and a currency without a rate is left out of the total and listed in `incomplete_currencies`. Bank accounts appear by house bank code and last four characters, so agents read the position as people do. A legal entity the caller cannot act in is 404."
+      x-permission: cash.position.read
+      x-slo-class: report
+      x-snapshot: true
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: false
+          description: "The first day, the read date (UTC) or later; default the read date."
+          schema:
+            type: string
+            format: date
+        - name: days
+          in: query
+          required: false
+          description: "How many days, 1 to 31; default 14."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 31
+            default: 14
+        - name: display_currency
+          in: query
+          required: false
+          description: "The currency of the converted totals (ISO 4217); default the legal entity's currency. One the reference data does not know is 422."
+          schema:
+            type: string
+            pattern: "^[A-Z]{3}$"
+      responses:
+        "200":
+          description: The cash position.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashPosition"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -24180,6 +24250,182 @@ components:
               lines:
                 - {line_no: 1, booking_date: "2026-04-17", amount: {amount: "-10.50", currency: EUR}, is_reversal: false, transaction_code: NCHG, status: posted, match_id: 0192a000-0000-7000-8000-000000000b40, match_kind: rule, match_rule: transaction_code, match_status: matched, posting_date: "2026-04-17", journal_entry_id: 0192a000-0000-7000-8000-000000000d01, journal_entry_year: 2026}
                 - {line_no: 2, booking_date: "2026-04-17", amount: {amount: "-60.00", currency: EUR}, is_reversal: false, transaction_code: NTRF, status: unmatched, proposal_outcome: rejected}
+    CashPosition:
+      type: object
+      description: "A legal entity's daily cash position (ADR-0051 §8, T53c): per house bank and per currency first, then the converted total. Amounts are signed: money in the bank is positive, a payment out negative."
+      required: [legal_entity_id, read_date, from, days, banks, currencies, converted]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
+        read_date: {type: string, format: date, description: "The day the position was read (UTC): what is late, stale and converted is judged by it.", readOnly: true}
+        from: {type: string, format: date, description: The first day., readOnly: true}
+        days: {type: integer, format: int32, minimum: 1, maximum: 31, description: How many days., readOnly: true}
+        banks:
+          type: array
+          items: {$ref: "#/components/schemas/CashPositionBank"}
+          description: "The legal entity's active house banks, by code."
+          readOnly: true
+        currencies:
+          type: array
+          items: {$ref: "#/components/schemas/CashPositionCurrency"}
+          description: "The banks summed per currency, by currency code."
+          readOnly: true
+        converted: {$ref: "#/components/schemas/CashPositionConverted"}
+      examples:
+        - legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          read_date: "2026-04-17"
+          from: "2026-04-17"
+          days: 1
+          banks:
+            - house_bank_id: 0192a000-0000-7000-8000-000000000b01
+              code: USD
+              account_last4: "0001"
+              currency: USD
+              opening: {balance: {amount: "50000.00", currency: USD}, statement_date: "2026-04-16", stale: false, gap: false}
+              credit_line: {amount: "10000.00", currency: USD}
+              book_balance:
+                figures: {as_of: "2026-04-16", closing_balance: {amount: "50000.00", currency: USD}, ledger_balance: {amount: "50000.00", currency: USD}, excluded: {amount: "0.00", currency: USD}, in_transit: {amount: "0.00", currency: USD}, posted_later: {amount: "0.00", currency: USD}, unexplained: {amount: "0.00", currency: USD}}
+                payments_in_transit: {amount: "-1000.00", currency: USD}
+              days:
+                - date: "2026-04-17"
+                  opening: {amount: "50000.00", currency: USD}
+                  flows: [{source: in_transit, certainty: confirmed, late: false, amount: {amount: "-1000.00", currency: USD}, count: 1}]
+                  closing: {amount: "49000.00", currency: USD}
+                  available: {amount: "59000.00", currency: USD}
+          currencies:
+            - currency: USD
+              credit_line: {amount: "10000.00", currency: USD}
+              days:
+                - date: "2026-04-17"
+                  opening: {amount: "50000.00", currency: USD}
+                  flows: [{source: in_transit, certainty: confirmed, late: false, amount: {amount: "-1000.00", currency: USD}, count: 1}]
+                  closing: {amount: "49000.00", currency: USD}
+                  available: {amount: "59000.00", currency: USD}
+          converted:
+            currency: CAD
+            rates: [{currency: USD, rate_type: planning, rate: "1.380000000000", valid_from: "2026-04-16", stale: false}]
+            incomplete_currencies: []
+            days: [{date: "2026-04-17", opening: {amount: "69000.00", currency: CAD}, closing: {amount: "67620.00", currency: CAD}, available: {amount: "81420.00", currency: CAD}}]
+    CashPositionBank:
+      type: object
+      description: "A house bank's position, in its own currency: never converted."
+      required: [house_bank_id, code, account_last4, currency, opening, days]
+      properties:
+        house_bank_id: {type: string, format: uuid, description: The house bank., readOnly: true}
+        code: {type: string, description: "The house bank's code.", readOnly: true}
+        account_last4: {type: string, description: "The last four characters of the bank account.", readOnly: true}
+        currency: {type: string, description: "The house bank's currency (ISO 4217).", readOnly: true}
+        opening: {$ref: "#/components/schemas/CashPositionOpening"}
+        credit_line: {$ref: "#/components/schemas/Money"}
+        book_balance: {$ref: "#/components/schemas/CashPositionBookBalance"}
+        days:
+          type: array
+          items: {$ref: "#/components/schemas/CashPositionDay"}
+          description: The days in order.
+          readOnly: true
+    CashPositionOpening:
+      type: object
+      description: "What the first day opens at: the latest statement closing before it, and whether it can be relied on."
+      required: [balance, stale, gap]
+      properties:
+        balance: {$ref: "#/components/schemas/Money"}
+        statement_date: {type: string, format: date, description: "The statement's closing date; absent when the bank has no statement before the first day.", readOnly: true}
+        stale: {type: boolean, description: "True when the statement closes before the working day before the read date, or there is none.", readOnly: true}
+        gap: {type: boolean, description: "True when a statement of the bank up to it is in `gap`: a statement is missing, so the balance may be wrong.", readOnly: true}
+    CashPositionBookBalance:
+      type: object
+      description: "The opening statement against the ledger: the reconciliation report's figures on its closing date (the main bank account's balance in the bank's currency, and what the statement lines not posted, excluded or posted later explain), and the payments in transit, posted and not yet at the bank. Absent when the bank has no statement before the first day."
+      required: [figures, payments_in_transit]
+      properties:
+        figures: {$ref: "#/components/schemas/BankReconciliationFigures"}
+        payments_in_transit: {$ref: "#/components/schemas/Money"}
+    CashPositionDay:
+      type: object
+      description: "A day: its opening balance, its flows, its closing balance (opening plus flows) and what is available with the credit line."
+      required: [date, opening, flows, closing, available]
+      properties:
+        date: {type: string, format: date, description: The day., readOnly: true}
+        opening: {$ref: "#/components/schemas/Money"}
+        flows:
+          type: array
+          items: {$ref: "#/components/schemas/CashFlowTotal"}
+          description: "The day's flows by source, certainty and whether late."
+          readOnly: true
+        closing: {$ref: "#/components/schemas/Money"}
+        available: {$ref: "#/components/schemas/Money"}
+    CashFlowTotal:
+      type: object
+      description: "The flows of a day of one source and certainty."
+      required: [source, certainty, late, amount, count]
+      properties:
+        source:
+          type: string
+          description: "Where the flows come from (ADR-0051 §4). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [in_transit, payment_run]
+          readOnly: true
+        certainty:
+          type: string
+          description: "How certain the flows are. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [actual, confirmed, expected, planned]
+          readOnly: true
+        late: {type: boolean, description: "True for payments dated before the read date and still not at the bank, expected the working day after it.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money"}
+        count: {type: integer, format: int32, minimum: 1, description: How many flows., readOnly: true}
+    CashPositionCurrency:
+      type: object
+      description: "The banks of one currency summed."
+      required: [currency, days]
+      properties:
+        currency: {type: string, description: The currency (ISO 4217)., readOnly: true}
+        credit_line: {$ref: "#/components/schemas/Money"}
+        days:
+          type: array
+          items: {$ref: "#/components/schemas/CashPositionDay"}
+          description: The days in order.
+          readOnly: true
+    CashPositionConverted:
+      type: object
+      description: "Every currency's position converted into the display currency, at one rate for every day, and summed."
+      required: [currency, rates, incomplete_currencies, days]
+      properties:
+        currency: {type: string, description: "The display currency (ISO 4217).", readOnly: true}
+        rates:
+          type: array
+          items: {$ref: "#/components/schemas/CashPositionRate"}
+          description: "The rates used, by currency."
+          readOnly: true
+        incomplete_currencies:
+          type: array
+          items: {type: string}
+          description: "The currencies without a rate into the display currency, left out of the totals; empty when the totals are complete."
+          readOnly: true
+        days:
+          type: array
+          items: {$ref: "#/components/schemas/CashPositionTotal"}
+          description: The days in order.
+          readOnly: true
+    CashPositionRate:
+      type: object
+      description: "The rate a currency is converted at."
+      required: [currency, rate_type, rate, valid_from, stale]
+      properties:
+        currency: {type: string, description: "The currency converted (ISO 4217).", readOnly: true}
+        rate_type:
+          type: string
+          description: "The rate type used. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [average, bank_buying, bank_selling, planning]
+          readOnly: true
+        rate: {$ref: "#/components/schemas/Decimal"}
+        valid_from: {type: string, format: date, description: "The day the rate is valid from.", readOnly: true}
+        stale: {type: boolean, description: "True when the rate is valid from more than the company's `cash.rate_max_age_days` before the read date.", readOnly: true}
+    CashPositionTotal:
+      type: object
+      description: "A day's converted totals."
+      required: [date, opening, closing, available]
+      properties:
+        date: {type: string, format: date, description: The day., readOnly: true}
+        opening: {$ref: "#/components/schemas/Money"}
+        closing: {$ref: "#/components/schemas/Money"}
+        available: {$ref: "#/components/schemas/Money"}
     BankReconciliationSummary:
       type: object
       description: "The period's figures: its statements, the first one's opening balance, the figures on the last closing date, and the lines of its statements by status."

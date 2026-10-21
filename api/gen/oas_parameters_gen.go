@@ -10477,6 +10477,278 @@ func decodeGetBusinessPartnerParams(args [1]string, argsEscaped bool, r *http.Re
 	return params, nil
 }
 
+// GetCashPositionParams is parameters of getCashPosition operation.
+type GetCashPositionParams struct {
+	// Legal entity (required).
+	LegalEntityID uuid.UUID
+	// The first day, the read date (UTC) or later; default the read date.
+	From OptDate `json:",omitempty,omitzero"`
+	// How many days, 1 to 31; default 14.
+	Days OptInt32 `json:",omitempty,omitzero"`
+	// The currency of the converted totals (ISO 4217); default the legal entity's currency. One the
+	// reference data does not know is 422.
+	DisplayCurrency OptString `json:",omitempty,omitzero"`
+}
+
+func unpackGetCashPositionParams(packed middleware.Parameters) (params GetCashPositionParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "legal_entity_id",
+			In:   "query",
+		}
+		params.LegalEntityID = packed[key].(uuid.UUID)
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "from",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.From = v.(OptDate)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "days",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Days = v.(OptInt32)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "display_currency",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.DisplayCurrency = v.(OptString)
+		}
+	}
+	return params
+}
+
+func decodeGetCashPositionParams(args [0]string, argsEscaped bool, r *http.Request) (params GetCashPositionParams, _ error) {
+	q := uri.NewQueryDecoder(r.URL.Query())
+	// Decode query: legal_entity_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToUUID(val)
+				if err != nil {
+					return err
+				}
+
+				params.LegalEntityID = c
+				return nil
+			}); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "legal_entity_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: from.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotFromVal time.Time
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToDate(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotFromVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.From.SetTo(paramsDotFromVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "from",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Set default value for query: days.
+	{
+		val := int32(14)
+		params.Days.SetTo(val)
+	}
+	// Decode query: days.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "days",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotDaysVal int32
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToInt32(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotDaysVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Days.SetTo(paramsDotDaysVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.Days.Get(); ok {
+					if err := func() error {
+						if err := (validate.Int{
+							MinSet:        true,
+							Min:           1,
+							MaxSet:        true,
+							Max:           31,
+							MinExclusive:  false,
+							MaxExclusive:  false,
+							MultipleOfSet: false,
+							MultipleOf:    0,
+							Pattern:       nil,
+						}).Validate(int64(value)); err != nil {
+							return errors.Wrap(err, "int")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "days",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: display_currency.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "display_currency",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotDisplayCurrencyVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotDisplayCurrencyVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.DisplayCurrency.SetTo(paramsDotDisplayCurrencyVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.DisplayCurrency.Get(); ok {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     0,
+							MinLengthSet:  false,
+							MaxLength:     0,
+							MaxLengthSet:  false,
+							Email:         false,
+							Hostname:      false,
+							Regex:         regexMap["^[A-Z]{3}$"],
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(value)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "display_currency",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
 // GetCenterChangeParams is parameters of getCenterChange operation.
 type GetCenterChangeParams struct {
 	// Resource identifier (UUIDv7).

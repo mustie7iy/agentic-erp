@@ -633,6 +633,37 @@ type Handler interface {
 	//
 	// GET /v1/business-partners/{id}
 	GetBusinessPartner(ctx context.Context, params GetBusinessPartnerParams) (GetBusinessPartnerRes, error)
+	// GetCashPosition implements getCashPosition operation.
+	//
+	// The daily cash position of a legal entity (ADR-0051 §8, T53c), computed at the read from one
+	// database state (a repeatable-read snapshot): per house bank, in its own currency, and day from
+	// `from` (default the read date, UTC; an earlier day is 422, past days being actuals) for `days` days
+	// (1-31, default 14), the opening balance, the flows of the day by source and certainty, and the
+	// closing balance. The first day opens at the closing balance of the bank's latest statement closing
+	// before it (`opening.statement_date`; none: zero), plus the flows dated before it; it is `stale` when
+	// that statement closes before the working day before the read date (the company's calendar: weekends
+	// and its holidays) or there is none, and `gap` when a statement of the bank up to it does not open at
+	// its previous one's closing balance (ADR-0047). Flows: `in_transit`, the released payments whose line
+	// on the bank's clearing account is still open and that no statement line up to the opening statement
+	// matches (a revaluation's valuation and reset lines on the account are not payments and never count),
+	// and `payment_run`, the payments of runs `proposed` or `releasing` not posted yet, both `confirmed`,
+	// each dated its run date plus the bank's `cash.value_days` (by method), moved to the next working
+	// day; one dated before the read date is expected the working day after it and marked `late`.
+	// `book_balance` checks the opening statement against the ledger as the reconciliation report does
+	// (`GET /v1/house-banks/{id}/reconciliation`: the main bank account's balance on the statement's date,
+	// in the bank's currency, and what the statement lines explain of the difference), with the payments
+	// in transit, posted and not yet at the bank. A bank's `cash.credit_lines` amount is shown, and added
+	// to its closing balance as `available`; no limit is enforced. `currencies` sums the banks of each
+	// currency. `converted` totals every currency in `display_currency` (default the company's currency)
+	// at the latest rate of the company's `cash.rate_type` (default `planning`; with no planning rate,
+	// `average`) valid on the read date, one rate for every day; a rate valid from more than
+	// `cash.rate_max_age_days` (default 7) before the read date is used and marked `stale`, and a currency
+	// without a rate is left out of the total and listed in `incomplete_currencies`. Bank accounts appear
+	// by house bank code and last four characters, so agents read the position as people do. A legal
+	// entity the caller cannot act in is 404.
+	//
+	// GET /v1/cash-position
+	GetCashPosition(ctx context.Context, params GetCashPositionParams) (GetCashPositionRes, error)
 	// GetCenterChange implements getCenterChange operation.
 	//
 	// Returns one center change.

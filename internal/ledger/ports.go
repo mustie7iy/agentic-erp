@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -275,6 +276,51 @@ func (Accounts) Balances(ctx context.Context, legalEntity, account uuid.UUID, cu
 	out, err := pgx.CollectRows(rows, pgx.RowTo[money.Minor])
 	if err != nil {
 		return nil, fmt.Errorf("ledger: balances of account %s in %s in %s: %w", account, legalEntity, currency, err)
+	}
+	return out, nil
+}
+
+// OpenLine is an open line of the leading ledger on an open-item managed
+// account, in its entry's transaction currency, with the document the
+// entry was posted for.
+type OpenLine struct {
+	AccountID     uuid.UUID
+	Item          ItemRef
+	Currency      string
+	Amount        money.Minor // in Currency, debit positive
+	PostingDate   time.Time
+	SourceContext string     // the context that posted the entry: payments for a payment
+	SourceID      *uuid.UUID // its document there: the payment
+}
+
+// OpenLines are the leading ledger's open lines on the accounts in the
+// legal entity: neither cleared nor of a reversed entry or a reversal,
+// as an item the clearing would take. A house bank's clearing account
+// holds the payments in transit this way (ADR-0051 §4, T53c), beside a
+// revaluation's valuation and reset lines, which name the ledger as their
+// source and the reader leaves out. Parallel ledgers' copies are never
+// open items (ADR-0045).
+func (Accounts) OpenLines(ctx context.Context, legalEntity uuid.UUID, accounts []uuid.UUID) ([]OpenLine, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT l.account_id, l.fiscal_year, l.journal_entry_id, l.line_no, e.currency_tc, l.amount_tc, l.posting_date,
+			e.source_context, e.source_document_id
+		FROM ledger.journal_line l
+		JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
+		WHERE l.legal_entity_id = $1 AND l.account_id = ANY($2) AND l.ledger_id = (SELECT id FROM ledger.ledger WHERE is_leading)
+			AND NOT EXISTS (SELECT FROM ledger.clearing_item ci WHERE ci.tenant_id = l.tenant_id AND ci.fiscal_year = l.fiscal_year
+				AND ci.journal_entry_id = l.journal_entry_id AND ci.line_no = l.line_no)
+			AND NOT `+reversedLine+`
+		ORDER BY l.posting_date, l.journal_entry_id, l.line_no`, legalEntity, accounts)
+	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (OpenLine, error) {
+		var o OpenLine
+		err := r.Scan(&o.AccountID, &o.Item.FiscalYear, &o.Item.EntryID, &o.Item.LineNo, &o.Currency, &o.Amount, &o.PostingDate, &o.SourceContext, &o.SourceID)
+		return o, errs.Wrapf(err, "scan open line")
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ledger: open lines of %d accounts in %s: %w", len(accounts), legalEntity, err)
 	}
 	return out, nil
 }

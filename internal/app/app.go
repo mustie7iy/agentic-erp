@@ -75,6 +75,7 @@ type (
 	integrationAPI = integration.Endpoints
 	agentsAPI      = agents.Endpoints
 	analyticsAPI   = endpoint.Endpoints
+	cashAPI        = cash.Endpoints
 )
 
 // handler is the generated Handler: one embedded endpoint set per context.
@@ -94,6 +95,7 @@ type handler struct {
 	*integrationAPI
 	*agentsAPI
 	*analyticsAPI
+	*cashAPI
 }
 
 // Config is what the API needs.
@@ -199,6 +201,7 @@ func New(cfg Config) (http.Handler, error) {
 		integrationAPI: Integration(cfg),
 		agentsAPI:      &agents.Endpoints{Pages: cfg.Pages, Countries: tenancy.Countries, Certifications: certifications(cfg)},
 		analyticsAPI:   analyticsEndpoints(cfg, loopback).Init(),
+		cashAPI:        Cash(cfg),
 	}
 	return httpapi.New(h, httpapi.Pipeline{
 		Pool: cfg.Pool, AppRole: cfg.AppRole, Verifier: cfg.Verifier, Limits: cfg.Limits, RequestTimeout: cfg.RequestTimeout,
