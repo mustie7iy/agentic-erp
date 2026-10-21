@@ -393,6 +393,17 @@ func TestDiscardFrom(t *testing.T) {
 	if buf.Len() != 1 {
 		t.Errorf("entries after discarding from a later mark: got %d, want 1", buf.Len())
 	}
+	// A refusal made after the mark stays: the work was refused, not
+	// rehearsed (Discard drops it, TestRefusals).
+	mark = audit.Mark(ctx)
+	if err := audit.Refuse(ctx, audit.Entry{Action: "platform.operation.cancel", Outcome: "refused"}); err != nil {
+		t.Fatal(err)
+	}
+	add()
+	audit.DiscardFrom(ctx, mark)
+	if buf.Len() != 2 {
+		t.Errorf("entries and refusals after discarding from the mark: got %d, want 2 (the entry before it and the refusal)", buf.Len())
+	}
 }
 
 // TestObjectTypeOf: the action without its verb; an action without one is

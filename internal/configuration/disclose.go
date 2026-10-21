@@ -36,8 +36,9 @@ func (d Dependencies) disclosed(ctx context.Context, c ChangeRequest) (ChangeReq
 
 // disclosedAll is the change requests as their reader is shown them. The
 // reader's company access is read once for them all, and only when one
-// has evidence, so a page of requests costs one query more, not one per
-// piece of evidence.
+// has evidence, not once per piece of evidence; a context's disclosure
+// may read more of its own (the analytics context names the companies of
+// each simulation of metric values).
 func (d Dependencies) disclosedAll(ctx context.Context, crs []ChangeRequest) ([]ChangeRequest, error) {
 	if !slices.ContainsFunc(crs, func(c ChangeRequest) bool { return len(c.Evidence) > 0 }) {
 		return crs, nil
