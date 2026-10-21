@@ -4393,7 +4393,7 @@
      {
       "s": "T",
       "t": "Server-rendered web workspaces (templ + HTMX)",
-      "r": "T72k",
+      "r": "ADR-0052 · T73 · T72k",
       "c": []
      },
      {

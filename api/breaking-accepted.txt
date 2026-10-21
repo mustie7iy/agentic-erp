@@ -15,6 +15,6 @@ POST /v1/payment-runs/{id}:reject the response property `allOf[subschema #2]/hou
 # A new cost or profit center is placed in its kind's standard hierarchy
 # when it is created; T56a's centers shipped one batch earlier and have no
 # consumer yet.
-# T56b (ADR-0050 §3 as built, product owner accepted): creation names a standard node.
+# T56b (ADR-0050 §3 as built, pre-v1, no consumer): creation names a standard node.
 POST /v1/cost-centers added the new required request property `standard_node_id`
 POST /v1/profit-centers added the new required request property `standard_node_id`

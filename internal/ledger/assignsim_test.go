@@ -106,6 +106,25 @@ func TestAssignmentSimulation(t *testing.T) {
 			}
 		})
 	}
+	t.Run("by the access given", func(t *testing.T) {
+		// Disclose reads nothing: the access configuration hands it decides,
+		// failing closed for a reader of no company.
+		for name, tc := range map[string]struct {
+			access authz.Access
+			shown  int
+		}{"every company": {authz.Access{All: true}, 1}, "company 2000": {authz.Access{IDs: []uuid.UUID{c.de}}, 1}, "no company": {authz.Access{}, 0}} {
+			shown, err := ledger.AssignmentDisclosure{}.Disclose(context.Background(), evidence, tc.access)
+			var fields struct {
+				Companies []ledger.CompanyAssignments `json:"journal_lines_by_company"`
+			}
+			if err == nil {
+				err = json.Unmarshal(shown.Detail, &fields)
+			}
+			if err != nil || len(fields.Companies) != tc.shown {
+				t.Errorf("%s: got %d companies (%v), want %d", name, len(fields.Companies), err, tc.shown)
+			}
+		}
+	})
 	t.Run("other evidence is shown as it is", func(t *testing.T) {
 		for _, e := range []configuration.Evidence{{Kind: "regression", Detail: json.RawMessage(`[1]`)},
 			{Kind: "simulation", Summary: "Invoices.", Detail: json.RawMessage(`{"invoices_by_company": []}`)}} {
@@ -134,10 +153,6 @@ func TestAssignmentSimulation(t *testing.T) {
 	t.Run("failing statements", func(t *testing.T) {
 		apitest.EveryFailure(t, c.ten, c.ten.Human, "simulate", func(ctx context.Context) error {
 			_, err := sim.Simulate(ctx, document(t), proposed)
-			return err
-		})
-		apitest.EveryFailure(t, c.ten, c.ten.Human, "disclose", func(ctx context.Context) error {
-			_, err := disclose(ctx, evidence)
 			return err
 		})
 		if _, err := sim.Simulate(context.Background(), document(t), proposed); err == nil {
