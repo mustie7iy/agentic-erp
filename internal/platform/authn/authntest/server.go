@@ -331,7 +331,7 @@ func (is *Issuer) endSession(w http.ResponseWriter, r *http.Request) {
 		if st := q.Get("state"); st != "" {
 			u += "?" + url.Values{"state": {st}}.Encode()
 		}
-		http.Redirect(w, r, u, http.StatusFound)
+		http.Redirect(w, r, u, http.StatusFound) // #nosec G710 -- only to the client's registered post-logout URI
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")

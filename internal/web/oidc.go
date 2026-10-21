@@ -6,7 +6,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rsa"
-	"crypto/sha1" //nolint:gosec // x5t is the certificate's SHA-1 thumbprint by definition (RFC 7515 §4.1.7); it identifies, it does not protect
+	"crypto/sha1" // #nosec G505 -- x5t is the certificate's SHA-1 thumbprint by definition (RFC 7515 §4.1.7); it identifies, it does not protect
 	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/x509"
@@ -254,7 +254,7 @@ func clientAssertion(pemData, clientID, audience string, now time.Time) (string,
 	jwk.KeyID = base64.RawURLEncoding.EncodeToString(thumb)
 	opts := (&jose.SignerOptions{}).WithType("JWT")
 	if cert != nil {
-		s1, s256 := sha1.Sum(cert.Raw), sha256.Sum256(cert.Raw) //nolint:gosec // x5t is SHA-1 by definition (RFC 7515 §4.1.7)
+		s1, s256 := sha1.Sum(cert.Raw), sha256.Sum256(cert.Raw) // #nosec G401 -- x5t is SHA-1 by definition (RFC 7515 §4.1.7)
 		opts = opts.WithHeader("x5t", base64.RawURLEncoding.EncodeToString(s1[:])).WithHeader("x5t#S256", base64.RawURLEncoding.EncodeToString(s256[:]))
 	}
 	// parseCredential gives an RSA or P-256 key, for which go-jose makes a

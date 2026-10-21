@@ -116,7 +116,7 @@ func NewSecret() string {
 }
 
 func (st *Store) seal(hash []byte, sec Secrets) []byte {
-	plain, _ := json.Marshal(sec) // strings and times always encode
+	plain, _ := json.Marshal(sec) // #nosec G117 -- marshalled to be sealed at once, never kept or sent in the clear; strings and times always encode
 	return st.Sealer.Seal(hash, plain)
 }
 

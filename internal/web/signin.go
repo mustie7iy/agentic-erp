@@ -56,7 +56,7 @@ func (s *Server) now() time.Time { return clock.Now(s.Now) }
 // cookie is one of the workspace's cookies: always Secure, HttpOnly, at
 // the root and without Domain (the __Host- prefix's rules).
 func cookie(name, value string, maxAge time.Duration, sameSite http.SameSite) *http.Cookie {
-	c := &http.Cookie{Name: name, Value: value, Path: "/", Secure: true, HttpOnly: true, SameSite: sameSite}
+	c := &http.Cookie{Name: name, Value: value, Path: "/", Secure: true, HttpOnly: true, SameSite: sameSite} // #nosec G124 -- Secure and HttpOnly always; SameSite Lax or Strict, as each caller names
 	switch {
 	case maxAge > 0:
 		c.MaxAge = int(maxAge / time.Second)
