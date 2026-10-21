@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"strings"
 	"time"
 
@@ -250,6 +251,9 @@ func (e *Endpoints) post(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d d
 		tcs[i], lcs[i], gcs[i] = l.TC, l.LC, l.GC
 		taxes[i], quantities[i], units[i], texts[i] = l.TaxCode, l.Quantity, l.Unit, l.Text
 		orders[i], items[i], specials[i] = l.PurchaseOrderID, l.POItemNo, l.SpecialGL
+	}
+	if err := lockTaxCodes(ctx, tx, d.entity.ID, taxes); err != nil {
+		return Entry{}, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id,
 			fiscal_period, posting_date, account_id, amount_tc, amount_lc, amount_gc, partner_id, tax_code, quantity, uom_code, line_text,
@@ -500,25 +504,56 @@ func requirePostable(i int, field string, a account, ok bool) error {
 }
 
 // checkTaxCodes requires every tax code to be valid in the legal entity on
-// the posting date.
+// the posting date: to have a rate in force then. It takes the codes' lock
+// first (lockTaxCodes), so it reads the rates as a setup that held them
+// left them, and none changes until the posting commits.
 func checkTaxCodes(ctx context.Context, tx pgx.Tx, le uuid.UUID, date time.Time, lines []Line) error {
 	var codes []string
+	var taxes []*string
 	for _, l := range lines {
 		if l.TaxCode != nil {
-			codes = append(codes, *l.TaxCode)
+			codes, taxes = append(codes, *l.TaxCode), append(taxes, l.TaxCode)
 		}
 	}
 	if len(codes) == 0 {
 		return nil
 	}
-	var missing *string
-	if err := tx.QueryRow(ctx, `SELECT min(c) FROM unnest($1::text[]) AS c WHERE NOT EXISTS (SELECT FROM ledger.tax_code t
-		WHERE t.legal_entity_id = $2 AND t.code = c AND t.valid_from <= $3 AND (t.valid_to IS NULL OR t.valid_to > $3))`, codes, le, date).Scan(&missing); err != nil {
+	if err := lockTaxCodes(ctx, tx, le, taxes); err != nil {
+		return err
+	}
+	rows, _ := tx.Query(ctx, `SELECT code FROM ledger.tax_rate WHERE legal_entity_id = $2 AND code = ANY($1) AND withdrawn_at IS NULL
+		AND valid_from <= $3 AND (valid_to IS NULL OR valid_to > $3)`, codes, le, date)
+	valid, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
 		return fmt.Errorf("ledger: check tax codes in %s: %w", le, err)
 	}
-	if missing != nil {
-		return problem.Unprocessable("ledger.unknown_tax_code", "Tax code "+*missing+" is not valid in this legal entity on the posting date.",
+	slices.Sort(codes)
+	if i := slices.IndexFunc(codes, func(c string) bool { return !slices.Contains(valid, c) }); i >= 0 {
+		return problem.Unprocessable("ledger.unknown_tax_code", "Tax code "+codes[i]+" is not valid in this legal entity on the posting date.",
 			problem.FieldError{Field: "lines.tax_code", Code: "unknown", Message: "a tax code of the legal entity"})
+	}
+	return nil
+}
+
+// lockTaxCodes holds the definitions of the lines' tax codes FOR KEY SHARE
+// until the posting commits (T61a). Every journal line is written here, so
+// every path that posts a tax code takes it; the setup locks the legal
+// entity's definitions FOR UPDATE before it changes a rate, so it waits for
+// a posting in flight and its database check (ledger.check_tax_rate) then
+// sees the posting's lines, and a posting waits for a setup in flight.
+func lockTaxCodes(ctx context.Context, tx pgx.Tx, le uuid.UUID, taxes []*string) error {
+	var codes []string
+	for _, c := range taxes {
+		if c != nil && !slices.Contains(codes, *c) {
+			codes = append(codes, *c)
+		}
+	}
+	if len(codes) == 0 {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `SELECT FROM ledger.tax_code_definition WHERE legal_entity_id = $1 AND code = ANY($2) ORDER BY code FOR KEY SHARE`,
+		le, codes); err != nil {
+		return fmt.Errorf("ledger: lock tax codes in %s: %w", le, err)
 	}
 	return nil
 }

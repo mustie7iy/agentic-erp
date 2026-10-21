@@ -7,6 +7,9 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 )
 
+// vat is the test pack's first tax code's component.
+func vat(p *Pack) *config.TaxComponent { return &p.Tax.TaxCodes[0].Components[0] }
+
 // testPack is a valid pack, loaded fresh for each mutation.
 func testPack(t *testing.T, version string) *Pack {
 	t.Helper()
@@ -37,16 +40,16 @@ func TestValidate(t *testing.T) {
 		{"determination unresolved", func(p *Pack) { p.Accounts.AccountDetermination.Bank = "1999" }, "accounts.yaml: account_determination.bank"},
 		{"duplicate tax code", func(p *Pack) { p.Tax.TaxCodes[1].Code = "V1" }, "tax.yaml: tax_codes[V1]"},
 		{"tax description", func(p *Pack) { p.Tax.TaxCodes[0].Description = "" }, "tax.yaml: tax_codes[V1].description"},
-		{"tax account unresolved", func(p *Pack) { p.Tax.TaxCodes[0].Account = "1999" }, "tax.yaml: tax_codes[V1].account"},
-		{"no rates", func(p *Pack) { p.Tax.TaxCodes[0].Rates = nil }, "tax.yaml: tax_codes[V1].rates"},
-		{"rate above 100", func(p *Pack) { p.Tax.TaxCodes[0].Rates[0].RatePercent = "100.001" }, "tax.yaml: tax_codes[V1].rates[0].rate_percent"},
-		{"negative rate", func(p *Pack) { p.Tax.TaxCodes[0].Rates[0].RatePercent = "-1" }, "tax.yaml: tax_codes[V1].rates[0].rate_percent"},
-		{"four decimals", func(p *Pack) { p.Tax.TaxCodes[0].Rates[0].RatePercent = "15.0001" }, "tax.yaml: tax_codes[V1].rates[0].rate_percent"},
-		{"rate from", func(p *Pack) { p.Tax.TaxCodes[0].Rates[0].ValidFrom = "x" }, "tax.yaml: tax_codes[V1].rates[0].valid_from"},
-		{"rate to", func(p *Pack) { p.Tax.TaxCodes[0].Rates[0].ValidTo = "x" }, "tax.yaml: tax_codes[V1].rates[0].valid_to"},
-		{"rate ends before it starts", func(p *Pack) { p.Tax.TaxCodes[0].Rates[0].ValidTo = "2019-12-31" }, "tax.yaml: tax_codes[V1].rates[0].valid_to"},
-		{"rates overlap", func(p *Pack) { p.Tax.TaxCodes[0].Rates[0].ValidTo = "2027-01-01" }, "tax.yaml: tax_codes[V1].rates"},
-		{"open rate followed by another", func(p *Pack) { p.Tax.TaxCodes[0].Rates[0].ValidTo = "" }, "tax.yaml: tax_codes[V1].rates"},
+		{"tax account unresolved", func(p *Pack) { vat(p).Account = "1999" }, "tax.yaml: tax_codes[V1].components[vat].account"},
+		{"single-rate form", func(p *Pack) {
+			p.Tax.TaxCodes[0].Components, p.Tax.TaxCodes[0].RatePercent, p.Tax.TaxCodes[0].Account = nil, "15", "1400"
+		}, "tax.yaml: tax_codes[V1].components"},
+		{"no rates", func(p *Pack) { vat(p).Rates = nil }, "tax.yaml: tax_codes[V1].components[vat].rates"},
+		{"rate above 100", func(p *Pack) { vat(p).Rates[0].RatePercent = "100.001" }, "tax.yaml: tax_codes[V1].components[vat].rates[2020-01-01].rate_percent"},
+		{"rate ends before it starts", func(p *Pack) { vat(p).Rates[0].ValidTo = "2019-12-31" }, "tax.yaml: tax_codes[V1].components[vat].rates[2020-01-01].valid_to"},
+		{"rates overlap", func(p *Pack) { vat(p).Rates[0].ValidTo = "2027-01-01" }, "tax.yaml: tax_codes[V1].components[vat].rates"},
+		{"zero code with a rate", func(p *Pack) { p.Tax.TaxCodes[1].Components[0].Rates[0].RatePercent = "1" },
+			"tax.yaml: tax_codes[V0].components[vat].rates[2020-01-01].rate_percent"},
 		{"holiday date", func(p *Pack) { p.Calendar.Holidays[0].Date = "2026-02-30" }, "calendar.yaml: holidays[0].date"},
 		{"duplicate holiday", func(p *Pack) { p.Calendar.Holidays[1].Date = "2026-01-01" }, "calendar.yaml: holidays[1]"},
 		{"holiday name", func(p *Pack) { p.Calendar.Holidays[0].Name = "" }, "calendar.yaml: holidays[0].name"},

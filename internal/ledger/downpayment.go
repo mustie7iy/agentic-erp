@@ -77,7 +77,12 @@ func downPaymentLines(ctx context.Context, in DownPaymentPayment) ([]PostingLine
 		if !ok {
 			return nil, problem.Unprocessable("ledger.unknown_tax_code", "Tax code "+*in.TaxCode+" is not valid in the legal entity on the posting date.")
 		}
-		lines = append(lines, PostingLine{AccountID: code.AccountID, Amount: in.Tax, TaxCode: in.TaxCode})
+		single, ok := code.Single()
+		if !ok {
+			return nil, problem.Unprocessable("ledger.tax_code_components", "Tax code "+*in.TaxCode+" has components a down payment cannot post yet "+
+				"(several, non-deductible or partly recoverable; T61d).")
+		}
+		lines = append(lines, PostingLine{AccountID: *single.AccountID, Amount: in.Tax, TaxCode: in.TaxCode})
 	}
 	return append(lines, PostingLine{AccountID: in.BankAccountID, Amount: -in.Amount}), nil
 }

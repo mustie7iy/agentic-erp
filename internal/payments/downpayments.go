@@ -142,13 +142,19 @@ func (e *Endpoints) invalidTaxCodes(ctx context.Context, r Run, requests []DownP
 }
 
 // taxCodeValid says whether a request's input tax code, if it has tax, is
-// valid on the run date.
+// valid on the run date as an input code a down payment can post: one
+// component on an account of its own (until T61d), else the release would
+// fail posting it.
 func (e *Endpoints) taxCodeValid(ctx context.Context, r Run, d DownPayment) (bool, error) {
 	if d.TaxCode == nil || d.Tax == 0 {
 		return true, nil
 	}
-	_, ok, err := e.Accounts.TaxCode(ctx, r.LegalEntityID, *d.TaxCode, r.RunDate)
-	return ok, err
+	t, ok, err := e.Accounts.TaxCode(ctx, r.LegalEntityID, *d.TaxCode, r.RunDate)
+	if err != nil || !ok {
+		return false, err
+	}
+	_, single := t.Single()
+	return t.Direction == "input" && single, nil
 }
 
 // recheckRequests refuses the release of a proposed run that pays a

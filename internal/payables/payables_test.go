@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -28,6 +29,12 @@ type env struct {
 	fixture.Env
 	expense, tax, ap uuid.UUID // accounts 520000, 140000 and 211000 of company 2000
 }
+
+// twoParts is a code of GST and a non-deductible PST, which an invoice
+// cannot post on one tax line until T61d.
+var twoParts = config.TaxCode{Code: "V2", Description: "GST + PST", Components: []config.TaxComponent{
+	{Key: "gst", AccountKey: config.KeyInput, Account: "140000", Rates: []config.TaxRate{{RatePercent: "5", ValidFrom: "2026-01-01"}}},
+	{Key: "pst", AccountKey: config.KeyNonDeductible, Rates: []config.TaxRate{{RatePercent: "7", ValidFrom: "2026-01-01"}}}}}
 
 func setup(t *testing.T) env {
 	t.Helper()
@@ -248,6 +255,7 @@ func TestEntryRefusals(t *testing.T) {
 	pgtest.Exec(t, `UPDATE partner.supplier_company SET is_posting_blocked = true, version = version + 1 WHERE partner_id = $1`, blocked)
 	usBank := e.Account(t, "1000", "100000")
 	ap := accountItem(e.expense, "1.00")
+	e.TaxCodes(t, config.TaxCode{Code: "A1", Description: "Output tax", Direction: config.TaxOutput, RatePercent: "19", Account: "140000"}, twoParts)
 	cases := map[string]struct {
 		body   string
 		status int
@@ -275,6 +283,8 @@ func TestEntryRefusals(t *testing.T) {
 		"account":              {e.invoice(e.Supplier, "R", "1.00", "0.00", accountItem(usBank, "1.00")), 422, "payables.account_not_postable"},
 		"reconciliation":       {e.invoice(e.Supplier, "R", "1.00", "0.00", accountItem(e.ap, "1.00")), 422, "payables.account_not_postable"},
 		"tax code":             {e.invoice(e.Supplier, "R", "1.00", "0.00", strings.Replace(ap, `"V1"`, `"V7"`, 1)), 422, "payables.unknown_tax_code"},
+		"output tax code":      {e.invoice(e.Supplier, "R", "1.00", "0.00", strings.Replace(ap, `"V1"`, `"A1"`, 1)), 422, "payables.unknown_tax_code"},
+		"code with components": {e.invoice(e.Supplier, "R", "1.00", "0.00", strings.Replace(ap, `"V1"`, `"V2"`, 1)), 422, "payables.tax_code_components"},
 		"unit unknown":         {e.invoice(e.Supplier, "R", "1.00", "0.00", strings.Replace(ap, `"unit": "EA"`, `"unit": "XX"`, 1)), 422, "payables.unknown_unit"},
 		"no fiscal year":       {strings.Replace(e.invoice(e.Supplier, "R", "1.00", "0.00", ap), "2026-03-10", "2031-03-10", 1), 422, "ledger.no_fiscal_period"},
 	}

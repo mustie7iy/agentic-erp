@@ -31,16 +31,41 @@ func downPaymentSetup(t *testing.T) env {
 func downPaymentSetupWith(t *testing.T, configure func(*app.Config)) env {
 	t.Helper()
 	e := setupWith(t, []string{"payables.down_payment.request"}, configure)
-	doc := fixture.Document(t)
-	de := doc.Company("2000")
-	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "159000", Name: "Down payments made", Type: config.Asset, VendorReconciliation: true})
-	de.AccountDetermination.DownPayment = "159000"
 	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
-		return ledger.Setup{LegalEntities: tenancy.Directory{}}.Apply(ctx, doc)
+		return ledger.Setup{LegalEntities: tenancy.Directory{}}.Apply(ctx, downPaymentDoc(t))
 	}); err != nil {
 		t.Fatal(err)
 	}
 	return e
+}
+
+// downPaymentDoc is the prototype's configuration with company 2000's down
+// payment account (159000).
+func downPaymentDoc(t *testing.T) *config.Config {
+	t.Helper()
+	doc := fixture.Document(t)
+	de := doc.Company("2000")
+	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "159000", Name: "Down payments made", Type: config.Asset, VendorReconciliation: true})
+	de.AccountDetermination.DownPayment = "159000"
+	return doc
+}
+
+// splitV1 gives company 2000's tax code V1 a non-deductible component
+// besides its 19%, which a down payment cannot post until T61d.
+func splitV1(t *testing.T, e env) {
+	t.Helper()
+	fixture.TaxCodes(t, e.Tenant, downPaymentDoc(t), config.TaxCode{Code: "V1", Description: "Input tax, standard rate", Components: []config.TaxComponent{
+		{Key: config.LegacyComponent, AccountKey: config.KeyInput, Account: "140000", Rates: []config.TaxRate{{RatePercent: "19", ValidFrom: "2026-01-01"}}},
+		{Key: "pst", AccountKey: config.KeyNonDeductible, Rates: []config.TaxRate{{RatePercent: "7", ValidFrom: "2026-01-01"}}}}})
+}
+
+// endV1 ends company 2000's tax code V1 on 2026-03-19: its 19% rate is
+// valid through that day, as a configuration with the dated rate makes it.
+func endV1(t *testing.T, e env) {
+	t.Helper()
+	fixture.TaxCodes(t, e.Tenant, downPaymentDoc(t), config.TaxCode{Code: "V1", Description: "Input tax, standard rate", Components: []config.TaxComponent{
+		{Key: config.LegacyComponent, AccountKey: config.KeyInput, Account: "140000",
+			Rates: []config.TaxRate{{RatePercent: "19", ValidFrom: "2026-01-01", ValidTo: "2026-03-19"}}}}})
 }
 
 // request requests a down payment from the supplier in company 2000, due
@@ -324,16 +349,23 @@ func TestDownPaymentRefusals(t *testing.T) {
 			t.Errorf("proposal: got %v, want payments.amount_too_large", got)
 		}
 	})
+	t.Run("tax code split into components", func(t *testing.T) {
+		e := downPaymentSetup(t)
+		e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
+		taxed := e.request(t, e.Supplier, "119.00", "2026-03-15", `, "tax_code": "V1"`)
+		splitV1(t, e)
+		run := e.run(t, "2026-04-01", "2026-04-01")
+		want := map[string]string{"request " + id(taxed): "tax_code_invalid 119.00"}
+		if got := e.exclusions(t, run); fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Errorf("exclusions: got %v, want %v", got, want)
+		}
+	})
 	t.Run("tax code ended", func(t *testing.T) {
 		e := downPaymentSetup(t)
 		e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
 		taxed := e.request(t, e.Supplier, "119.00", "2026-03-15", `, "tax_code": "V1"`)
 		run := e.run(t, "2026-03-31", "2026-03-31")
-		// The run dates are in the past, where a tax code's validity is not
-		// ended by the application (its trigger); the test ends it there.
-		pgtest.Exec(t, `ALTER TABLE ledger.tax_code DISABLE TRIGGER USER`)
-		pgtest.Exec(t, `UPDATE ledger.tax_code SET valid_to = '2026-03-20' WHERE tenant_id = $1 AND legal_entity_id = $2 AND code = 'V1'`, e.Tenant.ID, e.DE)
-		pgtest.Exec(t, `ALTER TABLE ledger.tax_code ENABLE TRIGGER USER`)
+		endV1(t, e)
 		_, tag := e.Must(200, "GET", "/v1/payment-runs/"+id(run), "", "")
 		e.As(e.Approver).Problem(409, "payments.proposal_outdated", "POST", "/v1/payment-runs/"+id(run)+":release", "", tag)
 		e.decide(t, 200, run, "reject", `{"reason": "Tax code ended"}`)
@@ -365,9 +397,7 @@ func TestDropBesideAnExcludedRequest(t *testing.T) {
 	e.invoice(t, e.Supplier, "INV-A", "100.00", "2026-03-01")
 	x := e.invoice(t, e.Vendor, "INV-X", "40.00", "2026-03-01")
 	taxed := e.request(t, e.Vendor, "119.00", "2026-03-15", `, "tax_code": "V1"`)
-	pgtest.Exec(t, `ALTER TABLE ledger.tax_code DISABLE TRIGGER USER`) // the run date is in the past, where the application ends no validity
-	pgtest.Exec(t, `UPDATE ledger.tax_code SET valid_to = '2026-03-20' WHERE tenant_id = $1 AND legal_entity_id = $2 AND code = 'V1'`, e.Tenant.ID, e.DE)
-	pgtest.Exec(t, `ALTER TABLE ledger.tax_code ENABLE TRIGGER USER`)
+	endV1(t, e)
 	run := e.run(t, "2026-04-15", "2026-04-15")
 	e.decide(t, 202, run, "release", "")
 	e.unpayable(t, x)

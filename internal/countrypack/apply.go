@@ -16,7 +16,7 @@ type Options struct {
 	// Company is the company code the pack is applied to; it must be in the
 	// document already and in the pack's country.
 	Company string
-	// On is the date of application: it picks the tax rates in force.
+	// On is the date of application, recorded in the packs section.
 	On time.Time
 	// FiscalYear is the year the pack's number ranges are created for.
 	FiscalYear int
@@ -44,7 +44,7 @@ func Apply(cur *config.Config, next *Pack, lib *Library, o Options) (*config.Con
 	case co.Country != next.Manifest.Country:
 		return nil, nil, fmt.Errorf("countrypack: company %s is in %q, the pack is for %s", o.Company, co.Country, next.Manifest.Country)
 	}
-	base, baseOn, err := adopted(cur, next, lib, o.Company)
+	base, err := adopted(cur, next, lib, o.Company)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -53,10 +53,9 @@ func Apply(cur *config.Config, next *Pack, lib *Library, o Options) (*config.Con
 	co.ChartOfAccounts = merge3(m, p+".chart_of_accounts", base.Accounts.Accounts, co.ChartOfAccounts, next.Accounts.Accounts,
 		func(a config.Account) string { return a.Number })
 	mergeDetermination(m, p+".account_determination", &base.Accounts.AccountDetermination, &co.AccountDetermination, &next.Accounts.AccountDetermination)
-	baseCodes, _ := taxCodes(base, baseOn) // what the adopted version wrote; its notes were given then
-	nextCodes, notes := taxCodes(next, o.On)
-	m.notes = append(m.notes, prefixed(p, notes)...)
-	co.TaxCodes = merge3(m, p+".tax_codes", baseCodes, co.TaxCodes, nextCodes, func(t config.TaxCode) string { return t.Code })
+	// A pack's codes carry all their dated rates (T61a), so they are merged
+	// as they are, whatever the date of application.
+	co.TaxCodes = merge3(m, p+".tax_codes", base.Tax.TaxCodes, co.TaxCodes, next.Tax.TaxCodes, func(t config.TaxCode) string { return t.Code })
 	draft.NumberRanges = merge3(m, "number_ranges", adoptedRanges(base, cur, o), cur.NumberRanges, numberRanges(next, o),
 		func(n config.NumberRange) string { return n.Key() })
 	draft.NumberRanges = issuedStay(m, cur.NumberRanges, draft.NumberRanges)
@@ -70,28 +69,24 @@ func Apply(cur *config.Config, next *Pack, lib *Library, o Options) (*config.Con
 	return &draft, m.notes, nil
 }
 
-// adopted is the base of the merge, the version the company adopted, and
-// the date it was applied on; an empty pack on first adoption.
-func adopted(cur *config.Config, next *Pack, lib *Library, company string) (*Pack, time.Time, error) {
+// adopted is the base of the merge, the version the company adopted; an
+// empty pack on first adoption.
+func adopted(cur *config.Config, next *Pack, lib *Library, company string) (*Pack, error) {
 	a := cur.Pack(company)
 	if a == nil {
-		return &Pack{}, time.Time{}, nil
+		return &Pack{}, nil
 	}
 	if a.Country != next.Manifest.Country {
-		return nil, time.Time{}, fmt.Errorf("countrypack: company %s adopted the %s pack, not %s", company, a.Country, next.Manifest.Country)
+		return nil, fmt.Errorf("countrypack: company %s adopted the %s pack, not %s", company, a.Country, next.Manifest.Country)
 	}
 	if CompareVersions(next.Manifest.Version, a.Version) < 0 {
-		return nil, time.Time{}, fmt.Errorf("%w: %s %s, not %s", ErrDowngrade, a.Country, a.Version, next.Manifest.Version)
+		return nil, fmt.Errorf("%w: %s %s, not %s", ErrDowngrade, a.Country, a.Version, next.Manifest.Version)
 	}
 	base := lib.Get(a.Country, a.Version)
 	if base == nil {
-		return nil, time.Time{}, fmt.Errorf("countrypack: the adopted pack %s %s is not in the image", a.Country, a.Version)
+		return nil, fmt.Errorf("countrypack: the adopted pack %s %s is not in the image", a.Country, a.Version)
 	}
-	on, err := time.Parse(time.DateOnly, a.AppliedOn)
-	if err != nil {
-		return nil, time.Time{}, fmt.Errorf("countrypack: company %s adopted its pack on %q: %w", company, a.AppliedOn, err)
-	}
-	return base, on, nil
+	return base, nil
 }
 
 func baseText(base *Pack) string {
@@ -109,42 +104,6 @@ func adopt(c *config.Config, next *Pack, o Options) {
 		return
 	}
 	c.Packs = append(c.Packs, a)
-}
-
-// taxCodes are the pack's tax codes as config.TaxCode keeps them until
-// T61: each with the rate in force on the date. Notes name the rates that
-// come later and the codes without a rate in force, which are left out.
-func taxCodes(p *Pack, on time.Time) ([]config.TaxCode, []config.Note) {
-	var out []config.TaxCode
-	var notes []config.Note
-	for _, t := range p.Tax.TaxCodes {
-		path := ".tax_codes[" + t.Code + "]"
-		rate := ""
-		for _, r := range t.Rates {
-			from, _ := time.Parse(time.DateOnly, r.ValidFrom) // a loaded pack's dates are valid
-			to, _ := time.Parse(time.DateOnly, r.ValidTo)
-			switch {
-			case on.Before(from):
-				notes = append(notes, config.Note{Path: path + ".rate_percent", Message: fmt.Sprintf(
-					"the rate becomes %s%% on %s; apply the pack again then (effective-dated tax codes come with T61)", r.RatePercent, r.ValidFrom)})
-			case r.ValidTo == "" || !on.After(to):
-				rate = r.RatePercent
-			}
-		}
-		if rate == "" {
-			notes = append(notes, config.Note{Path: path, Message: "no rate is in force on " + on.Format(time.DateOnly) + "; the code is not applied"})
-			continue
-		}
-		out = append(out, config.TaxCode{Code: t.Code, Description: t.Description, RatePercent: rate, Account: t.Account})
-	}
-	return out, notes
-}
-
-func prefixed(p string, notes []config.Note) []config.Note {
-	for i := range notes {
-		notes[i].Path = p + notes[i].Path
-	}
-	return notes
 }
 
 // numberRanges are the pack's templates for the company and fiscal year.

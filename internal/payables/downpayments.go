@@ -182,7 +182,11 @@ func (e *Endpoints) requestTax(ctx context.Context, in DownPaymentInput, amount 
 	if !ok || code.Direction != "input" {
 		return 0, invalid("payables.unknown_tax_code", "tax_code", "Tax code "+*in.TaxCode+" is not an input tax code of the legal entity on the due date.")
 	}
-	rate := money.ParseRat(code.RatePct)
+	single, ok := code.Single()
+	if !ok {
+		return 0, componentsUnsupported("tax_code", *in.TaxCode)
+	}
+	rate := money.ParseRat(single.RatePct)
 	share := new(big.Rat).Quo(rate, new(big.Rat).Add(rate, big.NewRat(100, 1)))
 	return money.Round(new(big.Rat).Mul(money.Rat(amount, exp), share), exp)
 }

@@ -270,22 +270,50 @@ tax_codes:
           - {valid_from: 2026-01-01, rate_percent: "7"}
 ```
 
-- `ledger.tax_code` becomes the code (kind, direction, category) and
-  `ledger.tax_rate` its component rates (`valid_from`, `valid_to`, one per
-  component and date, the existing GiST exclusion moved to it). Rates in the
-  future are written when the configuration is activated, so a known change
-  (NS HST 15% to 14%) is set up once, ahead. The "changed today" refusal and
-  "ends today" behaviour go: a rate's dates are explicit, and changing a rate
-  that tax items already used is refused (a new date is added instead), so the
-  past is never re-rated.
-- A rate change is **operational** at most for the future and **financial**
-  (tier 3, two approvers, as today's rate simulation) when it changes the rate
-  in force today or earlier; the existing payables simulation of rate changes
-  (07, T22) keeps working on the dated rate.
-- Country packs (ADR-0048) write all their rates; the "later rates noted" note
-  and the re-application after a change go away. ADR-0048 is amended when T61a
-  lands. T62f (the UAE pack) should be built on T61a's schema, or upgraded by
-  it (decision on sequencing in the steps).
+- **As built (T61a, migration 000124):** `ledger.tax_code_definition` is the
+  code (description, direction, kind, category), `ledger.tax_component` its
+  components (jurisdiction, account key, recoverable share, account, and the
+  former accounts whose lines are still its tax lines) and `ledger.tax_rate`
+  the components' dated rates (`valid_from`, exclusive `valid_to`, one per
+  component and date, a GiST exclusion per component over the live rows). A
+  code is valid on a date when one of its components has a rate then. The old
+  `ledger.tax_code` (one row per validity, one rate and account) was copied
+  into them, each code one component `tax`, and is no longer read or written;
+  a later release drops it (contract, with T61c). Rates in the future are
+  written when the configuration is activated, so a known change (NS HST 15%
+  to 14%) is set up once, ahead. The "changed today" refusal goes: a rate's
+  dates are explicit, a different rate is a new row (a rate's value and start
+  never change; one the document no longer has is withdrawn), and the
+  **database** refuses withdrawing a rate, or moving its end, past a posting
+  of its code, and a new rate over dates already posted with its code (409
+  `ledger.tax_rate_in_use`), so the past is never re-rated. Until T61c's tax
+  items name the rate they applied, "posted" is a journal line with the code
+  by posting date; every posting holds its codes' definitions `FOR KEY SHARE`
+  and the setup locks them `FOR UPDATE` first, so a setup waits for postings
+  in flight and then sees them, and a posting checks its codes' rates only
+  after taking the lock. A tax amount a context worked out before posting
+  (payables' down payment share) can still rest on a rate a setup replaced
+  meanwhile; T61c's tax items, which name the rate applied, close that. A code's direction and a component's
+  account key never change (409 `ledger.tax_code_fixed`). The single-rate form
+  keeps its meaning: in force from the first fiscal period, a changed rate
+  from the activation day, a removed code's rates ending that day; but such a
+  change is now refused on a day the code already has a posting dated that
+  day or later (it would re-rate it), where it used to pass. Codes copied
+  from `ledger.tax_code` have the component `tax`: moving one to the dated
+  form keeps that key, since another key would add rates over posted dates.
+- A rate change is **posting-relevant** (tier 3, two approvers), as rate
+  changes were: the diff carries no date, so a change only of future rates is
+  not told apart (a lower tier for those would need the date of activation in
+  the diff; not built). The payables simulation of rate changes (07, T22)
+  compares the rate in force on each replayed invoice's date, per component.
+- Until T61d posts every component, supplier invoices and down payments take
+  only a code with one component on an account of its own, wholly recoverable
+  (422 `payables.tax_code_components`, `ledger.tax_code_components`), and an
+  input code (`payables.unknown_tax_code`, `procurement.unknown_tax_code` for
+  an output code).
+- Country packs (ADR-0048, amended) write all their rates; the "later rates
+  noted" note and the re-application after a change are gone. T62f (the UAE
+  pack) and T62e's tax codes are written in this schema.
 - Validation adds: components unique per code; a `non_deductible` component has
   no account of its own; `self_output`/`self_input` come in pairs on a
   `reverse_charge` or `import` code; recoverable 0-100% with three decimals;
@@ -504,7 +532,7 @@ coverage 100%, reviewer) like every step.
 
 | Step | Work | Acceptance criteria |
 |---|---|---|
-| T61a | **Dated tax codes with components** (config + ledger) | `config.TaxCode` with direction, kind, category, components (key, jurisdiction, account key, recoverable %, account, dated rates); old one-rate codes still load; validation as §3; `ledger.tax_rate` with a GiST exclusion per component; setup writes future rates, never edits a used rate (409 `ledger.tax_rate_in_use`), no "changed today" refusal; `Accounts.TaxCode` returns the components at a date; the payables rate simulation reads dated rates; schema tests for each database rule; ADR-0048 amended (packs write all rates, the note goes) |
+| T61a (done) | **Dated tax codes with components** (config + ledger) | `config.TaxCode` with direction, kind, category, components (key, jurisdiction, account key, recoverable %, account, dated rates); old one-rate codes still load; validation as §3; `ledger.tax_rate` with a GiST exclusion per component; setup writes future rates, never edits a used rate (409 `ledger.tax_rate_in_use`, enforced by the database), no "changed today" refusal; `Accounts.TaxCode` returns the components at a date; the payables rate simulation reads dated rates; the pack schema carries the components and `countrypack.Apply` merges them; schema tests for each database rule; ADR-0048 amended (packs write all rates, the note goes) |
 | T61b | **The calculator** (`internal/tax`, pure) | Exclusive and inclusive bases; per document, code and component rounding half away from zero with largest-remainder allocation (and `line` mode); recoverable split; reverse-charge pairs; LC conversion at a given rate; the `Calculator` port; table tests incl. NS 15→14%, BC GST+PST, UAE 5%/0%/exempt; fuzz test that line tax sums to document tax and recoverable + non-recoverable = tax |
 | T61c | **Tax items in the ledger** | `ledger.tax_item` (insert-only, RLS, `tenant_id` first) written by every posting path that carries a tax code (journal entries, invoices, GR/IR, down payments, settlements' discount correction, reversals negated); commit-time check that items match tax lines per entry and account; tax date on the entry (default as §4); `ledger.TaxItems` port; `FailingTx` tests on every path; the stale `capture.checkTaxRate` tracker entry corrected |
 | T61d | **Input tax on supplier invoices** | Tax calculated per item code at the tax date; one tax line per code and component account; non-deductible tax on the item's line; supplier's stated tax posted within the configured tolerance, else 422 `payables.tax_mismatch` with each code's figures; credit memos at the named invoice's tax date and rates; down payment requests' tax checked at the run date's rate; capture agent proposes codes (eval cases added) and flags mismatches; documentary-requirement warnings for CA/AE |

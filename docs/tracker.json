@@ -1160,20 +1160,20 @@
       "c": []
      },
      {
-      "s": "P",
-      "t": "On foundation: input tax codes applied from the configuration with effective dating",
+      "s": "D",
+      "t": "On foundation: input tax codes applied from the configuration with effective dating (dated rates per component, written ahead; T61a)",
       "r": "internal/ledger · ledger.Setup · T61a",
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Tax determination, calculation and returns (T61), split T61a-T61m; PO decisions P1-P8 2026-10-20",
       "r": "ADR-0049 · T61",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "Dated tax codes with components (account key, jurisdiction, recoverable %, UN/CEFACT category) in configuration and ledger: ledger.tax_rate with dated rates written ahead, a rate a posting used never edited (database-enforced), country packs carrying components and all their rates",
-        "r": "T61a",
+        "r": "config.TaxCode · ledger.tax_code_definition/tax_component/tax_rate · db/migrations/000124 · countrypack Tax · T61a",
         "c": []
        },
        {
@@ -1184,7 +1184,7 @@
        },
        {
         "s": "T",
-        "t": "Tax items in the ledger: ledger.tax_item written by every posting path that carries a tax code, reversals negated, checked against the tax lines at commit; the tax date on the entry; the ledger.TaxItems port",
+        "t": "Tax items in the ledger: ledger.tax_item written by every posting path that carries a tax code, reversals negated, checked against the tax lines at commit; the tax date on the entry; the ledger.TaxItems port; the contract step dropping the former ledger.tax_code (copied by 000124, no longer read), and the in-use check (ledger.tax_code_posted) reading tax items",
         "r": "T61c",
         "c": []
        },
@@ -4041,7 +4041,7 @@
        },
        {
         "s": "D",
-        "t": "Apply a pack to a company: three-way merge (adopted version, tenant document, new version) by account number, account determination field, tax code, number range key and payment term into a draft document with notes; the rate in force on the date of application, later rates noted (until T61); the packs provenance section (company, country, version, applied on), validated, operational tier",
+        "t": "Apply a pack to a company: three-way merge (adopted version, tenant document, new version) by account number, account determination field, tax code, number range key and payment term into a draft document with notes; tax codes with all their dated rates (T61a; first the rate in force, later rates noted); the packs provenance section (company, country, version, applied on), validated, operational tier",
         "r": "countrypack.Apply · config.PackAdoption · T62b",
         "c": []
        },
