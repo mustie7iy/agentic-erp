@@ -324,7 +324,7 @@ func TestTaxItemRules(t *testing.T) {
 	})
 }
 
-// TestTaxItemsBackfilled: 000141 writes the items of the entries posted
+// TestTaxItemsBackfilled: 000144 writes the items of the entries posted
 // before, from their lines at their posting date: a tax line on a
 // component's former account is its tax as one on its current account is,
 // the code's other lines its base, once per component; an entry without
@@ -332,7 +332,7 @@ func TestTaxItemRules(t *testing.T) {
 // reads them.
 func TestTaxItemsBackfilled(t *testing.T) {
 	conn := emptyDatabase(t)
-	migrateBefore(t, conn, 141)
+	migrateBefore(t, conn, 144)
 	f := fixtureIDs()
 	rate := id()
 	var taxed, plain, local uuid.UUID
@@ -432,7 +432,7 @@ func (f fixture) parallelTaxedEntry(tx pgx.Tx) (uuid.UUID, error) {
 	return je, err
 }
 
-// TestTaxBaseRules: a line's declared base (000144, T61e) is in both
+// TestTaxBaseRules: a line's declared base (000147, T61e) is in both
 // currencies or neither, on a line with a tax code, a tax line of an
 // import code; the component's item takes it as its base; a parked line
 // declares one only with a code.

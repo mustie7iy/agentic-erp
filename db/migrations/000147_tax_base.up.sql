@@ -32,7 +32,7 @@ ALTER FUNCTION ledger.check_tax_base_line() OWNER TO erp_owner;
 CREATE TRIGGER journal_line_tax_base_import BEFORE INSERT ON ledger.journal_line
   FOR EACH ROW WHEN (NEW.tax_base_tc IS NOT NULL) EXECUTE FUNCTION ledger.check_tax_base_line();
 
--- The items take a tax line's declared base (as 000141's, with the
+-- The items take a tax line's declared base (as 000144's, with the
 -- declared bases added to each component's item on that account).
 CREATE OR REPLACE FUNCTION ledger.write_tax_items(t uuid, y smallint, e uuid, day date, former boolean) RETURNS integer
 LANGUAGE sql AS $$

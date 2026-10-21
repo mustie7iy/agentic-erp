@@ -823,7 +823,7 @@ used is withdrawn rather than deleted, and the database refuses withdrawing
 or re-dating a rate past a posting of its code or adding one over posted
 dates, `ledger.tax_rate_in_use`, read from the tax items by tax date since
 T61c); the former `tax_code` (one rate and account per validity) was copied
-into them and is dropped (000142, T61c), `withholding_tax_code` (T46e: the
+into them and is dropped (000145, T61c), `withholding_tax_code` (T46e: the
 configuration's `companies[].withholding_tax_codes`, SAP T059P/T059Z, kept
 by the setup per legal entity: a rate above 0 and below 100% of the
 invoice's net, the default, or gross, deducted at invoice or at payment, to
@@ -831,7 +831,7 @@ a liability that reconciles no supplier, the withholding tax payable; a code
 the document no longer has is deactivated).
 
 A journal line may declare a tax base (`tax_base_tc`, `tax_base_lc`;
-migration 000144, T61e, ADR-0049 §9): a tax line of an `import` code posted
+migration 000147, T61e, ADR-0049 §9): a tax line of an `import` code posted
 from a customs declaration, whose base, the declared value, no line of the
 entry carries; both or neither, only with a tax code
 (`journal_line_tax_base`), only on a component's account of an import code
@@ -839,7 +839,7 @@ entry carries; both or neither, only with a tax code
 parked line keeps it as `parked_entry_line.tax_base`
 (`parked_entry_line_tax_base`).
 
-Tax items (T61c, ADR-0049 §5; migrations 000141-000142): `tax_item`, one per
+Tax items (T61c, ADR-0049 §5; migrations 000144-000145): `tax_item`, one per
 entry of the leading ledger (a parallel ledger's copies and entries have
 none, `tax_item_leading`; a parallel ledger's entry that is no copy of a
 leading ledger's carries no tax code, `tax_code_off_leading`), tax code, component and tax line account, written with every entry
@@ -1234,7 +1234,7 @@ erDiagram
     int invoice_version }
 ```
 
-A supplier invoice's `tax_date` (migration 000143, T61d, ADR-0049 §4) is
+A supplier invoice's `tax_date` (migration 000146, T61d, ADR-0049 §4) is
 the date its codes' rates apply on and its tax is reported in, set by a
 person only; none: the invoice date, or for a correction naming an invoice
 that invoice's. Its tax is calculated per item code when it posts, held to

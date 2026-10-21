@@ -1,6 +1,6 @@
 DROP TRIGGER journal_line_tax_base_import ON ledger.journal_line;
 DROP FUNCTION ledger.check_tax_base_line();
--- 000141's items, without declared bases.
+-- 000144's items, without declared bases.
 CREATE OR REPLACE FUNCTION ledger.write_tax_items(t uuid, y smallint, e uuid, day date, former boolean) RETURNS integer
 LANGUAGE sql AS $$
   WITH lines AS (

@@ -279,7 +279,7 @@ tax_codes:
   code is valid on a date when one of its components has a rate then. The old
   `ledger.tax_code` (one row per validity, one rate and account) was copied
   into them, each code one component `tax`, and is no longer read or written;
-  a later release drops it (contract, with T61c: dropped by 000142). Rates in the future are
+  a later release drops it (contract, with T61c: dropped by 000145). Rates in the future are
   written when the configuration is activated, so a known change (NS HST 15%
   to 14%) is set up once, ahead. The "changed today" refusal goes: a rate's
   dates are explicit, a different rate is a new row (a rate's value and start
@@ -377,7 +377,7 @@ writes items too. A schema test enforces that every tax line has its item and
 that items balance with the tax lines per entry and account (the ledger's
 commit-time check, like the balance trigger).
 
-- **As built (T61c, migrations 000141-000142):** `ledger.tax_item`, keyed by
+- **As built (T61c, migrations 000144-000145):** `ledger.tax_item`, keyed by
   entry and item number, `tenant_id` first, RLS, fixed but for `reported_in`
   (set once, `tax_item_fixed`; the application may update that column only).
   An item names its code, component, jurisdiction, direction, kind, account
@@ -401,7 +401,7 @@ commit-time check, like the balance trigger).
   and the discount's net that is a code's base is posted on `cash_discount`
   with the code, the untaxed rest without one. The cash discount split reads
   the paid entries' items, so it needs no account history
-  (`former_account_ids` is read only by 000141's migration of the entries
+  (`former_account_ids` is read only by 000144's migration of the entries
   posted before, which writes their items from their lines at their posting
   date, former accounts included), and allocates with `money.Allocate`.
   **Commit-time check** (`journal_entry_tax_items`, `tax_item_checked`,
@@ -415,7 +415,7 @@ commit-time check, like the balance trigger).
   memo naming an invoice that invoice's (P6, T61d §6); a reversal's the original's; other postings' their
   posting date. Codes are validated on the tax date. The in-use check of
   rates (`ledger.tax_code_posted`) reads items by tax date, and `ledger.tax_code`
-  and the index of lines by tax code are dropped (000142). `ledger.TaxItems`
+  and the index of lines by tax code are dropped (000145). `ledger.TaxItems`
   is the port: `Of` an entry, `Dated` by legal entity and tax date range.
   **Parallel ledgers (ADR-0045):** tax items are the leading ledger's
   entry's alone. Returns are statutory and read the leading ledger; a
@@ -483,7 +483,7 @@ commit-time check, like the balance trigger).
 - A recoverable share below 100% (meals 50%, blocked UAE input) splits each item
   into recoverable (on the tax account, in the return's input box) and
   non-recoverable (on the expense).
-- **As built (T61d, migration 000143):** payables calculates an invoice's tax
+- **As built (T61d, migration 000146):** payables calculates an invoice's tax
   when it posts (`calculateTax`, `internal/tax`) per item code at the tax
   date: `supplier_invoice.tax_date`, set by a person only (403
   `payables.tax_date_human_only` for an agent that sets, changes or clears
@@ -524,7 +524,7 @@ commit-time check, like the balance trigger).
   proposes it (a warning in the operation's result); none, several or no
   number hold the invoice for a person to choose; and a stated tax the
   codes do not bear out holds it with the figures (eval suite capture,
-  version 3). **Rolling upgrade (06 §6.4):** 000143 adds a nullable
+  version 3). **Rolling upgrade (06 §6.4):** 000146 adds a nullable
   column the previous release neither reads nor writes (its statements name
   their columns), so it runs ahead of the code; but an instance of the
   previous release posts an invoice with the first item's code at the
@@ -610,7 +610,7 @@ broker or authority with an `import` input code, its base the declared value:
 the UAE's Box 6 for registrants who account for import VAT in the return
 (output and input), Canada's ITC on 106. From 2026 the UAE needs no self-invoice
 (Federal Decree-Law No. 16 of 2025), so none is generated.
-- **As built (T61e, migration 000144):** reverse charge and self-assessment
+- **As built (T61e, migration 000147):** reverse charge and self-assessment
   post from supplier invoices of `reverse_charge` codes as T61d built them:
   the supplier is owed the base, the `self_output` tax is owed on its
   account and the `self_input` part recovered on its own, two items, and the
@@ -647,7 +647,7 @@ the UAE's Box 6 for registrants who account for import VAT in the return
   account and the rest on an expense line without a code; the claim item's
   tax is then the part recovered (an item derived from lines has the tax
   its account carries), which is what box 10 and line 106 read. A reversal
-  negates the bases with the lines. **Rolling upgrade (06 §6.4):** 000144
+  negates the bases with the lines. **Rolling upgrade (06 §6.4):** 000147
   adds nullable columns and keeps `write_tax_items`' signature (a null
   base counts as none), so it runs ahead of the code; an instance of the
   previous release neither writes nor resets the bases: an edit of a parked
