@@ -96,7 +96,9 @@ func TestQuotasAndDeadlines(t *testing.T) {
 func TestNewWithoutModel(t *testing.T) {
 	governedModel = func() (*analytics.Model, error) { return nil, errors.New("model unreadable") }
 	t.Cleanup(func() { governedModel = analytics.DefaultModel })
-	if _, err := New(Config{}); err == nil || err.Error() != "model unreadable" {
+	// A logger: the country packs, loaded first, log the CA pack's missing
+	// sign-off (T62d).
+	if _, err := New(Config{Log: slog.New(slog.DiscardHandler)}); err == nil || err.Error() != "model unreadable" {
 		t.Errorf("got %v, want the model's error", err)
 	}
 }
