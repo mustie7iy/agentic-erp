@@ -243,9 +243,9 @@ account is an institution number (3 digits), a transit (branch) number
   Canada, accounts written institution-transit-account or
   transit-institution-account with dashes (`[BANK_ACCOUNT]`); undashed
   runs of digits are invoice and order numbers far more often and pass.
-- Schema: 000105 adds the columns and checks NOT VALID (the scheme check
+- Schema: 000117 adds the columns and checks NOT VALID (the scheme check
   widened to `ca`; `bank_account_ca_routing`, `house_bank_ca_routing`),
-  000106 validates them (06 §6.4). The previous version reads `ca` as an
+  000118 validates them (06 §6.4). The previous version reads `ca` as an
   unknown value of the open enumeration and would write its account in
   `Othr` without the clearing member, which the bank refuses; an old
   binary applying a `ca` change a new one requested fails on

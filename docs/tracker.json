@@ -711,7 +711,7 @@
        {
         "s": "D",
         "t": "Canadian bank accounts (no IBAN): institution (3 digits), transit (5) and account number (7-12) on supplier bank accounts (scheme ca, through the bank change and its approval), house banks (institution_number, transit_number, account_number) and the bank_account_changed event; account number sealed, last four shown; format checks only; pain.001 names each Canadian bank by its CACPA member id (0 + institution + transit) and the account in Othr; redaction of dashed Canadian accounts for tenants in Canada",
-        "r": "platform/cabank · partner scheme ca · payments.HouseBanks · bankfile.Pain001 · platform/redact bankAccounts · 000105-000106 · ADR-0038 amendment · T45d",
+        "r": "platform/cabank · partner scheme ca · payments.HouseBanks · bankfile.Pain001 · platform/redact bankAccounts · 000117-000118 · ADR-0038 amendment · T45d",
         "c": []
        },
        {

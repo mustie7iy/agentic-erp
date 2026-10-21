@@ -5,7 +5,7 @@
 -- the sealed account number; they identify the bank, as a BIC does, so they
 -- are kept in clear text. A house bank with both numbers is a Canadian
 -- account, whose account number iban_cipher then holds. The checks are
--- added NOT VALID and validated by 000106 (06 §6.4): every row before them
+-- added NOT VALID and validated by 000118 (06 §6.4): every row before them
 -- is an IBAN or domestic account without the new numbers. The previous
 -- version writes neither; it reads a 'ca' partner account's scheme as an
 -- unknown value of the open enumeration and pays it with its account
