@@ -21,9 +21,28 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 )
+
+// ParseFrom parses a setting listing the load balancer's subnets, a
+// comma-separated list of CIDRs (Listener.From); setting names it in the
+// error.
+func ParseFrom(setting, raw string) ([]netip.Prefix, error) {
+	var from []netip.Prefix
+	for part := range strings.SplitSeq(raw, ",") {
+		if part = strings.TrimSpace(part); part == "" {
+			continue
+		}
+		p, err := netip.ParsePrefix(part)
+		if err != nil {
+			return nil, fmt.Errorf("%s must be a comma-separated list of CIDRs (the load balancer's subnets), not %q", setting, part)
+		}
+		from = append(from, p.Masked())
+	}
+	return from, nil
+}
 
 // DefaultTimeout bounds the reading of a header.
 const DefaultTimeout = 10 * time.Second

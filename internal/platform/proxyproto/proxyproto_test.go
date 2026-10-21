@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -219,4 +220,20 @@ func TestAccept(t *testing.T) {
 			t.Errorf("read: got %v, want the deadline's error", err)
 		}
 	})
+}
+
+func TestParseFrom(t *testing.T) {
+	got, err := ParseFrom("ERP_X", " 10.1.0.0/20, 10.1.16.5/20,,")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []netip.Prefix{netip.MustParsePrefix("10.1.0.0/20"), netip.MustParsePrefix("10.1.16.0/20")}; !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v (masked)", got, want)
+	}
+	if got, err := ParseFrom("ERP_X", ""); err != nil || got != nil {
+		t.Errorf("empty: got %v, %v, want none", got, err)
+	}
+	if _, err := ParseFrom("ERP_X", "10.0.0.0/33"); err == nil || !strings.Contains(err.Error(), `ERP_X must be a comma-separated list of CIDRs (the load balancer's subnets), not "10.0.0.0/33"`) {
+		t.Errorf("bad CIDR: got %v", err)
+	}
 }

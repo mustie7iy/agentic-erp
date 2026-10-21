@@ -6,7 +6,10 @@ toolchain go1.26.10
 
 require (
 	cel.dev/cel-go v0.32.0
+	github.com/a-h/templ v0.3.1070
 	github.com/anthropics/anthropic-sdk-go v1.79.1
+	github.com/chromedp/cdproto v0.157.8
+	github.com/chromedp/chromedp v0.21.0
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/duckdb/duckdb-go/v2 v2.10506.0
 	github.com/go-faster/errors v0.8.0
@@ -37,8 +40,17 @@ require (
 )
 
 require (
+	github.com/a-h/parse v0.0.0-20250122154542-74294addb73e // indirect
+	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
+	github.com/cli/browser v1.3.0 // indirect
+	github.com/fsnotify/fsnotify v1.10.1 // indirect
+	github.com/go-json-experiment/json v0.0.0-20260213210345-44df1a37e875 // indirect
+	github.com/natefinch/atomic v1.0.1 // indirect
+)
+
+require (
 	cel.dev/expr v0.25.2 // indirect
-	github.com/andybalholm/brotli v1.2.2 // indirect
+	github.com/andybalholm/brotli v1.2.6 // indirect
 	github.com/antithesishq/antithesis-sdk-go v0.8.0-default-no-op // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/apache/arrow-go/v18 v18.5.1 // indirect
@@ -116,18 +128,21 @@ require (
 	golang.org/x/crypto v0.57.0
 	golang.org/x/exp v0.0.0-20260709172345-9ea1abe57597 // indirect
 	golang.org/x/mod v0.41.0 // indirect
-	golang.org/x/net v0.60.0 // indirect
+	golang.org/x/net v0.60.0
 	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
-	golang.org/x/telemetry v0.0.0-20260811182544-a038080d80e5 // indirect
-	golang.org/x/text v0.42.0 // indirect
+	golang.org/x/telemetry v0.0.0-20260924152758-ed294f943157 // indirect
+	golang.org/x/text v0.42.0
 	golang.org/x/time v0.16.0 // indirect
-	golang.org/x/tools v0.49.0 // indirect
+	golang.org/x/tools v0.51.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
 
-tool github.com/ogen-go/ogen/cmd/ogen
+tool (
+	github.com/a-h/templ/cmd/templ
+	github.com/ogen-go/ogen/cmd/ogen
+)

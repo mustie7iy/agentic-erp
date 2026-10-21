@@ -1,0 +1,351 @@
+/*
+ * The workspace's components (ADR-0052 P7): plain CSS, no preprocessor,
+ * following the GOV.UK Design System's accessibility-tested patterns
+ * (skip link, header and service navigation, notification banner, summary
+ * list, tag, button, footer) in our own small set, with neutral colours
+ * until the product owner gives the brand. Logical properties only
+ * (margin-inline-start, never margin-left): the layout mirrors for a
+ * right-to-left language with dir="rtl", and a test refuses physical
+ * direction properties. Colours meet WCAG 2.2 AA contrast on their
+ * backgrounds; focus is a yellow fill with a dark underline, visible on
+ * every background.
+ */
+
+:root {
+  --text: #0b0c0c;
+  --text-secondary: #484949;
+  --background: #ffffff;
+  --link: #1d70b8;
+  --link-visited: #4c2c92;
+  --link-hover: #003078;
+  --focus: #ffdd00;
+  --focus-text: #0b0c0c;
+  --border: #b1b4b6;
+  --header: #0b0c0c;
+  --header-text: #ffffff;
+  --brand: #1d70b8;
+  --notice: #1d70b8;
+  --tag-background: #d2e2f1;
+  --tag-text: #0c2d4a;
+  --success-background: #cce2d8;
+  --success-text: #005a30;
+  --button: #00703c;
+  --button-hover: #005a30;
+  --button-shadow: #002d18;
+  --gutter: 1rem;
+  --page-width: 75rem;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--background);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Noto Sans Arabic", Arial, sans-serif;
+  font-size: 100%;
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-block-size: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Focus: never removed, never obscured (WCAG 2.4.7, 2.4.11). */
+a:focus-visible,
+button:focus-visible,
+.button:focus-visible {
+  outline: 3px solid transparent;
+  background-color: var(--focus);
+  color: var(--focus-text);
+  box-shadow: 0 -2px var(--focus), 0 4px var(--focus-text);
+  text-decoration: none;
+}
+
+a {
+  color: var(--link);
+  text-decoration-thickness: max(1px, 0.0625rem);
+  text-underline-offset: 0.15em;
+}
+
+a:visited {
+  color: var(--link-visited);
+}
+
+a:hover {
+  color: var(--link-hover);
+  text-decoration-thickness: max(3px, 0.1875rem);
+}
+
+/* Codes, numbers and identifiers keep their order in a right-to-left
+   page: they are isolated and shown left to right. */
+code,
+.ltr {
+  direction: ltr;
+  unicode-bidi: isolate;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.95em;
+}
+
+/* Skip link: hidden until focused, the first stop on every page; when
+   focused it takes its place above the header, so it covers nothing
+   (WCAG 2.4.11). */
+.skip-link {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  margin: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.skip-link:focus-visible {
+  position: static;
+  display: block;
+  inline-size: auto;
+  block-size: auto;
+  padding: 0.6rem var(--gutter);
+  overflow: visible;
+  clip-path: none;
+  white-space: normal;
+}
+
+.width-container {
+  inline-size: 100%;
+  max-inline-size: var(--page-width);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+/* Header and service navigation. */
+.header {
+  background: var(--header);
+  color: var(--header-text);
+  border-block-end: 0.5rem solid var(--brand);
+}
+
+.header__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.5rem;
+  padding-block: 0.75rem;
+}
+
+.header__name {
+  display: inline-block;
+  min-block-size: 2.75rem;
+  padding-block: 0.4rem;
+  color: var(--header-text);
+  font-size: 1.25rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.header__name:visited,
+.header__name:hover {
+  color: var(--header-text);
+}
+
+.navigation__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.navigation__link {
+  display: inline-block;
+  min-block-size: 2.75rem;
+  padding-block: 0.6rem;
+  color: var(--header-text);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.navigation__link:visited,
+.navigation__link:hover {
+  color: var(--header-text);
+}
+
+.navigation__link:hover,
+.navigation__link[aria-current="page"] {
+  text-decoration: underline;
+  text-decoration-thickness: 3px;
+}
+
+/* Main content. */
+.main {
+  flex: 1 0 auto;
+  padding-block: 2rem 3rem;
+}
+
+h1,
+.heading-xl {
+  margin-block: 0 1.5rem;
+  font-size: 2rem;
+  line-height: 1.2;
+}
+
+h2,
+.heading-l {
+  margin-block: 2rem 1rem;
+  font-size: 1.5rem;
+  line-height: 1.25;
+}
+
+p,
+.body {
+  margin-block: 0 1rem;
+  max-inline-size: 40rem;
+}
+
+.list {
+  margin-block: 0 1rem;
+  padding-inline-start: 0;
+  list-style: none;
+}
+
+.list__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  padding-block: 0.5rem;
+  border-block-end: 1px solid var(--border);
+}
+
+/* Notification banner: a heading the screen reader announces as a
+   region, a short message. */
+.notice {
+  margin-block-end: 2rem;
+  border: 5px solid var(--notice);
+  max-inline-size: 48rem;
+}
+
+.notice__title {
+  margin: 0;
+  padding: 0.25rem 0.75rem 0.4rem;
+  background: var(--notice);
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.notice__body {
+  padding: 1rem 0.75rem;
+}
+
+.notice__body > :last-child {
+  margin-block-end: 0;
+}
+
+/* Summary list: key and value pairs. */
+.summary-list {
+  margin-block: 0 2rem;
+  max-inline-size: 48rem;
+}
+
+.summary-list__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.5rem;
+  padding-block: 0.6rem;
+  border-block-end: 1px solid var(--border);
+}
+
+.summary-list__key {
+  flex: 0 0 12rem;
+  margin: 0;
+  font-weight: 700;
+}
+
+.summary-list__value {
+  flex: 1 1 16rem;
+  margin: 0;
+}
+
+/* Tag: a status, never colour alone (its text says it). */
+.tag {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  background: var(--tag-background);
+  color: var(--tag-text);
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.tag--success {
+  background: var(--success-background);
+  color: var(--success-text);
+}
+
+/* Button: a real button or a link styled as one; at least 44 px high
+   (WCAG 2.5.8 asks for 24). */
+.button {
+  display: inline-block;
+  min-block-size: 2.75rem;
+  margin: 0 0 1.5rem;
+  padding: 0.5rem 0.9rem;
+  border: 2px solid transparent;
+  border-radius: 0;
+  background: var(--button);
+  box-shadow: 0 2px 0 var(--button-shadow);
+  color: #ffffff;
+  font: inherit;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button:visited,
+.button:hover {
+  color: #ffffff;
+}
+
+.button:hover {
+  background: var(--button-hover);
+}
+
+/* Footer: help in the same place on every page (WCAG 3.2.6). */
+.footer {
+  padding-block: 1.5rem;
+  border-block-start: 1px solid var(--border);
+  background: #f3f2f1;
+  color: var(--text-secondary);
+}
+
+.footer p {
+  margin: 0;
+}
+
+@media (min-width: 48rem) {
+  :root {
+    --gutter: 1.875rem;
+  }
+
+  h1,
+  .heading-xl {
+    font-size: 2.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}

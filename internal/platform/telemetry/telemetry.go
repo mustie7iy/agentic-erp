@@ -123,6 +123,12 @@ func randomTraceID() string {
 	return hex.EncodeToString(b)
 }
 
+// SetOperation names the request's operation for its log line, span and
+// metrics: a bounded name such as an API operation or a route pattern,
+// never a path with ids in it (ADR-0043). Outside Middleware it does
+// nothing.
+func SetOperation(ctx context.Context, op string) { reqctx.InfoFrom(ctx).Operation = op }
+
 // Middleware traces, logs and measures each request and turns a panic into
 // a 500 problem.
 func Middleware(log *slog.Logger, m *Metrics, tp trace.TracerProvider) func(http.Handler) http.Handler {

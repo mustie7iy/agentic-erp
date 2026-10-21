@@ -207,10 +207,11 @@ jobs:
         # Excluded by decision (docs/design/06-engineering-process.md): G104 (errors ignored on purpose carry a comment),
         # G115 (integer conversions of bounded domain values), G304 and G107 (paths and URLs come from settings and flags by design).
         run: gosec -quiet -exclude=G104,G115,G304,G107 -exclude-dir=api/gen ./...
-      - name: Generated server matches the contract
+      - name: Generated code matches its sources (the contract, the templ components)
         run: |
           make generate
-          git diff --exit-code -- api/gen || (echo "api/gen is stale: run make generate" && exit 1)
+          git diff --exit-code -- api/gen internal/web || (echo "api/gen or internal/web is stale: run make generate" && exit 1)
+          test -z "$(git status --porcelain -- api/gen internal/web)" || (git status --porcelain -- api/gen internal/web && echo "make generate made files that are not committed" && exit 1)
       - name: API contract lint
         run: vacuum lint -r api/vacuum-ruleset.yaml -b -q -d api/openapi.yaml api/control.yaml api/directory.yaml api/model.yaml
       - name: API breaking-change check against main
@@ -236,6 +237,10 @@ jobs:
         run: go test -short -count=1 ./...
       - name: Functional and non-functional tests (race detector)
         if: github.event_name == 'push'
+        # The web workspace's end-to-end suite drives the runner's Chrome
+        # (internal/web/e2e, ADR-0052): it fails rather than skips without one.
+        env:
+          ERP_E2E_REQUIRE_BROWSER: "true"
         # The race build shares nothing with the plain build cache above; drop
         # it first so the runner's disk (72 GB, most of it taken by the image)
         # holds the race build and later the instrumented coverage build.

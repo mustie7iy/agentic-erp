@@ -1,0 +1,70 @@
+package ui
+
+import "github.com/mustie7iy/agentic-erp/internal/web/i18n"
+
+// Jobs are the pilot's jobs (ADR-0052 §2, P6), each to become a screen.
+var Jobs = []i18n.Key{
+	i18n.JobApprovals, i18n.JobInvoices, i18n.JobPayments, i18n.JobBank,
+	i18n.JobJournal, i18n.JobClose, i18n.JobReports,
+}
+
+// Home is the placeholder home page until sign-in (T73b) and the jobs'
+// screens (T73d-T73j) exist: what is coming, and no business data.
+templ Home(s Shell) {
+	@Layout(s, homeContent())
+}
+
+templ homeContent() {
+	<h1>
+		@T(i18n.HomeTitle)
+	</h1>
+	@Notice("home-notice", i18n.HomeNotice, Paragraph(i18n.HomeNoticeMsg))
+	<h2>
+		@T(i18n.HomeJobs)
+	</h2>
+	@Paragraph(i18n.HomeJobsCount, len(Jobs))
+	<ul class="list">
+		for _, job := range Jobs {
+			<li class="list__item">
+				<span>
+					@T(job)
+				</span>
+				@Tag(i18n.TagPlanned, "")
+			</li>
+		}
+	</ul>
+}
+
+// Status is what the service is: erp-web's own state, version and
+// revision, and the language the page is in. It reads nothing from the
+// API.
+type Status struct {
+	Version  string
+	Revision string // "" when the build recorded none
+}
+
+// StatusPage is the health page.
+templ StatusPage(s Shell, st Status) {
+	@Layout(s, statusContent(st))
+}
+
+templ statusContent(st Status) {
+	<h1>
+		@T(i18n.StatusTitle)
+	</h1>
+	@SummaryList(statusRows(st))
+}
+
+// NotFound is the page of an address that is no page, or not the
+// person's: the API's 404 means both (04 §4.9).
+templ NotFound(s Shell) {
+	@Layout(s, notFoundContent())
+}
+
+templ notFoundContent() {
+	<h1>
+		@T(i18n.NotFoundTitle)
+	</h1>
+	@Paragraph(i18n.NotFoundBody)
+	@ButtonLink("/", i18n.NotFoundHome)
+}
