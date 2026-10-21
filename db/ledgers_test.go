@@ -6,7 +6,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Parallel ledgers (T52a, migration 000127): 0L is the leading ledger, a
+// Parallel ledgers (T52a, migration 000132): 0L is the leading ledger, a
 // company with ledgers keeps exactly one leading ledger, assignments and
 // members are never taken back, and a group's representative is a member,
 // the leading ledger when it is one, and never changes.
@@ -102,7 +102,7 @@ func TestParallelLedgerRules(t *testing.T) {
 	}
 }
 
-// A parallel ledger's own rate type (T52f, migration 000132): of a ledger
+// A parallel ledger's own rate type (T52f, migration 000137): of a ledger
 // its legal entity keeps, never the leading one, at a known rate type.
 func TestFXValuationLedgerRules(t *testing.T) {
 	need(t)

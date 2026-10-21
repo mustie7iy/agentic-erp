@@ -1062,13 +1062,13 @@
        {
         "s": "D",
         "t": "Ledgers, company ledgers (exactly one leading 0L) and ledger groups with a representative from configuration, kept once activated; periods per ledger of each company; ledgers and groups read through the API",
-        "r": "db/migrations/000127 · ledgers · companies[].ledgers · ledger_groups · GET /v1/ledgers · GET /v1/ledger-groups · ADR-0045 · T52a",
+        "r": "db/migrations/000132 · ledgers · companies[].ledgers · ledger_groups · GET /v1/ledgers · GET /v1/ledger-groups · ADR-0045 · T52a",
         "c": []
        },
        {
         "s": "D",
         "t": "Postings copied to every ledger of the company (posting_group_id, one document number); a posting naming a ledger or group limited to the company's ledgers",
-        "r": "db/migrations/000128-000131 · migrate:partitioned-index · ledger_group on manual and parked entries · reversal of every copy · open items on the leading ledger · ADR-0045 · T52b",
+        "r": "db/migrations/000133-000136 · migrate:partitioned-index · ledger_group on manual and parked entries · reversal of every copy · open items on the leading ledger · ADR-0045 · T52b",
         "c": []
        },
        {
@@ -1086,7 +1086,7 @@
        {
         "s": "D",
         "t": "Revaluation per ledger: a run values its ledger's own lines and posts and reverses in that ledger alone, one posted run per key date and ledger; a parallel ledger's own rate type (valuation area) from companies[].fx_valuation.ledgers",
-        "r": "db/migrations/000132-000133 · fx_valuation_ledger · revaluation_run_ledger_kept · revaluationTarget · TestRevaluationPerLedger · ADR-0045 · ADR-0042 · T52f",
+        "r": "db/migrations/000137-000138 · fx_valuation_ledger · revaluation_run_ledger_kept · revaluationTarget · TestRevaluationPerLedger · ADR-0045 · ADR-0042 · T52f",
         "c": []
        },
        {

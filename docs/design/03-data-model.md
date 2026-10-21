@@ -785,7 +785,7 @@ Rules enforced in the database:
   yet projected) for two ledgers, and finds the entries behind a
   difference as those whose `posting_group_id` has no entry in the other
   ledger (`journal_entry_posting_group`). The contract step of T52b's
-  expand is empty: the old document number constraint went in 000131, and
+  expand is empty: the old document number constraint went in 000136, and
   `posting_group_id` stays nullable, entries posted before T52b having
   none.
 
@@ -922,7 +922,7 @@ fixed, decided once from `pending` on its `center_change` approval request
 `rejected` only, its code and a cost center's legal entity fixed
 (`check_center_change`).
 
-Revaluation per ledger (T52f, ADR-0045, migrations 000132-000133). A run values its
+Revaluation per ledger (T52f, ADR-0045, migrations 000137-000138). A run values its
 ledger's own lines (a parallel ledger's copies of the open items, which
 T52c clears with the leading ledger's, and its ledger-specific postings)
 and posts and reverses its entries in that ledger alone; the posted-run
@@ -935,7 +935,7 @@ legal entity keeps (`company_ledger`) and not the leading one (`is_leading`,
 always false, against `ledger.ledger`'s role key). The valuation accounts
 stay per legal entity: the ledgers keep their amounts apart on them. A run's
 ledger is one its legal entity keeps (`revaluation_run_ledger_kept`,
-migration 000133, checked on insert).
+migration 000138, checked on insert).
 
 ## 3.8 Procurement (`procurement`)
 
