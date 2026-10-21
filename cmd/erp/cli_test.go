@@ -35,6 +35,9 @@ var aborted = reply{}
 
 func ok(body string) reply { return reply{200, body} }
 
+// noItems is an empty page of a list.
+var noItems = ok(`{"items": []}`)
+
 // routes answer "METHOD path" with the replies in order, the last one
 // repeated; any other call is a 404 problem.
 type routes map[string][]reply
@@ -419,9 +422,9 @@ func TestAgentErrors(t *testing.T) {
 	fails(t, "flag provided", "agent", "reconcile", "-x")
 	fails(t, "404", "agent", "reconcile", "-statement", "s")
 	fakeAPI(t, routes{"GET /v1/bank-statements/s": {ok(`{"lines": [{"line_no": 1, "status": "unmatched"}]}`)},
-		"GET /v1/bank-statements/s/matches": {page()}})
+		"GET /v1/bank-statements/s/matches": {noItems}})
 	fails(t, "line 1: ", "agent", "reconcile", "-statement", "s")
-	fakeAPI(t, routes{"GET /v1/bank-statements/s": {ok(`{"lines": []}`)}, "GET /v1/bank-statements/s/matches": {page()}})
+	fakeAPI(t, routes{"GET /v1/bank-statements/s": {ok(`{"lines": []}`)}, "GET /v1/bank-statements/s/matches": {noItems}})
 	if got := must(t, "agent", "reconcile", "-statement", "s"); !strings.Contains(got, "reviewed 0 lines and made 0 proposals") {
 		t.Errorf("agent reconcile: got %s", got)
 	}
