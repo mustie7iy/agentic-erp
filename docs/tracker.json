@@ -1177,9 +1177,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "The calculator (internal/tax, pure): exclusive and inclusive bases, rounding per document, code and component with largest-remainder allocation (or per line), recoverable split, reverse-charge pairs netting to zero, local currency conversion, the Calculator port; worked CA and AE examples, property and fuzz tests of the invariants",
+        "r": "internal/tax · tax.Calculator · tax.Calculate · money.Allocate · FuzzCalculate · T61b",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "The calculator (internal/tax, pure): exclusive and inclusive bases, rounding per document, code and component with largest-remainder allocation, recoverable split, reverse-charge pairs, the Calculator port",
-        "r": "T61b",
+        "t": "The ledger's cash discount tax split (ledger.itemTaxShares, T36d) uses money.Allocate instead of its own largest-remainder loop",
+        "r": "internal/ledger/discounttax.go · money.Allocate · with T61c",
         "c": []
        },
        {

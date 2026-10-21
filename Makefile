@@ -107,7 +107,7 @@ coverage:
 FUZZTIME ?= 15s
 FUZZ_TARGETS = analytics/reader:FuzzManifestPath money:FuzzParseDecimal money:FuzzConvert config:FuzzParseValidateDiff countrypack:FuzzParseValidate analytics:FuzzNarrative \
 	bankfile:FuzzPain001Text bankfile:FuzzValidIBAN bankstatement:FuzzParseCamt053 bankstatement:FuzzParseMT940 sap:FuzzODataValue sap:FuzzODataString \
-	platform/redact:FuzzText platform/webhook:FuzzVerify platform/extensions:FuzzCompile platform/rules:FuzzCompile platform/cabank:FuzzParse
+	platform/redact:FuzzText platform/webhook:FuzzVerify platform/extensions:FuzzCompile platform/rules:FuzzCompile platform/cabank:FuzzParse tax:FuzzCalculate
 
 # Evaluate one agent live (ADR-0039): make eval AGENT=ap_exceptions (the
 # migration suite needs the cell started with ERP_EXTRACT_DIR=evals/migration). It
