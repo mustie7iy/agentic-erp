@@ -2,7 +2,8 @@
 
 Not part of the pack (`2026.1/tax.yaml` has none): the GST/HST, QST and PST
 codes sourced for T62e, to be written in the tax code schema of ADR-0049
-(T61a). Purchase side; all from 2026-10-20 retrieval of the cited pages.
+(T61a). Purchase side; the table is from the 2026-10-20 retrieval of the
+cited pages.
 
 | Code | Tax | Rate | In force | Recovery (as proposed) | Source |
 |---|---|---|---|---|---|
@@ -17,9 +18,13 @@ codes sourced for T62e, to be written in the tax code schema of ADR-0049
 | PMB | Manitoba RST | 7% | from 2026-01-01 (earlier start not sourced) | none (expensed, 6400) | gov.mb.ca Retail Sales Tax |
 | PSK | Saskatchewan PST | 6% | from 2026-01-01 (earlier start not sourced) | none (expensed, 6400) | saskatchewan.ca PST |
 
-Sources (URLs in `2026.1/pack.yaml`):
+Sources (also in `2026.1/pack.yaml`; keep them in the version T61a makes):
 - CRA rate table: https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate/calculator.html
 - CRA GI-190: https://www.canada.ca/en/revenue-agency/services/forms-publications/publications/gi-190/new-brunswick-newfoundland-labrador-hst-rate-increases-sales-rentals-new-housing.html
+- Revenu Québec, Calculating the Taxes: https://www.revenuquebec.ca/en/businesses/consumption-taxes/gsthst-and-qst/collecting-gst-and-qst/calculating-the-taxes/
+- B.C. PST: https://www2.gov.bc.ca/gov/content/taxes/sales-taxes/pst
+- Manitoba Retail Sales Tax: https://gov.mb.ca/finance/taxation/taxes/retail.html
+- Saskatchewan PST: https://sets.saskatchewan.ca/rptp/portal/footer/taxinformation/provincial-sales-tax/
 
 For the tax specialist: the PST and QST start dates (reported elsewhere, not
 fetched from an authority: QST 9.975% from 2013-01-01, BC PST 7% from

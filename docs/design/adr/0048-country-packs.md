@@ -105,8 +105,8 @@ settings cannot simply overwrite their document.
   outside the pack directory, which holds only the pack's files. It
   carries no sign-off, so production refuses to apply it until the tax
   specialist has confirmed the tax codes once written, and the day
-  observed when a holiday falls on a weekend; provincial holidays are the
-  tenant's. A payment term with a cash discount is left out: the
+  observed when a holiday falls on a weekend; which provincial holidays a
+  company observes is open (the pack, per country, has the federal ones). A payment term with a cash discount is left out: the
   document's payment terms are shared by its companies, and a discount
   term would require a cash discount account in each of them.
 
