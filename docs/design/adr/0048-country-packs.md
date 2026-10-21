@@ -106,12 +106,12 @@ settings cannot simply overwrite their document.
   four net payment terms; and the Canada Labour Code's general holidays of
   2026 and 2027. It carries no sign-off, so production refuses to apply it
   until the tax specialist has confirmed: the start dates of the PST and
-  QST rates (given from 2026-01-01, as far as the cited pages vouch); New
-  Brunswick's HST of July to September 2016 (left out, the rate table being
-  read two ways); whether PST is expensed and QST recovered as written; the
+  QST rates (given from 2026-01-01, as far as the cited pages vouch);
+  whether PST is expensed and QST recovered as written; the
   day observed when a holiday falls on a weekend; and the provincial
   holidays and harmonized combinations a company needs (one tax code per
-  line until T61, so British Columbia's GST plus PST is two codes). A
+  line until T61, so a purchase in British Columbia, Manitoba, Saskatchewan
+  or Quebec takes two codes, GST and the provincial tax). A
   payment term with a cash discount is left out: the document's payment
   terms are shared by its companies, and a discount term would require a
   cash discount account in each of them.

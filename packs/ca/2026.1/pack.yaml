@@ -11,6 +11,9 @@ sources:
   - title: "Canada Revenue Agency: GST/HST calculator (and rates), current and previous periods"
     url: https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate/calculator.html
     retrieved: 2026-10-20
+  - title: "Canada Revenue Agency: GST/HST Info Sheet GI-190, New Brunswick and Newfoundland and Labrador HST rate increases (July 1, 2016)"
+    url: https://www.canada.ca/en/revenue-agency/services/forms-publications/publications/gi-190/new-brunswick-newfoundland-labrador-hst-rate-increases-sales-rentals-new-housing.html
+    retrieved: 2026-10-20
   - title: "Government of British Columbia: B.C. provincial sales tax (PST), general rate 7%"
     url: https://www2.gov.bc.ca/gov/content/taxes/sales-taxes/pst
     retrieved: 2026-10-20

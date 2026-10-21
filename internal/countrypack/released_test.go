@@ -45,7 +45,11 @@ func TestReleasedPacksApply(t *testing.T) {
 	currencies := map[string]string{"CA": "CAD"}
 	for _, p := range lib.All() {
 		t.Run(p.Dir(), func(t *testing.T) {
-			doc := companyIn(t, p.Manifest.Country, currencies[p.Manifest.Country])
+			cur, ok := currencies[p.Manifest.Country]
+			if !ok {
+				t.Fatalf("no currency for %s: add the country's to the test", p.Manifest.Country)
+			}
+			doc := companyIn(t, p.Manifest.Country, cur)
 			draft, _, err := Apply(doc, p, lib, Options{Company: "1000", On: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC), FiscalYear: 2026})
 			if err != nil {
 				t.Fatalf("Apply: %v", err)
@@ -86,7 +90,19 @@ func TestCanadaPack(t *testing.T) {
 			t.Errorf("tax code %s: got rate %q, want %q", code, rates[code], want)
 		}
 	}
-	if got := draft.Calendar("1000"); got == nil || len(got.Holidays) != 20 {
-		t.Errorf("calendar: got %+v, want the 20 federal holidays of 2026 and 2027", got)
+	cal := draft.Calendar("1000")
+	if cal == nil {
+		t.Fatal("calendar: got none, want the federal holidays")
+	}
+	if len(cal.Holidays) != 20 {
+		t.Errorf("holidays: got %d, want the 20 federal holidays of 2026 and 2027", len(cal.Holidays))
+	}
+	// The movable ones, which are computed: Easter, the Monday before May
+	// 25, the first Monday of September, the second Monday of October.
+	for _, day := range []string{"2026-04-03", "2027-03-26", "2026-05-18", "2027-05-24", "2026-09-07", "2027-09-06", "2026-10-12", "2027-10-11"} {
+		d, _ := time.Parse(time.DateOnly, day) // the list's dates are valid
+		if _, ok := draft.Holiday("1000", d); !ok {
+			t.Errorf("holiday on %s: got none, want one", day)
+		}
 	}
 }

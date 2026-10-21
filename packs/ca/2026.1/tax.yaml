@@ -1,18 +1,19 @@
 # Purchase tax codes. GST and HST (Excise Tax Act, Part IX) are recovered
 # as input tax credits; the rates and dates are the CRA's table (from
-# April 1, 2013, the table's first period). The provincial sales taxes are
+# April 1, 2013, the table's first period), New Brunswick's increase of
+# July 1, 2016 as CRA GST/HST Info Sheet GI-190 states it. The provincial sales taxes are
 # not recovered and are expensed; QST is recovered as an input tax refund.
 # The PST and QST rates are given from 2026-01-01, the earliest date the
 # cited pages vouch for; their earlier history is left to the tax
 # specialist.
 tax_codes:
   - code: G5
-    description: GST 5% (AB, BC, MB, NT, NU, QC, SK, YT)
+    description: GST (AB, BC, MB, NT, NU, QC, SK, YT)
     account: "1300"
     rates:
       - {rate_percent: "5", valid_from: 2013-04-01}
   - code: HON
-    description: HST Ontario 13%
+    description: HST Ontario
     account: "1300"
     rates:
       - {rate_percent: "13", valid_from: 2013-04-01}
@@ -20,7 +21,8 @@ tax_codes:
     description: HST New Brunswick
     account: "1300"
     rates:
-      - {rate_percent: "15", valid_from: 2016-10-01}
+      - {rate_percent: "13", valid_from: 2013-04-01, valid_to: 2016-06-30}
+      - {rate_percent: "15", valid_from: 2016-07-01}
   - code: HNL
     description: HST Newfoundland and Labrador
     account: "1300"
@@ -40,22 +42,22 @@ tax_codes:
       - {rate_percent: "14", valid_from: 2013-04-01, valid_to: 2016-09-30}
       - {rate_percent: "15", valid_from: 2016-10-01}
   - code: QST
-    description: Quebec sales tax 9.975% (recoverable as input tax refunds)
+    description: Quebec sales tax (recoverable as input tax refunds)
     account: "1310"
     rates:
       - {rate_percent: "9.975", valid_from: 2026-01-01}
   - code: PBC
-    description: British Columbia PST 7% (non-recoverable)
+    description: British Columbia PST (non-recoverable)
     account: "6400"
     rates:
       - {rate_percent: "7", valid_from: 2026-01-01}
   - code: PMB
-    description: Manitoba RST 7% (non-recoverable)
+    description: Manitoba RST (non-recoverable)
     account: "6400"
     rates:
       - {rate_percent: "7", valid_from: 2026-01-01}
   - code: PSK
-    description: Saskatchewan PST 6% (non-recoverable)
+    description: Saskatchewan PST (non-recoverable)
     account: "6400"
     rates:
       - {rate_percent: "6", valid_from: 2026-01-01}
