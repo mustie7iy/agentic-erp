@@ -7,15 +7,21 @@
 package app
 
 import (
+	"context"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/agents"
+	"github.com/mustie7iy/agentic-erp/internal/analytics"
+	"github.com/mustie7iy/agentic-erp/internal/analytics/endpoint"
+	"github.com/mustie7iy/agentic-erp/internal/analytics/store"
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/audit"
 	"github.com/mustie7iy/agentic-erp/internal/capture"
@@ -34,6 +40,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
@@ -61,6 +68,7 @@ type (
 	auditAPI       = audit.Endpoints
 	integrationAPI = integration.Endpoints
 	agentsAPI      = agents.Endpoints
+	analyticsAPI   = endpoint.Endpoints
 )
 
 // handler is the generated Handler: one embedded endpoint set per context.
@@ -79,6 +87,7 @@ type handler struct {
 	*auditAPI
 	*integrationAPI
 	*agentsAPI
+	*analyticsAPI
 }
 
 // Config is what the API needs.
@@ -92,7 +101,8 @@ type Config struct {
 	Connector  payments.Connector  // transmits bank files; nil: transmission answers 503
 	Workflows  workflow.Client     // the workflow engine behind operations (ADR-0012); nil: none
 	ExtractDir string              // sap_file connectors read extracts below it; empty: they answer 503
-	Objects    blobstore.Store     // documents, bank files and audit anchors; nil: documents and files are not kept
+	Objects    blobstore.Store     // documents, bank files, statement files and audit anchors; nil: documents and files are not kept, statements not imported
+	Retention  time.Duration       // how long statement files are locked (ERP_OBJECT_RETENTION); 0: not locked
 	UploadKey  []byte              // signs the API's own upload URLs (directory store); the same on every replica
 	PublicURL  string              // the API's public base URL, making the API's own upload URLs absolute; empty: paths
 	Secrets    secrets.Resolver    // resolves connectors' secret_ref; nil: env: and file: references on this replica
@@ -109,8 +119,15 @@ type Config struct {
 	// RequireBoundAgents accepts agents' tokens only bound to their client
 	// certificates (production, ADR-0033).
 	RequireBoundAgents bool
+	// RefuseEBICS refuses bank_ebics connectors until EBICS is certified
+	// with a bank (production, ADR-0038).
+	RefuseEBICS bool
 	// Model is the model gateway (agents.Gateway, ADR-0036); nil answers 503.
 	Model http.Handler
+	// Analytics is erp-analytics, which answers semantic queries from the
+	// analytical store (store.Client, ADR-0044); nil answers them from the
+	// database.
+	Analytics store.Querier
 	// EvalCell lifts the bound of agents' autonomy by their type's
 	// certification, on a cell that runs live evaluations (ERP_EVAL_CELL,
 	// ADR-0039): a type's first run needs agents at its suite's levels.
@@ -126,18 +143,24 @@ func certifications(cfg Config) agents.Certifications {
 // New builds the public API handler.
 func New(cfg Config) (http.Handler, error) {
 	upload := uploads(cfg)
+	loopback := &httpapi.Loopback{}
+	// The seed of every tenant's semantic model until a change request
+	// gives it its own: unreadable, the API does not start.
+	if _, err := governedModel(); err != nil {
+		return nil, err
+	}
 	h := handler{
 		operationsAPI: &operations.Endpoints{Pages: cfg.Pages, Workflows: cfg.Workflows, Log: cfg.Log},
 		tenancyAPI:    &tenancy.Endpoints{Pages: cfg.Pages},
 		identityAPI:   &identity.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Certifications: certifications(cfg)},
 		configAPI:     &configuration.Endpoints{Pages: cfg.Pages, Dependencies: Configuration(cfg)},
-		partnerAPI: &partner.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys,
-			Approvals: opener()},
+		partnerAPI: &partner.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys, Schemas: configuration.Settings{}, Rules: configuration.Settings{},
+			PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, Approvals: opener()},
 		ledgerAPI: &ledger.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{},
 			Numbers: configuration.Numbers{}, Approvals: opener()},
-		workflowAPI: &approvals.Endpoints{Pages: cfg.Pages, Decider: approvals.Decider{Roles: identity.Directory{}, Handlers: map[string]approvals.Handler{
+		workflowAPI: &approvals.Endpoints{Pages: cfg.Pages, Decider: approvals.Decider{Roles: identity.Directory{}, AgentKind: identity.AgentKind, Metrics: cfg.Metrics, Handlers: map[string]approvals.Handler{
 			approvals.Requisition:      procurement.Approvals{},
-			approvals.PartnerChange:    partner.Approvals{},
+			approvals.PartnerChange:    partner.Approvals{Schemas: configuration.Settings{}},
 			approvals.ConfigChange:     configuration.Approvals{},
 			approvals.InvoiceException: payables.Approvals{},
 			approvals.PeriodUnlock:     ledger.PeriodUnlocks{},
@@ -151,6 +174,7 @@ func New(cfg Config) (http.Handler, error) {
 		auditAPI:       &audit.Endpoints{Pages: cfg.Pages, Anchors: cfg.Objects},
 		integrationAPI: Integration(cfg),
 		agentsAPI:      &agents.Endpoints{Pages: cfg.Pages, Countries: tenancy.Countries, Certifications: certifications(cfg)},
+		analyticsAPI:   analyticsEndpoints(cfg, loopback).Init(),
 	}
 	return httpapi.New(h, httpapi.Pipeline{
 		Pool: cfg.Pool, AppRole: cfg.AppRole, Verifier: cfg.Verifier, Limits: cfg.Limits, RequestTimeout: cfg.RequestTimeout,
@@ -165,7 +189,28 @@ func New(cfg Config) (http.Handler, error) {
 		RequireBoundAgents: cfg.RequireBoundAgents,
 		Agents:             agents.Admit,
 		Model:              cfg.Model,
+		Loopback:           loopback,
 	})
+}
+
+// analyticsEndpoints is the analytics context as the API and the
+// simulation worker wire it: the semantic model read from the tenant's
+// configuration (ADR-0044, T55g).
+func analyticsEndpoints(cfg Config, loopback http.RoundTripper) *endpoint.Endpoints {
+	return &endpoint.Endpoints{Configs: configuration.Settings{}, Companies: companyCodes{}, Reader: cfg.Analytics, Loopback: loopback,
+		Log: cfg.Log, Now: cfg.Now}
+}
+
+// governedModel is the semantic layer's seed model, built in; tests
+// replace it.
+var governedModel = analytics.DefaultModel
+
+// companyCodes names legal entities by their company codes for analytics.
+type companyCodes struct{}
+
+func (companyCodes) CompanyCode(ctx context.Context, id uuid.UUID) (string, bool, error) {
+	le, ok, err := tenancy.Directory{}.Entity(ctx, id)
+	return le.Code, ok, err
 }
 
 // Configuration is the configuration context's dependencies as the API
@@ -174,11 +219,17 @@ func Configuration(cfg Config) configuration.Dependencies {
 	return configuration.Dependencies{
 		LegalEntities: tenancy.Directory{},
 		Sections: []configuration.Section{ledger.Setup{LegalEntities: tenancy.Directory{}}, partner.PaymentTerms{}, partner.WithholdingCodes{LegalEntities: tenancy.Directory{}},
-			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys}},
+			partner.PaymentMethodCodes{LegalEntities: tenancy.Directory{}},
+			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Channels: integration.BankChannels{}, Keys: cfg.FieldKeys},
+			payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, endpoint.Section{}},
 		Approvals: opener(),
-		Simulator: payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
+		Simulator: configuration.Simulators{payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
+			endpoint.Simulation{Endpoints: analyticsEndpoints(cfg, nil), Now: cfg.Now}},
 		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
 		Actors:    identity.Actors{},
+		RuleSamplers: map[string]rules.Sampler{"supplier_invoice": payables.RuleSamples{}, "purchase_order": procurement.RuleSamples{},
+			"business_partner": partner.RuleSamples{}},
+		Disclosures: []configuration.Disclosure{payables.Disclosure{}, endpoint.Disclosure{Endpoints: analyticsEndpoints(cfg, nil)}},
 	}
 }
 
@@ -189,24 +240,27 @@ func Payments(cfg Config) *payments.Endpoints {
 		Postings: postings(),
 		Payees:   partner.Payees{Keys: cfg.FieldKeys}, Numbers: configuration.Numbers{}, Calendar: calendar(),
 		Settings: configuration.Settings{}, Actors: identity.Actors{}, Keys: cfg.FieldKeys, Connector: cfg.Connector, Objects: cfg.Objects,
+		Retention: cfg.Retention, Channels: integration.BankChannels{Secrets: resolver(cfg.Secrets)},
 		Accounts: ledger.Accounts{}, DownPayments: downPayments{}, Now: cfg.Now}
 }
 
 // Integration is the integration context as the API wires it: migration
 // runs load through the same endpoints the API serves, built the same way.
 func Integration(cfg Config) *integration.Endpoints {
-	partners := partner.Ports{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys}
+	partners := partner.Ports{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys, Schemas: configuration.Settings{}, Rules: configuration.Settings{},
+		PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}}
 	return &integration.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Settings: configuration.Settings{},
 		Partners: partner.Migration{Ports: partners}, Suppliers: partner.Suppliers{}, Orders: procurementEndpoints(cfg), OrderValues: procurement.Orders{},
 		Invoices: payablesEndpoints(cfg, uploads(cfg)), InvoiceCounts: payables.Invoices{}, Postings: postings(), Reports: ledger.Reports{},
-		Secrets: resolver(cfg.Secrets), ExtractDir: cfg.ExtractDir, Workflows: cfg.Workflows != nil}
+		Secrets: resolver(cfg.Secrets), Keys: cfg.FieldKeys, Resolver: net.DefaultResolver, ExtractDir: cfg.ExtractDir, Workflows: cfg.Workflows != nil, RefuseEBICS: cfg.RefuseEBICS}
 }
 
 // procurementEndpoints is the procurement context as the API wires it.
 func procurementEndpoints(cfg Config) *procurement.Endpoints {
 	return &procurement.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{},
 		Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{}, Calendar: calendar(),
-		Settings: configuration.Settings{}, Approvals: opener(), Invoices: payables.Invoices{}, Postings: postings()}
+		Settings: configuration.Settings{}, Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{}, Approvals: opener(),
+		Invoices: payables.Invoices{}, Postings: postings()}
 }
 
 // payablesEndpoints is the payables context as the API wires it, capturing
@@ -214,7 +268,7 @@ func procurementEndpoints(cfg Config) *procurement.Endpoints {
 func payablesEndpoints(cfg Config, uploads *payables.Uploads) *payables.Endpoints {
 	return &payables.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{},
 		Orders: procurement.Orders{}, Postings: postings(), Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{},
-		Calendar: calendar(), Settings: configuration.Settings{}, Rates: rates(), Approvals: opener(),
+		Calendar: calendar(), Settings: configuration.Settings{}, Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{}, Rates: rates(), Approvals: opener(),
 		Payments: payments.Reservations{}, OrderNumbers: procurement.Orders{}, Extractor: cfg.Extractor, Objects: cfg.Objects, Uploads: uploads}
 }
 

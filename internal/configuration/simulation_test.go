@@ -55,7 +55,7 @@ func (s sim) in(t *testing.T) sim {
 	return s
 }
 
-// suite captures a regression suite on version 1 (the fake regressor
+// suite captures a regression suite on the active version (the fake regressor
 // supplies the cases), which tier 3 evidence needs.
 func (s sim) suite(t *testing.T) {
 	t.Helper()

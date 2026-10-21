@@ -1,0 +1,124 @@
+{
+  "uid": "erp-ledger",
+  "title": "ERP ledger",
+  "description": "The general ledger: periods past their close, partitions ahead, and its events (ADR-0043).",
+  "tags": [
+    "erp"
+  ],
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "timezone": "utc",
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Periods overdue",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(erp_periods_overdue)",
+          "legendFormat": ""
+        }
+      ],
+      "description": "Periods past their end date and still open."
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Ledger partitions ahead",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "min(erp_partition_horizon_ledger_years)",
+          "legendFormat": ""
+        }
+      ],
+      "description": "Years of journal partitions created ahead of today."
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Events published, 24h",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(erp_events_published_total{context=\"ledger\"}[1d])) or vector(0)",
+          "legendFormat": ""
+        }
+      ],
+      "description": "Events the ledger context published through the outbox in the last day."
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Events published by event",
+      "gridPos": {
+        "h": 8,
+        "w": 18,
+        "x": 0,
+        "y": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (event) (rate(erp_events_published_total{context=\"ledger\"}[$__rate_interval]))",
+          "legendFormat": "{{event}}"
+        }
+      ]
+    }
+  ]
+}

@@ -47,8 +47,8 @@ run "s3_kms_and_sts_are_never_proxied" {
     error_message = "STS through an interface endpoint with private DNS"
   }
   assert {
-    condition     = contains(keys(aws_vpc_endpoint.interface), "ecr.dkr") && contains(keys(aws_vpc_endpoint.interface), "secretsmanager")
-    error_message = "images and secrets are pulled through endpoints too"
+    condition     = contains(keys(aws_vpc_endpoint.interface), "ecr.dkr") && contains(keys(aws_vpc_endpoint.interface), "secretsmanager") && contains(keys(aws_vpc_endpoint.interface), "logs") && contains(keys(aws_vpc_endpoint.interface), "xray")
+    error_message = "images, secrets, logs and traces go through endpoints too"
   }
 }
 

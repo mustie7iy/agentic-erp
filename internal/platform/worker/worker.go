@@ -47,12 +47,22 @@ func Loop(ctx context.Context, interval, fallback time.Duration, round Round, lo
 		if again && err == nil {
 			continue
 		}
-		select {
-		case <-ctx.Done():
+		if !Wait(ctx, interval) {
 			return
-		case <-time.After(interval):
 		}
 	}
+}
+
+// Wait waits for the interval or the end of ctx and reports whether the
+// caller should run again. A select picks at random among ready cases, so a
+// timer that fires as ctx ends could start one more round after the
+// cancel; checking ctx after the wait makes a cancelled context always win.
+func Wait(ctx context.Context, interval time.Duration) bool {
+	select {
+	case <-ctx.Done():
+	case <-time.After(interval):
+	}
+	return ctx.Err() == nil
 }
 
 // Panic is a panic Recover caught: its value and the stack it was raised

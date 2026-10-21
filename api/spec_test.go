@@ -248,7 +248,10 @@ func TestOperations(t *testing.T) {
 
 		perm, _ := o.op["x-permission"].(string)
 		approval, seeded := perms[perm]
+		byEntity, hasByEntity := o.op["x-entity-permissions"].(node)
 		switch {
+		case hasByEntity:
+			checkEntityPermissions(t, o, perm, byEntity, perms)
 		case perm == "":
 			t.Errorf("%s: no x-permission", o)
 		case !seeded:
@@ -403,6 +406,24 @@ func TestRepresentations(t *testing.T) {
 		}
 		if _, ok := r["content"].(node)["application/problem+json"]; !ok {
 			t.Errorf("component response %s must be application/problem+json", name)
+		}
+	}
+}
+
+// checkEntityPermissions checks an operation whose permission depends on its
+// {entity} path parameter: it has no x-permission of its own, and each
+// entity's permission is a seeded read permission.
+func checkEntityPermissions(t *testing.T, o operation, perm string, byEntity node, perms map[string]bool) {
+	t.Helper()
+	if perm != "" {
+		t.Errorf("%s: x-permission and x-entity-permissions both given", o)
+	}
+	if !strings.Contains(o.path, "{entity}") {
+		t.Errorf("%s: x-entity-permissions without an {entity} path parameter", o)
+	}
+	for entity, code := range byEntity {
+		if approval, ok := perms[fmt.Sprint(code)]; !ok || approval || !strings.HasSuffix(fmt.Sprint(code), ".read") {
+			t.Errorf("%s: x-entity-permissions[%s] = %v must be a seeded read permission", o, entity, code)
 		}
 	}
 }

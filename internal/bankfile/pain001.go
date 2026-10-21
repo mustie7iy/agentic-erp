@@ -1,6 +1,9 @@
 // Package bankfile writes payment instructions for banks: ISO 20022
 // pain.001.001.03 customer credit transfers, the bank file format of the
-// payments context (03-data-model §3.10).
+// payments context (03-data-model §3.10). An account in Canada has no IBAN:
+// it is written as its account number in Othr with the bank's Canadian
+// Payments Association member id under the clearing system CACPA, so the
+// same writer serves both (ADR-0038, T45d).
 package bankfile
 
 import (
@@ -12,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/cabank"
 	"github.com/mustie7iy/agentic-erp/internal/platform/iban"
 )
 
@@ -20,8 +24,11 @@ type Payment struct {
 	EndToEndID      string
 	CreditorName    string
 	CreditorAccount string // IBAN, or a domestic account number
-	Amount          money.Minor
-	Remittance      string
+	// CreditorClearingID is the creditor bank's CACPA member id
+	// (cabank.MemberID) of a Canadian account, or empty.
+	CreditorClearingID string
+	Amount             money.Minor
+	Remittance         string
 }
 
 // Batch is one payment instruction file from one debtor account.
@@ -31,11 +38,15 @@ type Batch struct {
 	DebtorName    string
 	DebtorIBAN    string
 	DebtorBIC     string
-	Currency      string
-	Decimals      int    // minor-unit digits of Currency
-	ExecutionDate string // YYYY-MM-DD
-	Created       time.Time
-	Payments      []Payment
+	// DebtorClearingID is the CACPA member id of a Canadian debtor
+	// account, whose number DebtorAccount is, in place of DebtorIBAN.
+	DebtorClearingID string
+	DebtorAccount    string
+	Currency         string
+	Decimals         int    // minor-unit digits of Currency
+	ExecutionDate    string // YYYY-MM-DD
+	Created          time.Time
+	Payments         []Payment
 }
 
 // ValidIBAN checks an IBAN with the ISO 13616 mod-97 algorithm
@@ -60,14 +71,20 @@ func Pain001(b Batch) ([]byte, error) {
 	txs := make([]cdtTrfTxInf, 0, len(b.Payments))
 	for _, p := range b.Payments {
 		acct := account{}
-		if ValidIBAN(p.CreditorAccount) {
+		var creditorAgent *agent
+		switch {
+		case p.CreditorClearingID != "":
+			acct.Othr = &other{ID: p.CreditorAccount}
+			creditorAgent = &agent{FinInstnID: finInstnID{ClrSysMmbID: canadian(p.CreditorClearingID)}}
+		case ValidIBAN(p.CreditorAccount):
 			acct.IBAN = strings.ReplaceAll(p.CreditorAccount, " ", "")
-		} else {
+		default:
 			acct.Othr = &other{ID: p.CreditorAccount}
 		}
 		txs = append(txs, cdtTrfTxInf{
 			PmtID:    pmtID{EndToEndID: clip(p.EndToEndID, 35)},
 			Amt:      amt{InstdAmt: instdAmt{Ccy: b.Currency, Value: p.Amount.Plain(b.Decimals)}},
+			CdtrAgt:  creditorAgent,
 			Cdtr:     party{Nm: clip(p.CreditorName, 70)},
 			CdtrAcct: cashAccount{ID: acct},
 			RmtInf:   &rmtInf{Ustrd: clip(p.Remittance, 140)},
@@ -83,22 +100,40 @@ func Pain001(b Batch) ([]byte, error) {
 			PmtInf: pmtInf{
 				PmtInfID: clip(b.MessageID+"-1", 35), PmtMtd: "TRF", NbOfTxs: len(txs), CtrlSum: total.Plain(b.Decimals),
 				ReqdExctnDt: b.ExecutionDate, Dbtr: party{Nm: clip(b.DebtorName, 70)},
-				DbtrAcct: cashAccount{ID: account{IBAN: strings.ReplaceAll(b.DebtorIBAN, " ", "")}},
+				DbtrAcct: b.debtorAccount(),
 				DbtrAgt:  agent{FinInstnID: finInstnID{BIC: b.DebtorBIC}},
 				Txs:      txs,
 			},
 		},
 	}
+	if b.DebtorClearingID != "" {
+		doc.CstmrCdtTrfInitn.PmtInf.DbtrAgt.FinInstnID.ClrSysMmbID = canadian(b.DebtorClearingID)
+	}
 	out, _ := xml.MarshalIndent(doc, "", "  ") // fixed structs of strings and ints always encode
 	return append([]byte(xml.Header), out...), nil
 }
 
+// debtorAccount is the debtor's IBAN, or its Canadian account number.
+func (b Batch) debtorAccount() cashAccount {
+	if b.DebtorClearingID != "" {
+		return cashAccount{ID: account{Othr: &other{ID: b.DebtorAccount}}}
+	}
+	return cashAccount{ID: account{IBAN: strings.ReplaceAll(b.DebtorIBAN, " ", "")}}
+}
+
+// canadian names a bank by its member id of the Canadian Payments
+// Association's clearing system.
+func canadian(memberID string) *clrSysMmbID {
+	return &clrSysMmbID{ClrSysID: clrSysID{Cd: "CACPA"}, MmbID: memberID}
+}
+
 func (b Batch) validate() error {
+	if err := b.validateDebtor(); err != nil {
+		return err
+	}
 	switch {
 	case b.MessageID == "":
 		return errors.New("message id is required")
-	case !ValidIBAN(b.DebtorIBAN):
-		return fmt.Errorf("debtor IBAN %q is invalid", b.DebtorIBAN)
 	case len(b.Currency) != 3:
 		return fmt.Errorf("currency %q is invalid", b.Currency)
 	case len(b.Payments) == 0:
@@ -114,6 +149,23 @@ func (b Batch) validate() error {
 		if strings.TrimSpace(p.CreditorName) == "" || strings.TrimSpace(p.CreditorAccount) == "" {
 			return fmt.Errorf("payment %d: creditor name and account are required", i+1)
 		}
+		if p.CreditorClearingID != "" && (!cabank.ValidMemberID(p.CreditorClearingID) || !cabank.ValidNumber(p.CreditorAccount)) {
+			return fmt.Errorf("payment %d: Canadian creditor account %q at %q is invalid", i+1, p.CreditorAccount, p.CreditorClearingID)
+		}
+	}
+	return nil
+}
+
+// validateDebtor checks the debtor's IBAN, or its Canadian account.
+func (b Batch) validateDebtor() error {
+	if b.DebtorClearingID == "" {
+		if !ValidIBAN(b.DebtorIBAN) {
+			return fmt.Errorf("debtor IBAN %q is invalid", b.DebtorIBAN)
+		}
+		return nil
+	}
+	if !cabank.ValidMemberID(b.DebtorClearingID) || !cabank.ValidNumber(b.DebtorAccount) || b.DebtorIBAN != "" {
+		return fmt.Errorf("debtor Canadian account %q at %q is invalid", b.DebtorAccount, b.DebtorClearingID)
 	}
 	return nil
 }
@@ -179,12 +231,23 @@ type agent struct {
 }
 
 type finInstnID struct {
-	BIC string `xml:"BIC"`
+	BIC         string       `xml:"BIC,omitempty"`
+	ClrSysMmbID *clrSysMmbID `xml:"ClrSysMmbId,omitempty"`
+}
+
+type clrSysMmbID struct {
+	ClrSysID clrSysID `xml:"ClrSysId"`
+	MmbID    string   `xml:"MmbId"`
+}
+
+type clrSysID struct {
+	Cd string `xml:"Cd"`
 }
 
 type cdtTrfTxInf struct {
 	PmtID    pmtID       `xml:"PmtId"`
 	Amt      amt         `xml:"Amt"`
+	CdtrAgt  *agent      `xml:"CdtrAgt,omitempty"`
 	Cdtr     party       `xml:"Cdtr"`
 	CdtrAcct cashAccount `xml:"CdtrAcct"`
 	RmtInf   *rmtInf     `xml:"RmtInf,omitempty"`

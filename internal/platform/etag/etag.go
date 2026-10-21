@@ -49,3 +49,17 @@ func Match(ifMatch, want string) error {
 	}
 	return problem.PreconditionFailed("The resource has changed (current ETag " + want + "); read it again and retry.")
 }
+
+// NoneMatch reports whether an If-None-Match header lets a GET through to
+// the current entity tag: false when the header lists the tag or is "*",
+// and the answer is 304. Tags compare weakly (RFC 9110 §13.1.2), as a GET
+// that answers 304 only needs equivalent content.
+func NoneMatch(ifNoneMatch, current string) bool {
+	for _, tag := range strings.Split(ifNoneMatch, ",") {
+		tag = strings.TrimPrefix(strings.TrimSpace(tag), "W/")
+		if tag == "*" || tag == current {
+			return false
+		}
+	}
+	return true
+}

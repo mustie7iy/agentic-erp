@@ -1,0 +1,186 @@
+package countrypack
+
+import (
+	"bufio"
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"io/fs"
+	"path"
+	"regexp"
+	"strconv"
+	"strings"
+
+	"github.com/mustie7iy/agentic-erp/internal/config"
+)
+
+// ReleasedFile lists the hash of every released pack directory.
+const ReleasedFile = "released.sha256"
+
+// Library is every released pack, by directory (cc/version).
+type Library struct {
+	packs map[string]*Pack
+	// Warnings are the packs' findings that do not block loading, such as
+	// a missing tax specialist's sign-off (the pilot gate).
+	Warnings []config.Finding
+}
+
+// Get is the pack of a country (either case) and version, or nil.
+func (l *Library) Get(country, version string) *Pack {
+	return l.packs[strings.ToLower(country)+"/"+version]
+}
+
+// Latest is the newest version of a country's pack, or nil.
+func (l *Library) Latest(country string) *Pack {
+	var latest *Pack
+	for _, p := range l.packs {
+		if strings.EqualFold(p.Manifest.Country, country) && (latest == nil || CompareVersions(p.Manifest.Version, latest.Manifest.Version) > 0) {
+			latest = p
+		}
+	}
+	return latest
+}
+
+// LoadAll loads every pack in fsys (cc/version directories beside the
+// hash list) and refuses any that is invalid, whose hash is not the
+// released one, or that is listed but gone: released packs never change
+// and are never removed, since an upgrade merges from the adopted one.
+func LoadAll(fsys fs.FS) (*Library, error) {
+	released, err := readReleased(fsys)
+	if err != nil {
+		return nil, err
+	}
+	dirs, err := packDirs(fsys)
+	if err != nil {
+		return nil, err
+	}
+	lib := &Library{packs: map[string]*Pack{}}
+	for _, dir := range dirs {
+		p, warnings, err := loadReleased(fsys, dir, released)
+		if err != nil {
+			return nil, err
+		}
+		lib.packs[dir] = p
+		lib.Warnings = append(lib.Warnings, warnings...)
+		delete(released, dir)
+	}
+	for dir := range released {
+		return nil, fmt.Errorf("countrypack: released pack %s is missing; released packs are never removed", dir)
+	}
+	return lib, nil
+}
+
+// packDirs lists the cc/version directories; files beside them, such as
+// the hash list, are not packs.
+func packDirs(fsys fs.FS) ([]string, error) {
+	countries, err := fs.ReadDir(fsys, ".")
+	if err != nil {
+		return nil, fmt.Errorf("countrypack: %w", err)
+	}
+	var dirs []string
+	for _, c := range countries {
+		if !c.IsDir() {
+			continue
+		}
+		versions, err := fs.ReadDir(fsys, c.Name())
+		if err != nil {
+			return nil, fmt.Errorf("countrypack: %w", err)
+		}
+		for _, v := range versions {
+			if v.IsDir() {
+				dirs = append(dirs, c.Name()+"/"+v.Name())
+			}
+		}
+	}
+	return dirs, nil
+}
+
+func loadReleased(fsys fs.FS, dir string, released map[string]string) (*Pack, []config.Finding, error) {
+	h, err := Hash(fsys, dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	switch want, ok := released[dir]; {
+	case !ok:
+		return nil, nil, fmt.Errorf("countrypack: pack %s is not in %s; release it with the line %q", dir, ReleasedFile, h+"  "+dir)
+	case want != h:
+		return nil, nil, fmt.Errorf("countrypack: pack %s has hash %s but was released as %s; a released pack never changes, make a new version", dir, h, want)
+	}
+	return Load(fsys, dir)
+}
+
+var hashRe = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// readReleased reads the hash list: "<sha256>  <cc>/<version>" per line,
+// with # comments and blank lines.
+func readReleased(fsys fs.FS) (map[string]string, error) {
+	b, err := fs.ReadFile(fsys, ReleasedFile)
+	if err != nil {
+		return nil, fmt.Errorf("countrypack: %w", err)
+	}
+	out := map[string]string{}
+	sc := bufio.NewScanner(bytes.NewReader(b))
+	for n := 1; sc.Scan(); n++ {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) != 2 || !hashRe.MatchString(fields[0]) {
+			return nil, fmt.Errorf("countrypack: %s line %d: want <sha256> <cc>/<version>", ReleasedFile, n)
+		}
+		if _, dup := out[fields[1]]; dup {
+			return nil, fmt.Errorf("countrypack: %s line %d: %s listed twice", ReleasedFile, n, fields[1])
+		}
+		out[fields[1]] = fields[0]
+	}
+	return out, nil
+}
+
+// Hash is the sha256 of a pack directory: each file's name, length and
+// content, in name order.
+func Hash(fsys fs.FS, dir string) (string, error) {
+	entries, err := fs.ReadDir(fsys, dir)
+	if err != nil {
+		return "", fmt.Errorf("countrypack: %w", err)
+	}
+	h := sha256.New()
+	for _, e := range entries {
+		b, err := fs.ReadFile(fsys, path.Join(dir, e.Name()))
+		if err != nil {
+			return "", fmt.Errorf("countrypack: %w", err)
+		}
+		h.Write([]byte(e.Name() + "\x00" + strconv.Itoa(len(b)) + "\x00"))
+		h.Write(b)
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// Load reads, parses and validates the pack in dir, which must be named
+// after its manifest. Findings with error severity refuse it; the warnings
+// are returned.
+func Load(fsys fs.FS, dir string) (*Pack, []config.Finding, error) {
+	entries, err := fs.ReadDir(fsys, dir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("countrypack: %w", err)
+	}
+	files := map[string][]byte{}
+	for _, e := range entries {
+		if files[e.Name()], err = fs.ReadFile(fsys, path.Join(dir, e.Name())); err != nil {
+			return nil, nil, fmt.Errorf("countrypack: %w", err)
+		}
+	}
+	p, err := Parse(files)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", dir, err)
+	}
+	findings := Validate(p)
+	if config.HasErrors(findings) {
+		return nil, nil, fmt.Errorf("countrypack: %s is invalid: %v", dir, findings)
+	}
+	if p.Dir() != dir {
+		return nil, nil, fmt.Errorf("countrypack: directory %s holds the pack of %s, which belongs in %s", dir, p.Manifest.Country+" "+p.Manifest.Version, p.Dir())
+	}
+	return p, findings, nil
+}

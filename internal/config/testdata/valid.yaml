@@ -60,6 +60,12 @@ companies:
       name: MAIN
       iban: GB33BUKB20201555555555
       bic: BUKBGB22
+    payment_methods:
+      - code: T
+        description: Bank transfer
+        ranking:
+          - currency: USD
+            house_banks: [MAIN]
   - code: "2000"
     name: Acme GmbH
     currency: EUR
@@ -97,6 +103,9 @@ companies:
       - number: "610000"
         name: Salaries and Wages
         type: expense
+      - number: "101000"
+        name: Bank clearing - Deutsche Bank
+        type: asset
     account_determination:
       ap_reconciliation: "211000"
       input_tax: "140000"

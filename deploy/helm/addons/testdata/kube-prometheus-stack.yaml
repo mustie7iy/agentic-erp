@@ -1,0 +1,17 @@
+# An environment's values for the checks (scripts/helm-checks.sh): what
+# Terraform's outputs and the operators' identity provider give a real one.
+erp:
+  cell: dev1
+  region: eu-central-1
+  clusterKmsKeyArn: arn:aws:kms:eu-central-1:222222222222:key/1d5c2b1e-0000-4000-8000-000000000000
+  secretsRoleArn: arn:aws:iam::222222222222:role/erp-dev1-monitoring
+grafana:
+  grafana.ini:
+    server:
+      root_url: http://localhost:3000
+    auth.generic_oauth:
+      client_id: erp-grafana-dev1
+      auth_url: https://operators.example.com/oauth2/authorize
+      token_url: https://operators.example.com/oauth2/token
+      api_url: https://operators.example.com/oauth2/userinfo
+      role_attribute_path: contains(groups[*], 'erp-operators') && 'Admin' || ''

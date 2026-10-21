@@ -305,3 +305,21 @@ func TestJournalLists(t *testing.T) {
 	}
 	agent.Problem(404, "request.not_found", "GET", "/v1/journal-entries/"+ids[0], "", "")
 }
+
+// TestLeadingLedger: an entry says whether its ledger is the leading one,
+// which analytics reads by default (ADR-0044): a posting's copy in a
+// parallel ledger says it is not (ADR-0045).
+func TestLeadingLedger(t *testing.T) {
+	e := setupParallel(t)
+	je, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-20", "EUR", line{e.account(t, "2000", "100000"), "1.00", ""},
+		line{e.account(t, "2000", "400000"), "-1.00", ""}), "")
+	if je["leading_ledger"] != true {
+		t.Errorf("posted entry: got leading_ledger %v, want true", je["leading_ledger"])
+	}
+	var copied string
+	pgtest.Scan(t, `SELECT id::text FROM ledger.journal_entry WHERE tenant_id = $1 AND posting_group_id = $2 AND id <> $2`, []any{e.ten.ID, je["id"]}, &copied)
+	got, _ := e.Must(200, "GET", "/v1/journal-entries/"+copied, "", "")
+	if got["leading_ledger"] != false {
+		t.Errorf("the entry's copy in 2L: got leading_ledger %v, want false", got["leading_ledger"])
+	}
+}

@@ -3,6 +3,7 @@ package payments_test
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -11,7 +12,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
-	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -110,8 +111,9 @@ func TestReleaseWithoutTheLegalEntity(t *testing.T) {
 // TestTransmitWithoutTheLegalEntity: a bank file whose run's legal entity
 // the tenancy context no longer finds is not transmitted, never under the
 // name "-<run>-<id>.xml". The run exists, so its missing entity is a
-// server-side fault (500, as the file's download answers), not a 422 on a
-// field the client never sent; the error names the entity.
+// server-side fault (platform.internal, as the file's download answers),
+// not a 422 on a field the client never sent: the attempt fails, is tried
+// again, and the logged error names the entity.
 func TestTransmitWithoutTheLegalEntity(t *testing.T) {
 	e := setup(t)
 	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
@@ -120,17 +122,19 @@ func TestTransmitWithoutTheLegalEntity(t *testing.T) {
 	e.release(t, run, "")
 	files, _ := e.Must(200, "GET", "/v1/bank-files?payment_run_id="+id(run), "", "")
 	file := uuidOf(id(files["items"].([]any)[0].(map[string]any)))
-	h := endpoints(e.connector)
-	h.LegalEntities = noEntity{}
-	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
-		_, err := h.TransmitFile(ctx, file, yes)
-		return err
-	})
-	if p := problem.From(err); p.Status != 500 {
-		t.Fatalf("transmit: got %d %s (%v), want 500", p.Status, p.Code, err)
+	e.Must(202, "POST", "/v1/bank-files/"+file.String()+":transmit", "", `"1"`)
+	defer pgtest.Exec(t, `UPDATE payments.bank_file SET status = 'failed', next_attempt_at = NULL, version = version + 1 WHERE id = $1`, file)
+	var logs pgtest.SyncBuffer
+	tr := e.transmitter(t)
+	tr.Endpoints.LegalEntities, tr.Log = noEntity{}, slog.New(slog.NewTextHandler(&logs, nil))
+	if _, err := tr.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
 	}
-	if want := "no legal entity " + e.DE.String(); !strings.Contains(err.Error(), want) {
-		t.Errorf("transmit: got %v, want an error naming %q", err, want)
+	if status, attempts, code := fileState(t, file.String()); status != "to_send" || attempts != 1 || code != "platform.internal" {
+		t.Errorf("file: got %s, %d attempts, %s; want to_send, 1, platform.internal", status, attempts, code)
+	}
+	if want := "no legal entity " + e.DE.String(); !strings.Contains(logs.String(), want) {
+		t.Errorf("logged: got %s, want an error naming %q", logs.String(), want)
 	}
 	if len(e.connector.files) != 0 {
 		t.Errorf("files transmitted: got %v, want none", e.connector.files)

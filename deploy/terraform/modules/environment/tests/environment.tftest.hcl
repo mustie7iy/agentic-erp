@@ -88,7 +88,7 @@ run "the_small_shape_plans_and_wires_its_parts" {
     error_message = "the cell is named after the root's cell and its range is an output"
   }
   assert {
-    condition     = toset(keys(output.cell.workload_role_arns)) == toset(["server", "external_secrets", "cert_manager", "ebs_csi", "load_balancer", "kyverno"])
+    condition     = toset(keys(output.cell.workload_role_arns)) == toset(["server", "external_secrets", "cert_manager", "ebs_csi", "load_balancer", "kyverno", "monitoring", "logging", "tracing", "analytics"])
     error_message = "every workload role the charts need is an output"
   }
   assert {

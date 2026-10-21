@@ -41,6 +41,7 @@ type app struct {
 	release chan struct{} // closed to let /slow finish
 	entered chan struct{} // closed when a request enters /slow: it holds its idempotency key
 	slow    atomic.Int32  // requests that entered /slow
+	commits atomic.Int32  // creates whose commit ran their OnCommit
 }
 
 func newApp(t *testing.T, pool *database.Pool, also ...*authntest.Issuer) *app {
@@ -60,6 +61,7 @@ func newApp(t *testing.T, pool *database.Pool, also ...*authntest.Issuer) *app {
 		tx, _ := reqctx.TxFrom(r.Context())
 		p, _ := reqctx.PrincipalFrom(r.Context())
 		id := uuid.Must(uuid.NewV7())
+		reqctx.OnCommit(r.Context(), func() { a.commits.Add(1) })
 		_, err := tx.Exec(r.Context(), `INSERT INTO platform.operation (tenant_id, id, kind, status, created_by, updated_by)
 			VALUES ($1, $2, 'test.create', 'queued', $3, $3)`, p.TenantID, id, p.ID)
 		return id, err
@@ -82,6 +84,16 @@ func newApp(t *testing.T, pool *database.Pool, also ...*authntest.Issuer) *app {
 		a.check(err)
 		problem.Write(w, r, problem.Conflict("test.conflict", "no"))
 	})
+	mux.HandleFunc("POST /refuse", func(w http.ResponseWriter, r *http.Request) {
+		// A write refused by a rule: its work and entries roll back, its
+		// refusal is kept with the answer (ADR-0046).
+		id, err := create(w, r)
+		a.check(err)
+		a.check(audit.Add(r.Context(), audit.Entry{Action: "test.create", ObjectType: "platform.operation", ObjectID: id, Outcome: "succeeded"}))
+		a.check(audit.Refuse(r.Context(), audit.Entry{Action: "test.create", ObjectType: "platform.operation", Outcome: "refused",
+			Detail: map[string]any{"source": "rule"}}))
+		problem.Write(w, r, problem.Unprocessable("request.rule_refused", "no"))
+	})
 	mux.HandleFunc("POST /stale", func(w http.ResponseWriter, r *http.Request) {
 		_, err := create(w, r)
 		a.check(err)
@@ -103,6 +115,16 @@ func newApp(t *testing.T, pool *database.Pool, also ...*authntest.Issuer) *app {
 		close(a.entered)
 		<-a.release
 		w.WriteHeader(204)
+	})
+	mux.HandleFunc("POST /secret", func(w http.ResponseWriter, r *http.Request) {
+		uow.OmitOnReplay(r.Context(), "secret")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		a.check(json.NewEncoder(w).Encode(map[string]string{"id": "x", "secret": "whsec_shown_once"}))
+	})
+	mux.HandleFunc("POST /secret-array", func(w http.ResponseWriter, r *http.Request) {
+		uow.OmitOnReplay(r.Context(), "secret")
+		w.Write([]byte(`["whsec_shown_once"]`))
 	})
 	mux.HandleFunc("POST /not-json", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("plain text"))
@@ -270,6 +292,32 @@ func TestIdempotentCreate(t *testing.T) {
 	}
 }
 
+// TestRefusalKeptWithTheAnswer: a business outcome keeps a refusal's
+// audit, and only it, with the stored answer; the replayed answer records
+// no second refusal.
+func TestRefusalKeptWithTheAnswer(t *testing.T) {
+	a := newApp(t, pgtest.Pool(t))
+	ten := pgtest.NewTenant(t)
+	c := call{method: "POST", path: "/refuse", key: "key-refuse-1", tenant: ten.ID, subject: ten.Human.Subject}
+	for i := range 2 {
+		if r := a.do(c); r.Code != 422 {
+			t.Fatalf("attempt %d status: got %d, want 422 (%s)", i+1, r.Code, r.Body)
+		}
+	}
+	audited := func(outcome string) int {
+		return count(t, "SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'test.create' AND outcome = $2", ten.ID, outcome)
+	}
+	if n := audited("refused"); n != 1 {
+		t.Errorf("refusals audited: got %d, want 1", n)
+	}
+	if n := audited("succeeded"); n != 0 {
+		t.Errorf("rolled-back entries audited: got %d, want 0", n)
+	}
+	if n := operations(t, ten); n != 0 {
+		t.Errorf("rows kept: got %d, want 0", n)
+	}
+}
+
 func TestErrorsKeepTheAnswerNotTheChanges(t *testing.T) {
 	a := newApp(t, pgtest.Pool(t))
 	ten := pgtest.NewTenant(t)
@@ -325,6 +373,24 @@ func TestErrorsKeepTheAnswerNotTheChanges(t *testing.T) {
 	}
 	if got := r.Header().Get("Idempotent-Replayed"); got != "" {
 		t.Fatalf("corrected retry Idempotent-Replayed: got %q, want empty", got)
+	}
+}
+
+// TestOnCommit: what a request adds with reqctx.OnCommit runs once its
+// work commits, and not for a 4xx or 5xx whose changes are undone.
+func TestOnCommit(t *testing.T) {
+	a := newApp(t, pgtest.Pool(t))
+	ten := pgtest.NewTenant(t)
+	for _, c := range []struct {
+		path string
+		want int32
+	}{{"/conflict", 0}, {"/crash", 0}, {"/create", 1}} {
+		t.Run(c.path, func(t *testing.T) {
+			a.in(t).do(call{method: "POST", path: c.path, key: "key-commit" + strings.ReplaceAll(c.path, "/", "-"), tenant: ten.ID, subject: ten.Human.Subject})
+			if got := a.commits.Load(); got != c.want {
+				t.Errorf("commit hooks run: got %d, want %d", got, c.want)
+			}
+		})
 	}
 }
 
@@ -601,5 +667,36 @@ func TestInjectedDatabaseFailures(t *testing.T) {
 	a.mw.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errInjected }
 	if r := a.do(call{method: "GET", path: "/read", tenant: ten.ID, subject: ten.Human.Subject}); r.Code != 500 {
 		t.Fatalf("begin failure: %d", r.Code)
+	}
+}
+
+// TestOmitOnReplay: a field the handler omits is answered once and not kept
+// with the idempotency key, so a replay answers without it (ADR-0041).
+func TestOmitOnReplay(t *testing.T) {
+	a := newApp(t, pgtest.Pool(t))
+	ten := pgtest.NewTenant(t)
+	c := call{method: "POST", path: "/secret", key: "key-secret01", tenant: ten.ID, subject: ten.Human.Subject}
+	first := a.do(c)
+	if !strings.Contains(first.Body.String(), "whsec_shown_once") {
+		t.Fatalf("first answer: got %s, want the secret", first.Body)
+	}
+	if n := count(t, `SELECT count(*) FROM platform.idempotency_key WHERE tenant_id = $1 AND response_body::text LIKE '%whsec_%'`, ten.ID); n != 0 {
+		t.Errorf("stored answers with the secret: got %d, want 0", n)
+	}
+	replay := a.do(c)
+	if replay.Code != 201 || replay.Header().Get("Idempotent-Replayed") != "true" {
+		t.Fatalf("replay: got %d %v, want a replayed 201", replay.Code, replay.Header())
+	}
+	var got map[string]string
+	if err := json.Unmarshal(replay.Body.Bytes(), &got); err != nil {
+		t.Fatalf("replay body %s: %v", replay.Body, err)
+	}
+	if _, ok := got["secret"]; ok || got["id"] != "x" {
+		t.Errorf("replay body: got %v, want the id without the secret", got)
+	}
+	// A body that is not an object cannot have the field taken out: the
+	// request fails rather than keep the secret.
+	if r := a.do(call{method: "POST", path: "/secret-array", key: "key-secret02", tenant: ten.ID, subject: ten.Human.Subject}); r.Code != 500 {
+		t.Errorf("array body: got %d, want 500", r.Code)
 	}
 }

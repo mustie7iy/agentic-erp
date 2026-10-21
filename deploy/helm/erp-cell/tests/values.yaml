@@ -18,6 +18,9 @@ images:
   temporal:
     repository: 111111111111.dkr.ecr.eu-central-1.amazonaws.com/erp-temporal
     digest: sha256:2222222222222222222222222222222222222222222222222222222222222222
+  analytics:
+    repository: 111111111111.dkr.ecr.eu-central-1.amazonaws.com/erp-analytics
+    digest: sha256:3333333333333333333333333333333333333333333333333333333333333333
 trust:
   caBundle: |
     -----BEGIN CERTIFICATE-----
@@ -32,6 +35,8 @@ server:
     sts: https://sts.eu-central-1.amazonaws.com
     kms: https://kms.eu-central-1.amazonaws.com
     s3: https://s3.eu-central-1.amazonaws.com
+analytics:
+  roleArn: arn:aws:iam::222222222222:role/erp-dev1-analytics
 database:
   writerHost: erp-dev1.abc.eu-central-1.rds.amazonaws.com
   masterSecretArn: "arn:aws:secretsmanager:eu-central-1:222222222222:secret:rds!db-1"

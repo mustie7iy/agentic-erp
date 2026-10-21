@@ -5,6 +5,10 @@
 // period balances derived by a projector, and each purchase order item's
 // GR/IR position on its own lines (grir.go, T33).
 //
+// Foreign-currency revaluation (ADR-0042, T48) values open items and
+// flagged accounts' balances at a key date; its settings are kept from the
+// configuration (fxsetup.go).
+//
 // Parallel ledgers (ADR-0045, T52): the leading ledger 0L and ledgers kept
 // under other accounting principles, assigned per company, and ledger
 // groups (ledgers.go).

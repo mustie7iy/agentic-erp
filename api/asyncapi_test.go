@@ -394,3 +394,117 @@ func TestAsyncAPIRequiredEvents(t *testing.T) {
 		t.Error("ApprovalCompleted payload has no outcome")
 	}
 }
+
+// webhookExcluded are the event kinds the product owner keeps out of
+// webhooks (ADR-0041): a context whose events carry personal data, single
+// event types that do, and payload fields that are bank or personal data
+// wherever they appear.
+var (
+	webhookExcludedContexts = []string{"identity"}
+	webhookExcludedTypes    = []string{
+		"com.example.erp.partner.bank_account_changed.v1",
+		"com.example.erp.partner.business_partner_created.v1",
+		"com.example.erp.partner.business_partner_updated.v1",
+	}
+	webhookExcludedFields = []string{
+		"account_last4", "account_number", "account_scheme", "bank_account_id", "bank_country_code", "bic",
+		"ended_bank_account_id", "iban", "display_name", "email", "phone", "legal_name", "external_issuer", "principal_kind",
+	}
+)
+
+// payloadFields returns every property name of a schema, through refs,
+// items and alternatives.
+func payloadFields(t *testing.T, d asyncDoc, s map[string]any, seen map[string]bool, out map[string]bool) {
+	t.Helper()
+	if s == nil {
+		return
+	}
+	if ref, ok := s["$ref"].(string); ok {
+		if !seen[ref] {
+			seen[ref] = true
+			payloadFields(t, d, d.resolve(t, ref), seen, out)
+		}
+		return
+	}
+	for name, sub := range asMap(s["properties"]) {
+		out[name] = true
+		payloadFields(t, d, asMap(sub), seen, out)
+	}
+	payloadFields(t, d, asMap(s["items"]), seen, out)
+	for _, k := range []string{"allOf", "oneOf", "anyOf"} {
+		for _, sub := range asSlice(s[k]) {
+			payloadFields(t, d, asMap(sub), seen, out)
+		}
+	}
+}
+
+// webhookRefusal says why an event type with these payload fields may not
+// be offered to webhooks, or "" when it may.
+func webhookRefusal(eventType string, fields map[string]bool) string {
+	for _, c := range webhookExcludedContexts {
+		if strings.HasPrefix(eventType, "com.example.erp."+c+".") {
+			return "its context " + c + " carries personal data"
+		}
+	}
+	for _, x := range webhookExcludedTypes {
+		if eventType == x {
+			return "it carries bank or personal data"
+		}
+	}
+	for _, f := range webhookExcludedFields {
+		if fields[f] {
+			return "its payload has " + f
+		}
+	}
+	return ""
+}
+
+func TestAsyncAPIWebhookEvents(t *testing.T) {
+	d := loadAsyncAPI(t)
+	marked := 0
+	for key, raw := range asMap(asMap(d["components"])["messages"]) {
+		msg := asMap(raw)
+		flag, present := msg["x-webhook"]
+		if !present {
+			continue
+		}
+		t.Run(key, func(t *testing.T) {
+			if flag != true {
+				t.Fatalf("x-webhook = %v, want true or absent", flag)
+			}
+			types := headerTypeConsts(t, d, asMap(msg["headers"]))
+			if len(types) != 1 || !ceTypeRE.MatchString(types[0]) {
+				t.Fatalf("event types = %v, want one CloudEvents type", types)
+			}
+			fields := map[string]bool{}
+			payloadFields(t, d, asMap(msg["payload"]), map[string]bool{}, fields)
+			if why := webhookRefusal(types[0], fields); why != "" {
+				t.Errorf("%s is marked x-webhook, but %s", types[0], why)
+			}
+		})
+		marked++
+	}
+	if marked == 0 {
+		t.Error("no event is marked x-webhook")
+	}
+}
+
+func TestWebhookRefusal(t *testing.T) {
+	cases := map[string]struct {
+		eventType string
+		fields    map[string]bool
+		refused   bool
+	}{
+		"business event":   {"com.example.erp.ledger.journal_entry_posted.v1", map[string]bool{"amount": true}, false},
+		"identity context": {"com.example.erp.identity.role_created.v1", nil, true},
+		"excluded type":    {"com.example.erp.partner.business_partner_created.v1", nil, true},
+		"bank field":       {"com.example.erp.payments.payment_excluded.v1", map[string]bool{"bic": true}, true},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := webhookRefusal(c.eventType, c.fields) != ""; got != c.refused {
+				t.Errorf("refused = %v, want %v", got, c.refused)
+			}
+		})
+	}
+}

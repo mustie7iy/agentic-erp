@@ -81,14 +81,22 @@ func crToAPI(c ChangeRequest) gen.ChangeRequest {
 	return out
 }
 
-func crOK(c ChangeRequest) *gen.UpdateChangeRequestOKHeaders {
-	return &gen.UpdateChangeRequestOKHeaders{ETag: gen.NewOptString(etag.Format(c.Version)), Response: crToAPI(c)}
+// crOK is the change request with its ETag as its reader is shown it.
+func (e *Endpoints) crOK(ctx context.Context, c ChangeRequest) (*gen.UpdateChangeRequestOKHeaders, error) {
+	c, err := e.disclosed(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.UpdateChangeRequestOKHeaders{ETag: gen.NewOptString(etag.Format(c.Version)), Response: crToAPI(c)}, nil
 }
 
 // CreateChangeRequest implements POST /v1/change-requests.
 func (e *Endpoints) CreateChangeRequest(ctx context.Context, req *gen.ChangeRequestCreate, _ gen.CreateChangeRequestParams) (gen.CreateChangeRequestRes, error) {
 	c, err := CreateChangeRequest(ctx, NewChangeRequest{Title: req.Title, Rationale: req.Rationale.Value, BaseVersion: req.BaseVersion,
 		Proposed: rawObject(req.Proposed)})
+	if err == nil {
+		c, err = e.disclosed(ctx, c)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -103,6 +111,9 @@ func (e *Endpoints) GetChangeRequest(ctx context.Context, params gen.GetChangeRe
 		return nil, err
 	}
 	c, err := getCR(ctx, tx, params.ID, false)
+	if err == nil {
+		c, err = e.disclosed(ctx, c)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -129,6 +140,11 @@ func (e *Endpoints) ListChangeRequests(ctx context.Context, params gen.ListChang
 	if err != nil {
 		return nil, fmt.Errorf("configuration: list change requests: %w", err)
 	}
+	for i := range crs {
+		if crs[i], err = e.disclosed(ctx, crs[i]); err != nil {
+			return nil, err
+		}
+	}
 	items, next := apitypes.PageOf(ks, crs, func(c ChangeRequest) (string, uuid.UUID) { return c.CreatedAt.UTC().Format(time.RFC3339Nano), c.ID }, crToAPI)
 	return &gen.ChangeRequestPageHeaders{Response: gen.ChangeRequestPage{Items: items, NextPageToken: next}}, nil
 }
@@ -152,7 +168,7 @@ func (e *Endpoints) UpdateChangeRequest(ctx context.Context, req *gen.ChangeRequ
 	if err != nil {
 		return nil, err
 	}
-	return crOK(c), nil
+	return e.crOK(ctx, c)
 }
 
 // SubmitChangeRequest implements POST /v1/change-requests/{id}:submit.
@@ -161,7 +177,7 @@ func (e *Endpoints) SubmitChangeRequest(ctx context.Context, params gen.SubmitCh
 	if err != nil {
 		return nil, err
 	}
-	return crOK(c), nil
+	return e.crOK(ctx, c)
 }
 
 // WithdrawChangeRequest implements POST /v1/change-requests/{id}:withdraw.
@@ -170,7 +186,7 @@ func (e *Endpoints) WithdrawChangeRequest(ctx context.Context, req *gen.ReasonIn
 	if err != nil {
 		return nil, err
 	}
-	return crOK(c), nil
+	return e.crOK(ctx, c)
 }
 
 // ActivateChangeRequest implements POST /v1/change-requests/{id}:activate.
@@ -179,7 +195,7 @@ func (e *Endpoints) ActivateChangeRequest(ctx context.Context, params gen.Activa
 	if err != nil {
 		return nil, err
 	}
-	return crOK(c), nil
+	return e.crOK(ctx, c)
 }
 
 // SimulateChangeRequest implements POST /v1/change-requests/{id}:simulate:

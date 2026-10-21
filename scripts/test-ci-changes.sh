@@ -86,6 +86,12 @@ prev="$c"
 c="$(change scripts/sign-images.sh)"
 expect_out "a signing script runs the image checks" "$c" images true
 prev="$c"
+c="$(change deploy/images/erp-analytics.Dockerfile)"
+expect_out "erp-analytics's Dockerfile runs the image checks" "$c" images true
+prev="$c"
+c="$(change scripts/test-images.sh)"
+expect_out "the image scripts' tests run the image checks" "$c" images true
+prev="$c"
 c="$(change scripts/free-disk.sh)"
 expect_out "the runner's disk clean-up runs the image checks" "$c" images true
 prev="$c"

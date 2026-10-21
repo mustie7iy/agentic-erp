@@ -14,7 +14,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
-	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -43,19 +42,22 @@ type PurchaseOrder struct {
 	// release, one more for each change applied.
 	Revision   int32
 	Extensions map[string]any
-	Items      []Item
-	Version    int32
-	CreatedAt  time.Time
-	CreatedBy  uuid.UUID
-	UpdatedAt  time.Time
-	UpdatedBy  uuid.UUID
+	// The custom field schema version the extensions were written under
+	// (ADR-0046), or nil.
+	ExtensionsSchema *int
+	Items            []Item
+	Version          int32
+	CreatedAt        time.Time
+	CreatedBy        uuid.UUID
+	UpdatedAt        time.Time
+	UpdatedBy        uuid.UUID
 }
 
 // Total is the value of the live items.
 func (o PurchaseOrder) Total() money.Minor { return total(o.Items) }
 
 const orderSelect = `SELECT o.id, o.document_number, o.legal_entity_id, o.purchasing_org_id, o.supplier_id, o.currency, c.exponent, o.order_date,
-		o.payment_term_code, o.requisition_id, o.contract_id, o.status, o.valuation, o.release_request_id, o.revision, o.extensions, o.version, o.created_at, o.created_by, o.updated_at, o.updated_by,
+		o.payment_term_code, o.requisition_id, o.contract_id, o.status, o.valuation, o.release_request_id, o.revision, o.extensions, o.extensions_schema, o.version, o.created_at, o.created_by, o.updated_at, o.updated_by,
 		coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'material_id', i.material_id, 'description', i.description,
 			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code, 'unit_price', i.unit_price, 'price_unit', i.price_unit,
 			'account_id', i.account_id, 'over_delivery_pct', trim_scale(i.over_delivery_pct)::text, 'tax_code', i.tax_code,
@@ -68,7 +70,7 @@ const orderSelect = `SELECT o.id, o.document_number, o.legal_entity_id, o.purcha
 func scanOrder(row pgx.Row) (PurchaseOrder, error) {
 	var o PurchaseOrder
 	if err := row.Scan(&o.ID, &o.DocumentNumber, &o.LegalEntityID, &o.PurchasingOrgID, &o.SupplierID, &o.Currency, &o.Exponent, &o.OrderDate,
-		&o.PaymentTermCode, &o.RequisitionID, &o.ContractID, &o.Status, &o.Valuation, &o.ReleaseRequestID, &o.Revision, &o.Extensions, &o.Version, &o.CreatedAt, &o.CreatedBy, &o.UpdatedAt,
+		&o.PaymentTermCode, &o.RequisitionID, &o.ContractID, &o.Status, &o.Valuation, &o.ReleaseRequestID, &o.Revision, &o.Extensions, &o.ExtensionsSchema, &o.Version, &o.CreatedAt, &o.CreatedBy, &o.UpdatedAt,
 		&o.UpdatedBy, &o.Items); err != nil {
 		return PurchaseOrder{}, fmt.Errorf("scan purchase order: %w", err)
 	}
@@ -319,6 +321,13 @@ type NewOrder struct {
 	Extensions      map[string]any
 }
 
+// header is the order's header as created: what the rules judge
+// (ADR-0046).
+func (in NewOrder) header(legalEntity uuid.UUID, term string) PurchaseOrder {
+	return PurchaseOrder{LegalEntityID: legalEntity, PurchasingOrgID: in.PurchasingOrgID, SupplierID: in.SupplierID, Currency: in.Currency,
+		OrderDate: in.OrderDate, PaymentTermCode: term, RequisitionID: in.RequisitionID, ContractID: in.ContractID, Extensions: in.Extensions}
+}
+
 // createOrder creates a draft purchase order. An order from a requisition
 // needs an approved requisition of the legal entity and currency, which
 // becomes ordered.
@@ -334,7 +343,8 @@ func (e *Endpoints) createOrder(ctx context.Context, in NewOrder) (PurchaseOrder
 	if in.Extensions == nil {
 		in.Extensions = map[string]any{}
 	}
-	if err := extensions.Check(in.Extensions); err != nil {
+	schema, err := e.extensions().Check(ctx, in.Extensions)
+	if err != nil {
 		return PurchaseOrder{}, err
 	}
 	req, err := orderedRequisition(ctx, tx, &in, le.ID)
@@ -353,16 +363,19 @@ func (e *Endpoints) createOrder(ctx context.Context, in NewOrder) (PurchaseOrder
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
+	if err := e.checkRules(ctx, "procurement.purchase_order.create", "", uuid.Nil, in.header(le.ID, term)); err != nil {
+		return PurchaseOrder{}, err
+	}
 	number, err := e.number(ctx, le.ID, "purchase_order", in.OrderDate)
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.purchase_order (tenant_id, id, document_number, legal_entity_id, purchasing_org_id, supplier_id,
-			currency, order_date, payment_term_code, requisition_id, contract_id, status, extensions, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'draft', $12, $13, $13)`,
+			currency, order_date, payment_term_code, requisition_id, contract_id, status, extensions, extensions_schema, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'draft', $12, $13, $14, $14)`,
 		p.TenantID, id, number, le.ID, in.PurchasingOrgID, in.SupplierID, in.Currency, in.OrderDate, term, in.RequisitionID, in.ContractID,
-		in.Extensions, p.ID); err != nil {
+		in.Extensions, schema, p.ID); err != nil {
 		return PurchaseOrder{}, fmt.Errorf("procurement: create purchase order %s: %w", number, err)
 	}
 	if err := writeOrderItems(ctx, tx, p.TenantID, id, items, false); err != nil {
@@ -450,6 +463,12 @@ func (e *Endpoints) updateOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 		return PurchaseOrder{}, err
 	}
 	org, contract, supplier, currency, orderDate, term, ext := f.org, f.contract, f.supplier, f.currency, f.orderDate, o.PaymentTermCode, f.ext
+	// Every update checks the order's extensions as it leaves them
+	// (ADR-0046: a narrowed field applies from the next write).
+	schema, err := e.extensions().Check(ctx, ext)
+	if err != nil {
+		return PurchaseOrder{}, err
+	}
 	le, err := e.legalEntity(ctx, o.LegalEntityID)
 	if err != nil {
 		return PurchaseOrder{}, err
@@ -471,12 +490,18 @@ func (e *Endpoints) updateOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
+	after := o
+	after.PurchasingOrgID, after.SupplierID, after.Currency, after.OrderDate, after.PaymentTermCode, after.ContractID, after.Extensions =
+		org, supplier, currency, orderDate, term, contract, ext
+	if err := e.checkRules(ctx, "procurement.purchase_order.update", "", id, after); err != nil {
+		return PurchaseOrder{}, err
+	}
 	if err := writeOrderItems(ctx, tx, p.TenantID, id, items, false); err != nil {
 		return PurchaseOrder{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order SET purchasing_org_id = $2, supplier_id = $3, currency = $4, order_date = $5,
-		payment_term_code = $6, contract_id = $7, extensions = $8, version = version + 1, updated_by = $9 WHERE id = $1`,
-		id, org, supplier, currency, orderDate, term, contract, ext, p.ID); err != nil {
+		payment_term_code = $6, contract_id = $7, extensions = $8, extensions_schema = $10, version = version + 1, updated_by = $9 WHERE id = $1`,
+		id, org, supplier, currency, orderDate, term, contract, ext, p.ID, schema); err != nil {
 		return PurchaseOrder{}, fmt.Errorf("procurement: update purchase order %s: %w", id, err)
 	}
 	updated, err := getOrder(ctx, tx, id, false)
@@ -496,7 +521,7 @@ type orderHeaderFields struct {
 }
 
 // changedOrderHeader applies a change to the order's header fields; a new
-// currency needs new items, and the merged extensions must be valid.
+// currency needs new items; the caller checks the merged extensions.
 func changedOrderHeader(o PurchaseOrder, ch OrderChange) (orderHeaderFields, error) {
 	f := orderHeaderFields{org: o.PurchasingOrgID, contract: o.ContractID, supplier: o.SupplierID, currency: o.Currency, orderDate: o.OrderDate, ext: o.Extensions}
 	if ch.PurchasingOrg {
@@ -519,9 +544,6 @@ func changedOrderHeader(o PurchaseOrder, ch OrderChange) (orderHeaderFields, err
 	}
 	if ch.Extensions != nil {
 		f.ext = mergepatch.Apply(f.ext, ch.Extensions)
-		if err := extensions.Check(f.ext); err != nil {
-			return orderHeaderFields{}, err
-		}
 	}
 	return f, nil
 }
@@ -643,11 +665,15 @@ func (e *Endpoints) release(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
+	payload := orderEvent(o, map[string]any{"purchasing_org_id": o.PurchasingOrgID,
+		"order_date": o.OrderDate.Format(time.DateOnly), "payment_term_code": o.PaymentTermCode, "requisition_id": o.RequisitionID,
+		"contract_id": o.ContractID, "valuation": valuation, "total_amount": money.EventAmount(value, o.Currency, o.Exponent),
+		"items": releasedItems(o)})
+	if err := e.extensions().Event(ctx, payload, o.Extensions, o.ExtensionsSchema); err != nil {
+		return PurchaseOrder{}, err
+	}
 	return released, audit.Record(ctx, "procurement.purchase_order.release", "procurement.purchase_order", o.ID, map[string]any{"value": value},
-		event("purchase_order_released", "purchase_order", o.ID, orderEvent(o, map[string]any{"purchasing_org_id": o.PurchasingOrgID,
-			"order_date": o.OrderDate.Format(time.DateOnly), "payment_term_code": o.PaymentTermCode, "requisition_id": o.RequisitionID,
-			"contract_id": o.ContractID, "valuation": valuation, "total_amount": money.EventAmount(value, o.Currency, o.Exponent),
-			"items": releasedItems(o)})))
+		event("purchase_order_released", "purchase_order", o.ID, payload))
 }
 
 // consumeContract records the release's consumption of the order's

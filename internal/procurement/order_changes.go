@@ -13,7 +13,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
-	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -60,6 +59,10 @@ type ChangeProposal struct {
 	PaymentTermCode string         `json:"payment_term_code"`
 	Extensions      map[string]any `json:"extensions"`
 	Items           []Item         `json:"items"`
+	// ExtensionsSchema is the custom field schema version the extensions
+	// were checked against; nil before T58c and while the tenant declares
+	// no schema, which keeps the order's.
+	ExtensionsSchema *int `json:"extensions_schema,omitempty"`
 }
 
 // ChangeInput is a new order change or a merge patch of a draft one; nil
@@ -151,6 +154,9 @@ func (e *Endpoints) createChange(ctx context.Context, order uuid.UUID, in Change
 	if err != nil {
 		return PurchaseOrderChange{}, err
 	}
+	if err := e.checkRules(ctx, "procurement.purchase_order_change.create", "procurement.purchase_order", o.ID, proposed.apply(o)); err != nil {
+		return PurchaseOrderChange{}, err
+	}
 	before, err := documentTotal(o.Items)
 	if err != nil {
 		return PurchaseOrderChange{}, err
@@ -195,6 +201,9 @@ func (e *Endpoints) updateChange(ctx context.Context, order, id uuid.UUID, ifMat
 	}
 	proposed, after, err := e.proposal(ctx, tx, o, ch.Proposed, in)
 	if err != nil {
+		return PurchaseOrderChange{}, err
+	}
+	if err := e.checkRules(ctx, "procurement.purchase_order_change.update", "", id, proposed.apply(o)); err != nil {
 		return PurchaseOrderChange{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order_change SET reason = $2, proposed = $3, total_after = $4, version = version + 1,
@@ -260,10 +269,14 @@ func (e *Endpoints) proposal(ctx context.Context, tx pgx.Tx, o PurchaseOrder, ba
 	}
 	if in.Extensions != nil {
 		pr.Extensions = mergepatch.Apply(pr.Extensions, in.Extensions)
-		if err := extensions.Check(pr.Extensions); err != nil {
-			return ChangeProposal{}, 0, err
-		}
 	}
+	// The extensions the change leaves the order with are checked now, on
+	// every proposal, and their schema version is applied with them.
+	schema, err := e.extensions().Check(ctx, pr.Extensions)
+	if err != nil {
+		return ChangeProposal{}, 0, err
+	}
+	pr.ExtensionsSchema = schema
 	le, err := e.legalEntity(ctx, o.LegalEntityID)
 	if err != nil {
 		return ChangeProposal{}, 0, err
@@ -289,6 +302,13 @@ func (e *Endpoints) proposal(ctx context.Context, tx pgx.Tx, o PurchaseOrder, ba
 	}
 	after, err := documentTotal(pr.Items)
 	return pr, after, err
+}
+
+// apply is the order's header as the change leaves it: what the rules
+// judge (ADR-0046).
+func (pr ChangeProposal) apply(o PurchaseOrder) PurchaseOrder {
+	o.OrderDate, o.PaymentTermCode, o.Extensions = pr.OrderDate, pr.PaymentTermCode, pr.Extensions
+	return o
 }
 
 // removedItems are the order's removed items, which an item added back

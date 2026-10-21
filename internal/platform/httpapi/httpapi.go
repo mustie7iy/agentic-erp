@@ -1,7 +1,8 @@
 // Package httpapi is the request pipeline of the public API (ADR-0014):
 // telemetry, authentication and the unit of work around the server
 // generated from api/openapi.yaml, with authorization per operation and
-// every error as an RFC 9457 problem, and the operational endpoints; and
+// every error as an RFC 9457 problem, deprecations announced from the
+// contract (ADR-0041), and the operational endpoints; and
 // what the hand-written operator APIs (control plane, global directory)
 // share: Operator, NotAllowed and WriteJSON. It names no context:
 // internal/app assembles the contexts' handlers into the generated Handler
@@ -68,6 +69,9 @@ type Pipeline struct {
 	// Agents admits an agent's request in its transaction (uow.Middleware's
 	// Agents: the tenant's AI kill switch); nil admits every agent.
 	Agents func(ctx context.Context, tx pgx.Tx) error
+	// Loopback, when set, is given the unit of work around the generated
+	// server, so handlers can read the API in-process as their caller.
+	Loopback *Loopback
 	// Model is the model gateway (api/model.yaml, ADR-0036), served at its
 	// contract's route behind authentication but outside the unit of work:
 	// no transaction is held while a model works. Nil answers 503.
@@ -97,6 +101,9 @@ func New(h gen.Handler, p Pipeline) (http.Handler, error) {
 	unit := &uow.Middleware{Pool: p.Pool, Role: p.AppRole, Log: p.Log, Now: p.Now, Sessions: p.Sessions, RequireBoundAgents: p.RequireBoundAgents,
 		Agents: p.Agents}
 	chain := unit.Wrap(srv)
+	if p.Loopback != nil {
+		p.Loopback.handler = chain
+	}
 	if p.Limits != nil {
 		chain = p.Limits.Middleware(chain)
 	}
@@ -104,6 +111,7 @@ func New(h gen.Handler, p Pipeline) (http.Handler, error) {
 	if p.RequestTimeout > 0 {
 		chain = deadline(p.RequestTimeout, chain)
 	}
+	chain = announce(srv, deprecations(api.MustOperations()), chain)
 	mux := http.NewServeMux()
 	for pattern, route := range p.Routes {
 		mux.Handle(pattern, route)
@@ -157,7 +165,9 @@ func (security) HandleOidc(ctx context.Context, _ gen.OperationName, _ gen.Oidc)
 func authorize(a *authz.Authorizer) middleware.Middleware {
 	return func(req middleware.Request, next middleware.Next) (middleware.Response, error) {
 		reqctx.InfoFrom(req.Context).Operation = req.OperationID
-		if err := a.Authorize(req.Context, req.OperationID); err != nil {
+		v, _ := req.Params.Path("entity")
+		entity, _ := v.(string) // absent (""): the operation's permission does not depend on it
+		if err := a.AuthorizeEntity(req.Context, req.OperationID, entity); err != nil {
 			return middleware.Response{}, err
 		}
 		return next(req)

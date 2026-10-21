@@ -4,9 +4,9 @@
 # operator or by rotation, never by Terraform, so none is in its state.
 
 variable "secrets" {
-  description = "Names of the cell's secrets, under erp/<cell>/ (values are set outside Terraform). argocd-repository is the cell's read-only deploy key, which its Argo CD reads the repository with (ADR-0035)."
+  description = "Names of the cell's secrets, under erp/<cell>/ (values are set outside Terraform). argocd-repository is the cell's read-only deploy key, which its Argo CD reads the repository with (ADR-0035); alertmanager-receivers and grafana-oidc are the monitoring add-on's, which only its own role reads (ADR-0043)."
   type        = list(string)
-  default     = ["page-token-key", "database-client-password", "temporal-codec-key", "temporal-database-password", "argocd-repository"]
+  default     = ["page-token-key", "database-client-password", "temporal-codec-key", "temporal-database-password", "argocd-repository", "alertmanager-receivers", "grafana-oidc"]
 }
 
 variable "global_secrets" {

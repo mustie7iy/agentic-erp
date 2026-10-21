@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -35,7 +36,9 @@ type Entry struct {
 }
 
 // Buffer collects a request's entries until the unit of work flushes them.
-type Buffer struct{ entries []Entry }
+// refusals are entries that outlive the request's work: a write refused
+// rolls back, and its refusal is still recorded (Refuse).
+type Buffer struct{ entries, refusals []Entry }
 
 type bufferKey struct{}
 
@@ -80,25 +83,47 @@ func ObjectTypeOf(action string) string {
 	return action
 }
 
-// Discard drops the entries buffered so far, for work rolled back to a
-// savepoint.
+// Refuse records the refusal of a write, such as a validation rule's
+// (ADR-0046): an entry the unit of work keeps when it rolls the request's
+// work back for its business outcome, as well as when it succeeds.
+func Refuse(ctx context.Context, e Entry) error {
+	b, ok := ctx.Value(bufferKey{}).(*Buffer)
+	if !ok {
+		return ErrNoBuffer
+	}
+	b.refusals = append(b.refusals, e)
+	return nil
+}
+
+// Discard drops the entries buffered so far, refusals included, for work
+// a caller rolls back to its own savepoint as though it never ran (a
+// rehearsal); the unit of work keeps the refusals of a request it rolls
+// back for its business outcome (Buffer.FlushRefusals).
 func Discard(ctx context.Context) {
 	if b, ok := ctx.Value(bufferKey{}).(*Buffer); ok {
-		b.entries = nil
+		b.entries, b.refusals = nil, nil
 	}
 }
 
-// Len is the number of buffered entries.
-func (b *Buffer) Len() int { return len(b.entries) }
+// Len is the number of buffered entries, refusals included.
+func (b *Buffer) Len() int { return len(b.entries) + len(b.refusals) }
 
-// Flush writes the buffered entries as the given actor and empties the buffer.
+// Flush writes the buffered entries and refusals as the given actor and
+// empties the buffer.
 func (b *Buffer) Flush(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, traceID string, now time.Time) error {
-	if len(b.entries) == 0 {
+	all := slices.Concat(b.entries, b.refusals)
+	b.entries, b.refusals = nil, nil
+	if len(all) == 0 {
 		return nil
 	}
-	err := Write(ctx, tx, actor, traceID, now, b.entries...)
+	return Write(ctx, tx, actor, traceID, now, all...)
+}
+
+// FlushRefusals writes only the refusals, for a request whose work was
+// rolled back, and empties the buffer.
+func (b *Buffer) FlushRefusals(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, traceID string, now time.Time) error {
 	b.entries = nil
-	return err
+	return b.Flush(ctx, tx, actor, traceID, now)
 }
 
 // record is the hashed form of an event; field order is fixed.

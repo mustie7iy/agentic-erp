@@ -35,7 +35,13 @@ info:
     - On NATS the event is sent in binary content mode: every attribute is
       a message header named `ce-<attribute>` and the payload is the JSON
       body. External subscribers receive the same events, in structured
-      mode, through signed webhooks.
+      mode, through signed webhooks (ADR-0041): only messages marked
+      `x-webhook: true` can be subscribed. Events carrying bank or personal
+      data are not marked: the identity context (principals, roles,
+      access), partner bank accounts and partner master data (a partner
+      may be a person); nor are events that are not business facts for a
+      tenant's systems (agents, platform operations and audit, the
+      tenant's own lifecycle).
 
     ## Payloads
 
@@ -46,8 +52,11 @@ info:
     `{"value": "12.5", "unit": "KG"}`; business dates are `YYYY-MM-DD`;
     instants are RFC 3339 UTC; ids are UUIDs. Enumerations are lower-case
     strings and open: consumers must accept values they do not know.
-    Sensitive values never appear (bank accounts expose `account_last4` and
-    `account_scheme` only).
+    Sensitive values never appear (bank accounts expose `account_last4`,
+    `account_scheme` and, for a Canadian account, the bank's institution and
+    transit numbers, which name the bank as a BIC does).
+    Custom fields (`extensions`, ADR-0046) appear with personal and
+    sensitive values masked.
 
     ## Delivery
 
@@ -206,6 +215,8 @@ channels:
       PeriodUnlocked: {$ref: '#/components/messages/PeriodUnlocked'}
       ParkedJournalEntryChanged: {$ref: '#/components/messages/ParkedJournalEntryChanged'}
       ExchangeRateMaintained: {$ref: '#/components/messages/ExchangeRateMaintained'}
+      RevaluationRunPosted: {$ref: '#/components/messages/RevaluationRunPosted'}
+      RevaluationRunCancelled: {$ref: '#/components/messages/RevaluationRunCancelled'}
   procurement:
     address: 'erp.{cell}.procurement.{tenant}.{event}'
     title: Procurement events
@@ -261,10 +272,18 @@ channels:
       PaymentRunRejected: {$ref: '#/components/messages/PaymentRunRejected'}
       PaymentExcluded: {$ref: '#/components/messages/PaymentExcluded'}
       BankFileTransmitted: {$ref: '#/components/messages/BankFileTransmitted'}
+      BankFileTransmissionFailed: {$ref: '#/components/messages/BankFileTransmissionFailed'}
       PaymentRunFailed: {$ref: '#/components/messages/PaymentRunFailed'}
       BankFileCreated: {$ref: '#/components/messages/BankFileCreated'}
       BankFileAcknowledged: {$ref: '#/components/messages/BankFileAcknowledged'}
       BankFileRejected: {$ref: '#/components/messages/BankFileRejected'}
+      BankStatementImported: {$ref: '#/components/messages/BankStatementImported'}
+      BankStatementGapClosed: {$ref: '#/components/messages/BankStatementGapClosed'}
+      BankStatementGapFound: {$ref: '#/components/messages/BankStatementGapFound'}
+      BankStatementFileRefused: {$ref: '#/components/messages/BankStatementFileRefused'}
+      BankStatementFileChanged: {$ref: '#/components/messages/BankStatementFileChanged'}
+      BankStatementLineMatched: {$ref: '#/components/messages/BankStatementLineMatched'}
+      BankStatementLineExcluded: {$ref: '#/components/messages/BankStatementLineExcluded'}
   workflow:
     address: 'erp.{cell}.workflow.{tenant}.{event}'
     title: Workflow events
@@ -382,6 +401,8 @@ operations:
       - $ref: '#/channels/ledger/messages/PeriodUnlocked'
       - $ref: '#/channels/ledger/messages/ParkedJournalEntryChanged'
       - $ref: '#/channels/ledger/messages/ExchangeRateMaintained'
+      - $ref: '#/channels/ledger/messages/RevaluationRunPosted'
+      - $ref: '#/channels/ledger/messages/RevaluationRunCancelled'
   publishProcurementEvents:
     action: send
     title: Procurement publishes
@@ -431,10 +452,18 @@ operations:
       - $ref: '#/channels/payments/messages/PaymentRunRejected'
       - $ref: '#/channels/payments/messages/PaymentExcluded'
       - $ref: '#/channels/payments/messages/BankFileTransmitted'
+      - $ref: '#/channels/payments/messages/BankFileTransmissionFailed'
       - $ref: '#/channels/payments/messages/PaymentRunFailed'
       - $ref: '#/channels/payments/messages/BankFileCreated'
       - $ref: '#/channels/payments/messages/BankFileAcknowledged'
       - $ref: '#/channels/payments/messages/BankFileRejected'
+      - $ref: '#/channels/payments/messages/BankStatementImported'
+      - $ref: '#/channels/payments/messages/BankStatementGapClosed'
+      - $ref: '#/channels/payments/messages/BankStatementGapFound'
+      - $ref: '#/channels/payments/messages/BankStatementFileRefused'
+      - $ref: '#/channels/payments/messages/BankStatementFileChanged'
+      - $ref: '#/channels/payments/messages/BankStatementLineMatched'
+      - $ref: '#/channels/payments/messages/BankStatementLineExcluded'
   publishWorkflowEvents:
     action: send
     title: Workflow publishes
@@ -495,6 +524,7 @@ components:
     # ---------------------------------------------------------------- tenancy
     LegalEntityCreated:
       name: LegalEntityCreated
+      x-webhook: true
       title: Legal entity created
       summary: A legal entity (company code) was created.
       description: Emitted when a legal entity row is inserted in `tenancy.legal_entity`. Subject is the legal entity id.
@@ -552,6 +582,7 @@ components:
     # ---------------------------------------------------------- configuration
     ChangeRequestSubmitted:
       name: ChangeRequestSubmitted
+      x-webhook: true
       title: Change request submitted
       summary: A configuration change request was submitted for evidence and approval.
       description: Emitted by `change-requests/{id}:submit` when the change request moves from `draft` to `validating`. `ChangeRequestValidated` follows when validation finishes. Subject is the change request id.
@@ -568,6 +599,7 @@ components:
           payload: {change_request_id: 0192a000-0000-7000-8000-000000000a01, number: CR-2026-0042, title: Raise price tolerance to 3%, author_id: 0192a000-0000-7000-8000-000000000101, base_version: 41, tier: 2, status: validating, item_count: 1, workflow_request_id: null}
     ChangeRequestApproved:
       name: ChangeRequestApproved
+      x-webhook: true
       title: Change request approved
       summary: A configuration change request was approved and can be activated.
       description: Emitted when the change request moves to `approved` after its approval request completed with outcome `approved`. Activation is a separate step (`:activate`). Subject is the change request id.
@@ -584,6 +616,7 @@ components:
           payload: {change_request_id: 0192a000-0000-7000-8000-000000000a01, number: CR-2026-0042, tier: 2, base_version: 41, workflow_request_id: 0192a000-0000-7000-8000-000000000901, status: approved}
     ConfigurationActivated:
       name: ConfigurationActivated
+      x-webhook: true
       title: Configuration activated
       summary: A new configuration version became the tenant's active version.
       description: |
@@ -624,6 +657,7 @@ components:
           payload: {partner_id: 0192a000-0000-7000-8000-000000000301, number: BP-100231, kind: organization, name: Acme Industrial Supplies Ltd, country_code: GB, roles: [supplier], status: pending, partner_change_id: 0192a000-0000-7000-8000-000000000304}
     SupplierApproved:
       name: SupplierApproved
+      x-webhook: true
       title: Supplier approved
       summary: A new supplier's create change was approved and applied; the supplier is active.
       description: Emitted when a `create` partner change for a partner with the supplier role is applied after approval and the partner becomes `active`. Procurement and payables may use the supplier from this point. Subject is the business partner id.
@@ -665,6 +699,7 @@ components:
           payload: {partner_id: 0192a000-0000-7000-8000-000000000301, bank_account_id: 0192a000-0000-7000-8000-000000000302, purpose: payments, account_scheme: iban, account_last4: '4471', bic: NWBKGB2L, bank_country_code: GB, valid_from: '2026-10-06', valid_to: null, ended_bank_account_id: 0192a000-0000-7000-8000-000000000303, ended_valid_to: '2026-10-06', partner_change_id: 0192a000-0000-7000-8000-000000000305}
     PartnerBlocked:
       name: PartnerBlocked
+      x-webhook: true
       title: Partner blocked
       summary: A business partner was blocked, entirely or for posting or payment in one legal entity.
       description: Emitted when a `block` partner change is applied, either setting the partner's status to `blocked` (scope `all`) or setting `is_posting_blocked` / `is_payment_blocked` on its supplier data for one legal entity. Subject is the business partner id.
@@ -683,6 +718,7 @@ components:
     # ----------------------------------------------------------------- ledger
     JournalEntryPosted:
       name: JournalEntryPosted
+      x-webhook: true
       title: Journal entry posted
       summary: A balanced journal entry was posted to the ledger.
       description: |
@@ -727,6 +763,7 @@ components:
               - {line_no: 3, account_id: 0192a000-0000-7000-8000-000000000403, tax_code: V1, amount_tc: {amount: '80.00', currency: EUR}, amount_lc: {amount: '80.00', currency: EUR}, amount_gc: {amount: '86.40', currency: USD}}
     JournalEntryReversed:
       name: JournalEntryReversed
+      x-webhook: true
       title: Journal entry reversed
       summary: A posted journal entry was reversed by a new reversal entry.
       description: Emitted by `journal-entries/{id}:reverse` (and by reversals posted for other contexts, e.g. a reversed supplier invoice) once the reversal entry is posted and recorded in `ledger.reversal`. The reversal entry also publishes its own `JournalEntryPosted`; when the original has open-item lines, the reversal clears them against its own and an `ItemsCleared` follows, whose `clearing_entry_id` is the reversal entry. Subject is the id of the original (reversed) entry.
@@ -743,6 +780,7 @@ components:
           payload: {journal_entry_id: 0192a000-0000-7000-8000-000000000501, fiscal_year: 2026, legal_entity_id: 0192a000-0000-7000-8000-000000000201, document_number: '5100000123', reversal_entry_id: 0192a000-0000-7000-8000-000000000502, reversal_fiscal_year: 2026, reversal_document_number: '5100000140', reversal_posting_date: '2026-10-09'}
     ItemsCleared:
       name: ItemsCleared
+      x-webhook: true
       title: Open items cleared
       summary: Open items on a reconciliation account were settled by a clearing.
       description: Emitted when a `ledger.clearing` with its clearing items is inserted (payment posting, manual clearing, or a reversal clearing the reversed pair). The cleared lines stop being open items; cleared is not paid. A reversal's clearing follows its `JournalEntryReversed` and has the reversal entry as `clearing_entry_id`. Subject is the clearing id.
@@ -767,6 +805,7 @@ components:
               - {fiscal_year: 2026, journal_entry_id: 0192a000-0000-7000-8000-000000000504, line_no: 1, account_id: 0192a000-0000-7000-8000-000000000402, partner_id: 0192a000-0000-7000-8000-000000000301, amount_tc: {amount: '1080.00', currency: EUR}}
     PeriodOpened:
       name: PeriodOpened
+      x-webhook: true
       title: Posting period opened
       summary: A fiscal period was opened for posting in a legal entity and ledger.
       description: |
@@ -785,6 +824,7 @@ components:
           payload: {period_id: 0192a000-0000-7000-8000-000000000204, legal_entity_id: 0192a000-0000-7000-8000-000000000201, ledger_id: 0192a000-0000-7000-8000-000000000202, calendar_id: 0192a000-0000-7000-8000-000000000203, fiscal_year: 2026, period: 10, start_date: '2026-10-01', end_date: '2026-10-31', status: open, previous_status: null}
     PeriodClosed:
       name: PeriodClosed
+      x-webhook: true
       title: Posting period closed
       summary: A fiscal period was closed for posting.
       description: |
@@ -805,6 +845,7 @@ components:
           payload: {period_id: 0192a000-0000-7000-8000-000000000205, legal_entity_id: 0192a000-0000-7000-8000-000000000201, ledger_id: 0192a000-0000-7000-8000-000000000202, calendar_id: 0192a000-0000-7000-8000-000000000203, fiscal_year: 2026, period: 9, start_date: '2026-09-01', end_date: '2026-09-30', status: closed, previous_status: open}
     PeriodLocked:
       name: PeriodLocked
+      x-webhook: true
       title: Posting period locked
       summary: A closed fiscal period was locked for good.
       description: |
@@ -828,6 +869,7 @@ components:
 
     PeriodUnlocked:
       name: PeriodUnlocked
+      x-webhook: true
       title: Posting period unlocked
       summary: A locked fiscal period returned to closed on an approved unlock request.
       description: |
@@ -849,6 +891,7 @@ components:
           payload: {period_id: 0192a000-0000-7000-8000-000000000205, legal_entity_id: 0192a000-0000-7000-8000-000000000201, ledger_id: 0192a000-0000-7000-8000-000000000202, calendar_id: 0192a000-0000-7000-8000-000000000203, fiscal_year: 2026, period: 9, start_date: '2026-09-01', end_date: '2026-09-30', status: closed, previous_status: locked}
     ParkedJournalEntryChanged:
       name: ParkedJournalEntryChanged
+      x-webhook: true
       title: Parked journal entry changed
       summary: A manual journal entry was parked, or its status changed before or as it was posted.
       description: |
@@ -875,6 +918,7 @@ components:
     # ------------------------------------------------------------ procurement
     RequisitionSubmitted:
       name: RequisitionSubmitted
+      x-webhook: true
       title: Requisition submitted
       summary: A purchase requisition was submitted for approval.
       description: Emitted by `requisitions/{id}:submit` when the requisition moves from `draft` to `pending_approval`. Workflow opens an approval request from it. Subject is the requisition id.
@@ -891,6 +935,7 @@ components:
           payload: {requisition_id: 0192a000-0000-7000-8000-000000000601, document_number: PR-10000412, legal_entity_id: 0192a000-0000-7000-8000-000000000201, requester_id: 0192a000-0000-7000-8000-000000000101, supplier_id: 0192a000-0000-7000-8000-000000000301, contract_id: null, needed_by: '2026-10-31', estimated_total: {amount: '1000.00', currency: EUR}, item_count: 1, status: pending_approval}
     PurchaseOrderReleased:
       name: PurchaseOrderReleased
+      x-webhook: true
       title: Purchase order released
       summary: A purchase order was released to the supplier.
       description: Emitted when the order moves to `released`, by `purchase-orders/{id}:release` or, for an order waiting for its release approval, by `approval-requests/{id}:approve` in the deciding transaction. Integration sends the order output; payables can match invoices against it from then on. Subject is the purchase order id.
@@ -919,6 +964,7 @@ components:
               - {item_no: 1, quantity: {value: '2', unit: EA}, unit_price: {amount: '500.00', currency: EUR}, price_unit: 1, account_id: 0192a000-0000-7000-8000-000000000404, tax_code: V1}
     PurchaseOrderChanged:
       name: PurchaseOrderChanged
+      x-webhook: true
       title: Purchase order changed
       summary: An order change was applied to a released purchase order, making its next revision.
       description: Emitted when an order change is applied, by `purchase-orders/{id}/changes/{change_id}:submit` for a change that does not raise the order's total or needs no approval, or by `approval-requests/{id}:approve` in the deciding transaction. The payload is the order as it reads after the change, with the totals before and after; integration sends the changed order output, and payables matches invoices against the changed prices from then on (GR/IR stays valued at each item's valuation price). Subject is the purchase order id.
@@ -949,6 +995,7 @@ components:
               - {item_no: 1, quantity: {value: '2', unit: EA}, unit_price: {amount: '480.00', currency: EUR}, price_unit: 1, account_id: 0192a000-0000-7000-8000-000000000404, tax_code: V1}
     GoodsReceived:
       name: GoodsReceived
+      x-webhook: true
       title: Goods received
       summary: A goods receipt (movement type 101) was posted against purchase order items.
       description: Emitted when a goods movement of type `101` is inserted. Payables re-evaluates the three-way match of invoices on the affected orders. Subject is the goods receipt (goods movement) id.
@@ -965,6 +1012,7 @@ components:
           payload: {goods_receipt_id: 0192a000-0000-7000-8000-000000000603, document_number: '5000000877', legal_entity_id: 0192a000-0000-7000-8000-000000000201, plant_id: 0192a000-0000-7000-8000-000000000606, movement_type: '101', document_date: '2026-10-04', posting_date: '2026-10-04', reference: DN-88812, items: [{item_no: 1, purchase_order_id: 0192a000-0000-7000-8000-000000000602, po_item_no: 1, quantity: {value: '2', unit: EA}}]}
     GoodsReturned:
       name: GoodsReturned
+      x-webhook: true
       title: Goods returned to the supplier
       summary: Goods received on purchase order items were returned to the supplier (movement type 122).
       description: Emitted when a goods movement of type `122` is inserted. Its items' quantities are negative, and the received quantity of each order item falls by them; on orders valued gr_ir the return posts Dr GR/IR / Cr the order item's account at its valuation price, leaving an invoiced item's GR/IR position for a credit memo to clear. Subject is the goods movement id.
@@ -981,6 +1029,7 @@ components:
           payload: {goods_receipt_id: 0192a000-0000-7000-8000-000000000604, document_number: '5000000878', legal_entity_id: 0192a000-0000-7000-8000-000000000201, plant_id: null, movement_type: '122', document_date: '2026-10-06', posting_date: '2026-10-06', reference: null, reason: Damaged in transit, journal_entry_id: null, journal_entry_year: null, items: [{item_no: 1, purchase_order_id: 0192a000-0000-7000-8000-000000000602, po_item_no: 1, quantity: {value: '-1', unit: EA}}]}
     GoodsReceiptReversed:
       name: GoodsReceiptReversed
+      x-webhook: true
       title: Goods receipt reversed
       summary: A goods receipt was reversed by a movement of type 102, or a return by a 123.
       description: Emitted by `goods-receipts/{id}:reverse` when the reversing movement is inserted, a `102` reversing a receipt or a `123` reversing a return. Quantities are as stored, the original's negated (negative for a 102, positive for a 123). Subject is the id of the original (reversed) goods movement.
@@ -999,6 +1048,7 @@ components:
     # --------------------------------------------------------------- payables
     SupplierInvoiceCaptured:
       name: SupplierInvoiceCaptured
+      x-webhook: true
       title: Supplier invoice captured
       summary: A supplier invoice was captured and parked, or held.
       description: "Emitted by `supplier-invoices:capture` (or manual, EDI or migration entry) when the invoice row is inserted: in status `parked`, or `on_hold` when the capture's confidence was below the threshold, in which case `SupplierInvoiceHeld` follows in the same transaction with the reason. Subject is the supplier invoice id."
@@ -1015,6 +1065,7 @@ components:
           payload: {supplier_invoice_id: 0192a000-0000-7000-8000-000000000701, document_number: '1900000456', legal_entity_id: 0192a000-0000-7000-8000-000000000201, supplier_id: 0192a000-0000-7000-8000-000000000301, supplier_reference: INV-2026-0981, invoice_date: '2026-10-05', gross_amount: {amount: '1080.00', currency: EUR}, tax_amount: {amount: '80.00', currency: EUR}, purchase_order_id: 0192a000-0000-7000-8000-000000000602, source: capture, capture_sha256: 2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae, status: parked}
     SupplierInvoiceMatched:
       name: SupplierInvoiceMatched
+      x-webhook: true
       title: Supplier invoice matched
       summary: A three-way match evaluation was recorded for a supplier invoice.
       description: Emitted by `supplier-invoices/{id}:match` each time a `payables.match_result` is inserted, clean or not. A non-clean result is usually followed by `InvoiceHeld`. Subject is the match result id; `supplier_invoice_id` links it to the invoice.
@@ -1031,6 +1082,7 @@ components:
           payload: {match_result_id: 0192a000-0000-7000-8000-000000000702, supplier_invoice_id: 0192a000-0000-7000-8000-000000000701, evaluated_at: '2026-10-06T07:46:00Z', is_clean: false, config_version: 42, invoice_version: 4, issues: [{code: price_variance, item_no: 1, po_item_no: 1, detail: Invoiced 540.00 per EA against 500.00 ordered (tolerance 3%)}]}
     InvoiceHeld:
       name: InvoiceHeld
+      x-webhook: true
       title: Invoice held
       summary: A supplier invoice was put on hold.
       description: Emitted when the invoice moves to `on_hold`, manually (`:hold`) or because the match found issues. A `invoice_exception` approval request may be opened to decide it. Subject is the supplier invoice id.
@@ -1047,6 +1099,7 @@ components:
           payload: {supplier_invoice_id: 0192a000-0000-7000-8000-000000000701, supplier_id: 0192a000-0000-7000-8000-000000000301, legal_entity_id: 0192a000-0000-7000-8000-000000000201, hold_reason: Price variance on item 1 above tolerance, status: on_hold, workflow_request_id: null}
     SupplierInvoicePosted:
       name: SupplierInvoicePosted
+      x-webhook: true
       title: Supplier invoice posted
       summary: A supplier invoice was posted and its journal entry created.
       description: Emitted by `supplier-invoices/{id}:post` in the same transaction as the ledger's `JournalEntryPosted` for the invoice. The open item on the supplier's reconciliation account becomes payable. Subject is the supplier invoice id.
@@ -1063,6 +1116,7 @@ components:
           payload: {supplier_invoice_id: 0192a000-0000-7000-8000-000000000701, document_number: '1900000456', legal_entity_id: 0192a000-0000-7000-8000-000000000201, supplier_id: 0192a000-0000-7000-8000-000000000301, supplier_reference: INV-2026-0981, invoice_date: '2026-10-05', posting_date: '2026-10-08', gross_amount: {amount: '1080.00', currency: EUR}, tax_amount: {amount: '80.00', currency: EUR}, purchase_order_id: 0192a000-0000-7000-8000-000000000602, journal_entry_id: 0192a000-0000-7000-8000-000000000501, journal_entry_year: 2026, status: posted}
     SupplierInvoiceCancelled:
       name: SupplierInvoiceCancelled
+      x-webhook: true
       title: Supplier invoice cancelled
       summary: An unposted supplier invoice was cancelled.
       description: |
@@ -1084,6 +1138,7 @@ components:
           payload: {supplier_invoice_id: 0192a000-0000-7000-8000-000000000703, supplier_id: 0192a000-0000-7000-8000-000000000301, legal_entity_id: 0192a000-0000-7000-8000-000000000201, previous_status: on_hold, status: cancelled}
     DownPaymentRequested:
       name: DownPaymentRequested
+      x-webhook: true
       title: Down payment requested
       summary: A down payment to a supplier was requested.
       description: |
@@ -1103,6 +1158,7 @@ components:
           payload: {down_payment_request_id: 0192a000-0000-7000-8000-000000000711, document_number: DP100000, legal_entity_id: 0192a000-0000-7000-8000-000000000201, supplier_id: 0192a000-0000-7000-8000-000000000301, purchase_order_id: 0192a000-0000-7000-8000-000000000602, amount: {amount: '1190.00', currency: EUR}, tax_code: V1, tax_amount: {amount: '190.00', currency: EUR}, due_date: '2026-10-15', reference: AB-2026-17, status: open}
     DownPaymentRequestCancelled:
       name: DownPaymentRequestCancelled
+      x-webhook: true
       title: Down payment request cancelled
       summary: An open down payment request was cancelled.
       description: |
@@ -1122,6 +1178,7 @@ components:
           payload: {down_payment_request_id: 0192a000-0000-7000-8000-000000000711, legal_entity_id: 0192a000-0000-7000-8000-000000000201, supplier_id: 0192a000-0000-7000-8000-000000000301, previous_status: open, status: cancelled}
     DownPaymentRequestPaid:
       name: DownPaymentRequestPaid
+      x-webhook: true
       title: Down payment request paid
       summary: A payment run paid a down payment request.
       description: |
@@ -1142,6 +1199,7 @@ components:
           payload: {down_payment_request_id: 0192a000-0000-7000-8000-000000000711, document_number: DP100000, legal_entity_id: 0192a000-0000-7000-8000-000000000201, supplier_id: 0192a000-0000-7000-8000-000000000301, journal_entry_id: 0192a000-0000-7000-8000-000000000503, journal_entry_year: 2026, amount: {amount: '1190.00', currency: EUR}, status: paid}
     DownPaymentsCleared:
       name: DownPaymentsCleared
+      x-webhook: true
       title: Down payments cleared
       summary: Down payments were cleared against a supplier's final invoice.
       description: |
@@ -1163,6 +1221,7 @@ components:
           payload: {supplier_invoice_id: 0192a000-0000-7000-8000-000000000701, supplier_id: 0192a000-0000-7000-8000-000000000301, legal_entity_id: 0192a000-0000-7000-8000-000000000201, clearing_entry_id: 0192a000-0000-7000-8000-000000000502, clearing_entry_year: 2026, down_payment_request_ids: [0192a000-0000-7000-8000-000000000711], amount: {amount: '1190.00', currency: EUR}}
     SupplierInvoiceReversed:
       name: SupplierInvoiceReversed
+      x-webhook: true
       title: Supplier invoice reversed
       summary: A posted supplier invoice was cancelled by posting a reversal entry.
       description: |
@@ -1187,6 +1246,7 @@ components:
     # --------------------------------------------------------------- payments
     PaymentRunProposed:
       name: PaymentRunProposed
+      x-webhook: true
       title: Payment run proposed
       summary: A payment proposal was computed and awaits release.
       description: Emitted when `payment-runs:propose` finishes building the proposal (payments, items and exclusions) and the run moves from `proposing` to `proposed`. A proposal that fails moves to `failed` and only its operation's `OperationCompleted` is published. Large runs execute as an operation, which also publishes `OperationCompleted`. Subject is the payment run id.
@@ -1203,6 +1263,7 @@ components:
           payload: {payment_run_id: 0192a000-0000-7000-8000-000000000801, document_number: PR-2026-0042, legal_entity_id: 0192a000-0000-7000-8000-000000000201, house_bank_id: 0192a000-0000-7000-8000-000000000802, run_date: '2026-10-20', due_by: '2026-10-27', total_amount: {amount: '184220.50', currency: EUR}, payment_count: 57, exclusion_count: 3, proposed_by: 0192a000-0000-7000-8000-000000000101, operation_id: 0192a000-0000-7000-8000-000000000805, status: proposed}
     PaymentRunReleased:
       name: PaymentRunReleased
+      x-webhook: true
       title: Payment run released
       summary: A payment run was released for payment.
       description: |
@@ -1224,6 +1285,7 @@ components:
           payload: {payment_run_id: 0192a000-0000-7000-8000-000000000801, document_number: PR-2026-0042, legal_entity_id: 0192a000-0000-7000-8000-000000000201, house_bank_id: 0192a000-0000-7000-8000-000000000802, run_date: '2026-10-20', total_amount: {amount: '184220.50', currency: EUR}, payment_count: 57, workflow_request_id: 0192a000-0000-7000-8000-000000000901, released_at: '2026-10-19T11:00:00Z', status: released}
     PaymentRunRejected:
       name: PaymentRunRejected
+      x-webhook: true
       title: Payment run rejected
       summary: A proposed payment run was rejected; its items are free again.
       description: Emitted by `payment-runs/{id}:reject` (by a person other than the proposer) when the run moves to `rejected` and its payment items are deactivated, so the open items can be proposed again. Subject is the payment run id.
@@ -1240,6 +1302,7 @@ components:
           payload: {payment_run_id: 0192a000-0000-7000-8000-000000000801, document_number: PR-2026-0042, legal_entity_id: 0192a000-0000-7000-8000-000000000201, workflow_request_id: 0192a000-0000-7000-8000-000000000901, released_item_count: 212, status: rejected}
     PaymentExcluded:
       name: PaymentExcluded
+      x-webhook: true
       title: Payment dropped from a releasing run
       summary: A payment of a releasing run could never post and was dropped; its items are free again.
       description: Emitted by the release of a payment run when a payment it has not posted yet settles an item that was reversed, or is no longer open, since the proposal. The supplier is excluded with `reason_code` (`item_reversed` or `item_not_open`), the payment's items are deactivated, the run's total no longer counts it, and the release goes on with the other payments. Subject is the payment run id.
@@ -1254,11 +1317,124 @@ components:
         - name: dropped
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000081, source: /erp/eu-1/payments, type: com.example.erp.payments.payment_excluded.v1, subject: 0192a000-0000-7000-8000-000000000801, time: '2026-10-19T11:02:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
           payload: {payment_run_id: 0192a000-0000-7000-8000-000000000801, document_number: PR-2026-0042, legal_entity_id: 0192a000-0000-7000-8000-000000000201, payment_id: 0192a000-0000-7000-8000-000000000806, supplier_id: 0192a000-0000-7000-8000-000000000301, reason_code: item_reversed, amount: {amount: '40.00', currency: EUR}, released_item_count: 1, status: releasing}
+    BankStatementImported:
+      name: BankStatementImported
+      title: Bank statement imported
+      summary: A bank account statement was imported for a house bank.
+      description: "Emitted for each statement of a bank's file imported by `POST /v1/bank-statements` (ADR-0047, T49c), in the file's order. `status` is `gap` when its opening balance is not the closing balance of the house bank's statement before it (`previous_statement_id`); automatic posting then stops for the bank until the missing statement arrives (`BankStatementGapClosed`). The same file imported again publishes nothing. Subject is the bank statement id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_statement_imported.v1}
+      payload: {$ref: '#/components/schemas/BankStatementImportedV1'}
+      examples:
+        - name: mt940
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f2, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_imported.v1, subject: 0192a000-0000-7000-8000-000000000b20, time: '2026-10-20T08:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
+          payload: {bank_statement_id: 0192a000-0000-7000-8000-000000000b20, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, format: mt940, file_sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9, statement_ref: STMT20261020, sequence: 00293/001, line_count: 4, opening_balance: {amount: '120000.00', currency: AED}, closing_balance: {amount: '93196.75', currency: AED}, previous_statement_id: 0192a000-0000-7000-8000-000000000b19, status: imported}
+    BankStatementGapClosed:
+      name: BankStatementGapClosed
+      title: Bank statement gap closed
+      summary: The statement missing before a statement in gap arrived.
+      description: "Emitted when a statement imported between two of the house bank's statements (the missing one) has as closing balance the opening balance of the next, which was in status `gap`: that statement moves to `imported`, with the new statement as its previous one (ADR-0047, T49c). Subject is the bank statement whose gap closed."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_statement_gap_closed.v1}
+      payload: {$ref: '#/components/schemas/BankStatementGapClosedV1'}
+      examples:
+        - name: closed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f3, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_gap_closed.v1, subject: 0192a000-0000-7000-8000-000000000b21, time: '2026-10-20T08:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
+          payload: {bank_statement_id: 0192a000-0000-7000-8000-000000000b21, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, previous_statement_id: 0192a000-0000-7000-8000-000000000b20, status: imported}
+    BankStatementGapFound:
+      name: BankStatementGapFound
+      title: Bank statement gap found
+      summary: A statement imported before another does not lead to it.
+      description: "Emitted when a statement imported between two of the house bank's statements (an older statement imported later) has a closing balance that is not the opening balance of the next, which was `imported`: that statement moves to `gap`, with the new statement as its previous one, and automatic posting stops for the bank (ADR-0047, T49c). Subject is the bank statement now in gap."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_statement_gap_found.v1}
+      payload: {$ref: '#/components/schemas/BankStatementGapClosedV1'}
+      examples:
+        - name: found
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f4, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_gap_found.v1, subject: 0192a000-0000-7000-8000-000000000b21, time: '2026-10-20T08:06:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
+          payload: {bank_statement_id: 0192a000-0000-7000-8000-000000000b21, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, previous_statement_id: 0192a000-0000-7000-8000-000000000b20, status: gap}
+    BankStatementFileRefused:
+      name: BankStatementFileRefused
+      title: Bank statement file refused
+      summary: A statement file fetched from the bank's channel was not imported.
+      description: "Emitted once per house bank and file content when a statement file fetched from the house bank's SFTP channel (T49d) is refused by the import (unreadable, too large, a statement already imported from another file, a statement of an account no house bank on the channel has: payments.statement_of_no_bank): the file is left in the bank's statements directory for a person to take up with the bank, and later fetches skip it. A file of the account of another house bank on the same channel is left for that bank and not refused. Subject is the fetch record (payments.statement_fetch)."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_statement_file_refused.v1}
+      payload: {$ref: '#/components/schemas/BankStatementFileRefusedV1'}
+      examples:
+        - name: unreadable
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f5, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_file_refused.v1, subject: 0192a000-0000-7000-8000-000000000b30, time: '2026-10-20T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
+          payload: {statement_fetch_id: 0192a000-0000-7000-8000-000000000b30, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, file_name: STMT20261020.sta, file_sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9, code: payments.statement_unreadable, reason: "line 4: the opening balance is not an amount"}
+    BankStatementFileChanged:
+      name: BankStatementFileChanged
+      title: Bank statement file changed after its import
+      summary: A statement file imported from the bank's channel holds other content now.
+      description: "Emitted once per house bank and file content when a statement file fetched from the house bank's SFTP channel (T49d), read again before its move to the archive directory, no longer holds the content imported: the file is not archived, the fetch record moves to `changed_after_import`, and the next fetch imports the new content as a new file. The statement imported from the earlier content stays. Subject is the fetch record (payments.statement_fetch)."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_statement_file_changed.v1}
+      payload: {$ref: '#/components/schemas/BankStatementFileChangedV1'}
+      examples:
+        - name: changed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f6, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_file_changed.v1, subject: 0192a000-0000-7000-8000-000000000b31, time: '2026-10-20T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
+          payload: {statement_fetch_id: 0192a000-0000-7000-8000-000000000b31, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, file_name: STMT20261020.sta, file_sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9, current_sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}
+    BankStatementLineMatched:
+      name: BankStatementLineMatched
+      title: Bank statement line matched
+      summary: A statement line was matched, or left with candidates for a person.
+      description: "Emitted when a bank statement line gets a match (T49e, ADR-0047): by a matching rule of the company, on import or when the statement is matched again, either `matched` (exactly one candidate, paying the line) or `open` (several candidates, or payments that do not pay the line, for a person to choose from); or by a person by hand (`manual`, `matched`), which rejects the line's match before. Subject is the match."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_statement_line_matched.v1}
+      payload: {$ref: '#/components/schemas/BankStatementLineMatchedV1'}
+      examples:
+        - name: matched
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f7, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_line_matched.v1, subject: 0192a000-0000-7000-8000-000000000b40, time: '2026-10-20T11:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
+          payload: {statement_match_id: 0192a000-0000-7000-8000-000000000b40, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, kind: rule, rule: end_to_end_id, status: matched, candidates: 1}
+    BankStatementLineExcluded:
+      name: BankStatementLineExcluded
+      title: Bank statement line excluded
+      summary: A person excluded a statement line from reconciliation.
+      description: "Emitted when a person excludes a bank statement line, with a reason (T49e, ADR-0047): the booking clears nothing the ledger holds, and the line's match before is rejected. Subject is the match that excludes it."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_statement_line_excluded.v1}
+      payload: {$ref: '#/components/schemas/BankStatementLineMatchedV1'}
+      examples:
+        - name: excluded
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f8, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_line_excluded.v1, subject: 0192a000-0000-7000-8000-000000000b41, time: '2026-10-20T11:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
+          payload: {statement_match_id: 0192a000-0000-7000-8000-000000000b41, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 2, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, kind: manual, rule: null, status: excluded, candidates: 0}
     BankFileTransmitted:
       name: BankFileTransmitted
+      x-webhook: true
       title: Bank file transmitted
       summary: A payment file was transmitted to the bank.
-      description: Emitted by `bank-files/{id}:transmit` when the connector confirms transmission and the bank file moves to `transmitted`. Subject is the bank file id.
+      description: Emitted by the bank file transmitter, which sends the files `bank-files/{id}:transmit` asked for (T44e), when the connector confirms transmission, or the house bank had already taken a file with the same content hash (`duplicate`, T44c), and the bank file moves to `transmitted`. Subject is the bank file id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -1269,11 +1445,28 @@ components:
       examples:
         - name: pain001
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e0000000001c, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_file_transmitted.v1, subject: 0192a000-0000-7000-8000-000000000803, time: '2026-10-19T11:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
-          payload: {bank_file_id: 0192a000-0000-7000-8000-000000000803, payment_run_id: 0192a000-0000-7000-8000-000000000801, format: pain.001.001.09, sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9, connector_id: 0192a000-0000-7000-8000-000000000b02, integration_message_id: null, status: transmitted}
+          payload: {bank_file_id: 0192a000-0000-7000-8000-000000000803, payment_run_id: 0192a000-0000-7000-8000-000000000801, format: pain.001.001.09, sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9, connector_id: 0192a000-0000-7000-8000-000000000b02, integration_message_id: null, status: transmitted, duplicate: false}
+    BankFileTransmissionFailed:
+      name: BankFileTransmissionFailed
+      title: Bank file transmission failed
+      summary: A payment file could not be transmitted to the bank.
+      description: Emitted by the bank file transmitter (T44e, ADR-0038) when the bank file moves to `failed`, after its house bank's channel refused it (a problem below 500, such as a disabled connector or a file that no longer matches its hash) or after its sixth attempt failed; the attempts wait 1, 5 and 15 minutes, 1 and 4 hours apart. The file may be asked for again. Subject is the bank file id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_file_transmission_failed.v1}
+      payload: {$ref: '#/components/schemas/BankFileTransmissionFailedV1'}
+      examples:
+        - name: unreachable
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f1, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_file_transmission_failed.v1, subject: 0192a000-0000-7000-8000-000000000803, time: '2026-10-19T16:25:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
+          payload: {bank_file_id: 0192a000-0000-7000-8000-000000000803, payment_run_id: 0192a000-0000-7000-8000-000000000801, status: failed, attempts: 6, error: {code: platform.unavailable, message: The bank connector did not take the file on the last attempt.}}
 
     # --------------------------------------------------------------- workflow
     ApprovalRequested:
       name: ApprovalRequested
+      x-webhook: true
       title: Approval requested
       summary: An approval request was opened for a business object.
       description: Emitted when an `approval_request` is inserted in status `pending` with its steps resolved from the applicable policy. Notification and inbox read models use it. Subject is the approval request id.
@@ -1290,6 +1483,7 @@ components:
           payload: {approval_request_id: 0192a000-0000-7000-8000-000000000901, object_type: requisition, object_id: 0192a000-0000-7000-8000-000000000801, title: Requisition 1000004711 (laptops), requester_id: 0192a000-0000-7000-8000-000000000101, amount: {amount: '184220.50', currency: EUR}, policy_id: 0192a000-0000-7000-8000-000000000902, steps: [{step_no: 1, role_id: 0192a000-0000-7000-8000-000000000903, required: 1}]}
     ApprovalEscalated:
       name: ApprovalEscalated
+      x-webhook: true
       title: Approval escalated
       summary: A pending approval request got no decision within its deadline.
       description: "Emitted by the request's deadline workflow (ADR-0012) when the request is still pending after the escalation period (`ERP_APPROVAL_ESCALATE_AFTER`); repeated each period up to a limit. Notification and inbox read models use it to remind the step's role and their managers. The actor is a service. Subject is the approval request id."
@@ -1306,6 +1500,7 @@ components:
           payload: {approval_request_id: 0192a000-0000-7000-8000-000000000901, object_type: requisition, object_id: 0192a000-0000-7000-8000-000000000801, current_step: 1, escalations: 1, pending_since: '2026-10-19T06:00:01Z'}
     ApprovalCompleted:
       name: ApprovalCompleted
+      x-webhook: true
       title: Approval completed
       summary: An approval request reached a final outcome (approved, rejected or cancelled).
       description: |
@@ -1333,6 +1528,7 @@ components:
     # ------------------------------------------------------------ integration
     MigrationRunCompleted:
       name: MigrationRunCompleted
+      x-webhook: true
       title: Migration run completed
       summary: A migration run (or rehearsal) finished, reconciled or failed.
       description: Emitted when a migration run reaches a final status, `reconciled` or `failed` (`loaded`, data loaded but not yet reconciled, is intermediate and publishes nothing). Its operation also publishes `OperationCompleted`. Subject is the migration run id.
@@ -1403,6 +1599,7 @@ components:
     # ------------------------------------------------ further state changes
     LegalEntityActivated:
       name: LegalEntityActivated
+      x-webhook: true
       title: Legal entity activated
       summary: "A new legal entity became usable for postings and documents."
       description: "Emitted by `legal-entities/{id}:activate` when the legal entity's status goes from `inactive` to `active`. Subject is the legal entity id."
@@ -1419,6 +1616,7 @@ components:
           payload: {"legal_entity_id": "0192a000-0000-7000-8000-000000000201", "code": "DE01", "previous_status": "inactive", "status": "active"}
     LegalEntityBlocked:
       name: LegalEntityBlocked
+      x-webhook: true
       title: Legal entity blocked
       summary: "A legal entity was blocked; it accepts no new documents."
       description: "Emitted by `legal-entities/{id}:block` when the legal entity's status becomes `blocked`. Contexts refuse new documents and postings for it. Subject is the legal entity id."
@@ -1435,6 +1633,7 @@ components:
           payload: {"legal_entity_id": "0192a000-0000-7000-8000-000000000201", "code": "DE01", "previous_status": "active", "status": "blocked"}
     LegalEntityUnblocked:
       name: LegalEntityUnblocked
+      x-webhook: true
       title: Legal entity unblocked
       summary: "A blocked legal entity was activated again."
       description: "Emitted by `legal-entities/{id}:unblock` when the legal entity's status goes from `blocked` back to `active`. Subject is the legal entity id."
@@ -1451,6 +1650,7 @@ components:
           payload: {"legal_entity_id": "0192a000-0000-7000-8000-000000000201", "code": "DE01", "previous_status": "blocked", "status": "active"}
     OrgUnitCreated:
       name: OrgUnitCreated
+      x-webhook: true
       title: Org unit created
       summary: "An organizational unit (purchasing org, plant, storage location, sales org) was created."
       description: "Emitted when a `tenancy.org_unit` row is inserted. Subject is the org unit id."
@@ -1467,6 +1667,7 @@ components:
           payload: {"org_unit_id": "0192a000-0000-7000-8000-000000000605", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "kind": "purchasing_org", "code": "PO_DE", "name": "Purchasing Germany", "parent_id": null, "status": "active"}
     OrgUnitBlocked:
       name: OrgUnitBlocked
+      x-webhook: true
       title: Org unit blocked
       summary: "An org unit was blocked; it accepts no new documents."
       description: "Emitted by `org-units/{id}:block` when the org unit's status becomes `blocked`. Subject is the org unit id."
@@ -1483,6 +1684,7 @@ components:
           payload: {"org_unit_id": "0192a000-0000-7000-8000-000000000605", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "kind": "purchasing_org", "code": "PO_DE", "previous_status": "active", "status": "blocked"}
     OrgUnitActivated:
       name: OrgUnitActivated
+      x-webhook: true
       title: Org unit activated
       summary: "A new org unit became usable."
       description: "Emitted by `org-units/{id}:activate` when the org unit's status goes from `inactive` to `active`. Subject is the org unit id."
@@ -1499,6 +1701,7 @@ components:
           payload: {"org_unit_id": "0192a000-0000-7000-8000-000000000605", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "kind": "purchasing_org", "code": "PO_DE", "previous_status": "inactive", "status": "active"}
     OrgUnitUnblocked:
       name: OrgUnitUnblocked
+      x-webhook: true
       title: Org unit unblocked
       summary: "A blocked org unit was activated again."
       description: "Emitted by `org-units/{id}:unblock` when the org unit's status goes from `blocked` back to `active`. Subject is the org unit id."
@@ -1547,6 +1750,7 @@ components:
           payload: {"sod_rule_id": "0192a000-0000-7000-8000-000000000906", "change": "created", "permission_a": "payments.run.propose", "permission_b": "payments.run.release", "description": "Proposer of a payment run may not release it", "valid_from": "2026-10-01", "valid_to": null, "ended_at": null}
     ChangeRequestValidated:
       name: ChangeRequestValidated
+      x-webhook: true
       title: Change request validated
       summary: "Validation of a submitted change request finished."
       description: "Emitted when validation of a change request in `validating` finishes and it moves to `invalid`, `awaiting_evidence` (simulation or regression evidence still needed) or `pending_approval`. Subject is the change request id."
@@ -1563,6 +1767,7 @@ components:
           payload: {"change_request_id": "0192a000-0000-7000-8000-000000000a01", "number": "CR-2026-0042", "tier": 2, "outcome": "pending_approval", "status": "pending_approval", "workflow_request_id": "0192a000-0000-7000-8000-000000000901"}
     ChangeRequestRejected:
       name: ChangeRequestRejected
+      x-webhook: true
       title: Change request rejected
       summary: "A change request's approval was rejected."
       description: "Emitted when the change request moves from `pending_approval` to `rejected` because its approval request completed with outcome `rejected` (the reason is the rejecting decision's comment, in `ApprovalCompleted`). Subject is the change request id."
@@ -1579,6 +1784,7 @@ components:
           payload: {"change_request_id": "0192a000-0000-7000-8000-000000000a01", "number": "CR-2026-0042", "workflow_request_id": "0192a000-0000-7000-8000-000000000901", "previous_status": "pending_approval", "status": "rejected"}
     ChangeRequestWithdrawn:
       name: ChangeRequestWithdrawn
+      x-webhook: true
       title: Change request withdrawn
       summary: "The author withdrew a change request before it was activated."
       description: "Emitted when the author withdraws a change request that is not yet active or rejected (from `draft`, `validating`, `invalid`, `awaiting_evidence`, `pending_approval` or `approved`); a pending approval request is cancelled with it. Subject is the change request id."
@@ -1595,6 +1801,7 @@ components:
           payload: {"change_request_id": "0192a000-0000-7000-8000-000000000a01", "number": "CR-2026-0042", "previous_status": "awaiting_evidence", "status": "withdrawn"}
     PartnerUnblocked:
       name: PartnerUnblocked
+      x-webhook: true
       title: Partner unblocked
       summary: "A partner block was lifted, entirely or for posting or payment in one legal entity."
       description: "Emitted when an `unblock` partner change is applied, either setting the partner's status back to `active` (scope `all`) or clearing `is_posting_blocked` / `is_payment_blocked` on its supplier data for one legal entity. Subject is the business partner id."
@@ -1611,6 +1818,7 @@ components:
           payload: {"partner_id": "0192a000-0000-7000-8000-000000000301", "scope": "payment", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "partner_change_id": "0192a000-0000-7000-8000-000000000307", "reason": "Bank account verified with supplier by phone"}
     RequisitionCancelled:
       name: RequisitionCancelled
+      x-webhook: true
       title: Requisition cancelled
       summary: "A requisition was cancelled before it was ordered."
       description: "Emitted when a requisition moves to `cancelled` (from `draft`, `pending_approval` or `approved`); a pending approval request is cancelled with it. Subject is the requisition id."
@@ -1627,6 +1835,7 @@ components:
           payload: {"requisition_id": "0192a000-0000-7000-8000-000000000601", "document_number": "PR-10000412", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "requester_id": "0192a000-0000-7000-8000-000000000101", "previous_status": "pending_approval", "status": "cancelled", "workflow_request_id": "0192a000-0000-7000-8000-000000000901"}
     PurchaseOrderCancelled:
       name: PurchaseOrderCancelled
+      x-webhook: true
       title: Purchase order cancelled
       summary: "A purchase order was cancelled."
       description: "Emitted by `purchase-orders/{id}:cancel` when the order moves to `cancelled` (only while nothing has been received or invoiced against it). A contract-based order also writes a negative contract release of `released_value`. Subject is the purchase order id."
@@ -1643,6 +1852,7 @@ components:
           payload: {"purchase_order_id": "0192a000-0000-7000-8000-000000000602", "document_number": "4500001234", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "requisition_id": "0192a000-0000-7000-8000-000000000601", "contract_id": null, "released_value": null, "previous_status": "released", "status": "cancelled"}
     ContractActivated:
       name: ContractActivated
+      x-webhook: true
       title: Contract activated
       summary: "A purchasing contract became active and can be released against."
       description: "Emitted when a contract moves from `draft` to `active`. Purchase orders may reference it from then on, up to `target_value` within its validity. Subject is the contract id."
@@ -1659,6 +1869,7 @@ components:
           payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "valid_from": "2026-10-01", "valid_to": "2027-09-30", "target_value": {"amount": "250000.00", "currency": "EUR"}, "renewal_of_id": null, "previous_status": "draft", "status": "active"}
     ContractTerminated:
       name: ContractTerminated
+      x-webhook: true
       title: Contract terminated
       summary: "An active contract was terminated before the end of its validity."
       description: "Emitted when an active contract moves to `terminated`; no further orders may be released against it. (Reaching `valid_to` moves it to `expired`.) Subject is the contract id."
@@ -1675,6 +1886,7 @@ components:
           payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "consumed_value": {"amount": "41000.00", "currency": "EUR"}, "previous_status": "active", "status": "terminated"}
     ContractCancelled:
       name: ContractCancelled
+      x-webhook: true
       title: Contract cancelled
       summary: "A draft contract was cancelled before it became active."
       description: "Emitted when a contract moves from `draft` to `cancelled`; it was never released against. Subject is the contract id."
@@ -1691,6 +1903,7 @@ components:
           payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "previous_status": "draft", "status": "cancelled"}
     PaymentRunFailed:
       name: PaymentRunFailed
+      x-webhook: true
       title: Payment run failed
       summary: "A payment run failed; its items are free again."
       description: "Emitted when a run moves to `failed` (the proposal could not be built, or a released run could not be executed); its payment items are deactivated so the open items can be proposed again. The error is on the run's operation (`OperationCompleted` with status `failed`). Subject is the payment run id."
@@ -1707,6 +1920,7 @@ components:
           payload: {"payment_run_id": "0192a000-0000-7000-8000-000000000801", "document_number": "PR-2026-0042", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "operation_id": "0192a000-0000-7000-8000-000000000805", "released_item_count": 0, "previous_status": "proposing", "status": "failed"}
     ConnectorEnabled:
       name: ConnectorEnabled
+      x-webhook: true
       title: Connector enabled
       summary: "A connector became active."
       description: "Emitted when a connector is created in status `active` (`previous_status` null) or moves from `disabled` to `active`. Subject is the connector id."
@@ -1723,6 +1937,7 @@ components:
           payload: {"connector_id": "0192a000-0000-7000-8000-000000000b02", "kind": "bank_ebics", "name": "Deutsche Bank EBICS", "previous_status": "disabled", "status": "active"}
     ConnectorDisabled:
       name: ConnectorDisabled
+      x-webhook: true
       title: Connector disabled
       summary: "A connector was disabled; nothing is sent or received through it."
       description: "Emitted when a connector moves from `active` to `disabled`; queued outbound messages stay queued. Subject is the connector id."
@@ -1739,6 +1954,7 @@ components:
           payload: {"connector_id": "0192a000-0000-7000-8000-000000000b02", "kind": "bank_ebics", "name": "Deutsche Bank EBICS", "previous_status": "active", "status": "disabled"}
     ExchangeRateMaintained:
       name: ExchangeRateMaintained
+      x-webhook: true
       title: Exchange rate maintained
       summary: "An exchange rate was entered for a rate type, currency pair and date."
       description: "Emitted when an `ledger.exchange_rate` row is inserted (rates are insert-only). Subject is the exchange rate id."
@@ -1753,6 +1969,39 @@ components:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000053", "source": "/erp/eu-1/ledger", "type": "com.example.erp.ledger.exchange_rate_maintained.v1", "subject": "0192a000-0000-7000-8000-000000000206", "time": "2026-10-08T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
           payload: {"exchange_rate_id": "0192a000-0000-7000-8000-000000000206", "rate_type": "average", "from_currency": "USD", "to_currency": "EUR", "valid_from": "2026-10-08", "rate": "0.925900000000", "source": "ECB"}
+    RevaluationRunPosted:
+      name: RevaluationRunPosted
+      title: Foreign-currency revaluation run posted
+      summary: "A revaluation run of a legal entity and ledger at a key date was recorded, with its valuation and reversal entries."
+      description: "Emitted by `POST /v1/revaluation-runs` (ADR-0042) when a `ledger.revaluation_run` is recorded. Its valuation entry (dated the key date) and reversal entry (the first day of the next period) each publish their own `JournalEntryPosted` in the same transaction; a run that found no difference posts neither, and its entry fields are null. Subject is the run id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.ledger.revaluation_run_posted.v1}
+      payload: {$ref: '#/components/schemas/RevaluationRunPostedV1'}
+      examples:
+        - name: month-end
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000071", "source": "/erp/eu-1/ledger", "type": "com.example.erp.ledger.revaluation_run_posted.v1", "subject": "0192a000-0000-7000-8000-000000000701", "time": "2026-04-01T06:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
+          payload: {"run_id": "0192a000-0000-7000-8000-000000000701", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "ledger_id": "0192a000-0000-7000-8000-000000000202", "key_date": "2026-03-31", "rate_type": "bank_selling", "item_count": 4, "valuation_entry_id": "0192a000-0000-7000-8000-000000000702", "valuation_entry_year": 2026, "reversal_entry_id": "0192a000-0000-7000-8000-000000000703", "reversal_entry_year": 2026}
+
+    RevaluationRunCancelled:
+      name: RevaluationRunCancelled
+      title: Foreign-currency revaluation run cancelled
+      summary: "A posted revaluation run was cancelled: its valuation and reset entries were reversed and its key date is free for another run."
+      description: "Emitted by `POST /v1/revaluation-runs/{id}:cancel` (ADR-0042, T48d) when a `ledger.revaluation_run` goes from `posted` to `cancelled`. Each reversed entry publishes its own `JournalEntryReversed` in the same transaction; a run without entries reverses none, and the reversal fields are null. Subject is the run id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.ledger.revaluation_run_cancelled.v1}
+      payload: {$ref: '#/components/schemas/RevaluationRunCancelledV1'}
+      examples:
+        - name: corrected-rate
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000072", "source": "/erp/eu-1/ledger", "type": "com.example.erp.ledger.revaluation_run_cancelled.v1", "subject": "0192a000-0000-7000-8000-000000000701", "time": "2026-04-02T08:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
+          payload: {"run_id": "0192a000-0000-7000-8000-000000000701", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "ledger_id": "0192a000-0000-7000-8000-000000000202", "key_date": "2026-03-31", "reason": "The USD rate was keyed wrongly.", "valuation_reversal_entry_id": "0192a000-0000-7000-8000-000000000704", "valuation_reversal_entry_year": 2026, "reset_reversal_entry_id": "0192a000-0000-7000-8000-000000000705", "reset_reversal_entry_year": 2026}
 
     # ------------------------------------------------ further state changes
     TenantStatusChanged:
@@ -1997,6 +2246,7 @@ components:
           payload: {"principal_id": "0192a000-0000-7000-8000-000000000107", "previous_issuer": "erp-dev", "external_issuer": "https://login.acme.example/"}
     PartnerChangeRejected:
       name: PartnerChangeRejected
+      x-webhook: true
       title: Partner change rejected
       summary: "A governed partner change was rejected and will not be applied."
       description: "Emitted when a partner change moves from `pending` to `rejected` because its approval request completed with outcome `rejected` (the reason is the decision's comment, in `ApprovalCompleted`). A rejected `create` leaves the partner in `pending`. Subject is the partner change id."
@@ -2013,6 +2263,7 @@ components:
           payload: {"partner_change_id": "0192a000-0000-7000-8000-000000000308", "number": "PC-2026-0311", "kind": "bank_change", "partner_id": "0192a000-0000-7000-8000-000000000301", "workflow_request_id": "0192a000-0000-7000-8000-000000000901", "previous_status": "pending", "status": "rejected"}
     PartnerChangeCancelled:
       name: PartnerChangeCancelled
+      x-webhook: true
       title: Partner change cancelled
       summary: "A pending partner change was withdrawn by its requester."
       description: "Emitted when a partner change moves from `pending` to `cancelled`; its approval request is cancelled with it. Subject is the partner change id."
@@ -2045,6 +2296,7 @@ components:
           payload: {"partner_id": "0192a000-0000-7000-8000-000000000301", "partner_change_id": "0192a000-0000-7000-8000-000000000309", "changed_fields": ["name", "address.remit_to"], "name": "Acme Industrial Supplies Limited"}
     RequisitionApproved:
       name: RequisitionApproved
+      x-webhook: true
       title: Requisition approved
       summary: "A requisition was approved and can be ordered."
       description: "Emitted when a requisition moves from `pending_approval` to `approved` because its approval request completed with outcome `approved`. Subject is the requisition id."
@@ -2061,6 +2313,7 @@ components:
           payload: {"requisition_id": "0192a000-0000-7000-8000-000000000601", "document_number": "PR-10000412", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "workflow_request_id": "0192a000-0000-7000-8000-000000000901", "previous_status": "pending_approval", "status": "approved"}
     RequisitionRejected:
       name: RequisitionRejected
+      x-webhook: true
       title: Requisition rejected
       summary: "A requisition's approval was rejected."
       description: "Emitted when a requisition moves from `pending_approval` to `rejected` because its approval request completed with outcome `rejected` (the reason is the decision's comment, in `ApprovalCompleted`). Subject is the requisition id."
@@ -2077,6 +2330,7 @@ components:
           payload: {"requisition_id": "0192a000-0000-7000-8000-000000000601", "document_number": "PR-10000412", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "workflow_request_id": "0192a000-0000-7000-8000-000000000901", "previous_status": "pending_approval", "status": "rejected"}
     RequisitionOrdered:
       name: RequisitionOrdered
+      x-webhook: true
       title: Requisition ordered
       summary: "A purchase order was created from an approved requisition."
       description: "Emitted when an approved requisition moves to `ordered` because a purchase order referencing it was created (at most one live order per requisition). Subject is the requisition id."
@@ -2093,6 +2347,7 @@ components:
           payload: {"requisition_id": "0192a000-0000-7000-8000-000000000601", "document_number": "PR-10000412", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "purchase_order_id": "0192a000-0000-7000-8000-000000000602", "previous_status": "approved", "status": "ordered"}
     PurchaseOrderClosed:
       name: PurchaseOrderClosed
+      x-webhook: true
       title: Purchase order closed
       summary: "A released purchase order was closed; no further receipts or invoices are expected."
       description: "Emitted when a purchase order moves from `released` to `closed` (fully received and invoiced, or closed manually). Subject is the purchase order id."
@@ -2109,6 +2364,7 @@ components:
           payload: {"purchase_order_id": "0192a000-0000-7000-8000-000000000602", "document_number": "4500001234", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "previous_status": "released", "status": "closed"}
     ContractExpired:
       name: ContractExpired
+      x-webhook: true
       title: Contract expired
       summary: "An active contract reached the end of its validity."
       description: "Emitted when an active contract moves to `expired` after `valid_to` has passed (by a scheduled job, so the actor is a service). Subject is the contract id."
@@ -2125,6 +2381,7 @@ components:
           payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "valid_to": "2027-09-30", "consumed_value": {"amount": "212400.00", "currency": "EUR"}, "previous_status": "active", "status": "expired"}
     ContractExpiring:
       name: ContractExpiring
+      x-webhook: true
       title: Contract expiring
       summary: "An active contract without a renewal ends within the notice period."
       description: "Emitted once per contract (its `expiry_alerted_on` is set once), by a scheduled job, so the actor is a service, when an active contract that no live renewal continues ends within `purchasing.contract_expiry_notice_days`. An alert only: buyers renew it by `contracts/{id}:renew` or let it expire. Subject is the contract id."
@@ -2141,6 +2398,7 @@ components:
           payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "valid_to": "2027-09-30", "days_left": 30, "consumed_value": {"amount": "212400.00", "currency": "EUR"}, "target_value": {"amount": "250000.00", "currency": "EUR"}}
     InvoiceHoldReleased:
       name: InvoiceHoldReleased
+      x-webhook: true
       title: Invoice hold released
       summary: "A held supplier invoice was released back to parked."
       description: "Emitted by `supplier-invoices/{id}:release` (or when its `invoice_exception` approval completes with outcome `approved`) when the invoice moves from `on_hold` to `parked` and `hold_reason` is cleared. Posting may follow. Subject is the supplier invoice id."
@@ -2157,6 +2415,7 @@ components:
           payload: {"supplier_invoice_id": "0192a000-0000-7000-8000-000000000701", "supplier_id": "0192a000-0000-7000-8000-000000000301", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "workflow_request_id": "0192a000-0000-7000-8000-000000000901", "previous_status": "on_hold", "status": "parked"}
     SupplierInvoiceRejected:
       name: SupplierInvoiceRejected
+      x-webhook: true
       title: Supplier invoice rejected
       summary: "An unposted supplier invoice was rejected after review."
       description: "Emitted when an unposted invoice moves to `rejected`, typically because its `invoice_exception` approval completed with outcome `rejected` (the reason is the decision's comment, in `ApprovalCompleted`). No ledger impact; the supplier reference is free for a corrected invoice. Subject is the supplier invoice id."
@@ -2173,6 +2432,7 @@ components:
           payload: {"supplier_invoice_id": "0192a000-0000-7000-8000-000000000701", "supplier_id": "0192a000-0000-7000-8000-000000000301", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "workflow_request_id": "0192a000-0000-7000-8000-000000000901", "previous_status": "on_hold", "status": "rejected"}
     BankFileCreated:
       name: BankFileCreated
+      x-webhook: true
       title: Bank file created
       summary: "A payment file was generated for a released payment run."
       description: "Emitted when a `payments.bank_file` row is inserted in status `created` (the file is in object storage, referenced by key and hash). Transmission follows as `BankFileTransmitted`. Subject is the bank file id."
@@ -2189,6 +2449,7 @@ components:
           payload: {"bank_file_id": "0192a000-0000-7000-8000-000000000803", "payment_run_id": "0192a000-0000-7000-8000-000000000801", "format": "pain.001.001.09", "sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9", "status": "created"}
     BankFileAcknowledged:
       name: BankFileAcknowledged
+      x-webhook: true
       title: Bank file acknowledged
       summary: "The bank accepted a transmitted payment file."
       description: "Emitted when the bank's status report accepts the file and it moves from `transmitted` to `acknowledged`. Subject is the bank file id."
@@ -2205,6 +2466,7 @@ components:
           payload: {"bank_file_id": "0192a000-0000-7000-8000-000000000803", "payment_run_id": "0192a000-0000-7000-8000-000000000801", "previous_status": "transmitted", "status": "acknowledged"}
     BankFileRejected:
       name: BankFileRejected
+      x-webhook: true
       title: Bank file rejected
       summary: "The bank rejected a transmitted payment file."
       description: "Emitted when the bank's status report rejects the file and it moves from `transmitted` to `rejected`. Treasury must correct and re-create the file; the bank's report is on the integration message. Subject is the bank file id."
@@ -2333,6 +2595,20 @@ components:
     CurrencyCode: {type: string, pattern: '^[A-Z]{3}$', description: ISO 4217 code (`ref.currency`).}
     CountryCode: {type: string, pattern: '^[A-Z]{2}$', description: ISO 3166-1 alpha-2 code (`ref.country`).}
     FiscalYear: {type: integer, minimum: 1900, maximum: 2999}
+    EventExtensions:
+      type: object
+      description: |
+        The row's custom fields as written (ADR-0046). The value of every
+        field the tenant's active schema does not declare `x-pii: none`
+        (personal, sensitive, or not declared) is the string `[MASKED]`;
+        the field's value is read through the API. Webhooks deliver these
+        events, so they carry the same masking. Keys follow the tenant's
+        schema at `GET /v1/schemas/{entity}`.
+      additionalProperties: true
+    ExtensionsSchemaVersion:
+      type: [integer, 'null']
+      minimum: 1
+      description: The version of the tenant's custom field schema the extensions were written under; null when the tenant had none.
     Sha256Hex: {type: string, pattern: '^[0-9a-f]{64}$', description: SHA-256 digest, lower-case hex.}
     Money:
       type: object
@@ -2441,6 +2717,8 @@ components:
       type: object
       required: [partner_id, number, kind, name, country_code, roles, status, partner_change_id]
       properties:
+        extensions: {$ref: '#/components/schemas/EventExtensions'}
+        extensions_schema: {$ref: '#/components/schemas/ExtensionsSchemaVersion'}
         partner_id: {$ref: '#/components/schemas/Uuid'}
         number: {type: string, pattern: '^[A-Z0-9-]{1,20}$'}
         kind: {type: string, description: 'Open enum: organization, person.'}
@@ -2471,8 +2749,10 @@ components:
         ended_bank_account_id: {$ref: '#/components/schemas/NullableUuid', description: The account this change ended; null for a partner's first account.}
         ended_valid_to: {$ref: '#/components/schemas/NullableDate', description: '`valid_to` set on the ended account.'}
         purpose: {type: string, description: 'Open enum: payments, collections.'}
-        account_scheme: {type: string, description: 'Open enum: iban, domestic.'}
+        account_scheme: {type: string, description: 'Open enum: iban, domestic, ca (a Canadian account, T45d).'}
         account_last4: {type: string, pattern: '^[A-Z0-9]{1,4}$'}
+        institution_number: {type: [string, 'null'], pattern: '^[0-9]{3}$', description: 'Canadian institution number of a `ca` account; null for the others. Added in T45d; consumers ignore it if absent.'}
+        transit_number: {type: [string, 'null'], pattern: '^[0-9]{5}$', description: 'Canadian transit number of a `ca` account; null for the others.'}
         bic: {type: [string, 'null'], pattern: '^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$'}
         bank_country_code: {$ref: '#/components/schemas/CountryCode'}
         valid_from: {$ref: '#/components/schemas/Date'}
@@ -2615,6 +2895,8 @@ components:
       type: object
       required: [purchase_order_id, document_number, legal_entity_id, supplier_id, order_date, payment_term_code, total_amount, items]
       properties:
+        extensions: {$ref: '#/components/schemas/EventExtensions'}
+        extensions_schema: {$ref: '#/components/schemas/ExtensionsSchemaVersion'}
         purchase_order_id: {$ref: '#/components/schemas/Uuid'}
         document_number: {type: string}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
@@ -2644,6 +2926,8 @@ components:
       type: object
       required: [purchase_order_id, document_number, legal_entity_id, supplier_id, change_id, revision, reason, order_date, payment_term_code, total_before, total_after, items]
       properties:
+        extensions: {$ref: '#/components/schemas/EventExtensions'}
+        extensions_schema: {$ref: '#/components/schemas/ExtensionsSchemaVersion'}
         purchase_order_id: {$ref: '#/components/schemas/Uuid'}
         document_number: {type: string}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
@@ -2729,6 +3013,8 @@ components:
       type: object
       required: [supplier_invoice_id, document_number, legal_entity_id, supplier_id, supplier_reference, invoice_date, gross_amount, tax_amount, source, status]
       properties:
+        extensions: {$ref: '#/components/schemas/EventExtensions'}
+        extensions_schema: {$ref: '#/components/schemas/ExtensionsSchemaVersion'}
         supplier_invoice_id: {$ref: '#/components/schemas/Uuid'}
         document_number: {type: string}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
@@ -2778,6 +3064,8 @@ components:
       type: object
       required: [supplier_invoice_id, document_number, legal_entity_id, supplier_id, supplier_reference, invoice_date, posting_date, gross_amount, tax_amount, journal_entry_id, journal_entry_year, status]
       properties:
+        extensions: {$ref: '#/components/schemas/EventExtensions'}
+        extensions_schema: {$ref: '#/components/schemas/ExtensionsSchemaVersion'}
         supplier_invoice_id: {$ref: '#/components/schemas/Uuid'}
         document_number: {type: string}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
@@ -2892,7 +3180,7 @@ components:
         payment_run_id: {$ref: '#/components/schemas/Uuid'}
         document_number: {type: string}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
-        house_bank_id: {$ref: '#/components/schemas/Uuid'}
+        house_bank_id: {$ref: '#/components/schemas/NullableUuid', description: 'The house bank of a run proposed for one; null for a run proposed without one, whose payments each name their bank (T45c, ADR-0038).'}
         run_date: {$ref: '#/components/schemas/Date'}
         due_by: {$ref: '#/components/schemas/Date'}
         total_amount: {$ref: '#/components/schemas/Money'}
@@ -2910,7 +3198,7 @@ components:
         payment_run_id: {$ref: '#/components/schemas/Uuid'}
         document_number: {type: string}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
-        house_bank_id: {$ref: '#/components/schemas/Uuid'}
+        house_bank_id: {$ref: '#/components/schemas/NullableUuid', description: 'The house bank of a run proposed for one; null for a run proposed without one, whose payments each name their bank (T45c, ADR-0038).'}
         run_date: {$ref: '#/components/schemas/Date'}
         total_amount: {$ref: '#/components/schemas/Money'}
         payment_count: {type: integer, minimum: 0}
@@ -2948,9 +3236,24 @@ components:
         payment_run_id: {$ref: '#/components/schemas/Uuid'}
         format: {type: string, description: 'Open enum: pain.001.001.03, pain.001.001.09.'}
         sha256: {$ref: '#/components/schemas/Sha256Hex', description: Hash of the transmitted file.}
-        connector_id: {$ref: '#/components/schemas/NullableUuid'}
+        connector_id: {$ref: '#/components/schemas/NullableUuid', description: "The house bank's connector the file went through (ADR-0038, T44b); null when the bank names none and the file went to the server's directory."}
         integration_message_id: {$ref: '#/components/schemas/NullableUuid'}
         status: {type: string, description: 'Open enum; transmitted in v1.'}
+        duplicate: {type: boolean, description: "True when the house bank had already taken a file with this content hash (ADR-0038, T44c), a transmission whose own commit was lost: the file was not uploaded again. Absent from events before T44c."}
+    BankFileTransmissionFailedV1:
+      type: object
+      required: [bank_file_id, payment_run_id, status, attempts, error]
+      properties:
+        bank_file_id: {$ref: '#/components/schemas/Uuid'}
+        payment_run_id: {$ref: '#/components/schemas/Uuid'}
+        status: {type: string, description: 'Open enum; failed in v1.'}
+        attempts: {type: integer, minimum: 1, description: How often the file was claimed for this request.}
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: {type: string, description: The problem code of the last attempt.}
+            message: {type: string}
 
     # ------------------------------------------------------------- workflow
     ApprovalEscalatedV1:
@@ -3291,6 +3594,33 @@ components:
         valid_from: {"$ref": "#/components/schemas/Date"}
         rate: {"type": "string", "description": "Decimal string, up to 12 decimals; units of `to_currency` per unit of `from_currency`.", "pattern": "^[0-9]+(\\.[0-9]{1,12})?$"}
         source: {"type": "string", "description": "Where the rate came from, e.g. ECB, manual."}
+    RevaluationRunPostedV1:
+      type: object
+      required: ["run_id", "legal_entity_id", "ledger_id", "key_date", "rate_type", "item_count", "valuation_entry_id", "valuation_entry_year", "reversal_entry_id", "reversal_entry_year"]
+      properties:
+        run_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        ledger_id: {"$ref": "#/components/schemas/Uuid"}
+        key_date: {"$ref": "#/components/schemas/Date"}
+        rate_type: {"type": "string", "description": "Open enum: average, bank_buying, bank_selling, planning."}
+        item_count: {"type": "integer", "minimum": 0, "description": "Items valued, with or without a difference."}
+        valuation_entry_id: {"$ref": "#/components/schemas/NullableUuid", "description": "Null when the run found no difference."}
+        valuation_entry_year: {"type": ["integer", "null"], "minimum": 1900, "maximum": 2999}
+        reversal_entry_id: {"$ref": "#/components/schemas/NullableUuid", "description": "Null when the run found no difference."}
+        reversal_entry_year: {"type": ["integer", "null"], "minimum": 1900, "maximum": 2999}
+    RevaluationRunCancelledV1:
+      type: object
+      required: ["run_id", "legal_entity_id", "ledger_id", "key_date", "reason", "valuation_reversal_entry_id", "valuation_reversal_entry_year", "reset_reversal_entry_id", "reset_reversal_entry_year"]
+      properties:
+        run_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        ledger_id: {"$ref": "#/components/schemas/Uuid"}
+        key_date: {"$ref": "#/components/schemas/Date"}
+        reason: {"type": "string", "minLength": 1, "maxLength": 2000}
+        valuation_reversal_entry_id: {"$ref": "#/components/schemas/NullableUuid", "description": "The reversal of the valuation entry; null when the run posted no entries."}
+        valuation_reversal_entry_year: {"type": ["integer", "null"], "minimum": 1900, "maximum": 2999}
+        reset_reversal_entry_id: {"$ref": "#/components/schemas/NullableUuid", "description": "The reversal of the reset entry; null when the run posted no entries."}
+        reset_reversal_entry_year: {"type": ["integer", "null"], "minimum": 1900, "maximum": 2999}
 
     # ------------------------------------------------ further state changes
     TenantStatusChangedV1:
@@ -3448,6 +3778,8 @@ components:
       type: object
       required: ["partner_id", "partner_change_id", "changed_fields"]
       properties:
+        extensions: {$ref: '#/components/schemas/EventExtensions'}
+        extensions_schema: {$ref: '#/components/schemas/ExtensionsSchemaVersion'}
         partner_id: {"$ref": "#/components/schemas/Uuid"}
         partner_change_id: {"$ref": "#/components/schemas/Uuid"}
         changed_fields: {"type": "array", "minItems": 1, "items": {"type": "string"}}
@@ -3540,6 +3872,65 @@ components:
         workflow_request_id: {"$ref": "#/components/schemas/NullableUuid"}
         previous_status: {"type": "string", "description": "Open enum: parked, on_hold."}
         status: {"type": "string", "description": "Open enum; rejected in v1."}
+    BankStatementImportedV1:
+      type: object
+      required: ["bank_statement_id", "house_bank_id", "legal_entity_id", "format", "file_sha256", "statement_ref", "sequence", "line_count", "opening_balance", "closing_balance", "previous_statement_id", "status"]
+      properties:
+        bank_statement_id: {"$ref": "#/components/schemas/Uuid"}
+        house_bank_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        format: {"type": "string", "description": "Open enum: camt.053.001.02, camt.053.001.08, mt940."}
+        file_sha256: {"$ref": "#/components/schemas/Sha256Hex"}
+        statement_ref: {"type": "string", "description": "The bank's statement id: camt.053 Stmt/Id, MT940 field 20."}
+        sequence: {"type": "string", "description": "The statement's number in the account's series."}
+        line_count: {"type": "integer", "minimum": 0}
+        opening_balance: {"$ref": "#/components/schemas/Money"}
+        closing_balance: {"$ref": "#/components/schemas/Money"}
+        previous_statement_id: {"type": ["string", "null"], "format": "uuid", "description": "The house bank's statement before it; null for the bank's first."}
+        status: {"type": "string", "description": "Open enum: imported, gap."}
+    BankStatementGapClosedV1:
+      type: object
+      required: ["bank_statement_id", "house_bank_id", "legal_entity_id", "previous_statement_id", "status"]
+      properties:
+        bank_statement_id: {"$ref": "#/components/schemas/Uuid"}
+        house_bank_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        previous_statement_id: {"$ref": "#/components/schemas/Uuid"}
+        status: {"type": "string", "description": "Open enum: imported (BankStatementGapClosed), gap (BankStatementGapFound)."}
+    BankStatementFileRefusedV1:
+      type: object
+      required: ["statement_fetch_id", "house_bank_id", "legal_entity_id", "file_name", "file_sha256", "code", "reason"]
+      properties:
+        statement_fetch_id: {"$ref": "#/components/schemas/Uuid"}
+        house_bank_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        file_name: {"type": "string", "description": "The file's name in the bank's statements directory."}
+        file_sha256: {"$ref": "#/components/schemas/Sha256Hex"}
+        code: {"type": "string", "description": "The import's problem code, such as payments.statement_unreadable or payments.statement_conflict."}
+        reason: {"type": "string", "description": "What the import said, with the line of the file where reading failed."}
+    BankStatementFileChangedV1:
+      type: object
+      required: ["statement_fetch_id", "house_bank_id", "legal_entity_id", "file_name", "file_sha256", "current_sha256"]
+      properties:
+        statement_fetch_id: {"$ref": "#/components/schemas/Uuid"}
+        house_bank_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        file_name: {"type": "string", "description": "The file's name in the bank's statements directory."}
+        file_sha256: {"$ref": "#/components/schemas/Sha256Hex", "description": "The content imported."}
+        current_sha256: {"$ref": "#/components/schemas/Sha256Hex", "description": "The content the file holds now, imported by the next fetch."}
+    BankStatementLineMatchedV1:
+      type: object
+      required: ["statement_match_id", "bank_statement_id", "line_no", "house_bank_id", "legal_entity_id", "kind", "rule", "status", "candidates"]
+      properties:
+        statement_match_id: {"$ref": "#/components/schemas/Uuid"}
+        bank_statement_id: {"$ref": "#/components/schemas/Uuid"}
+        line_no: {"type": "integer", "minimum": 1, "description": "The line's number in the statement."}
+        house_bank_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        kind: {"type": "string", "description": "Open enum: rule, manual, agent."}
+        rule: {"type": ["string", "null"], "description": "Open enum: end_to_end_id, batch_id, transaction_code, amount; null unless kind is rule."}
+        status: {"type": "string", "description": "Open enum: open, matched (BankStatementLineMatched), excluded (BankStatementLineExcluded)."}
+        candidates: {"type": "integer", "minimum": 0, "description": "How many candidates the match lists: 1 when matched, 0 when excluded."}
     BankFileCreatedV1:
       type: object
       required: ["bank_file_id", "payment_run_id", "format", "sha256", "status"]
@@ -3548,6 +3939,8 @@ components:
         payment_run_id: {"$ref": "#/components/schemas/Uuid"}
         format: {"type": "string", "description": "Open enum: pain.001.001.03, pain.001.001.09."}
         sha256: {"$ref": "#/components/schemas/Sha256Hex"}
+        house_bank_id: {"$ref": "#/components/schemas/Uuid", "description": "The house bank whose account the file pays from; a run writes one file per house bank and payment method (T45c). Absent from events of files written before."}
+        payment_method: {"type": ["string", "null"], "description": "The payment method of the file's payments; null for a run proposed for one house bank (T45c). Absent from events of files written before."}
         status: {"type": "string", "description": "Open enum; created in v1."}
     BankFileAcknowledgedV1:
       type: object

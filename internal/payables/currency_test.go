@@ -267,15 +267,10 @@ func TestMatchDecisionOnlyOnACleanMatch(t *testing.T) {
 // day is the day the window of simulations and suites ends.
 var day = time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC)
 
-func (e env) simulate(t *testing.T, base, proposed *config.Config) (configuration.Simulation, error) {
+func (e env) simulate(t *testing.T, base, proposed *config.Config) (simulated, error) {
 	t.Helper()
-	var sim configuration.Simulation
-	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
-		sim, err = payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates,
-			Now: func() time.Time { return day }}.Simulate(ctx, base, proposed)
-		return err
-	})
-	return sim, err
+	return e.simulated(t, payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates,
+		Now: func() time.Time { return day }}, base, proposed)
 }
 
 func (e env) capture(t *testing.T, doc *config.Config) ([]configuration.RegressionCase, error) {
@@ -320,14 +315,14 @@ func TestSimulationInTheCompanysCurrency(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	changes := sim.Detail["changes"].([]change)
+	changes := sim.Changes
 	if len(changes) != 1 {
 		t.Fatalf("changes: got %d, want 1: %+v", len(changes), changes)
 	}
 	if got := changes[0].Base + " -> " + changes[0].Proposed; got != "exception -> auto_post" {
 		t.Errorf("changed decision: got %s, want exception -> auto_post", got)
 	}
-	postings := sim.Detail["postings"].([]posting)
+	postings := sim.Postings
 	if len(postings) != 1 {
 		t.Fatalf("postings: got %d, want 1: %+v", len(postings), postings)
 	}
@@ -411,7 +406,7 @@ func TestUnevaluableInvoices(t *testing.T) {
 		t.Error("simulation passed: got true, want false")
 	}
 	var reasons []string
-	for _, b := range sim.Detail["breaks"].([]broken) {
+	for _, b := range sim.Breaks {
 		reasons = append(reasons, b.Reason)
 	}
 	if got, want := strings.Join(reasons, " | "), "no average exchange rate from USD to EUR on 2026-03-10 | gross amount 10000000000000 JPY cannot be converted into EUR: ledger: convert JPY into EUR: "+money.ErrOverflow.Error(); got != want {

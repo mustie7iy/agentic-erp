@@ -170,19 +170,32 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 		}
 	}
 
-	ctx = reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), principal)
-	if req == nil {
-		ctx = reqctx.WithReadOnly(ctx)
-	}
-	ctx, buf := audit.WithBuffer(ctx)
+	ctx, buf, committed := handlerContext(ctx, tx, principal, req == nil)
 	rec := &recorder{header: http.Header{}, status: http.StatusOK}
+	ctx = context.WithValue(ctx, omitKey{}, rec)
 	next.ServeHTTP(rec, r.WithContext(ctx))
 
 	if err := m.finish(ctx, tx, principal, req, rec, buf); err != nil {
 		return err
 	}
+	if rec.status < http.StatusBadRequest { // finish committed the request's work
+		committed.Run()
+	}
 	rec.send(w)
 	return nil
+}
+
+// handlerContext is what the handler runs with: the transaction, the
+// principal, read-only for a safe method, the audit buffer finish writes
+// and what runs once the work committed.
+func handlerContext(ctx context.Context, tx pgx.Tx, principal reqctx.Principal, readOnly bool) (context.Context, *audit.Buffer, *reqctx.Commit) {
+	ctx = reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), principal)
+	if readOnly {
+		ctx = reqctx.WithReadOnly(ctx)
+	}
+	ctx, buf := audit.WithBuffer(ctx)
+	ctx, committed := reqctx.WithCommit(ctx)
+	return ctx, buf, committed
 }
 
 // admit checks what the token alone decides, before the transaction. A
@@ -254,18 +267,24 @@ var businessOutcome = map[int]bool{
 
 // finish decides what the transaction keeps:
 //   - 2xx/3xx: everything, plus the audit entries and the stored response;
-//   - a business outcome on an unsafe request: only the key and the answer;
+//   - a business outcome on an unsafe request: only the key, the answer
+//     and the audit of a refusal (audit.Refuse), so a refused write is
+//     recorded although its work rolls back, once, with the answer a
+//     retry gets (ADR-0046);
 //   - anything else: nothing (the deferred rollback).
 func (m *Middleware) finish(ctx context.Context, tx pgx.Tx, p reqctx.Principal, req *request, rec *recorder, buf *audit.Buffer) error {
 	failed := rec.status >= 400
 	if failed && (req == nil || !businessOutcome[rec.status]) {
 		return nil
 	}
+	flush := buf.Flush
 	if failed {
 		if _, err := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT uow"); err != nil {
 			return fmt.Errorf("uow: rollback to savepoint: %w", err)
 		}
-	} else if err := buf.Flush(ctx, tx, p, reqctx.TraceID(ctx), m.Now()); err != nil {
+		flush = buf.FlushRefusals
+	}
+	if err := flush(ctx, tx, p, reqctx.TraceID(ctx), m.Now()); err != nil {
 		// The audit trail rejecting an entry is never the client's fault: a
 		// lost connection stays the retryable 503 it translates to, anything
 		// else is internal.
@@ -362,12 +381,9 @@ func (m *Middleware) storeResponse(ctx context.Context, tx pgx.Tx, p reqctx.Prin
 			headers[h] = v
 		}
 	}
-	var body any // NULL for an empty body
-	if rec.body.Len() > 0 {
-		if !json.Valid(rec.body.Bytes()) {
-			return errors.New("uow: response body is not JSON")
-		}
-		body = rec.body.String()
+	body, err := storedBody(rec)
+	if err != nil {
+		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE platform.idempotency_key SET status = 'completed', response_code = $3,
 		response_body = $4::jsonb, response_headers = $5 WHERE tenant_id = $1 AND key = $2`,
@@ -377,8 +393,48 @@ func (m *Middleware) storeResponse(ctx context.Context, tx pgx.Tx, p reqctx.Prin
 	return nil
 }
 
+// storedBody is the response body kept with the idempotency key: NULL for
+// an empty body, and without the fields the handler omitted.
+func storedBody(rec *recorder) (any, error) {
+	if rec.body.Len() == 0 {
+		return nil, nil
+	}
+	if !json.Valid(rec.body.Bytes()) {
+		return nil, errors.New("uow: response body is not JSON")
+	}
+	if len(rec.omit) == 0 {
+		return rec.body.String(), nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(rec.body.Bytes(), &fields); err != nil {
+		return nil, fmt.Errorf("uow: omit fields of a response that is not an object: %w", err)
+	}
+	for _, f := range rec.omit {
+		delete(fields, f)
+	}
+	// The error is safe to drop: values decoded as raw JSON are valid and
+	// re-encode as they were. The keys come out sorted, as jsonb stores them.
+	b, _ := json.Marshal(fields)
+	return string(b), nil
+}
+
+// omitKey is the context key of the request's recorder, for OmitOnReplay.
+type omitKey struct{}
+
+// OmitOnReplay keeps these top-level fields of the response body out of
+// the answer stored with the idempotency key: a secret shown once (a
+// webhook signing secret, ADR-0041) is not kept in the clear for the
+// key's retention. A replay answers without them; a client that lost the
+// answer rotates the secret. Outside a request it does nothing.
+func OmitOnReplay(ctx context.Context, fields ...string) {
+	if rec, ok := ctx.Value(omitKey{}).(*recorder); ok {
+		rec.omit = append(rec.omit, fields...)
+	}
+}
+
 // recorder buffers the response until the transaction has committed.
 type recorder struct {
+	omit   []string // fields left out of the stored answer (OmitOnReplay)
 	header http.Header
 	status int
 	wrote  bool

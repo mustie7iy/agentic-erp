@@ -105,7 +105,7 @@ as_of:    2026-10-08T06:00Z   # data through 30 Sep close
 
 ```sh
 # ERP_API_URL and ERP_TOKEN: analytics reads what your token may see
-./bin/erp metrics                                    # governed metrics
+./bin/erp metrics                                    # the tenant's active governed metrics (getAnalyticsModel)
 ./bin/erp query -measures revenue -by fiscal_year,fiscal_month \
     -where "fiscal_month <= 9" -companies 1000       # semantic query, no agent
 ./bin/erp report -file examples/monthly-sales.json -companies 1000   # example dashboard, no agent

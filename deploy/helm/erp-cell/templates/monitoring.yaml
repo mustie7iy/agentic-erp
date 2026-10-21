@@ -1,0 +1,51 @@
+# The cell's Prometheus (the kube-prometheus-stack add-on, ADR-0043)
+# scrapes the server's admin /metrics over TLS, verifying the server's
+# certificate against the environment's CA as the server's own name (it
+# connects to each Pod's address); the listener asks no certificate of it.
+# The policy admits the add-on's Prometheus Pods to the admin port alone:
+# /control there still takes only operators' tokens.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: erp-server
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-server") | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "erp-cell.selector" (dict "root" . "component" "erp-server") | nindent 6 }}
+  namespaceSelector:
+    matchNames: [{{ .Release.Namespace }}]
+  endpoints:
+    - port: admin
+      path: /metrics
+      scheme: https
+      interval: 30s
+      tlsConfig:
+        serverName: erp-server.{{ .Release.Namespace }}.svc
+        ca:
+          configMap:
+            name: erp-trust
+            key: ca.crt
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: erp-server-metrics
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-server") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "erp-cell.selector" (dict "root" . "component" "erp-server") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ required "monitoringNamespace is required" .Values.monitoringNamespace }}
+          podSelector:
+            matchLabels:
+              operator.prometheus.io/name: erp-monitoring-prometheus
+      ports:
+        - {protocol: TCP, port: 9090}

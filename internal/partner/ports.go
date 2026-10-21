@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -128,6 +130,9 @@ type Supplier struct {
 	// WithholdingTaxCodes are the supplier's withholding tax codes in the
 	// legal entity (T46e).
 	WithholdingTaxCodes []string
+	// PaymentMethods are the methods the supplier may be paid by in the
+	// legal entity, in order (ADR-0038).
+	PaymentMethods []string
 }
 
 // Usable reports why the supplier cannot be ordered from or invoiced in
@@ -161,11 +166,11 @@ func (Suppliers) Supplier(ctx context.Context, partnerID, legalEntity uuid.UUID)
 			EXISTS (SELECT FROM partner.partner_role r WHERE r.tenant_id = p.tenant_id AND r.partner_id = p.id AND r.role = 'supplier'),
 			sc.reconciliation_account_id, sc.payment_term_code, sc.is_posting_blocked, sc.is_payment_blocked,
 			coalesce((SELECT array_agg(w.code ORDER BY w.code) FROM partner.supplier_withholding w WHERE w.tenant_id = p.tenant_id AND w.partner_id = p.id
-				AND w.legal_entity_id = $2 AND w.is_active), '{}')
+				AND w.legal_entity_id = $2 AND w.is_active), '{}'), coalesce(sc.payment_methods, '{}')
 		FROM partner.business_partner p
 		LEFT JOIN partner.supplier_company sc ON sc.tenant_id = p.tenant_id AND sc.partner_id = p.id AND sc.legal_entity_id = $2
 		WHERE p.id = $1`, partnerID, legalEntity).Scan(&s.Number, &s.Name, &s.CountryCode, &s.Status, &s.IsSupplier, &recon, &term, &posting, &payment,
-		&s.WithholdingTaxCodes)
+		&s.WithholdingTaxCodes, &s.PaymentMethods)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Supplier{}, false, nil
 	}
@@ -238,17 +243,91 @@ func (Suppliers) PaymentTermExists(ctx context.Context, code string) (bool, erro
 // document by ledger.Setup. A document that takes away a code a supplier
 // has, or that a pending partner change gives one, is refused when it is
 // submitted (Check) and again when it is activated (Apply), under the
-// tenant's withholding lock, which a partner change giving codes takes too
-// (lockWithholding), so neither slips past the other.
+// tenant's withholding lock, which a partner change giving codes takes too,
+// so neither slips past the other.
 type WithholdingCodes struct {
-	LegalEntities interface {
-		EntityByCode(ctx context.Context, code string) (tenancy.Entity, bool, error)
-	}
+	LegalEntities EntitiesByCode
 }
 
 // Check reports each company of the proposed document whose suppliers, or
 // pending partner changes, have a withholding tax code it does not.
 func (w WithholdingCodes) Check(ctx context.Context, base, proposed *config.Config) ([]config.Finding, error) {
+	return withholdingCodes.check(ctx, w.LegalEntities, base, proposed)
+}
+
+// Apply refuses to activate a document that takes away a code suppliers
+// have (409 partner.withholding_tax_code_in_use): the activation rolls back.
+func (w WithholdingCodes) Apply(ctx context.Context, doc *config.Config) error {
+	return withholdingCodes.apply(ctx, w.LegalEntities, doc)
+}
+
+// PaymentMethodCodes is the configuration section of suppliers' payment
+// methods (ADR-0038): the methods themselves are the payments context's,
+// kept from the document by payments.PaymentMethods. Like
+// WithholdingCodes, a document taking away a method a supplier has, or a
+// pending partner change gives one, is refused, under the tenant's payment
+// method lock.
+type PaymentMethodCodes struct {
+	LegalEntities EntitiesByCode
+}
+
+// Check reports each company of the proposed document whose suppliers, or
+// pending partner changes, have a payment method it does not.
+func (m PaymentMethodCodes) Check(ctx context.Context, base, proposed *config.Config) ([]config.Finding, error) {
+	return paymentMethodCodes.check(ctx, m.LegalEntities, base, proposed)
+}
+
+// Apply refuses to activate a document that takes away a method suppliers
+// have (409 partner.payment_method_in_use): the activation rolls back.
+func (m PaymentMethodCodes) Apply(ctx context.Context, doc *config.Config) error {
+	return paymentMethodCodes.apply(ctx, m.LegalEntities, doc)
+}
+
+// EntitiesByCode finds legal entities by their company code.
+type EntitiesByCode interface {
+	EntityByCode(ctx context.Context, code string) (tenancy.Entity, bool, error)
+}
+
+// supplierCodes is a list of codes in suppliers' company data that each
+// company of the configuration defines.
+type supplierCodes struct {
+	lock  string // the advisory lock a change giving codes and a document taking them away share
+	field string // the list in a company of the document and in a change's supplier company
+	noun  string // what a code is, for messages
+	// inUse selects the codes suppliers have in legal entity $1.
+	inUse string
+	// kept are the codes the document's company has.
+	kept func(co config.Company) []string
+}
+
+const (
+	withholdingLock   = "partner.withholding."
+	paymentMethodLock = "partner.payment_method."
+)
+
+var withholdingCodes = supplierCodes{lock: withholdingLock, field: "withholding_tax_codes", noun: "withholding tax code",
+	inUse: `SELECT code FROM partner.supplier_withholding WHERE legal_entity_id = $1 AND is_active`,
+	kept: func(co config.Company) []string {
+		out := make([]string, 0, len(co.WithholdingTaxCodes))
+		for _, c := range co.WithholdingTaxCodes {
+			out = append(out, c.Code)
+		}
+		return out
+	}}
+
+var paymentMethodCodes = supplierCodes{lock: paymentMethodLock, field: "payment_methods", noun: "payment method",
+	inUse: `SELECT unnest(payment_methods) FROM partner.supplier_company WHERE legal_entity_id = $1`,
+	kept: func(co config.Company) []string {
+		out := make([]string, 0, len(co.PaymentMethods))
+		for _, m := range co.PaymentMethods {
+			out = append(out, m.Code)
+		}
+		return out
+	}}
+
+// check reports each company and code suppliers have, or pending partner
+// changes give them, that the proposed document's company does not.
+func (c supplierCodes) check(ctx context.Context, entities EntitiesByCode, base, proposed *config.Config) ([]config.Finding, error) {
 	if base == nil {
 		return nil, nil
 	}
@@ -256,76 +335,95 @@ func (w WithholdingCodes) Check(ctx context.Context, base, proposed *config.Conf
 	if err != nil {
 		return nil, err
 	}
-	used, err := w.taken(ctx, tx, proposed)
+	used, err := c.taken(ctx, tx, entities, proposed)
 	if err != nil {
 		return nil, err
 	}
 	var out []config.Finding
 	for _, u := range used {
-		out = append(out, config.Finding{Severity: config.SevError, Path: "companies[" + u[0] + "].withholding_tax_codes[" + u[1] + "]",
-			Message: "suppliers have this withholding tax code, or a pending partner change gives it; take it off them first"})
+		out = append(out, config.Finding{Severity: config.SevError, Path: "companies[" + u[0] + "]." + c.field + "[" + u[1] + "]",
+			Message: "suppliers have this " + c.noun + ", or a pending partner change gives it; take it off them first"})
 	}
 	return out, nil
 }
 
-// Apply refuses to activate a document that takes away a code suppliers
-// have (409 partner.withholding_tax_code_in_use): the activation rolls back.
-func (w WithholdingCodes) Apply(ctx context.Context, doc *config.Config) error {
+// apply refuses a document that takes away a code suppliers have.
+func (c supplierCodes) apply(ctx context.Context, entities EntitiesByCode, doc *config.Config) error {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return err
 	}
-	used, err := w.taken(ctx, tx, doc)
+	used, err := c.taken(ctx, tx, entities, doc)
 	if err != nil || len(used) == 0 {
 		return err
 	}
-	return problem.Conflict("partner.withholding_tax_code_in_use", "Suppliers of company "+used[0][0]+" have withholding tax code "+used[0][1]+
+	return problem.Conflict("partner."+strings.ReplaceAll(c.noun, " ", "_")+"_in_use", "Suppliers of company "+used[0][0]+" have "+c.noun+" "+used[0][1]+
 		", or a pending partner change gives it, which the configuration no longer has; take it off them first.")
 }
 
 // taken are the company and code pairs suppliers have, or pending partner
 // changes give them, that the document's companies do not have, under the
-// withholding lock.
-func (w WithholdingCodes) taken(ctx context.Context, tx pgx.Tx, doc *config.Config) ([][2]string, error) {
-	if err := lockWithholding(ctx, tx); err != nil {
+// lock.
+func (c supplierCodes) taken(ctx context.Context, tx pgx.Tx, entities EntitiesByCode, doc *config.Config) ([][2]string, error) {
+	if err := lockCodes(ctx, tx, c.lock); err != nil {
 		return nil, err
 	}
 	var out [][2]string
 	for _, co := range doc.Companies {
-		le, ok, err := w.LegalEntities.EntityByCode(ctx, co.Code)
+		le, ok, err := entities.EntityByCode(ctx, co.Code)
 		if err != nil {
 			return nil, fmt.Errorf("partner: legal entity of company %s: %w", co.Code, err)
 		}
 		if !ok {
 			continue
 		}
-		kept := make([]string, 0, len(co.WithholdingTaxCodes))
-		for _, c := range co.WithholdingTaxCodes {
-			kept = append(kept, c.Code)
-		}
-		rows, _ := tx.Query(ctx, `SELECT DISTINCT code FROM (
-				SELECT code FROM partner.supplier_withholding WHERE legal_entity_id = $1 AND is_active
-				UNION SELECT jsonb_array_elements_text(sc->'withholding_tax_codes') FROM partner.partner_change c, jsonb_array_elements(CASE WHEN jsonb_typeof(c.payload->'supplier_companies') = 'array'
-					THEN c.payload->'supplier_companies' ELSE '[]' END) sc
-				WHERE c.status = 'pending' AND sc->>'legal_entity_id' = $1::text) x
-			WHERE code <> ALL($2) ORDER BY code`, le.ID, kept)
+		rows, _ := tx.Query(ctx, `SELECT DISTINCT code FROM (`+c.inUse+`
+				UNION SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(sc->$3) = 'array' THEN sc->$3 ELSE '[]' END)
+				FROM partner.partner_change ch, jsonb_array_elements(CASE WHEN jsonb_typeof(ch.payload->'supplier_companies') = 'array'
+					THEN ch.payload->'supplier_companies' ELSE '[]' END) sc
+				WHERE ch.status = 'pending' AND sc->>'legal_entity_id' = $1::text) x(code)
+			WHERE code <> ALL($2) ORDER BY code`, le.ID, c.kept(co), c.field)
 		codes, err := pgx.CollectRows(rows, pgx.RowTo[string])
 		if err != nil {
-			return nil, fmt.Errorf("partner: withholding tax codes in use in %s: %w", co.Code, err)
+			return nil, fmt.Errorf("partner: %ss in use in %s: %w", c.noun, co.Code, err)
 		}
-		for _, c := range codes {
-			out = append(out, [2]string{co.Code, c})
+		for _, code := range codes {
+			out = append(out, [2]string{co.Code, code})
 		}
 	}
 	return out, nil
 }
 
-// lockWithholding takes the tenant's withholding lock until the
-// transaction ends: a configuration taking codes away and a partner change
-// giving them wait for each other, and then see what the other committed.
-func lockWithholding(ctx context.Context, tx pgx.Tx) error {
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('partner.withholding.' || platform.require_tenant()::text, 0))`); err != nil {
-		return fmt.Errorf("partner: lock the withholding tax codes: %w", err)
+// lockCodes takes the tenant's lock of the name until the transaction
+// ends: a configuration taking codes away and a partner change giving them
+// wait for each other, and then see what the other committed.
+func lockCodes(ctx context.Context, tx pgx.Tx, name string) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1 || platform.require_tenant()::text, 0))`, name); err != nil {
+		return fmt.Errorf("partner: lock %s: %w", name, err)
 	}
 	return nil
+}
+
+// References answers whether the record a custom field refers to exists
+// (extensions.References), in the request's transaction. The schema
+// compiler refuses cost object fields until cost objects exist (T56), so a
+// business partner is the one kind of record referred to.
+type References struct{}
+
+// Exists reports whether a business partner, in any status, has the id: a
+// reference names a record, whatever it may be used for. Any other kind
+// names no record this context holds.
+func (References) Exists(ctx context.Context, kind extensions.Kind, id uuid.UUID) (bool, error) {
+	if kind != extensions.Partner {
+		return false, nil
+	}
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return false, err
+	}
+	var ok bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM partner.business_partner WHERE id = $1)`, id).Scan(&ok); err != nil {
+		return false, fmt.Errorf("partner: business partner %s exists: %w", id, err)
+	}
+	return ok, nil
 }

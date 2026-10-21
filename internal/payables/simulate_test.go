@@ -2,6 +2,8 @@ package payables_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -21,21 +23,49 @@ type simulation struct {
 	today time.Time
 }
 
-func (s simulation) run(tb testing.TB, from, to *config.Config, window time.Duration) configuration.Simulation {
+// simulated is a simulation as the requester, a reader of every company,
+// is shown it.
+type simulated struct {
+	Passed  bool
+	Summary string
+	payables.Shown
+}
+
+func (s simulation) run(tb testing.TB, from, to *config.Config, window time.Duration) simulated {
 	tb.Helper()
-	var sim configuration.Simulation
-	err := apitest.InRequest(tb, s.e.Tenant, s.e.Tenant.Human, func(ctx context.Context) (err error) {
-		sim, err = payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates, Window: window, Now: func() time.Time { return s.today }}.Simulate(ctx, from, to)
-		return err
-	})
+	sim, err := s.e.simulated(tb, payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates, Window: window,
+		Now: func() time.Time { return s.today }}, from, to)
 	if err != nil {
 		tb.Fatal(err)
 	}
 	return sim
 }
 
-func decisions(sim configuration.Simulation) map[string]any {
-	return sim.Detail["decisions"].(map[string]any)
+// simulated runs the simulation as the requester and returns it as they
+// are shown it; the summary recorded carries no count.
+func (e env) simulated(tb testing.TB, s payables.Simulation, from, to *config.Config) (simulated, error) {
+	tb.Helper()
+	var shown configuration.Evidence
+	err := apitest.InRequest(tb, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		sim, err := s.Simulate(ctx, from, to)
+		if err != nil {
+			return err
+		}
+		if want := fmt.Sprintf("Invoices on purchase orders of the last %d days replayed under the proposal.", sim.Detail["window_days"]); sim.Summary != want {
+			tb.Errorf("recorded summary: got %q, want %q", sim.Summary, want)
+		}
+		detail, err := json.Marshal(sim.Detail)
+		if err != nil {
+			return err
+		}
+		shown, err = payables.Disclosure{}.Disclose(ctx, configuration.Evidence{Kind: "simulation", Passed: sim.Passed, Summary: sim.Summary, Detail: detail})
+		return err
+	})
+	if err != nil {
+		return simulated{}, err
+	}
+	out := simulated{Passed: shown.Passed, Summary: shown.Summary}
+	return out, json.Unmarshal(shown.Detail, &out.Shown)
 }
 
 // TestSimulationReplaysInvoices replays the window's invoices under
@@ -57,19 +87,19 @@ func TestSimulationReplaysInvoices(t *testing.T) {
 		if !same.Passed {
 			t.Errorf("unchanged passed: got false, want true: %+v", same)
 		}
-		if same.Detail["invoices"] != 3 {
-			t.Errorf("unchanged invoices: got %v, want 3", same.Detail["invoices"])
+		if same.Invoices != 3 {
+			t.Errorf("unchanged invoices: got %v, want 3", same.Invoices)
 		}
-		if decisions(same)["changed"] != 0 {
-			t.Errorf("unchanged decisions changed: got %v, want 0", decisions(same)["changed"])
+		if same.Decisions.Changed != 0 {
+			t.Errorf("unchanged decisions changed: got %v, want 0", same.Decisions.Changed)
 		}
-		if got := same.Detail["postings"].([]posting); len(got) != 0 {
+		if got := same.Postings; len(got) != 0 {
 			t.Errorf("unchanged postings: got %+v, want none", got)
 		}
-		if got := decisions(same)["base"].(map[string]int)[payables.DecisionAutoPost]; got != 1 {
+		if got := same.Decisions.Base[payables.DecisionAutoPost]; got != 1 {
 			t.Errorf("unchanged auto-post decisions: got %d, want 1", got)
 		}
-		if got := decisions(same)["base"].(map[string]int)[payables.DecisionException]; got != 2 {
+		if got := same.Decisions.Base[payables.DecisionException]; got != 2 {
 			t.Errorf("unchanged exception decisions: got %d, want 2", got)
 		}
 		if want := "3 invoices of the last 90 days replayed: 0 decided differently, 0 posting rules move"; !strings.Contains(same.Summary, want) {
@@ -131,7 +161,7 @@ func simulatedInvoices(t *testing.T, e env) (held, twice map[string]any) {
 func checkDecisionChanges(t *testing.T, s simulation, base, tolerant *config.Config, held, twice map[string]any) {
 	t.Helper()
 	sim := s.run(t, base, tolerant, 0)
-	changes := sim.Detail["changes"].([]change)
+	changes := sim.Changes
 	if !sim.Passed {
 		t.Errorf("tolerance passed: got false, want true: %+v", sim)
 	}
@@ -156,12 +186,12 @@ func checkDecisionChanges(t *testing.T, s simulation, base, tolerant *config.Con
 	if changes[1].Proposed != payables.DecisionAutoPost {
 		t.Errorf("second change proposed: got %s, want %s", changes[1].Proposed, payables.DecisionAutoPost)
 	}
-	if got := decisions(sim)["proposed"].(map[string]int)[payables.DecisionAutoPost]; got != 2 {
+	if got := sim.Decisions.Proposed[payables.DecisionAutoPost]; got != 2 {
 		t.Errorf("tolerance auto-post decisions: got %d, want 2", got)
 	}
 	limited := fixture.Document(t)
 	limited.Companies[1].AutoPostLimit = "100.00"
-	if sim = s.run(t, base, limited, 0); len(sim.Detail["changes"].([]change)) != 1 || sim.Detail["changes"].([]change)[0].Proposed != payables.DecisionReview {
+	if sim = s.run(t, base, limited, 0); len(sim.Changes) != 1 || sim.Changes[0].Proposed != payables.DecisionReview {
 		t.Fatalf("limit: %+v", sim)
 	}
 }
@@ -174,7 +204,7 @@ func checkPostingsMove(t *testing.T, s simulation, base *config.Config) {
 	moved.Companies[1].AccountDetermination.InputTax = "100000"
 	moved.Companies[1].TaxCodes[0].RatePercent = "20"
 	sim := s.run(t, base, moved, 0)
-	postings := sim.Detail["postings"].([]posting)
+	postings := sim.Postings
 	if len(postings) != 2 {
 		t.Fatalf("postings: got %d, want 2: %+v", len(postings), postings)
 	}
@@ -212,34 +242,27 @@ func checkDropped(t *testing.T, s simulation, base, tolerant *config.Config) {
 	if sim.Passed {
 		t.Errorf("tax code gone passed: got true, want false")
 	}
-	if got := len(sim.Detail["breaks"].([]broken)); got != 3 {
+	if got := len(sim.Breaks); got != 3 {
 		t.Errorf("tax code gone breaks: got %d, want 3", got)
 	}
 	if !strings.Contains(sim.Summary, "3 cannot be evaluated") {
 		t.Errorf("tax code gone summary: got %q, want it to contain %q", sim.Summary, "3 cannot be evaluated")
 	}
 	gone.Companies = gone.Companies[:1]
-	if sim = s.run(t, base, gone, 0); sim.Passed || !strings.Contains(sim.Detail["breaks"].([]broken)[0].Reason, "company 2000") {
+	if sim = s.run(t, base, gone, 0); sim.Passed || !strings.Contains(sim.Breaks[0].Reason, "company 2000") {
 		t.Fatalf("company gone: %+v", sim)
 	}
 	sim = s.run(t, gone, base, 0)
 	if !sim.Passed {
 		t.Errorf("new company passed: got false, want true: %+v", sim)
 	}
-	if got := sim.Detail["postings"].([]posting); len(got) != 0 {
+	if got := sim.Postings; len(got) != 0 {
 		t.Errorf("new company postings: got %+v, want none", got)
 	}
-	if got := len(sim.Detail["changes"].([]change)); got != 1 {
+	if got := len(sim.Changes); got != 1 {
 		t.Errorf("new company changes: got %d, want 1", got)
 	}
-	if sim = s.run(t, base, tolerant, 24*time.Hour); sim.Detail["invoices"] != 0 || !sim.Passed {
+	if sim = s.run(t, base, tolerant, 24*time.Hour); sim.Invoices != 0 || !sim.Passed {
 		t.Fatalf("short window: %+v", sim)
 	}
 }
-
-// The detail's slices are the package's own types; tests read them as such.
-type (
-	change  = payables.Decision
-	broken  = payables.Broken
-	posting = payables.Posting
-)

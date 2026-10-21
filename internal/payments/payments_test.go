@@ -28,16 +28,21 @@ var perms = []string{"payments.run.read", "payments.run.propose", "payments.run.
 	"payables.invoice.read", "payables.invoice.capture", "payables.invoice.post", "ledger.entry.read", "ledger.entry.post", "ledger.clearing.post",
 	"platform.operation.read", "platform.operation.cancel"}
 
-// connector records the files it transmits, or fails with err.
+// connector records the files it transmits, or fails with err; during,
+// when set, runs while the bank has the file.
 type connector struct {
-	mu    sync.Mutex
-	files []payments.File
-	err   error
+	mu     sync.Mutex
+	files  []payments.File
+	err    error
+	during func()
 }
 
 func (c *connector) Transmit(_ context.Context, f payments.File) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.during != nil {
+		c.during()
+	}
 	if c.err != nil {
 		return c.err
 	}
@@ -51,6 +56,7 @@ type env struct {
 	expense   uuid.UUID // account 520000 of company 2000
 	connector *connector
 	objects   blobstore.Store // the API's object store, when a test gives it one
+	configure func(*app.Config)
 }
 
 func setup(t *testing.T) env {
@@ -67,7 +73,7 @@ func setupWith(t *testing.T, more []string, configure func(*app.Config)) env {
 		cfg.Connector = c
 		configure(cfg)
 	})
-	e := env{Env: f, expense: f.Account(t, "2000", "520000"), connector: c}
+	e := env{Env: f, expense: f.Account(t, "2000", "520000"), connector: c, configure: configure}
 	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT id FROM payments.house_bank WHERE legal_entity_id = $1`, f.DE).Scan(&e.bank); err != nil {
 		t.Fatal(err)
 	}
@@ -101,6 +107,53 @@ func (e env) releaser(t *testing.T) *workflows.Releaser {
 	h := endpoints(e.connector)
 	h.Objects = e.objects
 	return &workflows.Releaser{Payments: &workflows.Payments{Pool: pgtest.Pool(t), AppRole: "erp_app", Endpoints: h}, Pool: pgtest.Pool(t), WorkerRole: "erp_worker"}
+}
+
+// transmitter is the bank file worker on the package database, wired like
+// the API (its connector, channels and object store).
+func (e env) transmitter(t *testing.T) *payments.Transmitter {
+	t.Helper()
+	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
+	cfg := app.Config{Pages: pages, FieldKeys: apitest.FieldKeys(), Connector: e.connector}
+	if e.configure != nil {
+		e.configure(&cfg)
+	}
+	h := app.Payments(cfg)
+	h.Objects = e.objects
+	return &payments.Transmitter{Endpoints: h, Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker"}
+}
+
+// transmit asks for the file's transmission (202, an operation) and lets
+// the transmitter do it; it returns the operation as asked for.
+func (e env) transmit(t *testing.T, file, ifMatch string) map[string]any {
+	t.Helper()
+	op, _ := e.Must(202, "POST", "/v1/bank-files/"+file+":transmit", "", ifMatch)
+	// The transmitter takes every tenant's due files: none of this test's
+	// is left queued for a later test's, whose clock may be ahead.
+	t.Cleanup(func() {
+		pgtest.Exec(t, `UPDATE payments.bank_file SET status = 'failed', next_attempt_at = NULL, version = version + 1 WHERE id = $1 AND status IN ('to_send', 'sending')`, file)
+	})
+	if _, err := e.transmitter(t).RunOnce(context.Background()); err != nil {
+		t.Fatalf("transmitter: %v", err)
+	}
+	return op
+}
+
+// failedWith checks that the transmission op asked for failed with code,
+// and its file with it.
+func (e env) failedWith(t *testing.T, op map[string]any, code string) {
+	t.Helper()
+	got, _ := e.Must(200, "GET", "/v1/operations/"+id(op), "", "")
+	if got["status"] != "failed" {
+		t.Fatalf("transmit operation status: got %v, want failed", got["status"])
+	}
+	if p, _ := got["error"].(map[string]any); p["code"] != code {
+		t.Errorf("transmit operation error: got %v, want %s", got["error"], code)
+	}
+	file, _ := e.Must(200, "GET", got["resource"].(string), "", "")
+	if file["status"] != "failed" {
+		t.Errorf("file status: got %v, want failed", file["status"])
+	}
 }
 
 // release asks for the run's release as the approver (202, an operation),
@@ -161,6 +214,16 @@ func work(t *testing.T) int {
 		t.Fatal(err)
 	}
 	return n
+}
+
+// workLeftovers has the proposal worker finish, when the test ends, the
+// jobs a test leaves queued on purpose. The worker takes the jobs of every
+// tenant in the package database, so a job left behind would be done by the
+// next test's worker and counted as its own: TestProposer's failing rounds
+// would fail on it, and a test that wants one job done would see two.
+func workLeftovers(t *testing.T) {
+	t.Helper()
+	t.Cleanup(func() { work(t) })
 }
 
 // bankAccount gives the supplier a payments bank account valid from the

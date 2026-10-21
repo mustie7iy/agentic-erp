@@ -38,7 +38,8 @@ type Importer struct {
 	// Check runs on the imported tenant before the commit, in its scope;
 	// an error refuses the import. A production cell refuses a tenant
 	// without an active identity provider (identity.RequireActiveProvider,
-	// ADR-0031). Nil checks nothing.
+	// ADR-0031) or with an active bank_ebics connector
+	// (integration.RefuseActiveEBICS, ADR-0038). Nil checks nothing.
 	Check func(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) error
 }
 

@@ -108,12 +108,12 @@ func (a *Agent) tools(s *Session, built **Report, createdBy string) []anthropic.
 		})
 	run, _ := toolrunner.NewBetaToolFromJSONSchema("run_query",
 		"Run a semantic query. Returns query_id, columns, rows (money in major units), data_through and the metric definitions used.",
-		func(_ context.Context, in queryArgs) (anthropic.BetaToolResultBlockParamContentUnion, error) {
+		func(ctx context.Context, in queryArgs) (anthropic.BetaToolResultBlockParamContentUnion, error) {
 			q := Query{Measures: in.Measures, By: in.By, OrderBy: in.OrderBy, Desc: in.Desc, Limit: in.Limit}
 			for _, f := range in.Where {
 				q.Where = append(q.Where, Filter(f))
 			}
-			r, err := s.Run(q)
+			r, err := s.Run(ctx, q)
 			if err != nil {
 				return toolText("error: " + err.Error())
 			}

@@ -9,19 +9,18 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-jose/go-jose/v4"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
+	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
@@ -398,7 +397,7 @@ func (p *Providers) httpClient() *http.Client {
 	p.once.Do(func() {
 		dialer := &net.Dialer{Timeout: orDefault(p.Timeout, DefaultFetchTimeout)}
 		if p.Production {
-			dialer.Control = refusePrivate
+			dialer.Control = egress.RefusePrivate
 		}
 		p.client = &http.Client{
 			Transport: &http.Transport{DialContext: dialer.DialContext, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12},
@@ -413,52 +412,6 @@ func (p *Providers) httpClient() *http.Client {
 		}
 	})
 	return p.client
-}
-
-// refusePrivate allows connections only to public unicast addresses,
-// checked on the address dialled, so a name resolving elsewhere (or
-// re-resolving there) is refused too: a registered issuer must not reach
-// the cell's own network or an instance metadata service. It fails closed:
-// global unicast addresses outside every special-purpose range below, IPv4
-// written as IPv6 judged as IPv4.
-func refusePrivate(_, address string, _ syscall.RawConn) error {
-	ap, err := netip.ParseAddrPort(address)
-	if err != nil {
-		return fmt.Errorf("authn: dial %s: %w", address, err)
-	}
-	ip := ap.Addr().Unmap()
-	if !ip.IsGlobalUnicast() || ip.IsPrivate() || (ip.Is6() && !globalUnicast6.Contains(ip)) ||
-		slices.ContainsFunc(nonPublic, func(p netip.Prefix) bool { return p.Contains(ip) }) {
-		return fmt.Errorf("authn: address %s is not allowed for an identity provider", ip)
-	}
-	return nil
-}
-
-// globalUnicast6 is the only IPv6 range allocated for global unicast
-// (RFC 4291): IPv4-compatible, site-local and discard addresses fall
-// outside it.
-var globalUnicast6 = netip.MustParsePrefix("2000::/3")
-
-// nonPublic are the special-purpose ranges (RFC 6890 and successors) that
-// IsGlobalUnicast and IsPrivate let through: shared address space (cloud
-// metadata services live there too), benchmarking, reserved, and the IPv6
-// translation and tunnelling prefixes that would carry a private IPv4
-// address.
-var nonPublic = []netip.Prefix{
-	netip.MustParsePrefix("0.0.0.0/8"),
-	netip.MustParsePrefix("100.64.0.0/10"),
-	netip.MustParsePrefix("192.0.0.0/24"),
-	netip.MustParsePrefix("192.0.2.0/24"),
-	netip.MustParsePrefix("192.88.99.0/24"),
-	netip.MustParsePrefix("198.18.0.0/15"),
-	netip.MustParsePrefix("198.51.100.0/24"),
-	netip.MustParsePrefix("203.0.113.0/24"),
-	netip.MustParsePrefix("240.0.0.0/4"),
-	netip.MustParsePrefix("64:ff9b::/96"),
-	netip.MustParsePrefix("64:ff9b:1::/48"),
-	netip.MustParsePrefix("2001::/32"),
-	netip.MustParsePrefix("2001:db8::/32"),
-	netip.MustParsePrefix("2002::/16"),
 }
 
 // unavailable is the 503 of an issuer whose document or keys cannot be had.

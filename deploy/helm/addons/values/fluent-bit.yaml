@@ -1,0 +1,126 @@
+# The cell's container logs (ADR-0043, T54g): Fluent Bit on every node
+# tails each container's stdout and ships it to the cell's log group in
+# CloudWatch Logs, through the logs VPC endpoint (private DNS answers the
+# regional name), as its own IRSA role, which may write that group's
+# streams and nothing else (irsa.tf logging). Terraform makes the group,
+# keeps it 90 days and encrypts it with the cluster key (logs.tf); Fluent
+# Bit creates no group and sets no retention.
+#
+# The server's JSON lines are parsed into fields (Merge_Log), so a request
+# line's tenant_id and principal_id are fields of the event, searchable in
+# Logs Insights. Fluent Bit makes no metrics of them: no log_to_metrics
+# filter, and the only metrics it serves are its own (scripts/helm-checks.sh
+# refuses either).
+#
+# The environment sets, from Terraform's outputs (cell.json
+# addons.fluent-bit):
+#   erp.region                   the cell's region
+#   erp.logGroup                 cell.container_log_group
+#   erp.kubeURL                  cell.cluster_endpoint (the private
+#                                endpoint, in the VPC: its namespace's
+#                                policy admits no Service address)
+#   serviceAccount.annotations   eks.amazonaws.com/role-arn:
+#                                cell.workload_role_arns.logging
+# Its namespace's traffic is erp-cluster's (logging-network-policy.yaml):
+# no ingress, DNS and 443 in the VPC only.
+# Sized per node: 50m and 64 MiB requested, at most 128 MiB.
+fullnameOverride: erp-logging
+testFramework:
+  enabled: false
+serviceAccount:
+  create: true
+  name: erp-logging
+rbac:
+  create: true
+resources:
+  requests: {cpu: 50m, memory: 64Mi}
+  limits: {memory: 128Mi}
+# Every node, the tainted ones too: a node's logs are lost otherwise.
+tolerations:
+  - operator: Exists
+priorityClassName: system-node-critical
+podSecurityContext:
+  seccompProfile: {type: RuntimeDefault}
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+erp:
+  region: ""
+  logGroup: ""
+  kubeURL: ""
+
+# Containerd's logs only (EKS runs no Docker): the docker hostPath of the
+# chart's defaults is left out.
+daemonSetVolumes:
+  - name: varlog
+    hostPath:
+      path: /var/log
+  - name: state
+    hostPath:
+      path: /var/lib/erp-logging
+      type: DirectoryOrCreate
+daemonSetVolumeMounts:
+  - name: varlog
+    mountPath: /var/log
+    readOnly: true
+  - name: state
+    mountPath: /var/lib/erp-logging
+
+config:
+  service: |
+    [SERVICE]
+        Daemon Off
+        Flush {{ .Values.flush }}
+        Log_Level {{ .Values.logLevel }}
+        Parsers_File /fluent-bit/etc/parsers.conf
+        Parsers_File /fluent-bit/etc/conf/custom_parsers.conf
+        HTTP_Server On
+        HTTP_Listen 0.0.0.0
+        HTTP_Port {{ .Values.metricsPort }}
+        Health_Check On
+        storage.path /var/lib/erp-logging/buffer
+        storage.sync normal
+  # Positions in a database on the node, so a restarted Pod resumes where
+  # it stopped rather than sending again; chunks buffered on disk while
+  # CloudWatch is unreachable.
+  inputs: |
+    [INPUT]
+        Name tail
+        Path /var/log/containers/*.log
+        # Not its own lines: a failing output would log about each retry
+        # and ship that too.
+        Exclude_Path /var/log/containers/erp-logging-*_logging_*.log
+        multiline.parser cri
+        Tag kube.*
+        DB /var/lib/erp-logging/tail.db
+        Mem_Buf_Limit 16MB
+        storage.type filesystem
+        Skip_Long_Lines On
+        Refresh_Interval 10
+  filters: |
+    [FILTER]
+        Name kubernetes
+        Match kube.*
+        Kube_URL {{ required "erp.kubeURL is required: cell.cluster_endpoint" .Values.erp.kubeURL }}
+        Merge_Log On
+        Keep_Log Off
+        Annotations Off
+        K8S-Logging.Parser Off
+        K8S-Logging.Exclude Off
+  outputs: |
+    [OUTPUT]
+        Name cloudwatch_logs
+        Match kube.*
+        region {{ required "erp.region is required" .Values.erp.region }}
+        log_group_name {{ required "erp.logGroup is required: cell.container_log_group" .Values.erp.logGroup }}
+        log_stream_prefix container.
+        auto_create_group Off
+        sts_endpoint https://sts.{{ .Values.erp.region }}.amazonaws.com
+        workers 1
+        # Kept and retried while CloudWatch is unreachable, up to 1 GiB of
+        # the node's disk; past it the oldest chunks are dropped.
+        Retry_Limit no_limits
+        storage.total_limit_size 1G

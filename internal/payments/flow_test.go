@@ -90,15 +90,15 @@ func TestProposeReleaseTransmit(t *testing.T) {
 		// The bank's status report: acknowledged, once; a rejection no longer applies.
 		report := "/v1/bank-files/" + id(file) + ":report"
 		e.Problem(412, "request.version_mismatch", "POST", report, `{"outcome": "accepted"}`, `"1"`)
-		e.Problem(400, "request.invalid_body", "POST", report, `{}`, `"2"`)
-		e.Problem(422, "payments.invalid_outcome", "POST", report, `{"outcome": "lost"}`, `"2"`)
-		e.Problem(422, "payments.reason_required", "POST", report, `{"outcome": "rejected"}`, `"2"`)
-		acked, tag := e.Must(200, "POST", report, `{"outcome": "accepted", "reference": "pain.002-0001"}`, `"2"`)
+		e.Problem(400, "request.invalid_body", "POST", report, `{}`, `"4"`)
+		e.Problem(422, "payments.invalid_outcome", "POST", report, `{"outcome": "lost"}`, `"4"`)
+		e.Problem(422, "payments.reason_required", "POST", report, `{"outcome": "rejected"}`, `"4"`)
+		acked, tag := e.Must(200, "POST", report, `{"outcome": "accepted", "reference": "pain.002-0001"}`, `"4"`)
 		if acked["status"] != "acknowledged" {
 			t.Errorf("acknowledged status: got %v, want acknowledged", acked["status"])
 		}
-		if tag != `"3"` {
-			t.Errorf("acknowledged etag: got %s, want \"3\"", tag)
+		if tag != `"5"` {
+			t.Errorf("acknowledged etag: got %s, want \"5\"", tag)
 		}
 		ev := events(t, e.Tenant, "bank_file_acknowledged")
 		if len(ev) != 1 {
@@ -113,8 +113,8 @@ func TestProposeReleaseTransmit(t *testing.T) {
 		if ev[0]["report_reference"] != "pain.002-0001" {
 			t.Errorf("acknowledged event report reference: got %v, want pain.002-0001", ev[0]["report_reference"])
 		}
-		e.Problem(409, "payments.invalid_status", "POST", report, `{"outcome": "accepted"}`, `"3"`)
-		e.Problem(409, "payments.invalid_status", "POST", report, `{"outcome": "rejected", "reason": "AC01"}`, `"3"`)
+		e.Problem(409, "payments.invalid_status", "POST", report, `{"outcome": "accepted"}`, `"5"`)
+		e.Problem(409, "payments.invalid_status", "POST", report, `{"outcome": "rejected", "reason": "AC01"}`, `"5"`)
 		e.Problem(404, "request.not_found", "POST", "/v1/bank-files/0192a000-0000-7000-8000-00000000dead:report", `{"outcome": "rejected", "reason": "AC01"}`, "*")
 	})
 }
@@ -278,7 +278,11 @@ func checkTransmit(t *testing.T, e env, run map[string]any) map[string]any {
 	if created[0]["bank_file_id"] != file["id"] {
 		t.Errorf("bank file created event: got %v, want %v", created[0]["bank_file_id"], file["id"])
 	}
-	sent, _ := e.Must(202, "POST", "/v1/bank-files/"+id(file)+":transmit", "", `"1"`)
+	asked := e.transmit(t, id(file), `"1"`)
+	if asked["status"] != "queued" {
+		t.Errorf("transmit status as asked for: got %v, want queued", asked["status"])
+	}
+	sent, _ := e.Must(200, "GET", "/v1/operations/"+id(asked), "", "")
 	if sent["status"] != "succeeded" {
 		t.Errorf("transmit status: got %v, want succeeded", sent["status"])
 	}
@@ -305,7 +309,10 @@ func checkTransmit(t *testing.T, e env, run map[string]any) map[string]any {
 	if ev := events(t, e.Tenant, "bank_file_transmitted"); len(ev) != 1 || ev[0]["sha256"] != created[0]["sha256"] {
 		t.Fatalf("transmitted events: %v", ev)
 	}
-	e.Problem(409, "payments.invalid_status", "POST", "/v1/bank-files/"+id(file)+":transmit", "", `"2"`)
+	if ev := events(t, e.Tenant, "bank_file_transmitted"); ev[0]["connector_id"] != nil {
+		t.Errorf("transmitted event connector: got %v, want none (the server's directory)", ev[0]["connector_id"])
+	}
+	e.Problem(409, "payments.invalid_status", "POST", "/v1/bank-files/"+id(file)+":transmit", "", `"4"`)
 	return file
 }
 

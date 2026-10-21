@@ -1,0 +1,34 @@
+# The logs add-on's traffic (ADR-0043, T54g), default deny: the fluent-bit
+# chart's own policy admits ingress only, so its namespace's policy lives
+# here. Fluent Bit takes no connections (nothing scrapes it: its metrics
+# are its own and no ServiceMonitor is made; kubelet's probes come from
+# the node's address, which the VPC CNI's policy agent admits). It
+# resolves names through the cluster's DNS and reaches, on 443 in the VPC
+# alone, the logs and STS endpoints (private DNS answers their regional
+# names) and the cluster's private API endpoint, which its kubernetes
+# filter reads Pod metadata from (Kube_URL,
+# erp.kubeURL: the kubernetes Service's address is outside the VPC CIDR
+# and an ipBlock rule does not admit it).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: erp-logging
+  namespace: {{ required "loggingNamespace is required" .Values.loggingNamespace }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock: {cidr: {{ required "vpcCidr is required: cell.cidr" .Values.vpcCidr | quote }}}
+      ports:
+        - {protocol: TCP, port: 443}

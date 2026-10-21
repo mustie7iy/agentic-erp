@@ -52,7 +52,7 @@ func (f fixture) parallelLedger(tx pgx.Tx, assign bool) (local, g1 uuid.UUID, er
 	return local, g1, all(tx, steps...)
 }
 
-// Posting groups (T52b, migrations 000092-000095): an entry goes to a
+// Posting groups (T52b, migrations 000128-000131): an entry goes to a
 // ledger its company keeps (the leading one before it is assigned any), a
 // member of the ledger group it names, and a copy repeats its posting
 // group's first entry in another ledger, under the same document number,

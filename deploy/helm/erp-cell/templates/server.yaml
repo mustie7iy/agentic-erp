@@ -2,8 +2,8 @@
 # certificate's identity over TLS 1.3 (ADR-0033): the API serves the
 # router alone, /control the global plane. It reaches AWS as its IRSA role
 # through the VPC endpoints' regional names, the database through
-# PgBouncer, the bus and the workflow engine as its certificate's
-# identity, and reads its secrets as files.
+# PgBouncer, the bus, the workflow engine and erp-analytics as its
+# certificate's identity, and reads its secrets as files.
 {{- $endpoints := .Values.server.awsEndpoints }}
 apiVersion: v1
 kind: ServiceAccount
@@ -92,6 +92,13 @@ spec:
             - {name: ERP_TEMPORAL_SERVER_NAME, value: {{ printf "erp-temporal.%s.svc" .Release.Namespace | quote }}}
             - {name: ERP_TEMPORAL_NAMESPACE, value: {{ .Values.temporal.namespace | quote }}}
             - {name: ERP_TEMPORAL_CODEC_KEY, value: file:/etc/erp/secrets/temporal-codec-key}
+            # Every request's spans to the cell's collector, which keeps 5%
+            # and every failed one for X-Ray (ADR-0043).
+            - {name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT, value: {{ required "server.otlpEndpoint is required" .Values.server.otlpEndpoint | quote }}}
+            - {name: OTEL_SERVICE_NAME, value: erp-server}
+            # The analytical store's reader over mTLS, as its SPIFFE
+            # identity (analytics.yaml, ADR-0044).
+            - {name: ERP_ANALYTICS_URL, value: {{ printf "https://erp-analytics.%s.svc:8443" .Release.Namespace | quote }}}
             {{- with .Values.directory.endpoint }}
             # The global directory over verified TLS as its master user,
             # whose rotating password is read again for each connection;

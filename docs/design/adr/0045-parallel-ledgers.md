@@ -133,7 +133,7 @@ postings by agents are propose-only.
 **Migrations are expand-only.** New tables and nullable columns; unique
 indexes built concurrently per partition and attached (the runner's
 `migrate:partitioned-index`, T52b). T52e's contract step is empty: the
-old document number constraint is dropped in T52b (000095), not in T52e as
+old document number constraint is dropped in T52b (000131), not in T52e as
 first planned, and nothing else of the expand is contracted
 (`posting_group_id` stays nullable: entries posted before T52b have
 none). The constraint went early because it would refuse every copy, and the previous release never relies on it (numbers come from

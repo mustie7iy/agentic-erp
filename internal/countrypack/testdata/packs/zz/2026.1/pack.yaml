@@ -1,0 +1,11 @@
+country: ZZ
+version: "2026.1"
+name: Testland
+valid_from: 2026-01-01
+sources:
+  - title: Testland Value Added Tax Act
+    url: https://example.org/vat-act
+    retrieved: 2026-09-01
+sign_off:
+  tax_specialist: A. Specialist, Example Tax LLP
+  date: 2026-10-01

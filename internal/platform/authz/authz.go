@@ -1,7 +1,8 @@
 // Package authz authorizes every operation against the contract: the
-// operation's x-permission must be among the principal's current
-// permissions, operations marked x-agent: false refuse agents and services,
-// an agent acts within its autonomy level (ADR-0036),
+// operation's x-permission (or its entity's, x-entity-permissions) must be
+// among the principal's current permissions, operations marked
+// x-agent: false refuse agents and services, an agent acts within its
+// autonomy level (ADR-0036),
 // and a principal whose permissions break a segregation-of-duties rule may
 // not use either permission of the rule (ADR-0010). Company access depends
 // on the resource and is checked by the handler with Companies.
@@ -74,6 +75,14 @@ func Require(ctx context.Context, permission string) error {
 // Authorize checks the operation's agent rule, permission and the
 // segregation-of-duties rules that involve the permission.
 func (a *Authorizer) Authorize(ctx context.Context, operationID string) error {
+	return a.AuthorizeEntity(ctx, operationID, "")
+}
+
+// AuthorizeEntity is Authorize for an operation whose permission depends on
+// its {entity} path parameter (x-entity-permissions): the permission is the
+// entity's, and an entity the operation does not list is 404, as nothing is
+// served for it. entity is ignored by an operation with x-permission.
+func (a *Authorizer) AuthorizeEntity(ctx context.Context, operationID, entity string) error {
 	op, ok := a.ops[operationID]
 	if !ok {
 		return fmt.Errorf("authz: operation %q is not in the contract", operationID)
@@ -91,14 +100,20 @@ func (a *Authorizer) Authorize(ctx context.Context, operationID string) error {
 			return err
 		}
 	}
+	permission := op.Permission
+	if op.EntityPermissions != nil {
+		if permission = op.EntityPermissions[entity]; permission == "" {
+			return problem.NotFound("Nothing is served for this entity.")
+		}
+	}
 	set, err := Permissions(ctx)
 	if err != nil {
 		return err
 	}
-	if !set[op.Permission] {
-		return problem.Forbidden("identity.permission_missing", "This action requires the permission "+op.Permission+".")
+	if !set[permission] {
+		return problem.Forbidden("identity.permission_missing", "This action requires the permission "+permission+".")
 	}
-	return checkSoD(ctx, tx, op.Permission, set)
+	return checkSoD(ctx, tx, permission, set)
 }
 
 // withinAutonomy refuses an agent an operation above its autonomy level,

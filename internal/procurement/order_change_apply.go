@@ -130,12 +130,16 @@ func (e *Endpoints) apply(ctx context.Context, tx pgx.Tx, p reqctx.Principal, o 
 	if err != nil {
 		return PurchaseOrderChange{}, err
 	}
+	payload := orderEvent(changed, map[string]any{"change_id": ch.ID, "revision": changed.Revision,
+		"reason": ch.Reason, "order_date": changed.OrderDate.Format(time.DateOnly), "payment_term_code": changed.PaymentTermCode,
+		"contract_id": changed.ContractID, "total_before": money.EventAmount(ch.TotalBefore, o.Currency, o.Exponent),
+		"total_after": money.EventAmount(ch.TotalAfter, o.Currency, o.Exponent), "items": releasedItems(changed)})
+	if err := e.extensions().Event(ctx, payload, changed.Extensions, changed.ExtensionsSchema); err != nil {
+		return PurchaseOrderChange{}, err
+	}
 	return applied, audit.Record(ctx, "procurement.purchase_order_change.apply", "procurement.purchase_order_change", ch.ID,
 		map[string]any{"purchase_order_id": o.ID, "revision": changed.Revision, "total_before": ch.TotalBefore, "total_after": ch.TotalAfter},
-		event("purchase_order_changed", "purchase_order", o.ID, orderEvent(changed, map[string]any{"change_id": ch.ID, "revision": changed.Revision,
-			"reason": ch.Reason, "order_date": changed.OrderDate.Format(time.DateOnly), "payment_term_code": changed.PaymentTermCode,
-			"contract_id": changed.ContractID, "total_before": money.EventAmount(ch.TotalBefore, o.Currency, o.Exponent),
-			"total_after": money.EventAmount(ch.TotalAfter, o.Currency, o.Exponent), "items": releasedItems(changed)})))
+		event("purchase_order_changed", "purchase_order", o.ID, payload))
 }
 
 // writeChange makes the order read as the change proposes.
@@ -152,9 +156,11 @@ func writeChange(ctx context.Context, tx pgx.Tx, p reqctx.Principal, o PurchaseO
 		updated_by = $4 WHERE id = $1`, ch.ID, o.Revision+1, previous, p.ID); err != nil {
 		return fmt.Errorf("procurement: apply order change %s: %w", ch.ID, err)
 	}
+	// coalesce: a change proposed before T58c carries no schema version and
+	// keeps the order's; schemas are never removed, so no other proposal has none.
 	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order SET applying_change_id = NULL, revision = revision + 1, order_date = $2,
-		payment_term_code = $3, extensions = $4, version = version + 1, updated_by = $5 WHERE id = $1`,
-		o.ID, ch.Proposed.OrderDate, ch.Proposed.PaymentTermCode, ch.Proposed.Extensions, p.ID); err != nil {
+		payment_term_code = $3, extensions = $4, extensions_schema = coalesce($6, extensions_schema), version = version + 1, updated_by = $5 WHERE id = $1`,
+		o.ID, ch.Proposed.OrderDate, ch.Proposed.PaymentTermCode, ch.Proposed.Extensions, p.ID, ch.Proposed.ExtensionsSchema); err != nil {
 		return fmt.Errorf("procurement: apply order change %s to purchase order %s: %w", ch.ID, o.ID, err)
 	}
 	return nil

@@ -99,7 +99,7 @@ func TestCreditMemosAndSubsequentDebitsPost(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := sim.Detail["invoices"]; got != 6 {
+		if got := sim.Invoices; got != 6 {
 			t.Errorf("simulated documents: got %v, want every kind's 6", got)
 		}
 	})

@@ -1,0 +1,242 @@
+# promtool's unit tests of erp.rules.yaml (scripts/helm-checks.sh, T54e).
+rule_files: [erp.rules.yaml]
+evaluation_interval: 1m
+tests:
+  # Availability: a 5xx and a 429 count against it, a 404 neither way.
+  # Errors are 0.5% of the requests that count, a 10x burn: the 6x page
+  # and the 3x ticket fire, the 14.4x does not.
+  - interval: 1m
+    input_series:
+      - series: 'erp_http_requests_total{operation="getJournalEntry",code="200"}'
+        values: '0+995x120'
+      - series: 'erp_http_requests_total{operation="getJournalEntry",code="500"}'
+        values: '0+3x120'
+      - series: 'erp_http_requests_total{operation="getJournalEntry",code="429"}'
+        values: '0+2x120'
+      - series: 'erp_http_requests_total{operation="getJournalEntry",code="404"}'
+        values: '0+50000x120'
+    # In millionths: a ratio of rates is not exact to the last bit.
+    promql_expr_test:
+      - expr: round(1e6 * erp:http_availability_errors:ratio_rate5m)
+        eval_time: 60m
+        exp_samples:
+          - value: 5000
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: ErpAvailabilityBudgetBurnFast
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations:
+              summary: "The API's errors burn the month's 99.95% availability budget at 6x or more: it lasts days at this rate."
+      - eval_time: 90m
+        alertname: ErpAvailabilityBudgetBurnSlow
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations:
+              summary: "The API's errors burn the month's 99.95% availability budget at 1x or more: it runs out before the month ends."
+  # Only 4xx other than 429: nothing failed, nothing fires.
+  - interval: 1m
+    input_series:
+      - series: 'erp_http_requests_total{operation="getJournalEntry",code="200"}'
+        values: '0+10x120'
+      - series: 'erp_http_requests_total{operation="getJournalEntry",code="422"}'
+        values: '0+1000x120'
+    promql_expr_test:
+      - expr: erp:http_availability_errors:ratio_rate1h
+        eval_time: 90m
+        exp_samples:
+          - labels: 'erp:http_availability_errors:ratio_rate1h'
+            value: 0
+      # No request at all: no ratio.
+      - expr: erp:http_availability_errors:ratio_rate5m
+        eval_time: 200m
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: ErpAvailabilityBudgetBurnFast
+      - eval_time: 90m
+        alertname: ErpAvailabilityBudgetBurnSlow
+  # Latency per class, joined on erp_operation_info, which both replicas
+  # export: half the reads over 50 ms (a 10x burn), every list within
+  # 150 ms, 1% of reports over 1 s ("1.0" as Prometheus 3 stores it).
+  - interval: 1m
+    input_series:
+      - series: 'erp_operation_info{operation="getJournalEntry",class="read",pod="a"}'
+        values: '1x120'
+      - series: 'erp_operation_info{operation="getJournalEntry",class="read",pod="b"}'
+        values: '1x120'
+      - series: 'erp_operation_info{operation="listJournalEntries",class="list",pod="a"}'
+        values: '1x120'
+      - series: 'erp_operation_info{operation="getTrialBalance",class="report",pod="a"}'
+        values: '1x120'
+      - series: 'erp_http_request_duration_seconds_bucket{operation="getJournalEntry",le="0.05",pod="a"}'
+        values: '0+25x120'
+      - series: 'erp_http_request_duration_seconds_bucket{operation="getJournalEntry",le="0.05",pod="b"}'
+        values: '0+25x120'
+      - series: 'erp_http_request_duration_seconds_count{operation="getJournalEntry",pod="a"}'
+        values: '0+50x120'
+      - series: 'erp_http_request_duration_seconds_count{operation="getJournalEntry",pod="b"}'
+        values: '0+50x120'
+      - series: 'erp_http_request_duration_seconds_bucket{operation="listJournalEntries",le="0.15",pod="a"}'
+        values: '0+100x120'
+      - series: 'erp_http_request_duration_seconds_count{operation="listJournalEntries",pod="a"}'
+        values: '0+100x120'
+      - series: 'erp_http_request_duration_seconds_bucket{operation="getTrialBalance",le="1.0",pod="a"}'
+        values: '0+99x120'
+      - series: 'erp_http_request_duration_seconds_count{operation="getTrialBalance",pod="a"}'
+        values: '0+100x120'
+    # In millionths: a ratio of rates is not exact to the last bit.
+    promql_expr_test:
+      - expr: round(1e6 * erp:http_latency_slow:ratio_rate5m)
+        eval_time: 60m
+        exp_samples:
+          - labels: '{class="read"}'
+            value: 500000
+          - labels: '{class="list"}'
+            value: 0
+          - labels: '{class="report"}'
+            value: 10000
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: ErpLatencyBudgetBurnFast
+        exp_alerts:
+          - exp_labels: {class: read, severity: page}
+            exp_annotations:
+              summary: "Requests of class read over their p95 objective burn its 5% budget at 6x or more."
+      - eval_time: 90m
+        alertname: ErpLatencyBudgetBurnSlow
+        exp_alerts:
+          - exp_labels: {class: read, severity: ticket}
+            exp_annotations:
+              summary: "Requests of class read over their p95 objective burn its 5% budget at 1x or more."
+  # Symptoms on a minute's scale.
+  - interval: 1m
+    input_series:
+      - series: erp_outbox_lag_seconds
+        values: '0+60x30'
+      - series: erp_projection_lag_seconds
+        values: '0+60x40'
+      - series: erp_audit_chains_tampered
+        values: '0 0 1x30'
+      - series: erp_payment_runs_failed_recent
+        values: '0 2x30'
+      - series: 'erp_gauge_read_errors_total{gauge="erp_outbox_lag_seconds"}'
+        values: '0+1x30'
+    alert_rule_test:
+      # Over 300 s from 6 minutes, held for 10: pending at 10, firing at 17.
+      - eval_time: 10m
+        alertname: ErpOutboxLagging
+      - eval_time: 17m
+        alertname: ErpOutboxLagging
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations:
+              summary: "The oldest event waiting in the outbox is 17m 0s old: the relay is not publishing."
+      - eval_time: 20m
+        alertname: ErpProjectorLagging
+      - eval_time: 31m
+        alertname: ErpProjectorLagging
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations:
+              summary: "The balance projector is 31m 0s behind the journal."
+      # Tampering pages at once.
+      - eval_time: 1m
+        alertname: ErpAuditChainTampered
+      - eval_time: 2m
+        alertname: ErpAuditChainTampered
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations:
+              summary: "1 tenants' audit chains failed verification."
+      - eval_time: 1m
+        alertname: ErpPaymentRunFailed
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations:
+              summary: "2 payment runs failed in the last 24 hours: their suppliers are not paid."
+      - eval_time: 20m
+        alertname: ErpGaugeReadFailing
+        exp_alerts:
+          - exp_labels: {gauge: erp_outbox_lag_seconds, severity: ticket}
+            exp_annotations:
+              summary: "erp_outbox_lag_seconds cannot be read: its alerts are blind."
+      # No erp_operation_info: no server is scraped.
+      - eval_time: 5m
+        alertname: ErpMetricsAbsent
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations:
+              summary: "No erp-server is scraped: the cell's SLOs and alerts see nothing."
+      - eval_time: 0m
+        alertname: ErpWatchdog
+        exp_alerts:
+          - exp_labels: {severity: heartbeat}
+            exp_annotations:
+              summary: "Always firing while the cell's alerting works."
+  # The server scraped: no absence alert.
+  - interval: 1m
+    input_series:
+      - series: 'erp_operation_info{operation="getJournalEntry",class="read"}'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ErpMetricsAbsent
+  # Symptoms on an hour's scale, and the override rate.
+  - interval: 1h
+    input_series:
+      - series: erp_bank_files_unacknowledged_age_seconds
+        values: '0+3600x40'
+      - series: 'erp_agent_proposals_decided_total{agent_kind="ap_clerk",decision="approved"}'
+        values: '0+6x40'
+      - series: 'erp_agent_proposals_decided_total{agent_kind="ap_clerk",decision="rejected"}'
+        values: '0+1x40'
+      - series: 'erp_agent_proposals_decided_total{agent_kind="ap_clerk",decision="modified"}'
+        values: '0+1x40'
+    promql_expr_test:
+      - expr: erp:agent_override_rate:ratio_rate1d
+        eval_time: 30h
+        exp_samples:
+          - labels: 'erp:agent_override_rate:ratio_rate1d{agent_kind="ap_clerk"}'
+            value: 0.25
+    alert_rule_test:
+      - eval_time: 24h
+        alertname: ErpBankFileNotAcknowledged
+      - eval_time: 25h
+        alertname: ErpBankFileNotAcknowledged
+        exp_alerts:
+          - exp_labels: {severity: ticket}
+            exp_annotations:
+              summary: "A bank file transmitted 1d 1h 0m 0s ago has no acknowledgement."
+  # Maintenance stopped: 4 audit months from the first minute (ticket
+  # after 12 hours), 1 ledger year from the 20th hour (page at once, both
+  # horizons alerted on).
+  - interval: 1m
+    input_series:
+      - series: erp_partition_horizon_audit_months
+        values: '6 4x60 3x1440'
+      - series: erp_partition_horizon_ledger_years
+        values: '3x1199 1x300'
+    alert_rule_test:
+      - eval_time: 12h
+        alertname: ErpPartitionHorizonShort
+      - eval_time: 14h
+        alertname: ErpPartitionHorizonNearReadiness
+        exp_alerts:
+          - exp_labels: {horizon: audit months, severity: page}
+            exp_annotations:
+              summary: "3 audit months of partitions ahead: readiness fails below 3 audit months or 2 ledger years."
+      - eval_time: 14h
+        alertname: ErpPartitionHorizonShort
+        exp_alerts:
+          - exp_labels: {horizon: audit months, severity: ticket}
+            exp_annotations:
+              summary: "3 audit months of partitions ahead: partition maintenance has not run."
+      - eval_time: 20h
+        alertname: ErpPartitionHorizonNearReadiness
+        exp_alerts:
+          - exp_labels: {horizon: audit months, severity: page}
+            exp_annotations:
+              summary: "3 audit months of partitions ahead: readiness fails below 3 audit months or 2 ledger years."
+          - exp_labels: {horizon: ledger years, severity: page}
+            exp_annotations:
+              summary: "1 ledger years of partitions ahead: readiness fails below 3 audit months or 2 ledger years."

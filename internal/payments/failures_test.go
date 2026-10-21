@@ -121,7 +121,7 @@ func (s *failureRuns) released(t *testing.T, e env) {
 		e.release(t, r, "")
 		fs, _ := e.Must(200, "GET", "/v1/bank-files?payment_run_id="+id(r), "", "")
 		f := id(fs["items"].([]any)[0].(map[string]any))
-		e.Must(202, "POST", "/v1/bank-files/"+f+":transmit", "", `"1"`)
+		e.transmit(t, f, `"1"`)
 		return uuidOf(f)
 	}
 	s.toAck, s.toReject = transmitted("BP90000004", "INV-4"), transmitted("BP90000005", "INV-5")
@@ -242,7 +242,7 @@ func failureCalls(t *testing.T, e env, h *payments.Endpoints, s *failureRuns) (c
 	t.Helper()
 	calls = map[string]func(ctx context.Context) error{
 		"propose": func(ctx context.Context) error {
-			_, err := h.ProposePaymentRun(ctx, &gen.PaymentRunPropose{LegalEntityID: e.DE, HouseBankID: e.bank, RunDate: date("2026-04-20"),
+			_, err := h.ProposePaymentRun(ctx, &gen.PaymentRunPropose{LegalEntityID: e.DE, HouseBankID: gen.NewOptUUID(e.bank), RunDate: date("2026-04-20"),
 				DueBy: date("2026-04-20")}, gen.ProposePaymentRunParams{})
 			return err
 		},
@@ -379,7 +379,12 @@ func fileAndPortCalls(t *testing.T, e env, h *payments.Endpoints, s *failureRuns
 			_, err := houseBanks().Check(ctx, nil, fixture.Document(t))
 			return err
 		},
-		"apply house banks": func(ctx context.Context) error { return houseBanks().Apply(ctx, fixture.Document(t)) },
+		"apply house banks":     func(ctx context.Context) error { return houseBanks().Apply(ctx, fixture.Document(t)) },
+		"apply payment methods": func(ctx context.Context) error { return paymentMethods().Apply(ctx, fixture.Document(t)) },
+		"is payment method": func(ctx context.Context) error {
+			_, err := paymentMethods().IsPaymentMethod(ctx, e.DE, "T")
+			return err
+		},
 		"payees": func(ctx context.Context) error {
 			_, err := partner.Payees{Keys: apitest.FieldKeys()}.Payees(ctx, e.DE, []uuid.UUID{e.Supplier}, date("2026-04-15"))
 			return err
@@ -424,7 +429,7 @@ func refusalCalls(e env, h *payments.Endpoints, run uuid.UUID) map[string]func(c
 			return err
 		},
 		"propose unknown": func(ctx context.Context) error {
-			_, err := h.ProposePaymentRun(ctx, &gen.PaymentRunPropose{LegalEntityID: uuid.New(), HouseBankID: e.bank}, gen.ProposePaymentRunParams{})
+			_, err := h.ProposePaymentRun(ctx, &gen.PaymentRunPropose{LegalEntityID: uuid.New(), HouseBankID: gen.NewOptUUID(e.bank)}, gen.ProposePaymentRunParams{})
 			return err
 		},
 		"release mismatch": func(ctx context.Context) error {

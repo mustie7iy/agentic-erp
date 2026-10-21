@@ -26,9 +26,15 @@ const (
 	MinLedgerYears = 2
 )
 
+// Querier is what Horizon reads through: a connection for readiness, a
+// read-only transaction for the horizon gauges (ADR-0043).
+type Querier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 // Horizon counts the future partitions: audit months after the current
 // month and journal years after the current year.
-func Horizon(ctx context.Context, conn *pgx.Conn, now time.Time) (auditMonths, ledgerYears int, err error) {
+func Horizon(ctx context.Context, conn Querier, now time.Time) (auditMonths, ledgerYears int, err error) {
 	month := now.UTC().Format("200601")
 	year := fmt.Sprint(now.UTC().Year())
 	err = conn.QueryRow(ctx, `SELECT

@@ -49,8 +49,15 @@ func TestApplyOrderChange(t *testing.T) {
 	before := len(events(t, e, "purchase_order_changed"))
 	cpath, tag := e.draftChange(t, path, items(item(e.office, "8", "EA", "2.50", "EUR", ""), item(e.office, "2", "EA", "1.00", "EUR", "")))
 	e.Must(200, "PATCH", cpath, `{"order_date": "2026-03-20"}`, tag)
+	// The schema version the change was checked against is applied with it.
+	pgtest.Unguarded(t, `UPDATE procurement.purchase_order SET extensions_schema = NULL WHERE id = $1`, path[len("/v1/purchase-orders/"):])
 	ch, _ := e.Must(200, "POST", cpath+":submit", "", `"2"`)
 	want(t, "change lowering the total", ch, map[string]any{"status": "applied", "revision": float64(2), "approval_request_id": nil})
+	var schema *int
+	pgtest.Scan(t, `SELECT extensions_schema FROM procurement.purchase_order WHERE id = $1`, []any{path[len("/v1/purchase-orders/"):]}, &schema)
+	if schema == nil || *schema != 1 {
+		t.Errorf("applied change's extensions schema: got %v, want 1", schema)
+	}
 	order, _ := e.Must(200, "GET", path, "", "")
 	want(t, "changed order", order, map[string]any{"revision": float64(2), "order_date": "2026-03-20", "status": "released"})
 	want(t, "changed total", order["total_amount"].(map[string]any), map[string]any{"amount": "22.00"})

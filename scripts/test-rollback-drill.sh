@@ -71,7 +71,7 @@ release() {
   local d c
   d="$(printf "%064d" 0 | tr 0 "$2")" c="$(printf "%040d" 0 | tr 0 "$2")"
   printf '{"release": {"version": "%s", "commit": "%s"}, "images": {' "$1" "$c"
-  for i in server router pgbouncer nats; do
+  for i in server router pgbouncer nats analytics; do
     printf '"%s": {"repository": "r.example/erp-%s", "digest": "sha256:%s"}, ' "$i" "$i" "$d"
   done
   printf '"temporal": {"repository": "r.example/erp-temporal", "digest": "sha256:%s"}}}\n' "$d"

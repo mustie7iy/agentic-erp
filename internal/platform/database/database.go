@@ -26,6 +26,10 @@ type Scope struct {
 	TenantID uuid.UUID
 	// ReadOnly starts a read-only transaction.
 	ReadOnly bool
+	// Isolation is the transaction's isolation level; empty keeps the
+	// server's default (READ COMMITTED). An extract that reads several
+	// tables as of one database state asks for REPEATABLE READ (ADR-0044).
+	Isolation pgx.TxIsoLevel
 }
 
 // Settings bound how long a transaction may wait or run, and how many
@@ -108,7 +112,7 @@ func (p *Pool) WithConn(ctx context.Context, fn func(*pgx.Conn) error) error {
 // Begin starts a transaction in the given scope. The caller commits or rolls
 // back.
 func (p *Pool) Begin(ctx context.Context, s Scope) (pgx.Tx, error) {
-	opts := pgx.TxOptions{}
+	opts := pgx.TxOptions{IsoLevel: s.Isolation}
 	if s.ReadOnly {
 		opts.AccessMode = pgx.ReadOnly
 	}

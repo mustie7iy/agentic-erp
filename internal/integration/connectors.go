@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
+	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-faster/jx"
@@ -21,6 +25,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/sftpclient"
 )
 
 func init() {
@@ -35,7 +40,10 @@ const (
 	SAPOData = "sap_odata"
 )
 
-var kinds = []string{SAPOData, SAPFile, "bank_sftp", "bank_ebics", "edi_as2", "email", "tax_engine", "ticketing"}
+// BankSFTP is the kind of a house bank's SFTP channel (ADR-0038).
+const BankSFTP = "bank_sftp"
+
+var kinds = []string{SAPOData, SAPFile, BankSFTP, BankEBICS, "edi_as2", "email", "tax_engine", "ticketing"}
 
 // Connector is a row of integration.connector.
 type Connector struct {
@@ -96,8 +104,91 @@ func checkSettings(kind string, settings map[string]any) error {
 		}
 	case SAPOData:
 		return checkODataSettings(settings)
+	case BankSFTP:
+		return checkSFTPSettings(settings)
+	case BankEBICS:
+		return checkEBICSSettings(settings)
 	}
 	return nil
+}
+
+// checkSFTPSettings validates a bank_sftp channel (ADR-0038): the server's
+// host and optional port, the account, the server's host key, pinned, and
+// the absolute directory the bank collects from. The client's private key
+// is the secret_ref's, required where the channel is resolved (T44b): there
+// is no password, and no other setting.
+func checkSFTPSettings(settings map[string]any) error {
+	_, err := sftpEndpoint(settings)
+	return err
+}
+
+// sftpEndpoint is the endpoint valid bank_sftp settings name, without the
+// client's key.
+func sftpEndpoint(settings map[string]any) (sftpclient.Endpoint, error) {
+	for k := range settings {
+		if !slices.Contains([]string{"host", "port", "user", "host_key", "directory", "statements_directory", "statements_archive"}, k) {
+			return sftpclient.Endpoint{}, invalid("integration.invalid_settings", "settings."+k, "Not a bank_sftp setting; credentials go in secret_ref.")
+		}
+	}
+	host, _ := settings["host"].(string) // not a string: "", refused below
+	user, _ := settings["user"].(string) // as host
+	for _, k := range []string{"host", "user"} {
+		if v := map[string]string{"host": host, "user": user}[k]; v == "" || strings.ContainsAny(v, ":@/ ") {
+			return sftpclient.Endpoint{}, invalid("integration.invalid_settings", "settings."+k, "The SFTP server's "+k+", without port, path or spaces.")
+		}
+	}
+	port, err := sftpPort(settings)
+	if err != nil {
+		return sftpclient.Endpoint{}, err
+	}
+	line, _ := settings["host_key"].(string) // not a string: "", which ParseHostKey refuses
+	key, err := sftpclient.ParseHostKey(line)
+	if err != nil {
+		return sftpclient.Endpoint{}, invalid("integration.invalid_settings", "settings.host_key", "The SFTP server's public key in authorized_keys form, as the bank gave it.")
+	}
+	dir, _ := settings["directory"].(string) // not a string: "", which is not absolute
+	if !path.IsAbs(dir) {
+		return sftpclient.Endpoint{}, invalid("integration.invalid_settings", "settings.directory", "The absolute directory the bank collects files from.")
+	}
+	inbound, archive, err := statementDirs(settings)
+	if err != nil {
+		return sftpclient.Endpoint{}, err
+	}
+	return sftpclient.Endpoint{Addr: net.JoinHostPort(host, strconv.Itoa(port)), User: user, HostKey: key, Dir: dir, Inbound: inbound, Archive: archive}, nil
+}
+
+// statementDirs are the directories the bank leaves statements in and
+// they are moved to once imported (T49d, ADR-0047): both or neither, each
+// absolute, and not the same, so an archived file is never fetched again.
+func statementDirs(settings map[string]any) (inbound, archive string, err error) {
+	_, hasIn := settings["statements_directory"]
+	_, hasArchive := settings["statements_archive"]
+	if !hasIn && !hasArchive {
+		return "", "", nil
+	}
+	inbound, _ = settings["statements_directory"].(string) // not a string: "", which is not absolute
+	archive, _ = settings["statements_archive"].(string)   // as inbound
+	if !path.IsAbs(inbound) {
+		return "", "", invalid("integration.invalid_settings", "settings.statements_directory", "The absolute directory the bank leaves statements in, with statements_archive.")
+	}
+	if !path.IsAbs(archive) || path.Clean(archive) == path.Clean(inbound) {
+		return "", "", invalid("integration.invalid_settings", "settings.statements_archive",
+			"The absolute directory imported statements are moved to, not statements_directory.")
+	}
+	return path.Clean(inbound), path.Clean(archive), nil
+}
+
+// sftpPort is the settings' port, 22 when left out.
+func sftpPort(settings map[string]any) (int, error) {
+	n, ok := settings["port"]
+	if !ok {
+		return 22, nil
+	}
+	//nolint:forbidigo // encoding/json decodes every number in map[string]any as float64; a port is not an amount
+	if f, isNumber := n.(float64); isNumber && f >= 1 && f <= 65535 && f == float64(int(f)) {
+		return int(f), nil
+	}
+	return 0, invalid("integration.invalid_settings", "settings.port", "The SFTP server's port, from 1 to 65535; 22 when left out.")
 }
 
 // checkODataSettings validates the settings of a sap_odata source.
@@ -196,6 +287,22 @@ func UpdateConnector(ctx context.Context, id uuid.UUID, ifMatch func(int32) erro
 
 // SetConnectorStatus enables (active) or disables a connector.
 func SetConnectorStatus(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, status, reason string) (Connector, error) {
+	return setConnectorStatus(ctx, id, ifMatch, status, map[string]any{"reason": reason}, func(Connector) error { return nil })
+}
+
+// DisableByOperator disables a connector for an operator acting without the
+// API (erp-server disable-connector), whatever its version: the remedy when
+// a production cell refuses to start for an active bank_ebics connector
+// (ADR-0038), audited with the operator's name and reason like a disable
+// through the API, and published.
+func DisableByOperator(ctx context.Context, id uuid.UUID, operator, reason string) (Connector, error) {
+	return setConnectorStatus(ctx, id, func(int32) error { return nil }, "disabled", map[string]any{"reason": reason, "operator": operator},
+		func(Connector) error { return nil })
+}
+
+// setConnectorStatus sets the status once allow accepts the connector as
+// read, locked, and audits it with detail.
+func setConnectorStatus(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, status string, detail map[string]any, allow func(Connector) error) (Connector, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Connector{}, err
@@ -210,6 +317,9 @@ func SetConnectorStatus(ctx context.Context, id uuid.UUID, ifMatch func(int32) e
 	if c.Status == status {
 		return Connector{}, problem.Conflict("integration.invalid_status", "The connector is already "+status+".")
 	}
+	if err := allow(c); err != nil {
+		return Connector{}, err
+	}
 	updated, err := scanConnector(tx.QueryRow(ctx, `UPDATE integration.connector SET status = $2, version = version + 1, updated_by = $3
 		WHERE id = $1 RETURNING `+connectorColumns, id, status, p.ID))
 	if err != nil {
@@ -219,7 +329,7 @@ func SetConnectorStatus(ctx context.Context, id uuid.UUID, ifMatch func(int32) e
 	if status == "disabled" {
 		name, action = "connector_disabled", "integration.connector.disable"
 	}
-	return updated, record(ctx, action, id, map[string]any{"reason": reason}, statusEvent(updated, name, &c.Status))
+	return updated, record(ctx, action, id, detail, statusEvent(updated, name, &c.Status))
 }
 
 func fromSettings(raw map[string]jx.Raw) map[string]any {
@@ -250,6 +360,9 @@ func (e *Endpoints) CreateConnector(ctx context.Context, req *gen.ConnectorCreat
 	in := NewConnector{Kind: req.Kind, Name: req.Name, Settings: fromSettings(req.Settings)}
 	if s, ok := req.SecretRef.Get(); ok {
 		in.SecretRef = &s
+	}
+	if err := e.refuseEBICS(in.Kind); err != nil {
+		return nil, err
 	}
 	c, err := CreateConnector(ctx, in)
 	if err != nil {
@@ -319,7 +432,7 @@ func (e *Endpoints) UpdateConnector(ctx context.Context, req *gen.ConnectorUpdat
 
 // EnableConnector implements POST /v1/connectors/{id}:enable.
 func (e *Endpoints) EnableConnector(ctx context.Context, params gen.EnableConnectorParams) (gen.EnableConnectorRes, error) {
-	c, err := SetConnectorStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), "active", "")
+	c, err := setConnectorStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), "active", map[string]any{"reason": ""}, func(c Connector) error { return e.refuseEBICS(c.Kind) })
 	if err != nil {
 		return nil, err
 	}

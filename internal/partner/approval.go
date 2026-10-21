@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -17,7 +18,7 @@ type Opener interface {
 
 // RequestApproval opens the approval request of a pending change and links
 // it; a change the configuration needs no approval for is applied at once.
-func RequestApproval(ctx context.Context, opener Opener, c Change) (Change, error) {
+func RequestApproval(ctx context.Context, opener Opener, schemas extensions.Schemas, c Change) (Change, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Change{}, err
@@ -32,7 +33,7 @@ func RequestApproval(ctx context.Context, opener Opener, c Change) (Change, erro
 		return Change{}, err
 	}
 	if !needed {
-		return ApplyChange(ctx, c.ID)
+		return ApplyChange(ctx, schemas, c.ID)
 	}
 	linked, err := scanChange(tx.QueryRow(ctx, `UPDATE partner.partner_change SET workflow_request_id = $2, version = version + 1, updated_by = $3
 		WHERE id = $1 RETURNING `+changeColumns, c.ID, id, p.ID))
@@ -43,11 +44,13 @@ func RequestApproval(ctx context.Context, opener Opener, c Change) (Change, erro
 }
 
 // Approvals moves partner changes on when their approval requests complete.
-type Approvals struct{}
+type Approvals struct {
+	Schemas extensions.Schemas // mask the custom fields of the events (ADR-0046)
+}
 
 // Approved applies the change.
-func (Approvals) Approved(ctx context.Context, change, _ uuid.UUID) error {
-	_, err := ApplyChange(ctx, change)
+func (a Approvals) Approved(ctx context.Context, change, _ uuid.UUID) error {
+	_, err := ApplyChange(ctx, a.Schemas, change)
 	return err
 }
 

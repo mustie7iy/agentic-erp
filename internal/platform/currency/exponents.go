@@ -78,3 +78,10 @@ var seeded = sync.OnceValue(func() Exponents {
 // in a migrated database, so a migration that changes the seed in a form
 // this does not read fails there.
 func Seeded() Exponents { return maps.Clone(seeded()) }
+
+// SeededExponent is one currency's exponent from Seeded, without copying
+// the table: for a hot path that reads a code at a time.
+func SeededExponent(code string) (int, bool) {
+	exp, ok := seeded()[code]
+	return exp, ok
+}

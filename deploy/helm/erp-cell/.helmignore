@@ -1,0 +1,2 @@
+# promtool's fixtures are the checks', not the release's.
+rules/*.test.yaml

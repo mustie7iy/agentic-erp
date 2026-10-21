@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
+	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -21,7 +24,8 @@ import (
 
 func endpoints() *partner.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	return &partner.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: apitest.FieldKeys(), Approvals: fixture.Approvals()}
+	return &partner.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: apitest.FieldKeys(), Approvals: fixture.Approvals(), Schemas: configuration.Settings{}, Rules: configuration.Settings{},
+		PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}}
 }
 
 // TestDatabaseFailures calls every handler and context function outside a
@@ -29,6 +33,7 @@ func endpoints() *partner.Endpoints {
 func TestDatabaseFailures(t *testing.T) {
 	e := setup(t)
 	e.withholdingCodes(t)
+	e.paymentMethods(t)
 	u := func(m map[string]any) uuid.UUID { return uuid.MustParse(id(m)) }
 	bankOf := func(p map[string]any) uuid.UUID {
 		page, _ := e.Must(200, "GET", "/v1/business-partners/"+id(p)+"/bank-accounts", "", "")
@@ -39,7 +44,7 @@ func TestDatabaseFailures(t *testing.T) {
 	update, _ := e.Must(201, "POST", "/v1/partner-changes", e.update(id(a), fmt.Sprintf(`{"name": "A2", "roles": ["supplier", "customer"],
 		"supplier_companies": [{"legal_entity_id": %q, "reconciliation_account_id": %q, "payment_term_code": "NT60"}],
 		"addresses": [{"purpose": "legal", "line1": "L", "city": "C", "country_code": "DE", "valid_from": %q}],
-		"tax_identifiers": [{"scheme": "EU_VAT", "value": "DE1"}], "extensions": {"x": 1}}`, e.le, e.recon, e.date(0))), "")
+		"tax_identifiers": [{"scheme": "EU_VAT", "value": "DE1"}], "extensions": {"segment": "x"}}`, e.le, e.recon, e.date(0))), "")
 	_, aTag := e.Must(200, "GET", "/v1/business-partners/"+id(a)+"/bank-accounts/"+bankOf(a).String(), "", "")
 	bankEnd, _ := e.Must(200, "POST", "/v1/business-partners/"+id(a)+"/bank-accounts/"+bankOf(a).String()+":end",
 		fmt.Sprintf(`{"valid_to": %q, "reason": "r"}`, e.date(10)), aTag)
@@ -60,14 +65,19 @@ func TestDatabaseFailures(t *testing.T) {
 	when := e.day.AddDate(0, 0, 3)
 	newPartner := &gen.BusinessPartnerCreate{Kind: "organization", Name: "N", CountryCode: "DE", Roles: []string{"supplier"}, Reason: "r",
 		LegalName: gen.NewOptString("N GmbH"), Language: gen.NewOptString("de"),
-		SupplierCompanies: []gen.SupplierCompanyInput{{LegalEntityID: e.le, ReconciliationAccountID: e.recon, PaymentTermCode: "NT30", WithholdingTaxCodes: []string{"W1"}}},
+		SupplierCompanies: []gen.SupplierCompanyInput{{LegalEntityID: e.le, ReconciliationAccountID: e.recon, PaymentTermCode: "NT30", WithholdingTaxCodes: []string{"W1"},
+			PaymentMethods: []string{"T"}}},
 		Addresses: []gen.Address{{Purpose: "legal", Line1: "L", City: "C", CountryCode: "DE", ValidFrom: e.day, ValidTo: gen.NewOptDate(when),
 			Line2: gen.NewOptString("2"), PostalCode: gen.NewOptString("1"), Region: gen.NewOptString("BE")}},
 		TaxIdentifiers: []gen.TaxIdentifierInput{{Scheme: "EU_VAT", Value: "DE123456789"}},
 		BankAccounts: []gen.BankAccountInput{{AccountNumber: iban, AccountScheme: "iban", BankCountryCode: "DE", HolderName: "N", ValidFrom: e.day,
 			Bic: gen.NewOptString("COBADEFFXXX")}},
-		Extensions: gen.NewOptExtensions(gen.Extensions{"x": []byte("1")})}
+		Extensions: gen.NewOptExtensions(gen.Extensions{"segment": []byte(`"x"`)})}
 	calls := map[string]func(ctx context.Context) error{
+		"sample for rules": func(ctx context.Context) error {
+			_, err := partner.RuleSamples{}.Sample(ctx, time.Time{}, 10)
+			return err
+		},
 		"create partner": func(ctx context.Context) error {
 			_, err := h.CreateBusinessPartner(ctx, newPartner, gen.CreateBusinessPartnerParams{})
 			return err
@@ -125,7 +135,7 @@ func TestDatabaseFailures(t *testing.T) {
 	}
 	for kind, change := range map[string]map[string]any{"create": create, "update": update, "bank add": bankAdd, "bank end": bankEnd, "unblock": unblock} {
 		calls["apply "+kind] = func(ctx context.Context) error {
-			_, err := partner.ApplyChange(ctx, u(change))
+			_, err := partner.ApplyChange(ctx, configuration.Settings{}, u(change))
 			return err
 		}
 	}

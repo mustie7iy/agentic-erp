@@ -24,6 +24,7 @@ info:
     - **Approvals.** Approval decisions are made only on approval requests (`:approve`, `:reject`), which require `workflow.request.decide` plus the approval permission of the object type, listed per operation in `x-object-permissions` (object type to permission code). Payment runs are released directly (`payment-runs/{id}:release`) by a person other than the proposer.
     - **Agents** call the same operations. Operations marked `x-agent: false` (approval decisions, identity administration) are never exposed as agent tools and refuse agent tokens. An agent acts within its autonomy level (`agent_profile.autonomy_level`, ADR-0036): level 0 only reads; level 1 also performs the operations marked `x-autonomy: propose`, which only propose (its sessions, tool-call records and recommendations, change requests, drafts, down payment requests); level 2 performs any write its permissions allow. Operations marked `x-autonomy: read` change no business data though they are not GET (a long-running verification), and every level performs them. Above its level an agent is refused with 403 `identity.autonomy_insufficient`. While the tenant's AI is off (`getAiPolicy`: switched off by its administrators or suspended by the platform's operators), every agent request is refused with 403 `agents.ai_disabled`.
     - **Rate limits.** Every response carries `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`; 429 adds `Retry-After`.
+    - **Latency classes.** Each operation's latency objective (01-requirements §1.3) is that of its class: `read` (a GET of one resource), `list` (any other GET), `write` (any other method), unless `x-slo-class` names `approval` or `report` (ADR-0043).
   contact:
     name: Platform API team
     url: "https://github.com/mustie7iy/agentic-erp"
@@ -60,10 +61,12 @@ tags:
     description: Approval requests and decisions. Decisions are human-only.
   - name: audit
     description: Tamper-evident audit trail.
+  - name: analytics
+    description: Governed metrics answered by the semantic layer, from the analytical store or the database, with their lineage.
   - name: agents
     description: Agent sessions, their tool calls and recommendations for people to decide.
   - name: integration
-    description: Connectors to external systems and data migration runs.
+    description: Connectors to external systems, data migration runs and webhook subscriptions.
   - name: platform
     description: Long-running operations.
 paths:
@@ -2265,7 +2268,7 @@ paths:
       tags:
         - configuration
       summary: Simulate a change request
-      description: "Replays recent business transactions against the proposed configuration and records the result as `simulation` evidence. Requires status `awaiting_evidence`."
+      description: "Replays recent business transactions against the proposed configuration and records the result as `simulation` evidence. A change of validation rules (ADR-0046) also replays the recent rows of each entity whose rules change (the last 30 days, at most 200, newest first) under the active and the proposed rules: the evidence's `detail.rules` lists, per rule, the rows it would newly refuse and newly pass, with personal custom fields masked, and the rows it cannot evaluate, which fail the simulation. Requires status `awaiting_evidence`."
       x-permission: config.change.propose
       x-autonomy: propose
       parameters:
@@ -2374,7 +2377,7 @@ paths:
       tags:
         - configuration
       summary: Activate a change request
-      description: "Creates and activates a new configuration version from an approved change request; each context applies its part. Human-only. Requires status `approved`."
+      description: "Creates and activates a new configuration version from an approved change request; each context applies its part. Human-only. Requires status `approved`; a change of validation rules also needs a passed simulation of this exact proposal (409 `config.rules_not_simulated`)."
       x-permission: config.change.activate
       x-agent: false
       parameters:
@@ -2623,6 +2626,67 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ConfigVersion"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/schemas/{entity}":
+    get:
+      operationId: getSchema
+      tags:
+        - configuration
+      summary: Get a custom field schema
+      description: "The tenant's custom field schema for the entity in the active configuration version (ADR-0046): the restricted subset of JSON Schema that writes of the entity's `extensions` are checked against, every field with its privacy class `x-pii`. The ETag is the configuration version, so `If-None-Match` answers 304 until a change request activates a new version. Whoever may read the entity may read its schema: the permission depends on the entity, listed in `x-entity-permissions`. An entity without a schema, or one that takes no custom fields, is 404."
+      x-entity-permissions:
+        business_partner: partner.supplier.read
+        purchase_order: procurement.order.read
+        supplier_invoice: payables.invoice.read
+      parameters:
+        - name: entity
+          in: path
+          required: true
+          description: The extensible entity.
+          schema:
+            type: string
+            description: "Extensible entity. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - business_partner
+              - purchase_order
+              - supplier_invoice
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: The custom field schema.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomFieldSchema"
+        "304":
+          description: The schema has not changed since the ETag in If-None-Match.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -3948,6 +4012,7 @@ paths:
                     id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d05"
                     legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
                     ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d09"
+                    leading_ledger: true
                     fiscal_year: 2026
                     fiscal_period: 10
                     document_type: SA
@@ -4091,6 +4156,7 @@ paths:
                     id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d12"
                     legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
                     ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d09"
+                    leading_ledger: true
                     fiscal_year: 2026
                     fiscal_period: 10
                     document_type: SA
@@ -4534,9 +4600,252 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/revaluation-runs:
+    get:
+      operationId: listRevaluationRuns
+      tags:
+        - ledger
+      summary: List revaluation runs
+      description: "Foreign-currency revaluation runs (ADR-0042), without their items and totals (`getRevaluationRun` has them). Sortable by: `key_date`."
+      x-permission: ledger.entry.read
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of revaluation runs.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevaluationRunPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: postRevaluationRun
+      tags:
+        - ledger
+      summary: Post a foreign-currency revaluation run
+      description: "Values what `previewRevaluation` values and, in one transaction, posts the differences (ADR-0042, T48c): a valuation entry (document type SA, in local currency, source the run) dated the key date and its reset, a separate entry of the negated lines dated the next day, the first of the next period, so the items stay open at their booked amounts. Each item's local and group differences go to the account itself for a flagged account and to its adjustment account for a reconciliation account, against the unrealised gain or loss account by the item's direction. Both periods must be open (409 `ledger.period_not_open`). A run whose items have no difference is recorded without entries. The run and its items are recorded, audited and published (`RevaluationRunPosted`, besides each entry's `JournalEntryPosted`). One run per legal entity, ledger and key date is posted: a second is 409 `ledger.revaluation_exists`, whose `detail` names the posted run and whose `Location` header links it; cancelling that run (`cancelRevaluationRun`) frees the key date. Concurrent clearings and reversals of the tenant wait for the run. Human-only."
+      x-permission: ledger.entry.post
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The legal entity, ledger and key date to revalue.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevaluationPreviewRequest"
+            examples:
+              monthEnd:
+                summary: Revalue at the end of March
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  key_date: "2026-03-31"
+      responses:
+        "201":
+          description: "Created; the run with its items and totals."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevaluationRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/revaluation-runs/{id}":
+    get:
+      operationId: getRevaluationRun
+      tags:
+        - ledger
+      summary: Get a revaluation run
+      description: Returns one revaluation run with its items and totals.
+      x-permission: ledger.entry.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The revaluation run.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevaluationRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/revaluation-runs/{id}:cancel":
+    post:
+      operationId: cancelRevaluationRun
+      tags:
+        - ledger
+      summary: Cancel a revaluation run
+      description: "Cancels a posted revaluation run (ADR-0042, T48d): reverses its valuation entry and its reset entry through the ledger's reversal path, each on its own posting date (`JournalEntryReversed` for each), and marks the run `cancelled`, which frees its key date for another run. This is the only way a run's entries are reversed (`journal-entries/{id}:reverse` refuses them with 409 `ledger.entry_owned_elsewhere`). Both entries' periods must be open (409 `ledger.period_not_open`, also when one is closed or locked, T32); a cancelled run is 409 `ledger.revaluation_not_posted`. A run without entries is cancelled without reversals. Audited and published (`RevaluationRunCancelled`). The If-Match is the run's ETag. Human-only."
+      x-permission: ledger.entry.post
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of cancelRevaluationRun.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonInput"
+      responses:
+        "200":
+          description: "The cancelled run, with its items and totals."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevaluationRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/revaluation-runs/preview:
+    post:
+      operationId: previewRevaluation
+      tags:
+        - ledger
+      summary: Preview a foreign-currency revaluation
+      description: "Values, without posting, what a revaluation run of a legal entity and ledger at a key date would value (ADR-0042, T48): the open items on supplier and customer reconciliation accounts on the key date (posted on or before it and not cleared by a clearing dated on or before it) and, per currency, the balance of each G/L account flagged `revalue_foreign_currency`, in every currency other than local currency. Down payments (special G/L items) and the GR/IR account are not revalued. A flagged account's balance that is zero in its currency but not in local or group currency is valued too, at zero and without a rate (none is looked up or checked for it): that residual is what revaluation corrects. Each item is valued in local and, on its own, in group currency at the legal entity's valuation rate type valid on the key date, each rounded once: `valued_lc` = amount × rate and `valued_gc` = amount × rate_gc (SAP's parallel-currency valuation, not the local difference translated); the differences to the booked amounts are an unrealised gain when positive and a loss when negative, by the local difference's sign, or the group one's when local does not differ. The key date is the last day of a posting period of the ledger (422 `ledger.key_date_not_period_end`); a rate into local or group currency valid from before that period is stale (422 `ledger.rate_stale`) and a missing one is refused (422 `ledger.no_exchange_rate`); an account with items in scope and no active valuation accounts fails the preview (422 `ledger.revaluation_account_missing`, naming the account). Reads only; every agent autonomy level may call it."
+      x-permission: ledger.entry.read
+      x-autonomy: read
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of previewRevaluation.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevaluationPreviewRequest"
+            examples:
+              monthEnd:
+                summary: Value the open items at the end of March
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  key_date: "2026-03-31"
+      responses:
+        "200":
+          description: The valued items and their totals.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevaluationPreview"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/gr-ir-balances:
     get:
       operationId: listGrIrBalances
+      x-slo-class: report
       tags:
         - ledger
       summary: List GR/IR balances
@@ -4600,6 +4909,7 @@ paths:
   /v1/balances:
     get:
       operationId: listBalances
+      x-slo-class: report
       tags:
         - ledger
       summary: List balances
@@ -8276,6 +8586,421 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/bank-statements:
+    get:
+      operationId: listBankStatements
+      tags:
+        - payments
+      summary: List bank statements
+      description: "Bank statements imported for the house banks of the companies the caller may access, without their lines (`GET /v1/bank-statements/{id}` has them). Sortable by: `closing_date`."
+      x-permission: payments.statement.read
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: house_bank_id
+          in: query
+          required: false
+          description: Only statements of this house bank.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only statements in this status.
+          schema:
+            type: string
+            description: "Bank statement status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - imported
+              - gap
+              - reconciled
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of bank statements.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankStatementPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: importBankStatements
+      tags:
+        - payments
+      summary: Import a bank statement file
+      description: "Imports the statements of a bank's file (ADR-0047) for one house bank: camt.053 (.001.02 or .001.08) or MT940, read as UTF-8, at most 4 MB. Each statement must be of the house bank's account and currency, and its entries must take its opening balance to its closing balance. The same file again for the house bank (by its SHA-256) answers 200 with the statements it imported; another file with a statement already imported (the same statement id, account and sequence) is refused with 409 `payments.statement_conflict`. A statement whose opening balance is not the closing balance of the house bank's statement before it is imported in status `gap`, and automatic posting stops for the bank; a statement imported between two others becomes the next one's previous statement, whose status follows the comparison again. A file that cannot be read is refused with 422 `payments.statement_unreadable`, naming the line where what is wrong starts. Imports are made by people and integrations; agents read statements, and an agent's import is refused with 403 `identity.agent_not_allowed`. The file is kept as accounting evidence in object storage (`GET /v1/bank-statements/{id}/file`), so without object storage, or when the store does not take it, nothing is imported (503)."
+      x-permission: payments.statement.import
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of importBankStatements.
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/BankStatementUpload"
+      responses:
+        "201":
+          description: The statements of the file, imported.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankStatementImport"
+        "200":
+          description: The file was imported before; its statements as they are now.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankStatementImport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/bank-statements/{id}":
+    get:
+      operationId: getBankStatement
+      tags:
+        - payments
+      summary: Get a bank statement
+      description: Returns one bank statement with its lines.
+      x-permission: payments.statement.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The bank statement.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankStatement"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/bank-statements/{id}/file":
+    get:
+      operationId: getBankStatementFile
+      tags:
+        - payments
+      summary: Download a bank statement's file
+      description: "The file a bank statement was imported from, byte for byte as the bank sent it (camt.053 XML or MT940 text): kept as accounting evidence in object storage, written once, encrypted and locked for the retention of financial records (ADR-0047). The statements of one file share it. 503 while the server has no object storage or the store does not answer."
+      x-permission: payments.statement.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The statement file.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+                description: The file's bytes.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/bank-statements/{id}:match":
+    post:
+      operationId: matchBankStatement
+      tags:
+        - payments
+      summary: Match a bank statement's lines
+      description: "Runs the company's matching rules (`companies[].bank_statements.matching_rules`, ADR-0047) on the statement's unmatched lines, and again on the lines a rule left open, as the import does: in the rules' order, the first rule that finds candidates decides. A rule that finds exactly one candidate, whose payments pay the line's amount, matches the line (`matched`); one that finds several, or payments that do not pay it, leaves an open match listing them for a person (`proposed`). The rules on payments read debits, never reversals; a payment another line's match holds settles no line: the id rules leave the line open for a person, and the amount rule skips it. A line a rule left open is compared with what the rules find now: the same candidates leave it as it is, others reject its open match and record the new one (or make it unmatched again). Lines matched or excluded, and an agent's proposals, are never touched, so running it twice changes nothing the second time. Agents may call it: it only applies the rules, and what they cannot decide stays open for a person. If-Match is the statement's ETag; a run that matches or leaves open a line, and a person's match or exclusion, move it on. Returns the statement with its lines; `GET /v1/bank-statements/{id}/matches` has the matches."
+      x-permission: payments.statement.match
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The bank statement, its lines matched.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankStatement"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/bank-statements/{id}/matches":
+    get:
+      operationId: listBankStatementMatches
+      tags:
+        - payments
+      summary: List a bank statement's matches
+      description: "The matches of the statement's lines, by line and in the order they were made: the live one of each line (`open`, `matched` or `excluded`) and those a person's decision replaced (`rejected`)."
+      x-permission: payments.statement.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: line_no
+          in: query
+          required: false
+          description: Only the matches of this line.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+      responses:
+        "200":
+          description: The statement's matches.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementMatchList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/bank-statements/{id}/lines/{line_no}:match":
+    post:
+      operationId: matchBankStatementLine
+      tags:
+        - payments
+      summary: Match a bank statement line by hand
+      description: "A person matches the line to the payments it clears or to a posting rule of the company (charges, interest), with a reason, whatever the rules found: the line's live match becomes `rejected` and the new one `matched` (kind `manual`). Each payment must be posted, from the statement's house bank, in its currency and matched to no other line (422 `payments.statement_match_target`). People only; a line on its way to the ledger keeps its match (409 `payments.statement_line_posting`). Audited, and published as BankStatementLineMatched. The response's ETag is the statement's new one, the If-Match of the next decision on its lines."
+      x-permission: payments.statement.match
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: line_no
+          in: path
+          required: true
+          description: The line's number in the statement, from 1.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of matchBankStatementLine.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatementLineMatchInput"
+      responses:
+        "201":
+          description: The line's new match.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementMatch"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/bank-statements/{id}/lines/{line_no}:exclude":
+    post:
+      operationId: excludeBankStatementLine
+      tags:
+        - payments
+      summary: Exclude a bank statement line
+      description: "A person excludes the line from reconciliation, with a reason: the bank's booking clears nothing the ledger holds. The line's live match becomes `rejected` and the new one `excluded` (kind `manual`), with no targets; the line is `excluded`. People only; a line on its way to the ledger keeps its match (409 `payments.statement_line_posting`). Audited, and published as BankStatementLineExcluded. The response's ETag is the statement's new one, the If-Match of the next decision on its lines."
+      x-permission: payments.statement.match
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: line_no
+          in: path
+          required: true
+          description: The line's number in the statement, from 1.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of excludeBankStatementLine.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonInput"
+      responses:
+        "201":
+          description: The line's new match, excluding it.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementMatch"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   "/v1/bank-files/{id}":
     get:
       operationId: getBankFile
@@ -8357,7 +9082,7 @@ paths:
       tags:
         - payments
       summary: Transmit a bank file
-      description: "Sends the file to the bank through the house bank's connector. Requires status `created`."
+      description: "Asks for the file to be sent to the bank through the house bank's connector. Requires status `created` or `failed`. The file moves to `to_send` and the bank file transmitter sends it (T44e): `sending` while the bank takes it, then `transmitted`, or `failed` when the channel refuses it or after the sixth attempt (the attempts wait 1, 5 and 15 minutes, 1 and 4 hours apart). The Operation completes with it."
       x-permission: payments.file.transmit
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -8567,6 +9292,7 @@ paths:
   "/v1/approval-requests/{id}:approve":
     post:
       operationId: approveApprovalRequest
+      x-slo-class: approval
       tags:
         - workflow
       summary: Approve an approval request
@@ -8671,6 +9397,7 @@ paths:
   "/v1/approval-requests/{id}:reject":
     post:
       operationId: rejectApprovalRequest
+      x-slo-class: approval
       tags:
         - workflow
       summary: Reject an approval request
@@ -8908,6 +9635,99 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/analytics-queries:
+    post:
+      operationId: runAnalyticsQuery
+      tags:
+        - analytics
+      summary: Run a semantic analytics query
+      description: "Answers governed metrics (the semantic model in the active configuration version's `analytics` section, `semantic.yaml` until a change request adds one; metric definitions change only through change requests), broken down by its dimensions and filtered on them, for the companies the principal may read. A query names metrics and dimensions, never SQL. It is answered from the analytical store when the tenant's store was found current within the freshness target and no earlier than `as_of`, else from the database; `source` and `as_of` say which (ADR-0044). The database answers through the API's own reads as the caller, so a metric over data the caller may not read is 403 as that read is, and the store answers only a caller who holds the permissions of those reads. A tenant without a configuration is 409 `config.not_bootstrapped`. A query the semantic layer refuses (an unknown metric or dimension, a filter it cannot apply, amounts of two currencies summed) is 422 `analytics.invalid_query`; too many queries answering at once on the server is 503 `analytics.busy` with `Retry-After`. Changes nothing: agents of any autonomy level may run it."
+      x-permission: analytics.query.run
+      x-autonomy: read
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The semantic query.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalyticsQuery"
+      responses:
+        "200":
+          description: The query's result and its lineage.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/analytics-model:
+    get:
+      operationId: getAnalyticsModel
+      tags:
+        - analytics
+      summary: Get the governed semantic model
+      description: "The governed metrics, their dimensions, the fiscal calendar and what everyday words mean, as runAnalyticsQuery answers them: the active configuration version's `analytics` section (`semantic.yaml` until a change request adds one), or `config_version`'s. Agents and the CLI describe metrics from it, so a metric a change request added is offered and a changed definition described as it now is (ADR-0044). A tenant without a configuration is 409 `config.not_bootstrapped`; an unknown version is 422 `config.unknown_version`."
+      x-permission: analytics.query.run
+      parameters:
+        - name: config_version
+          in: query
+          required: false
+          description: The configuration version whose model to return; absent, the active one.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+      responses:
+        "200":
+          description: The semantic model and the version it is of.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsModel"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/connectors:
     get:
       operationId: listConnectors
@@ -9190,6 +10010,655 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Connector"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/webhook-subscriptions:
+    get:
+      operationId: listWebhookSubscriptions
+      tags:
+        - integration
+      summary: List webhook subscriptions
+      description: "The tenant's webhook subscriptions, newest first; deleted ones only when asked for with `status=deleted`. Secrets are never listed. Sortable by: `created_at`."
+      x-permission: integration.webhook.read
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: "Only subscriptions in this status; without it, all but the deleted ones."
+          schema:
+            type: string
+            description: "Subscription status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - active
+              - paused
+              - disabled
+              - deleted
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of webhook subscriptions.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookSubscriptionPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createWebhookSubscription
+      tags:
+        - integration
+      summary: Create a webhook subscription
+      description: "Subscribes an HTTPS endpoint to event types (ADR-0041). The URL's host must resolve to public addresses only. At most 20 subscriptions that are not deleted per tenant (422 `integration.webhook_limit`). Event types are those marked `x-webhook` in the AsyncAPI contract, or `<context>.*` for all of a context's; duplicates are dropped. The answer carries the signing secret, shown only here and by `:rotateSecret`; a replay of the request answers without it."
+      x-permission: integration.webhook.manage
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The webhook subscription create request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookSubscriptionCreate"
+      responses:
+        "201":
+          description: "Created; the new subscription with its signing secret."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookSubscription"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/webhook-subscriptions/{id}":
+    get:
+      operationId: getWebhookSubscription
+      tags:
+        - integration
+      summary: Get a webhook subscription
+      description: Returns one webhook subscription, without its secret.
+      x-permission: integration.webhook.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The webhook subscription.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookSubscription"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateWebhookSubscription
+      tags:
+        - integration
+      summary: Update a webhook subscription
+      description: "Changes a subscription's URL, description or event types, checked as on create; a deleted subscription cannot be changed (409). JSON Merge Patch (RFC 7396): absent fields are unchanged, arrays are replaced as a whole."
+      x-permission: integration.webhook.manage
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the webhook subscription.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/WebhookSubscriptionUpdate"
+      responses:
+        "200":
+          description: "Updated; the subscription after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookSubscription"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/webhook-subscriptions/{id}:delete":
+    post:
+      operationId: deleteWebhookSubscription
+      tags:
+        - integration
+      summary: Delete a webhook subscription
+      description: "Ends the subscription: its status becomes `deleted`, nothing more is sent to it, and it no longer counts toward the limit of 20. The row is kept (no hard deletes). Requires a status other than `deleted`."
+      x-permission: integration.webhook.manage
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The webhook subscription after deleteWebhookSubscription.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookSubscription"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/webhook-subscriptions/{id}:rotateSecret":
+    post:
+      operationId: rotateWebhookSubscriptionSecret
+      tags:
+        - integration
+      summary: Rotate a webhook subscription's secret
+      description: "Issues a new signing secret, answered only here. The previous secret keeps signing alongside the new one for 24 hours (`previous_secret_expires_at`), so the endpoint can switch without losing a delivery; rotating again within that time retires the older one at once. A replay of the request answers without the secret. Requires a status other than `deleted`."
+      x-permission: integration.webhook.manage
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The webhook subscription with its new signing secret.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookSubscription"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/webhook-subscriptions/{id}:pause":
+    post:
+      operationId: pauseWebhookSubscription
+      tags:
+        - integration
+      summary: Pause a webhook subscription
+      description: "Holds the deliveries of an active subscription (how a tenant stops deliveries): events keep being recorded for it but none is sent until `:resume`, which sends them in order. A delivery held past the 30-day retention is dropped. Pausing stops the failure clock: `failing_since` is cleared, so time paused does not count toward the 5 days, which start again at the first failure after `:resume`. Requires status `active` (409 `integration.webhook_not_active`)."
+      x-permission: integration.webhook.manage
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The paused webhook subscription.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookSubscription"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/webhook-subscriptions/{id}:resume":
+    post:
+      operationId: resumeWebhookSubscription
+      tags:
+        - integration
+      summary: Resume a webhook subscription
+      description: "Makes a paused or disabled subscription active. A paused one's held deliveries are sent, in event order per resource, and later events as they come. A disabled one starts its failure tracking afresh (`failing_since` cleared); the deliveries dropped while it was disabled are not sent. Refused for an active subscription (409 `integration.webhook_already_active`)."
+      x-permission: integration.webhook.manage
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The resumed webhook subscription.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookSubscription"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/webhook-subscriptions/{id}:replay":
+    post:
+      operationId: replayWebhookDeliveries
+      tags:
+        - integration
+      summary: Replay a webhook subscription's deliveries
+      description: "Queues again every kept delivery of the subscription whose event occurred at or after `since`, whatever its status (delivered, dead and dropped ones too; pings are left out): each becomes `pending` with no attempts, and they go out in event order per resource. `since` is within the 30-day retention (422 `integration.invalid_replay_since`). The endpoint receives each event under its original `webhook-id`. Refused for a deleted subscription (409 `integration.webhook_deleted`) and a disabled one (409 `integration.webhook_disabled`; resume it first)."
+      x-permission: integration.webhook.manage
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The replay request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookReplay"
+      responses:
+        "200":
+          description: How many deliveries were queued again.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookReplayResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/webhook-subscriptions/{id}:ping":
+    post:
+      operationId: pingWebhookSubscription
+      tags:
+        - integration
+      summary: Ping a webhook endpoint
+      description: "Queues a synthetic `webhook.ping` CloudEvent (data: the subscription's `subscription_id`), signed like any other, which the dispatcher sends at once, also while the subscription is paused or disabled. The request does not wait for the endpoint: the answer is the pending delivery, whose `status`, `last_status` and `last_error` tell the outcome once attempted. A ping is attempted once, is not retried and does not count toward the subscription's failures. Refused for a deleted subscription (409 `integration.webhook_deleted`)."
+      x-permission: integration.webhook.manage
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The ping's delivery, pending.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDelivery"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/webhook-subscriptions/{id}/deliveries":
+    get:
+      operationId: listWebhookDeliveries
+      tags:
+        - integration
+      summary: List a webhook subscription's deliveries
+      description: "The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by: `created_at`."
+      x-permission: integration.webhook.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: status
+          in: query
+          required: false
+          description: Only deliveries in this status.
+          schema:
+            type: string
+            description: "Delivery status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - pending
+              - delivered
+              - dead
+              - dropped
+        - name: since
+          in: query
+          required: false
+          description: "Only deliveries recorded (`created_at`) at or after this instant; `:replay`'s `since` is the events' time instead."
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of webhook deliveries.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDeliveryPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/webhook-subscriptions/{id}/deliveries/{delivery_id}":
+    get:
+      operationId: getWebhookDelivery
+      tags:
+        - integration
+      summary: Get a webhook delivery
+      description: "Returns one delivery: its event, status and the outcome of its last attempt."
+      x-permission: integration.webhook.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/DeliveryId"
+      responses:
+        "200":
+          description: The webhook delivery.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDelivery"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/webhook-subscriptions/{id}/deliveries/{delivery_id}:redeliver":
+    post:
+      operationId: redeliverWebhookDelivery
+      tags:
+        - integration
+      summary: Redeliver a webhook delivery
+      description: "Queues the delivery again, whatever its status: `pending` with no attempts, sent in its resource's event order under its original `webhook-id`. Refused for a deleted subscription (409 `integration.webhook_deleted`) and a disabled one (409 `integration.webhook_disabled`; resume it first), pings included: `:ping` sends a new one."
+      x-permission: integration.webhook.manage
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/DeliveryId"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The delivery after redeliverWebhookDelivery.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDelivery"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -9829,7 +11298,7 @@ paths:
       tags:
         - agents
       summary: Record a tool call
-      description: "Records one tool call of a running session, numbered in order. Insert-only. Only the session's agent records its calls. The input's strings and the result summary are recorded minimized, as the model gateway redacts what leaves the cell (ADR-0036): IBANs, card numbers and the tax identifiers of the tenant's countries become `[IBAN]`, `[CARD]` and `[TAX_ID]`."
+      description: "Records one tool call of a running session, numbered in order. Insert-only. Only the session's agent records its calls. The input's strings and the result summary are recorded minimized, as the model gateway redacts what leaves the cell (ADR-0036): IBANs, card numbers, the tax identifiers of the tenant's countries and, for a tenant in Canada, Canadian bank accounts written institution-transit-account become `[IBAN]`, `[CARD]`, `[TAX_ID]` and `[BANK_ACCOUNT]`."
       x-permission: agents.session.record
       x-autonomy: propose
       parameters:
@@ -10252,6 +11721,15 @@ components:
         type: string
         format: uuid
       example: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d1f"
+    DeliveryId:
+      name: delivery_id
+      in: path
+      required: true
+      description: Webhook delivery identifier (UUIDv7).
+      schema:
+        type: string
+        format: uuid
+      example: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
     BankAccountId:
       name: bank_account_id
       in: path
@@ -10270,6 +11748,16 @@ components:
         type: string
         minLength: 1
         maxLength: 64
+      example: "\"3\""
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      description: "The ETag the client last read. When it still matches, the answer is 304 without a body."
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 256
       example: "\"3\""
     IdempotencyKey:
       name: Idempotency-Key
@@ -12625,12 +14113,12 @@ components:
           readOnly: true
         summary:
           type: string
-          description: Summary of the result.
+          description: "Summary of the result. For `simulation` evidence its counts are over the companies the reader may access alone."
           readOnly: true
         detail:
           type: object
           additionalProperties: true
-          description: Detailed result.
+          description: "Detailed result. For `simulation` evidence, the replayed invoices, decisions and posting rules of the companies the reader may access alone, counted over those: a reader of no company is shown none and counts of zero. The verdict (`passed`) is over every company the change touches."
           readOnly: true
         recorded_at:
           type: string
@@ -13039,6 +14527,40 @@ components:
                   detail: {}
                   recorded_at: "2026-10-09T14:03:11Z"
                   recorded_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d3c"
+    CustomFieldSchema:
+      type: object
+      description: "A tenant's custom field schema for one entity, as the active configuration version holds it (ADR-0046)."
+      required:
+        - entity
+        - version
+        - config_version
+        - schema
+      properties:
+        entity:
+          type: string
+          description: "The extensible entity. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - business_partner
+            - purchase_order
+            - supplier_invoice
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          minimum: 1
+          description: The schema's own version, recorded with every row written under it (`extensions_schema`); a version never changes once activated.
+          readOnly: true
+        config_version:
+          type: integer
+          format: int32
+          minimum: 1
+          description: The active configuration version that holds the schema; it is the ETag.
+          readOnly: true
+        schema:
+          type: object
+          additionalProperties: true
+          description: "The JSON Schema, in the restricted subset of ADR-0046: a flat `type: object` with `additionalProperties: false`, `required` and `properties`, each property with `type`, optional `format`, `maxLength`, `enum`, `minimum`, `maximum`, `title`, `description`, and `x-pii` (`none`, `personal` or `sensitive`)."
+          readOnly: true
     ConfigVersion:
       type: object
       description: "An immutable, activated configuration version. Insert-only; `activated_*` play the role of `created_*`."
@@ -13282,6 +14804,13 @@ components:
           items:
             type: string
             pattern: "^[A-Z0-9]{1,4}$"
+        payment_methods:
+          type: array
+          description: "The methods the supplier may be paid by in this legal entity, in order of preference (SAP LFB1-ZWELS; ADR-0038): codes of the company's `payment_methods` in the configuration."
+          maxItems: 10
+          items:
+            type: string
+            pattern: "^[A-Z0-9]$"
       examples:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
           reconciliation_account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dca"
@@ -13316,6 +14845,13 @@ components:
           items:
             type: string
             pattern: "^[A-Z0-9]{1,4}$"
+        payment_methods:
+          type: array
+          description: "The methods the supplier may be paid by in this legal entity, in order of preference (ADR-0038): active payment methods of the company's configuration, each once. A payment proposal pays the supplier through the first method a ranked house bank can pay. The list replaces the supplier's methods in the legal entity: leaving it out takes every method off the supplier there, as the other company data is replaced too."
+          maxItems: 10
+          items:
+            type: string
+            pattern: "^[A-Z0-9]$"
       additionalProperties: false
       examples:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
@@ -13446,16 +14982,27 @@ components:
           default: payments
         account_number:
           type: string
-          description: "Full IBAN or domestic account number. Write-only; stored encrypted and never returned."
+          description: "Full IBAN, domestic account number, or for scheme `ca` the Canadian account number (7-12 digits). Write-only; stored encrypted and never returned."
           minLength: 4
           maxLength: 34
           writeOnly: true
         account_scheme:
           type: string
-          description: "Account number scheme. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "Account number scheme: `iban`, `domestic`, or `ca` for a Canadian account (institution, transit and account number; no IBAN). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum:
             - iban
             - domestic
+            - ca
+        institution_number:
+          type: string
+          description: "Canadian institution number (3 digits). Required for scheme `ca`, refused for the others."
+          pattern: "^[0-9]{3}$"
+          example: "003"
+        transit_number:
+          type: string
+          description: "Canadian transit (branch) number (5 digits). Required for scheme `ca`, refused for the others."
+          pattern: "^[0-9]{5}$"
+          example: "12345"
         bic:
           type: string
           description: BIC.
@@ -13828,10 +15375,21 @@ components:
               readOnly: true
             account_scheme:
               type: string
-              description: "Account number scheme. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "Account number scheme: `iban`, `domestic`, or `ca` for a Canadian account. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - iban
                 - domestic
+                - ca
+              readOnly: true
+            institution_number:
+              type: string
+              description: "Canadian institution number of a scheme `ca` account; absent for the others. It names the bank, as a BIC does, and is not masked."
+              pattern: "^[0-9]{3}$"
+              readOnly: true
+            transit_number:
+              type: string
+              description: "Canadian transit (branch) number of a scheme `ca` account; absent for the others."
+              pattern: "^[0-9]{5}$"
               readOnly: true
             bic:
               type: string
@@ -14056,16 +15614,27 @@ components:
           default: payments
         account_number:
           type: string
-          description: "Full IBAN or domestic account number. Write-only; stored encrypted and never returned."
+          description: "Full IBAN, domestic account number, or for scheme `ca` the Canadian account number (7-12 digits). Write-only; stored encrypted and never returned."
           minLength: 4
           maxLength: 34
           writeOnly: true
         account_scheme:
           type: string
-          description: "Account number scheme. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "Account number scheme: `iban`, `domestic`, or `ca` for a Canadian account (institution, transit and account number; no IBAN). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum:
             - iban
             - domestic
+            - ca
+        institution_number:
+          type: string
+          description: "Canadian institution number (3 digits). Required for scheme `ca`, refused for the others."
+          pattern: "^[0-9]{3}$"
+          example: "003"
+        transit_number:
+          type: string
+          description: "Canadian transit (branch) number (5 digits). Required for scheme `ca`, refused for the others."
+          pattern: "^[0-9]{5}$"
+          example: "12345"
         bic:
           type: string
           description: BIC.
@@ -14749,6 +16318,7 @@ components:
         - id
         - legal_entity_id
         - ledger_id
+        - leading_ledger
         - fiscal_year
         - fiscal_period
         - document_type
@@ -14779,6 +16349,10 @@ components:
           type: string
           format: uuid
           description: Ledger.
+          readOnly: true
+        leading_ledger:
+          type: boolean
+          description: "Whether the entry's ledger is the tenant's leading ledger. Analytics reads the leading ledger unless a question names another (ADR-0044)."
           readOnly: true
         fiscal_year:
           type: integer
@@ -15637,6 +17211,347 @@ components:
           format: int64
           description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
           minimum: 0
+    RevaluationRun:
+      type: object
+      description: "A foreign-currency revaluation run (ADR-0042). Fixed once posted, except that it may be cancelled once (`cancelRevaluationRun`)."
+      required:
+        - id
+        - legal_entity_id
+        - ledger_id
+        - key_date
+        - rate_type
+        - status
+        - item_count
+        - created_at
+        - created_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Run id.
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity.
+          readOnly: true
+        ledger_id:
+          type: string
+          format: uuid
+          description: Ledger.
+          readOnly: true
+        key_date:
+          type: string
+          format: date
+          description: Key date, the last day of a posting period.
+          readOnly: true
+        rate_type:
+          type: string
+          description: The valuation rate type the run valued at.
+          x-extensible-enum: [average, bank_buying, bank_selling, planning]
+          readOnly: true
+        status:
+          type: string
+          description: "posted, or cancelled (`cancelRevaluationRun`: both entries reversed, the key date free for another run)."
+          x-extensible-enum: [posted, cancelled]
+          readOnly: true
+        item_count:
+          type: integer
+          format: int32
+          description: Items valued, with or without a difference.
+          minimum: 0
+          readOnly: true
+        valuation_entry_id:
+          type: string
+          format: uuid
+          description: "The valuation entry, dated the key date; absent when no item had a difference."
+          readOnly: true
+        valuation_entry_year:
+          type: integer
+          format: int32
+          description: Its fiscal year.
+          readOnly: true
+        reversal_entry_id:
+          type: string
+          format: uuid
+          description: "The reset entry, dated the next day; absent when no item had a difference."
+          readOnly: true
+        reversal_entry_year:
+          type: integer
+          format: int32
+          description: Its fiscal year.
+          readOnly: true
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RevaluationItem"
+          description: "Every valued item; absent in lists."
+          readOnly: true
+        totals:
+          type: array
+          items:
+            $ref: "#/components/schemas/RevaluationTotal"
+          description: "The items with a difference summed per account, currency and direction; absent in lists."
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: When the run was posted.
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: Who posted it.
+          readOnly: true
+    RevaluationRunPage:
+      type: object
+      description: One page of revaluation runs.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RevaluationRun"
+          description: The runs on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+    RevaluationPreviewRequest:
+      type: object
+      description: Parameters of a revaluation preview.
+      required:
+        - legal_entity_id
+        - key_date
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity.
+        ledger_id:
+          type: string
+          format: uuid
+          description: Ledger (default the leading ledger).
+        key_date:
+          type: string
+          format: date
+          description: "Key date: the last day of a posting period."
+      additionalProperties: false
+      examples:
+        - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          key_date: "2026-03-31"
+    RevaluationPreview:
+      type: object
+      description: What a revaluation run at the key date would value.
+      required:
+        - legal_entity_id
+        - ledger_id
+        - key_date
+        - fiscal_year
+        - fiscal_period
+        - rate_type
+        - items
+        - totals
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity.
+          readOnly: true
+        ledger_id:
+          type: string
+          format: uuid
+          description: Ledger.
+          readOnly: true
+        key_date:
+          type: string
+          format: date
+          description: Key date.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year of the period the key date ends.
+          readOnly: true
+        fiscal_period:
+          type: integer
+          format: int32
+          description: The period the key date ends.
+          readOnly: true
+        rate_type:
+          type: string
+          description: The legal entity's valuation rate type.
+          x-extensible-enum: [average, bank_buying, bank_selling, planning]
+          readOnly: true
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RevaluationItem"
+          description: "Every valued item, by account, currency and open item; one without a difference is listed too."
+          readOnly: true
+        totals:
+          type: array
+          items:
+            $ref: "#/components/schemas/RevaluationTotal"
+          description: The items with a difference summed per account, currency and direction.
+          readOnly: true
+    RevaluationItem:
+      type: object
+      description: "One valued item: an open item (a journal line on a reconciliation account) or the balance in one currency of a flagged account."
+      required:
+        - account_id
+        - amount
+        - amount_lc
+        - amount_gc
+        - valued_lc
+        - difference_lc
+        - valued_gc
+        - difference_gc
+        - direction
+      properties:
+        account_id:
+          type: string
+          format: uuid
+          description: The revalued account.
+          readOnly: true
+        partner_id:
+          type: string
+          format: uuid
+          description: "The open item's supplier or customer; absent for a balance."
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: "The open item's entry's fiscal year; absent for a balance."
+          readOnly: true
+        journal_entry_id:
+          type: string
+          format: uuid
+          description: "The open item's entry; absent for a balance."
+          readOnly: true
+        line_no:
+          type: integer
+          format: int32
+          description: "The open item's line; absent for a balance."
+          minimum: 1
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "Amount in transaction currency, signed: debit positive."
+          readOnly: true
+        amount_lc:
+          $ref: "#/components/schemas/Money"
+          description: Booked amount in local currency, signed.
+          readOnly: true
+        amount_gc:
+          $ref: "#/components/schemas/Money"
+          description: Booked amount in group currency, signed.
+          readOnly: true
+        rate:
+          $ref: "#/components/schemas/Decimal"
+          description: "Units of local currency per unit of the transaction currency on the key date, of the valuation rate type (rounded to 12 decimals when only the reverse pair is recorded); absent for a balance that is zero in its currency, which is valued at zero without a rate."
+          readOnly: true
+        rate_valid_from:
+          type: string
+          format: date
+          description: "The rate's valid_from; absent with the rate."
+          readOnly: true
+        valued_lc:
+          $ref: "#/components/schemas/Money"
+          description: The amount at the rate in local currency, rounded once.
+          readOnly: true
+        difference_lc:
+          $ref: "#/components/schemas/Money"
+          description: valued_lc less amount_lc.
+          readOnly: true
+        rate_gc:
+          $ref: "#/components/schemas/Decimal"
+          description: "Units of group currency per unit of the transaction currency on the key date, of the valuation rate type; 1 when the transaction currency is the group's; absent for a balance that is zero in its currency."
+          readOnly: true
+        rate_gc_valid_from:
+          type: string
+          format: date
+          description: "rate_gc's valid_from; absent when the transaction currency is the group's or rate_gc is absent."
+          readOnly: true
+        valued_gc:
+          $ref: "#/components/schemas/Money"
+          description: The amount at rate_gc in group currency, rounded once.
+          readOnly: true
+        difference_gc:
+          $ref: "#/components/schemas/Money"
+          description: valued_gc less amount_gc.
+          readOnly: true
+        direction:
+          type: string
+          description: "gain for a positive local difference, loss for a negative one; without one, as the group difference's sign says; none when neither differs."
+          x-extensible-enum: [gain, loss, none]
+          readOnly: true
+    RevaluationTotal:
+      type: object
+      description: The items of one account and currency with a gain, or with a loss, summed.
+      required:
+        - account_id
+        - currency
+        - direction
+        - item_count
+        - amount
+        - amount_lc
+        - valued_lc
+        - difference_lc
+        - amount_gc
+        - valued_gc
+        - difference_gc
+      properties:
+        account_id:
+          type: string
+          format: uuid
+          description: The revalued account.
+          readOnly: true
+        currency:
+          type: string
+          description: Transaction currency (ISO 4217).
+          pattern: "^[A-Z]{3}$"
+          readOnly: true
+        direction:
+          type: string
+          description: gain or loss.
+          x-extensible-enum: [gain, loss]
+          readOnly: true
+        item_count:
+          type: integer
+          format: int32
+          description: Number of items summed.
+          minimum: 1
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: Sum of the items' transaction currency amounts.
+          readOnly: true
+        amount_lc:
+          $ref: "#/components/schemas/Money"
+          description: Sum of their booked local amounts.
+          readOnly: true
+        valued_lc:
+          $ref: "#/components/schemas/Money"
+          description: Sum of their valued local amounts.
+          readOnly: true
+        difference_lc:
+          $ref: "#/components/schemas/Money"
+          description: Sum of their differences in local currency.
+          readOnly: true
+        amount_gc:
+          $ref: "#/components/schemas/Money"
+          description: Sum of their booked group amounts.
+          readOnly: true
+        valued_gc:
+          $ref: "#/components/schemas/Money"
+          description: Sum of their valued group amounts.
+          readOnly: true
+        difference_gc:
+          $ref: "#/components/schemas/Money"
+          description: Sum of their differences in group currency.
+          readOnly: true
     OpenItemPage:
       type: object
       description: One page of open items.
@@ -18687,14 +20602,13 @@ components:
               config_version: 42
               evaluated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbb"
     PaymentRun:
-      description: "A payment run (SAP F110): a proposal of payments to suppliers from one house bank."
+      description: "A payment run (SAP F110): a proposal of payments to suppliers in one currency, from one house bank or, proposed without one, from the house banks each supplier's payment methods rank (ADR-0038)."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
           required:
             - document_number
             - legal_entity_id
-            - house_bank_id
             - run_date
             - due_by
             - total_amount
@@ -18713,7 +20627,7 @@ components:
             house_bank_id:
               type: string
               format: uuid
-              description: House bank paying.
+              description: "House bank paying, for a run proposed for one bank; absent when each payment names the bank that pays it (T45c)."
               readOnly: true
             run_date:
               type: string
@@ -18786,7 +20700,6 @@ components:
       description: Parameters of a payment proposal.
       required:
         - legal_entity_id
-        - house_bank_id
         - run_date
         - due_by
       properties:
@@ -18797,7 +20710,11 @@ components:
         house_bank_id:
           type: string
           format: uuid
-          description: "House bank to pay from; its currency is the run currency."
+          description: "House bank to pay every supplier from; its currency is the run currency. Without it, each supplier is paid through the first of its payment methods that a house bank ranked for the method and the run currency pays with (ADR-0038), and suppliers no ranked bank can pay are excluded with `no_house_bank`."
+        currency:
+          type: string
+          description: "The run currency (ISO 4217), required without `house_bank_id`; with it, it may only repeat the house bank's currency."
+          pattern: "^[A-Z]{3}$"
         run_date:
           type: string
           format: date
@@ -18975,6 +20892,15 @@ components:
               format: uuid
               description: The down payment request a payment of kind `down_payment` pays.
               readOnly: true
+            house_bank_id:
+              type: string
+              format: uuid
+              description: "House bank that pays it: the run's, or for a run proposed without one, the first ranked for its payment method and currency (T45c)."
+              readOnly: true
+            payment_method:
+              type: string
+              description: "Payment method it is paid by (SAP ZLSCH); absent in a run proposed for one house bank."
+              readOnly: true
             items:
               type: array
               items:
@@ -19057,7 +20983,7 @@ components:
           readOnly: true
         reason_code:
           type: string
-          description: "Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. A release also excludes, with `item_reversed` or `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid. `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run date (T46c); a request's exclusion names it (`down_payment_request_id`), and the supplier's items may still be paid."
+          description: "Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. A release also excludes, with `item_reversed` or `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid. `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run date (T46c); a request's exclusion names it (`down_payment_request_id`), and the supplier's items may still be paid. `no_house_bank` leaves out a supplier, or a request, of a run proposed without a house bank when none of the supplier's payment methods has a house bank ranked for the run currency (T45c)."
           x-extensible-enum:
             - supplier_blocked
             - payment_blocked
@@ -19068,6 +20994,7 @@ components:
             - item_reversed
             - item_not_open
             - tax_code_invalid
+            - no_house_bank
           readOnly: true
         down_payment_request_id:
           type: string
@@ -19111,6 +21038,408 @@ components:
               amount:
                 amount: "1080.00"
                 currency: EUR
+    BankStatementUpload:
+      type: object
+      description: "A bank's statement file to import for a house bank."
+      required:
+        - house_bank_id
+        - format
+        - file
+      properties:
+        house_bank_id:
+          type: string
+          format: uuid
+          description: House bank whose account the statements are of.
+        format:
+          type: string
+          description: "The file's format; the camt.053 version is the one the document declares. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - camt.053
+            - mt940
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          description: "The bank's file, byte for byte, at most 4 MB, in UTF-8."
+      examples:
+        - house_bank_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d60"
+          format: mt940
+          file: OjIwOlNUTVQyMDI2MTAyMAo=
+    BankStatementImport:
+      type: object
+      description: The statements a file holds, in the file's order.
+      required:
+        - file_sha256
+        - statements
+      properties:
+        file_sha256:
+          type: string
+          description: The file's SHA-256, in hexadecimal.
+          pattern: "^[0-9a-f]{64}$"
+          readOnly: true
+        statements:
+          type: array
+          items:
+            $ref: "#/components/schemas/BankStatement"
+          description: The file's statements, each with its lines.
+          readOnly: true
+      examples:
+        - file_sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9
+          statements:
+            - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e20"
+              version: 1
+              created_at: "2026-10-20T08:00:00Z"
+              created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
+              updated_at: "2026-10-20T08:00:00Z"
+              house_bank_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d60"
+              legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+              format: mt940
+              file_sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9
+              file_position: 1
+              statement_ref: STMT20261020
+              sequence: 00293/001
+              account: AE070331234567890123456
+              opening_balance: {amount: "120000.00", currency: AED}
+              opening_date: "2026-10-19"
+              closing_balance: {amount: "119947.50", currency: AED}
+              closing_date: "2026-10-20"
+              line_count: 1
+              status: imported
+              lines:
+                - line_no: 1
+                  amount: {amount: "-52.50", currency: AED}
+                  is_reversal: false
+                  booking_date: "2026-10-20"
+                  value_date: "2026-10-20"
+                  transaction_code: NCHG
+                  bank_reference: EB26102000124
+                  owner_reference: NONREF
+                  text: TRANSFER CHARGES
+                  status: unmatched
+                  transactions: []
+    BankStatement:
+      description: "A bank account statement imported for a house bank (ADR-0047). Amounts are signed: a credit to the account is positive."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - house_bank_id
+            - legal_entity_id
+            - format
+            - file_sha256
+            - file_position
+            - statement_ref
+            - sequence
+            - account
+            - opening_balance
+            - opening_date
+            - closing_balance
+            - closing_date
+            - line_count
+            - status
+          properties:
+            house_bank_id:
+              type: string
+              format: uuid
+              description: House bank whose account the statement is of.
+              readOnly: true
+            legal_entity_id:
+              type: string
+              format: uuid
+              description: The house bank's legal entity.
+              readOnly: true
+            format:
+              type: string
+              description: "The file's format and version. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - camt.053.001.02
+                - camt.053.001.08
+                - mt940
+              readOnly: true
+            file_sha256:
+              type: string
+              description: SHA-256 of the file it was imported from, in hexadecimal.
+              pattern: "^[0-9a-f]{64}$"
+              readOnly: true
+            file_position:
+              type: integer
+              format: int32
+              description: The statement's place in its file, from 1.
+              minimum: 1
+              readOnly: true
+            message_id:
+              type: string
+              description: "The camt.053 message id; absent in MT940."
+              readOnly: true
+            statement_ref:
+              type: string
+              description: "The bank's statement id: camt.053 Stmt/Id, MT940 field 20."
+              readOnly: true
+            sequence:
+              type: string
+              description: "The statement's number in the account's series: camt.053 ElctrncSeqNb (or LglSeqNb), MT940 field 28C."
+              readOnly: true
+            account:
+              type: string
+              description: "The account's IBAN, or the bank's account number where it has none."
+              readOnly: true
+            opening_balance:
+              $ref: "#/components/schemas/Money"
+            opening_date:
+              type: string
+              format: date
+              description: Date of the opening balance.
+              readOnly: true
+            closing_balance:
+              $ref: "#/components/schemas/Money"
+            closing_date:
+              type: string
+              format: date
+              description: Date of the closing balance.
+              readOnly: true
+            line_count:
+              type: integer
+              format: int32
+              description: Number of booked entries.
+              minimum: 0
+              readOnly: true
+            previous_statement_id:
+              type: string
+              format: uuid
+              description: "The house bank's statement before it, whose closing balance its opening balance was compared with; absent for the bank's first."
+              readOnly: true
+            status:
+              type: string
+              description: "`imported`; `gap` when its opening balance is not the previous statement's closing balance (automatic posting stops for the bank); `reconciled`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - imported
+                - gap
+                - reconciled
+              readOnly: true
+            lines:
+              type: array
+              items:
+                $ref: "#/components/schemas/BankStatementLine"
+              description: "The booked entries, in the bank's order; absent in lists."
+              readOnly: true
+    StatementMatch:
+      description: "What a bank statement line clears (ADR-0047): found by a matching rule, decided by a person, or (later) proposed by the reconciliation agent."
+      examples:
+        - {id: 0192a000-0000-7000-8000-000000000b40, version: 1, created_at: "2026-10-20T11:00:00Z", created_by: 0192a000-0000-7000-8000-000000000105, updated_at: "2026-10-20T11:00:00Z", updated_by: 0192a000-0000-7000-8000-000000000105, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, kind: rule, rule: end_to_end_id, reason: "End-to-end ids 2000-PR100000-000001: 1 of 1 are payments, paying 100.00 of 100.00.", status: matched, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c01}]}
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [bank_statement_id, line_no, kind, reason, status, targets]
+          properties:
+            bank_statement_id: {type: string, format: uuid, description: The bank statement of the line., readOnly: true}
+            line_no: {type: integer, format: int32, minimum: 1, description: "The line's number in the statement.", readOnly: true}
+            kind:
+              type: string
+              description: "Who made it. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [rule, manual, agent]
+              readOnly: true
+            rule:
+              type: string
+              description: "The matching rule of a rule's match. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [end_to_end_id, batch_id, transaction_code, amount]
+              readOnly: true
+            reason: {type: string, description: "What the rule found, or the person's reason.", readOnly: true}
+            status:
+              type: string
+              description: "open: candidates for a person to choose from; matched: the targets decided; excluded: the line clears nothing; rejected: replaced by a person's decision. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [open, matched, excluded, rejected]
+              readOnly: true
+            targets:
+              type: array
+              items: {$ref: "#/components/schemas/StatementMatchTarget"}
+              description: "What it clears: of an open match, each candidate's targets under its number; of a match decided, candidate 1's; none when excluded."
+              readOnly: true
+    StatementMatchTarget:
+      type: object
+      description: "A payment, with the bank file of a batch booking, or a posting rule."
+      required: [candidate]
+      properties:
+        candidate: {type: integer, format: int32, minimum: 1, description: "The candidate it belongs to.", readOnly: true}
+        payment_id: {type: string, format: uuid, description: The payment cleared., readOnly: true}
+        bank_file_id: {type: string, format: uuid, description: "The bank file of a batch booking the payment was in.", readOnly: true}
+        posting_rule: {type: string, description: "The transaction code of the company's posting rule.", readOnly: true}
+    StatementMatchList:
+      type: object
+      description: A bank statement's matches.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/StatementMatch"}
+          examples:
+            - [{id: 0192a000-0000-7000-8000-000000000b40, version: 1, created_at: "2026-10-20T11:00:00Z", created_by: 0192a000-0000-7000-8000-000000000105, updated_at: "2026-10-20T11:00:00Z", updated_by: 0192a000-0000-7000-8000-000000000105, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, kind: rule, rule: end_to_end_id, reason: "End-to-end ids 2000-PR100000-000001: 1 of 1 are payments, paying 100.00 of 100.00.", status: matched, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c01}]}]
+      examples:
+        - {items: [{id: 0192a000-0000-7000-8000-000000000b40, version: 1, created_at: "2026-10-20T11:00:00Z", created_by: 0192a000-0000-7000-8000-000000000105, updated_at: "2026-10-20T11:00:00Z", updated_by: 0192a000-0000-7000-8000-000000000105, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, kind: rule, rule: end_to_end_id, reason: "End-to-end ids 2000-PR100000-000001: 1 of 1 are payments, paying 100.00 of 100.00.", status: matched, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c01}]}]}
+    StatementLineMatchInput:
+      type: object
+      description: "A person's match of a line: the payments it clears or a posting rule, not both, and why."
+      required: [reason]
+      properties:
+        payment_ids:
+          type: array
+          items: {type: string, format: uuid}
+          minItems: 1
+          maxItems: 1000
+          uniqueItems: true
+          description: The payments the line clears.
+          examples:
+            - [0192a000-0000-7000-8000-000000000c01]
+        posting_rule:
+          type: string
+          minLength: 1
+          maxLength: 35
+          description: The transaction code of the company's posting rule that posts the line.
+        reason:
+          type: string
+          description: "Why; recorded in the audit trail and on the resulting event."
+          minLength: 1
+          maxLength: 2000
+      additionalProperties: false
+      examples:
+        - {payment_ids: [0192a000-0000-7000-8000-000000000c01], reason: "The remittance names INV-3."}
+    BankStatementLine:
+      type: object
+      description: One booking on the account.
+      required:
+        - line_no
+        - amount
+        - is_reversal
+        - booking_date
+        - value_date
+        - transaction_code
+        - bank_reference
+        - owner_reference
+        - text
+        - status
+        - transactions
+      properties:
+        line_no:
+          type: integer
+          format: int32
+          description: The line's number in the statement, from 1.
+          minimum: 1
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+        is_reversal:
+          type: boolean
+          description: The booking reverses an earlier one.
+          readOnly: true
+        booking_date:
+          type: string
+          format: date
+          description: Booking date.
+          readOnly: true
+        value_date:
+          type: string
+          format: date
+          description: Value date.
+          readOnly: true
+        transaction_code:
+          type: string
+          description: "The bank transaction code: ISO 20022 domain, family and sub-family (PMNT-ICDT-ESCT), the bank's proprietary code, or the MT940 type (NTRF)."
+          readOnly: true
+        bank_reference:
+          type: string
+          description: The bank's reference.
+          readOnly: true
+        owner_reference:
+          type: string
+          description: The reference for the account owner.
+          readOnly: true
+        text:
+          type: string
+          description: The bank's text for the booking.
+          readOnly: true
+        status:
+          type: string
+          description: "Reconciliation status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - unmatched
+            - proposed
+            - matched
+            - excluded
+            - pending_approval
+            - posted
+          readOnly: true
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/BankStatementTransaction"
+          description: "The transactions the booking holds: one for a single payment, several for a batch booking, none where the bank gives none."
+          readOnly: true
+    BankStatementTransaction:
+      type: object
+      description: One transaction within a booking.
+      required:
+        - amount
+      properties:
+        amount:
+          $ref: "#/components/schemas/Money"
+        message_id:
+          type: string
+          description: The payment message id.
+          readOnly: true
+        payment_information_id:
+          type: string
+          description: The payment information (batch) id.
+          readOnly: true
+        instruction_id:
+          type: string
+          description: The instruction id.
+          readOnly: true
+        end_to_end_id:
+          type: string
+          description: The end-to-end id.
+          readOnly: true
+        transaction_code:
+          type: string
+          description: The transaction's bank transaction code.
+          readOnly: true
+        counterparty_name:
+          type: string
+          description: "The other side: the creditor of a debit, the debtor of a credit."
+          readOnly: true
+        counterparty_iban:
+          type: string
+          description: The other side's IBAN.
+          readOnly: true
+        counterparty_account:
+          type: string
+          description: "The other side's account number, where it has no IBAN."
+          readOnly: true
+        counterparty_bic:
+          type: string
+          description: The other side's bank.
+          readOnly: true
+        remittance:
+          type: string
+          description: The remittance information.
+          readOnly: true
+    BankStatementPage:
+      type: object
+      description: One page of bank statements.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BankStatement"
+          description: The bank statements on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
     BankFile:
       description: A payment file produced by a released run, stored in object storage.
       allOf:
@@ -19126,6 +21455,15 @@ components:
               format: uuid
               description: Payment run.
               readOnly: true
+            house_bank_id:
+              type: string
+              format: uuid
+              description: "House bank whose account the file pays from; a run writes one file per house bank and payment method (T45c)."
+              readOnly: true
+            payment_method:
+              type: string
+              description: "Payment method of the file's payments; absent for a run proposed for one house bank."
+              readOnly: true
             format:
               type: string
               description: "ISO 20022 message format. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
@@ -19138,7 +21476,10 @@ components:
               description: "Transmission status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - created
+                - to_send
+                - sending
                 - transmitted
+                - failed
                 - acknowledged
                 - rejected
               readOnly: true
@@ -19549,6 +21890,585 @@ components:
       additionalProperties: false
       examples:
         - from_seq: 1
+    WebhookSubscription:
+      description: "A subscription that sends the tenant's events of the listed types to an HTTPS endpoint, signed per Standard Webhooks with the subscription's own secret (ADR-0041)."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - url
+            - description
+            - event_types
+            - status
+          properties:
+            url:
+              type: string
+              description: "The HTTPS endpoint, without credentials or fragment; a query may carry the endpoint's token."
+              maxLength: 2048
+            description:
+              type: string
+              description: What the endpoint is for.
+              maxLength: 200
+            event_types:
+              type: array
+              description: "CloudEvents types marked `x-webhook` in the AsyncAPI contract, or `<context>.*` for all of a context's."
+              minItems: 1
+              maxItems: 100
+              items:
+                type: string
+                description: An event type or a context wildcard.
+                maxLength: 200
+            status:
+              type: string
+              description: "Status. `paused` (by `:pause`, how a tenant stops deliveries): deliveries are held and sent in order on `:resume`. `disabled`: the dispatcher stopped after 5 days of failures or a 410 Gone (`disabled_reason`); its pending deliveries are dropped, and `:resume` makes it active again for later events. Moving to `disabled` changes the version; `failing_since` alone does not. `deleted`: ended by `:delete`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - active
+                - paused
+                - disabled
+                - deleted
+              readOnly: true
+            disabled_reason:
+              type: string
+              description: "Why the dispatcher disabled it; present only when `disabled`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - failing
+                - gone
+              readOnly: true
+            failing_since:
+              type: string
+              format: date-time
+              description: First failed delivery since the last success or the last `:pause` or `:resume`; absent while deliveries succeed.
+              readOnly: true
+            previous_secret_expires_at:
+              type: string
+              format: date-time
+              description: "Until when the previous secret also signs, after a rotation; absent otherwise."
+              readOnly: true
+            secret:
+              type: string
+              description: "The `whsec_` signing secret: present only in the answers to create and `:rotateSecret`, never stored in the clear."
+              readOnly: true
+              maxLength: 200
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
+          version: 1
+          created_at: "2026-10-19T09:00:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
+          updated_at: "2026-10-19T09:00:00Z"
+          url: "https://hooks.example.com/erp"
+          description: Supplier portal
+          event_types:
+            - ledger.*
+          status: active
+    WebhookSubscriptionCreate:
+      type: object
+      description: "Create a webhook subscription (status `active`)."
+      required:
+        - url
+        - event_types
+      properties:
+        url:
+          type: string
+          description: "The HTTPS endpoint; its host must resolve to public addresses only."
+          maxLength: 2048
+        description:
+          type: string
+          description: What the endpoint is for.
+          maxLength: 200
+        event_types:
+          type: array
+          description: "Event types marked `x-webhook`, or `<context>.*`; duplicates are dropped."
+          minItems: 1
+          maxItems: 100
+          items:
+            type: string
+            description: An event type or a context wildcard.
+            maxLength: 200
+      additionalProperties: false
+      examples:
+        - url: "https://hooks.example.com/erp"
+          description: Supplier portal
+          event_types:
+            - ledger.*
+    WebhookSubscriptionUpdate:
+      type: object
+      description: Merge patch of a webhook subscription.
+      properties:
+        url:
+          type: string
+          description: "The HTTPS endpoint; its host must resolve to public addresses only."
+          maxLength: 2048
+        description:
+          type: string
+          description: What the endpoint is for.
+          maxLength: 200
+        event_types:
+          type: array
+          description: "Event types marked `x-webhook`, or `<context>.*`; replaced as a whole."
+          minItems: 1
+          maxItems: 100
+          items:
+            type: string
+            description: An event type or a context wildcard.
+            maxLength: 200
+      additionalProperties: false
+      examples:
+        - description: Supplier portal (production)
+    WebhookSubscriptionPage:
+      type: object
+      description: One page of webhook subscriptions.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebhookSubscription"
+          description: The webhook subscriptions on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+      examples:
+        - items:
+            - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
+              version: 1
+              created_at: "2026-10-19T09:00:00Z"
+              created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
+              updated_at: "2026-10-19T09:00:00Z"
+              url: "https://hooks.example.com/erp"
+              description: Supplier portal
+              event_types:
+                - ledger.*
+              status: active
+    WebhookDelivery:
+      type: object
+      description: "One event sent, or to be sent, to a subscription's endpoint (ADR-0041). Kept 30 days."
+      required:
+        - id
+        - version
+        - subscription_id
+        - event_id
+        - type
+        - subject
+        - occurred_at
+        - status
+        - attempts
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: "Identifier (UUIDv7); the `webhook-delivery-id` header of its requests."
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          description: "Optimistic-lock version; equals the ETag. Moves with every attempt."
+          minimum: 1
+          readOnly: true
+        subscription_id:
+          type: string
+          format: uuid
+          description: The subscription it is sent to.
+          readOnly: true
+        event_id:
+          type: string
+          format: uuid
+          description: "The CloudEvent id: the `webhook-id` of every attempt, redelivery and replay."
+          readOnly: true
+        type:
+          type: string
+          description: "The CloudEvents type, or `webhook.ping` for a ping."
+          maxLength: 200
+          readOnly: true
+        subject:
+          type: string
+          format: uuid
+          description: "The resource the event is about (the subscription, for a ping); a resource's deliveries go out in event order."
+          readOnly: true
+        occurred_at:
+          type: string
+          format: date-time
+          description: When the event occurred.
+          readOnly: true
+        status:
+          type: string
+          description: "`pending`: waiting for its first or next attempt. `delivered`: the endpoint answered 2xx. `dead`: retries ran out or the endpoint answered 410 (a ping: its one attempt failed). `dropped`: never sent, since the subscription was disabled. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - pending
+            - delivered
+            - dead
+            - dropped
+          readOnly: true
+        attempts:
+          type: integer
+          format: int32
+          description: Attempts made since it was last queued.
+          minimum: 0
+          readOnly: true
+        next_attempt_at:
+          type: string
+          format: date-time
+          description: "When it is attempted next; present only while `pending`."
+          readOnly: true
+        last_status:
+          type: integer
+          format: int32
+          description: The endpoint's HTTP status at the last attempt.
+          minimum: 100
+          maximum: 599
+          readOnly: true
+        last_error:
+          type: string
+          description: Why the last attempt got no HTTP status.
+          maxLength: 1000
+          readOnly: true
+        delivered_at:
+          type: string
+          format: date-time
+          description: "When the endpoint accepted it; present only when `delivered`."
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: When the delivery was recorded (UTC).
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: Last change (UTC).
+          readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+          version: 3
+          subscription_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
+          event_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d62"
+          type: com.example.erp.ledger.journal_entry_posted.v1
+          subject: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d63"
+          occurred_at: "2026-10-19T08:59:59Z"
+          status: delivered
+          attempts: 1
+          last_status: 204
+          delivered_at: "2026-10-19T09:00:01Z"
+          created_at: "2026-10-19T09:00:00Z"
+          updated_at: "2026-10-19T09:00:01Z"
+    WebhookDeliveryPage:
+      type: object
+      description: One page of webhook deliveries.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebhookDelivery"
+          description: The webhook deliveries on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items:
+            - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+              version: 1
+              subscription_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
+              event_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d62"
+              type: com.example.erp.ledger.journal_entry_posted.v1
+              subject: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d63"
+              occurred_at: "2026-10-19T08:59:59Z"
+              status: pending
+              attempts: 0
+              next_attempt_at: "2026-10-19T09:00:00Z"
+              created_at: "2026-10-19T09:00:00Z"
+              updated_at: "2026-10-19T09:00:00Z"
+    WebhookReplay:
+      type: object
+      description: Replay the deliveries of the events since an instant.
+      required:
+        - since
+      properties:
+        since:
+          type: string
+          format: date-time
+          description: "Replay the events that occurred at or after this instant: at most 30 days back."
+      additionalProperties: false
+      examples:
+        - since: "2026-10-18T00:00:00Z"
+    WebhookReplayResult:
+      type: object
+      description: What a replay queued.
+      required:
+        - queued
+      properties:
+        queued:
+          type: integer
+          format: int32
+          description: How many deliveries were queued again.
+          minimum: 0
+      examples:
+        - queued: 12
+    AnalyticsQuery:
+      type: object
+      description: "A semantic query: governed metrics, the dimensions to break them down by, filters on dimensions, ordering and a row limit. Unknown metrics or dimensions, dimensions the metrics do not share and malformed filters are 422 `analytics.invalid_query`."
+      required:
+        - measures
+      properties:
+        measures:
+          type: array
+          description: Metric names of the semantic model.
+          minItems: 1
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 100
+        by:
+          type: array
+          description: Dimensions to break the metrics down by.
+          maxItems: 10
+          items:
+            type: string
+            maxLength: 100
+        where:
+          type: array
+          description: Filters on dimensions, all of which a row must meet.
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/AnalyticsFilter"
+        order_by:
+          type: string
+          description: A measure or dimension of the query to order rows by.
+          maxLength: 100
+        desc:
+          type: boolean
+          description: Order descending.
+        limit:
+          type: integer
+          description: At most this many rows; the result is cut at 500 in any case.
+          minimum: 1
+          maximum: 500
+        ledger:
+          type: string
+          format: uuid
+          description: "The ledger journal metrics read; the tenant's leading ledger when omitted (ADR-0044)."
+        as_of:
+          type: string
+          format: date-time
+          description: "The answer must reflect the data as of this time or later: a store found current earlier is not used, and the database answers."
+        companies:
+          type: array
+          description: Company codes to restrict the answer to, within those the principal may read; all of those when omitted.
+          maxItems: 100
+          items:
+            type: string
+            maxLength: 20
+        config_version:
+          type: integer
+          format: int32
+          description: "Answer under the metric definitions of this configuration version, on current data (an audit of what a report meant when it was made); the active version's when omitted. An unknown version is 422 `config.unknown_version` (ADR-0044)."
+          minimum: 1
+      additionalProperties: false
+      examples:
+        - measures: [revenue]
+          by: [fiscal_year, fiscal_month]
+          where:
+            - dim: fiscal_year
+              op: in
+              values: ["2026"]
+    AnalyticsFilter:
+      type: object
+      description: A filter on a dimension.
+      required:
+        - dim
+        - op
+        - values
+      properties:
+        dim:
+          type: string
+          description: The dimension filtered.
+          maxLength: 100
+        op:
+          type: string
+          description: "`in` and `not_in` take any number of values, `<=` and `>=` one, `between` two."
+          x-extensible-enum:
+            - in
+            - not_in
+            - "<="
+            - ">="
+            - between
+        values:
+          type: array
+          description: The values compared with.
+          maxItems: 1000
+          items:
+            type: string
+            maxLength: 200
+      additionalProperties: false
+    AnalyticsModel:
+      type: object
+      description: A configuration version's governed semantic model.
+      required:
+        - config_version
+        - model
+      properties:
+        config_version:
+          type: integer
+          format: int32
+          description: The configuration version the model is of.
+        model:
+          type: object
+          additionalProperties: true
+          description: "The model as the configuration document's `analytics` section holds it: `calendar`, `defaults`, `dimensions` and `metrics` (each with its name, label, description, synonyms, type, dimensions and definition)."
+      additionalProperties: false
+    AnalyticsResult:
+      type: object
+      description: "A query's columns and rows, with its lineage: the source it was answered from, as of when, the latest date in the data read, and each measure's definition."
+      required:
+        - query_id
+        - columns
+        - rows
+        - source
+        - as_of
+        - data_through
+        - definitions
+        - truncated
+        - config_version
+      properties:
+        config_version:
+          type: integer
+          format: int32
+          description: "The configuration version whose metric definitions answered: the active one, or the one asked for."
+        query_id:
+          type: string
+          description: Stable for the same query and company scope, so saved reports can refer to it.
+        columns:
+          type: array
+          description: The dimensions, then the measures, in the order of each row's cells.
+          items:
+            $ref: "#/components/schemas/AnalyticsColumn"
+        rows:
+          type: array
+          description: One array of cells per row, in the order of `columns`.
+          items:
+            type: array
+            items:
+              $ref: "#/components/schemas/AnalyticsCell"
+        source:
+          type: string
+          description: "`store` (the analytical store) or `database`."
+          x-extensible-enum:
+            - store
+            - database
+        as_of:
+          type: string
+          format: date-time
+          description: "The state of the data answered: the store's snapshot, or the time of the database read."
+        data_through:
+          type: string
+          description: "The latest posting or document date in the data read (YYYY-MM-DD); from the store, of the datasets the query read only."
+        definitions:
+          type: array
+          description: The metric definitions that produced the measures.
+          items:
+            $ref: "#/components/schemas/AnalyticsDefinition"
+        truncated:
+          type: boolean
+          description: The rows were cut at the limit.
+    AnalyticsColumn:
+      type: object
+      description: A column of a result.
+      required:
+        - name
+        - label
+        - kind
+      properties:
+        name:
+          type: string
+          description: The dimension or metric name.
+        label:
+          type: string
+          description: Its label.
+        kind:
+          type: string
+          description: "`dimension` or `measure`."
+          x-extensible-enum:
+            - dimension
+            - measure
+        type:
+          type: string
+          description: "A measure's type: `money`, `count` or `ratio`."
+          x-extensible-enum:
+            - money
+            - count
+            - ratio
+        currency:
+          type: string
+          description: A money measure's currency, when every row's is the same.
+    AnalyticsCell:
+      type: object
+      description: "A cell: a dimension's value, or a measure as an exact decimal with exactly its digits (an amount at its currency's exponent, a count whole, a ratio to 4 digits); null when it cannot be computed, as a ratio over zero."
+      required:
+        - value
+      properties:
+        value:
+          type:
+            - string
+            - "null"
+          description: The value.
+        currency:
+          type: string
+          description: A money measure's currency.
+    AnalyticsDefinition:
+      type: object
+      description: The definition that produced a measure.
+      required:
+        - name
+        - description
+      properties:
+        name:
+          type: string
+          description: The metric.
+        description:
+          type: string
+          description: What it measures.
+        source:
+          type: string
+          description: The fact table a base metric sums or counts.
+        filter:
+          type: object
+          description: The base metric's fixed filter, by dimension.
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        derived:
+          $ref: "#/components/schemas/AnalyticsDerived"
+    AnalyticsDerived:
+      type: object
+      description: A derived metric's operation on two others.
+      required:
+        - op
+        - left
+        - right
+      properties:
+        op:
+          type: string
+          description: "`subtract` or `divide`."
+          x-extensible-enum:
+            - subtract
+            - divide
+        left:
+          type: string
+          description: The left metric.
+        right:
+          type: string
+          description: The right metric.
     Connector:
       description: A configured connection to an external system. Secrets live in the vault and are referenced, never stored or returned.
       allOf:
@@ -19581,7 +22501,7 @@ components:
             settings:
               type: object
               additionalProperties: true
-              description: "Connector settings (endpoints, formats); never secrets."
+              description: "Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`."
             secret_ref:
               type: string
               description: Vault path of the credentials.
@@ -19631,7 +22551,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; never secrets."
+          description: "Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`."
         secret_ref:
           type: string
           description: Vault path of the credentials.
@@ -19653,7 +22573,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; replaced as a whole."
+          description: "Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`."
         secret_ref:
           type:
             - string

@@ -189,3 +189,23 @@ func TestSourceErrors(t *testing.T) {
 		t.Fatal("read without a server")
 	}
 }
+
+// TestSourcePermissions: the permissions are those of the reads each
+// selection of fact tables makes, in the order they are made.
+func TestSourcePermissions(t *testing.T) {
+	for name, c := range map[string]struct {
+		datasets []string
+		want     string
+	}{
+		"every table": {nil, "tenancy.org.read partner.supplier.read ledger.account.read ledger.entry.read procurement.order.read payables.invoice.read"},
+		"journal":     {[]string{"gl_lines"}, "tenancy.org.read partner.supplier.read ledger.account.read ledger.entry.read"},
+		"orders":      {[]string{"po_lines"}, "tenancy.org.read partner.supplier.read ledger.account.read procurement.order.read"},
+		"invoices":    {[]string{"ap_invoices"}, "tenancy.org.read partner.supplier.read payables.invoice.read"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := strings.Join(Source{Datasets: c.datasets}.Permissions(), " "); got != c.want {
+				t.Errorf("got %s, want %s", got, c.want)
+			}
+		})
+	}
+}

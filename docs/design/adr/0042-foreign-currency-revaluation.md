@@ -1,0 +1,177 @@
+# ADR-0042: Foreign-currency revaluation
+
+**Status:** accepted (T48, product owner 2026-10-19)
+
+## Context
+An open item in a foreign currency is booked in local currency at the rate
+of its posting date. At a period end the balance sheet must show it at the
+rate of that date (IAS 21.23: monetary items at the closing rate), and the
+difference is an unrealised gain or loss until the item is paid, when
+payments realise the actual difference (`fx_gain`/`fx_loss`, already
+built). SAP does this with the foreign currency valuation run (FAGL_FCV):
+at a key date it values open items of reconciliation accounts and the
+balances of G/L accounts marked for valuation, posts the differences to
+adjustment and unrealised gain/loss accounts (T030S/T030H) and reverses
+them on the first day of the next period. ADR-0005 already gives every
+journal entry its document currency (`journal_entry.currency_tc`) and
+every line `amount_tc`, `amount_lc` and `amount_gc`, converted once at
+posting.
+
+## Decision
+- **Document currency stays on the entry header.** An entry has one
+  transaction currency (`journal_entry.currency_tc`); lines do not get a
+  currency of their own (no `journal_line.currency_tc`). Every posting path
+  (other contexts' postings, reversals, manual and parked entries,
+  clearings, down payment clearings, settlement, GR/IR) posts a document in
+  a currency other than local currency, converted at the posting date's
+  rate (`TestDocumentCurrencyOnEveryPostingPath`, `TestForeignExchange`,
+  `TestGRIRForeignCurrency`).
+- **What is revalued.** Open items on supplier and customer reconciliation
+  accounts, and the balance per currency of G/L accounts flagged
+  `revalue_foreign_currency` (`ledger.company_account`; assets and
+  liabilities that reconcile no partner, such as a foreign-currency bank
+  account; equity is non-monetary, IAS 21.16, and not revalued). Special G/L items (down payments, ADR-0037) and the GR/IR
+  account are not revalued: down payments are advances, non-monetary under
+  IAS 21.16, and GR/IR is valued with its order items.
+- **Rates.** One valuation rate type per legal entity
+  (`companies[].fx_valuation.rate_type`, default `average`), kept in
+  `ledger.fx_valuation`. The rate is the latest of that type valid on the
+  key date; one whose `valid_from` lies before the key date's period is
+  stale and refused (422 `ledger.rate_stale`), as is a missing one. Rates
+  are loaded by operators through `/v1/exchange-rates`; feeds come later.
+- **Accounts.** Per legal entity and revalued account
+  (`companies[].fx_valuation.accounts`, `ledger.fx_valuation_account`): an
+  unrealised gain (a revenue) and an unrealised loss (an expense), separate
+  settings from the realised `fx_gain`/`fx_loss` though they may name the
+  same accounts, and for a reconciliation account a balance-sheet
+  adjustment account that reconciles nothing, since a reconciliation
+  account is posted only through its partners' items. A flagged G/L
+  account takes its difference itself. The database keeps these rules
+  (`fx_valuation_account_*`, `company_account_revalue_foreign_currency*`);
+  configuration validation reports them first.
+- **The run.** Per legal entity and ledger (`ledger_id` is a key from the
+  start, ready for parallel ledgers in T52) at a key date that is the last
+  day of a posting period. It values every item at the key date's rate
+  against its booked local amount, posts one valuation entry dated the key
+  date and one reversing entry dated the next day, the first of the next
+  period, both periods open (T32), and records the run with its items
+  (`ledger.revaluation_run`, `ledger.revaluation_item`). The reversal is a
+  separate entry linked by the run, not a `reversal_of` reversal, so the
+  original items stay open and the next period starts from their booked
+  amounts (SAP's reset). A run without differences posts no entries.
+- **Valuation (T48b).** An item is open at the key date when posted on or
+  before it and neither cleared by a clearing nor reversed by a reversal
+  dated on or before it; only
+  items in a currency other than local currency are valued, and a flagged
+  account's balance per currency where it is not zero in transaction,
+  local or group currency: a balance zero in its currency with a local or
+  group residual is valued at zero, and the residual is exactly what the
+  run corrects. Such a balance is worth zero at any rate, so it is valued
+  without one (coordinator 2026-10-19): no rate is looked up or checked
+  for it, its difference is `0 −` its booked local and group amounts, and
+  its item records no rates (`revaluation_item_rates`). Every other item
+  is valued `round(amount_tc × rate)` against its
+  booked local amount, rounded once; a positive difference is a gain, a
+  negative one a loss.
+- **Group currency is valued on its own (product owner 2026-10-19).** As
+  SAP's parallel-currency valuation does, an item's group difference is
+  `round(amount_tc × rate tc→gc)` less its booked group amount, at the
+  key date's rate of the same valuation rate type, with the same checks
+  (missing: `ledger.no_exchange_rate`; valid from before the key date's
+  period: `ledger.rate_stale`; zero to 12 decimals:
+  `ledger.rate_not_recordable`), and rate 1 when the item's currency is
+  the group's. It is not the local difference translated: the two
+  currencies' rates move independently, so the differences can differ in
+  size and sign. The local difference's sign picks the gain or loss
+  account, the group one's only where local does not differ; a group
+  difference of the other sign posts to the same account. The key date must be the last day of a (non-special)
+  posting period of the ledger (422 `ledger.key_date_not_period_end`). An
+  account with items in scope and no active valuation fails the run and
+  the preview closed (422 `ledger.revaluation_account_missing`, naming
+  it), rather than leave its differences unposted. Items are read from
+  their journal lines, so an item's account and partner are its line's.
+  `POST /v1/revaluation-runs/preview` returns the items and their totals
+  per account, currency and direction.
+- **Posting (T48c).** `POST /v1/revaluation-runs` posts both entries
+  through the ledger's posting path (`post`): document type SA (SAP's
+  standard for the valuation run, numbered in the general journal range),
+  in local currency, source the run (`source_context` ledger,
+  `source_document_id` the run). The entry is in local currency because a
+  run spans currencies and an entry has one; its transaction amounts are
+  its local ones, and since the scope reads only entries in a currency
+  other than local, a run's own entries never become items. Per total
+  (account, currency, direction) two lines: the local and group
+  differences on the flagged account itself, or on the reconciliation
+  account's adjustment account, and their offset on the unrealised gain
+  or loss account, each checked postable in the legal entity as every
+  posting's; the header's local-to-group rate is the posting date's
+  average rate, for the record only, so a run fails without one as any
+  posting would. A run's entries are not reversed one by one
+  (`ledger.entry_owned_elsewhere`); cancelling the run reverses both. The
+  reset entry, dated the next day,
+  has the same lines negated. Both periods must be open
+  (`ledger.period_not_open`), also for a run without differences, which
+  is recorded with its items and no entries. Running needs
+  `ledger.entry.post`; reading runs `ledger.entry.read`.
+- **Locking.** A run takes every entry lock bucket of the tenant
+  exclusively before it reads (03-data-model, entry locks): clearings and
+  reversals, which take them shared, wait until it commits, and a
+  second run of the tenant waits and then finds the first posted. A run
+  is a period-end job of seconds, so holding the tenant's clearings for
+  it is accepted; finer locks wait for batching (Out of scope).
+- **One posted run per key date.** A partial unique index on (tenant,
+  legal entity, ledger, key date) where `status = 'posted'`; a second run is
+  409 `ledger.revaluation_exists`, whose detail names the posted
+  run and whose `Location` header links it. To correct a run, cancel it (which
+  reverses both its entries) and run again.
+- **Cancelling (T48d).** `POST /v1/revaluation-runs/{id}:cancel`
+  (Idempotency-Key, If-Match the run's version, a reason) reverses the
+  valuation and reset entries through the ledger's reversal path, each on
+  its own posting date with `JournalEntryReversed`: the run's cancel is
+  the one way around `:reverse`'s refusal of a run's entries. Both
+  entries' periods must be open (`ledger.period_not_open`; a closed or
+  locked period, T32, refuses the cancel and nothing is reversed); a
+  cancelled run is 409 `ledger.revaluation_not_posted`. The run becomes
+  `cancelled`, which frees its key date, and is audited and published
+  (`RevaluationRunCancelled`); a run without entries is cancelled without
+  reversals. It takes its entries' bucket locks, then reads the run
+  `FOR UPDATE` (ADR-0008). Needs `ledger.entry.post`; human-only.
+- **Transactions and access.** A run is synchronous, one transaction:
+  items are read, valued and posted together, and the run's open items are
+  read so that a concurrent clearing waits (ADR-0008). Running and
+  cancelling are `x-agent: false`; the preview, which values without
+  posting, is open to agents. Each run and cancellation writes an audit
+  record (ADR-0011) and publishes `RevaluationRunPosted` or
+  `RevaluationRunCancelled` through the outbox (ADR-0007).
+
+## Out of scope
+- Delta mode (valuing against the previous run instead of resetting).
+- Separate debit and credit rate types (SAP's rate types per balance sign).
+- Rate feeds (ECB and others); rates are loaded by operators.
+- Balance sheet regrouping of receivables and payables by sign (SAP F101).
+- Translation for consolidation (group currency financial statements).
+- Valuation areas per accounting principle, until parallel ledgers (T52).
+- Batching large runs as Temporal workflows (ADR-0012); a run is one
+  transaction until volumes need otherwise.
+
+## Alternatives
+- **A currency per line (`journal_line.currency_tc`):** allows mixed-currency
+  entries as ACDOCA does, but every balance check, clearing and report would
+  group by line currency; no posting path needs it.
+- **Reversal with `reversal_of_id`:** would mark the valuation entry
+  reversed and reuse the existing machinery, but a reversal on the next day
+  is not a correction of an error; the run links both instead.
+- **Delta valuation:** fewer postings, but each run then depends on the
+  previous one, and cancelling one would invalidate those after it.
+
+## Consequences
+- Steps: a ADR and schema (000107) · b valuation engine and preview · c
+  posting run · d cancel and close-out, all done; e (follow-ups: paging
+  of very large previews, one shared definition of "reversed" for
+  open-item reads, a budget run with reversals) is open.
+- The unrealised result of a period is visible as the balance of the
+  unrealised gain and loss accounts and is gone from the next period after
+  the reversal.
+- A clearing or payment after a run realises the difference against the
+  booked amount, as before; the run's adjustment has already been reversed
+  by then.
