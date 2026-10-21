@@ -175,6 +175,14 @@ func TestDatabaseFailures(t *testing.T) {
 				_, err := h.ListAccounts(ctx, gen.ListAccountsParams{PageSize: zero})
 				return err
 			},
+			"ledgers": func(ctx context.Context) error {
+				_, err := h.ListLedgers(ctx, gen.ListLedgersParams{PageSize: zero})
+				return err
+			},
+			"ledger groups": func(ctx context.Context) error {
+				_, err := h.ListLedgerGroups(ctx, gen.ListLedgerGroupsParams{PageSize: zero})
+				return err
+			},
 			// A caller other than the API, whose contract admits only
 			// decimals, can pass anything: refused, not a nil dereference.
 			"rate not a decimal": func(ctx context.Context) error {
@@ -361,6 +369,19 @@ func ledgerCalls(t *testing.T, e env, h *ledger.Endpoints, d ledgerDocs) map[str
 		},
 		"setup apply":            func(ctx context.Context) error { return setup.Apply(ctx, document(t)) },
 		"setup apply open items": func(ctx context.Context) error { return setup.Apply(ctx, with102000OpenItems(t)) },
+		"setup check parallel ledgers": func(ctx context.Context) error {
+			_, err := setup.Check(ctx, parallel(t), parallel(t))
+			return err
+		},
+		"setup apply parallel ledgers": func(ctx context.Context) error { return setup.Apply(ctx, parallel(t)) },
+		"list ledgers": func(ctx context.Context) error {
+			_, err := h.ListLedgers(ctx, gen.ListLedgersParams{})
+			return err
+		},
+		"list ledger groups": func(ctx context.Context) error {
+			_, err := h.ListLedgerGroups(ctx, gen.ListLedgerGroupsParams{})
+			return err
+		},
 		"reconciliation account": func(ctx context.Context) error {
 			_, err := ledger.Accounts{}.IsReconciliationAccount(ctx, e.de, u(ap), "supplier")
 			return err

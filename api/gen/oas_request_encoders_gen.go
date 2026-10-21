@@ -15,6 +15,26 @@ import (
 	"github.com/ogen-go/ogen/uri"
 )
 
+func encodeAcceptBankStatementLineProposalRequest(
+	req OptStatementLineProposalAccept,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	if !req.Set {
+		// Keep request with empty body if value is not set.
+		return nil
+	}
+	e := new(jx.Encoder)
+	{
+		if req.Set {
+			req.Encode(e)
+		}
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeApplyCountryPackRequest(
 	req *CountryPackApplication,
 	r *http.Request,
@@ -43,6 +63,20 @@ func encodeApproveApprovalRequestRequest(
 		if req.Set {
 			req.Encode(e)
 		}
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeAssignProfitCenterRequest(
+	req *ProfitCenterAssign,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
 	}
 	encoded := e.Bytes()
 	ht.SetBody(r, bytes.NewReader(encoded), contentType)
@@ -336,6 +370,20 @@ func encodeCreateContractRequest(
 	return nil
 }
 
+func encodeCreateCostCenterRequest(
+	req *CostCenterCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateDownPaymentRequestRequest(
 	req *DownPaymentRequestCreate,
 	r *http.Request,
@@ -434,6 +482,20 @@ func encodeCreatePrincipalRequest(
 	return nil
 }
 
+func encodeCreateProfitCenterRequest(
+	req *ProfitCenterCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreatePurchaseOrderRequest(
 	req *PurchaseOrderCreate,
 	r *http.Request,
@@ -520,6 +582,20 @@ func encodeCreateRoleRequest(
 
 func encodeCreateRoleAssignmentRequest(
 	req *RoleAssignmentCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateSegmentRequest(
+	req *SegmentCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -785,8 +861,64 @@ func encodeImportBankStatementsRequest(
 	return nil
 }
 
+func encodeLockCostCenterRequest(
+	req *CostCenterLock,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeLockProfitCenterRequest(
+	req *ProfitCenterLock,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeMatchBankStatementLineRequest(
 	req *StatementLineMatchInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeMoveCostCenterRequest(
+	req *CostCenterMove,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeMoveProfitCenterRequest(
+	req *ProfitCenterMove,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -909,6 +1041,20 @@ func encodePreviewRevaluationRequest(
 	return nil
 }
 
+func encodeProposeBankStatementLineRequest(
+	req *StatementLineProposalInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeProposePaymentRunRequest(
 	req *PaymentRunPropose,
 	r *http.Request,
@@ -937,8 +1083,50 @@ func encodeRecordAgentToolCallRequest(
 	return nil
 }
 
+func encodeRedateCostCenterRequest(
+	req *CenterRedate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeRedateProfitCenterRequest(
+	req *CenterRedate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeRejectApprovalRequestRequest(
 	req *CommentRequiredInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeRejectBankStatementLineProposalRequest(
+	req *ReasonInput,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -1255,6 +1443,20 @@ func encodeUpdateContractRequest(
 	return nil
 }
 
+func encodeUpdateCostCenterRequest(
+	req *CenterTextsUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeUpdateLegalEntityRequest(
 	req *LegalEntityUpdate,
 	r *http.Request,
@@ -1311,6 +1513,20 @@ func encodeUpdatePrincipalRequest(
 	return nil
 }
 
+func encodeUpdateProfitCenterRequest(
+	req *CenterTextsUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeUpdatePurchaseOrderRequest(
 	req *PurchaseOrderUpdate,
 	r *http.Request,
@@ -1355,6 +1571,20 @@ func encodeUpdateRequisitionRequest(
 
 func encodeUpdateRoleRequest(
 	req *RoleUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateSegmentRequest(
+	req *SegmentUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"

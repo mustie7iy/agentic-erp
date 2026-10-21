@@ -1,0 +1,138 @@
+# The reconciliation suite's tenants' configuration (ADR-0039, ADR-0047): the
+# shared one (evals/configuration.yaml), with a bank charges account and
+# company 2000's bank statement rules: charges post by NCHG, and lines are
+# matched by end-to-end id and by transaction code. Kept in step with the
+# shared file by hand.
+version: 1
+companies:
+  - code: "2000"
+    name: Acme GmbH
+    currency: EUR
+    country: DE
+    fiscal_year_start_month: 1
+    chart_of_accounts:
+      - number: "100000"
+        name: Bank - Operating
+        type: asset
+      - number: "140000"
+        name: Input Tax
+        type: asset
+      - number: "211000"
+        name: Accounts Payable - Domestic
+        type: liability
+        vendor_reconciliation: true
+      - number: "300000"
+        name: Share Capital
+        type: equity
+      - number: "400000"
+        name: Sales Revenue
+        type: revenue
+      - number: "510000"
+        name: Raw Materials Consumed
+        type: expense
+      - number: "520000"
+        name: Office Supplies
+        type: expense
+      - number: "530000"
+        name: IT Services
+        type: expense
+      - number: "540000"
+        name: Freight Inbound
+        type: expense
+      - number: "610000"
+        name: Salaries and Wages
+        type: expense
+      - number: "670000"
+        name: Bank Charges
+        type: expense
+    account_determination:
+      ap_reconciliation: "211000"
+      input_tax: "140000"
+      bank: "100000"
+    tax_codes:
+      - code: V1
+        description: Input tax, standard rate
+        rate_percent: "19"
+        account: "140000"
+      - code: V0
+        description: Input tax exempt
+        rate_percent: "0"
+        account: "140000"
+    invoice_tolerance:
+      price_percent: 2
+      price_absolute: "5.00"
+    auto_post_limit: "50000.00"
+    manual_entry_approval_limit: "10000.00"
+    gr_over_delivery_percent: 0
+    house_bank:
+      name: MAIN
+      iban: DE89370400440532013000
+      bic: COBADEFFXXX
+    bank_statements:
+      posting_rules:
+        - {transaction_code: NCHG, description: Bank charges, account: "670000"}
+      matching_rules:
+        - {kind: end_to_end_id}
+        - {kind: transaction_code}
+payment_terms:
+  - key: NT14
+    description: Net 14 days
+    net_days: 14
+  - key: NT30
+    description: Net 30 days
+    net_days: 30
+  - key: NT45
+    description: Net 45 days
+    net_days: 45
+  - key: NT60
+    description: Net 60 days
+    net_days: 60
+purchasing:
+  requisition_approval:
+    - up_to: "10000.00"
+      steps:
+        - role: Z_PURCH_MGR
+          approvals: 1
+    - steps:
+        - role: Z_PURCH_MGR
+          approvals: 1
+        - role: process_owner
+          approvals: 1
+  order_release_approval:
+    - up_to: "1000.00"
+      steps: []
+    - up_to: "5000.00"
+      steps:
+        - role: Z_PURCH_MGR
+          approvals: 1
+    - steps:
+        - role: Z_PURCH_MGR
+          approvals: 1
+        - role: Z_PURCH_HEAD
+          approvals: 1
+  contract_expiry_notice_days: 30
+payments:
+  release_role: Z_TREASURY_MGR
+  release_approvals: 1
+  bank_change_hold_days: 5
+  vendor_approver_role: vendor_master_approver
+output:
+  purchase_order_channel: email
+# The cases are dated in 2026: its number ranges open its fiscal year.
+number_ranges:
+  - {company: "2000", document_type: contract, fiscal_year: 2026, prefix: CT, first: 100000, last: 999999}
+  - {company: "2000", document_type: goods_receipt, fiscal_year: 2026, prefix: GR, first: 100000, last: 999999}
+  - {company: "2000", document_type: journal_ab, fiscal_year: 2026, first: 100000, last: 999999}
+  - {company: "2000", document_type: journal_kg, fiscal_year: 2026, first: 100000, last: 999999}
+  - {company: "2000", document_type: journal_kr, fiscal_year: 2026, first: 100000, last: 999999}
+  - {company: "2000", document_type: journal_kz, fiscal_year: 2026, first: 100000, last: 999999}
+  - {company: "2000", document_type: journal_ob, fiscal_year: 2026, first: 100000, last: 999999}
+  - {company: "2000", document_type: journal_re, fiscal_year: 2026, first: 100000, last: 999999}
+  - {company: "2000", document_type: journal_sa, fiscal_year: 2026, first: 100000, last: 999999}
+  - {company: "2000", document_type: journal_we, fiscal_year: 2026, first: 100000, last: 999999}
+  - {company: "2000", document_type: journal_zp, fiscal_year: 2026, first: 100000, last: 999999}
+  - {company: "2000", document_type: partner_change, fiscal_year: 2026, first: 100000, last: 999999}
+  - {company: "2000", document_type: payment_run, fiscal_year: 2026, prefix: PR, first: 100000, last: 999999}
+  - {company: "2000", document_type: purchase_order, fiscal_year: 2026, prefix: PO, first: 100000, last: 999999}
+  - {company: "2000", document_type: requisition, fiscal_year: 2026, prefix: PR, first: 100000, last: 999999}
+  - {company: "2000", document_type: supplier_invoice, fiscal_year: 2026, prefix: SI, first: 100000, last: 999999}

@@ -1,10 +1,10 @@
 // Package approvals is the workflow context (03-data-model §3.11): approval
 // requests for requisitions, partner changes, configuration changes,
-// supplier invoice exceptions, period unlocks, manual journal entries, and
-// purchase orders and their changes, with sequential steps that each need
-// a number of distinct approvals from holders of a role. Only people
-// approve or reject, never the requester, and nobody approves a request
-// twice; the requester may withdraw it. (The prototype's engine is
+// supplier invoice exceptions, period unlocks, manual journal entries,
+// purchase orders and their changes, and cost and profit center changes,
+// with sequential steps that each need a number of distinct approvals from
+// holders of a role. Only people approve or reject, never the requester,
+// and nobody approves a request twice; the requester may withdraw it. (The prototype's engine is
 // internal/workflow; its rules are kept here.)
 //
 // The owning context opens a request through Approvals in its own
@@ -21,7 +21,8 @@
 // changes raising an order's total, by amount tier
 // (purchasing.order_release_approval, T47), and the posting of a matched
 // bank statement line by its company's bank_statements.approval_tiers, or
-// by DefaultBankClearingRole until the company has tiers (ADR-0047, T49f).
+// by DefaultBankClearingRole until the company has tiers (ADR-0047, T49f),
+// and center changes by DefaultCenterChangeRole (T56a).
 // Roles are the identity context's roles with the document's role names as
 // codes.
 package approvals
@@ -60,6 +61,7 @@ const (
 	PurchaseOrder    = "purchase_order" // the release of an order without an approved requisition (T47)
 	OrderChange      = "order_change"   // a change that raises a released order's total (T47)
 	BankClearing     = "bank_clearing"  // the posting of a matched bank statement line (ADR-0047, T49f)
+	CenterChange     = "center_change"  // a change of a cost or profit center that needs a controller (T56a)
 )
 
 // Request statuses.
@@ -90,6 +92,12 @@ const DefaultManualEntryRole = "controller"
 // unchecked (ADR-0047, fail closed).
 const DefaultBankClearingRole = "controller"
 
+// DefaultCenterChangeRole approves a center change (T56a, ADR-0050 §11):
+// creating a cost or profit center, its validity, locks, profit center,
+// segment and companies are a controller's decision, a fixed role as for
+// period unlocks.
+const DefaultCenterChangeRole = "controller"
+
 // ObjectPermissions is the approval permission of each object type
 // (x-object-permissions of approveApprovalRequest).
 var ObjectPermissions = map[string]string{
@@ -98,6 +106,7 @@ var ObjectPermissions = map[string]string{
 	PeriodUnlock: "ledger.period.unlock.approve", ManualEntry: "ledger.entry.approve",
 	PurchaseOrder: "procurement.order.approve", OrderChange: "procurement.order.approve",
 	BankClearing: "payments.statement.clearing.approve",
+	CenterChange: "ledger.cost_center.approve",
 }
 
 func init() {
@@ -380,6 +389,8 @@ func steps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) 
 		out = append(out, policyStep{DefaultExceptionRole, 1})
 	case PeriodUnlock:
 		out = append(out, policyStep{DefaultPeriodUnlockRole, 1})
+	case CenterChange:
+		out = append(out, policyStep{DefaultCenterChangeRole, 1})
 	case ManualEntry:
 		return manualEntrySteps(ctx, rates, doc, in)
 	case PurchaseOrder, OrderChange:

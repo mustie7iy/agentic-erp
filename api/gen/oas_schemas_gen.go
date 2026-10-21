@@ -3302,11 +3302,13 @@ func (s *BadRequestHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*BadRequestHeaders) acceptBankStatementLineProposalRes()  {}
 func (*BadRequestHeaders) activateChangeRequestRes()            {}
 func (*BadRequestHeaders) activateLegalEntityRes()              {}
 func (*BadRequestHeaders) activateOrgUnitRes()                  {}
 func (*BadRequestHeaders) applyCountryPackRes()                 {}
 func (*BadRequestHeaders) approveApprovalRequestRes()           {}
+func (*BadRequestHeaders) assignProfitCenterRes()               {}
 func (*BadRequestHeaders) blockBusinessPartnerRes()             {}
 func (*BadRequestHeaders) blockLegalEntityRes()                 {}
 func (*BadRequestHeaders) blockOrgUnitRes()                     {}
@@ -3331,6 +3333,7 @@ func (*BadRequestHeaders) createClearingRes()                   {}
 func (*BadRequestHeaders) createCompanyAccessRes()              {}
 func (*BadRequestHeaders) createConnectorRes()                  {}
 func (*BadRequestHeaders) createContractRes()                   {}
+func (*BadRequestHeaders) createCostCenterRes()                 {}
 func (*BadRequestHeaders) createDownPaymentRequestRes()         {}
 func (*BadRequestHeaders) createExchangeRateRes()               {}
 func (*BadRequestHeaders) createLegalEntityRes()                {}
@@ -3338,6 +3341,7 @@ func (*BadRequestHeaders) createMigrationRunRes()               {}
 func (*BadRequestHeaders) createOrgUnitRes()                    {}
 func (*BadRequestHeaders) createPartnerChangeRes()              {}
 func (*BadRequestHeaders) createPrincipalRes()                  {}
+func (*BadRequestHeaders) createProfitCenterRes()               {}
 func (*BadRequestHeaders) createPurchaseOrderChangeRes()        {}
 func (*BadRequestHeaders) createPurchaseOrderRes()              {}
 func (*BadRequestHeaders) createRecommendationRes()             {}
@@ -3345,6 +3349,7 @@ func (*BadRequestHeaders) createRegressionSuiteRes()            {}
 func (*BadRequestHeaders) createRequisitionRes()                {}
 func (*BadRequestHeaders) createRoleAssignmentRes()             {}
 func (*BadRequestHeaders) createRoleRes()                       {}
+func (*BadRequestHeaders) createSegmentRes()                    {}
 func (*BadRequestHeaders) createSodRuleRes()                    {}
 func (*BadRequestHeaders) createSupplierInvoiceRes()            {}
 func (*BadRequestHeaders) createUploadRes()                     {}
@@ -3368,15 +3373,19 @@ func (*BadRequestHeaders) getApprovalRequestRes()               {}
 func (*BadRequestHeaders) getBankAccountRes()                   {}
 func (*BadRequestHeaders) getBankFileContentRes()               {}
 func (*BadRequestHeaders) getBankFileRes()                      {}
+func (*BadRequestHeaders) getBankReconciliationRes()            {}
 func (*BadRequestHeaders) getBankStatementFileRes()             {}
 func (*BadRequestHeaders) getBankStatementRes()                 {}
+func (*BadRequestHeaders) getBankStatementRulesRes()            {}
 func (*BadRequestHeaders) getBusinessPartnerRes()               {}
+func (*BadRequestHeaders) getCenterChangeRes()                  {}
 func (*BadRequestHeaders) getChangeRequestRes()                 {}
 func (*BadRequestHeaders) getClearingRes()                      {}
 func (*BadRequestHeaders) getCompanyAccessRes()                 {}
 func (*BadRequestHeaders) getConfigVersionRes()                 {}
 func (*BadRequestHeaders) getConnectorRes()                     {}
 func (*BadRequestHeaders) getContractRes()                      {}
+func (*BadRequestHeaders) getCostCenterRes()                    {}
 func (*BadRequestHeaders) getDownPaymentRequestRes()            {}
 func (*BadRequestHeaders) getExchangeRateRes()                  {}
 func (*BadRequestHeaders) getFiscalPeriodRes()                  {}
@@ -3392,6 +3401,7 @@ func (*BadRequestHeaders) getParkedJournalEntryRes()            {}
 func (*BadRequestHeaders) getPartnerChangeRes()                 {}
 func (*BadRequestHeaders) getPaymentRunRes()                    {}
 func (*BadRequestHeaders) getPrincipalRes()                     {}
+func (*BadRequestHeaders) getProfitCenterRes()                  {}
 func (*BadRequestHeaders) getPurchaseOrderChangeRes()           {}
 func (*BadRequestHeaders) getPurchaseOrderRes()                 {}
 func (*BadRequestHeaders) getRecommendationRes()                {}
@@ -3402,6 +3412,7 @@ func (*BadRequestHeaders) getRoleAssignmentRes()                {}
 func (*BadRequestHeaders) getRolePermissionRes()                {}
 func (*BadRequestHeaders) getRoleRes()                          {}
 func (*BadRequestHeaders) getSchemaRes()                        {}
+func (*BadRequestHeaders) getSegmentRes()                       {}
 func (*BadRequestHeaders) getSodRuleRes()                       {}
 func (*BadRequestHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*BadRequestHeaders) getSupplierInvoiceRes()               {}
@@ -3422,19 +3433,26 @@ func (*BadRequestHeaders) listBankFilesRes()                    {}
 func (*BadRequestHeaders) listBankStatementMatchesRes()         {}
 func (*BadRequestHeaders) listBankStatementsRes()               {}
 func (*BadRequestHeaders) listBusinessPartnersRes()             {}
+func (*BadRequestHeaders) listCenterChangesRes()                {}
 func (*BadRequestHeaders) listChangeRequestsRes()               {}
 func (*BadRequestHeaders) listClearingsRes()                    {}
 func (*BadRequestHeaders) listCompanyAccessRes()                {}
 func (*BadRequestHeaders) listConfigVersionsRes()               {}
 func (*BadRequestHeaders) listConnectorsRes()                   {}
 func (*BadRequestHeaders) listContractsRes()                    {}
+func (*BadRequestHeaders) listCostCentersRes()                  {}
 func (*BadRequestHeaders) listCountryPacksRes()                 {}
 func (*BadRequestHeaders) listDownPaymentRequestsRes()          {}
 func (*BadRequestHeaders) listExchangeRatesRes()                {}
 func (*BadRequestHeaders) listFiscalPeriodsRes()                {}
 func (*BadRequestHeaders) listGoodsReceiptsRes()                {}
 func (*BadRequestHeaders) listGrIrBalancesRes()                 {}
+func (*BadRequestHeaders) listHouseBanksRes()                   {}
 func (*BadRequestHeaders) listJournalEntriesRes()               {}
+func (*BadRequestHeaders) listLedgerGroupsRes()                 {}
+func (*BadRequestHeaders) listLedgerReconciliationEntriesRes()  {}
+func (*BadRequestHeaders) listLedgerReconciliationRes()         {}
+func (*BadRequestHeaders) listLedgersRes()                      {}
 func (*BadRequestHeaders) listLegalEntitiesRes()                {}
 func (*BadRequestHeaders) listMatchResultsRes()                 {}
 func (*BadRequestHeaders) listMigrationRunsRes()                {}
@@ -3448,6 +3466,7 @@ func (*BadRequestHeaders) listPaymentExclusionsRes()            {}
 func (*BadRequestHeaders) listPaymentRunsRes()                  {}
 func (*BadRequestHeaders) listPaymentsRes()                     {}
 func (*BadRequestHeaders) listPrincipalsRes()                   {}
+func (*BadRequestHeaders) listProfitCentersRes()                {}
 func (*BadRequestHeaders) listPurchaseOrderChangesRes()         {}
 func (*BadRequestHeaders) listPurchaseOrdersRes()               {}
 func (*BadRequestHeaders) listRecommendationsRes()              {}
@@ -3457,14 +3476,19 @@ func (*BadRequestHeaders) listRevaluationRunsRes()              {}
 func (*BadRequestHeaders) listRoleAssignmentsRes()              {}
 func (*BadRequestHeaders) listRolePermissionsRes()              {}
 func (*BadRequestHeaders) listRolesRes()                        {}
+func (*BadRequestHeaders) listSegmentsRes()                     {}
 func (*BadRequestHeaders) listSodRulesRes()                     {}
 func (*BadRequestHeaders) listSupplierInvoicesRes()             {}
 func (*BadRequestHeaders) listWebhookDeliveriesRes()            {}
 func (*BadRequestHeaders) listWebhookSubscriptionsRes()         {}
+func (*BadRequestHeaders) lockCostCenterRes()                   {}
 func (*BadRequestHeaders) lockFiscalPeriodRes()                 {}
+func (*BadRequestHeaders) lockProfitCenterRes()                 {}
 func (*BadRequestHeaders) matchBankStatementLineRes()           {}
 func (*BadRequestHeaders) matchBankStatementRes()               {}
 func (*BadRequestHeaders) matchSupplierInvoiceRes()             {}
+func (*BadRequestHeaders) moveCostCenterRes()                   {}
+func (*BadRequestHeaders) moveProfitCenterRes()                 {}
 func (*BadRequestHeaders) openFiscalPeriodRes()                 {}
 func (*BadRequestHeaders) parkJournalEntryRes()                 {}
 func (*BadRequestHeaders) pauseWebhookSubscriptionRes()         {}
@@ -3476,11 +3500,15 @@ func (*BadRequestHeaders) postParkedJournalEntryRes()           {}
 func (*BadRequestHeaders) postRevaluationRunRes()               {}
 func (*BadRequestHeaders) postSupplierInvoiceRes()              {}
 func (*BadRequestHeaders) previewRevaluationRes()               {}
+func (*BadRequestHeaders) proposeBankStatementLineRes()         {}
 func (*BadRequestHeaders) proposePaymentRunRes()                {}
 func (*BadRequestHeaders) reconcileMigrationRunRes()            {}
 func (*BadRequestHeaders) recordAgentToolCallRes()              {}
+func (*BadRequestHeaders) redateCostCenterRes()                 {}
+func (*BadRequestHeaders) redateProfitCenterRes()               {}
 func (*BadRequestHeaders) redeliverWebhookDeliveryRes()         {}
 func (*BadRequestHeaders) rejectApprovalRequestRes()            {}
+func (*BadRequestHeaders) rejectBankStatementLineProposalRes()  {}
 func (*BadRequestHeaders) rejectPaymentRunRes()                 {}
 func (*BadRequestHeaders) releaseContractRes()                  {}
 func (*BadRequestHeaders) releasePaymentRunRes()                {}
@@ -3513,14 +3541,17 @@ func (*BadRequestHeaders) updateAiPolicyRes()                   {}
 func (*BadRequestHeaders) updateChangeRequestRes()              {}
 func (*BadRequestHeaders) updateConnectorRes()                  {}
 func (*BadRequestHeaders) updateContractRes()                   {}
+func (*BadRequestHeaders) updateCostCenterRes()                 {}
 func (*BadRequestHeaders) updateLegalEntityRes()                {}
 func (*BadRequestHeaders) updateOrgUnitRes()                    {}
 func (*BadRequestHeaders) updateParkedJournalEntryRes()         {}
 func (*BadRequestHeaders) updatePrincipalRes()                  {}
+func (*BadRequestHeaders) updateProfitCenterRes()               {}
 func (*BadRequestHeaders) updatePurchaseOrderChangeRes()        {}
 func (*BadRequestHeaders) updatePurchaseOrderRes()              {}
 func (*BadRequestHeaders) updateRequisitionRes()                {}
 func (*BadRequestHeaders) updateRoleRes()                       {}
+func (*BadRequestHeaders) updateSegmentRes()                    {}
 func (*BadRequestHeaders) updateSupplierInvoiceRes()            {}
 func (*BadRequestHeaders) updateWebhookSubscriptionRes()        {}
 func (*BadRequestHeaders) verifyAuditChainRes()                 {}
@@ -4713,6 +4744,699 @@ func (s *BankFilePageHeaders) SetResponse(val BankFilePage) {
 
 func (*BankFilePageHeaders) listBankFilesRes() {}
 
+// One page of a house bank's reconciliation report (ADR-0047, T49h): the period's figures, and its
+// statements on this page with their figures and lines. Amounts are signed: a credit to the account is
+// positive, as on the statements; a ledger balance is debit positive, so the two agree when equal.
+// Ref: #/components/schemas/BankReconciliation
+type BankReconciliation struct {
+	// The house bank.
+	HouseBankID uuid.UUID `json:"house_bank_id"`
+	// The house bank's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The house bank's currency (ISO 4217), its statements' and the ledger balances'.
+	Currency string `json:"currency"`
+	// The period's first day, when given.
+	ClosingDateFrom OptDate `json:"closing_date_from"`
+	// The period's last day, when given.
+	ClosingDateTo OptDate                   `json:"closing_date_to"`
+	Summary       BankReconciliationSummary `json:"summary"`
+	// The period's statements on this page, by closing date.
+	Items []BankReconciliationStatement `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetHouseBankID returns the value of HouseBankID.
+func (s *BankReconciliation) GetHouseBankID() uuid.UUID {
+	return s.HouseBankID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *BankReconciliation) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCurrency returns the value of Currency.
+func (s *BankReconciliation) GetCurrency() string {
+	return s.Currency
+}
+
+// GetClosingDateFrom returns the value of ClosingDateFrom.
+func (s *BankReconciliation) GetClosingDateFrom() OptDate {
+	return s.ClosingDateFrom
+}
+
+// GetClosingDateTo returns the value of ClosingDateTo.
+func (s *BankReconciliation) GetClosingDateTo() OptDate {
+	return s.ClosingDateTo
+}
+
+// GetSummary returns the value of Summary.
+func (s *BankReconciliation) GetSummary() BankReconciliationSummary {
+	return s.Summary
+}
+
+// GetItems returns the value of Items.
+func (s *BankReconciliation) GetItems() []BankReconciliationStatement {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *BankReconciliation) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetHouseBankID sets the value of HouseBankID.
+func (s *BankReconciliation) SetHouseBankID(val uuid.UUID) {
+	s.HouseBankID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *BankReconciliation) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *BankReconciliation) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetClosingDateFrom sets the value of ClosingDateFrom.
+func (s *BankReconciliation) SetClosingDateFrom(val OptDate) {
+	s.ClosingDateFrom = val
+}
+
+// SetClosingDateTo sets the value of ClosingDateTo.
+func (s *BankReconciliation) SetClosingDateTo(val OptDate) {
+	s.ClosingDateTo = val
+}
+
+// SetSummary sets the value of Summary.
+func (s *BankReconciliation) SetSummary(val BankReconciliationSummary) {
+	s.Summary = val
+}
+
+// SetItems sets the value of Items.
+func (s *BankReconciliation) SetItems(val []BankReconciliationStatement) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *BankReconciliation) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// A closing balance compared with the ledger on its date (`as_of`): the ledger's balance of the main
+// bank account, what the lines of the bank's statements up to that date explain of the difference
+// (`excluded`, `in_transit`, `posted_later`), and what is left (`unexplained` = closing balance −
+// ledger balance − excluded − in transit − posted later). Absent ledger balance: the house bank
+// has no main bank account.
+// Ref: #/components/schemas/BankReconciliationFigures
+type BankReconciliationFigures struct {
+	// The closing date compared on.
+	AsOf           time.Time `json:"as_of"`
+	ClosingBalance Money     `json:"closing_balance"`
+	LedgerBalance  OptMoney  `json:"ledger_balance"`
+	Excluded       Money     `json:"excluded"`
+	InTransit      Money     `json:"in_transit"`
+	PostedLater    Money     `json:"posted_later"`
+	Unexplained    OptMoney  `json:"unexplained"`
+}
+
+// GetAsOf returns the value of AsOf.
+func (s *BankReconciliationFigures) GetAsOf() time.Time {
+	return s.AsOf
+}
+
+// GetClosingBalance returns the value of ClosingBalance.
+func (s *BankReconciliationFigures) GetClosingBalance() Money {
+	return s.ClosingBalance
+}
+
+// GetLedgerBalance returns the value of LedgerBalance.
+func (s *BankReconciliationFigures) GetLedgerBalance() OptMoney {
+	return s.LedgerBalance
+}
+
+// GetExcluded returns the value of Excluded.
+func (s *BankReconciliationFigures) GetExcluded() Money {
+	return s.Excluded
+}
+
+// GetInTransit returns the value of InTransit.
+func (s *BankReconciliationFigures) GetInTransit() Money {
+	return s.InTransit
+}
+
+// GetPostedLater returns the value of PostedLater.
+func (s *BankReconciliationFigures) GetPostedLater() Money {
+	return s.PostedLater
+}
+
+// GetUnexplained returns the value of Unexplained.
+func (s *BankReconciliationFigures) GetUnexplained() OptMoney {
+	return s.Unexplained
+}
+
+// SetAsOf sets the value of AsOf.
+func (s *BankReconciliationFigures) SetAsOf(val time.Time) {
+	s.AsOf = val
+}
+
+// SetClosingBalance sets the value of ClosingBalance.
+func (s *BankReconciliationFigures) SetClosingBalance(val Money) {
+	s.ClosingBalance = val
+}
+
+// SetLedgerBalance sets the value of LedgerBalance.
+func (s *BankReconciliationFigures) SetLedgerBalance(val OptMoney) {
+	s.LedgerBalance = val
+}
+
+// SetExcluded sets the value of Excluded.
+func (s *BankReconciliationFigures) SetExcluded(val Money) {
+	s.Excluded = val
+}
+
+// SetInTransit sets the value of InTransit.
+func (s *BankReconciliationFigures) SetInTransit(val Money) {
+	s.InTransit = val
+}
+
+// SetPostedLater sets the value of PostedLater.
+func (s *BankReconciliationFigures) SetPostedLater(val Money) {
+	s.PostedLater = val
+}
+
+// SetUnexplained sets the value of Unexplained.
+func (s *BankReconciliationFigures) SetUnexplained(val OptMoney) {
+	s.Unexplained = val
+}
+
+// BankReconciliationHeaders wraps BankReconciliation with response headers.
+type BankReconciliationHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           BankReconciliation
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *BankReconciliationHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *BankReconciliationHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *BankReconciliationHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *BankReconciliationHeaders) GetResponse() BankReconciliation {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *BankReconciliationHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *BankReconciliationHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *BankReconciliationHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *BankReconciliationHeaders) SetResponse(val BankReconciliation) {
+	s.Response = val
+}
+
+func (*BankReconciliationHeaders) getBankReconciliationRes() {}
+
+// A line of a statement in the report, with its live match and the outcome of the latest agent
+// proposal a person decided.
+// Ref: #/components/schemas/BankReconciliationLine
+type BankReconciliationLine struct {
+	// The line's number in the statement.
+	LineNo int32 `json:"line_no"`
+	// The booking date.
+	BookingDate time.Time `json:"booking_date"`
+	Amount      Money     `json:"amount"`
+	// True when the bank reverses an earlier booking.
+	IsReversal bool `json:"is_reversal"`
+	// The bank's transaction code.
+	TransactionCode string `json:"transaction_code"`
+	// The line's status. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Status string `json:"status"`
+	// The live match; absent for an unmatched line.
+	MatchID OptUUID `json:"match_id"`
+	// Who made the live match. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	MatchKind OptString `json:"match_kind"`
+	// The matching rule of a rule's match. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	MatchRule OptString `json:"match_rule"`
+	// The live match's status. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	MatchStatus OptString `json:"match_status"`
+	// True when the match posts the line to the incoming payments clearing account; absent otherwise.
+	Incoming OptBool `json:"incoming"`
+	// The date the line posts on, or was asked to post on.
+	PostingDate OptDate `json:"posting_date"`
+	// The posting (ledger context), once posted.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The fiscal year of the posting.
+	JournalEntryYear OptInt32 `json:"journal_entry_year"`
+	// The latest `bank_clearing` approval request of the posting.
+	ApprovalRequestID OptUUID `json:"approval_request_id"`
+	// What a person did with the latest agent proposal for the line they decided: `accepted`, `rejected`
+	// or `overridden`. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	ProposalOutcome OptString `json:"proposal_outcome"`
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *BankReconciliationLine) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetBookingDate returns the value of BookingDate.
+func (s *BankReconciliationLine) GetBookingDate() time.Time {
+	return s.BookingDate
+}
+
+// GetAmount returns the value of Amount.
+func (s *BankReconciliationLine) GetAmount() Money {
+	return s.Amount
+}
+
+// GetIsReversal returns the value of IsReversal.
+func (s *BankReconciliationLine) GetIsReversal() bool {
+	return s.IsReversal
+}
+
+// GetTransactionCode returns the value of TransactionCode.
+func (s *BankReconciliationLine) GetTransactionCode() string {
+	return s.TransactionCode
+}
+
+// GetStatus returns the value of Status.
+func (s *BankReconciliationLine) GetStatus() string {
+	return s.Status
+}
+
+// GetMatchID returns the value of MatchID.
+func (s *BankReconciliationLine) GetMatchID() OptUUID {
+	return s.MatchID
+}
+
+// GetMatchKind returns the value of MatchKind.
+func (s *BankReconciliationLine) GetMatchKind() OptString {
+	return s.MatchKind
+}
+
+// GetMatchRule returns the value of MatchRule.
+func (s *BankReconciliationLine) GetMatchRule() OptString {
+	return s.MatchRule
+}
+
+// GetMatchStatus returns the value of MatchStatus.
+func (s *BankReconciliationLine) GetMatchStatus() OptString {
+	return s.MatchStatus
+}
+
+// GetIncoming returns the value of Incoming.
+func (s *BankReconciliationLine) GetIncoming() OptBool {
+	return s.Incoming
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *BankReconciliationLine) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *BankReconciliationLine) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *BankReconciliationLine) GetJournalEntryYear() OptInt32 {
+	return s.JournalEntryYear
+}
+
+// GetApprovalRequestID returns the value of ApprovalRequestID.
+func (s *BankReconciliationLine) GetApprovalRequestID() OptUUID {
+	return s.ApprovalRequestID
+}
+
+// GetProposalOutcome returns the value of ProposalOutcome.
+func (s *BankReconciliationLine) GetProposalOutcome() OptString {
+	return s.ProposalOutcome
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *BankReconciliationLine) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetBookingDate sets the value of BookingDate.
+func (s *BankReconciliationLine) SetBookingDate(val time.Time) {
+	s.BookingDate = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *BankReconciliationLine) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetIsReversal sets the value of IsReversal.
+func (s *BankReconciliationLine) SetIsReversal(val bool) {
+	s.IsReversal = val
+}
+
+// SetTransactionCode sets the value of TransactionCode.
+func (s *BankReconciliationLine) SetTransactionCode(val string) {
+	s.TransactionCode = val
+}
+
+// SetStatus sets the value of Status.
+func (s *BankReconciliationLine) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetMatchID sets the value of MatchID.
+func (s *BankReconciliationLine) SetMatchID(val OptUUID) {
+	s.MatchID = val
+}
+
+// SetMatchKind sets the value of MatchKind.
+func (s *BankReconciliationLine) SetMatchKind(val OptString) {
+	s.MatchKind = val
+}
+
+// SetMatchRule sets the value of MatchRule.
+func (s *BankReconciliationLine) SetMatchRule(val OptString) {
+	s.MatchRule = val
+}
+
+// SetMatchStatus sets the value of MatchStatus.
+func (s *BankReconciliationLine) SetMatchStatus(val OptString) {
+	s.MatchStatus = val
+}
+
+// SetIncoming sets the value of Incoming.
+func (s *BankReconciliationLine) SetIncoming(val OptBool) {
+	s.Incoming = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *BankReconciliationLine) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *BankReconciliationLine) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *BankReconciliationLine) SetJournalEntryYear(val OptInt32) {
+	s.JournalEntryYear = val
+}
+
+// SetApprovalRequestID sets the value of ApprovalRequestID.
+func (s *BankReconciliationLine) SetApprovalRequestID(val OptUUID) {
+	s.ApprovalRequestID = val
+}
+
+// SetProposalOutcome sets the value of ProposalOutcome.
+func (s *BankReconciliationLine) SetProposalOutcome(val OptString) {
+	s.ProposalOutcome = val
+}
+
+// How many lines are in each status.
+// Ref: #/components/schemas/BankReconciliationLineCounts
+type BankReconciliationLineCounts struct {
+	// Open: nothing matched them yet.
+	Unmatched int32 `json:"unmatched"`
+	// With candidates or an agent's proposal for a person.
+	Proposed int32 `json:"proposed"`
+	// Matched, not posted yet.
+	Matched int32 `json:"matched"`
+	// Excluded by a person.
+	Excluded int32 `json:"excluded"`
+	// Waiting for the approval of their posting.
+	PendingApproval int32 `json:"pending_approval"`
+	// Posted.
+	Posted int32 `json:"posted"`
+}
+
+// GetUnmatched returns the value of Unmatched.
+func (s *BankReconciliationLineCounts) GetUnmatched() int32 {
+	return s.Unmatched
+}
+
+// GetProposed returns the value of Proposed.
+func (s *BankReconciliationLineCounts) GetProposed() int32 {
+	return s.Proposed
+}
+
+// GetMatched returns the value of Matched.
+func (s *BankReconciliationLineCounts) GetMatched() int32 {
+	return s.Matched
+}
+
+// GetExcluded returns the value of Excluded.
+func (s *BankReconciliationLineCounts) GetExcluded() int32 {
+	return s.Excluded
+}
+
+// GetPendingApproval returns the value of PendingApproval.
+func (s *BankReconciliationLineCounts) GetPendingApproval() int32 {
+	return s.PendingApproval
+}
+
+// GetPosted returns the value of Posted.
+func (s *BankReconciliationLineCounts) GetPosted() int32 {
+	return s.Posted
+}
+
+// SetUnmatched sets the value of Unmatched.
+func (s *BankReconciliationLineCounts) SetUnmatched(val int32) {
+	s.Unmatched = val
+}
+
+// SetProposed sets the value of Proposed.
+func (s *BankReconciliationLineCounts) SetProposed(val int32) {
+	s.Proposed = val
+}
+
+// SetMatched sets the value of Matched.
+func (s *BankReconciliationLineCounts) SetMatched(val int32) {
+	s.Matched = val
+}
+
+// SetExcluded sets the value of Excluded.
+func (s *BankReconciliationLineCounts) SetExcluded(val int32) {
+	s.Excluded = val
+}
+
+// SetPendingApproval sets the value of PendingApproval.
+func (s *BankReconciliationLineCounts) SetPendingApproval(val int32) {
+	s.PendingApproval = val
+}
+
+// SetPosted sets the value of Posted.
+func (s *BankReconciliationLineCounts) SetPosted(val int32) {
+	s.Posted = val
+}
+
+// A statement of the report with its figures on its closing date and its lines.
+// Ref: #/components/schemas/BankReconciliationStatement
+type BankReconciliationStatement struct {
+	// The statement.
+	BankStatementID uuid.UUID `json:"bank_statement_id"`
+	// The bank's statement id.
+	StatementRef string `json:"statement_ref"`
+	// The statement's number in the account's series.
+	Sequence string `json:"sequence"`
+	// The statement's status. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Status string `json:"status"`
+	// Date of the opening balance.
+	OpeningDate    time.Time                    `json:"opening_date"`
+	OpeningBalance Money                        `json:"opening_balance"`
+	Figures        BankReconciliationFigures    `json:"figures"`
+	LineCounts     BankReconciliationLineCounts `json:"line_counts"`
+	// Its lines in the bank's order, those of `line_status` only when given.
+	Lines []BankReconciliationLine `json:"lines"`
+}
+
+// GetBankStatementID returns the value of BankStatementID.
+func (s *BankReconciliationStatement) GetBankStatementID() uuid.UUID {
+	return s.BankStatementID
+}
+
+// GetStatementRef returns the value of StatementRef.
+func (s *BankReconciliationStatement) GetStatementRef() string {
+	return s.StatementRef
+}
+
+// GetSequence returns the value of Sequence.
+func (s *BankReconciliationStatement) GetSequence() string {
+	return s.Sequence
+}
+
+// GetStatus returns the value of Status.
+func (s *BankReconciliationStatement) GetStatus() string {
+	return s.Status
+}
+
+// GetOpeningDate returns the value of OpeningDate.
+func (s *BankReconciliationStatement) GetOpeningDate() time.Time {
+	return s.OpeningDate
+}
+
+// GetOpeningBalance returns the value of OpeningBalance.
+func (s *BankReconciliationStatement) GetOpeningBalance() Money {
+	return s.OpeningBalance
+}
+
+// GetFigures returns the value of Figures.
+func (s *BankReconciliationStatement) GetFigures() BankReconciliationFigures {
+	return s.Figures
+}
+
+// GetLineCounts returns the value of LineCounts.
+func (s *BankReconciliationStatement) GetLineCounts() BankReconciliationLineCounts {
+	return s.LineCounts
+}
+
+// GetLines returns the value of Lines.
+func (s *BankReconciliationStatement) GetLines() []BankReconciliationLine {
+	return s.Lines
+}
+
+// SetBankStatementID sets the value of BankStatementID.
+func (s *BankReconciliationStatement) SetBankStatementID(val uuid.UUID) {
+	s.BankStatementID = val
+}
+
+// SetStatementRef sets the value of StatementRef.
+func (s *BankReconciliationStatement) SetStatementRef(val string) {
+	s.StatementRef = val
+}
+
+// SetSequence sets the value of Sequence.
+func (s *BankReconciliationStatement) SetSequence(val string) {
+	s.Sequence = val
+}
+
+// SetStatus sets the value of Status.
+func (s *BankReconciliationStatement) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetOpeningDate sets the value of OpeningDate.
+func (s *BankReconciliationStatement) SetOpeningDate(val time.Time) {
+	s.OpeningDate = val
+}
+
+// SetOpeningBalance sets the value of OpeningBalance.
+func (s *BankReconciliationStatement) SetOpeningBalance(val Money) {
+	s.OpeningBalance = val
+}
+
+// SetFigures sets the value of Figures.
+func (s *BankReconciliationStatement) SetFigures(val BankReconciliationFigures) {
+	s.Figures = val
+}
+
+// SetLineCounts sets the value of LineCounts.
+func (s *BankReconciliationStatement) SetLineCounts(val BankReconciliationLineCounts) {
+	s.LineCounts = val
+}
+
+// SetLines sets the value of Lines.
+func (s *BankReconciliationStatement) SetLines(val []BankReconciliationLine) {
+	s.Lines = val
+}
+
+// The period's figures: its statements, the first one's opening balance, the figures on the last
+// closing date, and the lines of its statements by status.
+// Ref: #/components/schemas/BankReconciliationSummary
+type BankReconciliationSummary struct {
+	// How many statements close in the period.
+	Statements     int32    `json:"statements"`
+	OpeningBalance OptMoney `json:"opening_balance"`
+	// The first statement's opening date; absent without statements.
+	OpeningDate OptDate                      `json:"opening_date"`
+	Figures     OptBankReconciliationFigures `json:"figures"`
+	Lines       BankReconciliationLineCounts `json:"lines"`
+}
+
+// GetStatements returns the value of Statements.
+func (s *BankReconciliationSummary) GetStatements() int32 {
+	return s.Statements
+}
+
+// GetOpeningBalance returns the value of OpeningBalance.
+func (s *BankReconciliationSummary) GetOpeningBalance() OptMoney {
+	return s.OpeningBalance
+}
+
+// GetOpeningDate returns the value of OpeningDate.
+func (s *BankReconciliationSummary) GetOpeningDate() OptDate {
+	return s.OpeningDate
+}
+
+// GetFigures returns the value of Figures.
+func (s *BankReconciliationSummary) GetFigures() OptBankReconciliationFigures {
+	return s.Figures
+}
+
+// GetLines returns the value of Lines.
+func (s *BankReconciliationSummary) GetLines() BankReconciliationLineCounts {
+	return s.Lines
+}
+
+// SetStatements sets the value of Statements.
+func (s *BankReconciliationSummary) SetStatements(val int32) {
+	s.Statements = val
+}
+
+// SetOpeningBalance sets the value of OpeningBalance.
+func (s *BankReconciliationSummary) SetOpeningBalance(val OptMoney) {
+	s.OpeningBalance = val
+}
+
+// SetOpeningDate sets the value of OpeningDate.
+func (s *BankReconciliationSummary) SetOpeningDate(val OptDate) {
+	s.OpeningDate = val
+}
+
+// SetFigures sets the value of Figures.
+func (s *BankReconciliationSummary) SetFigures(val OptBankReconciliationFigures) {
+	s.Figures = val
+}
+
+// SetLines sets the value of Lines.
+func (s *BankReconciliationSummary) SetLines(val BankReconciliationLineCounts) {
+	s.Lines = val
+}
+
 // Merged schema.
 // Ref: #/components/schemas/BankStatement
 type BankStatement struct {
@@ -4746,7 +5470,8 @@ type BankStatement struct {
 	// The statement's number in the account's series: camt.053 ElctrncSeqNb (or LglSeqNb), MT940 field
 	// 28C.
 	Sequence string `json:"sequence"`
-	// The account's IBAN, or the bank's account number where it has none.
+	// The account's IBAN, or the bank's account number where it has none. Agents see its last four
+	// characters only, after `****`.
 	Account        string `json:"account"`
 	OpeningBalance Money  `json:"opening_balance"`
 	// Date of the opening balance.
@@ -4760,11 +5485,20 @@ type BankStatement struct {
 	// absent for the bank's first.
 	PreviousStatementID OptUUID `json:"previous_statement_id"`
 	// `imported`; `gap` when its opening balance is not the previous statement's closing balance
-	// (automatic posting stops for the bank); `reconciled`. Open enumeration: clients must accept and
-	// preserve values not listed here; values may be added within /v1.
+	// (automatic posting stops for the bank); `reconciled` once every line of it and of the bank's
+	// statements before it is posted or excluded and its closing balance, less the lines excluded and
+	// those posted after its closing date, is the ledger's balance of the main bank account on that date
+	// (T49h): set once, never undone by the server, and its lines are then decided for good. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
 	Status string `json:"status"`
 	// The booked entries, in the bank's order; absent in lists.
 	Lines []BankStatementLine `json:"lines"`
+	// When the statement became `reconciled`; absent before.
+	ReconciledAt OptDateTime `json:"reconciled_at"`
+	// Whose action reconciled it: the person, integration or agent whose posting, exclusion or run of the
+	// rules left nothing unexplained.
+	ReconciledBy OptUUID `json:"reconciled_by"`
 }
 
 // GetID returns the value of ID.
@@ -4882,6 +5616,16 @@ func (s *BankStatement) GetLines() []BankStatementLine {
 	return s.Lines
 }
 
+// GetReconciledAt returns the value of ReconciledAt.
+func (s *BankStatement) GetReconciledAt() OptDateTime {
+	return s.ReconciledAt
+}
+
+// GetReconciledBy returns the value of ReconciledBy.
+func (s *BankStatement) GetReconciledBy() OptUUID {
+	return s.ReconciledBy
+}
+
 // SetID sets the value of ID.
 func (s *BankStatement) SetID(val uuid.UUID) {
 	s.ID = val
@@ -4995,6 +5739,16 @@ func (s *BankStatement) SetStatus(val string) {
 // SetLines sets the value of Lines.
 func (s *BankStatement) SetLines(val []BankStatementLine) {
 	s.Lines = val
+}
+
+// SetReconciledAt sets the value of ReconciledAt.
+func (s *BankStatement) SetReconciledAt(val OptDateTime) {
+	s.ReconciledAt = val
+}
+
+// SetReconciledBy sets the value of ReconciledBy.
+func (s *BankStatement) SetReconciledBy(val OptUUID) {
+	s.ReconciledBy = val
 }
 
 // BankStatementHeaders wraps BankStatement with response headers.
@@ -5377,6 +6131,179 @@ func (s *BankStatementPageHeaders) SetResponse(val BankStatementPage) {
 
 func (*BankStatementPageHeaders) listBankStatementsRes() {}
 
+// The posting and matching rules of a bank statement's company (`companies[].bank_statements`).
+// Ref: #/components/schemas/BankStatementRules
+type BankStatementRules struct {
+	// What lines of a bank transaction code post to (SAP T028G).
+	PostingRules []BankStatementRulesPostingRulesItem `json:"posting_rules"`
+	// How lines are matched, in the order the rules are tried.
+	MatchingRules []BankStatementRulesMatchingRulesItem `json:"matching_rules"`
+}
+
+// GetPostingRules returns the value of PostingRules.
+func (s *BankStatementRules) GetPostingRules() []BankStatementRulesPostingRulesItem {
+	return s.PostingRules
+}
+
+// GetMatchingRules returns the value of MatchingRules.
+func (s *BankStatementRules) GetMatchingRules() []BankStatementRulesMatchingRulesItem {
+	return s.MatchingRules
+}
+
+// SetPostingRules sets the value of PostingRules.
+func (s *BankStatementRules) SetPostingRules(val []BankStatementRulesPostingRulesItem) {
+	s.PostingRules = val
+}
+
+// SetMatchingRules sets the value of MatchingRules.
+func (s *BankStatementRules) SetMatchingRules(val []BankStatementRulesMatchingRulesItem) {
+	s.MatchingRules = val
+}
+
+// BankStatementRulesHeaders wraps BankStatementRules with response headers.
+type BankStatementRulesHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           BankStatementRules
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *BankStatementRulesHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *BankStatementRulesHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *BankStatementRulesHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *BankStatementRulesHeaders) GetResponse() BankStatementRules {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *BankStatementRulesHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *BankStatementRulesHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *BankStatementRulesHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *BankStatementRulesHeaders) SetResponse(val BankStatementRules) {
+	s.Response = val
+}
+
+func (*BankStatementRulesHeaders) getBankStatementRulesRes() {}
+
+// A matching rule.
+type BankStatementRulesMatchingRulesItem struct {
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Kind string `json:"kind"`
+	// The amount rule's tolerance, in the company's currency.
+	AmountTolerance OptString `json:"amount_tolerance"`
+	// The amount rule's window around the booking date, in days.
+	DateWindowDays OptInt32 `json:"date_window_days"`
+	// Whether the amount rule asks for the payee's IBAN or name.
+	Counterparty OptBool `json:"counterparty"`
+}
+
+// GetKind returns the value of Kind.
+func (s *BankStatementRulesMatchingRulesItem) GetKind() string {
+	return s.Kind
+}
+
+// GetAmountTolerance returns the value of AmountTolerance.
+func (s *BankStatementRulesMatchingRulesItem) GetAmountTolerance() OptString {
+	return s.AmountTolerance
+}
+
+// GetDateWindowDays returns the value of DateWindowDays.
+func (s *BankStatementRulesMatchingRulesItem) GetDateWindowDays() OptInt32 {
+	return s.DateWindowDays
+}
+
+// GetCounterparty returns the value of Counterparty.
+func (s *BankStatementRulesMatchingRulesItem) GetCounterparty() OptBool {
+	return s.Counterparty
+}
+
+// SetKind sets the value of Kind.
+func (s *BankStatementRulesMatchingRulesItem) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetAmountTolerance sets the value of AmountTolerance.
+func (s *BankStatementRulesMatchingRulesItem) SetAmountTolerance(val OptString) {
+	s.AmountTolerance = val
+}
+
+// SetDateWindowDays sets the value of DateWindowDays.
+func (s *BankStatementRulesMatchingRulesItem) SetDateWindowDays(val OptInt32) {
+	s.DateWindowDays = val
+}
+
+// SetCounterparty sets the value of Counterparty.
+func (s *BankStatementRulesMatchingRulesItem) SetCounterparty(val OptBool) {
+	s.Counterparty = val
+}
+
+// A posting rule.
+type BankStatementRulesPostingRulesItem struct {
+	// The bank transaction code: ISO 20022 domain, family and sub-family, an MT940 type or the bank's
+	// proprietary code.
+	TransactionCode string `json:"transaction_code"`
+	// What the rule posts.
+	Description string `json:"description"`
+	// The number of the account the line posts to.
+	Account string `json:"account"`
+}
+
+// GetTransactionCode returns the value of TransactionCode.
+func (s *BankStatementRulesPostingRulesItem) GetTransactionCode() string {
+	return s.TransactionCode
+}
+
+// GetDescription returns the value of Description.
+func (s *BankStatementRulesPostingRulesItem) GetDescription() string {
+	return s.Description
+}
+
+// GetAccount returns the value of Account.
+func (s *BankStatementRulesPostingRulesItem) GetAccount() string {
+	return s.Account
+}
+
+// SetTransactionCode sets the value of TransactionCode.
+func (s *BankStatementRulesPostingRulesItem) SetTransactionCode(val string) {
+	s.TransactionCode = val
+}
+
+// SetDescription sets the value of Description.
+func (s *BankStatementRulesPostingRulesItem) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetAccount sets the value of Account.
+func (s *BankStatementRulesPostingRulesItem) SetAccount(val string) {
+	s.Account = val
+}
+
 // One transaction within a booking.
 // Ref: #/components/schemas/BankStatementTransaction
 type BankStatementTransaction struct {
@@ -5393,10 +6320,13 @@ type BankStatementTransaction struct {
 	TransactionCode OptString `json:"transaction_code"`
 	// The other side: the creditor of a debit, the debtor of a credit.
 	CounterpartyName OptString `json:"counterparty_name"`
-	// The other side's IBAN.
+	// The other side's IBAN; absent for agents, who see `counterparty_account_last4` only.
 	CounterpartyIban OptString `json:"counterparty_iban"`
-	// The other side's account number, where it has no IBAN.
+	// The other side's account number, where it has no IBAN; absent for agents.
 	CounterpartyAccount OptString `json:"counterparty_account"`
+	// The last up to four characters of the other side's IBAN or account number, as partner bank accounts
+	// show them (`account_last4`).
+	CounterpartyAccountLast4 OptString `json:"counterparty_account_last4"`
 	// The other side's bank.
 	CounterpartyBic OptString `json:"counterparty_bic"`
 	// The remittance information.
@@ -5446,6 +6376,11 @@ func (s *BankStatementTransaction) GetCounterpartyIban() OptString {
 // GetCounterpartyAccount returns the value of CounterpartyAccount.
 func (s *BankStatementTransaction) GetCounterpartyAccount() OptString {
 	return s.CounterpartyAccount
+}
+
+// GetCounterpartyAccountLast4 returns the value of CounterpartyAccountLast4.
+func (s *BankStatementTransaction) GetCounterpartyAccountLast4() OptString {
+	return s.CounterpartyAccountLast4
 }
 
 // GetCounterpartyBic returns the value of CounterpartyBic.
@@ -5501,6 +6436,11 @@ func (s *BankStatementTransaction) SetCounterpartyIban(val OptString) {
 // SetCounterpartyAccount sets the value of CounterpartyAccount.
 func (s *BankStatementTransaction) SetCounterpartyAccount(val OptString) {
 	s.CounterpartyAccount = val
+}
+
+// SetCounterpartyAccountLast4 sets the value of CounterpartyAccountLast4.
+func (s *BankStatementTransaction) SetCounterpartyAccountLast4(val OptString) {
+	s.CounterpartyAccountLast4 = val
 }
 
 // SetCounterpartyBic sets the value of CounterpartyBic.
@@ -6491,6 +7431,440 @@ func (s *CashDiscountTier) SetUntil(val time.Time) {
 // SetPercent sets the value of Percent.
 func (s *CashDiscountTier) SetPercent(val string) {
 	s.Percent = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/CenterChange
+type CenterChange struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// Cost center changed; absent for a profit center's change.
+	CostCenterID OptUUID `json:"cost_center_id"`
+	// Profit center changed; absent for a cost center's change.
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// Kind of change. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Kind string `json:"kind"`
+	// The requested values, as requested.
+	Payload CenterChangePayload `json:"payload"`
+	// Why the change was requested.
+	Reason string `json:"reason"`
+	// Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Status string `json:"status"`
+	// Approval request (workflow context).
+	WorkflowRequestID OptUUID `json:"workflow_request_id"`
+	// Principal that requested the change.
+	RequestedBy uuid.UUID `json:"requested_by"`
+	// When the change was applied; absent until then.
+	AppliedAt OptDateTime `json:"applied_at"`
+}
+
+// GetID returns the value of ID.
+func (s *CenterChange) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *CenterChange) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *CenterChange) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *CenterChange) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *CenterChange) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *CenterChange) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *CenterChange) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *CenterChange) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// GetKind returns the value of Kind.
+func (s *CenterChange) GetKind() string {
+	return s.Kind
+}
+
+// GetPayload returns the value of Payload.
+func (s *CenterChange) GetPayload() CenterChangePayload {
+	return s.Payload
+}
+
+// GetReason returns the value of Reason.
+func (s *CenterChange) GetReason() string {
+	return s.Reason
+}
+
+// GetStatus returns the value of Status.
+func (s *CenterChange) GetStatus() string {
+	return s.Status
+}
+
+// GetWorkflowRequestID returns the value of WorkflowRequestID.
+func (s *CenterChange) GetWorkflowRequestID() OptUUID {
+	return s.WorkflowRequestID
+}
+
+// GetRequestedBy returns the value of RequestedBy.
+func (s *CenterChange) GetRequestedBy() uuid.UUID {
+	return s.RequestedBy
+}
+
+// GetAppliedAt returns the value of AppliedAt.
+func (s *CenterChange) GetAppliedAt() OptDateTime {
+	return s.AppliedAt
+}
+
+// SetID sets the value of ID.
+func (s *CenterChange) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *CenterChange) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *CenterChange) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *CenterChange) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *CenterChange) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *CenterChange) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *CenterChange) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *CenterChange) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// SetKind sets the value of Kind.
+func (s *CenterChange) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetPayload sets the value of Payload.
+func (s *CenterChange) SetPayload(val CenterChangePayload) {
+	s.Payload = val
+}
+
+// SetReason sets the value of Reason.
+func (s *CenterChange) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetStatus sets the value of Status.
+func (s *CenterChange) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetWorkflowRequestID sets the value of WorkflowRequestID.
+func (s *CenterChange) SetWorkflowRequestID(val OptUUID) {
+	s.WorkflowRequestID = val
+}
+
+// SetRequestedBy sets the value of RequestedBy.
+func (s *CenterChange) SetRequestedBy(val uuid.UUID) {
+	s.RequestedBy = val
+}
+
+// SetAppliedAt sets the value of AppliedAt.
+func (s *CenterChange) SetAppliedAt(val OptDateTime) {
+	s.AppliedAt = val
+}
+
+// CenterChangeHeaders wraps CenterChange with response headers.
+type CenterChangeHeaders struct {
+	ETag               OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           CenterChange
+}
+
+// GetETag returns the value of ETag.
+func (s *CenterChangeHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *CenterChangeHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *CenterChangeHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *CenterChangeHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *CenterChangeHeaders) GetResponse() CenterChange {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CenterChangeHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *CenterChangeHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *CenterChangeHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *CenterChangeHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CenterChangeHeaders) SetResponse(val CenterChange) {
+	s.Response = val
+}
+
+func (*CenterChangeHeaders) getCenterChangeRes() {}
+
+// One page of center changes.
+// Ref: #/components/schemas/CenterChangePage
+type CenterChangePage struct {
+	// The center changes on this page.
+	Items []CenterChange `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *CenterChangePage) GetItems() []CenterChange {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CenterChangePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *CenterChangePage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *CenterChangePage) SetItems(val []CenterChange) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CenterChangePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *CenterChangePage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+// CenterChangePageHeaders wraps CenterChangePage with response headers.
+type CenterChangePageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           CenterChangePage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *CenterChangePageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *CenterChangePageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *CenterChangePageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *CenterChangePageHeaders) GetResponse() CenterChangePage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *CenterChangePageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *CenterChangePageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *CenterChangePageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CenterChangePageHeaders) SetResponse(val CenterChangePage) {
+	s.Response = val
+}
+
+func (*CenterChangePageHeaders) listCenterChangesRes() {}
+
+// The requested values, as requested.
+type CenterChangePayload map[string]jx.Raw
+
+func (s *CenterChangePayload) init() CenterChangePayload {
+	m := *s
+	if m == nil {
+		m = map[string]jx.Raw{}
+		*s = m
+	}
+	return m
+}
+
+// A center's new validity; at least one of the dates.
+// Ref: #/components/schemas/CenterRedate
+type CenterRedate struct {
+	// New start of validity.
+	ValidFrom OptDate `json:"valid_from"`
+	// New end of validity (exclusive); null: open-ended.
+	ValidTo OptNilDate `json:"valid_to"`
+	// Why; shown to the approver and recorded in the audit trail.
+	Reason string `json:"reason"`
+}
+
+// GetValidFrom returns the value of ValidFrom.
+func (s *CenterRedate) GetValidFrom() OptDate {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *CenterRedate) GetValidTo() OptNilDate {
+	return s.ValidTo
+}
+
+// GetReason returns the value of Reason.
+func (s *CenterRedate) GetReason() string {
+	return s.Reason
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *CenterRedate) SetValidFrom(val OptDate) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *CenterRedate) SetValidTo(val OptNilDate) {
+	s.ValidTo = val
+}
+
+// SetReason sets the value of Reason.
+func (s *CenterRedate) SetReason(val string) {
+	s.Reason = val
+}
+
+// Merge patch of a center's texts.
+// Ref: #/components/schemas/CenterTextsUpdate
+type CenterTextsUpdate struct {
+	// Name.
+	Name OptString `json:"name"`
+	// Description. Send null to clear.
+	Description OptNilString `json:"description"`
+	// Person responsible (SAP VERAK), as a name.
+	Responsible OptString `json:"responsible"`
+}
+
+// GetName returns the value of Name.
+func (s *CenterTextsUpdate) GetName() OptString {
+	return s.Name
+}
+
+// GetDescription returns the value of Description.
+func (s *CenterTextsUpdate) GetDescription() OptNilString {
+	return s.Description
+}
+
+// GetResponsible returns the value of Responsible.
+func (s *CenterTextsUpdate) GetResponsible() OptString {
+	return s.Responsible
+}
+
+// SetName sets the value of Name.
+func (s *CenterTextsUpdate) SetName(val OptString) {
+	s.Name = val
+}
+
+// SetDescription sets the value of Description.
+func (s *CenterTextsUpdate) SetDescription(val OptNilString) {
+	s.Description = val
+}
+
+// SetResponsible sets the value of Responsible.
+func (s *CenterTextsUpdate) SetResponsible(val OptString) {
+	s.Responsible = val
 }
 
 // One computed difference between the base and the proposed configuration.
@@ -8302,11 +9676,13 @@ func (s *ConflictHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*ConflictHeaders) acceptBankStatementLineProposalRes()  {}
 func (*ConflictHeaders) activateChangeRequestRes()            {}
 func (*ConflictHeaders) activateLegalEntityRes()              {}
 func (*ConflictHeaders) activateOrgUnitRes()                  {}
 func (*ConflictHeaders) applyCountryPackRes()                 {}
 func (*ConflictHeaders) approveApprovalRequestRes()           {}
+func (*ConflictHeaders) assignProfitCenterRes()               {}
 func (*ConflictHeaders) blockBusinessPartnerRes()             {}
 func (*ConflictHeaders) blockLegalEntityRes()                 {}
 func (*ConflictHeaders) blockOrgUnitRes()                     {}
@@ -8331,6 +9707,7 @@ func (*ConflictHeaders) createClearingRes()                   {}
 func (*ConflictHeaders) createCompanyAccessRes()              {}
 func (*ConflictHeaders) createConnectorRes()                  {}
 func (*ConflictHeaders) createContractRes()                   {}
+func (*ConflictHeaders) createCostCenterRes()                 {}
 func (*ConflictHeaders) createDownPaymentRequestRes()         {}
 func (*ConflictHeaders) createExchangeRateRes()               {}
 func (*ConflictHeaders) createLegalEntityRes()                {}
@@ -8338,12 +9715,14 @@ func (*ConflictHeaders) createMigrationRunRes()               {}
 func (*ConflictHeaders) createOrgUnitRes()                    {}
 func (*ConflictHeaders) createPartnerChangeRes()              {}
 func (*ConflictHeaders) createPrincipalRes()                  {}
+func (*ConflictHeaders) createProfitCenterRes()               {}
 func (*ConflictHeaders) createPurchaseOrderChangeRes()        {}
 func (*ConflictHeaders) createPurchaseOrderRes()              {}
 func (*ConflictHeaders) createRecommendationRes()             {}
 func (*ConflictHeaders) createRequisitionRes()                {}
 func (*ConflictHeaders) createRoleAssignmentRes()             {}
 func (*ConflictHeaders) createRoleRes()                       {}
+func (*ConflictHeaders) createSegmentRes()                    {}
 func (*ConflictHeaders) createSodRuleRes()                    {}
 func (*ConflictHeaders) createSupplierInvoiceRes()            {}
 func (*ConflictHeaders) createUploadRes()                     {}
@@ -8363,10 +9742,14 @@ func (*ConflictHeaders) getBankFileContentRes()               {}
 func (*ConflictHeaders) grantRolePermissionRes()              {}
 func (*ConflictHeaders) holdSupplierInvoiceRes()              {}
 func (*ConflictHeaders) importBankStatementsRes()             {}
+func (*ConflictHeaders) lockCostCenterRes()                   {}
 func (*ConflictHeaders) lockFiscalPeriodRes()                 {}
+func (*ConflictHeaders) lockProfitCenterRes()                 {}
 func (*ConflictHeaders) matchBankStatementLineRes()           {}
 func (*ConflictHeaders) matchBankStatementRes()               {}
 func (*ConflictHeaders) matchSupplierInvoiceRes()             {}
+func (*ConflictHeaders) moveCostCenterRes()                   {}
+func (*ConflictHeaders) moveProfitCenterRes()                 {}
 func (*ConflictHeaders) openFiscalPeriodRes()                 {}
 func (*ConflictHeaders) parkJournalEntryRes()                 {}
 func (*ConflictHeaders) pauseWebhookSubscriptionRes()         {}
@@ -8378,11 +9761,15 @@ func (*ConflictHeaders) postParkedJournalEntryRes()           {}
 func (*ConflictHeaders) postRevaluationRunRes()               {}
 func (*ConflictHeaders) postSupplierInvoiceRes()              {}
 func (*ConflictHeaders) previewRevaluationRes()               {}
+func (*ConflictHeaders) proposeBankStatementLineRes()         {}
 func (*ConflictHeaders) proposePaymentRunRes()                {}
 func (*ConflictHeaders) reconcileMigrationRunRes()            {}
 func (*ConflictHeaders) recordAgentToolCallRes()              {}
+func (*ConflictHeaders) redateCostCenterRes()                 {}
+func (*ConflictHeaders) redateProfitCenterRes()               {}
 func (*ConflictHeaders) redeliverWebhookDeliveryRes()         {}
 func (*ConflictHeaders) rejectApprovalRequestRes()            {}
+func (*ConflictHeaders) rejectBankStatementLineProposalRes()  {}
 func (*ConflictHeaders) rejectPaymentRunRes()                 {}
 func (*ConflictHeaders) releaseContractRes()                  {}
 func (*ConflictHeaders) releasePaymentRunRes()                {}
@@ -8415,14 +9802,17 @@ func (*ConflictHeaders) updateAiPolicyRes()                   {}
 func (*ConflictHeaders) updateChangeRequestRes()              {}
 func (*ConflictHeaders) updateConnectorRes()                  {}
 func (*ConflictHeaders) updateContractRes()                   {}
+func (*ConflictHeaders) updateCostCenterRes()                 {}
 func (*ConflictHeaders) updateLegalEntityRes()                {}
 func (*ConflictHeaders) updateOrgUnitRes()                    {}
 func (*ConflictHeaders) updateParkedJournalEntryRes()         {}
 func (*ConflictHeaders) updatePrincipalRes()                  {}
+func (*ConflictHeaders) updateProfitCenterRes()               {}
 func (*ConflictHeaders) updatePurchaseOrderChangeRes()        {}
 func (*ConflictHeaders) updatePurchaseOrderRes()              {}
 func (*ConflictHeaders) updateRequisitionRes()                {}
 func (*ConflictHeaders) updateRoleRes()                       {}
+func (*ConflictHeaders) updateSegmentRes()                    {}
 func (*ConflictHeaders) updateSupplierInvoiceRes()            {}
 func (*ConflictHeaders) updateWebhookSubscriptionRes()        {}
 func (*ConflictHeaders) verifyAuditChainRes()                 {}
@@ -9602,6 +10992,729 @@ func (s *ContractUpdate) SetTargetValue(val OptMoney) {
 // SetItems sets the value of Items.
 func (s *ContractUpdate) SetItems(val []ContractItem) {
 	s.Items = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/CostCenter
+type CostCenter struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// Legal entity (company code) the cost center belongs to. Immutable: a changed company is a new cost
+	// center.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Code (SAP KOSTL/PRCTR: up to 10 of 0-9, A-Z, _ and -). Unique: see the create operation. Immutable.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// Description.
+	Description OptString `json:"description"`
+	// Person responsible (SAP VERAK), as a name.
+	Responsible string `json:"responsible"`
+	// `pending` until its create change is approved, then `active`; `rejected` when it is not, which frees
+	// the code. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	Status string `json:"status"`
+	// Start of validity: the first period's start; absent while pending.
+	ValidFrom OptDate `json:"valid_from"`
+	// End of validity (exclusive): the last period's end; absent: open-ended or pending.
+	ValidTo OptDate `json:"valid_to"`
+	// Active periods in date order; none while pending.
+	Periods []CostCenterPeriod `json:"periods"`
+	// The center's pending center change; absent when none.
+	PendingChangeID OptUUID `json:"pending_change_id"`
+}
+
+// GetID returns the value of ID.
+func (s *CostCenter) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *CostCenter) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *CostCenter) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *CostCenter) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *CostCenter) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *CostCenter) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CostCenter) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCode returns the value of Code.
+func (s *CostCenter) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *CostCenter) GetName() string {
+	return s.Name
+}
+
+// GetDescription returns the value of Description.
+func (s *CostCenter) GetDescription() OptString {
+	return s.Description
+}
+
+// GetResponsible returns the value of Responsible.
+func (s *CostCenter) GetResponsible() string {
+	return s.Responsible
+}
+
+// GetStatus returns the value of Status.
+func (s *CostCenter) GetStatus() string {
+	return s.Status
+}
+
+// GetValidFrom returns the value of ValidFrom.
+func (s *CostCenter) GetValidFrom() OptDate {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *CostCenter) GetValidTo() OptDate {
+	return s.ValidTo
+}
+
+// GetPeriods returns the value of Periods.
+func (s *CostCenter) GetPeriods() []CostCenterPeriod {
+	return s.Periods
+}
+
+// GetPendingChangeID returns the value of PendingChangeID.
+func (s *CostCenter) GetPendingChangeID() OptUUID {
+	return s.PendingChangeID
+}
+
+// SetID sets the value of ID.
+func (s *CostCenter) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *CostCenter) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *CostCenter) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *CostCenter) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *CostCenter) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *CostCenter) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CostCenter) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCode sets the value of Code.
+func (s *CostCenter) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *CostCenter) SetName(val string) {
+	s.Name = val
+}
+
+// SetDescription sets the value of Description.
+func (s *CostCenter) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SetResponsible sets the value of Responsible.
+func (s *CostCenter) SetResponsible(val string) {
+	s.Responsible = val
+}
+
+// SetStatus sets the value of Status.
+func (s *CostCenter) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *CostCenter) SetValidFrom(val OptDate) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *CostCenter) SetValidTo(val OptDate) {
+	s.ValidTo = val
+}
+
+// SetPeriods sets the value of Periods.
+func (s *CostCenter) SetPeriods(val []CostCenterPeriod) {
+	s.Periods = val
+}
+
+// SetPendingChangeID sets the value of PendingChangeID.
+func (s *CostCenter) SetPendingChangeID(val OptUUID) {
+	s.PendingChangeID = val
+}
+
+// A new cost center and its first period.
+// Ref: #/components/schemas/CostCenterCreate
+type CostCenterCreate struct {
+	// Legal entity (company code).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Code (SAP KOSTL/PRCTR: up to 10 of 0-9, A-Z, _ and -). Unique: see the create operation. Immutable.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// Description.
+	Description OptString `json:"description"`
+	// Person responsible (SAP VERAK), as a name.
+	Responsible string `json:"responsible"`
+	// Cost center category (SAP KOSAR), such as ADMIN or SALES; the configuration names categories and
+	// their lock defaults from T56c.
+	Category string `json:"category"`
+	// Profit center.
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// Start of validity.
+	ValidFrom time.Time `json:"valid_from"`
+	// End of validity (exclusive); absent: open-ended.
+	ValidTo OptDate `json:"valid_to"`
+	// Why; shown to the approver and recorded in the audit trail.
+	Reason string `json:"reason"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CostCenterCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCode returns the value of Code.
+func (s *CostCenterCreate) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *CostCenterCreate) GetName() string {
+	return s.Name
+}
+
+// GetDescription returns the value of Description.
+func (s *CostCenterCreate) GetDescription() OptString {
+	return s.Description
+}
+
+// GetResponsible returns the value of Responsible.
+func (s *CostCenterCreate) GetResponsible() string {
+	return s.Responsible
+}
+
+// GetCategory returns the value of Category.
+func (s *CostCenterCreate) GetCategory() string {
+	return s.Category
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *CostCenterCreate) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// GetValidFrom returns the value of ValidFrom.
+func (s *CostCenterCreate) GetValidFrom() time.Time {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *CostCenterCreate) GetValidTo() OptDate {
+	return s.ValidTo
+}
+
+// GetReason returns the value of Reason.
+func (s *CostCenterCreate) GetReason() string {
+	return s.Reason
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CostCenterCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCode sets the value of Code.
+func (s *CostCenterCreate) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *CostCenterCreate) SetName(val string) {
+	s.Name = val
+}
+
+// SetDescription sets the value of Description.
+func (s *CostCenterCreate) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SetResponsible sets the value of Responsible.
+func (s *CostCenterCreate) SetResponsible(val string) {
+	s.Responsible = val
+}
+
+// SetCategory sets the value of Category.
+func (s *CostCenterCreate) SetCategory(val string) {
+	s.Category = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *CostCenterCreate) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *CostCenterCreate) SetValidFrom(val time.Time) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *CostCenterCreate) SetValidTo(val OptDate) {
+	s.ValidTo = val
+}
+
+// SetReason sets the value of Reason.
+func (s *CostCenterCreate) SetReason(val string) {
+	s.Reason = val
+}
+
+// CostCenterHeaders wraps CostCenter with response headers.
+type CostCenterHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           CostCenter
+}
+
+// GetETag returns the value of ETag.
+func (s *CostCenterHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CostCenterHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *CostCenterHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *CostCenterHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *CostCenterHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *CostCenterHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *CostCenterHeaders) GetResponse() CostCenter {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CostCenterHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CostCenterHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *CostCenterHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *CostCenterHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *CostCenterHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *CostCenterHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CostCenterHeaders) SetResponse(val CostCenter) {
+	s.Response = val
+}
+
+func (*CostCenterHeaders) createCostCenterRes() {}
+
+// Locks of a cost center from a date; absent flags are unchanged, at least one is given.
+// Ref: #/components/schemas/CostCenterLock
+type CostCenterLock struct {
+	// First day the locks apply.
+	ValidFrom time.Time `json:"valid_from"`
+	// Day after the last (exclusive); absent: to the end of validity.
+	ValidTo OptDate `json:"valid_to"`
+	// Lock or unlock actual primary costs.
+	LockActualCost OptBool `json:"lock_actual_cost"`
+	// Lock or unlock actual revenue.
+	LockActualRevenue OptBool `json:"lock_actual_revenue"`
+	// Lock or unlock plan values.
+	LockPlan OptBool `json:"lock_plan"`
+	// Why; shown to the approver and recorded in the audit trail.
+	Reason string `json:"reason"`
+}
+
+// GetValidFrom returns the value of ValidFrom.
+func (s *CostCenterLock) GetValidFrom() time.Time {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *CostCenterLock) GetValidTo() OptDate {
+	return s.ValidTo
+}
+
+// GetLockActualCost returns the value of LockActualCost.
+func (s *CostCenterLock) GetLockActualCost() OptBool {
+	return s.LockActualCost
+}
+
+// GetLockActualRevenue returns the value of LockActualRevenue.
+func (s *CostCenterLock) GetLockActualRevenue() OptBool {
+	return s.LockActualRevenue
+}
+
+// GetLockPlan returns the value of LockPlan.
+func (s *CostCenterLock) GetLockPlan() OptBool {
+	return s.LockPlan
+}
+
+// GetReason returns the value of Reason.
+func (s *CostCenterLock) GetReason() string {
+	return s.Reason
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *CostCenterLock) SetValidFrom(val time.Time) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *CostCenterLock) SetValidTo(val OptDate) {
+	s.ValidTo = val
+}
+
+// SetLockActualCost sets the value of LockActualCost.
+func (s *CostCenterLock) SetLockActualCost(val OptBool) {
+	s.LockActualCost = val
+}
+
+// SetLockActualRevenue sets the value of LockActualRevenue.
+func (s *CostCenterLock) SetLockActualRevenue(val OptBool) {
+	s.LockActualRevenue = val
+}
+
+// SetLockPlan sets the value of LockPlan.
+func (s *CostCenterLock) SetLockPlan(val OptBool) {
+	s.LockPlan = val
+}
+
+// SetReason sets the value of Reason.
+func (s *CostCenterLock) SetReason(val string) {
+	s.Reason = val
+}
+
+// A cost center's new profit center or category from a date; at least one of them.
+// Ref: #/components/schemas/CostCenterMove
+type CostCenterMove struct {
+	// First day of the new period.
+	ValidFrom time.Time `json:"valid_from"`
+	// New profit center; null: none.
+	ProfitCenterID OptNilUUID `json:"profit_center_id"`
+	// Cost center category (SAP KOSAR), such as ADMIN or SALES; the configuration names categories and
+	// their lock defaults from T56c.
+	Category OptString `json:"category"`
+	// Why; shown to the approver and recorded in the audit trail.
+	Reason string `json:"reason"`
+}
+
+// GetValidFrom returns the value of ValidFrom.
+func (s *CostCenterMove) GetValidFrom() time.Time {
+	return s.ValidFrom
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *CostCenterMove) GetProfitCenterID() OptNilUUID {
+	return s.ProfitCenterID
+}
+
+// GetCategory returns the value of Category.
+func (s *CostCenterMove) GetCategory() OptString {
+	return s.Category
+}
+
+// GetReason returns the value of Reason.
+func (s *CostCenterMove) GetReason() string {
+	return s.Reason
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *CostCenterMove) SetValidFrom(val time.Time) {
+	s.ValidFrom = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *CostCenterMove) SetProfitCenterID(val OptNilUUID) {
+	s.ProfitCenterID = val
+}
+
+// SetCategory sets the value of Category.
+func (s *CostCenterMove) SetCategory(val OptString) {
+	s.Category = val
+}
+
+// SetReason sets the value of Reason.
+func (s *CostCenterMove) SetReason(val string) {
+	s.Reason = val
+}
+
+// One page of cost centers.
+// Ref: #/components/schemas/CostCenterPage
+type CostCenterPage struct {
+	// The cost centers on this page.
+	Items []CostCenter `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *CostCenterPage) GetItems() []CostCenter {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CostCenterPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *CostCenterPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *CostCenterPage) SetItems(val []CostCenter) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CostCenterPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *CostCenterPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+// CostCenterPageHeaders wraps CostCenterPage with response headers.
+type CostCenterPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           CostCenterPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *CostCenterPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *CostCenterPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *CostCenterPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *CostCenterPageHeaders) GetResponse() CostCenterPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *CostCenterPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *CostCenterPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *CostCenterPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CostCenterPageHeaders) SetResponse(val CostCenterPage) {
+	s.Response = val
+}
+
+func (*CostCenterPageHeaders) listCostCentersRes() {}
+
+// An effective-dated period of a cost center: what postings dated in it read (ADR-0050 §3).
+// Ref: #/components/schemas/CostCenterPeriod
+type CostCenterPeriod struct {
+	// First day.
+	ValidFrom time.Time `json:"valid_from"`
+	// Day after the last day (exclusive); absent: open-ended.
+	ValidTo OptDate `json:"valid_to"`
+	// Cost center category (SAP KOSAR), such as ADMIN or SALES; the configuration names categories and
+	// their lock defaults from T56c.
+	Category string `json:"category"`
+	// Profit center, assigned to the cost center's legal entity; absent: lines take the company's default
+	// profit center.
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// Actual primary costs may not be posted.
+	LockActualCost bool `json:"lock_actual_cost"`
+	// Actual revenue may not be posted.
+	LockActualRevenue bool `json:"lock_actual_revenue"`
+	// Plan values may not be entered.
+	LockPlan bool `json:"lock_plan"`
+}
+
+// GetValidFrom returns the value of ValidFrom.
+func (s *CostCenterPeriod) GetValidFrom() time.Time {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *CostCenterPeriod) GetValidTo() OptDate {
+	return s.ValidTo
+}
+
+// GetCategory returns the value of Category.
+func (s *CostCenterPeriod) GetCategory() string {
+	return s.Category
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *CostCenterPeriod) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// GetLockActualCost returns the value of LockActualCost.
+func (s *CostCenterPeriod) GetLockActualCost() bool {
+	return s.LockActualCost
+}
+
+// GetLockActualRevenue returns the value of LockActualRevenue.
+func (s *CostCenterPeriod) GetLockActualRevenue() bool {
+	return s.LockActualRevenue
+}
+
+// GetLockPlan returns the value of LockPlan.
+func (s *CostCenterPeriod) GetLockPlan() bool {
+	return s.LockPlan
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *CostCenterPeriod) SetValidFrom(val time.Time) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *CostCenterPeriod) SetValidTo(val OptDate) {
+	s.ValidTo = val
+}
+
+// SetCategory sets the value of Category.
+func (s *CostCenterPeriod) SetCategory(val string) {
+	s.Category = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *CostCenterPeriod) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// SetLockActualCost sets the value of LockActualCost.
+func (s *CostCenterPeriod) SetLockActualCost(val bool) {
+	s.LockActualCost = val
+}
+
+// SetLockActualRevenue sets the value of LockActualRevenue.
+func (s *CostCenterPeriod) SetLockActualRevenue(val bool) {
+	s.LockActualRevenue = val
+}
+
+// SetLockPlan sets the value of LockPlan.
+func (s *CostCenterPeriod) SetLockPlan(val bool) {
+	s.LockPlan = val
 }
 
 // A released country pack version (ADR-0048): a country's chart of accounts, tax codes, holidays,
@@ -12240,11 +14353,13 @@ func (s *ForbiddenHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*ForbiddenHeaders) acceptBankStatementLineProposalRes()  {}
 func (*ForbiddenHeaders) activateChangeRequestRes()            {}
 func (*ForbiddenHeaders) activateLegalEntityRes()              {}
 func (*ForbiddenHeaders) activateOrgUnitRes()                  {}
 func (*ForbiddenHeaders) applyCountryPackRes()                 {}
 func (*ForbiddenHeaders) approveApprovalRequestRes()           {}
+func (*ForbiddenHeaders) assignProfitCenterRes()               {}
 func (*ForbiddenHeaders) blockBusinessPartnerRes()             {}
 func (*ForbiddenHeaders) blockLegalEntityRes()                 {}
 func (*ForbiddenHeaders) blockOrgUnitRes()                     {}
@@ -12269,6 +14384,7 @@ func (*ForbiddenHeaders) createClearingRes()                   {}
 func (*ForbiddenHeaders) createCompanyAccessRes()              {}
 func (*ForbiddenHeaders) createConnectorRes()                  {}
 func (*ForbiddenHeaders) createContractRes()                   {}
+func (*ForbiddenHeaders) createCostCenterRes()                 {}
 func (*ForbiddenHeaders) createDownPaymentRequestRes()         {}
 func (*ForbiddenHeaders) createExchangeRateRes()               {}
 func (*ForbiddenHeaders) createLegalEntityRes()                {}
@@ -12276,6 +14392,7 @@ func (*ForbiddenHeaders) createMigrationRunRes()               {}
 func (*ForbiddenHeaders) createOrgUnitRes()                    {}
 func (*ForbiddenHeaders) createPartnerChangeRes()              {}
 func (*ForbiddenHeaders) createPrincipalRes()                  {}
+func (*ForbiddenHeaders) createProfitCenterRes()               {}
 func (*ForbiddenHeaders) createPurchaseOrderChangeRes()        {}
 func (*ForbiddenHeaders) createPurchaseOrderRes()              {}
 func (*ForbiddenHeaders) createRecommendationRes()             {}
@@ -12283,6 +14400,7 @@ func (*ForbiddenHeaders) createRegressionSuiteRes()            {}
 func (*ForbiddenHeaders) createRequisitionRes()                {}
 func (*ForbiddenHeaders) createRoleAssignmentRes()             {}
 func (*ForbiddenHeaders) createRoleRes()                       {}
+func (*ForbiddenHeaders) createSegmentRes()                    {}
 func (*ForbiddenHeaders) createSodRuleRes()                    {}
 func (*ForbiddenHeaders) createSupplierInvoiceRes()            {}
 func (*ForbiddenHeaders) createUploadRes()                     {}
@@ -12306,15 +14424,19 @@ func (*ForbiddenHeaders) getApprovalRequestRes()               {}
 func (*ForbiddenHeaders) getBankAccountRes()                   {}
 func (*ForbiddenHeaders) getBankFileContentRes()               {}
 func (*ForbiddenHeaders) getBankFileRes()                      {}
+func (*ForbiddenHeaders) getBankReconciliationRes()            {}
 func (*ForbiddenHeaders) getBankStatementFileRes()             {}
 func (*ForbiddenHeaders) getBankStatementRes()                 {}
+func (*ForbiddenHeaders) getBankStatementRulesRes()            {}
 func (*ForbiddenHeaders) getBusinessPartnerRes()               {}
+func (*ForbiddenHeaders) getCenterChangeRes()                  {}
 func (*ForbiddenHeaders) getChangeRequestRes()                 {}
 func (*ForbiddenHeaders) getClearingRes()                      {}
 func (*ForbiddenHeaders) getCompanyAccessRes()                 {}
 func (*ForbiddenHeaders) getConfigVersionRes()                 {}
 func (*ForbiddenHeaders) getConnectorRes()                     {}
 func (*ForbiddenHeaders) getContractRes()                      {}
+func (*ForbiddenHeaders) getCostCenterRes()                    {}
 func (*ForbiddenHeaders) getDownPaymentRequestRes()            {}
 func (*ForbiddenHeaders) getExchangeRateRes()                  {}
 func (*ForbiddenHeaders) getFiscalPeriodRes()                  {}
@@ -12330,6 +14452,7 @@ func (*ForbiddenHeaders) getParkedJournalEntryRes()            {}
 func (*ForbiddenHeaders) getPartnerChangeRes()                 {}
 func (*ForbiddenHeaders) getPaymentRunRes()                    {}
 func (*ForbiddenHeaders) getPrincipalRes()                     {}
+func (*ForbiddenHeaders) getProfitCenterRes()                  {}
 func (*ForbiddenHeaders) getPurchaseOrderChangeRes()           {}
 func (*ForbiddenHeaders) getPurchaseOrderRes()                 {}
 func (*ForbiddenHeaders) getRecommendationRes()                {}
@@ -12340,6 +14463,7 @@ func (*ForbiddenHeaders) getRoleAssignmentRes()                {}
 func (*ForbiddenHeaders) getRolePermissionRes()                {}
 func (*ForbiddenHeaders) getRoleRes()                          {}
 func (*ForbiddenHeaders) getSchemaRes()                        {}
+func (*ForbiddenHeaders) getSegmentRes()                       {}
 func (*ForbiddenHeaders) getSodRuleRes()                       {}
 func (*ForbiddenHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*ForbiddenHeaders) getSupplierInvoiceRes()               {}
@@ -12360,19 +14484,26 @@ func (*ForbiddenHeaders) listBankFilesRes()                    {}
 func (*ForbiddenHeaders) listBankStatementMatchesRes()         {}
 func (*ForbiddenHeaders) listBankStatementsRes()               {}
 func (*ForbiddenHeaders) listBusinessPartnersRes()             {}
+func (*ForbiddenHeaders) listCenterChangesRes()                {}
 func (*ForbiddenHeaders) listChangeRequestsRes()               {}
 func (*ForbiddenHeaders) listClearingsRes()                    {}
 func (*ForbiddenHeaders) listCompanyAccessRes()                {}
 func (*ForbiddenHeaders) listConfigVersionsRes()               {}
 func (*ForbiddenHeaders) listConnectorsRes()                   {}
 func (*ForbiddenHeaders) listContractsRes()                    {}
+func (*ForbiddenHeaders) listCostCentersRes()                  {}
 func (*ForbiddenHeaders) listCountryPacksRes()                 {}
 func (*ForbiddenHeaders) listDownPaymentRequestsRes()          {}
 func (*ForbiddenHeaders) listExchangeRatesRes()                {}
 func (*ForbiddenHeaders) listFiscalPeriodsRes()                {}
 func (*ForbiddenHeaders) listGoodsReceiptsRes()                {}
 func (*ForbiddenHeaders) listGrIrBalancesRes()                 {}
+func (*ForbiddenHeaders) listHouseBanksRes()                   {}
 func (*ForbiddenHeaders) listJournalEntriesRes()               {}
+func (*ForbiddenHeaders) listLedgerGroupsRes()                 {}
+func (*ForbiddenHeaders) listLedgerReconciliationEntriesRes()  {}
+func (*ForbiddenHeaders) listLedgerReconciliationRes()         {}
+func (*ForbiddenHeaders) listLedgersRes()                      {}
 func (*ForbiddenHeaders) listLegalEntitiesRes()                {}
 func (*ForbiddenHeaders) listMatchResultsRes()                 {}
 func (*ForbiddenHeaders) listMigrationRunsRes()                {}
@@ -12386,6 +14517,7 @@ func (*ForbiddenHeaders) listPaymentExclusionsRes()            {}
 func (*ForbiddenHeaders) listPaymentRunsRes()                  {}
 func (*ForbiddenHeaders) listPaymentsRes()                     {}
 func (*ForbiddenHeaders) listPrincipalsRes()                   {}
+func (*ForbiddenHeaders) listProfitCentersRes()                {}
 func (*ForbiddenHeaders) listPurchaseOrderChangesRes()         {}
 func (*ForbiddenHeaders) listPurchaseOrdersRes()               {}
 func (*ForbiddenHeaders) listRecommendationsRes()              {}
@@ -12395,14 +14527,19 @@ func (*ForbiddenHeaders) listRevaluationRunsRes()              {}
 func (*ForbiddenHeaders) listRoleAssignmentsRes()              {}
 func (*ForbiddenHeaders) listRolePermissionsRes()              {}
 func (*ForbiddenHeaders) listRolesRes()                        {}
+func (*ForbiddenHeaders) listSegmentsRes()                     {}
 func (*ForbiddenHeaders) listSodRulesRes()                     {}
 func (*ForbiddenHeaders) listSupplierInvoicesRes()             {}
 func (*ForbiddenHeaders) listWebhookDeliveriesRes()            {}
 func (*ForbiddenHeaders) listWebhookSubscriptionsRes()         {}
+func (*ForbiddenHeaders) lockCostCenterRes()                   {}
 func (*ForbiddenHeaders) lockFiscalPeriodRes()                 {}
+func (*ForbiddenHeaders) lockProfitCenterRes()                 {}
 func (*ForbiddenHeaders) matchBankStatementLineRes()           {}
 func (*ForbiddenHeaders) matchBankStatementRes()               {}
 func (*ForbiddenHeaders) matchSupplierInvoiceRes()             {}
+func (*ForbiddenHeaders) moveCostCenterRes()                   {}
+func (*ForbiddenHeaders) moveProfitCenterRes()                 {}
 func (*ForbiddenHeaders) openFiscalPeriodRes()                 {}
 func (*ForbiddenHeaders) parkJournalEntryRes()                 {}
 func (*ForbiddenHeaders) pauseWebhookSubscriptionRes()         {}
@@ -12414,11 +14551,15 @@ func (*ForbiddenHeaders) postParkedJournalEntryRes()           {}
 func (*ForbiddenHeaders) postRevaluationRunRes()               {}
 func (*ForbiddenHeaders) postSupplierInvoiceRes()              {}
 func (*ForbiddenHeaders) previewRevaluationRes()               {}
+func (*ForbiddenHeaders) proposeBankStatementLineRes()         {}
 func (*ForbiddenHeaders) proposePaymentRunRes()                {}
 func (*ForbiddenHeaders) reconcileMigrationRunRes()            {}
 func (*ForbiddenHeaders) recordAgentToolCallRes()              {}
+func (*ForbiddenHeaders) redateCostCenterRes()                 {}
+func (*ForbiddenHeaders) redateProfitCenterRes()               {}
 func (*ForbiddenHeaders) redeliverWebhookDeliveryRes()         {}
 func (*ForbiddenHeaders) rejectApprovalRequestRes()            {}
+func (*ForbiddenHeaders) rejectBankStatementLineProposalRes()  {}
 func (*ForbiddenHeaders) rejectPaymentRunRes()                 {}
 func (*ForbiddenHeaders) releaseContractRes()                  {}
 func (*ForbiddenHeaders) releasePaymentRunRes()                {}
@@ -12451,14 +14592,17 @@ func (*ForbiddenHeaders) updateAiPolicyRes()                   {}
 func (*ForbiddenHeaders) updateChangeRequestRes()              {}
 func (*ForbiddenHeaders) updateConnectorRes()                  {}
 func (*ForbiddenHeaders) updateContractRes()                   {}
+func (*ForbiddenHeaders) updateCostCenterRes()                 {}
 func (*ForbiddenHeaders) updateLegalEntityRes()                {}
 func (*ForbiddenHeaders) updateOrgUnitRes()                    {}
 func (*ForbiddenHeaders) updateParkedJournalEntryRes()         {}
 func (*ForbiddenHeaders) updatePrincipalRes()                  {}
+func (*ForbiddenHeaders) updateProfitCenterRes()               {}
 func (*ForbiddenHeaders) updatePurchaseOrderChangeRes()        {}
 func (*ForbiddenHeaders) updatePurchaseOrderRes()              {}
 func (*ForbiddenHeaders) updateRequisitionRes()                {}
 func (*ForbiddenHeaders) updateRoleRes()                       {}
+func (*ForbiddenHeaders) updateSegmentRes()                    {}
 func (*ForbiddenHeaders) updateSupplierInvoiceRes()            {}
 func (*ForbiddenHeaders) updateWebhookSubscriptionRes()        {}
 func (*ForbiddenHeaders) verifyAuditChainRes()                 {}
@@ -13020,6 +15164,67 @@ func (s *GetContractOKHeaders) SetResponse(val Contract) {
 }
 
 func (*GetContractOKHeaders) getContractRes() {}
+
+// GetCostCenterOKHeaders wraps CostCenter with response headers.
+type GetCostCenterOKHeaders struct {
+	ETag               OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           CostCenter
+}
+
+// GetETag returns the value of ETag.
+func (s *GetCostCenterOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *GetCostCenterOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *GetCostCenterOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *GetCostCenterOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *GetCostCenterOKHeaders) GetResponse() CostCenter {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetCostCenterOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *GetCostCenterOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *GetCostCenterOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *GetCostCenterOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetCostCenterOKHeaders) SetResponse(val CostCenter) {
+	s.Response = val
+}
+
+func (*GetCostCenterOKHeaders) getCostCenterRes() {}
 
 // GetDownPaymentRequestOKHeaders wraps DownPaymentRequest with response headers.
 type GetDownPaymentRequestOKHeaders struct {
@@ -13692,6 +15897,67 @@ func (s *GetPrincipalOKHeaders) SetResponse(val Principal) {
 
 func (*GetPrincipalOKHeaders) getPrincipalRes() {}
 
+// GetProfitCenterOKHeaders wraps ProfitCenter with response headers.
+type GetProfitCenterOKHeaders struct {
+	ETag               OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           ProfitCenter
+}
+
+// GetETag returns the value of ETag.
+func (s *GetProfitCenterOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *GetProfitCenterOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *GetProfitCenterOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *GetProfitCenterOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *GetProfitCenterOKHeaders) GetResponse() ProfitCenter {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetProfitCenterOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *GetProfitCenterOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *GetProfitCenterOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *GetProfitCenterOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetProfitCenterOKHeaders) SetResponse(val ProfitCenter) {
+	s.Response = val
+}
+
+func (*GetProfitCenterOKHeaders) getProfitCenterRes() {}
+
 // GetPurchaseOrderChangeOKHeaders wraps PurchaseOrderChange with response headers.
 type GetPurchaseOrderChangeOKHeaders struct {
 	ETag               OptString
@@ -14290,6 +16556,67 @@ func (s *GetSchemaNotModified) SetRateLimitReset(val OptInt32) {
 }
 
 func (*GetSchemaNotModified) getSchemaRes() {}
+
+// GetSegmentOKHeaders wraps Segment with response headers.
+type GetSegmentOKHeaders struct {
+	ETag               OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           Segment
+}
+
+// GetETag returns the value of ETag.
+func (s *GetSegmentOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *GetSegmentOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *GetSegmentOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *GetSegmentOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *GetSegmentOKHeaders) GetResponse() Segment {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetSegmentOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *GetSegmentOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *GetSegmentOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *GetSegmentOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetSegmentOKHeaders) SetResponse(val Segment) {
+	s.Response = val
+}
+
+func (*GetSegmentOKHeaders) getSegmentRes() {}
 
 // GetSodRuleOKHeaders wraps SodRule with response headers.
 type GetSodRuleOKHeaders struct {
@@ -15395,6 +17722,176 @@ func (s *GrIrBalancePageHeaders) SetResponse(val GrIrBalancePage) {
 
 func (*GrIrBalancePageHeaders) listGrIrBalancesRes() {}
 
+// A house bank of a company (SAP T012K), from the configuration (`companies[].house_bank(s)`,
+// ADR-0038).
+// Ref: #/components/schemas/HouseBank
+type HouseBank struct {
+	// Identifier: the `house_bank_id` of statement imports and payment runs.
+	ID uuid.UUID `json:"id"`
+	// The house bank's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The bank's name in the configuration, unique within the legal entity.
+	Code string `json:"code"`
+	// The account's currency (ISO 4217).
+	Currency string `json:"currency"`
+	// The last up to four characters of the account's IBAN.
+	AccountLast4 string `json:"account_last4"`
+	// The bank's BIC.
+	Bic string `json:"bic"`
+	// `inactive` once the configuration no longer lists it. Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+}
+
+// GetID returns the value of ID.
+func (s *HouseBank) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *HouseBank) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCode returns the value of Code.
+func (s *HouseBank) GetCode() string {
+	return s.Code
+}
+
+// GetCurrency returns the value of Currency.
+func (s *HouseBank) GetCurrency() string {
+	return s.Currency
+}
+
+// GetAccountLast4 returns the value of AccountLast4.
+func (s *HouseBank) GetAccountLast4() string {
+	return s.AccountLast4
+}
+
+// GetBic returns the value of Bic.
+func (s *HouseBank) GetBic() string {
+	return s.Bic
+}
+
+// GetStatus returns the value of Status.
+func (s *HouseBank) GetStatus() string {
+	return s.Status
+}
+
+// SetID sets the value of ID.
+func (s *HouseBank) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *HouseBank) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCode sets the value of Code.
+func (s *HouseBank) SetCode(val string) {
+	s.Code = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *HouseBank) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetAccountLast4 sets the value of AccountLast4.
+func (s *HouseBank) SetAccountLast4(val string) {
+	s.AccountLast4 = val
+}
+
+// SetBic sets the value of Bic.
+func (s *HouseBank) SetBic(val string) {
+	s.Bic = val
+}
+
+// SetStatus sets the value of Status.
+func (s *HouseBank) SetStatus(val string) {
+	s.Status = val
+}
+
+// One page of house banks.
+// Ref: #/components/schemas/HouseBankPage
+type HouseBankPage struct {
+	// The house banks on this page.
+	Items []HouseBank `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *HouseBankPage) GetItems() []HouseBank {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *HouseBankPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *HouseBankPage) SetItems(val []HouseBank) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *HouseBankPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// HouseBankPageHeaders wraps HouseBankPage with response headers.
+type HouseBankPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           HouseBankPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *HouseBankPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *HouseBankPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *HouseBankPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *HouseBankPageHeaders) GetResponse() HouseBankPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *HouseBankPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *HouseBankPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *HouseBankPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *HouseBankPageHeaders) SetResponse(val HouseBankPage) {
+	s.Response = val
+}
+
+func (*HouseBankPageHeaders) listHouseBanksRes() {}
+
 type ImportBankStatementsCreated BankStatementImportHeaders
 
 func (*ImportBankStatementsCreated) importBankStatementsRes() {}
@@ -15476,7 +17973,8 @@ type JournalEntry struct {
 	FiscalPeriod int32 `json:"fiscal_period"`
 	// Document type (SA general, KR supplier invoice, KZ payment...).
 	DocumentType string `json:"document_type"`
-	// Document number, unique per legal entity, document type and fiscal year.
+	// Document number, unique per legal entity, ledger, document type and fiscal year; the entries of a
+	// posting group share it.
 	DocumentNumber string `json:"document_number"`
 	// Document date.
 	DocumentDate time.Time `json:"document_date"`
@@ -15503,6 +18001,13 @@ type JournalEntry struct {
 	SourceDocumentID OptUUID `json:"source_document_id"`
 	// Entry this one reverses.
 	ReversalOfID OptUUID `json:"reversal_of_id"`
+	// The first entry of the posting group this entry belongs to (the entry itself on the first): a
+	// posting is written to every ledger its company keeps, or to the ledger or ledger group it names, as
+	// linked entries sharing one document number (ADR-0045). Absent on entries posted before posting
+	// groups.
+	PostingGroupID OptUUID `json:"posting_group_id"`
+	// The ledger group the posting named, if any.
+	LedgerGroupID OptUUID `json:"ledger_group_id"`
 	// Entry that reversed this one, if any.
 	ReversedByID OptUUID `json:"reversed_by_id"`
 	// Lines; they balance to zero in every currency.
@@ -15611,6 +18116,16 @@ func (s *JournalEntry) GetSourceDocumentID() OptUUID {
 // GetReversalOfID returns the value of ReversalOfID.
 func (s *JournalEntry) GetReversalOfID() OptUUID {
 	return s.ReversalOfID
+}
+
+// GetPostingGroupID returns the value of PostingGroupID.
+func (s *JournalEntry) GetPostingGroupID() OptUUID {
+	return s.PostingGroupID
+}
+
+// GetLedgerGroupID returns the value of LedgerGroupID.
+func (s *JournalEntry) GetLedgerGroupID() OptUUID {
+	return s.LedgerGroupID
 }
 
 // GetReversedByID returns the value of ReversedByID.
@@ -15733,6 +18248,16 @@ func (s *JournalEntry) SetReversalOfID(val OptUUID) {
 	s.ReversalOfID = val
 }
 
+// SetPostingGroupID sets the value of PostingGroupID.
+func (s *JournalEntry) SetPostingGroupID(val OptUUID) {
+	s.PostingGroupID = val
+}
+
+// SetLedgerGroupID sets the value of LedgerGroupID.
+func (s *JournalEntry) SetLedgerGroupID(val OptUUID) {
+	s.LedgerGroupID = val
+}
+
 // SetReversedByID sets the value of ReversedByID.
 func (s *JournalEntry) SetReversedByID(val OptUUID) {
 	s.ReversedByID = val
@@ -15759,8 +18284,19 @@ func (s *JournalEntry) SetPostedBy(val uuid.UUID) {
 type JournalEntryCreate struct {
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// Ledger; defaults to the leading ledger.
+	// The one ledger the entry posts to (a ledger-specific posting), one its company keeps (422
+	// `ledger.ledger_not_kept`); a ledger-specific posting has no line on a supplier or customer
+	// reconciliation account (422 `ledger.ledger_specific_reconciliation`). Without `ledger_id` and
+	// `ledger_group` the entry posts to every ledger its company keeps, as linked entries sharing one
+	// document number; the leading ledger's entry is the one returned.
 	LedgerID OptUUID `json:"ledger_id"`
+	// Code of the ledger group the entry posts to (`GET /v1/ledger-groups`): one entry per member its
+	// company keeps, the representative's returned (or, the representative not kept, the first member left
+	// by code); a group of no ledger the company keeps is 422 `ledger.ledger_not_kept`, and one with a
+	// line on a supplier or customer reconciliation account is 422
+	// `ledger.ledger_specific_reconciliation`. Not with `ledger_id` (422 `ledger.ledger_or_group`); an
+	// unknown code is 422 `ledger.unknown_ledger_group`.
+	LedgerGroup OptString `json:"ledger_group"`
 	// Document type.
 	DocumentType OptString `json:"document_type"`
 	// Document date.
@@ -15785,6 +18321,11 @@ func (s *JournalEntryCreate) GetLegalEntityID() uuid.UUID {
 // GetLedgerID returns the value of LedgerID.
 func (s *JournalEntryCreate) GetLedgerID() OptUUID {
 	return s.LedgerID
+}
+
+// GetLedgerGroup returns the value of LedgerGroup.
+func (s *JournalEntryCreate) GetLedgerGroup() OptString {
+	return s.LedgerGroup
 }
 
 // GetDocumentType returns the value of DocumentType.
@@ -15830,6 +18371,11 @@ func (s *JournalEntryCreate) SetLegalEntityID(val uuid.UUID) {
 // SetLedgerID sets the value of LedgerID.
 func (s *JournalEntryCreate) SetLedgerID(val OptUUID) {
 	s.LedgerID = val
+}
+
+// SetLedgerGroup sets the value of LedgerGroup.
+func (s *JournalEntryCreate) SetLedgerGroup(val OptString) {
+	s.LedgerGroup = val
 }
 
 // SetDocumentType sets the value of DocumentType.
@@ -16300,6 +18846,919 @@ func (s *JournalLineInput) SetLineText(val OptString) {
 	s.LineText = val
 }
 
+// A ledger of the tenant (SAP FINSC_LEDGER): the leading ledger 0L or a parallel ledger.
+// Ref: #/components/schemas/Ledger
+type Ledger struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Ledger code: 0L for the leading ledger, two upper-case letters or digits for the others.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// Accounting principle the ledger is kept under (IFRS, US_GAAP, HGB); fixed once activated.
+	AccountingPrinciple string `json:"accounting_principle"`
+	// Whether this is the leading ledger 0L, which every company keeps and reports default to.
+	IsLeading bool `json:"is_leading"`
+	// The legal entities that keep the ledger, of those the caller may see.
+	LegalEntityIds []uuid.UUID `json:"legal_entity_ids"`
+	// Optimistic-lock version; equals the ETag.
+	Version int32 `json:"version"`
+	// Creation time.
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that activated the configuration creating it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *Ledger) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCode returns the value of Code.
+func (s *Ledger) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *Ledger) GetName() string {
+	return s.Name
+}
+
+// GetAccountingPrinciple returns the value of AccountingPrinciple.
+func (s *Ledger) GetAccountingPrinciple() string {
+	return s.AccountingPrinciple
+}
+
+// GetIsLeading returns the value of IsLeading.
+func (s *Ledger) GetIsLeading() bool {
+	return s.IsLeading
+}
+
+// GetLegalEntityIds returns the value of LegalEntityIds.
+func (s *Ledger) GetLegalEntityIds() []uuid.UUID {
+	return s.LegalEntityIds
+}
+
+// GetVersion returns the value of Version.
+func (s *Ledger) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *Ledger) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *Ledger) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *Ledger) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCode sets the value of Code.
+func (s *Ledger) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *Ledger) SetName(val string) {
+	s.Name = val
+}
+
+// SetAccountingPrinciple sets the value of AccountingPrinciple.
+func (s *Ledger) SetAccountingPrinciple(val string) {
+	s.AccountingPrinciple = val
+}
+
+// SetIsLeading sets the value of IsLeading.
+func (s *Ledger) SetIsLeading(val bool) {
+	s.IsLeading = val
+}
+
+// SetLegalEntityIds sets the value of LegalEntityIds.
+func (s *Ledger) SetLegalEntityIds(val []uuid.UUID) {
+	s.LegalEntityIds = val
+}
+
+// SetVersion sets the value of Version.
+func (s *Ledger) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *Ledger) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *Ledger) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// One account and transaction currency whose balance differs between two ledgers; amounts are signed,
+// debit positive.
+// Ref: #/components/schemas/LedgerDifference
+type LedgerDifference struct {
+	// G/L account.
+	AccountID uuid.UUID `json:"account_id"`
+	// Transaction currency.
+	Currency string `json:"currency"`
+	// Balance in the ledger, in transaction currency.
+	Balance Money `json:"balance"`
+	// Balance in the compared ledger, in transaction currency.
+	CompareBalance Money `json:"compare_balance"`
+	// `balance` less `compare_balance`.
+	Difference Money `json:"difference"`
+	// The difference in local currency.
+	DifferenceLc Money `json:"difference_lc"`
+	// The difference in group currency.
+	DifferenceGc Money `json:"difference_gc"`
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *LedgerDifference) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetCurrency returns the value of Currency.
+func (s *LedgerDifference) GetCurrency() string {
+	return s.Currency
+}
+
+// GetBalance returns the value of Balance.
+func (s *LedgerDifference) GetBalance() Money {
+	return s.Balance
+}
+
+// GetCompareBalance returns the value of CompareBalance.
+func (s *LedgerDifference) GetCompareBalance() Money {
+	return s.CompareBalance
+}
+
+// GetDifference returns the value of Difference.
+func (s *LedgerDifference) GetDifference() Money {
+	return s.Difference
+}
+
+// GetDifferenceLc returns the value of DifferenceLc.
+func (s *LedgerDifference) GetDifferenceLc() Money {
+	return s.DifferenceLc
+}
+
+// GetDifferenceGc returns the value of DifferenceGc.
+func (s *LedgerDifference) GetDifferenceGc() Money {
+	return s.DifferenceGc
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *LedgerDifference) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *LedgerDifference) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetBalance sets the value of Balance.
+func (s *LedgerDifference) SetBalance(val Money) {
+	s.Balance = val
+}
+
+// SetCompareBalance sets the value of CompareBalance.
+func (s *LedgerDifference) SetCompareBalance(val Money) {
+	s.CompareBalance = val
+}
+
+// SetDifference sets the value of Difference.
+func (s *LedgerDifference) SetDifference(val Money) {
+	s.Difference = val
+}
+
+// SetDifferenceLc sets the value of DifferenceLc.
+func (s *LedgerDifference) SetDifferenceLc(val Money) {
+	s.DifferenceLc = val
+}
+
+// SetDifferenceGc sets the value of DifferenceGc.
+func (s *LedgerDifference) SetDifferenceGc(val Money) {
+	s.DifferenceGc = val
+}
+
+// A ledger group (SAP FAGL ledger group): ledgers a posting goes to together, the representative
+// deciding its posting period.
+// Ref: #/components/schemas/LedgerGroup
+type LedgerGroup struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Group code, 1-4 upper-case letters or digits, different from every ledger's.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// The member whose periods decide the group's postings; the leading ledger when it is a member. Fixed
+	// once activated.
+	RepresentativeLedgerID uuid.UUID `json:"representative_ledger_id"`
+	// The group's ledgers; a ledger never leaves a group once activated.
+	LedgerIds []uuid.UUID `json:"ledger_ids"`
+	// Optimistic-lock version; equals the ETag.
+	Version int32 `json:"version"`
+	// Creation time.
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that activated the configuration creating it.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change.
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that activated the configuration changing it last.
+	UpdatedBy uuid.UUID `json:"updated_by"`
+}
+
+// GetID returns the value of ID.
+func (s *LedgerGroup) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCode returns the value of Code.
+func (s *LedgerGroup) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *LedgerGroup) GetName() string {
+	return s.Name
+}
+
+// GetRepresentativeLedgerID returns the value of RepresentativeLedgerID.
+func (s *LedgerGroup) GetRepresentativeLedgerID() uuid.UUID {
+	return s.RepresentativeLedgerID
+}
+
+// GetLedgerIds returns the value of LedgerIds.
+func (s *LedgerGroup) GetLedgerIds() []uuid.UUID {
+	return s.LedgerIds
+}
+
+// GetVersion returns the value of Version.
+func (s *LedgerGroup) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *LedgerGroup) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *LedgerGroup) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *LedgerGroup) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *LedgerGroup) GetUpdatedBy() uuid.UUID {
+	return s.UpdatedBy
+}
+
+// SetID sets the value of ID.
+func (s *LedgerGroup) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCode sets the value of Code.
+func (s *LedgerGroup) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *LedgerGroup) SetName(val string) {
+	s.Name = val
+}
+
+// SetRepresentativeLedgerID sets the value of RepresentativeLedgerID.
+func (s *LedgerGroup) SetRepresentativeLedgerID(val uuid.UUID) {
+	s.RepresentativeLedgerID = val
+}
+
+// SetLedgerIds sets the value of LedgerIds.
+func (s *LedgerGroup) SetLedgerIds(val []uuid.UUID) {
+	s.LedgerIds = val
+}
+
+// SetVersion sets the value of Version.
+func (s *LedgerGroup) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *LedgerGroup) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *LedgerGroup) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *LedgerGroup) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *LedgerGroup) SetUpdatedBy(val uuid.UUID) {
+	s.UpdatedBy = val
+}
+
+// One page of ledger groups.
+// Ref: #/components/schemas/LedgerGroupPage
+type LedgerGroupPage struct {
+	// The ledger groups on this page.
+	Items []LedgerGroup `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *LedgerGroupPage) GetItems() []LedgerGroup {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *LedgerGroupPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *LedgerGroupPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *LedgerGroupPage) SetItems(val []LedgerGroup) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *LedgerGroupPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *LedgerGroupPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+// LedgerGroupPageHeaders wraps LedgerGroupPage with response headers.
+type LedgerGroupPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           LedgerGroupPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *LedgerGroupPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *LedgerGroupPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *LedgerGroupPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *LedgerGroupPageHeaders) GetResponse() LedgerGroupPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *LedgerGroupPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *LedgerGroupPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *LedgerGroupPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *LedgerGroupPageHeaders) SetResponse(val LedgerGroupPage) {
+	s.Response = val
+}
+
+func (*LedgerGroupPageHeaders) listLedgerGroupsRes() {}
+
+// One page of ledgers.
+// Ref: #/components/schemas/LedgerPage
+type LedgerPage struct {
+	// The ledgers on this page.
+	Items []Ledger `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *LedgerPage) GetItems() []Ledger {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *LedgerPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *LedgerPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *LedgerPage) SetItems(val []Ledger) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *LedgerPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *LedgerPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+// LedgerPageHeaders wraps LedgerPage with response headers.
+type LedgerPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           LedgerPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *LedgerPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *LedgerPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *LedgerPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *LedgerPageHeaders) GetResponse() LedgerPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *LedgerPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *LedgerPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *LedgerPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *LedgerPageHeaders) SetResponse(val LedgerPage) {
+	s.Response = val
+}
+
+func (*LedgerPageHeaders) listLedgersRes() {}
+
+// A journal line of an entry posted in one of two ledgers and not in the other; amounts are signed,
+// debit positive.
+// Ref: #/components/schemas/LedgerReconciliationEntry
+type LedgerReconciliationEntry struct {
+	// The ledger the entry was posted in.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// Journal entry.
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// Fiscal year of the entry.
+	FiscalYear int32 `json:"fiscal_year"`
+	// Line number.
+	LineNo int32 `json:"line_no"`
+	// Document number.
+	DocumentNumber string `json:"document_number"`
+	// Posting date.
+	PostingDate time.Time `json:"posting_date"`
+	// Posting period.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// Amount in transaction currency.
+	Amount Money `json:"amount"`
+	// Amount in local currency.
+	AmountLc Money `json:"amount_lc"`
+	// Amount in group currency.
+	AmountGc Money `json:"amount_gc"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *LedgerReconciliationEntry) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *LedgerReconciliationEntry) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *LedgerReconciliationEntry) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *LedgerReconciliationEntry) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *LedgerReconciliationEntry) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *LedgerReconciliationEntry) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *LedgerReconciliationEntry) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetAmount returns the value of Amount.
+func (s *LedgerReconciliationEntry) GetAmount() Money {
+	return s.Amount
+}
+
+// GetAmountLc returns the value of AmountLc.
+func (s *LedgerReconciliationEntry) GetAmountLc() Money {
+	return s.AmountLc
+}
+
+// GetAmountGc returns the value of AmountGc.
+func (s *LedgerReconciliationEntry) GetAmountGc() Money {
+	return s.AmountGc
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *LedgerReconciliationEntry) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *LedgerReconciliationEntry) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *LedgerReconciliationEntry) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *LedgerReconciliationEntry) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *LedgerReconciliationEntry) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *LedgerReconciliationEntry) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *LedgerReconciliationEntry) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *LedgerReconciliationEntry) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetAmountLc sets the value of AmountLc.
+func (s *LedgerReconciliationEntry) SetAmountLc(val Money) {
+	s.AmountLc = val
+}
+
+// SetAmountGc sets the value of AmountGc.
+func (s *LedgerReconciliationEntry) SetAmountGc(val Money) {
+	s.AmountGc = val
+}
+
+// One page of ledger-specific journal lines.
+// Ref: #/components/schemas/LedgerReconciliationEntryPage
+type LedgerReconciliationEntryPage struct {
+	// The lines on this page.
+	Items []LedgerReconciliationEntry `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *LedgerReconciliationEntryPage) GetItems() []LedgerReconciliationEntry {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *LedgerReconciliationEntryPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *LedgerReconciliationEntryPage) SetItems(val []LedgerReconciliationEntry) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *LedgerReconciliationEntryPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// LedgerReconciliationEntryPageHeaders wraps LedgerReconciliationEntryPage with response headers.
+type LedgerReconciliationEntryPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           LedgerReconciliationEntryPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *LedgerReconciliationEntryPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *LedgerReconciliationEntryPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *LedgerReconciliationEntryPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *LedgerReconciliationEntryPageHeaders) GetResponse() LedgerReconciliationEntryPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *LedgerReconciliationEntryPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *LedgerReconciliationEntryPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *LedgerReconciliationEntryPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *LedgerReconciliationEntryPageHeaders) SetResponse(val LedgerReconciliationEntryPage) {
+	s.Response = val
+}
+
+func (*LedgerReconciliationEntryPageHeaders) listLedgerReconciliationEntriesRes() {}
+
+// One page of the differences between two ledgers, with each ledger's trial balance check.
+// Ref: #/components/schemas/LedgerReconciliationPage
+type LedgerReconciliationPage struct {
+	// The ledger reconciled.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger it is compared with.
+	CompareLedgerID uuid.UUID `json:"compare_ledger_id"`
+	// The ledger's trial balance check, then the compared ledger's, on the first page; empty on the next
+	// pages and when the legal entity is not visible or does not keep both ledgers.
+	TrialBalances []LedgerTrialBalance `json:"trial_balances"`
+	// The differences on this page.
+	Items []LedgerDifference `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *LedgerReconciliationPage) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetCompareLedgerID returns the value of CompareLedgerID.
+func (s *LedgerReconciliationPage) GetCompareLedgerID() uuid.UUID {
+	return s.CompareLedgerID
+}
+
+// GetTrialBalances returns the value of TrialBalances.
+func (s *LedgerReconciliationPage) GetTrialBalances() []LedgerTrialBalance {
+	return s.TrialBalances
+}
+
+// GetItems returns the value of Items.
+func (s *LedgerReconciliationPage) GetItems() []LedgerDifference {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *LedgerReconciliationPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *LedgerReconciliationPage) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetCompareLedgerID sets the value of CompareLedgerID.
+func (s *LedgerReconciliationPage) SetCompareLedgerID(val uuid.UUID) {
+	s.CompareLedgerID = val
+}
+
+// SetTrialBalances sets the value of TrialBalances.
+func (s *LedgerReconciliationPage) SetTrialBalances(val []LedgerTrialBalance) {
+	s.TrialBalances = val
+}
+
+// SetItems sets the value of Items.
+func (s *LedgerReconciliationPage) SetItems(val []LedgerDifference) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *LedgerReconciliationPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// LedgerReconciliationPageHeaders wraps LedgerReconciliationPage with response headers.
+type LedgerReconciliationPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           LedgerReconciliationPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *LedgerReconciliationPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *LedgerReconciliationPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *LedgerReconciliationPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *LedgerReconciliationPageHeaders) GetResponse() LedgerReconciliationPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *LedgerReconciliationPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *LedgerReconciliationPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *LedgerReconciliationPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *LedgerReconciliationPageHeaders) SetResponse(val LedgerReconciliationPage) {
+	s.Response = val
+}
+
+func (*LedgerReconciliationPageHeaders) listLedgerReconciliationRes() {}
+
+// One ledger's trial balance check: its debits and credits in local and group currency, which net to
+// zero.
+// Ref: #/components/schemas/LedgerTrialBalance
+type LedgerTrialBalance struct {
+	// Ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// Debit total in local currency.
+	DebitLc Money `json:"debit_lc"`
+	// Credit total in local currency (positive).
+	CreditLc Money `json:"credit_lc"`
+	// Debit total in group currency.
+	DebitGc Money `json:"debit_gc"`
+	// Credit total in group currency (positive).
+	CreditGc Money `json:"credit_gc"`
+	// Whether debits equal credits in local and in group currency.
+	Balanced bool `json:"balanced"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *LedgerTrialBalance) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetDebitLc returns the value of DebitLc.
+func (s *LedgerTrialBalance) GetDebitLc() Money {
+	return s.DebitLc
+}
+
+// GetCreditLc returns the value of CreditLc.
+func (s *LedgerTrialBalance) GetCreditLc() Money {
+	return s.CreditLc
+}
+
+// GetDebitGc returns the value of DebitGc.
+func (s *LedgerTrialBalance) GetDebitGc() Money {
+	return s.DebitGc
+}
+
+// GetCreditGc returns the value of CreditGc.
+func (s *LedgerTrialBalance) GetCreditGc() Money {
+	return s.CreditGc
+}
+
+// GetBalanced returns the value of Balanced.
+func (s *LedgerTrialBalance) GetBalanced() bool {
+	return s.Balanced
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *LedgerTrialBalance) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetDebitLc sets the value of DebitLc.
+func (s *LedgerTrialBalance) SetDebitLc(val Money) {
+	s.DebitLc = val
+}
+
+// SetCreditLc sets the value of CreditLc.
+func (s *LedgerTrialBalance) SetCreditLc(val Money) {
+	s.CreditLc = val
+}
+
+// SetDebitGc sets the value of DebitGc.
+func (s *LedgerTrialBalance) SetDebitGc(val Money) {
+	s.DebitGc = val
+}
+
+// SetCreditGc sets the value of CreditGc.
+func (s *LedgerTrialBalance) SetCreditGc(val Money) {
+	s.CreditGc = val
+}
+
+// SetBalanced sets the value of Balanced.
+func (s *LedgerTrialBalance) SetBalanced(val bool) {
+	s.Balanced = val
+}
+
 // Merged schema.
 // Ref: #/components/schemas/LegalEntity
 type LegalEntity struct {
@@ -16743,6 +20202,84 @@ func (s *LegalEntityUpdate) SetName(val OptString) {
 func (s *LegalEntityUpdate) SetExtensions(val OptExtensions) {
 	s.Extensions = val
 }
+
+// LockCostCenterOKHeaders wraps CenterChange with response headers.
+type LockCostCenterOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           CenterChange
+}
+
+// GetETag returns the value of ETag.
+func (s *LockCostCenterOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *LockCostCenterOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *LockCostCenterOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *LockCostCenterOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *LockCostCenterOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *LockCostCenterOKHeaders) GetResponse() CenterChange {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *LockCostCenterOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *LockCostCenterOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *LockCostCenterOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *LockCostCenterOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *LockCostCenterOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *LockCostCenterOKHeaders) SetResponse(val CenterChange) {
+	s.Response = val
+}
+
+func (*LockCostCenterOKHeaders) assignProfitCenterRes() {}
+func (*LockCostCenterOKHeaders) lockCostCenterRes()     {}
+func (*LockCostCenterOKHeaders) lockProfitCenterRes()   {}
+func (*LockCostCenterOKHeaders) moveCostCenterRes()     {}
+func (*LockCostCenterOKHeaders) moveProfitCenterRes()   {}
+func (*LockCostCenterOKHeaders) redateCostCenterRes()   {}
+func (*LockCostCenterOKHeaders) redateProfitCenterRes() {}
 
 // MatchBankStatementOKHeaders wraps BankStatement with response headers.
 type MatchBankStatementOKHeaders struct {
@@ -17816,6 +21353,51 @@ func (o NilString) Or(d string) string {
 	return d
 }
 
+// NewNilUUID returns new NilUUID with value set to v.
+func NewNilUUID(v uuid.UUID) NilUUID {
+	return NilUUID{
+		Value: v,
+	}
+}
+
+// NilUUID is nullable uuid.UUID.
+type NilUUID struct {
+	Value uuid.UUID
+	Null  bool
+}
+
+// SetTo sets value to v.
+func (o *NilUUID) SetTo(v uuid.UUID) {
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o NilUUID) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *NilUUID) SetToNull() {
+	o.Null = true
+	var v uuid.UUID
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o NilUUID) Get() (v uuid.UUID, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o NilUUID) Or(d uuid.UUID) uuid.UUID {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NotFoundHeaders wraps Problem with response headers.
 type NotFoundHeaders struct {
 	RateLimitLimit     OptInt32
@@ -17864,11 +21446,13 @@ func (s *NotFoundHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*NotFoundHeaders) acceptBankStatementLineProposalRes()  {}
 func (*NotFoundHeaders) activateChangeRequestRes()            {}
 func (*NotFoundHeaders) activateLegalEntityRes()              {}
 func (*NotFoundHeaders) activateOrgUnitRes()                  {}
 func (*NotFoundHeaders) applyCountryPackRes()                 {}
 func (*NotFoundHeaders) approveApprovalRequestRes()           {}
+func (*NotFoundHeaders) assignProfitCenterRes()               {}
 func (*NotFoundHeaders) blockBusinessPartnerRes()             {}
 func (*NotFoundHeaders) blockLegalEntityRes()                 {}
 func (*NotFoundHeaders) blockOrgUnitRes()                     {}
@@ -17903,15 +21487,19 @@ func (*NotFoundHeaders) getApprovalRequestRes()               {}
 func (*NotFoundHeaders) getBankAccountRes()                   {}
 func (*NotFoundHeaders) getBankFileContentRes()               {}
 func (*NotFoundHeaders) getBankFileRes()                      {}
+func (*NotFoundHeaders) getBankReconciliationRes()            {}
 func (*NotFoundHeaders) getBankStatementFileRes()             {}
 func (*NotFoundHeaders) getBankStatementRes()                 {}
+func (*NotFoundHeaders) getBankStatementRulesRes()            {}
 func (*NotFoundHeaders) getBusinessPartnerRes()               {}
+func (*NotFoundHeaders) getCenterChangeRes()                  {}
 func (*NotFoundHeaders) getChangeRequestRes()                 {}
 func (*NotFoundHeaders) getClearingRes()                      {}
 func (*NotFoundHeaders) getCompanyAccessRes()                 {}
 func (*NotFoundHeaders) getConfigVersionRes()                 {}
 func (*NotFoundHeaders) getConnectorRes()                     {}
 func (*NotFoundHeaders) getContractRes()                      {}
+func (*NotFoundHeaders) getCostCenterRes()                    {}
 func (*NotFoundHeaders) getDownPaymentRequestRes()            {}
 func (*NotFoundHeaders) getExchangeRateRes()                  {}
 func (*NotFoundHeaders) getFiscalPeriodRes()                  {}
@@ -17927,6 +21515,7 @@ func (*NotFoundHeaders) getParkedJournalEntryRes()            {}
 func (*NotFoundHeaders) getPartnerChangeRes()                 {}
 func (*NotFoundHeaders) getPaymentRunRes()                    {}
 func (*NotFoundHeaders) getPrincipalRes()                     {}
+func (*NotFoundHeaders) getProfitCenterRes()                  {}
 func (*NotFoundHeaders) getPurchaseOrderChangeRes()           {}
 func (*NotFoundHeaders) getPurchaseOrderRes()                 {}
 func (*NotFoundHeaders) getRecommendationRes()                {}
@@ -17937,6 +21526,7 @@ func (*NotFoundHeaders) getRoleAssignmentRes()                {}
 func (*NotFoundHeaders) getRolePermissionRes()                {}
 func (*NotFoundHeaders) getRoleRes()                          {}
 func (*NotFoundHeaders) getSchemaRes()                        {}
+func (*NotFoundHeaders) getSegmentRes()                       {}
 func (*NotFoundHeaders) getSodRuleRes()                       {}
 func (*NotFoundHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*NotFoundHeaders) getSupplierInvoiceRes()               {}
@@ -17954,20 +21544,28 @@ func (*NotFoundHeaders) listPaymentsRes()                     {}
 func (*NotFoundHeaders) listPurchaseOrderChangesRes()         {}
 func (*NotFoundHeaders) listRolePermissionsRes()              {}
 func (*NotFoundHeaders) listWebhookDeliveriesRes()            {}
+func (*NotFoundHeaders) lockCostCenterRes()                   {}
 func (*NotFoundHeaders) lockFiscalPeriodRes()                 {}
+func (*NotFoundHeaders) lockProfitCenterRes()                 {}
 func (*NotFoundHeaders) matchBankStatementLineRes()           {}
 func (*NotFoundHeaders) matchBankStatementRes()               {}
 func (*NotFoundHeaders) matchSupplierInvoiceRes()             {}
+func (*NotFoundHeaders) moveCostCenterRes()                   {}
+func (*NotFoundHeaders) moveProfitCenterRes()                 {}
 func (*NotFoundHeaders) openFiscalPeriodRes()                 {}
 func (*NotFoundHeaders) pauseWebhookSubscriptionRes()         {}
 func (*NotFoundHeaders) pingWebhookSubscriptionRes()          {}
 func (*NotFoundHeaders) postBankStatementLineRes()            {}
 func (*NotFoundHeaders) postParkedJournalEntryRes()           {}
 func (*NotFoundHeaders) postSupplierInvoiceRes()              {}
+func (*NotFoundHeaders) proposeBankStatementLineRes()         {}
 func (*NotFoundHeaders) reconcileMigrationRunRes()            {}
 func (*NotFoundHeaders) recordAgentToolCallRes()              {}
+func (*NotFoundHeaders) redateCostCenterRes()                 {}
+func (*NotFoundHeaders) redateProfitCenterRes()               {}
 func (*NotFoundHeaders) redeliverWebhookDeliveryRes()         {}
 func (*NotFoundHeaders) rejectApprovalRequestRes()            {}
+func (*NotFoundHeaders) rejectBankStatementLineProposalRes()  {}
 func (*NotFoundHeaders) rejectPaymentRunRes()                 {}
 func (*NotFoundHeaders) releaseContractRes()                  {}
 func (*NotFoundHeaders) releasePaymentRunRes()                {}
@@ -17997,14 +21595,17 @@ func (*NotFoundHeaders) unlockFiscalPeriodRes()               {}
 func (*NotFoundHeaders) updateChangeRequestRes()              {}
 func (*NotFoundHeaders) updateConnectorRes()                  {}
 func (*NotFoundHeaders) updateContractRes()                   {}
+func (*NotFoundHeaders) updateCostCenterRes()                 {}
 func (*NotFoundHeaders) updateLegalEntityRes()                {}
 func (*NotFoundHeaders) updateOrgUnitRes()                    {}
 func (*NotFoundHeaders) updateParkedJournalEntryRes()         {}
 func (*NotFoundHeaders) updatePrincipalRes()                  {}
+func (*NotFoundHeaders) updateProfitCenterRes()               {}
 func (*NotFoundHeaders) updatePurchaseOrderChangeRes()        {}
 func (*NotFoundHeaders) updatePurchaseOrderRes()              {}
 func (*NotFoundHeaders) updateRequisitionRes()                {}
 func (*NotFoundHeaders) updateRoleRes()                       {}
+func (*NotFoundHeaders) updateSegmentRes()                    {}
 func (*NotFoundHeaders) updateSupplierInvoiceRes()            {}
 func (*NotFoundHeaders) updateWebhookSubscriptionRes()        {}
 func (*NotFoundHeaders) withdrawChangeRequestRes()            {}
@@ -19158,6 +22759,52 @@ func (o OptAnalyticsDerived) Get() (v AnalyticsDerived, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptAnalyticsDerived) Or(d AnalyticsDerived) AnalyticsDerived {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptBankReconciliationFigures returns new OptBankReconciliationFigures with value set to v.
+func NewOptBankReconciliationFigures(v BankReconciliationFigures) OptBankReconciliationFigures {
+	return OptBankReconciliationFigures{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptBankReconciliationFigures is optional BankReconciliationFigures.
+type OptBankReconciliationFigures struct {
+	Value BankReconciliationFigures
+	Set   bool
+}
+
+// IsSet returns true if OptBankReconciliationFigures was set.
+func (o OptBankReconciliationFigures) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptBankReconciliationFigures) Reset() {
+	var v BankReconciliationFigures
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptBankReconciliationFigures) SetTo(v BankReconciliationFigures) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptBankReconciliationFigures) Get() (v BankReconciliationFigures, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptBankReconciliationFigures) Or(d BankReconciliationFigures) BankReconciliationFigures {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -20540,6 +24187,52 @@ func (o OptStatementLinePostInput) Or(d StatementLinePostInput) StatementLinePos
 	return d
 }
 
+// NewOptStatementLineProposalAccept returns new OptStatementLineProposalAccept with value set to v.
+func NewOptStatementLineProposalAccept(v StatementLineProposalAccept) OptStatementLineProposalAccept {
+	return OptStatementLineProposalAccept{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptStatementLineProposalAccept is optional StatementLineProposalAccept.
+type OptStatementLineProposalAccept struct {
+	Value StatementLineProposalAccept
+	Set   bool
+}
+
+// IsSet returns true if OptStatementLineProposalAccept was set.
+func (o OptStatementLineProposalAccept) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptStatementLineProposalAccept) Reset() {
+	var v StatementLineProposalAccept
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptStatementLineProposalAccept) SetTo(v StatementLineProposalAccept) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptStatementLineProposalAccept) Get() (v StatementLineProposalAccept, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptStatementLineProposalAccept) Or(d StatementLineProposalAccept) StatementLineProposalAccept {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptString returns new OptString with value set to v.
 func NewOptString(v string) OptString {
 	return OptString{
@@ -21117,8 +24810,13 @@ type ParkedJournalEntry struct {
 	UpdatedBy OptUUID `json:"updated_by"`
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// Ledger.
+	// The ledger named (`ledger_specific`), the ledger group's representative, or the leading ledger when
+	// it posts to every ledger its company keeps.
 	LedgerID uuid.UUID `json:"ledger_id"`
+	// It posts to `ledger_id` alone.
+	LedgerSpecific OptBool `json:"ledger_specific"`
+	// Code of the ledger group it posts to, if any.
+	LedgerGroup OptString `json:"ledger_group"`
 	// Document type.
 	DocumentType string `json:"document_type"`
 	// Document date.
@@ -21189,6 +24887,16 @@ func (s *ParkedJournalEntry) GetLegalEntityID() uuid.UUID {
 // GetLedgerID returns the value of LedgerID.
 func (s *ParkedJournalEntry) GetLedgerID() uuid.UUID {
 	return s.LedgerID
+}
+
+// GetLedgerSpecific returns the value of LedgerSpecific.
+func (s *ParkedJournalEntry) GetLedgerSpecific() OptBool {
+	return s.LedgerSpecific
+}
+
+// GetLedgerGroup returns the value of LedgerGroup.
+func (s *ParkedJournalEntry) GetLedgerGroup() OptString {
+	return s.LedgerGroup
 }
 
 // GetDocumentType returns the value of DocumentType.
@@ -21294,6 +25002,16 @@ func (s *ParkedJournalEntry) SetLegalEntityID(val uuid.UUID) {
 // SetLedgerID sets the value of LedgerID.
 func (s *ParkedJournalEntry) SetLedgerID(val uuid.UUID) {
 	s.LedgerID = val
+}
+
+// SetLedgerSpecific sets the value of LedgerSpecific.
+func (s *ParkedJournalEntry) SetLedgerSpecific(val OptBool) {
+	s.LedgerSpecific = val
+}
+
+// SetLedgerGroup sets the value of LedgerGroup.
+func (s *ParkedJournalEntry) SetLedgerGroup(val OptString) {
+	s.LedgerGroup = val
 }
 
 // SetDocumentType sets the value of DocumentType.
@@ -23303,10 +27021,12 @@ func (s *PreconditionFailedHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*PreconditionFailedHeaders) acceptBankStatementLineProposalRes()  {}
 func (*PreconditionFailedHeaders) activateChangeRequestRes()            {}
 func (*PreconditionFailedHeaders) activateLegalEntityRes()              {}
 func (*PreconditionFailedHeaders) activateOrgUnitRes()                  {}
 func (*PreconditionFailedHeaders) approveApprovalRequestRes()           {}
+func (*PreconditionFailedHeaders) assignProfitCenterRes()               {}
 func (*PreconditionFailedHeaders) blockBusinessPartnerRes()             {}
 func (*PreconditionFailedHeaders) blockLegalEntityRes()                 {}
 func (*PreconditionFailedHeaders) blockOrgUnitRes()                     {}
@@ -23335,19 +27055,27 @@ func (*PreconditionFailedHeaders) endRolePermissionRes()                {}
 func (*PreconditionFailedHeaders) endSodRuleRes()                       {}
 func (*PreconditionFailedHeaders) excludeBankStatementLineRes()         {}
 func (*PreconditionFailedHeaders) holdSupplierInvoiceRes()              {}
+func (*PreconditionFailedHeaders) lockCostCenterRes()                   {}
 func (*PreconditionFailedHeaders) lockFiscalPeriodRes()                 {}
+func (*PreconditionFailedHeaders) lockProfitCenterRes()                 {}
 func (*PreconditionFailedHeaders) matchBankStatementLineRes()           {}
 func (*PreconditionFailedHeaders) matchBankStatementRes()               {}
 func (*PreconditionFailedHeaders) matchSupplierInvoiceRes()             {}
+func (*PreconditionFailedHeaders) moveCostCenterRes()                   {}
+func (*PreconditionFailedHeaders) moveProfitCenterRes()                 {}
 func (*PreconditionFailedHeaders) openFiscalPeriodRes()                 {}
 func (*PreconditionFailedHeaders) pauseWebhookSubscriptionRes()         {}
 func (*PreconditionFailedHeaders) pingWebhookSubscriptionRes()          {}
 func (*PreconditionFailedHeaders) postBankStatementLineRes()            {}
 func (*PreconditionFailedHeaders) postParkedJournalEntryRes()           {}
 func (*PreconditionFailedHeaders) postSupplierInvoiceRes()              {}
+func (*PreconditionFailedHeaders) proposeBankStatementLineRes()         {}
 func (*PreconditionFailedHeaders) reconcileMigrationRunRes()            {}
+func (*PreconditionFailedHeaders) redateCostCenterRes()                 {}
+func (*PreconditionFailedHeaders) redateProfitCenterRes()               {}
 func (*PreconditionFailedHeaders) redeliverWebhookDeliveryRes()         {}
 func (*PreconditionFailedHeaders) rejectApprovalRequestRes()            {}
+func (*PreconditionFailedHeaders) rejectBankStatementLineProposalRes()  {}
 func (*PreconditionFailedHeaders) rejectPaymentRunRes()                 {}
 func (*PreconditionFailedHeaders) releaseContractRes()                  {}
 func (*PreconditionFailedHeaders) releasePaymentRunRes()                {}
@@ -23377,14 +27105,17 @@ func (*PreconditionFailedHeaders) updateAiPolicyRes()                   {}
 func (*PreconditionFailedHeaders) updateChangeRequestRes()              {}
 func (*PreconditionFailedHeaders) updateConnectorRes()                  {}
 func (*PreconditionFailedHeaders) updateContractRes()                   {}
+func (*PreconditionFailedHeaders) updateCostCenterRes()                 {}
 func (*PreconditionFailedHeaders) updateLegalEntityRes()                {}
 func (*PreconditionFailedHeaders) updateOrgUnitRes()                    {}
 func (*PreconditionFailedHeaders) updateParkedJournalEntryRes()         {}
 func (*PreconditionFailedHeaders) updatePrincipalRes()                  {}
+func (*PreconditionFailedHeaders) updateProfitCenterRes()               {}
 func (*PreconditionFailedHeaders) updatePurchaseOrderChangeRes()        {}
 func (*PreconditionFailedHeaders) updatePurchaseOrderRes()              {}
 func (*PreconditionFailedHeaders) updateRequisitionRes()                {}
 func (*PreconditionFailedHeaders) updateRoleRes()                       {}
+func (*PreconditionFailedHeaders) updateSegmentRes()                    {}
 func (*PreconditionFailedHeaders) updateSupplierInvoiceRes()            {}
 func (*PreconditionFailedHeaders) updateWebhookSubscriptionRes()        {}
 func (*PreconditionFailedHeaders) withdrawChangeRequestRes()            {}
@@ -23437,11 +27168,13 @@ func (s *PreconditionRequiredHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*PreconditionRequiredHeaders) acceptBankStatementLineProposalRes()  {}
 func (*PreconditionRequiredHeaders) activateChangeRequestRes()            {}
 func (*PreconditionRequiredHeaders) activateLegalEntityRes()              {}
 func (*PreconditionRequiredHeaders) activateOrgUnitRes()                  {}
 func (*PreconditionRequiredHeaders) applyCountryPackRes()                 {}
 func (*PreconditionRequiredHeaders) approveApprovalRequestRes()           {}
+func (*PreconditionRequiredHeaders) assignProfitCenterRes()               {}
 func (*PreconditionRequiredHeaders) blockBusinessPartnerRes()             {}
 func (*PreconditionRequiredHeaders) blockLegalEntityRes()                 {}
 func (*PreconditionRequiredHeaders) blockOrgUnitRes()                     {}
@@ -23466,12 +27199,14 @@ func (*PreconditionRequiredHeaders) createClearingRes()                   {}
 func (*PreconditionRequiredHeaders) createCompanyAccessRes()              {}
 func (*PreconditionRequiredHeaders) createConnectorRes()                  {}
 func (*PreconditionRequiredHeaders) createContractRes()                   {}
+func (*PreconditionRequiredHeaders) createCostCenterRes()                 {}
 func (*PreconditionRequiredHeaders) createExchangeRateRes()               {}
 func (*PreconditionRequiredHeaders) createLegalEntityRes()                {}
 func (*PreconditionRequiredHeaders) createMigrationRunRes()               {}
 func (*PreconditionRequiredHeaders) createOrgUnitRes()                    {}
 func (*PreconditionRequiredHeaders) createPartnerChangeRes()              {}
 func (*PreconditionRequiredHeaders) createPrincipalRes()                  {}
+func (*PreconditionRequiredHeaders) createProfitCenterRes()               {}
 func (*PreconditionRequiredHeaders) createPurchaseOrderChangeRes()        {}
 func (*PreconditionRequiredHeaders) createPurchaseOrderRes()              {}
 func (*PreconditionRequiredHeaders) createRecommendationRes()             {}
@@ -23479,6 +27214,7 @@ func (*PreconditionRequiredHeaders) createRegressionSuiteRes()            {}
 func (*PreconditionRequiredHeaders) createRequisitionRes()                {}
 func (*PreconditionRequiredHeaders) createRoleAssignmentRes()             {}
 func (*PreconditionRequiredHeaders) createRoleRes()                       {}
+func (*PreconditionRequiredHeaders) createSegmentRes()                    {}
 func (*PreconditionRequiredHeaders) createSodRuleRes()                    {}
 func (*PreconditionRequiredHeaders) createSupplierInvoiceRes()            {}
 func (*PreconditionRequiredHeaders) createUploadRes()                     {}
@@ -23496,10 +27232,14 @@ func (*PreconditionRequiredHeaders) excludeBankStatementLineRes()         {}
 func (*PreconditionRequiredHeaders) grantRolePermissionRes()              {}
 func (*PreconditionRequiredHeaders) holdSupplierInvoiceRes()              {}
 func (*PreconditionRequiredHeaders) importBankStatementsRes()             {}
+func (*PreconditionRequiredHeaders) lockCostCenterRes()                   {}
 func (*PreconditionRequiredHeaders) lockFiscalPeriodRes()                 {}
+func (*PreconditionRequiredHeaders) lockProfitCenterRes()                 {}
 func (*PreconditionRequiredHeaders) matchBankStatementLineRes()           {}
 func (*PreconditionRequiredHeaders) matchBankStatementRes()               {}
 func (*PreconditionRequiredHeaders) matchSupplierInvoiceRes()             {}
+func (*PreconditionRequiredHeaders) moveCostCenterRes()                   {}
+func (*PreconditionRequiredHeaders) moveProfitCenterRes()                 {}
 func (*PreconditionRequiredHeaders) openFiscalPeriodRes()                 {}
 func (*PreconditionRequiredHeaders) parkJournalEntryRes()                 {}
 func (*PreconditionRequiredHeaders) pauseWebhookSubscriptionRes()         {}
@@ -23511,11 +27251,15 @@ func (*PreconditionRequiredHeaders) postParkedJournalEntryRes()           {}
 func (*PreconditionRequiredHeaders) postRevaluationRunRes()               {}
 func (*PreconditionRequiredHeaders) postSupplierInvoiceRes()              {}
 func (*PreconditionRequiredHeaders) previewRevaluationRes()               {}
+func (*PreconditionRequiredHeaders) proposeBankStatementLineRes()         {}
 func (*PreconditionRequiredHeaders) proposePaymentRunRes()                {}
 func (*PreconditionRequiredHeaders) reconcileMigrationRunRes()            {}
 func (*PreconditionRequiredHeaders) recordAgentToolCallRes()              {}
+func (*PreconditionRequiredHeaders) redateCostCenterRes()                 {}
+func (*PreconditionRequiredHeaders) redateProfitCenterRes()               {}
 func (*PreconditionRequiredHeaders) redeliverWebhookDeliveryRes()         {}
 func (*PreconditionRequiredHeaders) rejectApprovalRequestRes()            {}
+func (*PreconditionRequiredHeaders) rejectBankStatementLineProposalRes()  {}
 func (*PreconditionRequiredHeaders) rejectPaymentRunRes()                 {}
 func (*PreconditionRequiredHeaders) releaseContractRes()                  {}
 func (*PreconditionRequiredHeaders) releasePaymentRunRes()                {}
@@ -23548,14 +27292,17 @@ func (*PreconditionRequiredHeaders) updateAiPolicyRes()                   {}
 func (*PreconditionRequiredHeaders) updateChangeRequestRes()              {}
 func (*PreconditionRequiredHeaders) updateConnectorRes()                  {}
 func (*PreconditionRequiredHeaders) updateContractRes()                   {}
+func (*PreconditionRequiredHeaders) updateCostCenterRes()                 {}
 func (*PreconditionRequiredHeaders) updateLegalEntityRes()                {}
 func (*PreconditionRequiredHeaders) updateOrgUnitRes()                    {}
 func (*PreconditionRequiredHeaders) updateParkedJournalEntryRes()         {}
 func (*PreconditionRequiredHeaders) updatePrincipalRes()                  {}
+func (*PreconditionRequiredHeaders) updateProfitCenterRes()               {}
 func (*PreconditionRequiredHeaders) updatePurchaseOrderChangeRes()        {}
 func (*PreconditionRequiredHeaders) updatePurchaseOrderRes()              {}
 func (*PreconditionRequiredHeaders) updateRequisitionRes()                {}
 func (*PreconditionRequiredHeaders) updateRoleRes()                       {}
+func (*PreconditionRequiredHeaders) updateSegmentRes()                    {}
 func (*PreconditionRequiredHeaders) updateSupplierInvoiceRes()            {}
 func (*PreconditionRequiredHeaders) updateWebhookSubscriptionRes()        {}
 func (*PreconditionRequiredHeaders) verifyAuditChainRes()                 {}
@@ -24147,6 +27894,665 @@ func (s *Problem) SetTraceID(val OptString) {
 func (s *Problem) SetErrors(val []FieldError) {
 	s.Errors = val
 }
+
+// Merged schema.
+// Ref: #/components/schemas/ProfitCenter
+type ProfitCenter struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// Code (SAP KOSTL/PRCTR: up to 10 of 0-9, A-Z, _ and -). Unique: see the create operation. Immutable.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// Description.
+	Description OptString `json:"description"`
+	// Person responsible (SAP VERAK), as a name.
+	Responsible string `json:"responsible"`
+	// Segment lines of the profit center carry; absent: none.
+	SegmentID OptUUID `json:"segment_id"`
+	// `pending` until its create change is approved, then `active`; `rejected` when it is not, which frees
+	// the code. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	Status string `json:"status"`
+	// Legal entities the profit center is assigned to (SAP CEPC_BUKRS).
+	LegalEntityIds []uuid.UUID `json:"legal_entity_ids"`
+	// Start of validity: the first period's start; absent while pending.
+	ValidFrom OptDate `json:"valid_from"`
+	// End of validity (exclusive): the last period's end; absent: open-ended or pending.
+	ValidTo OptDate `json:"valid_to"`
+	// Active periods in date order; none while pending.
+	Periods []ProfitCenterPeriod `json:"periods"`
+	// The center's pending center change; absent when none.
+	PendingChangeID OptUUID `json:"pending_change_id"`
+}
+
+// GetID returns the value of ID.
+func (s *ProfitCenter) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *ProfitCenter) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ProfitCenter) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *ProfitCenter) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *ProfitCenter) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *ProfitCenter) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetCode returns the value of Code.
+func (s *ProfitCenter) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *ProfitCenter) GetName() string {
+	return s.Name
+}
+
+// GetDescription returns the value of Description.
+func (s *ProfitCenter) GetDescription() OptString {
+	return s.Description
+}
+
+// GetResponsible returns the value of Responsible.
+func (s *ProfitCenter) GetResponsible() string {
+	return s.Responsible
+}
+
+// GetSegmentID returns the value of SegmentID.
+func (s *ProfitCenter) GetSegmentID() OptUUID {
+	return s.SegmentID
+}
+
+// GetStatus returns the value of Status.
+func (s *ProfitCenter) GetStatus() string {
+	return s.Status
+}
+
+// GetLegalEntityIds returns the value of LegalEntityIds.
+func (s *ProfitCenter) GetLegalEntityIds() []uuid.UUID {
+	return s.LegalEntityIds
+}
+
+// GetValidFrom returns the value of ValidFrom.
+func (s *ProfitCenter) GetValidFrom() OptDate {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *ProfitCenter) GetValidTo() OptDate {
+	return s.ValidTo
+}
+
+// GetPeriods returns the value of Periods.
+func (s *ProfitCenter) GetPeriods() []ProfitCenterPeriod {
+	return s.Periods
+}
+
+// GetPendingChangeID returns the value of PendingChangeID.
+func (s *ProfitCenter) GetPendingChangeID() OptUUID {
+	return s.PendingChangeID
+}
+
+// SetID sets the value of ID.
+func (s *ProfitCenter) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *ProfitCenter) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ProfitCenter) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *ProfitCenter) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *ProfitCenter) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *ProfitCenter) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetCode sets the value of Code.
+func (s *ProfitCenter) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *ProfitCenter) SetName(val string) {
+	s.Name = val
+}
+
+// SetDescription sets the value of Description.
+func (s *ProfitCenter) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SetResponsible sets the value of Responsible.
+func (s *ProfitCenter) SetResponsible(val string) {
+	s.Responsible = val
+}
+
+// SetSegmentID sets the value of SegmentID.
+func (s *ProfitCenter) SetSegmentID(val OptUUID) {
+	s.SegmentID = val
+}
+
+// SetStatus sets the value of Status.
+func (s *ProfitCenter) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetLegalEntityIds sets the value of LegalEntityIds.
+func (s *ProfitCenter) SetLegalEntityIds(val []uuid.UUID) {
+	s.LegalEntityIds = val
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *ProfitCenter) SetValidFrom(val OptDate) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *ProfitCenter) SetValidTo(val OptDate) {
+	s.ValidTo = val
+}
+
+// SetPeriods sets the value of Periods.
+func (s *ProfitCenter) SetPeriods(val []ProfitCenterPeriod) {
+	s.Periods = val
+}
+
+// SetPendingChangeID sets the value of PendingChangeID.
+func (s *ProfitCenter) SetPendingChangeID(val OptUUID) {
+	s.PendingChangeID = val
+}
+
+// Further legal entities for a profit center.
+// Ref: #/components/schemas/ProfitCenterAssign
+type ProfitCenterAssign struct {
+	// Legal entities to assign.
+	LegalEntityIds []uuid.UUID `json:"legal_entity_ids"`
+	// Why; shown to the approver and recorded in the audit trail.
+	Reason string `json:"reason"`
+}
+
+// GetLegalEntityIds returns the value of LegalEntityIds.
+func (s *ProfitCenterAssign) GetLegalEntityIds() []uuid.UUID {
+	return s.LegalEntityIds
+}
+
+// GetReason returns the value of Reason.
+func (s *ProfitCenterAssign) GetReason() string {
+	return s.Reason
+}
+
+// SetLegalEntityIds sets the value of LegalEntityIds.
+func (s *ProfitCenterAssign) SetLegalEntityIds(val []uuid.UUID) {
+	s.LegalEntityIds = val
+}
+
+// SetReason sets the value of Reason.
+func (s *ProfitCenterAssign) SetReason(val string) {
+	s.Reason = val
+}
+
+// A new profit center, its first period and its companies.
+// Ref: #/components/schemas/ProfitCenterCreate
+type ProfitCenterCreate struct {
+	// Code (SAP KOSTL/PRCTR: up to 10 of 0-9, A-Z, _ and -). Unique: see the create operation. Immutable.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// Description.
+	Description OptString `json:"description"`
+	// Person responsible (SAP VERAK), as a name.
+	Responsible string `json:"responsible"`
+	// Segment.
+	SegmentID OptUUID `json:"segment_id"`
+	// Legal entities it may be posted in.
+	LegalEntityIds []uuid.UUID `json:"legal_entity_ids"`
+	// Start of validity.
+	ValidFrom time.Time `json:"valid_from"`
+	// End of validity (exclusive); absent: open-ended.
+	ValidTo OptDate `json:"valid_to"`
+	// Why; shown to the approver and recorded in the audit trail.
+	Reason string `json:"reason"`
+}
+
+// GetCode returns the value of Code.
+func (s *ProfitCenterCreate) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *ProfitCenterCreate) GetName() string {
+	return s.Name
+}
+
+// GetDescription returns the value of Description.
+func (s *ProfitCenterCreate) GetDescription() OptString {
+	return s.Description
+}
+
+// GetResponsible returns the value of Responsible.
+func (s *ProfitCenterCreate) GetResponsible() string {
+	return s.Responsible
+}
+
+// GetSegmentID returns the value of SegmentID.
+func (s *ProfitCenterCreate) GetSegmentID() OptUUID {
+	return s.SegmentID
+}
+
+// GetLegalEntityIds returns the value of LegalEntityIds.
+func (s *ProfitCenterCreate) GetLegalEntityIds() []uuid.UUID {
+	return s.LegalEntityIds
+}
+
+// GetValidFrom returns the value of ValidFrom.
+func (s *ProfitCenterCreate) GetValidFrom() time.Time {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *ProfitCenterCreate) GetValidTo() OptDate {
+	return s.ValidTo
+}
+
+// GetReason returns the value of Reason.
+func (s *ProfitCenterCreate) GetReason() string {
+	return s.Reason
+}
+
+// SetCode sets the value of Code.
+func (s *ProfitCenterCreate) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *ProfitCenterCreate) SetName(val string) {
+	s.Name = val
+}
+
+// SetDescription sets the value of Description.
+func (s *ProfitCenterCreate) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SetResponsible sets the value of Responsible.
+func (s *ProfitCenterCreate) SetResponsible(val string) {
+	s.Responsible = val
+}
+
+// SetSegmentID sets the value of SegmentID.
+func (s *ProfitCenterCreate) SetSegmentID(val OptUUID) {
+	s.SegmentID = val
+}
+
+// SetLegalEntityIds sets the value of LegalEntityIds.
+func (s *ProfitCenterCreate) SetLegalEntityIds(val []uuid.UUID) {
+	s.LegalEntityIds = val
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *ProfitCenterCreate) SetValidFrom(val time.Time) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *ProfitCenterCreate) SetValidTo(val OptDate) {
+	s.ValidTo = val
+}
+
+// SetReason sets the value of Reason.
+func (s *ProfitCenterCreate) SetReason(val string) {
+	s.Reason = val
+}
+
+// ProfitCenterHeaders wraps ProfitCenter with response headers.
+type ProfitCenterHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           ProfitCenter
+}
+
+// GetETag returns the value of ETag.
+func (s *ProfitCenterHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ProfitCenterHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *ProfitCenterHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *ProfitCenterHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *ProfitCenterHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *ProfitCenterHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *ProfitCenterHeaders) GetResponse() ProfitCenter {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ProfitCenterHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ProfitCenterHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *ProfitCenterHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *ProfitCenterHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *ProfitCenterHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *ProfitCenterHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ProfitCenterHeaders) SetResponse(val ProfitCenter) {
+	s.Response = val
+}
+
+func (*ProfitCenterHeaders) createProfitCenterRes() {}
+
+// The lock of a profit center from a date.
+// Ref: #/components/schemas/ProfitCenterLock
+type ProfitCenterLock struct {
+	// First day the lock applies.
+	ValidFrom time.Time `json:"valid_from"`
+	// Day after the last (exclusive); absent: to the end of validity.
+	ValidTo OptDate `json:"valid_to"`
+	// Lock (true) or unlock (false).
+	Locked bool `json:"locked"`
+	// Why; shown to the approver and recorded in the audit trail.
+	Reason string `json:"reason"`
+}
+
+// GetValidFrom returns the value of ValidFrom.
+func (s *ProfitCenterLock) GetValidFrom() time.Time {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *ProfitCenterLock) GetValidTo() OptDate {
+	return s.ValidTo
+}
+
+// GetLocked returns the value of Locked.
+func (s *ProfitCenterLock) GetLocked() bool {
+	return s.Locked
+}
+
+// GetReason returns the value of Reason.
+func (s *ProfitCenterLock) GetReason() string {
+	return s.Reason
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *ProfitCenterLock) SetValidFrom(val time.Time) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *ProfitCenterLock) SetValidTo(val OptDate) {
+	s.ValidTo = val
+}
+
+// SetLocked sets the value of Locked.
+func (s *ProfitCenterLock) SetLocked(val bool) {
+	s.Locked = val
+}
+
+// SetReason sets the value of Reason.
+func (s *ProfitCenterLock) SetReason(val string) {
+	s.Reason = val
+}
+
+// A profit center's new segment.
+// Ref: #/components/schemas/ProfitCenterMove
+type ProfitCenterMove struct {
+	// New segment; null: none.
+	SegmentID NilUUID `json:"segment_id"`
+	// Why; shown to the approver and recorded in the audit trail.
+	Reason string `json:"reason"`
+}
+
+// GetSegmentID returns the value of SegmentID.
+func (s *ProfitCenterMove) GetSegmentID() NilUUID {
+	return s.SegmentID
+}
+
+// GetReason returns the value of Reason.
+func (s *ProfitCenterMove) GetReason() string {
+	return s.Reason
+}
+
+// SetSegmentID sets the value of SegmentID.
+func (s *ProfitCenterMove) SetSegmentID(val NilUUID) {
+	s.SegmentID = val
+}
+
+// SetReason sets the value of Reason.
+func (s *ProfitCenterMove) SetReason(val string) {
+	s.Reason = val
+}
+
+// One page of profit centers.
+// Ref: #/components/schemas/ProfitCenterPage
+type ProfitCenterPage struct {
+	// The profit centers on this page.
+	Items []ProfitCenter `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *ProfitCenterPage) GetItems() []ProfitCenter {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ProfitCenterPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *ProfitCenterPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *ProfitCenterPage) SetItems(val []ProfitCenter) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ProfitCenterPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *ProfitCenterPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+// ProfitCenterPageHeaders wraps ProfitCenterPage with response headers.
+type ProfitCenterPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           ProfitCenterPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *ProfitCenterPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *ProfitCenterPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *ProfitCenterPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *ProfitCenterPageHeaders) GetResponse() ProfitCenterPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *ProfitCenterPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *ProfitCenterPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *ProfitCenterPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ProfitCenterPageHeaders) SetResponse(val ProfitCenterPage) {
+	s.Response = val
+}
+
+func (*ProfitCenterPageHeaders) listProfitCentersRes() {}
+
+// An effective-dated period of a profit center.
+// Ref: #/components/schemas/ProfitCenterPeriod
+type ProfitCenterPeriod struct {
+	// First day.
+	ValidFrom time.Time `json:"valid_from"`
+	// Day after the last day (exclusive); absent: open-ended.
+	ValidTo OptDate `json:"valid_to"`
+	// Postings to the profit center are refused (from T56d).
+	Locked bool `json:"locked"`
+}
+
+// GetValidFrom returns the value of ValidFrom.
+func (s *ProfitCenterPeriod) GetValidFrom() time.Time {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *ProfitCenterPeriod) GetValidTo() OptDate {
+	return s.ValidTo
+}
+
+// GetLocked returns the value of Locked.
+func (s *ProfitCenterPeriod) GetLocked() bool {
+	return s.Locked
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *ProfitCenterPeriod) SetValidFrom(val time.Time) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *ProfitCenterPeriod) SetValidTo(val OptDate) {
+	s.ValidTo = val
+}
+
+// SetLocked sets the value of Locked.
+func (s *ProfitCenterPeriod) SetLocked(val bool) {
+	s.Locked = val
+}
+
+type ProposeBankStatementLineCreated StatementMatchHeaders
+
+func (*ProposeBankStatementLineCreated) proposeBankStatementLineRes() {}
+
+type ProposeBankStatementLineOK StatementMatchHeaders
+
+func (*ProposeBankStatementLineOK) proposeBankStatementLineRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/PurchaseOrder
@@ -27763,7 +32169,8 @@ func (*RevaluationPreviewHeaders) previewRevaluationRes() {}
 type RevaluationPreviewRequest struct {
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// Ledger (default the leading ledger).
+	// Ledger valued and posted to (default the leading ledger), one the legal entity keeps (422
+	// `ledger.ledger_not_kept`).
 	LedgerID OptUUID `json:"ledger_id"`
 	// Key date: the last day of a posting period.
 	KeyDate time.Time `json:"key_date"`
@@ -29486,6 +33893,364 @@ func (s *RoleUpdate) SetDescription(val OptNilString) {
 	s.Description = val
 }
 
+// Merged schema.
+// Ref: #/components/schemas/Segment
+type Segment struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// Code, unique in the tenant. Immutable.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// Description.
+	Description OptString `json:"description"`
+}
+
+// GetID returns the value of ID.
+func (s *Segment) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *Segment) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *Segment) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *Segment) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *Segment) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *Segment) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetCode returns the value of Code.
+func (s *Segment) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *Segment) GetName() string {
+	return s.Name
+}
+
+// GetDescription returns the value of Description.
+func (s *Segment) GetDescription() OptString {
+	return s.Description
+}
+
+// SetID sets the value of ID.
+func (s *Segment) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *Segment) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *Segment) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *Segment) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *Segment) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *Segment) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetCode sets the value of Code.
+func (s *Segment) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *Segment) SetName(val string) {
+	s.Name = val
+}
+
+// SetDescription sets the value of Description.
+func (s *Segment) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// A new segment.
+// Ref: #/components/schemas/SegmentCreate
+type SegmentCreate struct {
+	// Code, unique in the tenant.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// Description.
+	Description OptString `json:"description"`
+}
+
+// GetCode returns the value of Code.
+func (s *SegmentCreate) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *SegmentCreate) GetName() string {
+	return s.Name
+}
+
+// GetDescription returns the value of Description.
+func (s *SegmentCreate) GetDescription() OptString {
+	return s.Description
+}
+
+// SetCode sets the value of Code.
+func (s *SegmentCreate) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *SegmentCreate) SetName(val string) {
+	s.Name = val
+}
+
+// SetDescription sets the value of Description.
+func (s *SegmentCreate) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SegmentHeaders wraps Segment with response headers.
+type SegmentHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           Segment
+}
+
+// GetETag returns the value of ETag.
+func (s *SegmentHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *SegmentHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *SegmentHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *SegmentHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *SegmentHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *SegmentHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *SegmentHeaders) GetResponse() Segment {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *SegmentHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *SegmentHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *SegmentHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *SegmentHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *SegmentHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *SegmentHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *SegmentHeaders) SetResponse(val Segment) {
+	s.Response = val
+}
+
+func (*SegmentHeaders) createSegmentRes() {}
+
+// One page of segments.
+// Ref: #/components/schemas/SegmentPage
+type SegmentPage struct {
+	// The segments on this page.
+	Items []Segment `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *SegmentPage) GetItems() []Segment {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *SegmentPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *SegmentPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *SegmentPage) SetItems(val []Segment) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *SegmentPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *SegmentPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+// SegmentPageHeaders wraps SegmentPage with response headers.
+type SegmentPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           SegmentPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *SegmentPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *SegmentPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *SegmentPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *SegmentPageHeaders) GetResponse() SegmentPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *SegmentPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *SegmentPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *SegmentPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *SegmentPageHeaders) SetResponse(val SegmentPage) {
+	s.Response = val
+}
+
+func (*SegmentPageHeaders) listSegmentsRes() {}
+
+// Merge patch of a segment.
+// Ref: #/components/schemas/SegmentUpdate
+type SegmentUpdate struct {
+	// Name.
+	Name OptString `json:"name"`
+	// Description. Send null to clear.
+	Description OptNilString `json:"description"`
+}
+
+// GetName returns the value of Name.
+func (s *SegmentUpdate) GetName() OptString {
+	return s.Name
+}
+
+// GetDescription returns the value of Description.
+func (s *SegmentUpdate) GetDescription() OptNilString {
+	return s.Description
+}
+
+// SetName sets the value of Name.
+func (s *SegmentUpdate) SetName(val OptString) {
+	s.Name = val
+}
+
+// SetDescription sets the value of Description.
+func (s *SegmentUpdate) SetDescription(val OptNilString) {
+	s.Description = val
+}
+
 // ServiceUnavailableHeaders wraps Problem with response headers.
 type ServiceUnavailableHeaders struct {
 	RateLimitLimit     OptInt32
@@ -29545,11 +34310,13 @@ func (s *ServiceUnavailableHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*ServiceUnavailableHeaders) acceptBankStatementLineProposalRes()  {}
 func (*ServiceUnavailableHeaders) activateChangeRequestRes()            {}
 func (*ServiceUnavailableHeaders) activateLegalEntityRes()              {}
 func (*ServiceUnavailableHeaders) activateOrgUnitRes()                  {}
 func (*ServiceUnavailableHeaders) applyCountryPackRes()                 {}
 func (*ServiceUnavailableHeaders) approveApprovalRequestRes()           {}
+func (*ServiceUnavailableHeaders) assignProfitCenterRes()               {}
 func (*ServiceUnavailableHeaders) blockBusinessPartnerRes()             {}
 func (*ServiceUnavailableHeaders) blockLegalEntityRes()                 {}
 func (*ServiceUnavailableHeaders) blockOrgUnitRes()                     {}
@@ -29574,6 +34341,7 @@ func (*ServiceUnavailableHeaders) createClearingRes()                   {}
 func (*ServiceUnavailableHeaders) createCompanyAccessRes()              {}
 func (*ServiceUnavailableHeaders) createConnectorRes()                  {}
 func (*ServiceUnavailableHeaders) createContractRes()                   {}
+func (*ServiceUnavailableHeaders) createCostCenterRes()                 {}
 func (*ServiceUnavailableHeaders) createDownPaymentRequestRes()         {}
 func (*ServiceUnavailableHeaders) createExchangeRateRes()               {}
 func (*ServiceUnavailableHeaders) createLegalEntityRes()                {}
@@ -29581,6 +34349,7 @@ func (*ServiceUnavailableHeaders) createMigrationRunRes()               {}
 func (*ServiceUnavailableHeaders) createOrgUnitRes()                    {}
 func (*ServiceUnavailableHeaders) createPartnerChangeRes()              {}
 func (*ServiceUnavailableHeaders) createPrincipalRes()                  {}
+func (*ServiceUnavailableHeaders) createProfitCenterRes()               {}
 func (*ServiceUnavailableHeaders) createPurchaseOrderChangeRes()        {}
 func (*ServiceUnavailableHeaders) createPurchaseOrderRes()              {}
 func (*ServiceUnavailableHeaders) createRecommendationRes()             {}
@@ -29588,6 +34357,7 @@ func (*ServiceUnavailableHeaders) createRegressionSuiteRes()            {}
 func (*ServiceUnavailableHeaders) createRequisitionRes()                {}
 func (*ServiceUnavailableHeaders) createRoleAssignmentRes()             {}
 func (*ServiceUnavailableHeaders) createRoleRes()                       {}
+func (*ServiceUnavailableHeaders) createSegmentRes()                    {}
 func (*ServiceUnavailableHeaders) createSodRuleRes()                    {}
 func (*ServiceUnavailableHeaders) createSupplierInvoiceRes()            {}
 func (*ServiceUnavailableHeaders) createUploadRes()                     {}
@@ -29607,10 +34377,14 @@ func (*ServiceUnavailableHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*ServiceUnavailableHeaders) grantRolePermissionRes()              {}
 func (*ServiceUnavailableHeaders) holdSupplierInvoiceRes()              {}
 func (*ServiceUnavailableHeaders) importBankStatementsRes()             {}
+func (*ServiceUnavailableHeaders) lockCostCenterRes()                   {}
 func (*ServiceUnavailableHeaders) lockFiscalPeriodRes()                 {}
+func (*ServiceUnavailableHeaders) lockProfitCenterRes()                 {}
 func (*ServiceUnavailableHeaders) matchBankStatementLineRes()           {}
 func (*ServiceUnavailableHeaders) matchBankStatementRes()               {}
 func (*ServiceUnavailableHeaders) matchSupplierInvoiceRes()             {}
+func (*ServiceUnavailableHeaders) moveCostCenterRes()                   {}
+func (*ServiceUnavailableHeaders) moveProfitCenterRes()                 {}
 func (*ServiceUnavailableHeaders) openFiscalPeriodRes()                 {}
 func (*ServiceUnavailableHeaders) parkJournalEntryRes()                 {}
 func (*ServiceUnavailableHeaders) pauseWebhookSubscriptionRes()         {}
@@ -29621,11 +34395,15 @@ func (*ServiceUnavailableHeaders) postJournalEntryRes()                 {}
 func (*ServiceUnavailableHeaders) postParkedJournalEntryRes()           {}
 func (*ServiceUnavailableHeaders) postRevaluationRunRes()               {}
 func (*ServiceUnavailableHeaders) postSupplierInvoiceRes()              {}
+func (*ServiceUnavailableHeaders) proposeBankStatementLineRes()         {}
 func (*ServiceUnavailableHeaders) proposePaymentRunRes()                {}
 func (*ServiceUnavailableHeaders) reconcileMigrationRunRes()            {}
 func (*ServiceUnavailableHeaders) recordAgentToolCallRes()              {}
+func (*ServiceUnavailableHeaders) redateCostCenterRes()                 {}
+func (*ServiceUnavailableHeaders) redateProfitCenterRes()               {}
 func (*ServiceUnavailableHeaders) redeliverWebhookDeliveryRes()         {}
 func (*ServiceUnavailableHeaders) rejectApprovalRequestRes()            {}
+func (*ServiceUnavailableHeaders) rejectBankStatementLineProposalRes()  {}
 func (*ServiceUnavailableHeaders) rejectPaymentRunRes()                 {}
 func (*ServiceUnavailableHeaders) releaseContractRes()                  {}
 func (*ServiceUnavailableHeaders) releasePaymentRunRes()                {}
@@ -29658,14 +34436,17 @@ func (*ServiceUnavailableHeaders) updateAiPolicyRes()                   {}
 func (*ServiceUnavailableHeaders) updateChangeRequestRes()              {}
 func (*ServiceUnavailableHeaders) updateConnectorRes()                  {}
 func (*ServiceUnavailableHeaders) updateContractRes()                   {}
+func (*ServiceUnavailableHeaders) updateCostCenterRes()                 {}
 func (*ServiceUnavailableHeaders) updateLegalEntityRes()                {}
 func (*ServiceUnavailableHeaders) updateOrgUnitRes()                    {}
 func (*ServiceUnavailableHeaders) updateParkedJournalEntryRes()         {}
 func (*ServiceUnavailableHeaders) updatePrincipalRes()                  {}
+func (*ServiceUnavailableHeaders) updateProfitCenterRes()               {}
 func (*ServiceUnavailableHeaders) updatePurchaseOrderChangeRes()        {}
 func (*ServiceUnavailableHeaders) updatePurchaseOrderRes()              {}
 func (*ServiceUnavailableHeaders) updateRequisitionRes()                {}
 func (*ServiceUnavailableHeaders) updateRoleRes()                       {}
+func (*ServiceUnavailableHeaders) updateSegmentRes()                    {}
 func (*ServiceUnavailableHeaders) updateSupplierInvoiceRes()            {}
 func (*ServiceUnavailableHeaders) updateWebhookSubscriptionRes()        {}
 func (*ServiceUnavailableHeaders) verifyAuditChainRes()                 {}
@@ -30037,13 +34818,18 @@ func (s *SodRulePageHeaders) SetResponse(val SodRulePage) {
 
 func (*SodRulePageHeaders) listSodRulesRes() {}
 
-// A person's match of a line: the payments it clears or a posting rule, not both, and why.
+// A person's match of a line: the payments it clears, a posting rule, or the house bank's incoming
+// payments clearing account (one of them), and why.
 // Ref: #/components/schemas/StatementLineMatchInput
 type StatementLineMatchInput struct {
 	// The payments the line clears.
 	PaymentIds []uuid.UUID `json:"payment_ids"`
 	// The transaction code of the company's posting rule that posts the line.
 	PostingRule OptString `json:"posting_rule"`
+	// True for an incoming payment (a credit that reverses nothing): it posts to the house bank's incoming
+	// payments clearing account (`incoming_gl_account`), where it stays an open item until accounts
+	// receivable clears it (ADR-0047).
+	Incoming OptBool `json:"incoming"`
 	// Why; recorded in the audit trail and on the resulting event.
 	Reason string `json:"reason"`
 }
@@ -30056,6 +34842,11 @@ func (s *StatementLineMatchInput) GetPaymentIds() []uuid.UUID {
 // GetPostingRule returns the value of PostingRule.
 func (s *StatementLineMatchInput) GetPostingRule() OptString {
 	return s.PostingRule
+}
+
+// GetIncoming returns the value of Incoming.
+func (s *StatementLineMatchInput) GetIncoming() OptBool {
+	return s.Incoming
 }
 
 // GetReason returns the value of Reason.
@@ -30073,6 +34864,11 @@ func (s *StatementLineMatchInput) SetPostingRule(val OptString) {
 	s.PostingRule = val
 }
 
+// SetIncoming sets the value of Incoming.
+func (s *StatementLineMatchInput) SetIncoming(val OptBool) {
+	s.Incoming = val
+}
+
 // SetReason sets the value of Reason.
 func (s *StatementLineMatchInput) SetReason(val string) {
 	s.Reason = val
@@ -30081,7 +34877,8 @@ func (s *StatementLineMatchInput) SetReason(val string) {
 // A person's posting of a matched line: on its booking date, or on another date with the reason.
 // Ref: #/components/schemas/StatementLinePostInput
 type StatementLinePostInput struct {
-	// The date to post on instead of the booking date, in an open period; with `reason`.
+	// The date to post on instead of the booking date, on or after it and in an open period; with
+	// `reason`.
 	PostingDate OptDate `json:"posting_date"`
 	// Why the posting is dated otherwise; recorded in the audit trail. Only with `posting_date`.
 	Reason OptString `json:"reason"`
@@ -30104,6 +34901,90 @@ func (s *StatementLinePostInput) SetPostingDate(val OptDate) {
 
 // SetReason sets the value of Reason.
 func (s *StatementLinePostInput) SetReason(val OptString) {
+	s.Reason = val
+}
+
+// A person's acceptance of the agent's proposal for a line.
+// Ref: #/components/schemas/StatementLineProposalAccept
+type StatementLineProposalAccept struct {
+	// Added to the proposal's reason on the person's match; recorded in the audit trail.
+	Comment OptString `json:"comment"`
+}
+
+// GetComment returns the value of Comment.
+func (s *StatementLineProposalAccept) GetComment() OptString {
+	return s.Comment
+}
+
+// SetComment sets the value of Comment.
+func (s *StatementLineProposalAccept) SetComment(val OptString) {
+	s.Comment = val
+}
+
+// The reconciliation agent's proposal for a line, in its running session: the payments the line
+// clears, a posting rule, or its exclusion (one of the three), and why.
+// Ref: #/components/schemas/StatementLineProposalInput
+type StatementLineProposalInput struct {
+	// The caller's running agent session; a session proposes once per line.
+	SessionID uuid.UUID `json:"session_id"`
+	// The payments the line clears.
+	PaymentIds []uuid.UUID `json:"payment_ids"`
+	// The transaction code of the company's posting rule that posts the line.
+	PostingRule OptString `json:"posting_rule"`
+	// True to propose that the line clears nothing the ledger holds.
+	Exclude OptBool `json:"exclude"`
+	// Why, with the figures that support it; recorded on the proposal, in the audit trail and on the
+	// event, for the person who decides.
+	Reason string `json:"reason"`
+}
+
+// GetSessionID returns the value of SessionID.
+func (s *StatementLineProposalInput) GetSessionID() uuid.UUID {
+	return s.SessionID
+}
+
+// GetPaymentIds returns the value of PaymentIds.
+func (s *StatementLineProposalInput) GetPaymentIds() []uuid.UUID {
+	return s.PaymentIds
+}
+
+// GetPostingRule returns the value of PostingRule.
+func (s *StatementLineProposalInput) GetPostingRule() OptString {
+	return s.PostingRule
+}
+
+// GetExclude returns the value of Exclude.
+func (s *StatementLineProposalInput) GetExclude() OptBool {
+	return s.Exclude
+}
+
+// GetReason returns the value of Reason.
+func (s *StatementLineProposalInput) GetReason() string {
+	return s.Reason
+}
+
+// SetSessionID sets the value of SessionID.
+func (s *StatementLineProposalInput) SetSessionID(val uuid.UUID) {
+	s.SessionID = val
+}
+
+// SetPaymentIds sets the value of PaymentIds.
+func (s *StatementLineProposalInput) SetPaymentIds(val []uuid.UUID) {
+	s.PaymentIds = val
+}
+
+// SetPostingRule sets the value of PostingRule.
+func (s *StatementLineProposalInput) SetPostingRule(val OptString) {
+	s.PostingRule = val
+}
+
+// SetExclude sets the value of Exclude.
+func (s *StatementLineProposalInput) SetExclude(val OptBool) {
+	s.Exclude = val
+}
+
+// SetReason sets the value of Reason.
+func (s *StatementLineProposalInput) SetReason(val string) {
 	s.Reason = val
 }
 
@@ -30134,9 +35015,10 @@ type StatementMatch struct {
 	Rule OptString `json:"rule"`
 	// What the rule found, or the person's reason.
 	Reason string `json:"reason"`
-	// Open: candidates for a person to choose from; matched: the targets decided; excluded: the line
-	// clears nothing; rejected: replaced by a person's decision. Open enumeration: clients must accept and
-	// preserve values not listed here; values may be added within /v1.
+	// Open: candidates for a person to choose from, or an agent's proposal; matched: the targets decided;
+	// excluded: the line clears nothing; rejected: replaced by a person's decision, or an agent's proposal
+	// a person decided (`outcome`). Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
 	Status string `json:"status"`
 	// What it clears: of an open match, each candidate's targets under its number; of a match decided,
 	// candidate 1's; none when excluded.
@@ -30152,6 +35034,15 @@ type StatementMatch struct {
 	JournalEntryID OptUUID `json:"journal_entry_id"`
 	// The fiscal year of the posting.
 	JournalEntryYear OptInt32 `json:"journal_entry_year"`
+	// The agent session that made an agent's proposal (agents context).
+	SessionID OptUUID `json:"session_id"`
+	// What an agent's proposal proposes: `match` (its targets) or `exclude` (none). Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Proposal OptString `json:"proposal"`
+	// What a person did with an agent's proposal, once decided: `accepted` (the person's match by it),
+	// `rejected`, or `overridden` (the person matched or excluded the line otherwise). Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Outcome OptString `json:"outcome"`
 }
 
 // GetID returns the value of ID.
@@ -30244,6 +35135,21 @@ func (s *StatementMatch) GetJournalEntryYear() OptInt32 {
 	return s.JournalEntryYear
 }
 
+// GetSessionID returns the value of SessionID.
+func (s *StatementMatch) GetSessionID() OptUUID {
+	return s.SessionID
+}
+
+// GetProposal returns the value of Proposal.
+func (s *StatementMatch) GetProposal() OptString {
+	return s.Proposal
+}
+
+// GetOutcome returns the value of Outcome.
+func (s *StatementMatch) GetOutcome() OptString {
+	return s.Outcome
+}
+
 // SetID sets the value of ID.
 func (s *StatementMatch) SetID(val uuid.UUID) {
 	s.ID = val
@@ -30334,6 +35240,21 @@ func (s *StatementMatch) SetJournalEntryYear(val OptInt32) {
 	s.JournalEntryYear = val
 }
 
+// SetSessionID sets the value of SessionID.
+func (s *StatementMatch) SetSessionID(val OptUUID) {
+	s.SessionID = val
+}
+
+// SetProposal sets the value of Proposal.
+func (s *StatementMatch) SetProposal(val OptString) {
+	s.Proposal = val
+}
+
+// SetOutcome sets the value of Outcome.
+func (s *StatementMatch) SetOutcome(val OptString) {
+	s.Outcome = val
+}
+
 // StatementMatchHeaders wraps StatementMatch with response headers.
 type StatementMatchHeaders struct {
 	ETag               OptString
@@ -30404,9 +35325,11 @@ func (s *StatementMatchHeaders) SetResponse(val StatementMatch) {
 	s.Response = val
 }
 
-func (*StatementMatchHeaders) excludeBankStatementLineRes() {}
-func (*StatementMatchHeaders) matchBankStatementLineRes()   {}
-func (*StatementMatchHeaders) postBankStatementLineRes()    {}
+func (*StatementMatchHeaders) acceptBankStatementLineProposalRes() {}
+func (*StatementMatchHeaders) excludeBankStatementLineRes()        {}
+func (*StatementMatchHeaders) matchBankStatementLineRes()          {}
+func (*StatementMatchHeaders) postBankStatementLineRes()           {}
+func (*StatementMatchHeaders) rejectBankStatementLineProposalRes() {}
 
 // A bank statement's matches.
 // Ref: #/components/schemas/StatementMatchList
@@ -30474,7 +35397,8 @@ func (s *StatementMatchListHeaders) SetResponse(val StatementMatchList) {
 
 func (*StatementMatchListHeaders) listBankStatementMatchesRes() {}
 
-// A payment, with the bank file of a batch booking, or a posting rule.
+// A payment, with the bank file of a batch booking, a posting rule, or the incoming payments clearing
+// account.
 // Ref: #/components/schemas/StatementMatchTarget
 type StatementMatchTarget struct {
 	// The candidate it belongs to.
@@ -30485,6 +35409,9 @@ type StatementMatchTarget struct {
 	BankFileID OptUUID `json:"bank_file_id"`
 	// The transaction code of the company's posting rule.
 	PostingRule OptString `json:"posting_rule"`
+	// True for an incoming payment, posted to the house bank's incoming payments clearing account; absent
+	// otherwise.
+	Incoming OptBool `json:"incoming"`
 }
 
 // GetCandidate returns the value of Candidate.
@@ -30507,6 +35434,11 @@ func (s *StatementMatchTarget) GetPostingRule() OptString {
 	return s.PostingRule
 }
 
+// GetIncoming returns the value of Incoming.
+func (s *StatementMatchTarget) GetIncoming() OptBool {
+	return s.Incoming
+}
+
 // SetCandidate sets the value of Candidate.
 func (s *StatementMatchTarget) SetCandidate(val int32) {
 	s.Candidate = val
@@ -30525,6 +35457,11 @@ func (s *StatementMatchTarget) SetBankFileID(val OptUUID) {
 // SetPostingRule sets the value of PostingRule.
 func (s *StatementMatchTarget) SetPostingRule(val OptString) {
 	s.PostingRule = val
+}
+
+// SetIncoming sets the value of Incoming.
+func (s *StatementMatchTarget) SetIncoming(val OptBool) {
+	s.Incoming = val
 }
 
 // Company-specific supplier data.
@@ -31795,11 +36732,13 @@ func (s *TooManyRequestsHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*TooManyRequestsHeaders) acceptBankStatementLineProposalRes()  {}
 func (*TooManyRequestsHeaders) activateChangeRequestRes()            {}
 func (*TooManyRequestsHeaders) activateLegalEntityRes()              {}
 func (*TooManyRequestsHeaders) activateOrgUnitRes()                  {}
 func (*TooManyRequestsHeaders) applyCountryPackRes()                 {}
 func (*TooManyRequestsHeaders) approveApprovalRequestRes()           {}
+func (*TooManyRequestsHeaders) assignProfitCenterRes()               {}
 func (*TooManyRequestsHeaders) blockBusinessPartnerRes()             {}
 func (*TooManyRequestsHeaders) blockLegalEntityRes()                 {}
 func (*TooManyRequestsHeaders) blockOrgUnitRes()                     {}
@@ -31824,6 +36763,7 @@ func (*TooManyRequestsHeaders) createClearingRes()                   {}
 func (*TooManyRequestsHeaders) createCompanyAccessRes()              {}
 func (*TooManyRequestsHeaders) createConnectorRes()                  {}
 func (*TooManyRequestsHeaders) createContractRes()                   {}
+func (*TooManyRequestsHeaders) createCostCenterRes()                 {}
 func (*TooManyRequestsHeaders) createDownPaymentRequestRes()         {}
 func (*TooManyRequestsHeaders) createExchangeRateRes()               {}
 func (*TooManyRequestsHeaders) createLegalEntityRes()                {}
@@ -31831,6 +36771,7 @@ func (*TooManyRequestsHeaders) createMigrationRunRes()               {}
 func (*TooManyRequestsHeaders) createOrgUnitRes()                    {}
 func (*TooManyRequestsHeaders) createPartnerChangeRes()              {}
 func (*TooManyRequestsHeaders) createPrincipalRes()                  {}
+func (*TooManyRequestsHeaders) createProfitCenterRes()               {}
 func (*TooManyRequestsHeaders) createPurchaseOrderChangeRes()        {}
 func (*TooManyRequestsHeaders) createPurchaseOrderRes()              {}
 func (*TooManyRequestsHeaders) createRecommendationRes()             {}
@@ -31838,6 +36779,7 @@ func (*TooManyRequestsHeaders) createRegressionSuiteRes()            {}
 func (*TooManyRequestsHeaders) createRequisitionRes()                {}
 func (*TooManyRequestsHeaders) createRoleAssignmentRes()             {}
 func (*TooManyRequestsHeaders) createRoleRes()                       {}
+func (*TooManyRequestsHeaders) createSegmentRes()                    {}
 func (*TooManyRequestsHeaders) createSodRuleRes()                    {}
 func (*TooManyRequestsHeaders) createSupplierInvoiceRes()            {}
 func (*TooManyRequestsHeaders) createUploadRes()                     {}
@@ -31861,15 +36803,19 @@ func (*TooManyRequestsHeaders) getApprovalRequestRes()               {}
 func (*TooManyRequestsHeaders) getBankAccountRes()                   {}
 func (*TooManyRequestsHeaders) getBankFileContentRes()               {}
 func (*TooManyRequestsHeaders) getBankFileRes()                      {}
+func (*TooManyRequestsHeaders) getBankReconciliationRes()            {}
 func (*TooManyRequestsHeaders) getBankStatementFileRes()             {}
 func (*TooManyRequestsHeaders) getBankStatementRes()                 {}
+func (*TooManyRequestsHeaders) getBankStatementRulesRes()            {}
 func (*TooManyRequestsHeaders) getBusinessPartnerRes()               {}
+func (*TooManyRequestsHeaders) getCenterChangeRes()                  {}
 func (*TooManyRequestsHeaders) getChangeRequestRes()                 {}
 func (*TooManyRequestsHeaders) getClearingRes()                      {}
 func (*TooManyRequestsHeaders) getCompanyAccessRes()                 {}
 func (*TooManyRequestsHeaders) getConfigVersionRes()                 {}
 func (*TooManyRequestsHeaders) getConnectorRes()                     {}
 func (*TooManyRequestsHeaders) getContractRes()                      {}
+func (*TooManyRequestsHeaders) getCostCenterRes()                    {}
 func (*TooManyRequestsHeaders) getDownPaymentRequestRes()            {}
 func (*TooManyRequestsHeaders) getExchangeRateRes()                  {}
 func (*TooManyRequestsHeaders) getFiscalPeriodRes()                  {}
@@ -31885,6 +36831,7 @@ func (*TooManyRequestsHeaders) getParkedJournalEntryRes()            {}
 func (*TooManyRequestsHeaders) getPartnerChangeRes()                 {}
 func (*TooManyRequestsHeaders) getPaymentRunRes()                    {}
 func (*TooManyRequestsHeaders) getPrincipalRes()                     {}
+func (*TooManyRequestsHeaders) getProfitCenterRes()                  {}
 func (*TooManyRequestsHeaders) getPurchaseOrderChangeRes()           {}
 func (*TooManyRequestsHeaders) getPurchaseOrderRes()                 {}
 func (*TooManyRequestsHeaders) getRecommendationRes()                {}
@@ -31895,6 +36842,7 @@ func (*TooManyRequestsHeaders) getRoleAssignmentRes()                {}
 func (*TooManyRequestsHeaders) getRolePermissionRes()                {}
 func (*TooManyRequestsHeaders) getRoleRes()                          {}
 func (*TooManyRequestsHeaders) getSchemaRes()                        {}
+func (*TooManyRequestsHeaders) getSegmentRes()                       {}
 func (*TooManyRequestsHeaders) getSodRuleRes()                       {}
 func (*TooManyRequestsHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*TooManyRequestsHeaders) getSupplierInvoiceRes()               {}
@@ -31915,19 +36863,26 @@ func (*TooManyRequestsHeaders) listBankFilesRes()                    {}
 func (*TooManyRequestsHeaders) listBankStatementMatchesRes()         {}
 func (*TooManyRequestsHeaders) listBankStatementsRes()               {}
 func (*TooManyRequestsHeaders) listBusinessPartnersRes()             {}
+func (*TooManyRequestsHeaders) listCenterChangesRes()                {}
 func (*TooManyRequestsHeaders) listChangeRequestsRes()               {}
 func (*TooManyRequestsHeaders) listClearingsRes()                    {}
 func (*TooManyRequestsHeaders) listCompanyAccessRes()                {}
 func (*TooManyRequestsHeaders) listConfigVersionsRes()               {}
 func (*TooManyRequestsHeaders) listConnectorsRes()                   {}
 func (*TooManyRequestsHeaders) listContractsRes()                    {}
+func (*TooManyRequestsHeaders) listCostCentersRes()                  {}
 func (*TooManyRequestsHeaders) listCountryPacksRes()                 {}
 func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()          {}
 func (*TooManyRequestsHeaders) listExchangeRatesRes()                {}
 func (*TooManyRequestsHeaders) listFiscalPeriodsRes()                {}
 func (*TooManyRequestsHeaders) listGoodsReceiptsRes()                {}
 func (*TooManyRequestsHeaders) listGrIrBalancesRes()                 {}
+func (*TooManyRequestsHeaders) listHouseBanksRes()                   {}
 func (*TooManyRequestsHeaders) listJournalEntriesRes()               {}
+func (*TooManyRequestsHeaders) listLedgerGroupsRes()                 {}
+func (*TooManyRequestsHeaders) listLedgerReconciliationEntriesRes()  {}
+func (*TooManyRequestsHeaders) listLedgerReconciliationRes()         {}
+func (*TooManyRequestsHeaders) listLedgersRes()                      {}
 func (*TooManyRequestsHeaders) listLegalEntitiesRes()                {}
 func (*TooManyRequestsHeaders) listMatchResultsRes()                 {}
 func (*TooManyRequestsHeaders) listMigrationRunsRes()                {}
@@ -31941,6 +36896,7 @@ func (*TooManyRequestsHeaders) listPaymentExclusionsRes()            {}
 func (*TooManyRequestsHeaders) listPaymentRunsRes()                  {}
 func (*TooManyRequestsHeaders) listPaymentsRes()                     {}
 func (*TooManyRequestsHeaders) listPrincipalsRes()                   {}
+func (*TooManyRequestsHeaders) listProfitCentersRes()                {}
 func (*TooManyRequestsHeaders) listPurchaseOrderChangesRes()         {}
 func (*TooManyRequestsHeaders) listPurchaseOrdersRes()               {}
 func (*TooManyRequestsHeaders) listRecommendationsRes()              {}
@@ -31950,14 +36906,19 @@ func (*TooManyRequestsHeaders) listRevaluationRunsRes()              {}
 func (*TooManyRequestsHeaders) listRoleAssignmentsRes()              {}
 func (*TooManyRequestsHeaders) listRolePermissionsRes()              {}
 func (*TooManyRequestsHeaders) listRolesRes()                        {}
+func (*TooManyRequestsHeaders) listSegmentsRes()                     {}
 func (*TooManyRequestsHeaders) listSodRulesRes()                     {}
 func (*TooManyRequestsHeaders) listSupplierInvoicesRes()             {}
 func (*TooManyRequestsHeaders) listWebhookDeliveriesRes()            {}
 func (*TooManyRequestsHeaders) listWebhookSubscriptionsRes()         {}
+func (*TooManyRequestsHeaders) lockCostCenterRes()                   {}
 func (*TooManyRequestsHeaders) lockFiscalPeriodRes()                 {}
+func (*TooManyRequestsHeaders) lockProfitCenterRes()                 {}
 func (*TooManyRequestsHeaders) matchBankStatementLineRes()           {}
 func (*TooManyRequestsHeaders) matchBankStatementRes()               {}
 func (*TooManyRequestsHeaders) matchSupplierInvoiceRes()             {}
+func (*TooManyRequestsHeaders) moveCostCenterRes()                   {}
+func (*TooManyRequestsHeaders) moveProfitCenterRes()                 {}
 func (*TooManyRequestsHeaders) openFiscalPeriodRes()                 {}
 func (*TooManyRequestsHeaders) parkJournalEntryRes()                 {}
 func (*TooManyRequestsHeaders) pauseWebhookSubscriptionRes()         {}
@@ -31969,11 +36930,15 @@ func (*TooManyRequestsHeaders) postParkedJournalEntryRes()           {}
 func (*TooManyRequestsHeaders) postRevaluationRunRes()               {}
 func (*TooManyRequestsHeaders) postSupplierInvoiceRes()              {}
 func (*TooManyRequestsHeaders) previewRevaluationRes()               {}
+func (*TooManyRequestsHeaders) proposeBankStatementLineRes()         {}
 func (*TooManyRequestsHeaders) proposePaymentRunRes()                {}
 func (*TooManyRequestsHeaders) reconcileMigrationRunRes()            {}
 func (*TooManyRequestsHeaders) recordAgentToolCallRes()              {}
+func (*TooManyRequestsHeaders) redateCostCenterRes()                 {}
+func (*TooManyRequestsHeaders) redateProfitCenterRes()               {}
 func (*TooManyRequestsHeaders) redeliverWebhookDeliveryRes()         {}
 func (*TooManyRequestsHeaders) rejectApprovalRequestRes()            {}
+func (*TooManyRequestsHeaders) rejectBankStatementLineProposalRes()  {}
 func (*TooManyRequestsHeaders) rejectPaymentRunRes()                 {}
 func (*TooManyRequestsHeaders) releaseContractRes()                  {}
 func (*TooManyRequestsHeaders) releasePaymentRunRes()                {}
@@ -32006,14 +36971,17 @@ func (*TooManyRequestsHeaders) updateAiPolicyRes()                   {}
 func (*TooManyRequestsHeaders) updateChangeRequestRes()              {}
 func (*TooManyRequestsHeaders) updateConnectorRes()                  {}
 func (*TooManyRequestsHeaders) updateContractRes()                   {}
+func (*TooManyRequestsHeaders) updateCostCenterRes()                 {}
 func (*TooManyRequestsHeaders) updateLegalEntityRes()                {}
 func (*TooManyRequestsHeaders) updateOrgUnitRes()                    {}
 func (*TooManyRequestsHeaders) updateParkedJournalEntryRes()         {}
 func (*TooManyRequestsHeaders) updatePrincipalRes()                  {}
+func (*TooManyRequestsHeaders) updateProfitCenterRes()               {}
 func (*TooManyRequestsHeaders) updatePurchaseOrderChangeRes()        {}
 func (*TooManyRequestsHeaders) updatePurchaseOrderRes()              {}
 func (*TooManyRequestsHeaders) updateRequisitionRes()                {}
 func (*TooManyRequestsHeaders) updateRoleRes()                       {}
+func (*TooManyRequestsHeaders) updateSegmentRes()                    {}
 func (*TooManyRequestsHeaders) updateSupplierInvoiceRes()            {}
 func (*TooManyRequestsHeaders) updateWebhookSubscriptionRes()        {}
 func (*TooManyRequestsHeaders) verifyAuditChainRes()                 {}
@@ -32078,11 +37046,13 @@ func (s *UnauthorizedHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*UnauthorizedHeaders) acceptBankStatementLineProposalRes()  {}
 func (*UnauthorizedHeaders) activateChangeRequestRes()            {}
 func (*UnauthorizedHeaders) activateLegalEntityRes()              {}
 func (*UnauthorizedHeaders) activateOrgUnitRes()                  {}
 func (*UnauthorizedHeaders) applyCountryPackRes()                 {}
 func (*UnauthorizedHeaders) approveApprovalRequestRes()           {}
+func (*UnauthorizedHeaders) assignProfitCenterRes()               {}
 func (*UnauthorizedHeaders) blockBusinessPartnerRes()             {}
 func (*UnauthorizedHeaders) blockLegalEntityRes()                 {}
 func (*UnauthorizedHeaders) blockOrgUnitRes()                     {}
@@ -32107,6 +37077,7 @@ func (*UnauthorizedHeaders) createClearingRes()                   {}
 func (*UnauthorizedHeaders) createCompanyAccessRes()              {}
 func (*UnauthorizedHeaders) createConnectorRes()                  {}
 func (*UnauthorizedHeaders) createContractRes()                   {}
+func (*UnauthorizedHeaders) createCostCenterRes()                 {}
 func (*UnauthorizedHeaders) createDownPaymentRequestRes()         {}
 func (*UnauthorizedHeaders) createExchangeRateRes()               {}
 func (*UnauthorizedHeaders) createLegalEntityRes()                {}
@@ -32114,6 +37085,7 @@ func (*UnauthorizedHeaders) createMigrationRunRes()               {}
 func (*UnauthorizedHeaders) createOrgUnitRes()                    {}
 func (*UnauthorizedHeaders) createPartnerChangeRes()              {}
 func (*UnauthorizedHeaders) createPrincipalRes()                  {}
+func (*UnauthorizedHeaders) createProfitCenterRes()               {}
 func (*UnauthorizedHeaders) createPurchaseOrderChangeRes()        {}
 func (*UnauthorizedHeaders) createPurchaseOrderRes()              {}
 func (*UnauthorizedHeaders) createRecommendationRes()             {}
@@ -32121,6 +37093,7 @@ func (*UnauthorizedHeaders) createRegressionSuiteRes()            {}
 func (*UnauthorizedHeaders) createRequisitionRes()                {}
 func (*UnauthorizedHeaders) createRoleAssignmentRes()             {}
 func (*UnauthorizedHeaders) createRoleRes()                       {}
+func (*UnauthorizedHeaders) createSegmentRes()                    {}
 func (*UnauthorizedHeaders) createSodRuleRes()                    {}
 func (*UnauthorizedHeaders) createSupplierInvoiceRes()            {}
 func (*UnauthorizedHeaders) createUploadRes()                     {}
@@ -32144,15 +37117,19 @@ func (*UnauthorizedHeaders) getApprovalRequestRes()               {}
 func (*UnauthorizedHeaders) getBankAccountRes()                   {}
 func (*UnauthorizedHeaders) getBankFileContentRes()               {}
 func (*UnauthorizedHeaders) getBankFileRes()                      {}
+func (*UnauthorizedHeaders) getBankReconciliationRes()            {}
 func (*UnauthorizedHeaders) getBankStatementFileRes()             {}
 func (*UnauthorizedHeaders) getBankStatementRes()                 {}
+func (*UnauthorizedHeaders) getBankStatementRulesRes()            {}
 func (*UnauthorizedHeaders) getBusinessPartnerRes()               {}
+func (*UnauthorizedHeaders) getCenterChangeRes()                  {}
 func (*UnauthorizedHeaders) getChangeRequestRes()                 {}
 func (*UnauthorizedHeaders) getClearingRes()                      {}
 func (*UnauthorizedHeaders) getCompanyAccessRes()                 {}
 func (*UnauthorizedHeaders) getConfigVersionRes()                 {}
 func (*UnauthorizedHeaders) getConnectorRes()                     {}
 func (*UnauthorizedHeaders) getContractRes()                      {}
+func (*UnauthorizedHeaders) getCostCenterRes()                    {}
 func (*UnauthorizedHeaders) getDownPaymentRequestRes()            {}
 func (*UnauthorizedHeaders) getExchangeRateRes()                  {}
 func (*UnauthorizedHeaders) getFiscalPeriodRes()                  {}
@@ -32168,6 +37145,7 @@ func (*UnauthorizedHeaders) getParkedJournalEntryRes()            {}
 func (*UnauthorizedHeaders) getPartnerChangeRes()                 {}
 func (*UnauthorizedHeaders) getPaymentRunRes()                    {}
 func (*UnauthorizedHeaders) getPrincipalRes()                     {}
+func (*UnauthorizedHeaders) getProfitCenterRes()                  {}
 func (*UnauthorizedHeaders) getPurchaseOrderChangeRes()           {}
 func (*UnauthorizedHeaders) getPurchaseOrderRes()                 {}
 func (*UnauthorizedHeaders) getRecommendationRes()                {}
@@ -32178,6 +37156,7 @@ func (*UnauthorizedHeaders) getRoleAssignmentRes()                {}
 func (*UnauthorizedHeaders) getRolePermissionRes()                {}
 func (*UnauthorizedHeaders) getRoleRes()                          {}
 func (*UnauthorizedHeaders) getSchemaRes()                        {}
+func (*UnauthorizedHeaders) getSegmentRes()                       {}
 func (*UnauthorizedHeaders) getSodRuleRes()                       {}
 func (*UnauthorizedHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*UnauthorizedHeaders) getSupplierInvoiceRes()               {}
@@ -32198,19 +37177,26 @@ func (*UnauthorizedHeaders) listBankFilesRes()                    {}
 func (*UnauthorizedHeaders) listBankStatementMatchesRes()         {}
 func (*UnauthorizedHeaders) listBankStatementsRes()               {}
 func (*UnauthorizedHeaders) listBusinessPartnersRes()             {}
+func (*UnauthorizedHeaders) listCenterChangesRes()                {}
 func (*UnauthorizedHeaders) listChangeRequestsRes()               {}
 func (*UnauthorizedHeaders) listClearingsRes()                    {}
 func (*UnauthorizedHeaders) listCompanyAccessRes()                {}
 func (*UnauthorizedHeaders) listConfigVersionsRes()               {}
 func (*UnauthorizedHeaders) listConnectorsRes()                   {}
 func (*UnauthorizedHeaders) listContractsRes()                    {}
+func (*UnauthorizedHeaders) listCostCentersRes()                  {}
 func (*UnauthorizedHeaders) listCountryPacksRes()                 {}
 func (*UnauthorizedHeaders) listDownPaymentRequestsRes()          {}
 func (*UnauthorizedHeaders) listExchangeRatesRes()                {}
 func (*UnauthorizedHeaders) listFiscalPeriodsRes()                {}
 func (*UnauthorizedHeaders) listGoodsReceiptsRes()                {}
 func (*UnauthorizedHeaders) listGrIrBalancesRes()                 {}
+func (*UnauthorizedHeaders) listHouseBanksRes()                   {}
 func (*UnauthorizedHeaders) listJournalEntriesRes()               {}
+func (*UnauthorizedHeaders) listLedgerGroupsRes()                 {}
+func (*UnauthorizedHeaders) listLedgerReconciliationEntriesRes()  {}
+func (*UnauthorizedHeaders) listLedgerReconciliationRes()         {}
+func (*UnauthorizedHeaders) listLedgersRes()                      {}
 func (*UnauthorizedHeaders) listLegalEntitiesRes()                {}
 func (*UnauthorizedHeaders) listMatchResultsRes()                 {}
 func (*UnauthorizedHeaders) listMigrationRunsRes()                {}
@@ -32224,6 +37210,7 @@ func (*UnauthorizedHeaders) listPaymentExclusionsRes()            {}
 func (*UnauthorizedHeaders) listPaymentRunsRes()                  {}
 func (*UnauthorizedHeaders) listPaymentsRes()                     {}
 func (*UnauthorizedHeaders) listPrincipalsRes()                   {}
+func (*UnauthorizedHeaders) listProfitCentersRes()                {}
 func (*UnauthorizedHeaders) listPurchaseOrderChangesRes()         {}
 func (*UnauthorizedHeaders) listPurchaseOrdersRes()               {}
 func (*UnauthorizedHeaders) listRecommendationsRes()              {}
@@ -32233,14 +37220,19 @@ func (*UnauthorizedHeaders) listRevaluationRunsRes()              {}
 func (*UnauthorizedHeaders) listRoleAssignmentsRes()              {}
 func (*UnauthorizedHeaders) listRolePermissionsRes()              {}
 func (*UnauthorizedHeaders) listRolesRes()                        {}
+func (*UnauthorizedHeaders) listSegmentsRes()                     {}
 func (*UnauthorizedHeaders) listSodRulesRes()                     {}
 func (*UnauthorizedHeaders) listSupplierInvoicesRes()             {}
 func (*UnauthorizedHeaders) listWebhookDeliveriesRes()            {}
 func (*UnauthorizedHeaders) listWebhookSubscriptionsRes()         {}
+func (*UnauthorizedHeaders) lockCostCenterRes()                   {}
 func (*UnauthorizedHeaders) lockFiscalPeriodRes()                 {}
+func (*UnauthorizedHeaders) lockProfitCenterRes()                 {}
 func (*UnauthorizedHeaders) matchBankStatementLineRes()           {}
 func (*UnauthorizedHeaders) matchBankStatementRes()               {}
 func (*UnauthorizedHeaders) matchSupplierInvoiceRes()             {}
+func (*UnauthorizedHeaders) moveCostCenterRes()                   {}
+func (*UnauthorizedHeaders) moveProfitCenterRes()                 {}
 func (*UnauthorizedHeaders) openFiscalPeriodRes()                 {}
 func (*UnauthorizedHeaders) parkJournalEntryRes()                 {}
 func (*UnauthorizedHeaders) pauseWebhookSubscriptionRes()         {}
@@ -32252,11 +37244,15 @@ func (*UnauthorizedHeaders) postParkedJournalEntryRes()           {}
 func (*UnauthorizedHeaders) postRevaluationRunRes()               {}
 func (*UnauthorizedHeaders) postSupplierInvoiceRes()              {}
 func (*UnauthorizedHeaders) previewRevaluationRes()               {}
+func (*UnauthorizedHeaders) proposeBankStatementLineRes()         {}
 func (*UnauthorizedHeaders) proposePaymentRunRes()                {}
 func (*UnauthorizedHeaders) reconcileMigrationRunRes()            {}
 func (*UnauthorizedHeaders) recordAgentToolCallRes()              {}
+func (*UnauthorizedHeaders) redateCostCenterRes()                 {}
+func (*UnauthorizedHeaders) redateProfitCenterRes()               {}
 func (*UnauthorizedHeaders) redeliverWebhookDeliveryRes()         {}
 func (*UnauthorizedHeaders) rejectApprovalRequestRes()            {}
+func (*UnauthorizedHeaders) rejectBankStatementLineProposalRes()  {}
 func (*UnauthorizedHeaders) rejectPaymentRunRes()                 {}
 func (*UnauthorizedHeaders) releaseContractRes()                  {}
 func (*UnauthorizedHeaders) releasePaymentRunRes()                {}
@@ -32289,14 +37285,17 @@ func (*UnauthorizedHeaders) updateAiPolicyRes()                   {}
 func (*UnauthorizedHeaders) updateChangeRequestRes()              {}
 func (*UnauthorizedHeaders) updateConnectorRes()                  {}
 func (*UnauthorizedHeaders) updateContractRes()                   {}
+func (*UnauthorizedHeaders) updateCostCenterRes()                 {}
 func (*UnauthorizedHeaders) updateLegalEntityRes()                {}
 func (*UnauthorizedHeaders) updateOrgUnitRes()                    {}
 func (*UnauthorizedHeaders) updateParkedJournalEntryRes()         {}
 func (*UnauthorizedHeaders) updatePrincipalRes()                  {}
+func (*UnauthorizedHeaders) updateProfitCenterRes()               {}
 func (*UnauthorizedHeaders) updatePurchaseOrderChangeRes()        {}
 func (*UnauthorizedHeaders) updatePurchaseOrderRes()              {}
 func (*UnauthorizedHeaders) updateRequisitionRes()                {}
 func (*UnauthorizedHeaders) updateRoleRes()                       {}
+func (*UnauthorizedHeaders) updateSegmentRes()                    {}
 func (*UnauthorizedHeaders) updateSupplierInvoiceRes()            {}
 func (*UnauthorizedHeaders) updateWebhookSubscriptionRes()        {}
 func (*UnauthorizedHeaders) verifyAuditChainRes()                 {}
@@ -32350,11 +37349,13 @@ func (s *UnprocessableHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*UnprocessableHeaders) acceptBankStatementLineProposalRes()  {}
 func (*UnprocessableHeaders) activateChangeRequestRes()            {}
 func (*UnprocessableHeaders) activateLegalEntityRes()              {}
 func (*UnprocessableHeaders) activateOrgUnitRes()                  {}
 func (*UnprocessableHeaders) applyCountryPackRes()                 {}
 func (*UnprocessableHeaders) approveApprovalRequestRes()           {}
+func (*UnprocessableHeaders) assignProfitCenterRes()               {}
 func (*UnprocessableHeaders) blockBusinessPartnerRes()             {}
 func (*UnprocessableHeaders) blockLegalEntityRes()                 {}
 func (*UnprocessableHeaders) blockOrgUnitRes()                     {}
@@ -32379,6 +37380,7 @@ func (*UnprocessableHeaders) createClearingRes()                   {}
 func (*UnprocessableHeaders) createCompanyAccessRes()              {}
 func (*UnprocessableHeaders) createConnectorRes()                  {}
 func (*UnprocessableHeaders) createContractRes()                   {}
+func (*UnprocessableHeaders) createCostCenterRes()                 {}
 func (*UnprocessableHeaders) createDownPaymentRequestRes()         {}
 func (*UnprocessableHeaders) createExchangeRateRes()               {}
 func (*UnprocessableHeaders) createLegalEntityRes()                {}
@@ -32386,6 +37388,7 @@ func (*UnprocessableHeaders) createMigrationRunRes()               {}
 func (*UnprocessableHeaders) createOrgUnitRes()                    {}
 func (*UnprocessableHeaders) createPartnerChangeRes()              {}
 func (*UnprocessableHeaders) createPrincipalRes()                  {}
+func (*UnprocessableHeaders) createProfitCenterRes()               {}
 func (*UnprocessableHeaders) createPurchaseOrderChangeRes()        {}
 func (*UnprocessableHeaders) createPurchaseOrderRes()              {}
 func (*UnprocessableHeaders) createRecommendationRes()             {}
@@ -32393,6 +37396,7 @@ func (*UnprocessableHeaders) createRegressionSuiteRes()            {}
 func (*UnprocessableHeaders) createRequisitionRes()                {}
 func (*UnprocessableHeaders) createRoleAssignmentRes()             {}
 func (*UnprocessableHeaders) createRoleRes()                       {}
+func (*UnprocessableHeaders) createSegmentRes()                    {}
 func (*UnprocessableHeaders) createSodRuleRes()                    {}
 func (*UnprocessableHeaders) createSupplierInvoiceRes()            {}
 func (*UnprocessableHeaders) createUploadRes()                     {}
@@ -32408,13 +37412,18 @@ func (*UnprocessableHeaders) endRolePermissionRes()                {}
 func (*UnprocessableHeaders) endSodRuleRes()                       {}
 func (*UnprocessableHeaders) excludeBankStatementLineRes()         {}
 func (*UnprocessableHeaders) getAnalyticsModelRes()                {}
+func (*UnprocessableHeaders) getBankReconciliationRes()            {}
 func (*UnprocessableHeaders) grantRolePermissionRes()              {}
 func (*UnprocessableHeaders) holdSupplierInvoiceRes()              {}
 func (*UnprocessableHeaders) importBankStatementsRes()             {}
+func (*UnprocessableHeaders) lockCostCenterRes()                   {}
 func (*UnprocessableHeaders) lockFiscalPeriodRes()                 {}
+func (*UnprocessableHeaders) lockProfitCenterRes()                 {}
 func (*UnprocessableHeaders) matchBankStatementLineRes()           {}
 func (*UnprocessableHeaders) matchBankStatementRes()               {}
 func (*UnprocessableHeaders) matchSupplierInvoiceRes()             {}
+func (*UnprocessableHeaders) moveCostCenterRes()                   {}
+func (*UnprocessableHeaders) moveProfitCenterRes()                 {}
 func (*UnprocessableHeaders) openFiscalPeriodRes()                 {}
 func (*UnprocessableHeaders) parkJournalEntryRes()                 {}
 func (*UnprocessableHeaders) pauseWebhookSubscriptionRes()         {}
@@ -32426,11 +37435,15 @@ func (*UnprocessableHeaders) postParkedJournalEntryRes()           {}
 func (*UnprocessableHeaders) postRevaluationRunRes()               {}
 func (*UnprocessableHeaders) postSupplierInvoiceRes()              {}
 func (*UnprocessableHeaders) previewRevaluationRes()               {}
+func (*UnprocessableHeaders) proposeBankStatementLineRes()         {}
 func (*UnprocessableHeaders) proposePaymentRunRes()                {}
 func (*UnprocessableHeaders) reconcileMigrationRunRes()            {}
 func (*UnprocessableHeaders) recordAgentToolCallRes()              {}
+func (*UnprocessableHeaders) redateCostCenterRes()                 {}
+func (*UnprocessableHeaders) redateProfitCenterRes()               {}
 func (*UnprocessableHeaders) redeliverWebhookDeliveryRes()         {}
 func (*UnprocessableHeaders) rejectApprovalRequestRes()            {}
+func (*UnprocessableHeaders) rejectBankStatementLineProposalRes()  {}
 func (*UnprocessableHeaders) rejectPaymentRunRes()                 {}
 func (*UnprocessableHeaders) releaseContractRes()                  {}
 func (*UnprocessableHeaders) releasePaymentRunRes()                {}
@@ -32463,14 +37476,17 @@ func (*UnprocessableHeaders) updateAiPolicyRes()                   {}
 func (*UnprocessableHeaders) updateChangeRequestRes()              {}
 func (*UnprocessableHeaders) updateConnectorRes()                  {}
 func (*UnprocessableHeaders) updateContractRes()                   {}
+func (*UnprocessableHeaders) updateCostCenterRes()                 {}
 func (*UnprocessableHeaders) updateLegalEntityRes()                {}
 func (*UnprocessableHeaders) updateOrgUnitRes()                    {}
 func (*UnprocessableHeaders) updateParkedJournalEntryRes()         {}
 func (*UnprocessableHeaders) updatePrincipalRes()                  {}
+func (*UnprocessableHeaders) updateProfitCenterRes()               {}
 func (*UnprocessableHeaders) updatePurchaseOrderChangeRes()        {}
 func (*UnprocessableHeaders) updatePurchaseOrderRes()              {}
 func (*UnprocessableHeaders) updateRequisitionRes()                {}
 func (*UnprocessableHeaders) updateRoleRes()                       {}
+func (*UnprocessableHeaders) updateSegmentRes()                    {}
 func (*UnprocessableHeaders) updateSupplierInvoiceRes()            {}
 func (*UnprocessableHeaders) updateWebhookSubscriptionRes()        {}
 func (*UnprocessableHeaders) verifyAuditChainRes()                 {}
@@ -32772,6 +37788,78 @@ func (*UpdateContractOKHeaders) releaseContractRes()   {}
 func (*UpdateContractOKHeaders) terminateContractRes() {}
 func (*UpdateContractOKHeaders) updateContractRes()    {}
 
+// UpdateCostCenterOKHeaders wraps CostCenter with response headers.
+type UpdateCostCenterOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           CostCenter
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateCostCenterOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateCostCenterOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *UpdateCostCenterOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *UpdateCostCenterOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *UpdateCostCenterOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateCostCenterOKHeaders) GetResponse() CostCenter {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateCostCenterOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateCostCenterOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *UpdateCostCenterOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *UpdateCostCenterOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *UpdateCostCenterOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateCostCenterOKHeaders) SetResponse(val CostCenter) {
+	s.Response = val
+}
+
+func (*UpdateCostCenterOKHeaders) updateCostCenterRes() {}
+
 // UpdateLegalEntityOKHeaders wraps LegalEntity with response headers.
 type UpdateLegalEntityOKHeaders struct {
 	ETag               OptString
@@ -33069,6 +38157,78 @@ func (s *UpdatePrincipalOKHeaders) SetResponse(val Principal) {
 func (*UpdatePrincipalOKHeaders) blockPrincipalRes()  {}
 func (*UpdatePrincipalOKHeaders) updatePrincipalRes() {}
 
+// UpdateProfitCenterOKHeaders wraps ProfitCenter with response headers.
+type UpdateProfitCenterOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           ProfitCenter
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateProfitCenterOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateProfitCenterOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *UpdateProfitCenterOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *UpdateProfitCenterOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *UpdateProfitCenterOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateProfitCenterOKHeaders) GetResponse() ProfitCenter {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateProfitCenterOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateProfitCenterOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *UpdateProfitCenterOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *UpdateProfitCenterOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *UpdateProfitCenterOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateProfitCenterOKHeaders) SetResponse(val ProfitCenter) {
+	s.Response = val
+}
+
+func (*UpdateProfitCenterOKHeaders) updateProfitCenterRes() {}
+
 // UpdatePurchaseOrderChangeOKHeaders wraps PurchaseOrderChange with response headers.
 type UpdatePurchaseOrderChangeOKHeaders struct {
 	ETag               OptString
@@ -33363,6 +38523,78 @@ func (s *UpdateRoleOKHeaders) SetResponse(val Role) {
 }
 
 func (*UpdateRoleOKHeaders) updateRoleRes() {}
+
+// UpdateSegmentOKHeaders wraps Segment with response headers.
+type UpdateSegmentOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           Segment
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateSegmentOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateSegmentOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *UpdateSegmentOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *UpdateSegmentOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *UpdateSegmentOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateSegmentOKHeaders) GetResponse() Segment {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateSegmentOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateSegmentOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *UpdateSegmentOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *UpdateSegmentOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *UpdateSegmentOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateSegmentOKHeaders) SetResponse(val Segment) {
+	s.Response = val
+}
+
+func (*UpdateSegmentOKHeaders) updateSegmentRes() {}
 
 // UpdateSupplierInvoiceOKHeaders wraps SupplierInvoice with response headers.
 type UpdateSupplierInvoiceOKHeaders struct {

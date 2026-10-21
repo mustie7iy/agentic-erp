@@ -27,7 +27,10 @@
 //
 // Bank statements (ADR-0047) are imported from the bank's camt.053 or MT940
 // file per house bank, once per file and statement, each compared with the
-// bank's statement before it (statements.go).
+// bank's statement before it (statements.go); their lines are matched by
+// the company's rules (matching.go), decided by people (matches.go),
+// proposed for people by the reconciliation agent (proposals.go) and
+// posted (posting.go).
 package payments
 
 import (
@@ -165,6 +168,7 @@ type Endpoints struct {
 	Accounts      Accounts            // the cash discount account a run with discounts posts to
 	DownPayments  DownPayments        // the down payment requests runs pay (T46c)
 	Approvals     Approvals           // the approval of statement lines' postings (T49f)
+	Sessions      Sessions            // the agent sessions proposals are made in (T49g)
 	Now           func() time.Time    // the release's day; nil: time.Now
 }
 
@@ -196,6 +200,8 @@ type Accounts interface {
 	Determination(ctx context.Context, legalEntity uuid.UUID, key string) (uuid.UUID, bool, error)
 	TaxCode(ctx context.Context, legalEntity uuid.UUID, code string, date time.Time) (ledger.TaxCode, bool, error)
 	Chart(ctx context.Context, legalEntity uuid.UUID) (map[string]ledger.ChartAccount, error) // a posting rule's account (T49f)
+	// Balances are the main bank account's on statements' closing dates (T49h).
+	Balances(ctx context.Context, legalEntity, account uuid.UUID, dates []time.Time) ([]money.Minor, error)
 }
 
 // Run is a row of payments.payment_run. Amounts are minor units of

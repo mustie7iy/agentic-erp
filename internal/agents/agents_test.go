@@ -208,6 +208,7 @@ func TestDatabaseFailures(t *testing.T) {
 				ResultSummary: gen.NewOptString("ok")}, gen.RecordAgentToolCallParams{ID: session})
 			return err
 		},
+		"running": func(ctx context.Context) error { return agents.Sessions{}.Running(ctx, session) },
 		"recommend": func(ctx context.Context) error {
 			_, err := h.CreateRecommendation(ctx, &gen.RecommendationCreate{SessionID: session, ObjectType: "x", ObjectID: uuid.New(), Kind: "y", Content: "z"},
 				gen.CreateRecommendationParams{})

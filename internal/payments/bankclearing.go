@@ -80,6 +80,9 @@ func (b BankClearings) Approved(ctx context.Context, match, request uuid.UUID) e
 	if err := postMatch(ctx, tx, p, b.Endpoints.Postings, w.s, w.l, in, why, &request); err != nil {
 		return err
 	}
+	if err := b.Endpoints.reconcile(ctx, tx, p, w.s); err != nil {
+		return err
+	}
 	_, err = bumpStatement(ctx, tx, p, w.s.ID)
 	return err
 }

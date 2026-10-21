@@ -22,7 +22,7 @@ info:
     - **Resource kinds.** Mutable resources carry `id`, `version` (= ETag), `created_*` and `updated_*`. Insert-only resources (journal entries, goods receipts, clearings, match results, decisions, audit events) carry `id`, `created_at`, `created_by`; corrections are new documents (`:reverse`). Effective-dated grants (role assignments, role permissions, company access, SoD rules, bank accounts) add `valid_from`, `valid_to`, `ended_at`, `ended_by`: they are never updated otherwise and never deleted, only ended (`:end`). Resources without a version have an ETag derived from their representation, so `If-Match` still guards their custom methods.
     - **Long-running work** returns 202 with an `Operation` (ADR-0012).
     - **Approvals.** Approval decisions are made only on approval requests (`:approve`, `:reject`), which require `workflow.request.decide` plus the approval permission of the object type, listed per operation in `x-object-permissions` (object type to permission code). Payment runs are released directly (`payment-runs/{id}:release`) by a person other than the proposer.
-    - **Agents** call the same operations. Operations marked `x-agent: false` (approval decisions, identity administration) are never exposed as agent tools and refuse agent tokens. An agent acts within its autonomy level (`agent_profile.autonomy_level`, ADR-0036): level 0 only reads; level 1 also performs the operations marked `x-autonomy: propose`, which only propose (its sessions, tool-call records and recommendations, change requests, drafts, down payment requests); level 2 performs any write its permissions allow. Operations marked `x-autonomy: read` change no business data though they are not GET (a long-running verification), and every level performs them. Above its level an agent is refused with 403 `identity.autonomy_insufficient`. While the tenant's AI is off (`getAiPolicy`: switched off by its administrators or suspended by the platform's operators), every agent request is refused with 403 `agents.ai_disabled`.
+    - **Agents** call the same operations. Operations marked `x-agent: false` (approval decisions, identity administration) are never exposed as agent tools and refuse agent tokens. An agent acts within its autonomy level (`agent_profile.autonomy_level`, ADR-0036): level 0 only reads; level 1 also performs the operations marked `x-autonomy: propose`, which only propose (its sessions, tool-call records and recommendations, change requests, drafts, down payment requests, bank statement line proposals); level 2 performs any write its permissions allow. Operations marked `x-autonomy: read` change no business data though they are not GET (a long-running verification), and every level performs them. Above its level an agent is refused with 403 `identity.autonomy_insufficient`. While the tenant's AI is off (`getAiPolicy`: switched off by its administrators or suspended by the platform's operators), every agent request is refused with 403 `agents.ai_disabled`.
     - **Rate limits.** Every response carries `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`; 429 adds `Retry-After`.
     - **Latency classes.** Each operation's latency objective (01-requirements §1.3) is that of its class: `read` (a GET of one resource), `list` (any other GET), `write` (any other method), unless `x-slo-class` names `approval` or `report` (ADR-0043).
   contact:
@@ -3589,6 +3589,1190 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/ledgers:
+    get:
+      operationId: listLedgers
+      tags:
+        - ledger
+      summary: List ledgers
+      description: "The leading ledger 0L and the parallel ledgers kept under other accounting principles, with the legal entities that keep each (ADR-0045). Ledgers come from the configuration (`ledgers`, `companies[].ledgers`) and change only through its approval loop. Sortable by: `code`."
+      x-permission: ledger.account.read
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: false
+          description: Only the ledgers this legal entity keeps.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of ledger results.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LedgerPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/ledger-groups:
+    get:
+      operationId: listLedgerGroups
+      tags:
+        - ledger
+      summary: List ledger groups
+      description: "Ledger groups name the ledgers a posting goes to together; the representative ledger decides the posting period (ADR-0045). Groups come from the configuration (`ledger_groups`) and change only through its approval loop. Sortable by: `code`."
+      x-permission: ledger.account.read
+      parameters:
+        - name: ledger_id
+          in: query
+          required: false
+          description: Only the groups with this ledger.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of ledger group results.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LedgerGroupPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/cost-centers:
+    get:
+      operationId: listCostCenters
+      tags:
+        - ledger
+      summary: List cost centers
+      description: "Cost centers of the legal entities the caller may act in, with their active periods. Sortable by: `code`."
+      x-permission: ledger.cost_center.read
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: code
+          in: query
+          required: false
+          description: Only the cost center with this code.
+          schema:
+            type: string
+            pattern: "^[0-9A-Z_-]{1,10}$"
+        - name: status
+          in: query
+          required: false
+          description: Only cost centers in this status.
+          schema:
+            type: string
+            description: "Cost center status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - pending
+              - active
+              - rejected
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of cost center results.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostCenterPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createCostCenter
+      tags:
+        - ledger
+      summary: Request a new cost center
+      description: "Creates the cost center in status `pending` together with its center change of kind `create` and that change's `center_change` approval request; it becomes `active`, with its first period, when a controller approves (ADR-0050 §11). A code is unique per legal entity among centers not rejected (409 `ledger.cost_center_exists`). The profit center, if given, must be active, assigned to the legal entity and valid over the whole validity (422 `ledger.profit_center_invalid`)."
+      x-permission: ledger.cost_center.change
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The cost center create request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CostCenterCreate"
+      responses:
+        "201":
+          description: "Created; the new cost center."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostCenter"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/cost-centers/{id}":
+    get:
+      operationId: getCostCenter
+      tags:
+        - ledger
+      summary: Get a cost center
+      description: "Returns one cost center with its active periods."
+      x-permission: ledger.cost_center.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The cost center.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostCenter"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateCostCenter
+      tags:
+        - ledger
+      summary: Update the texts of a cost center
+      description: "Changes name, description or person responsible at once: texts need no approval (ADR-0050 §11, decision P1) and are recorded in the audit trail. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears the description."
+      x-permission: ledger.cost_center.change
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the cost center.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/CenterTextsUpdate"
+      responses:
+        "200":
+          description: "Updated; the cost center after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostCenter"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/cost-centers/{id}:redate":
+    post:
+      operationId: redateCostCenter
+      tags:
+        - ledger
+      summary: Request a new validity of a cost center
+      description: "Extends or ends the cost center's validity: the first period starts at `valid_from`, the last ends at `valid_to` (exclusive; `null` open-ended). Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied when the request is approved. One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`)."
+      x-permission: ledger.cost_center.change
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of redateCostCenter.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CenterRedate"
+      responses:
+        "200":
+          description: The pending center change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/cost-centers/{id}:lock":
+    post:
+      operationId: lockCostCenter
+      tags:
+        - ledger
+      summary: Request to lock or unlock a cost center
+      description: "Sets or clears the cost center's locks for actual primary costs, actual revenue and plan from `valid_from` to `valid_to` (exclusive; absent: to the end of its validity), within its validity (422 `ledger.invalid_validity`). Locking and unlocking are people's decisions: agents may not request them. Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied when the request is approved. One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`)."
+      x-permission: ledger.cost_center.change
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of lockCostCenter.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CostCenterLock"
+      responses:
+        "200":
+          description: The pending center change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/cost-centers/{id}:move":
+    post:
+      operationId: moveCostCenter
+      tags:
+        - ledger
+      summary: Request to move a cost center
+      description: "Assigns the cost center to another profit center (`null`: none, so its lines take the company's default) or category from `valid_from` to the end of its validity, as a new period (ADR-0050 §3). The profit center must be active, assigned to the cost center's legal entity and valid from `valid_from` to the end of the cost center's validity (422 `ledger.profit_center_invalid`). Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied when the request is approved. One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`)."
+      x-permission: ledger.cost_center.change
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of moveCostCenter.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CostCenterMove"
+      responses:
+        "200":
+          description: The pending center change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/profit-centers:
+    get:
+      operationId: listProfitCenters
+      tags:
+        - ledger
+      summary: List profit centers
+      description: "Profit centers of the tenant with their companies and active periods. Sortable by: `code`."
+      x-permission: ledger.cost_center.read
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: false
+          description: Only profit centers assigned to this legal entity.
+          schema:
+            type: string
+            format: uuid
+        - name: segment_id
+          in: query
+          required: false
+          description: Only profit centers of this segment.
+          schema:
+            type: string
+            format: uuid
+        - name: code
+          in: query
+          required: false
+          description: Only the profit center with this code.
+          schema:
+            type: string
+            pattern: "^[0-9A-Z_-]{1,10}$"
+        - name: status
+          in: query
+          required: false
+          description: Only profit centers in this status.
+          schema:
+            type: string
+            description: "Profit center status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - pending
+              - active
+              - rejected
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of profit center results.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfitCenterPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createProfitCenter
+      tags:
+        - ledger
+      summary: Request a new profit center
+      description: "Creates the profit center in status `pending` together with its center change of kind `create` and that change's `center_change` approval request; it becomes `active`, with its first period and its companies, when a controller approves (ADR-0050 §11). A code is unique in the tenant among centers not rejected (409 `ledger.profit_center_exists`). The caller must be allowed to act in every company named."
+      x-permission: ledger.cost_center.change
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The profit center create request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfitCenterCreate"
+      responses:
+        "201":
+          description: "Created; the new profit center."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfitCenter"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/profit-centers/{id}":
+    get:
+      operationId: getProfitCenter
+      tags:
+        - ledger
+      summary: Get a profit center
+      description: "Returns one profit center with its companies and active periods."
+      x-permission: ledger.cost_center.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The profit center.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfitCenter"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateProfitCenter
+      tags:
+        - ledger
+      summary: Update the texts of a profit center
+      description: "Changes name, description or person responsible at once: texts need no approval (ADR-0050 §11, decision P1) and are recorded in the audit trail. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears the description."
+      x-permission: ledger.cost_center.change
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the profit center.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/CenterTextsUpdate"
+      responses:
+        "200":
+          description: "Updated; the profit center after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfitCenter"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/profit-centers/{id}:redate":
+    post:
+      operationId: redateProfitCenter
+      tags:
+        - ledger
+      summary: Request a new validity of a profit center
+      description: "Extends or ends the profit center's validity: the first period starts at `valid_from`, the last ends at `valid_to` (exclusive; `null` open-ended). A validity that no longer covers an active cost center period naming the profit center is refused (409 `ledger.profit_center_in_use`). Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied when the request is approved. One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`)."
+      x-permission: ledger.cost_center.change
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of redateProfitCenter.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CenterRedate"
+      responses:
+        "200":
+          description: The pending center change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/profit-centers/{id}:lock":
+    post:
+      operationId: lockProfitCenter
+      tags:
+        - ledger
+      summary: Request to lock or unlock a profit center
+      description: "Sets or clears the profit center's lock from `valid_from` to `valid_to` (exclusive; absent: to the end of its validity), within its validity (422 `ledger.invalid_validity`). Locking and unlocking are people's decisions: agents may not request them. Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied when the request is approved. One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`)."
+      x-permission: ledger.cost_center.change
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of lockProfitCenter.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfitCenterLock"
+      responses:
+        "200":
+          description: The pending center change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/profit-centers/{id}:move":
+    post:
+      operationId: moveProfitCenter
+      tags:
+        - ledger
+      summary: Request to move a profit center to another segment
+      description: "Assigns the profit center to another segment (`null`: none). Once lines carry the profit center (T56d), its segment is fixed: a segment move is then a reorganisation (ADR-0050 §3). Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied when the request is approved. One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`)."
+      x-permission: ledger.cost_center.change
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of moveProfitCenter.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfitCenterMove"
+      responses:
+        "200":
+          description: The pending center change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/profit-centers/{id}:assign":
+    post:
+      operationId: assignProfitCenter
+      tags:
+        - ledger
+      summary: Request to assign a profit center to companies
+      description: "Assigns the profit center to further legal entities, which the caller must be allowed to act in; assignments are never removed. Companies it is already assigned to are refused (422 `ledger.nothing_to_change`). Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied when the request is approved. One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`)."
+      x-permission: ledger.cost_center.change
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of assignProfitCenter.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfitCenterAssign"
+      responses:
+        "200":
+          description: The pending center change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/segments:
+    get:
+      operationId: listSegments
+      tags:
+        - ledger
+      summary: List segments
+      description: "Segments of the tenant (IFRS 8 operating segments). Sortable by: `code`."
+      x-permission: ledger.cost_center.read
+      parameters:
+        - name: code
+          in: query
+          required: false
+          description: Only the segment with this code.
+          schema:
+            type: string
+            pattern: "^[0-9A-Z_-]{1,10}$"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of segment results.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SegmentPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createSegment
+      tags:
+        - ledger
+      summary: Create a segment
+      description: "Creates a segment at once: a segment changes nothing until a profit center names it, which is an approved change. A code is unique in the tenant (409 `ledger.segment_exists`)."
+      x-permission: ledger.cost_center.change
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The segment create request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SegmentCreate"
+      responses:
+        "201":
+          description: "Created; the new segment."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Segment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/segments/{id}":
+    get:
+      operationId: getSegment
+      tags:
+        - ledger
+      summary: Get a segment
+      description: "Returns one segment."
+      x-permission: ledger.cost_center.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The segment.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Segment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateSegment
+      tags:
+        - ledger
+      summary: Update a segment
+      description: "Changes the segment's name or description at once. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears the description."
+      x-permission: ledger.cost_center.change
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the segment.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/SegmentUpdate"
+      responses:
+        "200":
+          description: "Updated; the segment after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Segment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/center-changes:
+    get:
+      operationId: listCenterChanges
+      tags:
+        - ledger
+      summary: List center changes
+      description: "Requested changes to cost and profit centers (ADR-0050 §11). Changes of cost centers in legal entities the caller may not act in are not listed. Sortable by: `created_at`."
+      x-permission: ledger.cost_center.read
+      parameters:
+        - name: cost_center_id
+          in: query
+          required: false
+          description: Only changes of this cost center.
+          schema:
+            type: string
+            format: uuid
+        - name: profit_center_id
+          in: query
+          required: false
+          description: Only changes of this profit center.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only changes in this status.
+          schema:
+            type: string
+            description: "Center change status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - pending
+              - applied
+              - rejected
+              - cancelled
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of center change results.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChangePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/center-changes/{id}":
+    get:
+      operationId: getCenterChange
+      tags:
+        - ledger
+      summary: Get a center change
+      description: "Returns one center change."
+      x-permission: ledger.cost_center.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The center change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/fiscal-periods:
     get:
       operationId: listFiscalPeriods
@@ -3895,7 +5079,7 @@ paths:
       tags:
         - ledger
       summary: List journal entries
-      description: "Posted journal entries. Sortable by: `posting_date`, `document_number`."
+      description: "Posted journal entries of one ledger, the leading ledger unless `ledger_id` names another: a posting's copies in the parallel ledgers (ADR-0045) show only when their ledger is asked for. Sortable by: `posting_date`, `document_number`."
       x-permission: ledger.entry.read
       parameters:
         - $ref: "#/components/parameters/LegalEntityId"
@@ -3922,6 +5106,13 @@ paths:
           in: query
           required: false
           description: Only entries for this source document.
+          schema:
+            type: string
+            format: uuid
+        - name: ledger_id
+          in: query
+          required: false
+          description: "Only entries of this ledger (`GET /v1/ledgers`); defaults to the leading ledger."
           schema:
             type: string
             format: uuid
@@ -3956,7 +5147,7 @@ paths:
       tags:
         - ledger
       summary: Post a journal entry
-      description: "Posts a manual journal entry at once: the request is validated (balance in every currency, open period, postable accounts, partner on reconciliation lines) and either fully posted or rejected. Journal entries are insert-only; an entry that should wait, for a person to post it or for approval, is parked (`parked-journal-entries`). An entry whose debits, converted exactly into the legal entity's currency at the average rate of its posting date, exceed the company's `manual_entry_approval_limit` is 409 `ledger.approval_required` (after the period is found open: a closed one is 409 `ledger.period_not_open` first): park it and post it with `:post`, which asks someone else's approval (T35). A line on the legal entity's GR/IR account (account determination `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. Human-only: agents propose entries by parking them."
+      description: "Posts a manual journal entry at once: the request is validated (balance in every currency, open period, postable accounts, partner on reconciliation lines) and either fully posted or rejected. Journal entries are insert-only; an entry that should wait, for a person to post it or for approval, is parked (`parked-journal-entries`). An entry whose debits, converted exactly into the legal entity's currency at the average rate of its posting date, exceed the company's `manual_entry_approval_limit` is 409 `ledger.approval_required` (after the period is found open: a closed one is 409 `ledger.period_not_open` first): park it and post it with `:post`, which asks someone else's approval (T35). A line on the legal entity's GR/IR account (account determination `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. It posts to every ledger its company keeps as linked entries of one posting group sharing the document number (`posting_group_id`), each period checked open in its ledger, and returns the leading ledger's; `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to those ledgers only (ADR-0045). Human-only: agents propose entries by parking them."
       x-permission: ledger.entry.post
       x-agent: false
       parameters:
@@ -4117,7 +5308,7 @@ paths:
       tags:
         - ledger
       summary: Reverse a journal entry
-      description: "Posts a reversal entry with every amount negated and links both entries. Open-item lines of the original are cleared against the reversal's lines in the same transaction (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal entry. Human-only."
+      description: "Reverses every entry of the posting group (one reversal entry per ledger, the first returned); a copy in a parallel ledger is reversed only through its group's first entry (409 `ledger.entry_is_copy`). Posts a reversal entry with every amount negated and links both entries. Open-item lines of the original are cleared against the reversal's lines in the same transaction (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal entry. Human-only."
       x-permission: ledger.entry.post
       x-agent: false
       parameters:
@@ -4645,7 +5836,7 @@ paths:
       tags:
         - ledger
       summary: Post a foreign-currency revaluation run
-      description: "Values what `previewRevaluation` values and, in one transaction, posts the differences (ADR-0042, T48c): a valuation entry (document type SA, in local currency, source the run) dated the key date and its reset, a separate entry of the negated lines dated the next day, the first of the next period, so the items stay open at their booked amounts. Each item's local and group differences go to the account itself for a flagged account and to its adjustment account for a reconciliation account, against the unrealised gain or loss account by the item's direction. Both periods must be open (409 `ledger.period_not_open`). A run whose items have no difference is recorded without entries. The run and its items are recorded, audited and published (`RevaluationRunPosted`, besides each entry's `JournalEntryPosted`). One run per legal entity, ledger and key date is posted: a second is 409 `ledger.revaluation_exists`, whose `detail` names the posted run and whose `Location` header links it; cancelling that run (`cancelRevaluationRun`) frees the key date. Concurrent clearings and reversals of the tenant wait for the run. Human-only."
+      description: "Values what `previewRevaluation` values and, in one transaction, posts the differences (ADR-0042, T48c): a valuation entry (document type SA, in local currency, source the run) dated the key date and its reset, a separate entry of the negated lines dated the next day, the first of the next period, so the items stay open at their booked amounts. Both entries post in the run's ledger alone (T52f, ADR-0045): a run of the leading ledger leaves the parallel ledgers untouched, and each parallel ledger is revalued by a run of its own. Each item's local and group differences go to the account itself for a flagged account and to its adjustment account for a reconciliation account, against the unrealised gain or loss account by the item's direction. Both periods must be open in the run's ledger (409 `ledger.period_not_open`). A run whose items have no difference is recorded without entries. The run and its items are recorded, audited and published (`RevaluationRunPosted`, besides each entry's `JournalEntryPosted`). One run per legal entity, ledger and key date is posted: a second is 409 `ledger.revaluation_exists`, whose `detail` names the posted run and whose `Location` header links it; cancelling that run (`cancelRevaluationRun`) frees the key date. Concurrent clearings and reversals of the tenant wait for the run. Human-only."
       x-permission: ledger.entry.post
       x-agent: false
       parameters:
@@ -4741,7 +5932,7 @@ paths:
       tags:
         - ledger
       summary: Cancel a revaluation run
-      description: "Cancels a posted revaluation run (ADR-0042, T48d): reverses its valuation entry and its reset entry through the ledger's reversal path, each on its own posting date (`JournalEntryReversed` for each), and marks the run `cancelled`, which frees its key date for another run. This is the only way a run's entries are reversed (`journal-entries/{id}:reverse` refuses them with 409 `ledger.entry_owned_elsewhere`). Both entries' periods must be open (409 `ledger.period_not_open`, also when one is closed or locked, T32); a cancelled run is 409 `ledger.revaluation_not_posted`. A run without entries is cancelled without reversals. Audited and published (`RevaluationRunCancelled`). The If-Match is the run's ETag. Human-only."
+      description: "Cancels a posted revaluation run (ADR-0042, T48d): reverses its valuation entry and its reset entry through the ledger's reversal path, each on its own posting date and in the run's ledger alone (`JournalEntryReversed` for each), and marks the run `cancelled`, which frees its key date for another run. This is the only way a run's entries are reversed (`journal-entries/{id}:reverse` refuses them with 409 `ledger.entry_owned_elsewhere`). Both entries' periods must be open (409 `ledger.period_not_open`, also when one is closed or locked, T32); a cancelled run is 409 `ledger.revaluation_not_posted`. A run without entries is cancelled without reversals. Audited and published (`RevaluationRunCancelled`). The If-Match is the run's ETag. Human-only."
       x-permission: ledger.entry.post
       x-agent: false
       parameters:
@@ -4799,7 +5990,7 @@ paths:
       tags:
         - ledger
       summary: Preview a foreign-currency revaluation
-      description: "Values, without posting, what a revaluation run of a legal entity and ledger at a key date would value (ADR-0042, T48): the open items on supplier and customer reconciliation accounts on the key date (posted on or before it and not cleared by a clearing dated on or before it) and, per currency, the balance of each G/L account flagged `revalue_foreign_currency`, in every currency other than local currency. Down payments (special G/L items) and the GR/IR account are not revalued. A flagged account's balance that is zero in its currency but not in local or group currency is valued too, at zero and without a rate (none is looked up or checked for it): that residual is what revaluation corrects. Each item is valued in local and, on its own, in group currency at the legal entity's valuation rate type valid on the key date, each rounded once: `valued_lc` = amount × rate and `valued_gc` = amount × rate_gc (SAP's parallel-currency valuation, not the local difference translated); the differences to the booked amounts are an unrealised gain when positive and a loss when negative, by the local difference's sign, or the group one's when local does not differ. The key date is the last day of a posting period of the ledger (422 `ledger.key_date_not_period_end`); a rate into local or group currency valid from before that period is stale (422 `ledger.rate_stale`) and a missing one is refused (422 `ledger.no_exchange_rate`); an account with items in scope and no active valuation accounts fails the preview (422 `ledger.revaluation_account_missing`, naming the account). Reads only; every agent autonomy level may call it."
+      description: "Values, without posting, what a revaluation run of a legal entity and ledger at a key date would value (ADR-0042, T48; per ledger, T52f): read from that ledger's lines, the open items on supplier and customer reconciliation accounts on the key date (posted on or before it and not cleared by a clearing dated on or before it) and, per currency, the balance of each G/L account flagged `revalue_foreign_currency`, in every currency other than local currency. Down payments (special G/L items) and the GR/IR account are not revalued. A flagged account's balance that is zero in its currency but not in local or group currency is valued too, at zero and without a rate (none is looked up or checked for it): that residual is what revaluation corrects. Each item is valued in local and, on its own, in group currency at the ledger's valuation rate type valid on the key date (the legal entity's, or the ledger's own where `companies[].fx_valuation.ledgers` gives one, T52f), each rounded once: `valued_lc` = amount × rate and `valued_gc` = amount × rate_gc (SAP's parallel-currency valuation, not the local difference translated); the differences to the booked amounts are an unrealised gain when positive and a loss when negative, by the local difference's sign, or the group one's when local does not differ. The key date is the last day of a posting period of the ledger (422 `ledger.key_date_not_period_end`); a rate into local or group currency valid from before that period is stale (422 `ledger.rate_stale`) and a missing one is refused (422 `ledger.no_exchange_rate`); an account with items in scope and no active valuation accounts fails the preview (422 `ledger.revaluation_account_missing`, naming the account). Reads only; every agent autonomy level may call it."
       x-permission: ledger.entry.read
       x-autonomy: read
       parameters:
@@ -4978,6 +6169,173 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BalancePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/ledger-reconciliation:
+    get:
+      operationId: listLedgerReconciliation
+      tags:
+        - ledger
+      summary: Reconcile two ledgers
+      description: "Compares two ledgers a legal entity keeps (ADR-0045): per account and transaction currency, the balances in the ledger and in the compared ledger and their difference in transaction, local and group currency; only accounts that differ are listed. The figures are the balances' (`GET /v1/balances`): exact at the moment of the read, of one period or, without `fiscal_period`, of the year. `trial_balances`, on the first page, checks each of the two ledgers: its debits and credits net to zero. The entries behind a difference are listed by `GET /v1/ledger-reconciliation/entries`. A legal entity the caller cannot act in, or a ledger it does not keep, has no differences and no trial balances. Sortable by: `account_id`."
+      x-permission: ledger.entry.read
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: ledger_id
+          in: query
+          required: false
+          description: "The ledger reconciled; defaults to the leading ledger."
+          schema:
+            type: string
+            format: uuid
+        - name: compare_ledger_id
+          in: query
+          required: true
+          description: The ledger it is compared with (required).
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: Fiscal year (required).
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: fiscal_period
+          in: query
+          required: false
+          description: Only this period.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: account_id
+          in: query
+          required: false
+          description: Only this account.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of ledger differences.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LedgerReconciliationPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/ledger-reconciliation/entries:
+    get:
+      operationId: listLedgerReconciliationEntries
+      tags:
+        - ledger
+      summary: List the entries behind a ledger difference
+      description: "The journal lines on one account, of the ledger and the compared ledger, whose entry has no copy in the other ledger (ADR-0045): the ledger-specific postings, and entries posted before the ledger was assigned, that make up the difference `GET /v1/ledger-reconciliation` shows. The parameters are its own, with `account_id` required. Sortable by: `posting_date`."
+      x-permission: ledger.entry.read
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: ledger_id
+          in: query
+          required: false
+          description: "The ledger reconciled; defaults to the leading ledger."
+          schema:
+            type: string
+            format: uuid
+        - name: compare_ledger_id
+          in: query
+          required: true
+          description: The ledger it is compared with (required).
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: Fiscal year (required).
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: fiscal_period
+          in: query
+          required: false
+          description: Only this period.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: account_id
+          in: query
+          required: true
+          description: Account (required).
+          schema:
+            type: string
+            format: uuid
+        - name: currency
+          in: query
+          required: false
+          description: Only entries in this transaction currency.
+          schema:
+            type: string
+            pattern: "^[A-Z]{3}$"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of ledger-specific journal lines.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LedgerReconciliationEntryPage"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -8583,8 +9941,9 @@ paths:
       tags:
         - payments
       summary: Download a bank statement's file
-      description: "The file a bank statement was imported from, byte for byte as the bank sent it (camt.053 XML or MT940 text): kept as accounting evidence in object storage, written once, encrypted and locked for the retention of financial records (ADR-0047). The statements of one file share it. 503 while the server has no object storage or the store does not answer."
+      description: "The file a bank statement was imported from, byte for byte as the bank sent it (camt.053 XML or MT940 text): kept as accounting evidence in object storage, written once, encrypted and locked for the retention of financial records (ADR-0047). The statements of one file share it. People and integrations only: the file holds the accounts whole, which agents see masked (T49g). 503 while the server has no object storage or the store does not answer."
       x-permission: payments.statement.read
+      x-agent: false
       parameters:
         - $ref: "#/components/parameters/Id"
       responses:
@@ -8707,13 +10066,47 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/bank-statements/{id}/rules":
+    get:
+      operationId: getBankStatementRules
+      tags:
+        - payments
+      summary: Get the rules a bank statement is matched and posted by
+      description: "The posting rules and matching rules of the statement's company in the active configuration (`companies[].bank_statements`, ADR-0047): what the transaction codes post to, and how lines are matched, in the rules' order. Read by people and by the reconciliation agent, which proposes a posting rule by its transaction code. Empty lists for a company without them."
+      x-permission: payments.statement.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The statement's rules.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankStatementRules"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   "/v1/bank-statements/{id}/lines/{line_no}:match":
     post:
       operationId: matchBankStatementLine
       tags:
         - payments
       summary: Match a bank statement line by hand
-      description: "A person matches the line to the payments it clears or to a posting rule of the company (charges, interest), with a reason, whatever the rules found: the line's live match becomes `rejected` and the new one `matched` (kind `manual`). Each payment must be posted, from the statement's house bank, in its currency and matched to no other line (422 `payments.statement_match_target`). People only; a line on its way to the ledger keeps its match (409 `payments.statement_line_posting`). Audited, and published as BankStatementLineMatched. The response's ETag is the statement's new one, the If-Match of the next decision on its lines."
+      description: "A person matches the line to the payments it clears, to a posting rule of the company (charges, interest), or, for an incoming payment, to the house bank's incoming payments clearing account (`incoming: true`, T49h), with a reason, whatever the rules found: the line's live match becomes `rejected` and the new one `matched` (kind `manual`). Each payment must be posted, from the statement's house bank, in its currency and matched to no other line, and an incoming payment a credit that reverses nothing, of a house bank with `incoming_gl_account` (422 `payments.statement_match_target`). People only; a line on its way to the ledger keeps its match (409 `payments.statement_line_posting`), and a reconciled statement's lines are decided for good (409 `payments.statement_reconciled`). Audited, and published as BankStatementLineMatched. The response's ETag is the statement's new one, the If-Match of the next decision on its lines."
       x-permission: payments.statement.match
       x-agent: false
       parameters:
@@ -8779,7 +10172,7 @@ paths:
       tags:
         - payments
       summary: Exclude a bank statement line
-      description: "A person excludes the line from reconciliation, with a reason: the bank's booking clears nothing the ledger holds. The line's live match becomes `rejected` and the new one `excluded` (kind `manual`), with no targets; the line is `excluded`. People only; a line on its way to the ledger keeps its match (409 `payments.statement_line_posting`). Audited, and published as BankStatementLineExcluded. The response's ETag is the statement's new one, the If-Match of the next decision on its lines."
+      description: "A person excludes the line from reconciliation, with a reason: the bank's booking clears nothing the ledger holds. The line's live match becomes `rejected` and the new one `excluded` (kind `manual`), with no targets; the line is `excluded`; a statement whose last line to decide this was may become `reconciled` (T49h). People only; a line on its way to the ledger keeps its match (409 `payments.statement_line_posting`), and a reconciled statement's lines are decided for good (409 `payments.statement_reconciled`). Audited, and published as BankStatementLineExcluded. The response's ETag is the statement's new one, the If-Match of the next decision on its lines."
       x-permission: payments.statement.match
       x-agent: false
       parameters:
@@ -8845,7 +10238,7 @@ paths:
       tags:
         - payments
       summary: Post a matched bank statement line
-      description: "Posts a `matched` line (ADR-0047) to the house bank's main bank account (`main_gl_account`) against what its match clears: for payments, each payment's line on the bank's clearing account, which must be open-item managed (422 `ledger.not_open_item_managed`), is offset at its original amounts and cleared with the posting, and the payments must pay the line's amount (409 `payments.statement_amount_differs`); for a posting rule, the rule's account (409 `payments.statement_posting_rule_gone` when the company no longer has the rule). A statement in another currency than the company's is converted at the posting date's rates, and the difference to the payments' amounts is a realized exchange difference (fx_gain/fx_loss). The posting is dated on the line's booking date, or on `posting_date` with a `reason` (both audited); a locked or closed period refuses it (409 `ledger.period_not_open`). The posting is routed by the line's amount in the company's currency through `companies[].bank_statements.approval_tiers` (`bank_clearing` approval requests): a tier without steps posts at once (`posted`); otherwise the line waits for the request (`pending_approval`), whose approval posts it, checked again, and whose rejection or withdrawal returns it to `matched`. A company without tiers has every posting approved by the `controller` role. Whoever matched the line by hand cannot approve its posting. A house bank without a main bank account never posts (409 `payments.statement_bank_not_posting`), nor one with a statement in `gap` (409 `payments.statement_gap`). A line not matched is 409 `payments.statement_line_not_matched`; one posted or waiting already is 409 `payments.statement_line_posting`. People only. Audited; the posting publishes BankStatementLinePosted, and the ledger JournalEntryPosted and ItemsCleared. The response's ETag is the statement's new one, the If-Match of the next decision on its lines."
+      description: "Posts a `matched` line (ADR-0047) to the house bank's main bank account (`main_gl_account`) against what its match clears: for payments, each payment's line on the bank's clearing account, which must be open-item managed (422 `ledger.not_open_item_managed`), is offset at its original amounts and cleared with the posting, and the payments must pay the line's amount (409 `payments.statement_amount_differs`); for a posting rule, the rule's account (409 `payments.statement_posting_rule_gone` when the company no longer has the rule); for an incoming payment, the house bank's incoming payments clearing account, where the line stays an open item until accounts receivable clears it (409 `payments.statement_incoming_gone` when the bank no longer names one). A statement in another currency than the company's is converted at the posting date's rates, and the difference to the payments' amounts is a realized exchange difference (fx_gain/fx_loss). The posting is dated on the line's booking date, or on `posting_date` with a `reason` (both audited); a locked or closed period refuses it (409 `ledger.period_not_open`). The posting is routed by the line's amount in the company's currency through `companies[].bank_statements.approval_tiers` (`bank_clearing` approval requests): a tier without steps posts at once (`posted`); otherwise the line waits for the request (`pending_approval`), whose approval posts it, checked again, and whose rejection or withdrawal returns it to `matched`. A company without tiers has every posting approved by the `controller` role. Whoever matched the line by hand cannot approve its posting. A house bank without a main bank account never posts (409 `payments.statement_bank_not_posting`), nor one with a statement in `gap` (409 `payments.statement_gap`). A line not matched is 409 `payments.statement_line_not_matched`; one posted or waiting already is 409 `payments.statement_line_posting`. A `posting_date` before the booking date is refused (422): a later one takes the line out of a locked period, an earlier one would book it before the bank did. A statement whose last line to decide this was becomes `reconciled` once the ledger agrees (T49h). People only. Audited; the posting publishes BankStatementLinePosted, and the ledger JournalEntryPosted and ItemsCleared. The response's ETag is the statement's new one, the If-Match of the next decision on its lines."
       x-permission: payments.statement.post
       x-agent: false
       parameters:
@@ -8909,6 +10302,327 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/bank-statements/{id}/lines/{line_no}:propose":
+    post:
+      operationId: proposeBankStatementLine
+      tags:
+        - payments
+      summary: Propose a match or exclusion of a bank statement line
+      description: "The reconciliation agent proposes (ADR-0047, T49g), for a line the rules left `unmatched` or open (`proposed` by a rule), the payments it clears, a posting rule of the company, or its exclusion, with a reason, in its running session (`session_id`; another's or an ended one is refused as `createRecommendation` refuses it). A person decides the proposal: `:acceptProposal` matches or excludes the line by it, `:rejectProposal` turns it down, and a person's own `:match` or `:exclude` overrides it. The proposal is a match of kind `agent` and status `open` naming its session and `proposal` (`match` or `exclude`); the line's open match by a rule is rejected, and the line is `proposed`. The rules never take a proposal up again. A proposal reserves no payment and never posts: each payment must be one the line may clear, as for a person's match (422 `payments.statement_match_target`). A session proposes once per line: the same proposal again answers 200 with the first; another is 409 `payments.statement_line_proposed`, as is a proposal for a line with another session's proposal. A line matched, excluded, waiting for its posting's approval or posted takes no proposal (409 `payments.statement_line_not_open`). If-Match is the statement's ETag, as the agent read it (a proposal made before is answered whatever it is). Audited, and published as BankStatementLineProposed. The response's ETag is the statement's new one."
+      x-permission: payments.statement.propose
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: line_no
+          in: path
+          required: true
+          description: The line's number in the statement, from 1.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of proposeBankStatementLine.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatementLineProposalInput"
+      responses:
+        "200":
+          description: "The session's proposal for the line, made before."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementMatch"
+        "201":
+          description: "The proposal, the line's new live match."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementMatch"
+              examples:
+                proposed:
+                  summary: Charges deducted by the bank
+                  value: {id: 0192a000-0000-7000-8000-000000000b42, version: 1, created_at: "2026-10-21T09:00:00Z", created_by: 0192a000-0000-7000-8000-000000000106, updated_at: "2026-10-21T09:00:00Z", updated_by: 0192a000-0000-7000-8000-000000000106, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 4, kind: agent, reason: "The bank booked 99.50 for payment 2000-PR100000-000004 of 100.00 to the same payee; 0.50 is its charge.", status: open, proposal: match, session_id: 0192a000-0000-7000-8000-000000000a01, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c04}]}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/bank-statements/{id}/lines/{line_no}:acceptProposal":
+    post:
+      operationId: acceptBankStatementLineProposal
+      tags:
+        - payments
+      summary: Accept the agent's proposal for a bank statement line
+      description: "A person accepts the line's open proposal by the reconciliation agent (ADR-0047, T49g): the line is matched by hand to what it proposed, checked again as `:match` checks it (422 `payments.statement_match_target` when a payment is no longer one the line may clear, or the posting rule is gone), or excluded with its reason. The proposal becomes `rejected` with outcome `accepted`, and the person's match (kind `manual`) is the line's, so the person posts it with `:post` and cannot approve its posting (segregation of duties). A line without an open proposal is 409 `payments.statement_line_no_proposal`; one on its way to the ledger keeps its match (409 `payments.statement_line_posting`). People only. Audited; published as BankStatementLineProposalDecided and BankStatementLineMatched (or BankStatementLineExcluded). If-Match is the statement's ETag; the response's is its new one."
+      x-permission: payments.statement.match
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: line_no
+          in: path
+          required: true
+          description: The line's number in the statement, from 1.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of acceptBankStatementLineProposal.
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatementLineProposalAccept"
+      responses:
+        "201":
+          description: "The line's new match, the person's, by the proposal."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementMatch"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/bank-statements/{id}/lines/{line_no}:rejectProposal":
+    post:
+      operationId: rejectBankStatementLineProposal
+      tags:
+        - payments
+      summary: Reject the agent's proposal for a bank statement line
+      description: "A person rejects the line's open proposal by the reconciliation agent, with a reason (ADR-0047, T49g): the proposal becomes `rejected` with outcome `rejected`, and the line `unmatched`, for the rules' next run or a person. The reconciliation agent does not propose for the line again. A line without an open proposal is 409 `payments.statement_line_no_proposal`. People only. Audited, and published as BankStatementLineProposalDecided. If-Match is the statement's ETag; the response's is its new one."
+      x-permission: payments.statement.match
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: line_no
+          in: path
+          required: true
+          description: The line's number in the statement, from 1.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of rejectBankStatementLineProposal.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonInput"
+      responses:
+        "200":
+          description: "The proposal, rejected."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementMatch"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/house-banks:
+    get:
+      operationId: listHouseBanks
+      tags:
+        - payments
+      summary: List house banks
+      description: "The house banks of the companies the caller may access, as the configuration names them (`companies[].house_bank(s)`), active and inactive, by legal entity and code: the id a statement import names. The account is shown by its last four characters only. Sortable by: `code`."
+      x-permission: payments.statement.read
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: false
+          description: Only the house banks of this legal entity.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: "One page of house banks."
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HouseBankPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/house-banks/{id}/reconciliation":
+    get:
+      operationId: getBankReconciliation
+      tags:
+        - payments
+      summary: Reconcile a house bank's statements with the ledger
+      description: "The reconciliation report of a house bank (ADR-0047, T49h) over its statements closing in the period (`closing_date_from`, `closing_date_to`; without them, all): per statement, its balances as the bank gave them, the ledger's balance of the house bank's main bank account (`main_gl_account`) on its closing date, and what explains the difference, from the lines of the bank's statements up to that date: those excluded, those not posted yet (`in_transit`: unmatched, proposed, matched or waiting for approval) and those posted after the date (`posted_later`, on another date a person gave); what is left is `unexplained` (an opening balance the ledger never received, or an entry on the bank account that no statement line made). Each statement lists its lines with their status, their live match (kind, rule, posting) and the outcome of the latest agent proposal a person decided, optionally only the lines of one status (`line_status`). `summary` is the period's, on its last closing date. A statement becomes `reconciled` once nothing is in transit or unexplained on its closing date. The ledger's balances are in the legal entity's local currency, which is a house bank's currency; a house bank without a main bank account has no ledger balance, nor anything unexplained. The report names no account numbers, so agents read it as people do. Paged by statement, by closing date. Sortable by: `closing_date`."
+      x-permission: payments.statement.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: closing_date_from
+          in: query
+          required: false
+          description: Only statements closing on or after this date.
+          schema:
+            type: string
+            format: date
+        - name: closing_date_to
+          in: query
+          required: false
+          description: Only statements closing on or before this date; not before closing_date_from.
+          schema:
+            type: string
+            format: date
+        - name: line_status
+          in: query
+          required: false
+          description: "Only the lines in this status, such as `unmatched` for what is left to do; the figures and counts are all lines'. Another value is refused (422)."
+          schema:
+            type: string
+            description: "Bank statement line status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [unmatched, proposed, matched, excluded, pending_approval, posted]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of the house bank's reconciliation report.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankReconciliation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   "/v1/bank-files/{id}":
     get:
       operationId: getBankFile
@@ -9072,6 +10786,7 @@ paths:
               - purchase_order
               - order_change
               - bank_clearing
+              - center_change
         - name: object_id
           in: query
           required: false
@@ -9304,6 +11019,7 @@ paths:
         purchase_order: procurement.order.approve
         order_change: procurement.order.approve
         bank_clearing: payments.statement.clearing.approve
+        center_change: ledger.cost_center.approve
   "/v1/approval-requests/{id}:reject":
     post:
       operationId: rejectApprovalRequest
@@ -9373,6 +11089,7 @@ paths:
         purchase_order: procurement.order.approve
         order_change: procurement.order.approve
         bank_clearing: payments.statement.clearing.approve
+        center_change: ledger.cost_center.approve
   "/v1/approval-requests/{id}:cancel":
     post:
       operationId: cancelApprovalRequest
@@ -13320,6 +15037,7 @@ components:
             - migration
             - test
             - analytics
+            - reconciliation
           maxLength: 50
         model:
           type: string
@@ -16049,6 +17767,861 @@ components:
                 - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
                   is_posting_blocked: false
                   is_open_item_managed: false
+    CostCenterPeriod:
+      type: object
+      description: "An effective-dated period of a cost center: what postings dated in it read (ADR-0050 §3)."
+      required:
+        - valid_from
+        - category
+        - lock_actual_cost
+        - lock_actual_revenue
+        - lock_plan
+      properties:
+        valid_from:
+          type: string
+          format: date
+          description: "First day."
+        valid_to:
+          type: string
+          format: date
+          description: "Day after the last day (exclusive); absent: open-ended."
+        category:
+          type: string
+          pattern: "^[0-9A-Z_]{1,10}$"
+          description: "Cost center category (SAP KOSAR), such as ADMIN or SALES; the configuration names categories and their lock defaults from T56c."
+        profit_center_id:
+          type: string
+          format: uuid
+          description: "Profit center, assigned to the cost center's legal entity; absent: lines take the company's default profit center."
+        lock_actual_cost:
+          type: boolean
+          description: Actual primary costs may not be posted.
+        lock_actual_revenue:
+          type: boolean
+          description: Actual revenue may not be posted.
+        lock_plan:
+          type: boolean
+          description: Plan values may not be entered.
+      additionalProperties: false
+      examples:
+        - valid_from: "2026-01-01"
+          category: ADMIN
+          profit_center_id: "0192a000-0000-7000-8000-000000000302"
+          lock_actual_cost: false
+          lock_actual_revenue: false
+          lock_plan: false
+    CostCenter:
+      description: "A cost center (SAP CSKS): ledger master data of one legal entity (ADR-0050 §3)."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - legal_entity_id
+            - code
+            - name
+            - responsible
+            - status
+            - periods
+          properties:
+            legal_entity_id:
+              type: string
+              format: uuid
+              description: "Legal entity (company code) the cost center belongs to. Immutable: a changed company is a new cost center."
+              readOnly: true
+            code:
+              type: string
+              pattern: "^[0-9A-Z_-]{1,10}$"
+              description: "Code (SAP KOSTL/PRCTR: up to 10 of 0-9, A-Z, _ and -). Unique: see the create operation. Immutable."
+              readOnly: true
+            name:
+              type: string
+              minLength: 1
+              maxLength: 100
+              description: Name.
+            description:
+              type: string
+              minLength: 1
+              maxLength: 500
+              description: Description.
+            responsible:
+              type: string
+              minLength: 1
+              maxLength: 100
+              description: Person responsible (SAP VERAK), as a name.
+            status:
+              type: string
+              description: "`pending` until its create change is approved, then `active`; `rejected` when it is not, which frees the code. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - pending
+                - active
+                - rejected
+              readOnly: true
+            valid_from:
+              type: string
+              format: date
+              description: "Start of validity: the first period's start; absent while pending."
+              readOnly: true
+            valid_to:
+              type: string
+              format: date
+              description: "End of validity (exclusive): the last period's end; absent: open-ended or pending."
+              readOnly: true
+            periods:
+              type: array
+              items:
+                $ref: "#/components/schemas/CostCenterPeriod"
+              description: "Active periods in date order; none while pending."
+              readOnly: true
+            pending_change_id:
+              type: string
+              format: uuid
+              description: "The center's pending center change; absent when none."
+              readOnly: true
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000301"
+          version: 1
+          created_at: "2026-10-21T09:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+          updated_at: "2026-10-21T09:00:00Z"
+          legal_entity_id: "0192a000-0000-7000-8000-000000000201"
+          code: "1000"
+          name: Administration
+          responsible: Jane Doe
+          status: active
+          valid_from: "2026-01-01"
+          periods:
+            - valid_from: "2026-01-01"
+              category: ADMIN
+              lock_actual_cost: false
+              lock_actual_revenue: false
+              lock_plan: false
+    CostCenterCreate:
+      type: object
+      description: "A new cost center and its first period."
+      required:
+        - legal_entity_id
+        - code
+        - name
+        - responsible
+        - category
+        - valid_from
+        - reason
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity (company code).
+        code:
+          type: string
+          pattern: "^[0-9A-Z_-]{1,10}$"
+          description: "Code (SAP KOSTL/PRCTR: up to 10 of 0-9, A-Z, _ and -). Unique: see the create operation. Immutable."
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Name.
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Description.
+        responsible:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Person responsible (SAP VERAK), as a name.
+        category:
+          type: string
+          pattern: "^[0-9A-Z_]{1,10}$"
+          description: "Cost center category (SAP KOSAR), such as ADMIN or SALES; the configuration names categories and their lock defaults from T56c."
+        profit_center_id:
+          type: string
+          format: uuid
+          description: Profit center.
+        valid_from:
+          type: string
+          format: date
+          description: "Start of validity."
+        valid_to:
+          type: string
+          format: date
+          description: "End of validity (exclusive); absent: open-ended."
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: "Why; shown to the approver and recorded in the audit trail."
+      additionalProperties: false
+      examples:
+        - legal_entity_id: "0192a000-0000-7000-8000-000000000201"
+          code: "1000"
+          name: Administration
+          responsible: Jane Doe
+          category: ADMIN
+          valid_from: "2026-01-01"
+          reason: New administration cost center for the Canadian company.
+    CenterTextsUpdate:
+      type: object
+      description: "Merge patch of a center's texts."
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Name.
+        description:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          maxLength: 500
+          description: Description. Send null to clear.
+        responsible:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Person responsible (SAP VERAK), as a name.
+      additionalProperties: false
+      examples:
+        - name: Administration and finance
+    CenterRedate:
+      type: object
+      description: "A center's new validity; at least one of the dates."
+      required:
+        - reason
+      properties:
+        valid_from:
+          type: string
+          format: date
+          description: "New start of validity."
+        valid_to:
+          type:
+            - string
+            - "null"
+          format: date
+          description: "New end of validity (exclusive); null: open-ended."
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: "Why; shown to the approver and recorded in the audit trail."
+      additionalProperties: false
+      examples:
+        - valid_to: "2027-01-01"
+          reason: The office closes at the end of 2026.
+    CostCenterLock:
+      type: object
+      description: "Locks of a cost center from a date; absent flags are unchanged, at least one is given."
+      required:
+        - valid_from
+        - reason
+      properties:
+        valid_from:
+          type: string
+          format: date
+          description: "First day the locks apply."
+        valid_to:
+          type: string
+          format: date
+          description: "Day after the last (exclusive); absent: to the end of validity."
+        lock_actual_cost:
+          type: boolean
+          description: Lock or unlock actual primary costs.
+        lock_actual_revenue:
+          type: boolean
+          description: Lock or unlock actual revenue.
+        lock_plan:
+          type: boolean
+          description: Lock or unlock plan values.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: "Why; shown to the approver and recorded in the audit trail."
+      additionalProperties: false
+      examples:
+        - valid_from: "2026-11-01"
+          lock_actual_cost: true
+          reason: Cost center being wound down.
+    CostCenterMove:
+      type: object
+      description: "A cost center's new profit center or category from a date; at least one of them."
+      required:
+        - valid_from
+        - reason
+      properties:
+        valid_from:
+          type: string
+          format: date
+          description: "First day of the new period."
+        profit_center_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+          description: "New profit center; null: none."
+        category:
+          type: string
+          pattern: "^[0-9A-Z_]{1,10}$"
+          description: "Cost center category (SAP KOSAR), such as ADMIN or SALES; the configuration names categories and their lock defaults from T56c."
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: "Why; shown to the approver and recorded in the audit trail."
+      additionalProperties: false
+      examples:
+        - valid_from: "2026-11-01"
+          profit_center_id: "0192a000-0000-7000-8000-000000000302"
+          reason: Reorganisation of the sales regions.
+    CostCenterPage:
+      type: object
+      description: One page of cost centers.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CostCenter"
+          description: The cost centers on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+      examples:
+        - items:
+            - id: "0192a000-0000-7000-8000-000000000304"
+              version: 3
+              created_at: "2026-10-21T09:00:00Z"
+              created_by: "0192a000-0000-7000-8000-000000000101"
+              updated_at: "2026-10-21T09:30:00Z"
+              legal_entity_id: "0192a000-0000-7000-8000-000000000201"
+              code: "1000"
+              name: Administration
+              responsible: Jane Doe
+              status: active
+              valid_from: "2026-01-01"
+              periods:
+                - valid_from: "2026-01-01"
+                  category: ADMIN
+                  lock_actual_cost: false
+                  lock_actual_revenue: false
+                  lock_plan: false
+    ProfitCenterPeriod:
+      type: object
+      description: "An effective-dated period of a profit center."
+      required:
+        - valid_from
+        - locked
+      properties:
+        valid_from:
+          type: string
+          format: date
+          description: "First day."
+        valid_to:
+          type: string
+          format: date
+          description: "Day after the last day (exclusive); absent: open-ended."
+        locked:
+          type: boolean
+          description: Postings to the profit center are refused (from T56d).
+      additionalProperties: false
+      examples:
+        - valid_from: "2026-01-01"
+          locked: false
+    ProfitCenter:
+      description: "A profit center (SAP CEPC): tenant-wide ledger master data, assigned to the legal entities it may be posted in (ADR-0050 §3)."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - code
+            - name
+            - responsible
+            - status
+            - legal_entity_ids
+            - periods
+          properties:
+            code:
+              type: string
+              pattern: "^[0-9A-Z_-]{1,10}$"
+              description: "Code (SAP KOSTL/PRCTR: up to 10 of 0-9, A-Z, _ and -). Unique: see the create operation. Immutable."
+              readOnly: true
+            name:
+              type: string
+              minLength: 1
+              maxLength: 100
+              description: Name.
+            description:
+              type: string
+              minLength: 1
+              maxLength: 500
+              description: Description.
+            responsible:
+              type: string
+              minLength: 1
+              maxLength: 100
+              description: Person responsible (SAP VERAK), as a name.
+            segment_id:
+              type: string
+              format: uuid
+              description: "Segment lines of the profit center carry; absent: none."
+              readOnly: true
+            status:
+              type: string
+              description: "`pending` until its create change is approved, then `active`; `rejected` when it is not, which frees the code. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - pending
+                - active
+                - rejected
+              readOnly: true
+            legal_entity_ids:
+              type: array
+              items:
+                type: string
+                format: uuid
+              description: "Legal entities the profit center is assigned to (SAP CEPC_BUKRS)."
+              readOnly: true
+            valid_from:
+              type: string
+              format: date
+              description: "Start of validity: the first period's start; absent while pending."
+              readOnly: true
+            valid_to:
+              type: string
+              format: date
+              description: "End of validity (exclusive): the last period's end; absent: open-ended or pending."
+              readOnly: true
+            periods:
+              type: array
+              items:
+                $ref: "#/components/schemas/ProfitCenterPeriod"
+              description: "Active periods in date order; none while pending."
+              readOnly: true
+            pending_change_id:
+              type: string
+              format: uuid
+              description: "The center's pending center change; absent when none."
+              readOnly: true
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000301"
+          version: 1
+          created_at: "2026-10-21T09:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+          updated_at: "2026-10-21T09:00:00Z"
+          code: CA-SALES
+          name: Sales Canada
+          responsible: Jane Doe
+          status: active
+          legal_entity_ids:
+            - "0192a000-0000-7000-8000-000000000201"
+          valid_from: "2026-01-01"
+          periods:
+            - valid_from: "2026-01-01"
+              locked: false
+    ProfitCenterCreate:
+      type: object
+      description: "A new profit center, its first period and its companies."
+      required:
+        - code
+        - name
+        - responsible
+        - legal_entity_ids
+        - valid_from
+        - reason
+      properties:
+        code:
+          type: string
+          pattern: "^[0-9A-Z_-]{1,10}$"
+          description: "Code (SAP KOSTL/PRCTR: up to 10 of 0-9, A-Z, _ and -). Unique: see the create operation. Immutable."
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Name.
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Description.
+        responsible:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Person responsible (SAP VERAK), as a name.
+        segment_id:
+          type: string
+          format: uuid
+          description: Segment.
+        legal_entity_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+          description: Legal entities it may be posted in.
+        valid_from:
+          type: string
+          format: date
+          description: "Start of validity."
+        valid_to:
+          type: string
+          format: date
+          description: "End of validity (exclusive); absent: open-ended."
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: "Why; shown to the approver and recorded in the audit trail."
+      additionalProperties: false
+      examples:
+        - code: CA-SALES
+          name: Sales Canada
+          responsible: Jane Doe
+          legal_entity_ids:
+            - "0192a000-0000-7000-8000-000000000201"
+          valid_from: "2026-01-01"
+          reason: New sales region.
+    ProfitCenterLock:
+      type: object
+      description: "The lock of a profit center from a date."
+      required:
+        - valid_from
+        - locked
+        - reason
+      properties:
+        valid_from:
+          type: string
+          format: date
+          description: "First day the lock applies."
+        valid_to:
+          type: string
+          format: date
+          description: "Day after the last (exclusive); absent: to the end of validity."
+        locked:
+          type: boolean
+          description: Lock (true) or unlock (false).
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: "Why; shown to the approver and recorded in the audit trail."
+      additionalProperties: false
+      examples:
+        - valid_from: "2026-11-01"
+          locked: true
+          reason: Region closed.
+    ProfitCenterMove:
+      type: object
+      description: "A profit center's new segment."
+      required:
+        - segment_id
+        - reason
+      properties:
+        segment_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+          description: "New segment; null: none."
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: "Why; shown to the approver and recorded in the audit trail."
+      additionalProperties: false
+      examples:
+        - segment_id: "0192a000-0000-7000-8000-000000000303"
+          reason: Segments redrawn before the first posting.
+    ProfitCenterAssign:
+      type: object
+      description: "Further legal entities for a profit center."
+      required:
+        - legal_entity_ids
+        - reason
+      properties:
+        legal_entity_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+          description: Legal entities to assign.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: "Why; shown to the approver and recorded in the audit trail."
+      additionalProperties: false
+      examples:
+        - legal_entity_ids:
+              - "0192a000-0000-7000-8000-000000000204"
+          reason: The UAE company sells for the region too.
+    ProfitCenterPage:
+      type: object
+      description: One page of profit centers.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProfitCenter"
+          description: The profit centers on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+      examples:
+        - items:
+            - id: "0192a000-0000-7000-8000-000000000302"
+              version: 3
+              created_at: "2026-10-21T09:00:00Z"
+              created_by: "0192a000-0000-7000-8000-000000000101"
+              updated_at: "2026-10-21T09:30:00Z"
+              code: CA-SALES
+              name: Sales Canada
+              responsible: Jane Doe
+              status: active
+              legal_entity_ids:
+                - "0192a000-0000-7000-8000-000000000201"
+              valid_from: "2026-01-01"
+              periods:
+                - valid_from: "2026-01-01"
+                  locked: false
+    Segment:
+      description: "A segment (IFRS 8 operating segment, SAP FAGL_SEGM): tenant-wide master data that profit centers name."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - code
+            - name
+          properties:
+            code:
+              type: string
+              pattern: "^[0-9A-Z_-]{1,10}$"
+              description: Code, unique in the tenant. Immutable.
+              readOnly: true
+            name:
+              type: string
+              minLength: 1
+              maxLength: 100
+              description: Name.
+            description:
+              type: string
+              minLength: 1
+              maxLength: 500
+              description: Description.
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000301"
+          version: 1
+          created_at: "2026-10-21T09:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+          updated_at: "2026-10-21T09:00:00Z"
+          code: RETAIL
+          name: Retail
+    SegmentCreate:
+      type: object
+      description: "A new segment."
+      required:
+        - code
+        - name
+      properties:
+        code:
+          type: string
+          pattern: "^[0-9A-Z_-]{1,10}$"
+          description: Code, unique in the tenant.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Name.
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Description.
+      additionalProperties: false
+      examples:
+        - code: RETAIL
+          name: Retail
+    SegmentUpdate:
+      type: object
+      description: "Merge patch of a segment."
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Name.
+        description:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          maxLength: 500
+          description: Description. Send null to clear.
+      additionalProperties: false
+      examples:
+        - name: Retail and online
+    SegmentPage:
+      type: object
+      description: One page of segments.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Segment"
+          description: The segments on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+      examples:
+        - items:
+            - id: "0192a000-0000-7000-8000-000000000303"
+              version: 1
+              created_at: "2026-10-21T09:00:00Z"
+              created_by: "0192a000-0000-7000-8000-000000000101"
+              updated_at: "2026-10-21T09:00:00Z"
+              code: RETAIL
+              name: Retail
+    CenterChange:
+      description: "A requested change to a cost or profit center (ADR-0050 §11), decided on its `center_change` approval request (`workflow_request_id`): applied when it is approved, rejected when it is rejected, cancelled when its requester withdraws it."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - kind
+            - payload
+            - reason
+            - status
+            - requested_by
+          properties:
+            cost_center_id:
+              type: string
+              format: uuid
+              description: Cost center changed; absent for a profit center's change.
+              readOnly: true
+            profit_center_id:
+              type: string
+              format: uuid
+              description: Profit center changed; absent for a cost center's change.
+              readOnly: true
+            kind:
+              type: string
+              description: "Kind of change. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - create
+                - redate
+                - lock
+                - move
+                - assign
+              readOnly: true
+            payload:
+              type: object
+              additionalProperties: true
+              description: The requested values, as requested.
+              readOnly: true
+            reason:
+              type: string
+              description: Why the change was requested.
+              readOnly: true
+            status:
+              type: string
+              description: "Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - pending
+                - applied
+                - rejected
+                - cancelled
+              readOnly: true
+            workflow_request_id:
+              type: string
+              format: uuid
+              description: Approval request (workflow context).
+              readOnly: true
+            requested_by:
+              type: string
+              format: uuid
+              description: Principal that requested the change.
+              readOnly: true
+            applied_at:
+              type: string
+              format: date-time
+              description: When the change was applied; absent until then.
+              readOnly: true
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000301"
+          version: 1
+          created_at: "2026-10-21T09:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+          updated_at: "2026-10-21T09:00:00Z"
+          cost_center_id: "0192a000-0000-7000-8000-000000000304"
+          kind: lock
+          payload: {valid_from: "2026-11-01", lock_actual_cost: true}
+          reason: Cost center being wound down.
+          status: pending
+          workflow_request_id: "0192a000-0000-7000-8000-000000000305"
+          requested_by: "0192a000-0000-7000-8000-000000000101"
+    CenterChangePage:
+      type: object
+      description: One page of center changes.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CenterChange"
+          description: The center changes on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+      examples:
+        - items:
+            - id: "0192a000-0000-7000-8000-000000000306"
+              version: 3
+              created_at: "2026-10-21T09:00:00Z"
+              created_by: "0192a000-0000-7000-8000-000000000101"
+              updated_at: "2026-10-21T09:30:00Z"
+              cost_center_id: "0192a000-0000-7000-8000-000000000304"
+              kind: lock
+              payload: {valid_from: "2026-11-01", lock_actual_cost: true}
+              reason: Cost center being wound down.
+              status: applied
+              workflow_request_id: "0192a000-0000-7000-8000-000000000305"
+              requested_by: "0192a000-0000-7000-8000-000000000101"
+              applied_at: "2026-10-21T09:30:00Z"
     FiscalPeriod:
       type: object
       description: The posting status of one fiscal period for one legal entity and ledger.
@@ -16191,6 +18764,224 @@ components:
               is_special: false
               status: open
               version: 1
+              updated_at: "2026-10-09T14:03:11Z"
+              updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
+    Ledger:
+      type: object
+      description: "A ledger of the tenant (SAP FINSC_LEDGER): the leading ledger 0L or a parallel ledger."
+      required:
+        - id
+        - code
+        - name
+        - accounting_principle
+        - is_leading
+        - legal_entity_ids
+        - version
+        - created_at
+        - created_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier (UUIDv7).
+          readOnly: true
+        code:
+          type: string
+          description: "Ledger code: 0L for the leading ledger, two upper-case letters or digits for the others."
+          pattern: "^[0-9A-Z]{2}$"
+          readOnly: true
+        name:
+          type: string
+          description: Name.
+          maxLength: 200
+          readOnly: true
+        accounting_principle:
+          type: string
+          description: "Accounting principle the ledger is kept under (IFRS, US_GAAP, HGB); fixed once activated."
+          pattern: "^[A-Z0-9_]{2,20}$"
+          readOnly: true
+        is_leading:
+          type: boolean
+          description: "Whether this is the leading ledger 0L, which every company keeps and reports default to."
+          readOnly: true
+        legal_entity_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: "The legal entities that keep the ledger, of those the caller may see."
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          description: "Optimistic-lock version; equals the ETag."
+          minimum: 1
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: Creation time.
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: Principal that activated the configuration creating it.
+          readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+          code: "0L"
+          name: Leading ledger
+          accounting_principle: IFRS
+          is_leading: true
+          legal_entity_ids:
+            - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+          version: 1
+          created_at: "2026-10-09T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
+    LedgerPage:
+      type: object
+      description: One page of ledgers.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Ledger"
+          description: The ledgers on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+      examples:
+        - items:
+            - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+              code: "0L"
+              name: Leading ledger
+              accounting_principle: IFRS
+              is_leading: true
+              legal_entity_ids:
+                - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+              version: 1
+              created_at: "2026-10-09T14:03:11Z"
+              created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
+    LedgerGroup:
+      type: object
+      description: "A ledger group (SAP FAGL ledger group): ledgers a posting goes to together, the representative deciding its posting period."
+      required:
+        - id
+        - code
+        - name
+        - representative_ledger_id
+        - ledger_ids
+        - version
+        - created_at
+        - created_by
+        - updated_at
+        - updated_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier (UUIDv7).
+          readOnly: true
+        code:
+          type: string
+          description: "Group code, 1-4 upper-case letters or digits, different from every ledger's."
+          pattern: "^[0-9A-Z]{1,4}$"
+          readOnly: true
+        name:
+          type: string
+          description: Name.
+          maxLength: 200
+          readOnly: true
+        representative_ledger_id:
+          type: string
+          format: uuid
+          description: "The member whose periods decide the group's postings; the leading ledger when it is a member. Fixed once activated."
+          readOnly: true
+        ledger_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: "The group's ledgers; a ledger never leaves a group once activated."
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          description: "Optimistic-lock version; equals the ETag."
+          minimum: 1
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: Creation time.
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: Principal that activated the configuration creating it.
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: Time of the last change.
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          description: Principal that activated the configuration changing it last.
+          readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d90"
+          code: ALL
+          name: Every ledger
+          representative_ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+          ledger_ids:
+            - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+            - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
+          version: 1
+          created_at: "2026-10-09T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
+          updated_at: "2026-10-09T14:03:11Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
+    LedgerGroupPage:
+      type: object
+      description: One page of ledger groups.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/LedgerGroup"
+          description: The ledger groups on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+      examples:
+        - items:
+            - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d90"
+              code: ALL
+              name: Every ledger
+              representative_ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+              ledger_ids:
+                - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+              version: 1
+              created_at: "2026-10-09T14:03:11Z"
+              created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
               updated_at: "2026-10-09T14:03:11Z"
               updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
     JournalLine:
@@ -16336,7 +19127,7 @@ components:
           readOnly: true
         document_number:
           type: string
-          description: Document number, unique per legal entity, document type and fiscal year.
+          description: "Document number, unique per legal entity, ledger, document type and fiscal year; the entries of a posting group share it."
           readOnly: true
         document_date:
           type: string
@@ -16403,6 +19194,16 @@ components:
           type: string
           format: uuid
           description: Entry this one reverses.
+          readOnly: true
+        posting_group_id:
+          type: string
+          format: uuid
+          description: "The first entry of the posting group this entry belongs to (the entry itself on the first): a posting is written to every ledger its company keeps, or to the ledger or ledger group it names, as linked entries sharing one document number (ADR-0045). Absent on entries posted before posting groups."
+          readOnly: true
+        ledger_group_id:
+          type: string
+          format: uuid
+          description: The ledger group the posting named, if any.
           readOnly: true
         reversed_by_id:
           type: string
@@ -16519,7 +19320,11 @@ components:
         ledger_id:
           type: string
           format: uuid
-          description: "Ledger; defaults to the leading ledger."
+          description: "The one ledger the entry posts to (a ledger-specific posting), one its company keeps (422 `ledger.ledger_not_kept`); a ledger-specific posting has no line on a supplier or customer reconciliation account (422 `ledger.ledger_specific_reconciliation`). Without `ledger_id` and `ledger_group` the entry posts to every ledger its company keeps, as linked entries sharing one document number; the leading ledger's entry is the one returned."
+        ledger_group:
+          type: string
+          description: "Code of the ledger group the entry posts to (`GET /v1/ledger-groups`): one entry per member its company keeps, the representative's returned (or, the representative not kept, the first member left by code); a group of no ledger the company keeps is 422 `ledger.ledger_not_kept`, and one with a line on a supplier or customer reconciliation account is 422 `ledger.ledger_specific_reconciliation`. Not with `ledger_id` (422 `ledger.ledger_or_group`); an unknown code is 422 `ledger.unknown_ledger_group`."
+          pattern: "^[0-9A-Z]{1,4}$"
         document_type:
           type: string
           description: Document type.
@@ -16715,7 +19520,15 @@ components:
             ledger_id:
               type: string
               format: uuid
-              description: Ledger.
+              description: "The ledger named (`ledger_specific`), the ledger group's representative, or the leading ledger when it posts to every ledger its company keeps."
+              readOnly: true
+            ledger_specific:
+              type: boolean
+              description: It posts to `ledger_id` alone.
+              readOnly: true
+            ledger_group:
+              type: string
+              description: Code of the ledger group it posts to, if any.
               readOnly: true
             document_type:
               type: string
@@ -17271,7 +20084,7 @@ components:
         ledger_id:
           type: string
           format: uuid
-          description: Ledger (default the leading ledger).
+          description: "Ledger valued and posted to (default the leading ledger), one the legal entity keeps (422 `ledger.ledger_not_kept`)."
         key_date:
           type: string
           format: date
@@ -17681,6 +20494,303 @@ components:
                 amount: "1080.00"
                 currency: EUR
               updated_at: "2026-10-09T14:03:11Z"
+    LedgerDifference:
+      type: object
+      description: "One account and transaction currency whose balance differs between two ledgers; amounts are signed, debit positive."
+      required:
+        - account_id
+        - currency
+        - balance
+        - compare_balance
+        - difference
+        - difference_lc
+        - difference_gc
+      properties:
+        account_id:
+          type: string
+          format: uuid
+          description: G/L account.
+          readOnly: true
+        currency:
+          type: string
+          description: Transaction currency.
+          pattern: "^[A-Z]{3}$"
+          readOnly: true
+        balance:
+          $ref: "#/components/schemas/Money"
+          description: Balance in the ledger, in transaction currency.
+          readOnly: true
+        compare_balance:
+          $ref: "#/components/schemas/Money"
+          description: Balance in the compared ledger, in transaction currency.
+          readOnly: true
+        difference:
+          $ref: "#/components/schemas/Money"
+          description: "`balance` less `compare_balance`."
+          readOnly: true
+        difference_lc:
+          $ref: "#/components/schemas/Money"
+          description: The difference in local currency.
+          readOnly: true
+        difference_gc:
+          $ref: "#/components/schemas/Money"
+          description: The difference in group currency.
+          readOnly: true
+      examples:
+        - account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+          currency: EUR
+          balance:
+            amount: "1200.00"
+            currency: EUR
+          compare_balance:
+            amount: "1000.00"
+            currency: EUR
+          difference:
+            amount: "200.00"
+            currency: EUR
+          difference_lc:
+            amount: "200.00"
+            currency: EUR
+          difference_gc:
+            amount: "200.00"
+            currency: EUR
+    LedgerTrialBalance:
+      type: object
+      description: "One ledger's trial balance check: its debits and credits in local and group currency, which net to zero."
+      required:
+        - ledger_id
+        - debit_lc
+        - credit_lc
+        - debit_gc
+        - credit_gc
+        - balanced
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: Ledger.
+          readOnly: true
+        debit_lc:
+          $ref: "#/components/schemas/Money"
+          description: Debit total in local currency.
+          readOnly: true
+        credit_lc:
+          $ref: "#/components/schemas/Money"
+          description: Credit total in local currency (positive).
+          readOnly: true
+        debit_gc:
+          $ref: "#/components/schemas/Money"
+          description: Debit total in group currency.
+          readOnly: true
+        credit_gc:
+          $ref: "#/components/schemas/Money"
+          description: Credit total in group currency (positive).
+          readOnly: true
+        balanced:
+          type: boolean
+          description: "Whether debits equal credits in local and in group currency."
+          readOnly: true
+      examples:
+        - ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+          debit_lc:
+            amount: "5000.00"
+            currency: EUR
+          credit_lc:
+            amount: "5000.00"
+            currency: EUR
+          debit_gc:
+            amount: "5000.00"
+            currency: EUR
+          credit_gc:
+            amount: "5000.00"
+            currency: EUR
+          balanced: true
+    LedgerReconciliationPage:
+      type: object
+      description: "One page of the differences between two ledgers, with each ledger's trial balance check."
+      required:
+        - ledger_id
+        - compare_ledger_id
+        - trial_balances
+        - items
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: The ledger reconciled.
+          readOnly: true
+        compare_ledger_id:
+          type: string
+          format: uuid
+          description: The ledger it is compared with.
+          readOnly: true
+        trial_balances:
+          type: array
+          items:
+            $ref: "#/components/schemas/LedgerTrialBalance"
+          description: "The ledger's trial balance check, then the compared ledger's, on the first page; empty on the next pages and when the legal entity is not visible or does not keep both ledgers."
+          maxItems: 2
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/LedgerDifference"
+          description: The differences on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+          compare_ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
+          trial_balances:
+            - ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+              debit_lc:
+                amount: "5000.00"
+                currency: EUR
+              credit_lc:
+                amount: "5000.00"
+                currency: EUR
+              debit_gc:
+                amount: "5000.00"
+                currency: EUR
+              credit_gc:
+                amount: "5000.00"
+                currency: EUR
+              balanced: true
+          items:
+            - account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+              currency: EUR
+              balance:
+                amount: "1200.00"
+                currency: EUR
+              compare_balance:
+                amount: "1000.00"
+                currency: EUR
+              difference:
+                amount: "200.00"
+                currency: EUR
+              difference_lc:
+                amount: "200.00"
+                currency: EUR
+              difference_gc:
+                amount: "200.00"
+                currency: EUR
+    LedgerReconciliationEntry:
+      type: object
+      description: "A journal line of an entry posted in one of two ledgers and not in the other; amounts are signed, debit positive."
+      required:
+        - ledger_id
+        - journal_entry_id
+        - fiscal_year
+        - line_no
+        - document_number
+        - posting_date
+        - fiscal_period
+        - amount
+        - amount_lc
+        - amount_gc
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: The ledger the entry was posted in.
+          readOnly: true
+        journal_entry_id:
+          type: string
+          format: uuid
+          description: Journal entry.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year of the entry.
+          minimum: 1900
+          maximum: 2999
+          readOnly: true
+        line_no:
+          type: integer
+          format: int32
+          description: Line number.
+          minimum: 1
+          readOnly: true
+        document_number:
+          type: string
+          description: Document number.
+          readOnly: true
+        posting_date:
+          type: string
+          format: date
+          description: Posting date.
+          readOnly: true
+        fiscal_period:
+          type: integer
+          format: int32
+          description: Posting period.
+          minimum: 1
+          maximum: 16
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: Amount in transaction currency.
+          readOnly: true
+        amount_lc:
+          $ref: "#/components/schemas/Money"
+          description: Amount in local currency.
+          readOnly: true
+        amount_gc:
+          $ref: "#/components/schemas/Money"
+          description: Amount in group currency.
+          readOnly: true
+      examples:
+        - ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+          journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d09"
+          fiscal_year: 2026
+          line_no: 1
+          document_number: "1000000042"
+          posting_date: "2026-10-09"
+          fiscal_period: 10
+          amount:
+            amount: "200.00"
+            currency: EUR
+          amount_lc:
+            amount: "200.00"
+            currency: EUR
+          amount_gc:
+            amount: "200.00"
+            currency: EUR
+    LedgerReconciliationEntryPage:
+      type: object
+      description: One page of ledger-specific journal lines.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/LedgerReconciliationEntry"
+          description: The lines on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items:
+            - ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+              journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d09"
+              fiscal_year: 2026
+              line_no: 1
+              document_number: "1000000042"
+              posting_date: "2026-10-09"
+              fiscal_period: 10
+              amount:
+                amount: "200.00"
+                currency: EUR
+              amount_lc:
+                amount: "200.00"
+                currency: EUR
+              amount_gc:
+                amount: "200.00"
+                currency: EUR
     ExchangeRate:
       type: object
       description: "An exchange rate. Insert-only; (rate_type, from_currency, to_currency, valid_from) is unique, and a correction is a new rate."
@@ -20822,7 +23932,7 @@ components:
               readOnly: true
             account:
               type: string
-              description: "The account's IBAN, or the bank's account number where it has none."
+              description: "The account's IBAN, or the bank's account number where it has none. Agents see its last four characters only, after `****`."
               readOnly: true
             opening_balance:
               $ref: "#/components/schemas/Money"
@@ -20851,7 +23961,7 @@ components:
               readOnly: true
             status:
               type: string
-              description: "`imported`; `gap` when its opening balance is not the previous statement's closing balance (automatic posting stops for the bank); `reconciled`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "`imported`; `gap` when its opening balance is not the previous statement's closing balance (automatic posting stops for the bank); `reconciled` once every line of it and of the bank's statements before it is posted or excluded and its closing balance, less the lines excluded and those posted after its closing date, is the ledger's balance of the main bank account on that date (T49h): set once, never undone by the server, and its lines are then decided for good. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - imported
                 - gap
@@ -20863,8 +23973,18 @@ components:
                 $ref: "#/components/schemas/BankStatementLine"
               description: "The booked entries, in the bank's order; absent in lists."
               readOnly: true
+            reconciled_at:
+              type: string
+              format: date-time
+              description: "When the statement became `reconciled`; absent before."
+              readOnly: true
+            reconciled_by:
+              type: string
+              format: uuid
+              description: "Whose action reconciled it: the person, integration or agent whose posting, exclusion or run of the rules left nothing unexplained."
+              readOnly: true
     StatementMatch:
-      description: "What a bank statement line clears (ADR-0047): found by a matching rule, decided by a person, or (later) proposed by the reconciliation agent."
+      description: "What a bank statement line clears (ADR-0047): found by a matching rule, decided by a person, or proposed by the reconciliation agent for a person to decide (kind `agent`, T49g)."
       examples:
         - {id: 0192a000-0000-7000-8000-000000000b40, version: 1, created_at: "2026-10-20T11:00:00Z", created_by: 0192a000-0000-7000-8000-000000000105, updated_at: "2026-10-20T11:00:00Z", updated_by: 0192a000-0000-7000-8000-000000000105, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, kind: rule, rule: end_to_end_id, reason: "End-to-end ids 2000-PR100000-000001: 1 of 1 are payments, paying 100.00 of 100.00.", status: matched, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c01}]}
       allOf:
@@ -20887,7 +24007,7 @@ components:
             reason: {type: string, description: "What the rule found, or the person's reason.", readOnly: true}
             status:
               type: string
-              description: "open: candidates for a person to choose from; matched: the targets decided; excluded: the line clears nothing; rejected: replaced by a person's decision. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "open: candidates for a person to choose from, or an agent's proposal; matched: the targets decided; excluded: the line clears nothing; rejected: replaced by a person's decision, or an agent's proposal a person decided (`outcome`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum: [open, matched, excluded, rejected]
               readOnly: true
             targets:
@@ -20900,15 +24020,27 @@ components:
             approval_request_id: {type: string, format: uuid, description: "The latest `bank_clearing` approval request of the posting (workflow context), also once rejected or withdrawn.", readOnly: true}
             journal_entry_id: {type: string, format: uuid, description: "The posting (ledger context), once the line is posted.", readOnly: true}
             journal_entry_year: {type: integer, format: int32, description: "The fiscal year of the posting.", readOnly: true}
+            session_id: {type: string, format: uuid, description: "The agent session that made an agent's proposal (agents context).", readOnly: true}
+            proposal:
+              type: string
+              description: "What an agent's proposal proposes: `match` (its targets) or `exclude` (none). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [match, exclude]
+              readOnly: true
+            outcome:
+              type: string
+              description: "What a person did with an agent's proposal, once decided: `accepted` (the person's match by it), `rejected`, or `overridden` (the person matched or excluded the line otherwise). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [accepted, rejected, overridden]
+              readOnly: true
     StatementMatchTarget:
       type: object
-      description: "A payment, with the bank file of a batch booking, or a posting rule."
+      description: "A payment, with the bank file of a batch booking, a posting rule, or the incoming payments clearing account."
       required: [candidate]
       properties:
         candidate: {type: integer, format: int32, minimum: 1, description: "The candidate it belongs to.", readOnly: true}
         payment_id: {type: string, format: uuid, description: The payment cleared., readOnly: true}
         bank_file_id: {type: string, format: uuid, description: "The bank file of a batch booking the payment was in.", readOnly: true}
         posting_rule: {type: string, description: "The transaction code of the company's posting rule.", readOnly: true}
+        incoming: {type: boolean, description: "True for an incoming payment, posted to the house bank's incoming payments clearing account; absent otherwise.", readOnly: true}
     StatementMatchList:
       type: object
       description: A bank statement's matches.
@@ -20921,6 +24053,255 @@ components:
             - [{id: 0192a000-0000-7000-8000-000000000b40, version: 1, created_at: "2026-10-20T11:00:00Z", created_by: 0192a000-0000-7000-8000-000000000105, updated_at: "2026-10-20T11:00:00Z", updated_by: 0192a000-0000-7000-8000-000000000105, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, kind: rule, rule: end_to_end_id, reason: "End-to-end ids 2000-PR100000-000001: 1 of 1 are payments, paying 100.00 of 100.00.", status: matched, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c01}]}]
       examples:
         - {items: [{id: 0192a000-0000-7000-8000-000000000b40, version: 1, created_at: "2026-10-20T11:00:00Z", created_by: 0192a000-0000-7000-8000-000000000105, updated_at: "2026-10-20T11:00:00Z", updated_by: 0192a000-0000-7000-8000-000000000105, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, kind: rule, rule: end_to_end_id, reason: "End-to-end ids 2000-PR100000-000001: 1 of 1 are payments, paying 100.00 of 100.00.", status: matched, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c01}]}]}
+    StatementLineProposalInput:
+      type: object
+      description: "The reconciliation agent's proposal for a line, in its running session: the payments the line clears, a posting rule, or its exclusion (one of the three), and why."
+      required: [session_id, reason]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+          description: "The caller's running agent session; a session proposes once per line."
+        payment_ids:
+          type: array
+          items: {type: string, format: uuid}
+          minItems: 1
+          maxItems: 1000
+          uniqueItems: true
+          description: The payments the line clears.
+          examples:
+            - [0192a000-0000-7000-8000-000000000c04]
+        posting_rule:
+          type: string
+          minLength: 1
+          maxLength: 35
+          description: The transaction code of the company's posting rule that posts the line.
+        exclude:
+          type: boolean
+          description: "True to propose that the line clears nothing the ledger holds."
+        reason:
+          type: string
+          description: "Why, with the figures that support it; recorded on the proposal, in the audit trail and on the event, for the person who decides."
+          minLength: 1
+          maxLength: 2000
+      additionalProperties: false
+      examples:
+        - {session_id: 0192a000-0000-7000-8000-000000000a01, payment_ids: [0192a000-0000-7000-8000-000000000c04], reason: "The bank booked 99.50 for payment 2000-PR100000-000004 of 100.00 to the same payee; 0.50 is its charge."}
+    StatementLineProposalAccept:
+      type: object
+      description: "A person's acceptance of the agent's proposal for a line."
+      properties:
+        comment:
+          type: string
+          description: "Added to the proposal's reason on the person's match; recorded in the audit trail."
+          minLength: 1
+          maxLength: 2000
+      additionalProperties: false
+      examples:
+        - {comment: "Checked against the bank's charges schedule."}
+    HouseBank:
+      type: object
+      description: "A house bank of a company (SAP T012K), from the configuration (`companies[].house_bank(s)`, ADR-0038)."
+      required: [id, legal_entity_id, code, currency, account_last4, bic, status]
+      properties:
+        id: {type: string, format: uuid, description: "Identifier: the `house_bank_id` of statement imports and payment runs.", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: The house bank's legal entity., readOnly: true}
+        code: {type: string, description: "The bank's name in the configuration, unique within the legal entity.", readOnly: true}
+        currency: {type: string, description: "The account's currency (ISO 4217).", readOnly: true}
+        account_last4: {type: string, description: "The last up to four characters of the account's IBAN.", readOnly: true}
+        bic: {type: string, description: The bank's BIC., readOnly: true}
+        status:
+          type: string
+          description: "`inactive` once the configuration no longer lists it. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [active, inactive]
+          readOnly: true
+      examples:
+        - {id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, code: MAIN, currency: EUR, account_last4: "3000", bic: COBADEFFXXX, status: active}
+    HouseBankPage:
+      type: object
+      description: One page of house banks.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/HouseBank"}
+          description: The house banks on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - {items: [{id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, code: MAIN, currency: EUR, account_last4: "3000", bic: COBADEFFXXX, status: active}]}
+    BankReconciliation:
+      type: object
+      description: "One page of a house bank's reconciliation report (ADR-0047, T49h): the period's figures, and its statements on this page with their figures and lines. Amounts are signed: a credit to the account is positive, as on the statements; a ledger balance is debit positive, so the two agree when equal."
+      required: [house_bank_id, legal_entity_id, currency, summary, items]
+      properties:
+        house_bank_id: {type: string, format: uuid, description: The house bank., readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The house bank's legal entity.", readOnly: true}
+        currency: {type: string, description: "The house bank's currency (ISO 4217), its statements' and the ledger balances'.", readOnly: true}
+        closing_date_from: {type: string, format: date, description: "The period's first day, when given.", readOnly: true}
+        closing_date_to: {type: string, format: date, description: "The period's last day, when given.", readOnly: true}
+        summary: {$ref: "#/components/schemas/BankReconciliationSummary"}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/BankReconciliationStatement"}
+          description: "The period's statements on this page, by closing date."
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - house_bank_id: 0192a000-0000-7000-8000-000000000b01
+          legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          currency: EUR
+          closing_date_from: "2026-04-01"
+          closing_date_to: "2026-04-30"
+          summary: {statements: 1, opening_balance: {amount: "1000.00", currency: EUR}, opening_date: "2026-04-16", figures: {as_of: "2026-04-17", closing_balance: {amount: "929.50", currency: EUR}, ledger_balance: {amount: "989.50", currency: EUR}, excluded: {amount: "0.00", currency: EUR}, in_transit: {amount: "-60.00", currency: EUR}, posted_later: {amount: "0.00", currency: EUR}, unexplained: {amount: "0.00", currency: EUR}}, lines: {unmatched: 1, proposed: 0, matched: 0, excluded: 0, pending_approval: 0, posted: 1}}
+          items:
+            - bank_statement_id: 0192a000-0000-7000-8000-000000000b20
+              statement_ref: "2026-04-17"
+              sequence: "107"
+              status: imported
+              opening_date: "2026-04-16"
+              opening_balance: {amount: "1000.00", currency: EUR}
+              figures: {as_of: "2026-04-17", closing_balance: {amount: "929.50", currency: EUR}, ledger_balance: {amount: "989.50", currency: EUR}, excluded: {amount: "0.00", currency: EUR}, in_transit: {amount: "-60.00", currency: EUR}, posted_later: {amount: "0.00", currency: EUR}, unexplained: {amount: "0.00", currency: EUR}}
+              line_counts: {unmatched: 1, proposed: 0, matched: 0, excluded: 0, pending_approval: 0, posted: 1}
+              lines:
+                - {line_no: 1, booking_date: "2026-04-17", amount: {amount: "-10.50", currency: EUR}, is_reversal: false, transaction_code: NCHG, status: posted, match_id: 0192a000-0000-7000-8000-000000000b40, match_kind: rule, match_rule: transaction_code, match_status: matched, posting_date: "2026-04-17", journal_entry_id: 0192a000-0000-7000-8000-000000000d01, journal_entry_year: 2026}
+                - {line_no: 2, booking_date: "2026-04-17", amount: {amount: "-60.00", currency: EUR}, is_reversal: false, transaction_code: NTRF, status: unmatched, proposal_outcome: rejected}
+    BankReconciliationSummary:
+      type: object
+      description: "The period's figures: its statements, the first one's opening balance, the figures on the last closing date, and the lines of its statements by status."
+      required: [statements, lines]
+      properties:
+        statements: {type: integer, format: int32, minimum: 0, description: "How many statements close in the period.", readOnly: true}
+        opening_balance: {$ref: "#/components/schemas/Money"}
+        opening_date: {type: string, format: date, description: "The first statement's opening date; absent without statements.", readOnly: true}
+        figures: {$ref: "#/components/schemas/BankReconciliationFigures"}
+        lines: {$ref: "#/components/schemas/BankReconciliationLineCounts"}
+    BankReconciliationFigures:
+      type: object
+      description: "A closing balance compared with the ledger on its date (`as_of`): the ledger's balance of the main bank account, what the lines of the bank's statements up to that date explain of the difference (`excluded`, `in_transit`, `posted_later`), and what is left (`unexplained` = closing balance − ledger balance − excluded − in transit − posted later). Absent ledger balance: the house bank has no main bank account."
+      required: [as_of, closing_balance, excluded, in_transit, posted_later]
+      properties:
+        as_of: {type: string, format: date, description: "The closing date compared on.", readOnly: true}
+        closing_balance: {$ref: "#/components/schemas/Money"}
+        ledger_balance: {$ref: "#/components/schemas/Money"}
+        excluded: {$ref: "#/components/schemas/Money"}
+        in_transit: {$ref: "#/components/schemas/Money"}
+        posted_later: {$ref: "#/components/schemas/Money"}
+        unexplained: {$ref: "#/components/schemas/Money"}
+    BankReconciliationLineCounts:
+      type: object
+      description: "How many lines are in each status."
+      required: [unmatched, proposed, matched, excluded, pending_approval, posted]
+      properties:
+        unmatched: {type: integer, format: int32, minimum: 0, description: "Open: nothing matched them yet.", readOnly: true}
+        proposed: {type: integer, format: int32, minimum: 0, description: "With candidates or an agent's proposal for a person.", readOnly: true}
+        matched: {type: integer, format: int32, minimum: 0, description: "Matched, not posted yet.", readOnly: true}
+        excluded: {type: integer, format: int32, minimum: 0, description: "Excluded by a person.", readOnly: true}
+        pending_approval: {type: integer, format: int32, minimum: 0, description: "Waiting for the approval of their posting.", readOnly: true}
+        posted: {type: integer, format: int32, minimum: 0, description: "Posted.", readOnly: true}
+    BankReconciliationStatement:
+      type: object
+      description: "A statement of the report with its figures on its closing date and its lines."
+      required: [bank_statement_id, statement_ref, sequence, status, opening_date, opening_balance, figures, line_counts, lines]
+      properties:
+        bank_statement_id: {type: string, format: uuid, description: The statement., readOnly: true}
+        statement_ref: {type: string, description: "The bank's statement id.", readOnly: true}
+        sequence: {type: string, description: "The statement's number in the account's series.", readOnly: true}
+        status:
+          type: string
+          description: "The statement's status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [imported, gap, reconciled]
+          readOnly: true
+        opening_date: {type: string, format: date, description: Date of the opening balance., readOnly: true}
+        opening_balance: {$ref: "#/components/schemas/Money"}
+        figures: {$ref: "#/components/schemas/BankReconciliationFigures"}
+        line_counts: {$ref: "#/components/schemas/BankReconciliationLineCounts"}
+        lines:
+          type: array
+          items: {$ref: "#/components/schemas/BankReconciliationLine"}
+          description: "Its lines in the bank's order, those of `line_status` only when given."
+          readOnly: true
+    BankReconciliationLine:
+      type: object
+      description: "A line of a statement in the report, with its live match and the outcome of the latest agent proposal a person decided."
+      required: [line_no, booking_date, amount, is_reversal, transaction_code, status]
+      properties:
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line's number in the statement.", readOnly: true}
+        booking_date: {type: string, format: date, description: The booking date., readOnly: true}
+        amount: {$ref: "#/components/schemas/Money"}
+        is_reversal: {type: boolean, description: "True when the bank reverses an earlier booking.", readOnly: true}
+        transaction_code: {type: string, description: "The bank's transaction code.", readOnly: true}
+        status:
+          type: string
+          description: "The line's status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [unmatched, proposed, matched, excluded, pending_approval, posted]
+          readOnly: true
+        match_id: {type: string, format: uuid, description: "The live match; absent for an unmatched line.", readOnly: true}
+        match_kind:
+          type: string
+          description: "Who made the live match. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [rule, manual, agent]
+          readOnly: true
+        match_rule:
+          type: string
+          description: "The matching rule of a rule's match. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [end_to_end_id, batch_id, transaction_code, amount]
+          readOnly: true
+        match_status:
+          type: string
+          description: "The live match's status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [open, matched, excluded]
+          readOnly: true
+        incoming: {type: boolean, description: "True when the match posts the line to the incoming payments clearing account; absent otherwise.", readOnly: true}
+        posting_date: {type: string, format: date, description: "The date the line posts on, or was asked to post on.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The posting (ledger context), once posted.", readOnly: true}
+        journal_entry_year: {type: integer, format: int32, description: "The fiscal year of the posting.", readOnly: true}
+        approval_request_id: {type: string, format: uuid, description: "The latest `bank_clearing` approval request of the posting.", readOnly: true}
+        proposal_outcome:
+          type: string
+          description: "What a person did with the latest agent proposal for the line they decided: `accepted`, `rejected` or `overridden`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [accepted, rejected, overridden]
+          readOnly: true
+    BankStatementRules:
+      type: object
+      description: "The posting and matching rules of a bank statement's company (`companies[].bank_statements`)."
+      required: [posting_rules, matching_rules]
+      properties:
+        posting_rules:
+          type: array
+          description: "What lines of a bank transaction code post to (SAP T028G)."
+          items:
+            type: object
+            description: A posting rule.
+            required: [transaction_code, description, account]
+            properties:
+              transaction_code: {type: string, description: "The bank transaction code: ISO 20022 domain, family and sub-family, an MT940 type or the bank's proprietary code.", readOnly: true}
+              description: {type: string, description: What the rule posts., readOnly: true}
+              account: {type: string, description: "The number of the account the line posts to.", readOnly: true}
+          readOnly: true
+        matching_rules:
+          type: array
+          description: "How lines are matched, in the order the rules are tried."
+          items:
+            type: object
+            description: A matching rule.
+            required: [kind]
+            properties:
+              kind:
+                type: string
+                description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+                x-extensible-enum: [end_to_end_id, batch_id, transaction_code, amount]
+                readOnly: true
+              amount_tolerance: {type: string, description: "The amount rule's tolerance, in the company's currency.", readOnly: true}
+              date_window_days: {type: integer, format: int32, description: "The amount rule's window around the booking date, in days.", readOnly: true}
+              counterparty: {type: boolean, description: "Whether the amount rule asks for the payee's IBAN or name.", readOnly: true}
+          readOnly: true
+      examples:
+        - {posting_rules: [{transaction_code: NCHG, description: Bank charges, account: "520000"}], matching_rules: [{kind: end_to_end_id}, {kind: amount, amount_tolerance: "0.50", date_window_days: 3, counterparty: true}]}
     StatementLinePostInput:
       type: object
       description: "A person's posting of a matched line: on its booking date, or on another date with the reason."
@@ -20928,7 +24309,7 @@ components:
         posting_date:
           type: string
           format: date
-          description: "The date to post on instead of the booking date, in an open period; with `reason`."
+          description: "The date to post on instead of the booking date, on or after it and in an open period; with `reason`."
         reason:
           type: string
           description: "Why the posting is dated otherwise; recorded in the audit trail. Only with `posting_date`."
@@ -20939,7 +24320,7 @@ components:
         - {posting_date: "2026-05-04", reason: "April is locked; the bank booked it on 30 April."}
     StatementLineMatchInput:
       type: object
-      description: "A person's match of a line: the payments it clears or a posting rule, not both, and why."
+      description: "A person's match of a line: the payments it clears, a posting rule, or the house bank's incoming payments clearing account (one of them), and why."
       required: [reason]
       properties:
         payment_ids:
@@ -20956,6 +24337,9 @@ components:
           minLength: 1
           maxLength: 35
           description: The transaction code of the company's posting rule that posts the line.
+        incoming:
+          type: boolean
+          description: "True for an incoming payment (a credit that reverses nothing): it posts to the house bank's incoming payments clearing account (`incoming_gl_account`), where it stays an open item until accounts receivable clears it (ADR-0047)."
         reason:
           type: string
           description: "Why; recorded in the audit trail and on the resulting event."
@@ -20964,6 +24348,7 @@ components:
       additionalProperties: false
       examples:
         - {payment_ids: [0192a000-0000-7000-8000-000000000c01], reason: "The remittance names INV-3."}
+        - {incoming: true, reason: "Customer 4711 paid invoice AR-2026-118."}
     BankStatementLine:
       type: object
       description: One booking on the account.
@@ -21069,11 +24454,15 @@ components:
           readOnly: true
         counterparty_iban:
           type: string
-          description: The other side's IBAN.
+          description: "The other side's IBAN; absent for agents, who see `counterparty_account_last4` only."
           readOnly: true
         counterparty_account:
           type: string
-          description: "The other side's account number, where it has no IBAN."
+          description: "The other side's account number, where it has no IBAN; absent for agents."
+          readOnly: true
+        counterparty_account_last4:
+          type: string
+          description: "The last up to four characters of the other side's IBAN or account number, as partner bank accounts show them (`account_last4`)."
           readOnly: true
         counterparty_bic:
           type: string
@@ -21299,6 +24688,7 @@ components:
                 - purchase_order
                 - order_change
                 - bank_clearing
+                - center_change
               readOnly: true
             object_id:
               type: string
