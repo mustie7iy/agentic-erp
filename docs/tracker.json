@@ -4426,14 +4426,14 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Sign-in through the BFF (P2, P3, P4; G8, G9): web_client and login code on identity provider registrations (api/control.yaml) and the directory projection; authorization code flow with PKCE, state, nonce and private_key_jwt; ID token through authn; web schema in the directory database with sealed tokens and an hourly sweep; __Host-Http- Strict session cookie, Lax login cookie; CSRF by CrossOriginProtection and synchronizer token; refresh; 401 and RFC 9470 step-up handled; endCurrentSession and RP-initiated logout; authntest gains an authorization endpoint; production startup checks; security tests; from T73a's review: the rollback drill checks erp-web in erp-global too, and a check that the pods' subnets never overlap the balancers' (erp-web's calls to the router carry no PROXY header)",
-        "r": "T73b",
+        "s": "D",
+        "t": "Sign-in through the BFF (P2, P3, P4; G8, G9): web_client with login code on identity provider registrations (api/control.yaml, migration 000139) projected into the directory; the code flow with PKCE (S256), state, nonce, private_key_jwt (client_secret_basic where nothing else), the ID token through authn.Providers; sessions in the directory database's web schema as erp_web, tokens sealed (AES-256-GCM), idle 8 h, lifetime 24 h, hourly sweep, refresh once under a row lock; __Host-Http- Strict session cookie, Lax sign-in cookie, remembered login code; CSRF by CrossOriginProtection and synchronizer token; the API's 401 ends the session, its RFC 9470 challenge signs in again (no loop); endCurrentSession (identity.session.end, every person's) and RP-initiated logout; authntest's authorization server; production startup checks; network policy to the directory and the providers; Terraform refuses pod subnets overlapping the balancers'; the rollback drill checks erp-web; facts verified (certificate picker, Entra token size). PO: D1 (erp-web's own directory login), D2 (client addresses in the API's audit)",
+        "r": "internal/web/signin.go · internal/web/session · TestSignIn · TestCallbackRefusals · TestTokenRefusals · TestCSRF · TestRefresh · TestSignInInTheBrowser · TestEndCurrentSession · TestWebSchema · TestWebClients · ADR-0052 Built in T73b · T73b",
         "c": []
        },
        {
         "s": "T",
-        "t": "API for the workspace (G1, G2, G3, G7), contract first: listApprovalRequests decidable_by=me with its index, getCurrentPrincipal (GET /v1/me) with identity.self.read granted to every role, listPrincipalNames, x-problem-codes on every operation with a spec test against the registered codes; schema and FailingTx tests",
+        "t": "API for the workspace (G1, G2, G3, G7), contract first: listApprovalRequests decidable_by=me with its index, getCurrentPrincipal (GET /v1/me) with identity.self.read held by every person (T73b made identity.session.end so through authz.PersonsOwn rather than a grant to every role, which a role made later would lack), listPrincipalNames, x-problem-codes on every operation with a spec test against the registered codes; schema and FailingTx tests",
         "r": "T73c",
         "c": []
        },

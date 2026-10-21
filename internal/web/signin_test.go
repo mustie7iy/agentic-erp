@@ -80,6 +80,9 @@ func TestSignIn(t *testing.T) {
 	if strings.Contains(s.logs.String(), id) {
 		t.Error("logs: hold the session id")
 	}
+	if !strings.Contains(s.logs.String(), `msg="web: signed in"`) || !strings.Contains(s.logs.String(), "client=127.0.0.1:") {
+		t.Errorf("logs: got %s, want the sign-in with the client's address", s.logs.String())
+	}
 }
 
 // checkCookie checks a Set-Cookie of the response: Secure, HttpOnly,

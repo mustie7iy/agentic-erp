@@ -93,7 +93,7 @@ func (s *Server) unavailable(w http.ResponseWriter, r *http.Request) {
 
 // failed is the page of a sign-in that did not complete.
 func (s *Server) failed(w http.ResponseWriter, r *http.Request, status int, why string, err error) {
-	s.Log.WarnContext(r.Context(), "web: sign-in failed", "reason", why, "error", err)
+	s.Log.WarnContext(r.Context(), "web: sign-in failed", "reason", why, "client", r.RemoteAddr, "error", err)
 	s.render(w, r, status, ui.Problem(s.shell(i18n.SignInFailedTitle, ""), i18n.SignInFailedTitle, i18n.SignInFailedBody, "/login", i18n.SignInAgain))
 }
 
@@ -277,6 +277,10 @@ func (s *Server) start(w http.ResponseWriter, r *http.Request, t signIn, client 
 		s.unavailable(w, r)
 		return
 	}
+	// Who signed in from where: the client's address is the balancer's
+	// PROXY header's, which the cells' audit does not see (ADR-0052,
+	// Built in T73b).
+	s.Log.InfoContext(r.Context(), "web: signed in", "tenant_id", client.TenantID, "login_code", client.LoginCode, "client", r.RemoteAddr, "step_up", t.stepUp())
 	http.SetCookie(w, cookie(sessionCookie, sess.ID, 0, http.SameSiteStrictMode))
 	s.continueTo(w, r, t.Return)
 }
@@ -457,6 +461,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request, p *person) {
 		return
 	}
 	http.SetCookie(w, cookie(sessionCookie, "", -1, http.SameSiteStrictMode))
+	s.Log.InfoContext(r.Context(), "web: signed out", "tenant_id", p.TenantID, "login_code", p.LoginCode, "client", r.RemoteAddr)
 	if client, err := s.Clients.Find(r.Context(), p.LoginCode); err == nil {
 		if u := s.OIDC.logoutURL(r.Context(), client, p.IDToken); u != "" {
 			s.leaveFor(w, r, u)
