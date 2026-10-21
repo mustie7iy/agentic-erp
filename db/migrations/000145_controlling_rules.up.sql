@@ -13,7 +13,7 @@
 ALTER TABLE ledger.gl_account ADD COLUMN cost_element text NOT NULL DEFAULT 'none',
   ADD CONSTRAINT gl_account_cost_element CHECK (cost_element = 'none' OR (cost_element = 'primary_cost' AND account_type = 'expense')
     OR (cost_element = 'revenue' AND account_type = 'revenue'));
-UPDATE ledger.gl_account SET cost_element = CASE account_type WHEN 'expense' THEN 'primary_cost' ELSE 'revenue' END
+UPDATE ledger.gl_account SET cost_element = CASE account_type WHEN 'expense' THEN 'primary_cost' ELSE 'revenue' END, version = version + 1
   WHERE account_type IN ('expense', 'revenue');
 
 -- The tenant's cost center categories (SAP KOSAR, controlling.

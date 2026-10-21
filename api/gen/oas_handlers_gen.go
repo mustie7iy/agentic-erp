@@ -37,7 +37,10 @@ func (c *codeRecorder) Unwrap() http.ResponseWriter {
 //
 // Creates and activates a new configuration version from an approved change request; each context
 // applies its part. Human-only. Requires status `approved`; a change of validation rules also needs a
-// passed simulation of this exact proposal (409 `config.rules_not_simulated`).
+// passed simulation of this exact proposal (409 `config.rules_not_simulated`). The ledger checks the
+// controlling rules again against its data, which may have changed since submission (a default cost or
+// profit center no longer usable, postings in the year a center accounting switch turns on, a removed
+// cost center category in use): 409 `ledger.controlling_invalid`, naming each finding (ADR-0050 §4).
 //
 // POST /v1/change-requests/{id}:activate
 func (s *Server) handleActivateChangeRequestRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

@@ -343,3 +343,28 @@ func TestControllingDatabaseFailures(t *testing.T) {
 		})
 	}
 }
+
+// TestCategoryRemovedWhileAMoveIsApproved: an activation removing a
+// category waits for a move into it being approved, then sees the period
+// it wrote and is refused, so no active period has an inactive category.
+func TestCategoryRemovedWhileAMoveIsApproved(t *testing.T) {
+	c := setupCenters(t)
+	path := c.approved(t, "1000", "")
+	_, tag := c.Must(200, "GET", path, "", "")
+	move, _ := c.Must(200, "POST", path+":move", `{"valid_from": "2026-06-01", "category": "SALES", "reason": "r"}`, tag)
+	without := document(t)
+	without.Controlling.CostCenterCategories = without.Controlling.CostCenterCategories[:1] // ADMIN
+	approve := func(ctx context.Context) error {
+		return ledger.CenterChanges{}.Approved(ctx, uuid.MustParse(move["id"].(string)), uuid.MustParse(move["workflow_request_id"].(string)))
+	}
+	activate := func(ctx context.Context) error {
+		return ledger.Setup{LegalEntities: tenancy.Directory{}, Now: at(t, "2026-05-01")}.Apply(ctx, without)
+	}
+	first, second := serializeOn(t, c.ten, "the category", rowLockWaits(t), approve, activate)
+	if first != nil {
+		t.Fatalf("move: got %v, want it committed", first)
+	}
+	if got := problem.From(second); got.Code != "ledger.controlling_invalid" || !strings.Contains(got.Detail, "category SALES") {
+		t.Errorf("activation: got %v, want ledger.controlling_invalid naming SALES", second)
+	}
+}

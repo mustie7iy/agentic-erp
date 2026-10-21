@@ -61,10 +61,10 @@ func readControlling(ctx context.Context, tx pgx.Tx, p string, le uuid.UUID, co 
 	if err := c.checkSwitches(ctx, tx, p, le, co, lock, out); err != nil {
 		return c, err
 	}
-	if err := c.checkDefaultCostCenters(ctx, tx, p, le, co, out); err != nil {
+	if err := c.checkDefaultCostCenters(ctx, tx, p, le, co, lock, out); err != nil {
 		return c, err
 	}
-	return c, c.checkDefaultProfitCenter(ctx, tx, p, le, co, out)
+	return c, c.checkDefaultProfitCenter(ctx, tx, p, le, co, lock, out)
 }
 
 // fiscalYearOf is the fiscal year a date is in, for a calendar whose years
@@ -118,7 +118,8 @@ func (c *companyControlling) checkSwitches(ctx context.Context, tx pgx.Tx, p str
 // automatic postings could not use: one that is not an active cost center
 // of the company, not valid from today with no end, or locked for actual
 // costs from today on.
-func (c *companyControlling) checkDefaultCostCenters(ctx context.Context, tx pgx.Tx, p string, le uuid.UUID, co config.Company, out *findings) error {
+func (c *companyControlling) checkDefaultCostCenters(ctx context.Context, tx pgx.Tx, p string, le uuid.UUID, co config.Company, lock bool,
+	out *findings) error {
 	if len(co.DefaultAssignments) == 0 {
 		return nil
 	}
@@ -127,7 +128,7 @@ func (c *companyControlling) checkDefaultCostCenters(ctx context.Context, tx pgx
 		codes[i] = d.CostCenter
 	}
 	rows, _ := tx.Query(ctx, `SELECT code, id FROM ledger.cost_center c WHERE legal_entity_id = $1 AND code = ANY($2) AND status = 'active'
-		ORDER BY id FOR SHARE OF c`, le, codes)
+		ORDER BY id`+rowLock(lock), le, codes)
 	byCode := map[string]uuid.UUID{}
 	var code string
 	var id uuid.UUID
@@ -157,7 +158,8 @@ func (c *companyControlling) checkDefaultCostCenters(ctx context.Context, tx pgx
 // checkDefaultProfitCenter reports a default profit center that is not an
 // active profit center assigned to the company, valid from today with no
 // end and unlocked from today on.
-func (c *companyControlling) checkDefaultProfitCenter(ctx context.Context, tx pgx.Tx, p string, le uuid.UUID, co config.Company, out *findings) error {
+func (c *companyControlling) checkDefaultProfitCenter(ctx context.Context, tx pgx.Tx, p string, le uuid.UUID, co config.Company, lock bool,
+	out *findings) error {
 	if co.DefaultProfitCenter == "" {
 		return nil
 	}
@@ -168,7 +170,7 @@ func (c *companyControlling) checkDefaultProfitCenter(ctx context.Context, tx pg
 	}
 	why := "is not an active profit center"
 	if len(ids) == 1 {
-		pc, err := getProfitCenter(ctx, tx, ids[0], forShare)
+		pc, err := getProfitCenter(ctx, tx, ids[0], rowLock(lock))
 		if err != nil {
 			return err
 		}
@@ -183,6 +185,16 @@ func (c *companyControlling) checkDefaultProfitCenter(ctx context.Context, tx pg
 		c.profitCenter = uuid.Nil
 	}
 	return nil
+}
+
+// rowLock is the lock readControlling takes on the default centers: for
+// share when applying, so they do not change before the activation
+// commits; none when checking.
+func rowLock(lock bool) string {
+	if lock {
+		return forShare
+	}
+	return noLock
 }
 
 // unusableDefault says why a center with the spans cannot be a default from
@@ -223,15 +235,11 @@ func checkCategories(ctx context.Context, tx pgx.Tx, doc *config.Config, out *fi
 
 // applyCategories makes the tenant's cost center categories the
 // document's, deactivating the ones it no longer has. It refuses the
-// activation when a category removed is in use (checkCategories).
+// activation when a category removed is in use (checkCategories), checked
+// after the deactivation: that waits for a center change holding the
+// category for share, and the check's later statement then sees the
+// period it wrote.
 func applyCategories(ctx context.Context, tx pgx.Tx, p reqctx.Principal, doc *config.Config) error {
-	var f findings
-	if err := checkCategories(ctx, tx, doc, &f); err != nil {
-		return err
-	}
-	if err := refused(f); err != nil {
-		return err
-	}
 	cats := doc.Controlling.CostCenterCategories
 	n := len(cats)
 	codes, names := make([]string, n), make([]string, n)
@@ -242,6 +250,13 @@ func applyCategories(ctx context.Context, tx pgx.Tx, p reqctx.Principal, doc *co
 	if _, err := tx.Exec(ctx, `UPDATE ledger.cost_center_category SET is_active = false, version = version + 1, updated_by = $2
 		WHERE is_active AND code <> ALL($1)`, codes, p.ID); err != nil {
 		return fmt.Errorf("ledger: deactivate cost center categories: %w", err)
+	}
+	var f findings
+	if err := checkCategories(ctx, tx, doc, &f); err != nil {
+		return err
+	}
+	if err := refused(f); err != nil {
+		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.cost_center_category AS k (tenant_id, code, name, revenue_allowed, lock_actual_cost,
 			lock_actual_revenue, lock_plan, created_by, updated_by)
@@ -372,8 +387,9 @@ func keepsDefaultProfitCenter(ctx context.Context, tx pgx.Tx, id uuid.UUID, span
 		return nil
 	}
 	if why := unusableDefault(spans, today, func(a ProfitCenterAttrs) bool { return a.Locked }); why != "" {
-		return problem.Conflict("ledger.default_center_in_use", fmt.Sprintf("The profit center is the default profit center of %d companies; "+
-			"after the change it %s. Change the configuration's default_profit_center first.", companies, why))
+		// Not how many: the companies may include ones the requester cannot access.
+		return problem.Conflict("ledger.default_center_in_use", "The profit center is a company's default profit center; after the change it "+
+			why+". Change the configuration's default_profit_center first.")
 	}
 	return nil
 }
