@@ -84,6 +84,7 @@ func Validate(c *Config, exponents currency.Exponents) []Finding {
 	v.payments(c)
 	v.numberRanges(c)
 	v.journalRanges(c)
+	v.ledgers(c)
 	v.extensions(c)
 	v.rules(c)
 	v.packs(c)

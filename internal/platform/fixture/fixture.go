@@ -136,28 +136,28 @@ type Env struct {
 // ApprovalPermissions. Tenant.Human requests; the approvers decide.
 func New(tb testing.TB, permissions ...string) Env {
 	tb.Helper()
-	return NewWith(tb, nil, nil, permissions...)
+	return NewWith(tb, Document(tb), permissions...)
 }
 
-// Company is a further legal entity of a tenant NewWith creates.
+// NewWith is New with doc, a variant of Document, as the tenant's first
+// configuration: one with parallel ledgers (ADR-0045), say, which a later
+// change request cannot add without its evidence.
+func NewWith(tb testing.TB, doc *config.Config, permissions ...string) Env {
+	tb.Helper()
+	return build(tb, doc, nil, permissions)
+}
+
+// Company is a further legal entity of a tenant NewWithCompanies creates.
 type Company struct{ Code, Name, Country, Currency string }
 
-// NewWith is New with further companies: their legal entities, number
-// ranges for every document type in Years, and the configuration document
-// changed by extend (which adds the companies) before it is bootstrapped.
-func NewWith(tb testing.TB, companies []Company, extend func(*config.Config), permissions ...string) Env {
+// NewWithCompanies is New with further companies: their legal entities,
+// number ranges for every document type in Years, and the configuration
+// document changed by extend (which adds the companies) before it is
+// bootstrapped.
+func NewWithCompanies(tb testing.TB, companies []Company, extend func(*config.Config), permissions ...string) Env {
 	tb.Helper()
-	ten := pgtest.NewTenant(tb, append(permissions, ApprovalPermissions...)...)
-	ten.AllCompanies(tb, ten.Human)
-	e := Env{Client: apitest.Client{T: tb, API: apitest.New(tb), Tenant: ten, As: ten.Human}, Tenant: ten,
-		US: uuid.Must(uuid.NewV7()), DE: uuid.Must(uuid.NewV7())}
-	pgtest.Exec(tb, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
-		VALUES ($1, $2, '1000', 'Acme Corp US', 'US', 'USD', gen_random_uuid(), 'active', $4, $4),
-		       ($1, $3, '2000', 'Acme GmbH', 'DE', 'EUR', gen_random_uuid(), 'active', $4, $4)`, ten.ID, e.US, e.DE, ten.Human.ID)
 	doc := Document(tb)
 	for _, co := range companies {
-		pgtest.Exec(tb, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
-			VALUES ($1, gen_random_uuid(), $2, $3, $4, $5, gen_random_uuid(), 'active', $6, $6)`, ten.ID, co.Code, co.Name, co.Country, co.Currency, ten.Human.ID)
 		for _, y := range Years() {
 			for dt, prefix := range DocumentTypes {
 				doc.NumberRanges = append(doc.NumberRanges, config.NumberRange{Company: co.Code, DocumentType: dt, FiscalYear: y, Prefix: prefix,
@@ -167,6 +167,24 @@ func NewWith(tb testing.TB, companies []Company, extend func(*config.Config), pe
 	}
 	if extend != nil {
 		extend(doc)
+	}
+	return build(tb, doc, companies, permissions)
+}
+
+// build creates the tenant, its legal entities 1000, 2000 and companies,
+// and bootstraps doc.
+func build(tb testing.TB, doc *config.Config, companies []Company, permissions []string) Env {
+	tb.Helper()
+	ten := pgtest.NewTenant(tb, append(permissions, ApprovalPermissions...)...)
+	ten.AllCompanies(tb, ten.Human)
+	e := Env{Client: apitest.Client{T: tb, API: apitest.New(tb), Tenant: ten, As: ten.Human}, Tenant: ten,
+		US: uuid.Must(uuid.NewV7()), DE: uuid.Must(uuid.NewV7())}
+	pgtest.Exec(tb, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
+		VALUES ($1, $2, '1000', 'Acme Corp US', 'US', 'USD', gen_random_uuid(), 'active', $4, $4),
+		       ($1, $3, '2000', 'Acme GmbH', 'DE', 'EUR', gen_random_uuid(), 'active', $4, $4)`, ten.ID, e.US, e.DE, ten.Human.ID)
+	for _, co := range companies {
+		pgtest.Exec(tb, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
+			VALUES ($1, gen_random_uuid(), $2, $3, $4, $5, gen_random_uuid(), 'active', $6, $6)`, ten.ID, co.Code, co.Name, co.Country, co.Currency, ten.Human.ID)
 	}
 	for _, r := range doc.RoleNames() {
 		pgtest.Exec(tb, `INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1, gen_random_uuid(), $2, $2, 'active', $3, $3)`,

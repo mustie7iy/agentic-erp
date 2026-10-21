@@ -3449,6 +3449,10 @@ func (*BadRequestHeaders) listGoodsReceiptsRes()                {}
 func (*BadRequestHeaders) listGrIrBalancesRes()                 {}
 func (*BadRequestHeaders) listHouseBanksRes()                   {}
 func (*BadRequestHeaders) listJournalEntriesRes()               {}
+func (*BadRequestHeaders) listLedgerGroupsRes()                 {}
+func (*BadRequestHeaders) listLedgerReconciliationEntriesRes()  {}
+func (*BadRequestHeaders) listLedgerReconciliationRes()         {}
+func (*BadRequestHeaders) listLedgersRes()                      {}
 func (*BadRequestHeaders) listLegalEntitiesRes()                {}
 func (*BadRequestHeaders) listMatchResultsRes()                 {}
 func (*BadRequestHeaders) listMigrationRunsRes()                {}
@@ -14496,6 +14500,10 @@ func (*ForbiddenHeaders) listGoodsReceiptsRes()                {}
 func (*ForbiddenHeaders) listGrIrBalancesRes()                 {}
 func (*ForbiddenHeaders) listHouseBanksRes()                   {}
 func (*ForbiddenHeaders) listJournalEntriesRes()               {}
+func (*ForbiddenHeaders) listLedgerGroupsRes()                 {}
+func (*ForbiddenHeaders) listLedgerReconciliationEntriesRes()  {}
+func (*ForbiddenHeaders) listLedgerReconciliationRes()         {}
+func (*ForbiddenHeaders) listLedgersRes()                      {}
 func (*ForbiddenHeaders) listLegalEntitiesRes()                {}
 func (*ForbiddenHeaders) listMatchResultsRes()                 {}
 func (*ForbiddenHeaders) listMigrationRunsRes()                {}
@@ -17967,7 +17975,8 @@ type JournalEntry struct {
 	FiscalPeriod int32 `json:"fiscal_period"`
 	// Document type (SA general, KR supplier invoice, KZ payment...).
 	DocumentType string `json:"document_type"`
-	// Document number, unique per legal entity, document type and fiscal year.
+	// Document number, unique per legal entity, ledger, document type and fiscal year; the entries of a
+	// posting group share it.
 	DocumentNumber string `json:"document_number"`
 	// Document date.
 	DocumentDate time.Time `json:"document_date"`
@@ -17994,6 +18003,13 @@ type JournalEntry struct {
 	SourceDocumentID OptUUID `json:"source_document_id"`
 	// Entry this one reverses.
 	ReversalOfID OptUUID `json:"reversal_of_id"`
+	// The first entry of the posting group this entry belongs to (the entry itself on the first): a
+	// posting is written to every ledger its company keeps, or to the ledger or ledger group it names, as
+	// linked entries sharing one document number (ADR-0045). Absent on entries posted before posting
+	// groups.
+	PostingGroupID OptUUID `json:"posting_group_id"`
+	// The ledger group the posting named, if any.
+	LedgerGroupID OptUUID `json:"ledger_group_id"`
 	// Entry that reversed this one, if any.
 	ReversedByID OptUUID `json:"reversed_by_id"`
 	// Lines; they balance to zero in every currency.
@@ -18102,6 +18118,16 @@ func (s *JournalEntry) GetSourceDocumentID() OptUUID {
 // GetReversalOfID returns the value of ReversalOfID.
 func (s *JournalEntry) GetReversalOfID() OptUUID {
 	return s.ReversalOfID
+}
+
+// GetPostingGroupID returns the value of PostingGroupID.
+func (s *JournalEntry) GetPostingGroupID() OptUUID {
+	return s.PostingGroupID
+}
+
+// GetLedgerGroupID returns the value of LedgerGroupID.
+func (s *JournalEntry) GetLedgerGroupID() OptUUID {
+	return s.LedgerGroupID
 }
 
 // GetReversedByID returns the value of ReversedByID.
@@ -18224,6 +18250,16 @@ func (s *JournalEntry) SetReversalOfID(val OptUUID) {
 	s.ReversalOfID = val
 }
 
+// SetPostingGroupID sets the value of PostingGroupID.
+func (s *JournalEntry) SetPostingGroupID(val OptUUID) {
+	s.PostingGroupID = val
+}
+
+// SetLedgerGroupID sets the value of LedgerGroupID.
+func (s *JournalEntry) SetLedgerGroupID(val OptUUID) {
+	s.LedgerGroupID = val
+}
+
 // SetReversedByID sets the value of ReversedByID.
 func (s *JournalEntry) SetReversedByID(val OptUUID) {
 	s.ReversedByID = val
@@ -18250,8 +18286,19 @@ func (s *JournalEntry) SetPostedBy(val uuid.UUID) {
 type JournalEntryCreate struct {
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// Ledger; defaults to the leading ledger.
+	// The one ledger the entry posts to (a ledger-specific posting), one its company keeps (422
+	// `ledger.ledger_not_kept`); a ledger-specific posting has no line on a supplier or customer
+	// reconciliation account (422 `ledger.ledger_specific_reconciliation`). Without `ledger_id` and
+	// `ledger_group` the entry posts to every ledger its company keeps, as linked entries sharing one
+	// document number; the leading ledger's entry is the one returned.
 	LedgerID OptUUID `json:"ledger_id"`
+	// Code of the ledger group the entry posts to (`GET /v1/ledger-groups`): one entry per member its
+	// company keeps, the representative's returned (or, the representative not kept, the first member left
+	// by code); a group of no ledger the company keeps is 422 `ledger.ledger_not_kept`, and one with a
+	// line on a supplier or customer reconciliation account is 422
+	// `ledger.ledger_specific_reconciliation`. Not with `ledger_id` (422 `ledger.ledger_or_group`); an
+	// unknown code is 422 `ledger.unknown_ledger_group`.
+	LedgerGroup OptString `json:"ledger_group"`
 	// Document type.
 	DocumentType OptString `json:"document_type"`
 	// Document date.
@@ -18276,6 +18323,11 @@ func (s *JournalEntryCreate) GetLegalEntityID() uuid.UUID {
 // GetLedgerID returns the value of LedgerID.
 func (s *JournalEntryCreate) GetLedgerID() OptUUID {
 	return s.LedgerID
+}
+
+// GetLedgerGroup returns the value of LedgerGroup.
+func (s *JournalEntryCreate) GetLedgerGroup() OptString {
+	return s.LedgerGroup
 }
 
 // GetDocumentType returns the value of DocumentType.
@@ -18321,6 +18373,11 @@ func (s *JournalEntryCreate) SetLegalEntityID(val uuid.UUID) {
 // SetLedgerID sets the value of LedgerID.
 func (s *JournalEntryCreate) SetLedgerID(val OptUUID) {
 	s.LedgerID = val
+}
+
+// SetLedgerGroup sets the value of LedgerGroup.
+func (s *JournalEntryCreate) SetLedgerGroup(val OptString) {
+	s.LedgerGroup = val
 }
 
 // SetDocumentType sets the value of DocumentType.
@@ -18789,6 +18846,919 @@ func (s *JournalLineInput) SetQuantity(val OptQuantity) {
 // SetLineText sets the value of LineText.
 func (s *JournalLineInput) SetLineText(val OptString) {
 	s.LineText = val
+}
+
+// A ledger of the tenant (SAP FINSC_LEDGER): the leading ledger 0L or a parallel ledger.
+// Ref: #/components/schemas/Ledger
+type Ledger struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Ledger code: 0L for the leading ledger, two upper-case letters or digits for the others.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// Accounting principle the ledger is kept under (IFRS, US_GAAP, HGB); fixed once activated.
+	AccountingPrinciple string `json:"accounting_principle"`
+	// Whether this is the leading ledger 0L, which every company keeps and reports default to.
+	IsLeading bool `json:"is_leading"`
+	// The legal entities that keep the ledger, of those the caller may see.
+	LegalEntityIds []uuid.UUID `json:"legal_entity_ids"`
+	// Optimistic-lock version; equals the ETag.
+	Version int32 `json:"version"`
+	// Creation time.
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that activated the configuration creating it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *Ledger) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCode returns the value of Code.
+func (s *Ledger) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *Ledger) GetName() string {
+	return s.Name
+}
+
+// GetAccountingPrinciple returns the value of AccountingPrinciple.
+func (s *Ledger) GetAccountingPrinciple() string {
+	return s.AccountingPrinciple
+}
+
+// GetIsLeading returns the value of IsLeading.
+func (s *Ledger) GetIsLeading() bool {
+	return s.IsLeading
+}
+
+// GetLegalEntityIds returns the value of LegalEntityIds.
+func (s *Ledger) GetLegalEntityIds() []uuid.UUID {
+	return s.LegalEntityIds
+}
+
+// GetVersion returns the value of Version.
+func (s *Ledger) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *Ledger) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *Ledger) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *Ledger) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCode sets the value of Code.
+func (s *Ledger) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *Ledger) SetName(val string) {
+	s.Name = val
+}
+
+// SetAccountingPrinciple sets the value of AccountingPrinciple.
+func (s *Ledger) SetAccountingPrinciple(val string) {
+	s.AccountingPrinciple = val
+}
+
+// SetIsLeading sets the value of IsLeading.
+func (s *Ledger) SetIsLeading(val bool) {
+	s.IsLeading = val
+}
+
+// SetLegalEntityIds sets the value of LegalEntityIds.
+func (s *Ledger) SetLegalEntityIds(val []uuid.UUID) {
+	s.LegalEntityIds = val
+}
+
+// SetVersion sets the value of Version.
+func (s *Ledger) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *Ledger) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *Ledger) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// One account and transaction currency whose balance differs between two ledgers; amounts are signed,
+// debit positive.
+// Ref: #/components/schemas/LedgerDifference
+type LedgerDifference struct {
+	// G/L account.
+	AccountID uuid.UUID `json:"account_id"`
+	// Transaction currency.
+	Currency string `json:"currency"`
+	// Balance in the ledger, in transaction currency.
+	Balance Money `json:"balance"`
+	// Balance in the compared ledger, in transaction currency.
+	CompareBalance Money `json:"compare_balance"`
+	// `balance` less `compare_balance`.
+	Difference Money `json:"difference"`
+	// The difference in local currency.
+	DifferenceLc Money `json:"difference_lc"`
+	// The difference in group currency.
+	DifferenceGc Money `json:"difference_gc"`
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *LedgerDifference) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetCurrency returns the value of Currency.
+func (s *LedgerDifference) GetCurrency() string {
+	return s.Currency
+}
+
+// GetBalance returns the value of Balance.
+func (s *LedgerDifference) GetBalance() Money {
+	return s.Balance
+}
+
+// GetCompareBalance returns the value of CompareBalance.
+func (s *LedgerDifference) GetCompareBalance() Money {
+	return s.CompareBalance
+}
+
+// GetDifference returns the value of Difference.
+func (s *LedgerDifference) GetDifference() Money {
+	return s.Difference
+}
+
+// GetDifferenceLc returns the value of DifferenceLc.
+func (s *LedgerDifference) GetDifferenceLc() Money {
+	return s.DifferenceLc
+}
+
+// GetDifferenceGc returns the value of DifferenceGc.
+func (s *LedgerDifference) GetDifferenceGc() Money {
+	return s.DifferenceGc
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *LedgerDifference) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *LedgerDifference) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetBalance sets the value of Balance.
+func (s *LedgerDifference) SetBalance(val Money) {
+	s.Balance = val
+}
+
+// SetCompareBalance sets the value of CompareBalance.
+func (s *LedgerDifference) SetCompareBalance(val Money) {
+	s.CompareBalance = val
+}
+
+// SetDifference sets the value of Difference.
+func (s *LedgerDifference) SetDifference(val Money) {
+	s.Difference = val
+}
+
+// SetDifferenceLc sets the value of DifferenceLc.
+func (s *LedgerDifference) SetDifferenceLc(val Money) {
+	s.DifferenceLc = val
+}
+
+// SetDifferenceGc sets the value of DifferenceGc.
+func (s *LedgerDifference) SetDifferenceGc(val Money) {
+	s.DifferenceGc = val
+}
+
+// A ledger group (SAP FAGL ledger group): ledgers a posting goes to together, the representative
+// deciding its posting period.
+// Ref: #/components/schemas/LedgerGroup
+type LedgerGroup struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Group code, 1-4 upper-case letters or digits, different from every ledger's.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// The member whose periods decide the group's postings; the leading ledger when it is a member. Fixed
+	// once activated.
+	RepresentativeLedgerID uuid.UUID `json:"representative_ledger_id"`
+	// The group's ledgers; a ledger never leaves a group once activated.
+	LedgerIds []uuid.UUID `json:"ledger_ids"`
+	// Optimistic-lock version; equals the ETag.
+	Version int32 `json:"version"`
+	// Creation time.
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that activated the configuration creating it.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change.
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that activated the configuration changing it last.
+	UpdatedBy uuid.UUID `json:"updated_by"`
+}
+
+// GetID returns the value of ID.
+func (s *LedgerGroup) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCode returns the value of Code.
+func (s *LedgerGroup) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *LedgerGroup) GetName() string {
+	return s.Name
+}
+
+// GetRepresentativeLedgerID returns the value of RepresentativeLedgerID.
+func (s *LedgerGroup) GetRepresentativeLedgerID() uuid.UUID {
+	return s.RepresentativeLedgerID
+}
+
+// GetLedgerIds returns the value of LedgerIds.
+func (s *LedgerGroup) GetLedgerIds() []uuid.UUID {
+	return s.LedgerIds
+}
+
+// GetVersion returns the value of Version.
+func (s *LedgerGroup) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *LedgerGroup) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *LedgerGroup) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *LedgerGroup) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *LedgerGroup) GetUpdatedBy() uuid.UUID {
+	return s.UpdatedBy
+}
+
+// SetID sets the value of ID.
+func (s *LedgerGroup) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCode sets the value of Code.
+func (s *LedgerGroup) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *LedgerGroup) SetName(val string) {
+	s.Name = val
+}
+
+// SetRepresentativeLedgerID sets the value of RepresentativeLedgerID.
+func (s *LedgerGroup) SetRepresentativeLedgerID(val uuid.UUID) {
+	s.RepresentativeLedgerID = val
+}
+
+// SetLedgerIds sets the value of LedgerIds.
+func (s *LedgerGroup) SetLedgerIds(val []uuid.UUID) {
+	s.LedgerIds = val
+}
+
+// SetVersion sets the value of Version.
+func (s *LedgerGroup) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *LedgerGroup) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *LedgerGroup) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *LedgerGroup) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *LedgerGroup) SetUpdatedBy(val uuid.UUID) {
+	s.UpdatedBy = val
+}
+
+// One page of ledger groups.
+// Ref: #/components/schemas/LedgerGroupPage
+type LedgerGroupPage struct {
+	// The ledger groups on this page.
+	Items []LedgerGroup `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *LedgerGroupPage) GetItems() []LedgerGroup {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *LedgerGroupPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *LedgerGroupPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *LedgerGroupPage) SetItems(val []LedgerGroup) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *LedgerGroupPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *LedgerGroupPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+// LedgerGroupPageHeaders wraps LedgerGroupPage with response headers.
+type LedgerGroupPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           LedgerGroupPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *LedgerGroupPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *LedgerGroupPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *LedgerGroupPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *LedgerGroupPageHeaders) GetResponse() LedgerGroupPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *LedgerGroupPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *LedgerGroupPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *LedgerGroupPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *LedgerGroupPageHeaders) SetResponse(val LedgerGroupPage) {
+	s.Response = val
+}
+
+func (*LedgerGroupPageHeaders) listLedgerGroupsRes() {}
+
+// One page of ledgers.
+// Ref: #/components/schemas/LedgerPage
+type LedgerPage struct {
+	// The ledgers on this page.
+	Items []Ledger `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *LedgerPage) GetItems() []Ledger {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *LedgerPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *LedgerPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *LedgerPage) SetItems(val []Ledger) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *LedgerPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *LedgerPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+// LedgerPageHeaders wraps LedgerPage with response headers.
+type LedgerPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           LedgerPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *LedgerPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *LedgerPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *LedgerPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *LedgerPageHeaders) GetResponse() LedgerPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *LedgerPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *LedgerPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *LedgerPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *LedgerPageHeaders) SetResponse(val LedgerPage) {
+	s.Response = val
+}
+
+func (*LedgerPageHeaders) listLedgersRes() {}
+
+// A journal line of an entry posted in one of two ledgers and not in the other; amounts are signed,
+// debit positive.
+// Ref: #/components/schemas/LedgerReconciliationEntry
+type LedgerReconciliationEntry struct {
+	// The ledger the entry was posted in.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// Journal entry.
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// Fiscal year of the entry.
+	FiscalYear int32 `json:"fiscal_year"`
+	// Line number.
+	LineNo int32 `json:"line_no"`
+	// Document number.
+	DocumentNumber string `json:"document_number"`
+	// Posting date.
+	PostingDate time.Time `json:"posting_date"`
+	// Posting period.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// Amount in transaction currency.
+	Amount Money `json:"amount"`
+	// Amount in local currency.
+	AmountLc Money `json:"amount_lc"`
+	// Amount in group currency.
+	AmountGc Money `json:"amount_gc"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *LedgerReconciliationEntry) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *LedgerReconciliationEntry) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *LedgerReconciliationEntry) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *LedgerReconciliationEntry) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *LedgerReconciliationEntry) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *LedgerReconciliationEntry) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *LedgerReconciliationEntry) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetAmount returns the value of Amount.
+func (s *LedgerReconciliationEntry) GetAmount() Money {
+	return s.Amount
+}
+
+// GetAmountLc returns the value of AmountLc.
+func (s *LedgerReconciliationEntry) GetAmountLc() Money {
+	return s.AmountLc
+}
+
+// GetAmountGc returns the value of AmountGc.
+func (s *LedgerReconciliationEntry) GetAmountGc() Money {
+	return s.AmountGc
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *LedgerReconciliationEntry) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *LedgerReconciliationEntry) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *LedgerReconciliationEntry) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *LedgerReconciliationEntry) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *LedgerReconciliationEntry) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *LedgerReconciliationEntry) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *LedgerReconciliationEntry) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *LedgerReconciliationEntry) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetAmountLc sets the value of AmountLc.
+func (s *LedgerReconciliationEntry) SetAmountLc(val Money) {
+	s.AmountLc = val
+}
+
+// SetAmountGc sets the value of AmountGc.
+func (s *LedgerReconciliationEntry) SetAmountGc(val Money) {
+	s.AmountGc = val
+}
+
+// One page of ledger-specific journal lines.
+// Ref: #/components/schemas/LedgerReconciliationEntryPage
+type LedgerReconciliationEntryPage struct {
+	// The lines on this page.
+	Items []LedgerReconciliationEntry `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *LedgerReconciliationEntryPage) GetItems() []LedgerReconciliationEntry {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *LedgerReconciliationEntryPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *LedgerReconciliationEntryPage) SetItems(val []LedgerReconciliationEntry) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *LedgerReconciliationEntryPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// LedgerReconciliationEntryPageHeaders wraps LedgerReconciliationEntryPage with response headers.
+type LedgerReconciliationEntryPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           LedgerReconciliationEntryPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *LedgerReconciliationEntryPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *LedgerReconciliationEntryPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *LedgerReconciliationEntryPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *LedgerReconciliationEntryPageHeaders) GetResponse() LedgerReconciliationEntryPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *LedgerReconciliationEntryPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *LedgerReconciliationEntryPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *LedgerReconciliationEntryPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *LedgerReconciliationEntryPageHeaders) SetResponse(val LedgerReconciliationEntryPage) {
+	s.Response = val
+}
+
+func (*LedgerReconciliationEntryPageHeaders) listLedgerReconciliationEntriesRes() {}
+
+// One page of the differences between two ledgers, with each ledger's trial balance check.
+// Ref: #/components/schemas/LedgerReconciliationPage
+type LedgerReconciliationPage struct {
+	// The ledger reconciled.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger it is compared with.
+	CompareLedgerID uuid.UUID `json:"compare_ledger_id"`
+	// The ledger's trial balance check, then the compared ledger's, on the first page; empty on the next
+	// pages and when the legal entity is not visible or does not keep both ledgers.
+	TrialBalances []LedgerTrialBalance `json:"trial_balances"`
+	// The differences on this page.
+	Items []LedgerDifference `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *LedgerReconciliationPage) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetCompareLedgerID returns the value of CompareLedgerID.
+func (s *LedgerReconciliationPage) GetCompareLedgerID() uuid.UUID {
+	return s.CompareLedgerID
+}
+
+// GetTrialBalances returns the value of TrialBalances.
+func (s *LedgerReconciliationPage) GetTrialBalances() []LedgerTrialBalance {
+	return s.TrialBalances
+}
+
+// GetItems returns the value of Items.
+func (s *LedgerReconciliationPage) GetItems() []LedgerDifference {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *LedgerReconciliationPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *LedgerReconciliationPage) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetCompareLedgerID sets the value of CompareLedgerID.
+func (s *LedgerReconciliationPage) SetCompareLedgerID(val uuid.UUID) {
+	s.CompareLedgerID = val
+}
+
+// SetTrialBalances sets the value of TrialBalances.
+func (s *LedgerReconciliationPage) SetTrialBalances(val []LedgerTrialBalance) {
+	s.TrialBalances = val
+}
+
+// SetItems sets the value of Items.
+func (s *LedgerReconciliationPage) SetItems(val []LedgerDifference) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *LedgerReconciliationPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// LedgerReconciliationPageHeaders wraps LedgerReconciliationPage with response headers.
+type LedgerReconciliationPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           LedgerReconciliationPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *LedgerReconciliationPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *LedgerReconciliationPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *LedgerReconciliationPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *LedgerReconciliationPageHeaders) GetResponse() LedgerReconciliationPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *LedgerReconciliationPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *LedgerReconciliationPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *LedgerReconciliationPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *LedgerReconciliationPageHeaders) SetResponse(val LedgerReconciliationPage) {
+	s.Response = val
+}
+
+func (*LedgerReconciliationPageHeaders) listLedgerReconciliationRes() {}
+
+// One ledger's trial balance check: its debits and credits in local and group currency, which net to
+// zero.
+// Ref: #/components/schemas/LedgerTrialBalance
+type LedgerTrialBalance struct {
+	// Ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// Debit total in local currency.
+	DebitLc Money `json:"debit_lc"`
+	// Credit total in local currency (positive).
+	CreditLc Money `json:"credit_lc"`
+	// Debit total in group currency.
+	DebitGc Money `json:"debit_gc"`
+	// Credit total in group currency (positive).
+	CreditGc Money `json:"credit_gc"`
+	// Whether debits equal credits in local and in group currency.
+	Balanced bool `json:"balanced"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *LedgerTrialBalance) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetDebitLc returns the value of DebitLc.
+func (s *LedgerTrialBalance) GetDebitLc() Money {
+	return s.DebitLc
+}
+
+// GetCreditLc returns the value of CreditLc.
+func (s *LedgerTrialBalance) GetCreditLc() Money {
+	return s.CreditLc
+}
+
+// GetDebitGc returns the value of DebitGc.
+func (s *LedgerTrialBalance) GetDebitGc() Money {
+	return s.DebitGc
+}
+
+// GetCreditGc returns the value of CreditGc.
+func (s *LedgerTrialBalance) GetCreditGc() Money {
+	return s.CreditGc
+}
+
+// GetBalanced returns the value of Balanced.
+func (s *LedgerTrialBalance) GetBalanced() bool {
+	return s.Balanced
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *LedgerTrialBalance) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetDebitLc sets the value of DebitLc.
+func (s *LedgerTrialBalance) SetDebitLc(val Money) {
+	s.DebitLc = val
+}
+
+// SetCreditLc sets the value of CreditLc.
+func (s *LedgerTrialBalance) SetCreditLc(val Money) {
+	s.CreditLc = val
+}
+
+// SetDebitGc sets the value of DebitGc.
+func (s *LedgerTrialBalance) SetDebitGc(val Money) {
+	s.DebitGc = val
+}
+
+// SetCreditGc sets the value of CreditGc.
+func (s *LedgerTrialBalance) SetCreditGc(val Money) {
+	s.CreditGc = val
+}
+
+// SetBalanced sets the value of Balanced.
+func (s *LedgerTrialBalance) SetBalanced(val bool) {
+	s.Balanced = val
 }
 
 // Merged schema.
@@ -23842,8 +24812,13 @@ type ParkedJournalEntry struct {
 	UpdatedBy OptUUID `json:"updated_by"`
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// Ledger.
+	// The ledger named (`ledger_specific`), the ledger group's representative, or the leading ledger when
+	// it posts to every ledger its company keeps.
 	LedgerID uuid.UUID `json:"ledger_id"`
+	// It posts to `ledger_id` alone.
+	LedgerSpecific OptBool `json:"ledger_specific"`
+	// Code of the ledger group it posts to, if any.
+	LedgerGroup OptString `json:"ledger_group"`
 	// Document type.
 	DocumentType string `json:"document_type"`
 	// Document date.
@@ -23914,6 +24889,16 @@ func (s *ParkedJournalEntry) GetLegalEntityID() uuid.UUID {
 // GetLedgerID returns the value of LedgerID.
 func (s *ParkedJournalEntry) GetLedgerID() uuid.UUID {
 	return s.LedgerID
+}
+
+// GetLedgerSpecific returns the value of LedgerSpecific.
+func (s *ParkedJournalEntry) GetLedgerSpecific() OptBool {
+	return s.LedgerSpecific
+}
+
+// GetLedgerGroup returns the value of LedgerGroup.
+func (s *ParkedJournalEntry) GetLedgerGroup() OptString {
+	return s.LedgerGroup
 }
 
 // GetDocumentType returns the value of DocumentType.
@@ -24019,6 +25004,16 @@ func (s *ParkedJournalEntry) SetLegalEntityID(val uuid.UUID) {
 // SetLedgerID sets the value of LedgerID.
 func (s *ParkedJournalEntry) SetLedgerID(val uuid.UUID) {
 	s.LedgerID = val
+}
+
+// SetLedgerSpecific sets the value of LedgerSpecific.
+func (s *ParkedJournalEntry) SetLedgerSpecific(val OptBool) {
+	s.LedgerSpecific = val
+}
+
+// SetLedgerGroup sets the value of LedgerGroup.
+func (s *ParkedJournalEntry) SetLedgerGroup(val OptString) {
+	s.LedgerGroup = val
 }
 
 // SetDocumentType sets the value of DocumentType.
@@ -31176,7 +32171,8 @@ func (*RevaluationPreviewHeaders) previewRevaluationRes() {}
 type RevaluationPreviewRequest struct {
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// Ledger (default the leading ledger).
+	// Ledger valued and posted to (default the leading ledger), one the legal entity keeps (422
+	// `ledger.ledger_not_kept`).
 	LedgerID OptUUID `json:"ledger_id"`
 	// Key date: the last day of a posting period.
 	KeyDate time.Time `json:"key_date"`
@@ -35885,6 +36881,10 @@ func (*TooManyRequestsHeaders) listGoodsReceiptsRes()                {}
 func (*TooManyRequestsHeaders) listGrIrBalancesRes()                 {}
 func (*TooManyRequestsHeaders) listHouseBanksRes()                   {}
 func (*TooManyRequestsHeaders) listJournalEntriesRes()               {}
+func (*TooManyRequestsHeaders) listLedgerGroupsRes()                 {}
+func (*TooManyRequestsHeaders) listLedgerReconciliationEntriesRes()  {}
+func (*TooManyRequestsHeaders) listLedgerReconciliationRes()         {}
+func (*TooManyRequestsHeaders) listLedgersRes()                      {}
 func (*TooManyRequestsHeaders) listLegalEntitiesRes()                {}
 func (*TooManyRequestsHeaders) listMatchResultsRes()                 {}
 func (*TooManyRequestsHeaders) listMigrationRunsRes()                {}
@@ -36195,6 +37195,10 @@ func (*UnauthorizedHeaders) listGoodsReceiptsRes()                {}
 func (*UnauthorizedHeaders) listGrIrBalancesRes()                 {}
 func (*UnauthorizedHeaders) listHouseBanksRes()                   {}
 func (*UnauthorizedHeaders) listJournalEntriesRes()               {}
+func (*UnauthorizedHeaders) listLedgerGroupsRes()                 {}
+func (*UnauthorizedHeaders) listLedgerReconciliationEntriesRes()  {}
+func (*UnauthorizedHeaders) listLedgerReconciliationRes()         {}
+func (*UnauthorizedHeaders) listLedgersRes()                      {}
 func (*UnauthorizedHeaders) listLegalEntitiesRes()                {}
 func (*UnauthorizedHeaders) listMatchResultsRes()                 {}
 func (*UnauthorizedHeaders) listMigrationRunsRes()                {}

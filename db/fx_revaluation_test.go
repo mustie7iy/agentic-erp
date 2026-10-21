@@ -144,8 +144,9 @@ func (f fixture) reversed(original uuid.UUID) func(tx pgx.Tx) error {
 
 // TestRevaluationRuns: a run is posted first with its valuation entry on
 // the key date and its reversal on the next day, or with neither; one run
-// per key date is posted; a posted run may be cancelled once both its
-// entries are reversed, which frees the key date, and is otherwise fixed.
+// per key date is posted, in a ledger its legal entity keeps (T52f); a
+// posted run may be cancelled once both its entries are reversed, which
+// frees the key date, and is otherwise fixed.
 func TestRevaluationRuns(t *testing.T) {
 	need(t)
 	f := newFixture(t)
@@ -187,6 +188,13 @@ func TestRevaluationRuns(t *testing.T) {
 				valuation_entry_id, reversal_entry_year, reversal_entry_id, created_by, updated_by) VALUES ($1,$2,$3,$4,'2026-03-31','average',2026,$5,2026,$6,$7,$7)`,
 				f.tenant, id(), id(), f.ledger, valuation, reversal, f.actor)
 		}, "revaluation_run_entry_dates"},
+		{"a ledger the legal entity does not keep", func(tx pgx.Tx) error {
+			local := id()
+			return all(tx, step(`INSERT INTO ledger.ledger (tenant_id, id, code, name, is_leading, accounting_principle, created_by)
+				VALUES ($1, $2, '2L', 'Local', false, 'HGB', $3)`, f.tenant, local, f.actor),
+				step(`INSERT INTO ledger.revaluation_run (tenant_id, id, legal_entity_id, ledger_id, key_date, rate_type, created_by, updated_by)
+				VALUES ($1,$2,$3,$4,'2026-05-31','average',$5,$5)`, f.tenant, id(), f.entity, local, f.actor))
+		}, "revaluation_run_ledger_kept"},
 		{"a cancelled run first", func(tx pgx.Tx) error {
 			return exec(tx, `INSERT INTO ledger.revaluation_run (tenant_id, id, legal_entity_id, ledger_id, key_date, rate_type, status, created_by, updated_by)
 				VALUES ($1,$2,$3,$4,'2026-05-31','average','cancelled',$5,$5)`, f.tenant, id(), f.entity, f.ledger, f.actor)

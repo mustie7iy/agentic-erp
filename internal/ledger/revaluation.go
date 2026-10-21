@@ -23,8 +23,8 @@ import (
 // Revaluation is what a foreign-currency revaluation run of a legal entity
 // and ledger at a key date values (ADR-0042): the open items of supplier
 // and customer reconciliation accounts and the balances per currency of
-// flagged accounts, each at the key date's rate of the legal entity's
-// valuation rate type.
+// flagged accounts, each at the key date's rate of the ledger's valuation
+// rate type: its own (T52f) or the legal entity's.
 type Revaluation struct {
 	LegalEntityID, LedgerID  uuid.UUID
 	KeyDate                  time.Time
@@ -141,16 +141,22 @@ const revaluationScope = `WITH scope AS MATERIALIZED (
 	ORDER BY g.number, s.currency_tc, s.fiscal_year, s.journal_entry_id, s.line_no`
 
 // valueRevaluation values what a run of the legal entity and ledger at the
-// key date would value, without writing anything. The key date is the last
-// day of a posting period of the ledger; every currency is valued into
-// local and into group currency at the latest rate of the legal entity's
-// rate type valid on it, one valid from before the key date's period being
-// stale; and every account with items in scope has an active valuation.
+// key date would value, without writing anything: the ledger's own lines,
+// so a parallel ledger values its copies of the items and its own
+// postings (T52f). The key date is the last day of a posting period of the
+// ledger; every currency is valued into local and into group currency at
+// the latest rate of the ledger's rate type (its active
+// fx_valuation_ledger, else the legal entity's) valid on it, one valid from
+// before the key date's period being stale; and every account with items
+// in scope has an active valuation.
 func valueRevaluation(ctx context.Context, tx pgx.Tx, le tenancy.Entity, ledgerID uuid.UUID, group string, keyDate time.Time) (Revaluation, error) {
 	r := Revaluation{LegalEntityID: le.ID, LedgerID: ledgerID, KeyDate: keyDate, CurrencyLC: le.LocalCurrency, CurrencyGC: group}
 	var start time.Time
+	// The ledger's own rate type, its valuation area's, else the legal
+	// entity's (T52f, ADR-0045).
 	err := tx.QueryRow(ctx, `SELECT f.fiscal_year, f.period, f.start_date,
-			coalesce((SELECT rate_type FROM ledger.fx_valuation WHERE legal_entity_id = $1), 'average')
+			coalesce((SELECT rate_type FROM ledger.fx_valuation_ledger WHERE legal_entity_id = $1 AND ledger_id = $2 AND is_active),
+				(SELECT rate_type FROM ledger.fx_valuation WHERE legal_entity_id = $1), 'average')
 		FROM ledger.period_status s JOIN ledger.fiscal_period f ON f.tenant_id = s.tenant_id AND f.calendar_id = s.calendar_id
 			AND f.fiscal_year = s.fiscal_year AND f.period = s.period
 		WHERE s.legal_entity_id = $1 AND s.ledger_id = $2 AND f.end_date = $3 AND NOT f.is_special`,
@@ -363,8 +369,8 @@ func (e *Endpoints) PreviewRevaluation(ctx context.Context, req *gen.Revaluation
 }
 
 // revaluationTarget resolves the legal entity, ledger (the leading one by
-// default) and group currency a preview or run values; a legal entity the
-// caller cannot act in is not found.
+// default, else one the company keeps) and group currency a preview or run
+// values; a legal entity the caller cannot act in is not found.
 func (e *Endpoints) revaluationTarget(ctx context.Context, tx pgx.Tx, req *gen.RevaluationPreviewRequest) (tenancy.Entity, uuid.UUID, string, error) {
 	access, err := authz.Companies(ctx)
 	if err != nil {
@@ -378,12 +384,17 @@ func (e *Endpoints) revaluationTarget(ctx context.Context, tx pgx.Tx, req *gen.R
 		return tenancy.Entity{}, uuid.Nil, "", problem.ReferenceNotFound("legal_entity_id", "legal entity", "no legal entity with this id")
 	}
 	var ledgerID uuid.UUID
-	err = tx.QueryRow(ctx, `SELECT id FROM ledger.ledger WHERE ($1::uuid IS NULL AND is_leading) OR id = $1`, apitypes.Ptr[uuid.UUID](req.LedgerID)).Scan(&ledgerID)
-	if errors.Is(err, pgx.ErrNoRows) {
+	var kept bool
+	err = tx.QueryRow(ctx, `SELECT id, ledger.company_keeps($2, id) FROM ledger.ledger WHERE ($1::uuid IS NULL AND is_leading) OR id = $1`,
+		apitypes.Ptr[uuid.UUID](req.LedgerID), le.ID).Scan(&ledgerID, &kept)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
 		return tenancy.Entity{}, uuid.Nil, "", problem.ReferenceNotFound("ledger_id", "ledger", "no ledger with this id")
-	}
-	if err != nil {
+	case err != nil:
 		return tenancy.Entity{}, uuid.Nil, "", fmt.Errorf("ledger: revaluation of %s: find ledger: %w", le.ID, err)
+	case !kept:
+		// Each ledger is valued on its own, so only one the company keeps.
+		return tenancy.Entity{}, uuid.Nil, "", notKept("ledger_id")
 	}
 	group, err := e.LegalEntities.GroupCurrency(ctx)
 	if err != nil {

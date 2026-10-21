@@ -292,9 +292,12 @@ Canadian bank may only offer BAI2.
   group currency is a realized exchange difference on fx_gain or fx_loss.
   A posting rule's match posts against the rule's account (409
   `payments.statement_posting_rule_gone` once the company dropped the
-  rule). The ledger does not check the caller's companies: payments reads
-  the statement within them, or the approval authorises the posting, as
-  for approved manual entries. A person posts a line with
+  rule). The posting goes to every ledger the company keeps (ADR-0045,
+  as a settlement does): it clears the payments' copies in the parallel
+  ledgers with its own copies, and a line is postable only on a date open
+  in each of them (`Postable`). The ledger does not check the caller's
+  companies: payments reads the statement within them, or the approval
+  authorises the posting, as for approved manual entries. A person posts a line with
   `POST /v1/bank-statements/{id}/lines/{line_no}:post`
   (`payments.statement.post`, `x-agent: false`), on its booking date or on
   `posting_date` with a `reason`, both recorded on the match and audited;

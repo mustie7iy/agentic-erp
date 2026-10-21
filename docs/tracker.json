@@ -1140,21 +1140,58 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Leading and non-leading ledgers",
       "r": "T52",
+      "c": [
+       {
+        "s": "D",
+        "t": "Ledgers, company ledgers (exactly one leading 0L) and ledger groups with a representative from configuration, kept once activated; periods per ledger of each company; ledgers and groups read through the API",
+        "r": "db/migrations/000132 · ledgers · companies[].ledgers · ledger_groups · GET /v1/ledgers · GET /v1/ledger-groups · ADR-0045 · T52a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Postings copied to every ledger of the company (posting_group_id, one document number); a posting naming a ledger or group limited to the company's ledgers",
+        "r": "db/migrations/000133-000136 · migrate:partitioned-index · ledger_group on manual and parked entries · reversal of every copy · open items on the leading ledger · ADR-0045 · T52b",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Clearing in every ledger: subledger postings copied, clearings applied to each ledger's copy lines by posting_group_id, a clearing's own entry narrowed to its items' ledgers; journal list by ledger (leading by default); ledger groups narrowed to the ledgers kept",
+        "r": "clearCopies · itemLedgers · GET /v1/journal-entries?ledger_id · ADR-0045 · T52c",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Ledger-specific postings refused on supplier and customer reconciliation accounts (422 ledger.ledger_specific_reconciliation), so open items are the same in every ledger; a migrated clearing's entry must be the leading ledger's",
+        "r": "commonOnReconciliation · clearingPeriod · ADR-0045 · T52d",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Revaluation per ledger: a run values its ledger's own lines and posts and reverses in that ledger alone, one posted run per key date and ledger; a parallel ledger's own rate type (valuation area) from companies[].fx_valuation.ledgers",
+        "r": "db/migrations/000137-000138 · fx_valuation_ledger · revaluation_run_ledger_kept · revaluationTarget · TestRevaluationPerLedger · ADR-0045 · ADR-0042 · T52f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Ledger-aware list index and planner statistics for the journal list's ledger filter",
+        "r": "T52",
+        "c": []
+       }
+      ]
+     },
+     {
+      "s": "D",
+      "t": "Ledger-specific postings: a manual or parked entry names a ledger or ledger group, never on a supplier or customer reconciliation account",
+      "r": "ledger_id · ledger_group · ADR-0045 · T52b · T52d",
       "c": []
      },
      {
-      "s": "T",
-      "t": "Ledger-specific postings",
-      "r": "T52",
-      "c": []
-     },
-     {
-      "s": "T",
-      "t": "Ledger reconciliation",
-      "r": "T52",
+      "s": "D",
+      "t": "Ledger reconciliation: differences between two ledgers of a company per account and currency, each ledger's trial balance checked, drill-down to the ledger-specific entries; perf budget; T52b's contract step found empty",
+      "r": "GET /v1/ledger-reconciliation · GET /v1/ledger-reconciliation/entries · TestLedgerReconciliationBudget · ADR-0045 · T52e",
       "c": []
      }
     ]

@@ -11,8 +11,13 @@ import (
 	"github.com/parquet-go/parquet-go"
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics/extract"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // What a reader sees of the snapshot datasets.
@@ -168,6 +173,32 @@ func TestSnapshotDatasets(t *testing.T) {
 			t.Errorf("po_lines files: got %v, want %v kept", b, a)
 		}
 	})
+}
+
+// TestOpenItemsOfTheLeadingLedger: with a parallel ledger, a posting's
+// supplier line is copied into it, and the open items stay the leading
+// ledger's, as /v1/open-items returns them (ADR-0045).
+func TestOpenItemsOfTheLeadingLedger(t *testing.T) {
+	e := setup(t)
+	doc := fixture.Document(t)
+	doc.Ledgers = []config.Ledger{{Code: "0L", Name: "Leading ledger", AccountingPrinciple: "IFRS"}, {Code: "2L", Name: "HGB", AccountingPrinciple: "HGB"}}
+	doc.Company("2000").Ledgers = []string{"0L", "2L"}
+	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		return ledger.Setup{LegalEntities: tenancy.Directory{}}.Apply(ctx, doc)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pgtest.Exec(t, `UPDATE ledger.period_status SET status = 'open', version = version + 1 WHERE tenant_id = $1 AND status = 'closed' AND period <= 12`, e.Tenant.ID)
+	entry := e.post(t, "2026-03-02", "100.00")
+	var copies int
+	pgtest.Scan(t, `SELECT count(*) FROM ledger.journal_entry WHERE tenant_id = $1 AND posting_group_id = $2`, []any{e.Tenant.ID, entry}, &copies)
+	if copies != 2 {
+		t.Fatalf("entries of the posting: got %d, want one per ledger", copies)
+	}
+	m := e.manifest(t, e.run(t).ManifestKey)
+	if got := read[openRow](t, e, m, "open_items"); len(got) != 1 || got[0].DocumentID.String() != entry {
+		t.Errorf("open_items: got %+v, want only the leading ledger's line of entry %s", got, entry)
+	}
 }
 
 // TestBacklogInMonths: a first run over several months writes one file per

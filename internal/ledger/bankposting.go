@@ -73,7 +73,7 @@ func (p Postings) PostBank(ctx context.Context, in BankPosting) (Entry, error) {
 	if err := e.checkAccounts(ctx, tx, le.ID, b.lines, false); err != nil {
 		return Entry{}, err
 	}
-	entry, err := e.post(ctx, tx, actor, draft{entity: le, ledgerID: b.ledger, documentType: in.DocumentType, documentDate: in.PostingDate,
+	entry, err := e.post(ctx, tx, actor, draft{entity: le, documentType: in.DocumentType, documentDate: in.PostingDate,
 		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: le.LocalCurrency, currencyGC: b.bank.group, rateTCLC: b.bank.rateLC.shown,
 		rateLCGC: b.bank.rateGC.shown, reference: in.Reference, headerText: in.HeaderText, sourceContext: in.SourceContext,
 		sourceDocumentID: &in.SourceDocumentID, lines: b.lines})
@@ -96,9 +96,10 @@ func (p Postings) PostBank(ctx context.Context, in BankPosting) (Entry, error) {
 }
 
 // Postable refuses a posting date of the legal entity outside an open
-// period of the leading ledger, as a posting on it would (409
-// ledger.period_not_open): a bank statement line that waits for approval is
-// checked first, since its approval could not post it either.
+// period of any ledger the company keeps, as a bank posting, which goes to
+// them all, would (409 ledger.period_not_open): a bank statement line that
+// waits for approval is checked first, since its approval could not post
+// it either.
 func (p Postings) Postable(ctx context.Context, legalEntity uuid.UUID, date time.Time) error {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -108,27 +109,24 @@ func (p Postings) Postable(ctx context.Context, legalEntity uuid.UUID, date time
 	if err != nil {
 		return err
 	}
-	leading, err := ledgerID(ctx, tx, nil)
-	if err != nil {
-		return err
-	}
-	_, _, err = postingPeriod(ctx, tx, le, leading, date)
+	_, _, _, err = postingPeriod(ctx, tx, le, nil, date)
 	return err
 }
 
-// bankEntry is what a bank posting posts: its lines, in its ledger, at the
-// bank line's rates, and the items it clears.
+// bankEntry is what a bank posting posts: its lines, at the bank line's
+// rates, and the items it clears. It posts in every ledger the company
+// keeps, as a settlement does (ADR-0045): the clearing clears the items'
+// copies in the parallel ledgers with the leading ledger's.
 type bankEntry struct {
-	lines  []Line
-	items  []item
-	ledger uuid.UUID
-	bank   settlementBank
+	lines []Line
+	items []item
+	bank  settlementBank
 }
 
 // bankLines are the posting's lines: the items' offsets first (the
 // clearing clears item i with line i+1), the main bank line, and the
 // exchange differences; or, without items, the main bank line and its
-// counter line in the leading ledger.
+// counter line.
 func (e *Endpoints) bankLines(ctx context.Context, tx pgx.Tx, in BankPosting, le tenancy.Entity) (bankEntry, error) {
 	bank, err := e.bankAmounts(ctx, tx, in.Currency, in.PostingDate, le, in.Amount)
 	if err != nil {
@@ -136,9 +134,8 @@ func (e *Endpoints) bankLines(ctx context.Context, tx pgx.Tx, in BankPosting, le
 	}
 	bankLine := Line{AccountID: in.BankAccountID, TC: in.Amount, LC: bank.lc, GC: bank.gc, Text: in.HeaderText}
 	if len(in.Entries) == 0 {
-		leading, err := ledgerID(ctx, tx, nil)
 		return bankEntry{lines: []Line{bankLine, {AccountID: in.CounterAccountID, TC: -in.Amount, LC: -bank.lc, GC: -bank.gc, Text: in.HeaderText}},
-			ledger: leading, bank: bank}, err
+			bank: bank}, nil
 	}
 	items, err := accountItems(ctx, tx, le.ID, in.ClearingAccountID, in.Entries)
 	if err != nil {
@@ -153,7 +150,7 @@ func (e *Endpoints) bankLines(ctx context.Context, tx pgx.Tx, in BankPosting, le
 			tc.Plain(bank.expTC), in.Amount.Plain(bank.expTC)))
 	}
 	fx, err := exchangeDifferenceLines(ctx, le.ID, lc, gc, bank, in.HeaderText)
-	return bankEntry{lines: append(append(lines, bankLine), fx...), items: items, ledger: items[0].ledger, bank: bank}, err
+	return bankEntry{lines: append(append(lines, bankLine), fx...), items: items, bank: bank}, err
 }
 
 // accountItems are the entries' lines on the account, which must be
@@ -198,6 +195,9 @@ func accountItems(ctx context.Context, tx pgx.Tx, le, account uuid.UUID, entries
 // not of a reversed entry or a reversal, and not cleared. Payment runs
 // reserve supplier items only, so no reservation holds it.
 func checkAccountItem(i int, it item) error {
+	if !it.found { // a parallel ledger's copy: open items are the leading ledger's (ADR-0045)
+		return problem.Unprocessable("ledger.not_an_open_item", "Item "+fmt.Sprint(i+1)+" is not a line of the leading ledger.")
+	}
 	if it.reversed {
 		return reversedItem(i)
 	}

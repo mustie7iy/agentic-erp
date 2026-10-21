@@ -91,10 +91,13 @@ const (
 		JOIN partner.business_partner bp ON bp.tenant_id = i.tenant_id AND bp.id = i.supplier_id
 		JOIN ref.currency c ON c.code = i.currency
 		ORDER BY i.invoice_date, i.id`
-	// An open supplier item is a line on a supplier reconciliation account
-	// that no clearing has taken, as /v1/open-items returns it.
+	// An open supplier item is a line of the leading ledger on a supplier
+	// reconciliation account that no clearing has taken, as /v1/open-items
+	// returns it: open items are the leading ledger's, the parallel ledgers'
+	// copies of them are not items of their own (ADR-0045).
 	openItemsSQL = `SELECT l.tenant_id, l.journal_entry_id, l.line_no FROM ledger.journal_line l
 		JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id AND a.reconciliation_kind = 'supplier'
+		JOIN ledger.ledger g ON g.tenant_id = l.tenant_id AND g.id = l.ledger_id AND g.is_leading
 		WHERE NOT EXISTS (SELECT FROM ledger.clearing_item c WHERE c.tenant_id = l.tenant_id AND c.fiscal_year = l.fiscal_year
 			AND c.journal_entry_id = l.journal_entry_id AND c.line_no = l.line_no)
 		ORDER BY l.journal_entry_id, l.line_no`

@@ -753,6 +753,41 @@ Rules enforced in the database:
 - `period_status` (one row per legal entity, ledger, year and period) has a
   uuid `id` so the API can address a posting period; its natural key stays
   the primary key.
+- Parallel ledgers (ADR-0045, T52a): `ledger` (0L is the leading ledger,
+  `ledger_leading_is_0l`), `company_ledger` (the ledgers a legal entity
+  keeps, insert-only; exactly one leading per legal entity:
+  `company_ledger_one_leading` and the commit-time
+  `company_ledger_leading_required`), `ledger_group` and
+  `ledger_group_member` (insert-only; the representative is a member,
+  `ledger_group_representative_member`, the leading ledger when it is one,
+  `ledger_group_leading_represents`, and only the name changes,
+  `ledger_group_fixed`). All from the configuration's `ledgers`,
+  `companies[].ledgers` and `ledger_groups`; `period_status` has rows for
+  every ledger the legal entity keeps.
+- Posting groups (ADR-0045, T52b): a posting is written once per ledger
+  it goes to, as `journal_entry` rows sharing `posting_group_id` (the
+  first entry's id, the representative ledger's) and the document number,
+  now unique per ledger (`journal_entry_document`, built per partition;
+  the constraint without the ledger is dropped). The insert trigger
+  `journal_entry_ledger` holds an entry to a ledger its company keeps
+  (`ledger.company_keeps`: its `company_ledger` rows, or the leading
+  ledger alone before any are assigned), to a member of the
+  `ledger_group_id` it names, and a copy to its group's first entry's
+  header in another ledger. `parked_entry` keeps what it posts to
+  (`ledger_specific`, `ledger_group_id`, not both, fixed once parked).
+- Clearing in every ledger (ADR-0045, T52c): a clearing writes one
+  `clearing` per ledger where its clearing entry has a copy, by that copy,
+  with `clearing_item` rows for the copies of the cleared lines (an item
+  with its offset, only where both have a copy); the leading ledger's is
+  the one read and announced.
+- Ledger reconciliation (ADR-0045, T52e) needs no table: it reads the
+  balances the trial balance reads (`period_balance` plus the lines not
+  yet projected) for two ledgers, and finds the entries behind a
+  difference as those whose `posting_group_id` has no entry in the other
+  ledger (`journal_entry_posting_group`). The contract step of T52b's
+  expand is empty: the old document number constraint went in 000136, and
+  `posting_group_id` stays nullable, entries posted before T52b having
+  none.
 
 Enforced by the ledger, not the database (T32c): `:unlock` (permission
 `ledger.period.lock`, people only) opens the `period_unlock` request with
@@ -886,6 +921,21 @@ fixed, decided once from `pending` on its `center_change` approval request
 (`center_change_one_pending`). A center goes `pending` to `active` or
 `rejected` only, its code and a cost center's legal entity fixed
 (`check_center_change`).
+
+Revaluation per ledger (T52f, ADR-0045, migrations 000137-000138). A run
+values its ledger's own lines (a parallel ledger's copies of the open items, which
+T52c clears with the leading ledger's, and its ledger-specific postings)
+and posts and reverses its entries in that ledger alone; the posted-run
+index already keys runs by ledger, so each ledger has its run per key
+date. `fx_valuation_ledger` is the rate type a parallel ledger values at of
+its own (its valuation area, from `companies[].fx_valuation.ledgers`),
+deactivated when removed; a ledger without an active one values at the
+legal entity's `fx_valuation`. Its foreign keys hold it to a ledger the
+legal entity keeps (`company_ledger`) and not the leading one (`is_leading`,
+always false, against `ledger.ledger`'s role key). The valuation accounts
+stay per legal entity: the ledgers keep their amounts apart on them. A run's
+ledger is one its legal entity keeps (`revaluation_run_ledger_kept`,
+migration 000138, checked on insert).
 
 ## 3.8 Procurement (`procurement`)
 
