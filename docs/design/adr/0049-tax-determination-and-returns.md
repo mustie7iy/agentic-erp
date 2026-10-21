@@ -655,7 +655,7 @@ the UAE's Box 6 for registrants who account for import VAT in the return
   there drops the base (its items' base 0), and its reversals of new
   import entries leave the lines' bases out (their items, negated from the
   original's, are right). Import entries are not entered while the rollout
-  is under way (runbook). **Open (tax specialist and product owner):** a
+  is under way (a step for the release notes; no release runbook exists yet). **Open (tax specialist and product owner):** a
   partly recovered import's claim item carries the part recovered as its
   tax, where a supplier invoice's self-assessed claim carries the whole tax
   with its recovered part; the returns read the same, but the item's tax
