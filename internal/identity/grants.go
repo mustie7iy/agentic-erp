@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"slices"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -263,6 +265,14 @@ func CreateSodRule(ctx context.Context, a, b, description string, from, to *time
 	if a == b {
 		return SodRule{}, problem.Unprocessable("identity.invalid_sod_rule", "A rule needs two different permissions.",
 			problem.FieldError{Field: "permission_b", Code: "same_as_a", Message: "differs from permission_a"})
+	}
+	// Every person holds their own permissions (authz.PersonsOwn): a rule
+	// naming one would refuse everyone holding the other.
+	for field, p := range map[string]string{"permission_a": a, "permission_b": b} {
+		if slices.Contains(authz.PersonsOwn(), p) {
+			return SodRule{}, problem.Unprocessable("identity.invalid_sod_rule", "A rule cannot name a permission every person holds.",
+				problem.FieldError{Field: field, Code: "held_by_everyone", Message: "a permission roles grant"})
+		}
 	}
 	if b < a {
 		a, b = b, a

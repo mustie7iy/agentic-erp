@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
@@ -95,13 +94,15 @@ func claimWebIn(ctx context.Context, tx pgx.Tx, is Issuer) (bool, error) {
 	args := []any{is.Issuer, is.Audience, is.ProviderID, nil, nil, nil, nil, nil}
 	if w := is.Web; w != nil {
 		args = append(args[:3], w.LoginCode, w.ClientID, w.AuthMethod, w.CredentialRef, w.Scope)
+		// Claims of one code, from any cell, wait for each other here
+		// until commit, so the second sees the first's and none breaks the
+		// unique index (which would abort a round's whole transaction).
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('directory.login_code'), hashtext($1))`, w.LoginCode); err != nil {
+			return false, fmt.Errorf("lock login code %s: %w", w.LoginCode, err)
+		}
 	}
 	var free bool
 	if err := tx.QueryRow(ctx, claimWebSQL, args...).Scan(&free); err != nil {
-		var pg *pgconn.PgError
-		if errors.As(err, &pg) && pg.ConstraintName == "issuer_login_code" {
-			return false, nil // a claim of the code committed meanwhile
-		}
 		return false, fmt.Errorf("claim web client of %s %s: %w", is.Issuer, is.Audience, err)
 	}
 	return free, nil

@@ -105,6 +105,7 @@ func TestClientAssertion(t *testing.T) {
 		"no key":              "not a PEM",
 		"EC P-384":            pkcs8(t, p384),
 		"Ed25519":             pkcs8(t, edKey),
+		"RSA under 2048 bits": pkcs8(t, weakRSA(t)),
 		"a malformed RSA":     pemOf(t, "RSA PRIVATE KEY", []byte("x")),
 		"a malformed EC":      pemOf(t, "EC PRIVATE KEY", []byte("x")),
 		"a malformed key":     pemOf(t, "PRIVATE KEY", []byte("x")),
@@ -235,7 +236,7 @@ func TestMaxAge(t *testing.T) {
 	o := &OIDC{Providers: &authn.Providers{}}
 	c := session.Client{Issuer: is.URL, ClientID: "erp-web", Audience: authntest.Audience}
 	zero := 0
-	for name, at := range map[string]any{"none": nil, "an hour ago": time.Now().Add(-time.Hour).Unix()} {
+	for name, at := range map[string]any{"none": nil, "an hour ago": time.Now().Add(-time.Hour).Unix(), "in an hour": time.Now().Add(time.Hour).Unix()} {
 		t.Run(name, func(t *testing.T) {
 			claims := map[string]any{"aud": "erp-web", "nonce": "n"}
 			if at != nil {
@@ -294,4 +295,13 @@ func TestStepUpParams(t *testing.T) {
 			t.Errorf("max_age %q: got %d, want none", v, *got)
 		}
 	}
+}
+
+func weakRSA(t *testing.T) *rsa.PrivateKey {
+	t.Helper()
+	k, err := rsa.GenerateKey(rand.Reader, 1024) // #nosec G403 -- a key too weak on purpose: refused
+	if err != nil {
+		t.Fatal(err)
+	}
+	return k
 }

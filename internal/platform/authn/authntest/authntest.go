@@ -108,8 +108,9 @@ func start() (is *Issuer, stop func(), err error) {
 			"issuer": is.URL, "jwks_uri": is.URL + KeysPath,
 			"authorization_endpoint": is.URL + AuthorizePath, "token_endpoint": is.URL + TokenPath, "end_session_endpoint": is.URL + EndSessionPath,
 			"id_token_signing_alg_values_supported": []string{"RS256"}, "response_types_supported": []string{"code"},
-			"code_challenge_methods_supported":      []string{"S256"},
-			"token_endpoint_auth_methods_supported": []string{"private_key_jwt", "client_secret_basic"},
+			"code_challenge_methods_supported":               []string{"S256"},
+			"token_endpoint_auth_methods_supported":          []string{"private_key_jwt", "client_secret_basic"},
+			"authorization_response_iss_parameter_supported": true,
 		}
 	}))
 	mux.HandleFunc(AuthorizePath, is.authorize)

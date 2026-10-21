@@ -122,8 +122,8 @@ func TestOnlyCurrentGrantsCount(t *testing.T) {
 	pgtest.Exec(t, `UPDATE identity.role SET status = 'inactive', version = version + 1 WHERE tenant_id = $1`, ten.ID)
 	as(t, ten, ten.Human, func(ctx context.Context) {
 		set, _ := authz.Permissions(ctx)
-		if len(set) != len(authz.PersonsOwn) {
-			t.Errorf("inactive role grants %v, want only %v", set, authz.PersonsOwn)
+		if len(set) != len(authz.PersonsOwn()) {
+			t.Errorf("inactive role grants %v, want only %v", set, authz.PersonsOwn())
 		}
 	})
 }

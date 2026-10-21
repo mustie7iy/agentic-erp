@@ -165,7 +165,11 @@ CREATE TABLE IF NOT EXISTS directory.placement (
 // browser's cookie holds.
 const WebSchema = `
 DO $$ BEGIN
+  -- Roles are the server's, not the database's, so openers of two
+  -- databases on one server (tests, a restore beside the live one) may
+  -- create it at once; the advisory lock serializes one database's alone.
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'erp_web') THEN CREATE ROLE erp_web NOLOGIN; END IF;
+EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL;
 END $$;
 CREATE SCHEMA IF NOT EXISTS web;
 CREATE TABLE IF NOT EXISTS web.session (
@@ -179,6 +183,7 @@ CREATE TABLE IF NOT EXISTS web.session (
   expires_at   timestamptz NOT NULL,
   sealed       bytea NOT NULL,
   version      integer NOT NULL DEFAULT 1 CHECK (version > 0),
+  renewing_until timestamptz, -- a request renewing the tokens holds this claim (session.Store.Renew)
   CONSTRAINT session_times CHECK (created_at <= last_seen_at AND last_seen_at <= expires_at)
 );
 CREATE INDEX IF NOT EXISTS session_last_seen ON web.session (last_seen_at);

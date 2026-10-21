@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -53,7 +54,9 @@ func TestSignIn(t *testing.T) {
 		t.Errorf("authorization request: got %v, want 256-bit state and nonce, a challenge and no acr_values", q)
 	}
 	checkCookie(t, start.header, signInCookie, http.SameSiteLaxMode, int(signInTTL/time.Second))
-	checkCookie(t, start.header, codeCookie, http.SameSiteLaxMode, int(codeTTL/time.Second))
+	if strings.Contains(strings.Join(start.header.Values("Set-Cookie"), " "), codeCookie) {
+		t.Error("start: the login code remembered before the sign-in completed")
+	}
 	back := b.get(start.location())
 	if back.status != http.StatusFound || !strings.HasPrefix(back.location(), s.public+"/callback?") {
 		t.Fatalf("provider: got %d to %s, want the callback", back.status, back.location())
@@ -63,6 +66,7 @@ func TestSignIn(t *testing.T) {
 		t.Fatalf("callback: got %d %s, want the continue page to /", done.status, done.body)
 	}
 	checkCookie(t, done.header, sessionCookie, http.SameSiteStrictMode, 0)
+	checkCookie(t, done.header, codeCookie, http.SameSiteLaxMode, int(codeTTL/time.Second))
 	if !strings.Contains(done.header.Values("Set-Cookie")[0], signInCookie+"=;") {
 		t.Errorf("callback: got %v, want the sign-in cookie deleted", done.header.Values("Set-Cookie"))
 	}
@@ -138,6 +142,11 @@ func TestCallbackRefusals(t *testing.T) {
 		"another issuer (RFC 9207)": {func(u *url.URL, _ *browser) {
 			q := u.Query()
 			q.Set("iss", "https://evil.example.com")
+			u.RawQuery = q.Encode()
+		}, 400},
+		"no iss from a provider that sends it": {func(u *url.URL, _ *browser) {
+			q := u.Query()
+			q.Del("iss")
 			u.RawQuery = q.Encode()
 		}, 400},
 		"another code": {func(u *url.URL, _ *browser) {
@@ -271,7 +280,8 @@ func TestSafeReturn(t *testing.T) {
 	for in, want := range map[string]string{
 		"/": "/", "/health?x=1": "/health?x=1", "": "/", "//evil.example.com/x": "/", "https://evil.example.com/": "/",
 		"/\\evil.example.com": "/", "javascript:alert(1)": "/", "health": "/", "/x\r\nSet-Cookie: a=b": "/", "%zz": "/",
-		"/" + strings.Repeat("a", 2048): "/",
+		"/" + strings.Repeat("a", 1024): "/", "/login/evil": "/", "/login": "/", "/callback?code=x": "/", "/logout": "/", "/signed-out": "/",
+		"/loginx": "/loginx",
 	} {
 		if got := safeReturn(in); got != want {
 			t.Errorf("safeReturn(%q): got %q, want %q", in, got, want)
@@ -646,7 +656,7 @@ func TestDeletionsThatFail(t *testing.T) {
 		b.signIn()
 		s.failDeletes()
 		defer func() { s.srv.Store.InTx = nil }()
-		if r := b.follow("/login/" + loginCodeOf + "?return=/&max_age=0"); r.status != http.StatusOK || !strings.Contains(s.logs.String(), "a step-up replaces was not deleted") {
+		if r := b.follow("/login/" + loginCodeOf + "?return=/&max_age=0"); r.status != http.StatusOK || !strings.Contains(s.logs.String(), "a sign-in replaces was not deleted") {
 			t.Errorf("got %d, want the step-up done and the failure logged", r.status)
 		}
 	})
@@ -805,4 +815,72 @@ func directoryIssuer(s *stack) directory.Issuer {
 		s.t.Fatal(err)
 	}
 	return is
+}
+
+// TestALoginCodeReclaimed: a login code freed by one tenant's provider and
+// claimed by another's never receives the first's sessions' tokens: the
+// renewal, the sign-out and a sign-in under way end rather than call the
+// other provider.
+func TestALoginCodeReclaimed(t *testing.T) {
+	s := newStack(t, stackOptions{})
+	s.is.SetTokenTTL(2 * time.Minute)
+	b := s.browser()
+	b.signIn()
+	s.is.SetTokenTTL(time.Hour)
+	pending := s.browser()
+	raw, _ := callbackOf(t, pending)
+	other := authntest.NewSeparate(t)
+	is := directoryIssuer(s)
+	if err := s.dir.ReleaseIssuer(context.Background(), is); err != nil {
+		t.Fatal(err)
+	}
+	taken := directory.Issuer{Issuer: other.URL, Audience: authntest.Audience, TenantID: uuid.New(), Cell: "us-1", ProviderID: uuid.New(),
+		Web: &directory.WebClient{LoginCode: loginCodeOf, ClientID: "erp-web", AuthMethod: "client_secret_basic", CredentialRef: "env:X", Scope: "openid"}}
+	if err := s.dir.ClaimIssuer(context.Background(), taken); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.dir.ClaimWebClient(context.Background(), taken); err != nil {
+		t.Fatal(err)
+	}
+	s.clock.Advance(session.CacheTTL + 2*time.Minute)
+	if r := pending.get(raw); r.status != http.StatusBadRequest {
+		t.Errorf("the sign-in under way: got %d, want 400", r.status)
+	}
+	if r := b.get("/"); r.status != http.StatusSeeOther {
+		t.Errorf("the renewal: got %d, want the session ended", r.status)
+	}
+	if n := other.TokenRequests("refresh_token") + other.TokenRequests("authorization_code"); n != 0 || len(other.Logouts()) != 0 {
+		t.Errorf("the other provider: got %d token requests and %d logouts, want none", n, len(other.Logouts()))
+	}
+}
+
+// TestSignInOverASession: a sign-in replaces the session the browser had,
+// whatever the kind, and a refreshed ID token that is not the provider's
+// for this person ends the session.
+func TestSignInOverASession(t *testing.T) {
+	s := newStack(t, stackOptions{})
+	b := s.browser()
+	b.signIn()
+	b.signIn()
+	if n := s.sessions(); n != 1 {
+		t.Errorf("sessions: got %d, want the new one alone", n)
+	}
+	defer s.is.SetHooks(authntest.Hooks{})
+	for name, hook := range map[string]func(map[string]any){
+		"of another subject": func(claims map[string]any) { claims["sub"] = "mallory" },
+		"for another client": func(claims map[string]any) { claims["aud"] = "other" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			s.is.SetTokenTTL(2 * time.Minute)
+			s.is.SetHooks(authntest.Hooks{})
+			c := s.browser()
+			c.signIn()
+			s.is.SetTokenTTL(time.Hour)
+			s.is.SetHooks(authntest.Hooks{IDToken: hook})
+			s.clock.Advance(2 * time.Minute)
+			if r := c.get("/"); r.status != http.StatusSeeOther {
+				t.Errorf("a refreshed ID token %s: got %d, want the session ended", name, r.status)
+			}
+		})
+	}
 }

@@ -156,7 +156,8 @@ func TestIssuerStatementFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer dir.Close()
-	is := directory.Issuer{Issuer: "https://f-" + uuid.NewString() + ".example.com", Audience: "erp", TenantID: uuid.New(), Cell: "f-" + uuid.NewString()}
+	is := directory.Issuer{Issuer: "https://f-" + uuid.NewString() + ".example.com", Audience: "erp", TenantID: uuid.New(), Cell: "f-" + uuid.NewString(),
+		Web: webClient("f-" + uuid.NewString()[:8])}
 	pool := dir.Pool
 	for name, op := range map[string]func() error{
 		"claim":   func() error { return dir.ClaimIssuer(ctx, is) },

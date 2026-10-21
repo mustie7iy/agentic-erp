@@ -1000,20 +1000,36 @@ What sign-in settled that §§5-6 left open, and where it departs from them:
   meet), seen at most once a minute, swept hourly. Tokens are not size
   bound: an Entra ID token with its groups (below) fits.
 - **Renewal.** An access token within 30 s of its expiry is renewed with
-  the refresh token while the session's row is held `FOR UPDATE`, so
-  concurrent requests on any replica spend a rotating refresh token once
-  (`TestRefresh`: eight at once, one refresh). A refusal ends the
-  session; a session without a refresh token ends with its access token.
+  the refresh token once for all concurrent requests on any replica, so a
+  rotating refresh token is spent once (`TestRefresh`: eight at once, one
+  refresh). The first request claims the renewal on the session's row
+  (`renewing_until`, 30 s) and calls the provider holding no transaction
+  or connection, so a slow provider, one tenant's, stalls no one else; it
+  writes the result back guarded on the session's version; the others look
+  again every 100 ms and take it. A refusal ends the session, as does a
+  refreshed ID token that is not the provider's for the client and the
+  person; a session without a refresh token ends with its access token.
+  The store's pool is ten connections per replica.
+- **A session stays its provider's.** A session and a sign-in under way
+  are bound to the issuer and tenant they began with: the web client
+  found by their login code must still be that provider's, or the
+  renewal, the sign-out's logout and the callback end without calling
+  anyone (`TestALoginCodeReclaimed`), since a code freed by a retired
+  provider may be claimed by another tenant's.
 - **The flow.** `GET /login` asks for the code (or goes on with the
-  remembered one, P4: `__Host-erp-login-code`, a year), `GET
+  remembered one, P4: `__Host-erp-login-code`, a year, set only once a
+  sign-in completed, so a link from elsewhere cannot choose the provider
+  of the person's next visits), `GET
   /login/{code}` seals state, nonce, PKCE verifier (256 bits each), the
   return path and, for a step-up, the challenge's `acr_values` or
   `max_age` into `__Host-erp-sign-in` (Lax, ten minutes, deleted at the
   callback) and goes to the provider; `GET /callback` checks the state,
-  the provider's `error`, RFC 9207's `iss` where sent, exchanges the code
+  the provider's `error`, RFC 9207's `iss` (required where the provider's
+  metadata says it sends it), exchanges the code
   and checks nonce, `azp` (several audiences), `auth_time` (when `max_age`
   was asked, two minutes' skew) and, for a step-up, that the `acr` is one
-  asked. The return path is a path, never a URL.
+  asked; a new session replaces any the browser had. The return path is
+  a path of at most 1 KB, never a URL nor a step of the sign-in itself.
 - **`form-action 'self'` and redirects (found by the browser suite).**
   The CSP's `form-action` governs a form submission's redirects too, so
   `POST /login` and `POST /logout` cannot redirect on to the provider's
@@ -1069,7 +1085,7 @@ What sign-in settled that §§5-6 left open, and where it departs from them:
   a failed sign-in. Recording it in the API's audit trail is decision D2.
 - **Deployment.** The chart gives erp-web the directory URL
   (`sslmode=verify-full`, the RDS bundle), the password, the session key
-  and the credentials, and egress to the VPC's 5432 and anywhere's 443
+  and the credentials, and egress to the VPC's 5432 and 443 outside the VPC
   (`helm-checks.sh` holds it to that). Terraform creates
   `erp/global/web-session-key` and `web-clients` empty, and refuses
   private subnets (the nodes' and pods') that overlap the balancers', since
@@ -1092,8 +1108,14 @@ What sign-in settled that §§5-6 left open, and where it departs from them:
 Decisions for the product owner (T73b):
 - **D1:** erp-web's own directory login, or the shared master login with
   the `erp_web` role as built. A login of its own needs a rotating secret
-  and a bootstrap that creates it; the role already keeps erp-web to its
-  schema against its own code, not against a stolen credential.
+  and a bootstrap that creates it; the role keeps erp-web to its schema
+  against its own code, not against a stolen credential, and the master
+  login can rewrite `directory.issuer`, which decides each token's
+  tenant. The reviewer recommends erp-web's own login before production
+  (with T73m at the latest). To confirm on RDS meanwhile: whether the
+  master may `SET ROLE` to a role it created on PostgreSQL 17
+  (`createrole_self_grant`); `erp_app` in the cells is created the same
+  way.
 - **D2:** whether the API's audit trail should record people's client
   addresses (for erp-web's users, the router would have to trust erp-web
   to forward them, which it cannot authenticate today).

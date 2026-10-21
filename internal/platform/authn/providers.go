@@ -331,11 +331,14 @@ type Endpoints struct {
 	Authorization string `json:"authorization_endpoint"`
 	Token         string `json:"token_endpoint"`
 	EndSession    string `json:"end_session_endpoint"`
+	// IssParameter says the provider sends iss in its authorization
+	// responses (RFC 9207 §3), which a client must then require.
+	IssParameter bool `json:"authorization_response_iss_parameter_supported"`
 }
 
 // allowedEndpoints keeps the endpoints whose URLs are allowed.
 func (p *Providers) allowedEndpoints(e Endpoints) Endpoints {
-	for _, u := range []*string{&e.Authorization, &e.Token, &e.EndSession} {
+	for _, u := range []*string{&e.Authorization, &e.Token, &e.EndSession} { // IssParameter is no URL
 		if _, err := p.allowedURL(*u); err != nil {
 			*u = ""
 		}

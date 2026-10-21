@@ -312,3 +312,14 @@ func TestSegregationOfDuties(t *testing.T) {
 		t.Errorf("second rule event valid to: got %v, want %s", changes[1]["valid_to"], day(1))
 	}
 }
+
+// TestSodRuleOnAPersonsOwnPermission: every person holds their own
+// permissions, so a rule naming one would refuse everyone holding the
+// other; it is refused.
+func TestSodRuleOnAPersonsOwnPermission(t *testing.T) {
+	c, _ := admin(t)
+	for _, body := range []string{`{"permission_a": "identity.session.end", "permission_b": "payables.invoice.post", "description": "d"}`,
+		`{"permission_a": "payables.invoice.post", "permission_b": "identity.session.end", "description": "d"}`} {
+		c.Problem(422, "identity.invalid_sod_rule", "POST", "/v1/sod-rules", body, "")
+	}
+}

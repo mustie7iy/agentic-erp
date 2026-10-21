@@ -1,17 +1,21 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -70,11 +74,27 @@ func cookie(name, value string, maxAge time.Duration, sameSite http.SameSite) *h
 // never a URL, so no one can make the sign-in an open redirect.
 func safeReturn(raw string) string {
 	u, err := url.Parse(raw)
-	if err != nil || raw == "" || len(raw) > 2048 || u.Scheme != "" || u.Host != "" || u.User != nil || !strings.HasPrefix(u.Path, "/") ||
-		strings.HasPrefix(raw, "//") || strings.ContainsAny(raw, "\\\r\n\t") {
+	if err != nil || raw == "" || len(raw) > maxReturn || u.Scheme != "" || u.Host != "" || u.User != nil || !strings.HasPrefix(u.Path, "/") ||
+		strings.HasPrefix(raw, "//") || strings.ContainsAny(raw, "\\\r\n\t") || signInStep(u.Path) {
 		return "/"
 	}
 	return u.RequestURI()
+}
+
+// maxReturn bounds a return path, so the sealed sign-in stays well within
+// a cookie's 4096 bytes.
+const maxReturn = 1024
+
+// signInStep reports a path of the sign-in itself, never a page to come
+// back to: a return to /login/<code> would send the person on to another
+// provider after a real sign-in.
+func signInStep(path string) bool {
+	for _, p := range []string{"/login", "/callback", "/logout", "/signed-out"} {
+		if path == p || strings.HasPrefix(path, p+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // signInPath starts a sign-in with the code, returning to ret.
@@ -125,11 +145,13 @@ func (s *Server) loginForm(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, http.StatusUnprocessableEntity, ui.SignIn(s.shell(i18n.SignInTitle, ""), f))
 		return
 	}
-	s.continueTo(w, r, signInPath(f.Code, f.Return, nil))
+	s.leaveFor(w, r, signInPath(f.Code, f.Return, nil)) // a path of the sign-in, which safeReturn would refuse
 }
 
-// login starts a sign-in at the code's provider: it remembers the code,
-// seals the sign-in into its cookie and sends the person to the provider.
+// login starts a sign-in at the code's provider: it seals the sign-in into
+// its cookie and sends the person to the provider. The code is remembered
+// only once the sign-in completed (start): a link from anywhere must not
+// set which provider the person's next visits go to.
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	code, q := r.PathValue("code"), r.URL.Query()
 	if s.Store == nil {
@@ -148,10 +170,11 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, http.StatusNotFound, ui.SignIn(s.shell(i18n.SignInTitle, ""), f))
 		return
 	}
-	t := signIn{Code: code, State: session.NewSecret(), Nonce: session.NewSecret(), Verifier: session.NewSecret(), Return: f.Return,
-		ACR: stepUpACR(q.Get("acr")), MaxAge: stepUpMaxAge(q.Get("max_age")), Expires: s.now().Add(signInTTL)}
-	if c, cerr := r.Cookie(sessionCookie); cerr == nil && t.stepUp() {
-		t.Previous = c.Value
+	t := signIn{Code: code, Issuer: client.Issuer, TenantID: client.TenantID, State: session.NewSecret(), Nonce: session.NewSecret(),
+		Verifier: session.NewSecret(), Return: f.Return, ACR: stepUpACR(q.Get("acr")), MaxAge: stepUpMaxAge(q.Get("max_age")),
+		Expires: s.now().Add(signInTTL)}
+	if c, cerr := r.Cookie(sessionCookie); cerr == nil {
+		t.Previous = c.Value // replaced by the new session, whatever the sign-in
 	}
 	var target string
 	if err == nil {
@@ -162,9 +185,11 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.unavailable(w, r)
 		return
 	}
-	sealed, _ := json.Marshal(t) // strings, times and a number always encode
-	http.SetCookie(w, cookie(codeCookie, code, codeTTL, http.SameSiteLaxMode))
-	http.SetCookie(w, cookie(signInCookie, base64.RawURLEncoding.EncodeToString(s.Store.Sealer.Seal(signInAAD, sealed)), signInTTL, http.SameSiteLaxMode))
+	var sealed bytes.Buffer
+	enc := json.NewEncoder(&sealed)
+	enc.SetEscapeHTML(false) // the return path's & stays one byte
+	_ = enc.Encode(t)        // strings, times and a number always encode
+	http.SetCookie(w, cookie(signInCookie, base64.RawURLEncoding.EncodeToString(s.Store.Sealer.Seal(signInAAD, sealed.Bytes())), signInTTL, http.SameSiteLaxMode))
 	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
@@ -244,14 +269,14 @@ func (s *Server) answer(w http.ResponseWriter, r *http.Request) (signIn, session
 	case q.Get("error") != "":
 		s.failed(w, r, http.StatusBadRequest, "provider: "+q.Get("error"), nil)
 	default:
-		client, err := s.Clients.Find(r.Context(), t.Code)
+		client, err := s.clientOf(r.Context(), t.Code, t.Issuer, t.TenantID)
 		switch {
 		case errors.Is(err, session.ErrUnknownCode):
 			s.failed(w, r, http.StatusBadRequest, "login code gone", err)
 		case err != nil:
 			s.Log.ErrorContext(r.Context(), "web: a sign-in could not complete", "error", err)
 			s.unavailable(w, r)
-		case q.Has("iss") && q.Get("iss") != client.Issuer:
+		case !s.issuedBy(r.Context(), q, client):
 			s.failed(w, r, http.StatusBadRequest, "iss", nil)
 		default:
 			return t, client, true
@@ -260,11 +285,34 @@ func (s *Server) answer(w http.ResponseWriter, r *http.Request) (signIn, session
 	return signIn{}, session.Client{}, false
 }
 
+// issuedBy checks RFC 9207's iss of an authorization response: where sent
+// it must be the client's issuer, and a provider that says it sends it
+// must have.
+func (s *Server) issuedBy(ctx context.Context, q url.Values, client session.Client) bool {
+	if q.Has("iss") {
+		return q.Get("iss") == client.Issuer
+	}
+	e, err := s.OIDC.Providers.Endpoints(ctx, client.Issuer)
+	return err == nil && !e.IssParameter
+}
+
+// clientOf finds the web client of a sign-in or session by its login
+// code, which must still be its provider's and tenant's: a code freed by a
+// retired provider and claimed by another tenant's never receives this
+// one's codes, tokens or ID token hints (ErrUnknownCode).
+func (s *Server) clientOf(ctx context.Context, code, issuer string, tenant uuid.UUID) (session.Client, error) {
+	c, err := s.Clients.Find(ctx, code)
+	if err == nil && (c.Issuer != issuer || c.TenantID != tenant) {
+		return session.Client{}, fmt.Errorf("%w: login code %s is now another provider's", session.ErrUnknownCode, code)
+	}
+	return c, err
+}
+
 // start makes the session and continues to the sign-in's return path.
 func (s *Server) start(w http.ResponseWriter, r *http.Request, t signIn, client session.Client, ts tokenSet, who signedIn) {
 	if t.Previous != "" {
 		if err := s.Store.Delete(r.Context(), t.Previous); err != nil {
-			s.Log.ErrorContext(r.Context(), "web: the session a step-up replaces was not deleted; the sweep deletes it", "error", err)
+			s.Log.ErrorContext(r.Context(), "web: the session a sign-in replaces was not deleted; the sweep deletes it", "error", err)
 		}
 	}
 	sec := session.Secrets{AccessToken: ts.AccessToken, AccessExpiry: who.AccessExpiry, RefreshToken: ts.RefreshToken, IDToken: ts.IDToken}
@@ -282,6 +330,7 @@ func (s *Server) start(w http.ResponseWriter, r *http.Request, t signIn, client 
 	// Built in T73b).
 	s.Log.InfoContext(r.Context(), "web: signed in", "tenant_id", client.TenantID, "login_code", client.LoginCode, "client", r.RemoteAddr, "step_up", t.stepUp())
 	http.SetCookie(w, cookie(sessionCookie, sess.ID, 0, http.SameSiteStrictMode))
+	http.SetCookie(w, cookie(codeCookie, client.LoginCode, codeTTL, http.SameSiteLaxMode))
 	s.continueTo(w, r, t.Return)
 }
 
@@ -358,9 +407,13 @@ func (s *Server) fresh(ctx context.Context, sess session.Session) (session.Sessi
 	case sess.RefreshToken == "":
 		return sess, s.end(ctx, sess.ID)
 	}
-	renewed, err := s.Store.Renew(ctx, sess, enough, func(ctx context.Context, sec session.Secrets) (session.Secrets, error) {
-		return s.renew(ctx, sess, sec)
-	})
+	client, err := s.clientOf(ctx, sess.LoginCode, sess.Issuer, sess.TenantID)
+	var renewed session.Session
+	if err == nil { // looked up before the renewal, which then needs the store for nothing else
+		renewed, err = s.Store.Renew(ctx, sess, enough, func(ctx context.Context, sec session.Secrets) (session.Secrets, error) {
+			return s.renew(ctx, client, sess, sec)
+		})
+	}
 	var refused errRefused
 	if errors.As(err, &refused) || errors.Is(err, errInvalidTokens) || errors.Is(err, session.ErrUnknownCode) || errors.Is(err, errCredential) {
 		s.Log.WarnContext(ctx, "web: a session's tokens could not be renewed; it ends", "error", err)
@@ -372,12 +425,8 @@ func (s *Server) fresh(ctx context.Context, sess session.Session) (session.Sessi
 // renew refreshes sec's tokens at the session's provider (RFC 6749 §6):
 // a new access token for the same subject, a rotated refresh token where
 // the provider rotates them, and a new ID token where it sends one.
-func (s *Server) renew(ctx context.Context, sess session.Session, sec session.Secrets) (session.Secrets, error) {
-	client, err := s.Clients.Find(ctx, sess.LoginCode)
-	if err != nil {
-		return sec, err
-	}
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+func (s *Server) renew(ctx context.Context, client session.Client, sess session.Session, sec session.Secrets) (session.Secrets, error) {
+	ctx, cancel := context.WithTimeout(ctx, renewTimeout)
 	defer cancel()
 	ts, err := s.OIDC.refresh(ctx, client, sec.RefreshToken)
 	if err != nil {
@@ -392,10 +441,19 @@ func (s *Server) renew(ctx context.Context, sess session.Session, sec session.Se
 		sec.RefreshToken = ts.RefreshToken
 	}
 	if ts.IDToken != "" {
+		// Kept for the provider's logout (id_token_hint): only one the
+		// provider signed for this client and this person.
+		if _, err := s.OIDC.verifyID(ctx, client, ts.IDToken, sess.Subject); err != nil {
+			return sec, err
+		}
 		sec.IDToken = ts.IDToken
 	}
 	return sec, nil
 }
+
+// renewTimeout bounds a renewal's call to the provider, well within the
+// store's claim (session.RenewClaim).
+const renewTimeout = 15 * time.Second
 
 // end deletes a session that is over; errSessionOver once it is gone.
 func (s *Server) end(ctx context.Context, id string) error {
@@ -434,7 +492,7 @@ func (s *Server) csrf(next func(http.ResponseWriter, *http.Request, *person)) fu
 			_ = r.ParseForm() // a body that does not parse carries no token, which is refused
 			token = r.PostForm.Get(ui.CSRFField)
 		}
-		if subtle.ConstantTimeCompare([]byte(token), []byte(p.CSRF)) != 1 {
+		if p.CSRF == "" || subtle.ConstantTimeCompare([]byte(token), []byte(p.CSRF)) != 1 {
 			s.Log.WarnContext(r.Context(), "web: a request without the session's CSRF token was refused", "path", r.URL.Path)
 			s.refused(w, r)
 			return
@@ -462,7 +520,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request, p *person) {
 	}
 	http.SetCookie(w, cookie(sessionCookie, "", -1, http.SameSiteStrictMode))
 	s.Log.InfoContext(r.Context(), "web: signed out", "tenant_id", p.TenantID, "login_code", p.LoginCode, "client", r.RemoteAddr)
-	if client, err := s.Clients.Find(r.Context(), p.LoginCode); err == nil {
+	if client, err := s.clientOf(r.Context(), p.LoginCode, p.Issuer, p.TenantID); err == nil {
 		if u := s.OIDC.logoutURL(r.Context(), client, p.IDToken); u != "" {
 			s.leaveFor(w, r, u)
 			return

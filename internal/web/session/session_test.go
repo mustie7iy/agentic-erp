@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
@@ -245,7 +246,7 @@ func count(t *testing.T, dir *directory.Postgres) int {
 // others wait and take what the first renewed.
 func TestRenewOnce(t *testing.T) {
 	ctx := context.Background()
-	st, _, _ := newStore(t)
+	st, _, dir := newStore(t)
 	s, err := st.Create(ctx, person())
 	if err != nil {
 		t.Fatal(err)
@@ -285,6 +286,42 @@ func TestRenewOnce(t *testing.T) {
 		if again, _ := st.Load(ctx, s.ID); again.AccessToken != "at-2" {
 			t.Errorf("after: got %q, want at-2 kept", again.AccessToken)
 		}
+	})
+	t.Run("changed meanwhile", func(t *testing.T) {
+		_, err := st.Renew(ctx, s, func(session.Secrets) bool { return false }, func(_ context.Context, sec session.Secrets) (session.Secrets, error) {
+			if _, err := st.Create(ctx, person()); err != nil { // another write of the store, then this session's
+				t.Fatal(err)
+			}
+			execDir(t, dir, `UPDATE web.session SET version = version + 1 WHERE id_hash = $1`, session.Hash(s.ID))
+			return sec, nil
+		})
+		if !errors.Is(err, session.ErrChanged) {
+			t.Errorf("got %v, want ErrChanged", err)
+		}
+	})
+	t.Run("another request holds the claim", func(t *testing.T) {
+		held, err := st.Create(ctx, person())
+		if err != nil {
+			t.Fatal(err)
+		}
+		execDir(t, dir, `UPDATE web.session SET renewing_until = now() + interval '1 hour' WHERE id_hash = $1`, session.Hash(held.ID))
+		waiting := *st
+		waiting.RenewFor, waiting.RenewEvery = 50*time.Millisecond, 10*time.Millisecond
+		never := func(context.Context, session.Secrets) (session.Secrets, error) {
+			t.Error("renewed under another's claim")
+			return session.Secrets{}, nil
+		}
+		if _, err := waiting.Renew(ctx, held, func(session.Secrets) bool { return false }, never); !errors.Is(err, session.ErrRenewing) {
+			t.Errorf("never released: got %v, want ErrRenewing", err)
+		}
+		patient := *st // its claim would last an hour: the request's deadline comes first
+		patient.RenewEvery = 10 * time.Millisecond
+		cctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		defer cancel()
+		if _, err := patient.Renew(cctx, held, func(session.Secrets) bool { return false }, never); !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("the request gone: got %v, want its deadline", err)
+		}
+		execDir(t, dir, `UPDATE web.session SET renewing_until = NULL WHERE id_hash = $1`, session.Hash(held.ID))
 	})
 	t.Run("gone", func(t *testing.T) {
 		if _, err := st.Renew(ctx, session.Session{ID: "gone"}, fresh, renew); !errors.Is(err, session.ErrNoSession) {
@@ -433,5 +470,52 @@ func TestOpenRefuses(t *testing.T) {
 	}
 	if _, err := session.Open(ctx, pgtest.EmptyDatabase(t), nil, sealer); err == nil || !strings.Contains(err.Error(), "web schema") {
 		t.Errorf("no web schema: got %v, want it refused", err)
+	}
+}
+
+func execDir(t *testing.T, dir *directory.Postgres, sql string, args ...any) {
+	t.Helper()
+	if err := dir.Pool.InTx(context.Background(), database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, sql, args...)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// releaseFails is a transaction whose release of a renewal's claim fails.
+type releaseFails struct{ pgx.Tx }
+
+func (r releaseFails) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	if strings.HasPrefix(sql, "UPDATE web.session SET renewing_until = NULL") {
+		return pgconn.CommandTag{}, pgtest.ErrInjected
+	}
+	return r.Tx.Exec(ctx, sql, args...)
+}
+
+// TestRenewalReleaseFails: a renewal that fails, and whose claim cannot be
+// given up, reports both; a fresh session whose claim cannot be given up
+// reports that.
+func TestRenewalReleaseFails(t *testing.T) {
+	ctx := context.Background()
+	st, _, dir := newStore(t)
+	s, err := st.Create(ctx, person())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := st.Pool
+	st.InTx = func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
+		return pool.InTx(ctx, scope, func(ctx context.Context, tx pgx.Tx) error { return fn(ctx, releaseFails{tx}) })
+	}
+	refused := errors.New("refused")
+	_, err = st.Renew(ctx, s, func(session.Secrets) bool { return false }, func(context.Context, session.Secrets) (session.Secrets, error) {
+		return session.Secrets{}, refused
+	})
+	if !errors.Is(err, refused) || !errors.Is(err, pgtest.ErrInjected) {
+		t.Errorf("got %v, want the refusal and the failed release", err)
+	}
+	execDir(t, dir, `UPDATE web.session SET renewing_until = NULL`) // the claim the failed release left
+	if _, err := st.Renew(ctx, s, func(session.Secrets) bool { return true }, nil); !errors.Is(err, pgtest.ErrInjected) {
+		t.Errorf("fresh: got %v, want the failed release", err)
 	}
 }

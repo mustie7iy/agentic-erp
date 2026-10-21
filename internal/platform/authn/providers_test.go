@@ -555,7 +555,8 @@ func TestProvidersEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := authn.Endpoints{Authorization: is.URL + authntest.AuthorizePath, Token: is.URL + authntest.TokenPath, EndSession: is.URL + authntest.EndSessionPath}
+	want := authn.Endpoints{Authorization: is.URL + authntest.AuthorizePath, Token: is.URL + authntest.TokenPath, EndSession: is.URL + authntest.EndSessionPath,
+		IssParameter: true}
 	if e != want {
 		t.Errorf("endpoints: got %+v, want %+v", e, want)
 	}

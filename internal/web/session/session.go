@@ -30,6 +30,11 @@ import (
 // Role is the database role erp-web's transactions run as.
 const Role = "erp_web"
 
+// MaxConns is the store's pool per replica: no transaction of the store
+// waits on anything but the database (a renewal calls the provider holding
+// none), so a few serve many requests.
+const MaxConns = 10
+
 // The store's own limits: the longest any tenant may set (ADR-0031), so
 // the cell's own, stricter rule is what people meet (its 401 ends the
 // session here too), and how often a request records that it was seen.
@@ -80,6 +85,8 @@ type Store struct {
 	MaxAge     time.Duration    // 0: DefaultMaxAge
 	Idle       time.Duration    // 0: DefaultIdle
 	TouchEvery time.Duration    // 0: DefaultTouchEvery
+	RenewFor   time.Duration    // a renewal's claim; 0: RenewClaim
+	RenewEvery time.Duration    // how often a waiting request looks again; 0: RenewPoll
 	// InTx runs a transaction; nil: Pool.InTx. Tests inject failures.
 	InTx func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error
 }
@@ -201,37 +208,115 @@ func (st *Store) Load(ctx context.Context, id string) (Session, error) {
 	return s, nil
 }
 
+// The bounds of a renewal: a claim lasts RenewClaim (the provider's call,
+// bounded by its caller, must end well within it), and a request waiting
+// for another's renewal looks again every RenewPoll for at most twice the
+// claim.
+const (
+	RenewClaim = 30 * time.Second
+	RenewPoll  = 100 * time.Millisecond
+)
+
+// ErrRenewing means another request's renewal of the session did not end
+// in time.
+var ErrRenewing = errors.New("session: the session's renewal did not end in time")
+
 // Renew replaces the session's secrets with those renew makes from its
-// current ones, holding the session's row FOR UPDATE meanwhile: concurrent
-// requests of one session, on any replica, renew it once, the others
-// waiting and then taking the renewed secrets, for which fresh reports
-// true. A refresh token is used once (rotation), so it must never be
-// spent twice (ADR-0052 §5). renew runs inside the transaction, holding
-// the lock, and should be bounded by ctx.
+// current ones, once for all concurrent requests of the session on any
+// replica (ADR-0052 §5: a refresh token is used once, so it must never be
+// spent twice). The first claims the renewal (renewing_until), renews
+// holding no transaction or connection, so a slow provider stalls no one
+// else's requests, and writes the result back if the session did not
+// change meanwhile; the others wait and take the renewed secrets, for
+// which fresh reports true. A claim whose holder died expires after
+// RenewClaim. renew should be bounded by its context, within RenewClaim.
 func (st *Store) Renew(ctx context.Context, s Session, fresh func(Secrets) bool, renew func(context.Context, Secrets) (Secrets, error)) (Session, error) {
-	hash := Hash(s.ID)
+	giveUp := time.NewTimer(2 * or(st.RenewFor, RenewClaim))
+	defer giveUp.Stop()
+	for {
+		cur, claimed, err := st.claimRenewal(ctx, s.ID)
+		switch {
+		case err != nil:
+			return Session{}, err
+		case fresh(cur.Secrets):
+			if claimed {
+				return cur, st.release(ctx, s.ID)
+			}
+			return cur, nil
+		case claimed:
+			return st.renewClaimed(ctx, cur, renew)
+		}
+		select {
+		case <-ctx.Done():
+			return Session{}, fmt.Errorf("session: wait for a renewal: %w", ctx.Err())
+		case <-giveUp.C:
+			return Session{}, ErrRenewing
+		case <-time.After(or(st.RenewEvery, RenewPoll)):
+		}
+	}
+}
+
+// claimRenewal reads the session and claims its renewal unless another
+// request holds an unexpired claim; claimed reports which.
+func (st *Store) claimRenewal(ctx context.Context, id string) (Session, bool, error) {
+	now, hash := st.now(), Hash(id)
+	var s Session
+	claimed := false
 	err := st.inTx(ctx, false, func(ctx context.Context, tx pgx.Tx) error {
-		cur, err := st.scan(tx.QueryRow(ctx, `SELECT `+columns+` FROM web.session WHERE id_hash = $1 FOR UPDATE`, hash), s.ID)
+		var err error
+		s, err = st.scan(tx.QueryRow(ctx, `UPDATE web.session SET renewing_until = $2
+			WHERE id_hash = $1 AND (renewing_until IS NULL OR renewing_until <= $3) RETURNING `+columns, hash, now.Add(or(st.RenewFor, RenewClaim)), now), id)
+		if claimed = err == nil; !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		s, err = st.scan(tx.QueryRow(ctx, `SELECT `+columns+` FROM web.session WHERE id_hash = $1`, hash), id)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNoSession
 		}
-		if err != nil {
-			return err
+		return err
+	})
+	if err != nil {
+		return Session{}, false, fmt.Errorf("session: renew: %w", err)
+	}
+	return s, claimed, nil
+}
+
+// renewClaimed renews a session whose renewal this request claimed, and
+// writes the result back unless the session changed meanwhile.
+func (st *Store) renewClaimed(ctx context.Context, s Session, renew func(context.Context, Secrets) (Secrets, error)) (Session, error) {
+	sec, err := renew(ctx, s.Secrets)
+	if err != nil {
+		if rerr := st.release(context.WithoutCancel(ctx), s.ID); rerr != nil {
+			return Session{}, errors.Join(err, rerr)
 		}
-		if s = cur; fresh(cur.Secrets) {
-			return nil
+		return Session{}, fmt.Errorf("session: renew: %w", err)
+	}
+	hash := Hash(s.ID)
+	err = st.inTx(ctx, false, func(ctx context.Context, tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `UPDATE web.session SET sealed = $3, version = version + 1, renewing_until = NULL WHERE id_hash = $1 AND version = $2`,
+			hash, s.Version, st.seal(hash, sec))
+		if err == nil && tag.RowsAffected() == 0 {
+			return ErrChanged
 		}
-		if s.Secrets, err = renew(ctx, cur.Secrets); err != nil {
-			return err
-		}
-		s.Version++
-		_, err = tx.Exec(ctx, `UPDATE web.session SET sealed = $2, version = $3 WHERE id_hash = $1`, hash, st.seal(hash, s.Secrets), s.Version)
 		return err //nolint:wrapcheck // wrapped below
 	})
 	if err != nil {
 		return Session{}, fmt.Errorf("session: renew: %w", err)
 	}
+	s.Secrets, s.Version = sec, s.Version+1
 	return s, nil
+}
+
+// release gives a renewal's claim up.
+func (st *Store) release(ctx context.Context, id string) error {
+	err := st.inTx(ctx, false, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE web.session SET renewing_until = NULL WHERE id_hash = $1`, Hash(id))
+		return err //nolint:wrapcheck // wrapped below
+	})
+	if err != nil {
+		return fmt.Errorf("session: release a renewal: %w", err)
+	}
+	return nil
 }
 
 // Delete ends the session with the id; one already gone is no error.
@@ -282,7 +367,7 @@ func (st *Store) Check(ctx context.Context) error {
 // password, database.Settings), and checks the web schema is there.
 func Open(ctx context.Context, url string, password func(context.Context) (string, error), sealer *Sealer) (*Store, error) {
 	settings := database.DefaultSettings
-	settings.Password = password
+	settings.Password, settings.MaxConns = password, MaxConns
 	pool, err := database.Open(ctx, url, settings)
 	if err != nil {
 		return nil, fmt.Errorf("session: %w", err)

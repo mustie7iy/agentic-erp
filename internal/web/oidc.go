@@ -25,6 +25,7 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-jose/go-jose/v4"
+	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
@@ -61,6 +62,8 @@ func (o *OIDC) now() time.Time { return clock.Now(o.Now) }
 // callback checks the provider's answer against.
 type signIn struct {
 	Code     string    `json:"code"` // the login code
+	Issuer   string    `json:"issuer"`
+	TenantID uuid.UUID `json:"tenant_id"` // the code's provider and tenant when the sign-in began (clientOf)
 	State    string    `json:"state"`
 	Nonce    string    `json:"nonce"`
 	Verifier string    `json:"verifier"` // PKCE (RFC 7636): 256 random bits, 43 characters
@@ -280,8 +283,10 @@ func parseCredential(data []byte) (crypto.Signer, *x509.Certificate, error) {
 			cert, _ = x509.ParseCertificate(block.Bytes) // a malformed certificate leaves the header without thumbprints
 		}
 	}
-	if ec, ok := key.(*ecdsa.PrivateKey); key == nil || (ok && ec.Curve != elliptic.P256()) {
-		return nil, nil, fmt.Errorf("%w: a PEM RSA or EC P-256 private key is required", errCredential)
+	ec, isEC := key.(*ecdsa.PrivateKey)
+	r, isRSA := key.(*rsa.PrivateKey)
+	if key == nil || (isEC && ec.Curve != elliptic.P256()) || (isRSA && r.N.BitLen() < 2048) {
+		return nil, nil, fmt.Errorf("%w: a PEM RSA (2048 bits at least) or EC P-256 private key is required", errCredential)
 	}
 	return key, cert, nil
 }
@@ -342,7 +347,8 @@ func (o *OIDC) verifyTokens(ctx context.Context, c session.Client, ts tokenSet, 
 		return signedIn{}, fmt.Errorf("%w: nonce", errInvalidTokens)
 	case len(id.Audience) > 1 && claims.Azp != c.ClientID:
 		return signedIn{}, fmt.Errorf("%w: azp", errInvalidTokens)
-	case t.MaxAge != nil && (claims.AuthTime == nil || o.now().Sub(time.Unix(*claims.AuthTime, 0)) > time.Duration(*t.MaxAge)*time.Second+clockSkew):
+	case t.MaxAge != nil && (claims.AuthTime == nil || o.now().Sub(time.Unix(*claims.AuthTime, 0)) > time.Duration(*t.MaxAge)*time.Second+clockSkew ||
+		time.Unix(*claims.AuthTime, 0).After(o.now().Add(clockSkew))):
 		return signedIn{}, fmt.Errorf("%w: auth_time", errInvalidTokens)
 	}
 	access, err := o.verifyAccess(ctx, c, ts.AccessToken, id.Subject)
@@ -350,6 +356,19 @@ func (o *OIDC) verifyTokens(ctx context.Context, c session.Client, ts tokenSet, 
 		return signedIn{}, err
 	}
 	return signedIn{Subject: id.Subject, ACR: claims.ACR, AccessExpiry: access.Expiry}, nil
+}
+
+// verifyID checks an ID token from a refresh (OIDC Core §12.2): the
+// provider's, for the client, of the session's subject.
+func (o *OIDC) verifyID(ctx context.Context, c session.Client, raw, subject string) (*oidc.IDToken, error) {
+	id, err := o.Providers.Verify(ctx, c.Issuer, c.ClientID, raw)
+	if err != nil {
+		return nil, refusedOr(err)
+	}
+	if id.Subject != subject {
+		return nil, fmt.Errorf("%w: the ID token is another subject's", errInvalidTokens)
+	}
+	return id, nil
 }
 
 // clockSkew is how far a provider's clock may be from erp-web's.

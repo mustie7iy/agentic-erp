@@ -281,8 +281,8 @@ spec:
 # not subject to policies); erp-web reaches the router's public listener,
 # the directory database in the VPC on 5432 (its sessions; the rule
 # admits the VPC's 5432, as the router's does), and the tenants'
-# identity providers on 443 (discovery, keys, token endpoint), wherever
-# they are, as the router reaches them.
+# identity providers on 443 (discovery, keys, token endpoint), anywhere
+# outside the VPC.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -312,7 +312,13 @@ spec:
         - ipBlock: {cidr: {{ $vpc | quote }}}
       ports:
         - {protocol: TCP, port: 5432}
-    - ports:
+    # The providers are outside the VPC (in production erp-web refuses
+    # private addresses anyway, authn.Providers): nothing inside it on 443.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [{{ $vpc | quote }}]
+      ports:
         - {protocol: TCP, port: 443}
 ---
 # The router's public listener also takes erp-web's connections, which
