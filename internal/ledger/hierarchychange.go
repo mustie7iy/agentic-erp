@@ -284,7 +284,7 @@ func unassignedLeaf(ctx context.Context, tx pgx.Tx, kind string) (uuid.UUID, err
 		if _, err := CreateHierarchy(ctx, NewHierarchy{Kind: kind, Code: "STANDARD", Name: "Standard hierarchy", IsStandard: true}); err != nil {
 			if problem.From(err).Code == "ledger.hierarchy_exists" {
 				return uuid.Nil, invalidChange("standard_node_id", reasonUnknown,
-					"the tenant has no standard hierarchy of this kind and another hierarchy has the code STANDARD; create a standard hierarchy or name a leaf")
+					"the tenant has no standard hierarchy of this kind and another hierarchy has the code STANDARD; create a standard hierarchy first, or reject the creation and request it again with standard_node_id")
 			}
 			return uuid.Nil, err
 		}
@@ -298,7 +298,7 @@ func unassignedLeaf(ctx context.Context, tx pgx.Tx, kind string) (uuid.UUID, err
 			continue
 		}
 		if len(t.children[id]) > 0 {
-			return uuid.Nil, invalidChange("standard_node_id", reasonHasChildren, "the standard hierarchy's UNASSIGNED node has child nodes; name a leaf")
+			return uuid.Nil, invalidChange("standard_node_id", reasonHasChildren, "the standard hierarchy's UNASSIGNED node has child nodes; move them below another node first, or reject the creation and request it again with standard_node_id")
 		}
 		return id, nil
 	}
@@ -309,8 +309,14 @@ func unassignedLeaf(ctx context.Context, tx pgx.Tx, kind string) (uuid.UUID, err
 // root, as migration 000139 does: no change approves it, as none approves
 // the root, since a leaf without centers changes no center.
 func addUnassigned(ctx context.Context, tx pgx.Tx, t tree) (uuid.UUID, error) {
-	if len(t.nodes[t.RootID].Centers) > 0 {
-		return uuid.Nil, invalidChange("standard_node_id", reasonHasCenters, "centers sit at the standard hierarchy's root, which takes no child node; name a leaf")
+	root := t.nodes[t.RootID]
+	if len(root.Centers) > 0 {
+		return uuid.Nil, invalidChange("standard_node_id", reasonHasCenters,
+			"centers sit at the standard hierarchy's root, which takes no child node; reject the creation and request it again with standard_node_id")
+	}
+	if root.Code == unassignedCode { // node codes are unique in a hierarchy
+		return uuid.Nil, invalidChange("standard_node_id", reasonUnknown,
+			"the standard hierarchy's root is coded UNASSIGNED, so it takes no UNASSIGNED leaf; reject the creation and request it again with standard_node_id")
 	}
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.hierarchy_node (tenant_id, id, hierarchy_id, parent_id, code, name, position, created_by, updated_by)

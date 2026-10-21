@@ -281,10 +281,16 @@ As built in T56a (migration 000128):
     changes no tree; the approver's decision does, and an empty node
     changes no center. Approvals of two first centers are serialized per
     tenant and kind (an advisory lock): the second finds the hierarchy
-    and leaf the first created. An `UNASSIGNED` node with child nodes, a
-    root that is still a leaf holding centers, or another hierarchy of
-    the kind coded `STANDARD` where the tenant has no standard one
-    refuses the approval (422 `ledger.hierarchy_change_invalid`).
+    and leaf the first created; a standard hierarchy created through `POST
+    /v1/hierarchies` at the same moment can still win, and the approval
+    then gets 409 `ledger.standard_hierarchy_exists` and succeeds when
+    approved again. An `UNASSIGNED` node with child nodes, a root that is
+    still a leaf holding centers or is itself coded `UNASSIGNED`, or
+    another hierarchy of the kind coded `STANDARD` where the tenant has no
+    standard one refuses the approval (422
+    `ledger.hierarchy_change_invalid`); the approver fixes the tree first,
+    or rejects the creation for it to be requested again with
+    `standard_node_id`.
     Centers that existed before
     000139 (T56a was not released) were placed in a `STANDARD` hierarchy's
     `UNASSIGNED` leaf, created per tenant and kind; a create still pending
