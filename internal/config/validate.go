@@ -1,13 +1,16 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/bankfile"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/cabank"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 )
 
@@ -26,6 +29,16 @@ type Finding struct {
 }
 
 func (f Finding) String() string { return fmt.Sprintf("[%s] %s: %s", f.Severity, f.Path, f.Message) }
+
+// Note explains a generated setting reviewers should look at: what a
+// draft document generated from SAP (delivery/sapconfig) or a country pack
+// (countrypack) chose and why.
+type Note struct {
+	Path    string `json:"path"`
+	Message string `json:"message"`
+}
+
+func (n Note) String() string { return n.Path + ": " + n.Message }
 
 func HasErrors(fs []Finding) bool {
 	return slices.ContainsFunc(fs, func(f Finding) bool { return f.Severity == SevError })
@@ -71,6 +84,9 @@ func Validate(c *Config, exponents currency.Exponents) []Finding {
 	v.payments(c)
 	v.numberRanges(c)
 	v.journalRanges(c)
+	v.extensions(c)
+	v.rules(c)
+	v.packs(c)
 	switch c.Output.PurchaseOrderChannel {
 	case "email", "edi", "print":
 	default:
@@ -112,6 +128,33 @@ func (v *validator) numberRanges(c *Config) {
 		}
 		if n.Last < n.First {
 			v.err(p+".last", "the last number must not be below the first")
+		}
+	}
+}
+
+var packVersionRe = regexp.MustCompile(`^[0-9]{4}\.[1-9][0-9]*$`)
+
+// packs checks the provenance of adopted country packs (ADR-0048): one per
+// company, of the company's country.
+func (v *validator) packs(c *Config) {
+	seen := map[string]bool{}
+	for _, a := range c.Packs {
+		p := "packs[" + a.Company + "]"
+		if seen[a.Company] {
+			v.err(p, "duplicate pack adoption")
+		}
+		seen[a.Company] = true
+		switch co := c.Company(a.Company); {
+		case co == nil:
+			v.err(p+".company", "company %q is not in the document", a.Company)
+		case co.Country != a.Country:
+			v.err(p+".country", "the pack of %s does not fit the company in %s", a.Country, co.Country)
+		}
+		if !packVersionRe.MatchString(a.Version) {
+			v.err(p+".version", "version %q must be YYYY.N", a.Version)
+		}
+		if _, err := time.Parse(time.DateOnly, a.AppliedOn); err != nil {
+			v.err(p+".applied_on", "%q is not a date (YYYY-MM-DD)", a.AppliedOn)
 		}
 	}
 }
@@ -162,6 +205,7 @@ func (v *validator) company(p string, co *Company) {
 	v.accountDetermination(p, co)
 	v.taxCodes(p, co)
 	v.withholdingTaxCodes(p, co)
+	v.fxValuation(p, co)
 	if co.InvoiceTolerance.PricePercent < 0 || co.InvoiceTolerance.PricePercent > 100 {
 		v.err(p+".invoice_tolerance.price_percent", "must be 0-100")
 	}
@@ -178,6 +222,7 @@ func (v *validator) company(p string, co *Company) {
 	}
 	v.houseBanks(p, co)
 	v.paymentMethods(p, co)
+	v.bankStatements(p, co, exp, known)
 }
 
 // isTaxAccount reports whether the account is the input tax account or a
@@ -199,17 +244,12 @@ func (v *validator) houseBanks(p string, co *Company) {
 	codes := map[string]bool{}
 	accounts := map[string]string{}
 	for i, hb := range co.AllHouseBanks() {
-		hp := p + ".house_bank"
-		if i > 0 {
-			hp = fmt.Sprintf("%s.house_banks[%s]", p, hb.Name)
-		}
+		hp := houseBankPath(p, i, hb)
 		if codes[hb.Name] {
 			v.err(hp+".name", "duplicate house bank")
 		}
 		codes[hb.Name] = true
-		if !ValidIBAN(hb.IBAN) {
-			v.err(hp+".iban", "IBAN %q fails the ISO 13616 check", hb.IBAN)
-		}
+		v.houseBankAccount(hp, hb)
 		if !bicRe.MatchString(hb.BIC) {
 			v.err(hp+".bic", "BIC %q is not a valid SWIFT code", hb.BIC)
 		}
@@ -228,6 +268,166 @@ func (v *validator) houseBanks(p string, co *Company) {
 			v.err(hp+".gl_account", "account %s is already the ledger account of house bank %s", number, other)
 		}
 		accounts[number] = hb.Name
+	}
+	for i, hb := range co.AllHouseBanks() {
+		v.statementAccounts(houseBankPath(p, i, hb), co, hb, accounts)
+	}
+}
+
+// houseBankPath is the path of the company's i-th house bank: the main
+// bank first, then the further ones by name.
+func houseBankPath(p string, i int, hb HouseBank) string {
+	if i == 0 {
+		return p + ".house_bank"
+	}
+	return fmt.Sprintf("%s.house_banks[%s]", p, hb.Name)
+}
+
+// statementAccounts checks the accounts a house bank's statements post to
+// (ADR-0047): the main bank account and the incoming payments clearing
+// account, each a plain asset account of the chart that takes no tax and
+// is no house bank's other account. A bank that reconciles its statements
+// clears open items, so its clearing accounts must be open-item managed.
+// accounts are the house banks' clearing accounts, by number; the
+// statements' accounts are added to it.
+func (v *validator) statementAccounts(hp string, co *Company, hb HouseBank, accounts map[string]string) {
+	if hb.MainGLAccount == "" {
+		if hb.IncomingGLAccount != "" {
+			v.err(hp+".incoming_gl_account", "needs main_gl_account: a bank's statements post only to its main account")
+		}
+		return
+	}
+	for _, a := range []struct{ field, number string }{{"main_gl_account", hb.MainGLAccount}, {"incoming_gl_account", hb.IncomingGLAccount}} {
+		if a.number == "" {
+			continue
+		}
+		v.account(hp+"."+a.field, co, a.number, Asset, false)
+		if co.isTaxAccount(a.number) {
+			v.err(hp+"."+a.field, "account %s takes input tax, not a bank's payments", a.number)
+		}
+		if other, taken := accounts[a.number]; taken {
+			v.err(hp+"."+a.field, "account %s is already an account of house bank %s", a.number, other)
+		}
+		accounts[a.number] = hb.Name
+	}
+	clearing := []struct{ field, number string }{{"gl_account", co.HouseBankAccount(hb)}, {"incoming_gl_account", hb.IncomingGLAccount}}
+	for _, a := range clearing {
+		if acc := co.Account(a.number); acc != nil && !acc.OpenItems {
+			v.err(hp+"."+a.field, "account %s clears the statement's lines, so it must be open-item managed (open_items); "+
+				"an account with postings is not switched: name a new one and transfer the old balance to it", a.number)
+		}
+	}
+}
+
+// isoTransactionCode is an ISO 20022 domain, family and sub-family;
+// bankTransactionCode a SWIFT MT940 type (NCHG) or a bank's proprietary
+// code. Codes are compared exactly, as banks send them.
+var (
+	isoTransactionCode  = regexp.MustCompile(`^[A-Z]{4}-[A-Z]{4}-[A-Z]{4}$`)
+	bankTransactionCode = regexp.MustCompile(`^[A-Za-z0-9]{1,35}$`)
+)
+
+// ValidTransactionCode reports whether code is a bank transaction code as
+// statements carry them (ADR-0047): ISO 20022 domain, family and
+// sub-family joined by dashes (PMNT-CCRD-CHRG), a SWIFT MT940 transaction
+// type (NCHG), or a bank's proprietary code of letters and digits, such as
+// a BAI type code (398).
+func ValidTransactionCode(code string) bool {
+	return isoTransactionCode.MatchString(code) || bankTransactionCode.MatchString(code)
+}
+
+// bankStatements checks how the company's statements are matched and
+// posted (ADR-0047): posting rules by valid, unique transaction codes to
+// accounts of the chart that are no vendor reconciliation account, no tax
+// account and no house bank's; matching rules of known kinds, each once,
+// the amount rule's tolerance an amount of the company's currency and its
+// window 0-31 days; and approval tiers, when there are any, in increasing
+// order of amounts in the company's currency. A tier without steps needs
+// no approval; no tiers at all means every match is approved.
+func (v *validator) bankStatements(p string, co *Company, exp int, known bool) {
+	bp := p + ".bank_statements"
+	banks := map[string]bool{}
+	for _, hb := range co.AllHouseBanks() {
+		banks[co.HouseBankAccount(hb)], banks[hb.MainGLAccount], banks[hb.IncomingGLAccount] = true, true, true
+	}
+	codes := map[string]bool{}
+	for _, r := range co.BankStatements.PostingRules {
+		rp := bp + ".posting_rules[" + r.TransactionCode + "]"
+		if !ValidTransactionCode(r.TransactionCode) || codes[r.TransactionCode] {
+			v.err(rp+".transaction_code", "a bank transaction code (PMNT-CCRD-CHRG, NCHG or the bank's own), each once")
+		}
+		codes[r.TransactionCode] = true
+		a := co.Account(r.Account)
+		switch {
+		case a == nil:
+			v.err(rp+".account", "account %q is not in the chart of accounts", r.Account)
+		case a.VendorReconciliation, co.isTaxAccount(r.Account), banks[r.Account]:
+			v.err(rp+".account", "account %s is posted only by its own documents, not by a statement's charges or interest", r.Account)
+		}
+	}
+	v.matchingRules(bp, co, exp, known)
+	// The tiers are read with the company's digits; with an unknown
+	// currency the currency's finding already blocks activation.
+	v.orderedTiers(bp+".approval_tiers", co.BankStatements.ApprovalTiers, func(path, s string) (money.Minor, bool) {
+		if !known {
+			return 0, false
+		}
+		return v.amount(path, s, exp)
+	})
+}
+
+// matchingRules checks the company's matching rules.
+func (v *validator) matchingRules(bp string, co *Company, exp int, known bool) {
+	kinds := map[string]bool{}
+	for _, r := range co.BankStatements.MatchingRules {
+		rp := bp + ".matching_rules[" + r.Kind + "]"
+		switch r.Kind {
+		case MatchEndToEndID, MatchBatchID, MatchTransactionCode, MatchAmount:
+		default:
+			v.err(rp+".kind", "must be end_to_end_id, batch_id, transaction_code or amount")
+		}
+		if kinds[r.Kind] {
+			v.err(rp, "duplicate matching rule")
+		}
+		kinds[r.Kind] = true
+		if r.Kind != MatchAmount {
+			if r.AmountTolerance != "" || r.DateWindowDays != 0 || r.Counterparty {
+				v.err(rp, "only the amount rule takes amount_tolerance, date_window_days and counterparty")
+			}
+			continue
+		}
+		if r.DateWindowDays < 0 || r.DateWindowDays > 31 {
+			v.err(rp+".date_window_days", "must be 0-31")
+		}
+		if known && r.AmountTolerance != "" {
+			v.amount(rp+".amount_tolerance", r.AmountTolerance, exp)
+		}
+	}
+	if kinds[MatchTransactionCode] && len(co.BankStatements.PostingRules) == 0 {
+		v.err(bp+".matching_rules[transaction_code]", "needs posting_rules to post the lines it matches")
+	}
+}
+
+// houseBankAccount checks the house bank's IBAN, or its Canadian account
+// by the digits and lengths of its numbers (T45d).
+func (v *validator) houseBankAccount(hp string, hb HouseBank) {
+	if !hb.Canadian() {
+		if !ValidIBAN(hb.IBAN) {
+			v.err(hp+".iban", "IBAN %q fails the ISO 13616 check", hb.IBAN)
+		}
+		return
+	}
+	if hb.IBAN != "" {
+		v.err(hp+".iban", "a Canadian house bank has no IBAN; give either the IBAN or the institution, transit and account numbers")
+	}
+	_, err := cabank.Parse(hb.InstitutionNumber, hb.TransitNumber, hb.AccountNumber)
+	switch {
+	case errors.Is(err, cabank.ErrInstitution):
+		v.err(hp+".institution_number", "institution number %q is not 3 digits", hb.InstitutionNumber)
+	case errors.Is(err, cabank.ErrTransit):
+		v.err(hp+".transit_number", "transit number %q is not 5 digits", hb.TransitNumber)
+	case err != nil:
+		v.err(hp+".account_number", "a Canadian account number is 7-12 digits")
 	}
 }
 
@@ -534,6 +734,12 @@ func (v *validator) tiers(path string, tiers []ApprovalTier, c *Config) {
 		v.err(path, "at least one tier is required")
 		return
 	}
+	v.orderedTiers(path, tiers, func(p, s string) (money.Minor, bool) { return v.threshold(p, s, c) })
+}
+
+// orderedTiers checks that the tiers' up_to, read by limit, increase and
+// that only the last tier omits it, and each tier's steps.
+func (v *validator) orderedTiers(path string, tiers []ApprovalTier, limit func(path, s string) (money.Minor, bool)) {
 	var prev money.Minor = -1
 	for i, t := range tiers {
 		p := fmt.Sprintf("%s[%d]", path, i)
@@ -544,7 +750,7 @@ func (v *validator) tiers(path string, tiers []ApprovalTier, c *Config) {
 		case !last && t.UpTo == "":
 			v.err(p+".up_to", "only the last tier may omit up_to")
 		case !last:
-			if m, ok := v.threshold(p+".up_to", t.UpTo, c); ok {
+			if m, ok := limit(p+".up_to", t.UpTo); ok {
 				if m <= prev {
 					v.err(p+".up_to", "tiers must be in increasing order")
 				}

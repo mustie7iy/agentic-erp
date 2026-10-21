@@ -1,0 +1,2 @@
+payment_terms:
+  - {key: NET30, description: 30 days net, net_days: 30}

@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -39,6 +41,58 @@ type Simulation struct {
 // writing nothing (the payables context implements it).
 type Simulator interface {
 	Simulate(ctx context.Context, base, proposed *config.Config) (Simulation, error)
+}
+
+// Disclosure limits what the reader of a change request is shown of its
+// evidence: a context whose simulation records values the reader may not
+// see (the payables context's invoices and the analytics context's metric
+// values of companies they may not access) withholds them, in the reader's
+// request, and so does any count over them in the summary. It returns the
+// evidence to show; an error fails the read rather than show the evidence
+// whole.
+type Disclosure interface {
+	Disclose(ctx context.Context, e Evidence) (Evidence, error)
+}
+
+// disclosed is the change request as its reader is shown it.
+func (d Dependencies) disclosed(ctx context.Context, c ChangeRequest) (ChangeRequest, error) {
+	evidence := slices.Clone(c.Evidence)
+	for i := range evidence {
+		for _, dis := range d.Disclosures {
+			shown, err := dis.Disclose(ctx, evidence[i])
+			if err != nil {
+				return ChangeRequest{}, fmt.Errorf("configuration: the %s evidence of change request %s: %w", evidence[i].Kind, c.ID, err)
+			}
+			evidence[i] = shown
+		}
+	}
+	c.Evidence = evidence
+	return c, nil
+}
+
+// Simulators simulates one change in several contexts (the payables
+// context's invoices, the analytics context's metrics): the change passes
+// when every simulation does; the summaries are joined and the details
+// merged, each context's under keys of its own.
+type Simulators []Simulator
+
+// Simulate implements Simulator.
+func (s Simulators) Simulate(ctx context.Context, base, proposed *config.Config) (Simulation, error) {
+	out := Simulation{Passed: true, Detail: map[string]any{}}
+	var summaries []string
+	for _, sim := range s {
+		r, err := sim.Simulate(ctx, base, proposed)
+		if err != nil {
+			return Simulation{}, err
+		}
+		out.Passed = out.Passed && r.Passed
+		if r.Summary != "" {
+			summaries = append(summaries, r.Summary)
+		}
+		maps.Copy(out.Detail, r.Detail)
+	}
+	out.Summary = strings.Join(summaries, " ")
+	return out, nil
 }
 
 // SimulationWorker runs queued config.simulate operations (ADR-0012): it
@@ -226,6 +280,9 @@ func (w *SimulationWorker) evidence(ctx context.Context, tx pgx.Tx, actor reqctx
 		return false, nil, err
 	}
 	sim, err := w.Dependencies.Simulator.Simulate(ctx, base, proposed)
+	if err == nil {
+		sim, err = w.replayRules(ctx, c, base, proposed, sim)
+	}
 	if err != nil {
 		return false, nil, failOrRetry(err, fail)
 	}

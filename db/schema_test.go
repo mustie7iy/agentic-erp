@@ -866,6 +866,10 @@ func TestBankFileOncePerBankAndMethod(t *testing.T) {
 	failsWith(t, asApp(t, f.tenant, file(other, &hb, &transfer)), "bank_file_once_per_bank")
 	mustApp(t, f.tenant, file(other, &hb, &cheque))
 	failsWith(t, asApp(t, f.tenant, file(other, nil, &cheque)), "bank_file_method_of_bank")
+	failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `INSERT INTO payments.bank_file (tenant_id, id, payment_run_id, format, object_ref, sha256, status, created_by, house_bank_id, payment_method, message_id)
+			VALUES ($1,$2,$3,'pain.001.001.03','sha256:x',decode(repeat('cd', 32), 'hex'),'created',$4,$5,'X','')`, f.tenant, id(), other, f.actor, hb)
+	}), "bank_file_message_id_check")
 }
 
 // TestPaymentsNameTheirBank: a run may have no house bank (T45c); a
@@ -955,6 +959,55 @@ func TestBankAccountValidityCannotOverlap(t *testing.T) {
 	mustApp(t, f.tenant, add("2026-01-01", &end))
 	mustApp(t, f.tenant, add("2026-07-01", nil))
 	failsWith(t, asApp(t, f.tenant, add("2026-06-15", nil)), "conflicting key value violates exclusion constraint")
+}
+
+// TestCanadianBankAccounts: a partner account of scheme ca has an
+// institution number of 3 digits and a transit number of 5, and accounts
+// of other schemes have neither; a house bank has both or neither (T45d).
+func TestCanadianBankAccounts(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	from := 2000
+	add := func(scheme string, institution, transit *string) func(tx pgx.Tx) error {
+		from++ // each account its own validity, so none overlaps another
+		valid := fmt.Sprintf("%d-01-01", from)
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO partner.bank_account (tenant_id, id, partner_id, account_cipher, account_fingerprint, account_last4, account_scheme,
+				bank_country_code, holder_name, valid_from, valid_to, partner_change_id, created_by, institution_number, transit_number)
+				VALUES ($1,$2,$3,'\x01',$4,'4567',$5,'CA','Supplier 1',$6,($6::date + 1),$7,$8,$9,$10)`,
+				f.tenant, id(), f.supplier, strings.Repeat("a", 64), scheme, valid, id(), f.actor, institution, transit)
+		}
+	}
+	s := func(v string) *string { return &v }
+	mustApp(t, f.tenant, add("ca", s("003"), s("12345")))
+	mustApp(t, f.tenant, add("iban", nil, nil))
+	failsWith(t, asApp(t, f.tenant, add("swift", nil, nil)), "bank_account_account_scheme_check")
+	for name, c := range map[string]struct {
+		scheme               string
+		institution, transit *string
+	}{
+		"ca without an institution":   {"ca", nil, s("12345")},
+		"ca without a transit":        {"ca", s("003"), nil},
+		"ca with a short institution": {"ca", s("03"), s("12345")},
+		"ca with a letter in transit": {"ca", s("003"), s("1234A")},
+		"iban with an institution":    {"iban", s("003"), nil},
+		"domestic with a transit":     {"domestic", nil, s("12345")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			failsWith(t, asApp(t, f.tenant, add(c.scheme, c.institution, c.transit)), "bank_account_ca_routing")
+		})
+	}
+	bank := func(code string, institution, transit *string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.house_bank (tenant_id, id, legal_entity_id, code, name, iban_cipher, iban_last4, bic, currency, gl_account_id,
+				status, created_by, updated_by, institution_number, transit_number)
+				VALUES ($1,$2,$3,$4,$4,'\x00','0001','ROYCCAT2','CAD',$5,'inactive',$6,$6,$7,$8)`, f.tenant, id(), f.entity, code, f.bank, f.actor, institution, transit)
+		}
+	}
+	mustApp(t, f.tenant, bank("CA", s("003"), s("00002")))
+	mustApp(t, f.tenant, bank("GB", nil, nil))
+	failsWith(t, asApp(t, f.tenant, bank("X1", s("003"), nil)), "house_bank_ca_routing")
+	failsWith(t, asApp(t, f.tenant, bank("X2", s("3"), s("00002"))), "house_bank_ca_routing")
 }
 
 func TestGoodsReceiptLimits(t *testing.T) {
@@ -3095,4 +3148,161 @@ func TestAgentCertification(t *testing.T) {
 				VALUES ($1,$2,'AP Exceptions','erp-default','d',$3,$3)`, a.tenant, agent, a.actor)
 		}), "agent_profile_agent_type_check")
 	})
+}
+
+// TestBankStatementSchema: a statement is imported once per house bank and
+// key and once per file position, names its kept file, its dates in order,
+// a gap only after a previous statement; a line belongs to a statement and keeps its details
+// a list; a match is live once per line, names its rule exactly when a
+// rule made it, is excluded only by a person, and each target is a payment
+// (with its bank file) or a posting rule (T49c, T49e, ADR-0047).
+func TestBankStatementSchema(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	hb, first := id(), id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `INSERT INTO payments.house_bank (tenant_id, id, legal_entity_id, code, name, iban_cipher, iban_last4, bic, currency, gl_account_id, active_gl_account_id, status, created_by, updated_by)
+			VALUES ($1,$2,$3,'MAIN','Main','\x00','5555','BUKBGB22','USD',$4,$4,'active',$5,$5)`, f.tenant, hb, f.entity, f.bank, f.actor)
+	})
+	type stmt struct {
+		key, format, status string
+		position            int
+		sum                 string
+		closing             string
+		previous            *uuid.UUID
+		ref                 string
+	}
+	statement := func(s stmt) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.bank_statement (tenant_id, id, house_bank_id, legal_entity_id, format, file_sha256, file_position,
+					statement_key, statement_ref, sequence, account, currency, opening_balance, opening_date, closing_balance, closing_date, line_count,
+					previous_statement_id, status, created_by, updated_by, file_ref)
+				VALUES ($1,$2,$3,$4,$5,decode($6, 'hex'),$7,$8,'S','1','GB33','USD',0,'2026-10-20',0,$9::date,0,$10,$11,$12,$12,$13)`,
+				f.tenant, id(), hb, f.entity, s.format, s.sum, s.position, s.key, s.closing, s.previous, s.status, f.actor, s.ref)
+		}
+	}
+	ok := stmt{key: "K1", format: "mt940", status: "imported", position: 1, sum: strings.Repeat("ab", 32), closing: "2026-10-20", ref: "tenants/t/bank-statements/ab"}
+	with := func(change func(*stmt)) func(tx pgx.Tx) error {
+		s := ok
+		change(&s)
+		return statement(s)
+	}
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `INSERT INTO payments.bank_statement (tenant_id, id, house_bank_id, legal_entity_id, format, file_sha256, file_position,
+				statement_key, statement_ref, sequence, account, currency, opening_balance, opening_date, closing_balance, closing_date, line_count, status, created_by, updated_by, file_ref)
+			VALUES ($1,$2,$3,$4,'mt940',decode(repeat('ab', 32), 'hex'),1,'K1','S','1','GB33','USD',0,'2026-10-20',0,'2026-10-20',1,'imported',$5,$5,'tenants/t/bank-statements/ab')`,
+			f.tenant, first, hb, f.entity, f.actor)
+	})
+	line := func(statement uuid.UUID, no int, details string, status ...string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.bank_statement_line (tenant_id, statement_id, line_no, amount, booking_date, value_date, transaction_code,
+					bank_reference, owner_reference, text, details, status, created_by, updated_by)
+				VALUES ($1,$2,$3,-100,'2026-10-20','2026-10-20','NTRF','B','O','T',$4::jsonb,$5,$6,$6)`, f.tenant, statement, no, details,
+				append(status, "unmatched")[0], f.actor)
+		}
+	}
+	mustApp(t, f.tenant, line(first, 1, `[]`))
+	type match struct {
+		kind, status string
+		rule         any
+	}
+	matchOf := func(m match) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.statement_match (tenant_id, id, statement_id, line_no, kind, rule, reason, status, created_by, updated_by)
+				VALUES ($1,$2,$3,1,$4,$5,'r',$6,$7,$7)`, f.tenant, id(), first, m.kind, m.rule, m.status, f.actor)
+		}
+	}
+	live := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `INSERT INTO payments.statement_match (tenant_id, id, statement_id, line_no, kind, rule, reason, status, created_by, updated_by)
+			VALUES ($1,$2,$3,1,'rule','amount','two payments','open',$4,$4)`, f.tenant, live, first, f.actor)
+	})
+	target := func(candidate int, payment, file, rule any) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.statement_match_target (tenant_id, match_id, candidate, target_no, payment_id, bank_file_id, posting_rule, created_by)
+				VALUES ($1,$2,$3,1,$4,$5,$6,$7)`, f.tenant, live, candidate, payment, file, rule, f.actor)
+		}
+	}
+	mustApp(t, f.tenant, target(1, nil, nil, "NCHG"))
+	for _, c := range []struct {
+		name  string
+		write func(tx pgx.Tx) error
+		fails string
+	}{
+		{"the same key", with(func(s *stmt) { s.position = 2; s.sum = strings.Repeat("cd", 32) }), "bank_statement_key_once"},
+		{"the same file position", with(func(s *stmt) { s.key = "K2" }), "bank_statement_file_once"},
+		{"another format", with(func(s *stmt) { s.key, s.format = "K2", "bai2" }), "bank_statement_format_check"},
+		{"a short hash", with(func(s *stmt) { s.key, s.sum = "K2", "ab" }), "bank_statement_file_sha256_check"},
+		{"position 0", with(func(s *stmt) { s.key, s.position = "K2", 0 }), "bank_statement_file_position_check"},
+		{"closing before opening", with(func(s *stmt) { s.key, s.position, s.closing = "K2", 2, "2026-10-19" }), "bank_statement_dates"},
+		{"a gap without a previous statement", with(func(s *stmt) { s.key, s.position, s.status = "K2", 2, "gap" }), "bank_statement_gap"},
+		{"another status", with(func(s *stmt) { s.key, s.position, s.status = "K2", 2, "posted" }), "bank_statement_status_check"},
+		{"no file", with(func(s *stmt) { s.key, s.position, s.ref = "K2", 2, "" }), "bank_statement_file_ref_check"},
+		{"an unknown previous statement", with(func(s *stmt) { s.key, s.position, s.previous = "K2", 2, &hb }), "bank_statement_tenant_id_previous_statement_id_fkey"},
+		{"a line of no statement", line(hb, 1, `[]`), "bank_statement_line_tenant_id_statement_id_fkey"},
+		{"line 0", line(first, 0, `[]`), "bank_statement_line_line_no_check"},
+		{"details not a list", line(first, 2, `{}`), "bank_statement_line_details_check"},
+		{"a second live match", matchOf(match{kind: "manual", status: "matched"}), "statement_match_live"},
+		{"a rule's match without its rule", matchOf(match{kind: "rule", status: "rejected"}), "statement_match_rule"},
+		{"a person's match naming a rule", matchOf(match{kind: "manual", status: "rejected", rule: "amount"}), "statement_match_rule"},
+		{"another kind", matchOf(match{kind: "robot", status: "rejected"}), "statement_match_kind_check"},
+		{"another rule", matchOf(match{kind: "rule", status: "rejected", rule: "iban"}), "statement_match_rule_check"},
+		{"another status", matchOf(match{kind: "manual", status: "posted"}), "statement_match_status_check"},
+		{"excluded by a rule", matchOf(match{kind: "rule", status: "excluded", rule: "amount"}), "statement_match_excluded"},
+		{"a target twice", target(1, nil, nil, "NCHG"), "statement_match_target_pkey"},
+		{"a target of nothing", target(2, nil, nil, nil), "statement_match_target_one"},
+		{"a payment and a posting rule", target(2, id(), nil, "NCHG"), "statement_match_target_one"},
+		{"a bank file without its payment", target(2, nil, id(), "NCHG"), "statement_match_target_one"},
+		{"candidate 0", target(0, nil, nil, "NCHG"), "statement_match_target_candidate_check"},
+		{"a payment that does not exist", target(2, id(), nil, nil), "statement_match_target_tenant_id_payment_id_fkey"},
+		{"a line status of no match", line(first, 3, `[]`, "approved"), "bank_statement_line_status_check"},
+	} {
+		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, c.write), c.fails) })
+	}
+	mustApp(t, f.tenant, with(func(s *stmt) { s.key, s.position, s.status, s.previous = "K2", 2, "gap", &first }))
+	mustApp(t, f.tenant, line(first, 2, `[]`, "matched"))
+	mustApp(t, f.tenant, line(first, 3, `[]`, "excluded"))
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `UPDATE payments.statement_match SET status = 'rejected', version = version + 1 WHERE id = $1`, live)
+	})
+	mustApp(t, f.tenant, matchOf(match{kind: "manual", status: "excluded"}))
+}
+
+// TestStatementFetchSchema: a fetched file is recorded once per house bank
+// and content, with its name, in a known status, and a reason exactly when
+// refused or changed after its import (T49d, ADR-0047).
+func TestStatementFetchSchema(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	hb := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `INSERT INTO payments.house_bank (tenant_id, id, legal_entity_id, code, name, iban_cipher, iban_last4, bic, currency, gl_account_id, active_gl_account_id, status, created_by, updated_by)
+			VALUES ($1,$2,$3,'MAIN','Main','\x00','5555','BUKBGB22','USD',$4,$4,'active',$5,$5)`, f.tenant, hb, f.entity, f.bank, f.actor)
+	})
+	fetch := func(bank uuid.UUID, sum, name, status string, reason any) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.statement_fetch (tenant_id, id, house_bank_id, file_sha256, file_name, status, reason, created_by, updated_by)
+				VALUES ($1,$2,$3,decode($4, 'hex'),$5,$6,$7,$8,$8)`, f.tenant, id(), bank, sum, name, status, reason, f.actor)
+		}
+	}
+	sum := strings.Repeat("ab", 32)
+	mustApp(t, f.tenant, fetch(hb, sum, "a.sta", "imported", nil))
+	for _, c := range []struct {
+		name  string
+		write func(tx pgx.Tx) error
+		fails string
+	}{
+		{"the same file again", fetch(hb, sum, "b.sta", "imported", nil), "statement_fetch_file_once"},
+		{"a short hash", fetch(hb, "ab", "b.sta", "imported", nil), "statement_fetch_file_sha256_check"},
+		{"no name", fetch(hb, strings.Repeat("cd", 32), "", "imported", nil), "statement_fetch_file_name_check"},
+		{"another status", fetch(hb, strings.Repeat("cd", 32), "b.sta", "posted", nil), "statement_fetch_status_check"},
+		{"refused without a reason", fetch(hb, strings.Repeat("cd", 32), "b.sta", "refused", nil), "statement_fetch_reason"},
+		{"a reason without a refusal", fetch(hb, strings.Repeat("cd", 32), "b.sta", "archived", "x"), "statement_fetch_reason"},
+		{"changed without a reason", fetch(hb, strings.Repeat("cd", 32), "b.sta", "changed_after_import", nil), "statement_fetch_reason"},
+		{"no such house bank", fetch(id(), strings.Repeat("cd", 32), "b.sta", "imported", nil), "statement_fetch_tenant_id_house_bank_id_fkey"},
+	} {
+		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, c.write), c.fails) })
+	}
+	mustApp(t, f.tenant, fetch(hb, strings.Repeat("cd", 32), "b.sta", "refused", "unreadable"))
+	mustApp(t, f.tenant, fetch(hb, strings.Repeat("ef", 32), "c.sta", "changed_after_import", "now "+strings.Repeat("12", 32)))
 }

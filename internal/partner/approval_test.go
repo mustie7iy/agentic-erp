@@ -9,6 +9,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
+	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 )
@@ -74,7 +75,7 @@ func TestRequestApproval(t *testing.T) {
 	f := fixture.New(t, perms...)
 	var c partner.Change
 	err := apitest.Committed(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) (err error) {
-		_, c, err = partner.CreatePartner(ctx, partner.Ports{LegalEntities: nil, Keys: apitest.FieldKeys()},
+		_, c, err = partner.CreatePartner(ctx, partner.Ports{LegalEntities: nil, Keys: apitest.FieldKeys(), Schemas: configuration.Settings{}, Rules: configuration.Settings{}},
 			partner.NewPartner{Kind: "person", Name: "Instant", CountryCode: "DE", Roles: []string{"customer"}, Reason: "r"})
 		return err
 	})
@@ -82,7 +83,7 @@ func TestRequestApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = apitest.InRequest(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) error {
-		applied, err := partner.RequestApproval(ctx, noApproval{}, c)
+		applied, err := partner.RequestApproval(ctx, noApproval{}, configuration.Settings{}, c)
 		if err == nil && applied.Status != partner.ChangeApplied {
 			t.Errorf("without approval steps: %+v", applied)
 		}
@@ -91,11 +92,11 @@ func TestRequestApproval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := partner.RequestApproval(context.Background(), fixture.Approvals(), c); err == nil {
+	if _, err := partner.RequestApproval(context.Background(), fixture.Approvals(), configuration.Settings{}, c); err == nil {
 		t.Error("outside a unit of work")
 	}
 	apitest.EveryFailure(t, f.Tenant, f.Tenant.Human, "request approval", func(ctx context.Context) error {
-		_, err := partner.RequestApproval(ctx, fixture.Approvals(), c)
+		_, err := partner.RequestApproval(ctx, fixture.Approvals(), configuration.Settings{}, c)
 		return err
 	})
 }

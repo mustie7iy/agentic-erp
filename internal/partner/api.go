@@ -63,7 +63,8 @@ func changeToAPI(c Change) gen.PartnerChange {
 func bankToAPI(b BankAccount) gen.BankAccount {
 	out := gen.BankAccount{ID: b.ID, ValidFrom: b.ValidFrom, CreatedAt: b.CreatedAt, CreatedBy: b.CreatedBy, PartnerID: b.PartnerID,
 		Purpose: b.Purpose, AccountLast4: b.AccountLast4, AccountScheme: b.AccountScheme, Bic: apitypes.OptString(b.BIC),
-		BankCountryCode: b.BankCountryCode, HolderName: b.HolderName, PartnerChangeID: b.PartnerChangeID}
+		BankCountryCode: b.BankCountryCode, HolderName: b.HolderName, PartnerChangeID: b.PartnerChangeID,
+		InstitutionNumber: apitypes.OptString(b.InstitutionNumber), TransitNumber: apitypes.OptString(b.TransitNumber)}
 	if b.ValidTo != nil {
 		out.ValidTo.SetTo(*b.ValidTo)
 	}
@@ -123,13 +124,14 @@ func (e *Endpoints) CreateBusinessPartner(ctx context.Context, req *gen.Business
 		Addresses: addressesIn(req.Addresses), TaxIdentifiers: taxesIn(req.TaxIdentifiers), Extensions: apitypes.DecodeObject(req.Extensions.Or(nil)), Reason: req.Reason}
 	for _, b := range req.BankAccounts {
 		in.BankAccounts = append(in.BankAccounts, BankInput{Purpose: b.Purpose.Value, AccountNumber: b.AccountNumber, AccountScheme: b.AccountScheme,
-			BIC: apitypes.Ptr[string](b.Bic), BankCountryCode: b.BankCountryCode, HolderName: b.HolderName, ValidFrom: b.ValidFrom})
+			BIC: apitypes.Ptr[string](b.Bic), BankCountryCode: b.BankCountryCode, HolderName: b.HolderName, ValidFrom: b.ValidFrom,
+			InstitutionNumber: b.InstitutionNumber.Value, TransitNumber: b.TransitNumber.Value})
 	}
 	p, c, err := CreatePartner(ctx, e.ports(), in)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := RequestApproval(ctx, e.Approvals, c); err != nil {
+	if _, err := RequestApproval(ctx, e.Approvals, e.Schemas, c); err != nil {
 		return nil, err
 	}
 	if p, err = getPartner(ctx, tx, p.ID, false); err != nil {
@@ -218,7 +220,7 @@ func (e *Endpoints) BlockBusinessPartner(ctx context.Context, req *gen.ReasonInp
 func (e *Endpoints) UnblockBusinessPartner(ctx context.Context, req *gen.ReasonInput, params gen.UnblockBusinessPartnerParams) (gen.UnblockBusinessPartnerRes, error) {
 	c, err := Unblock(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
 	if err == nil {
-		c, err = RequestApproval(ctx, e.Approvals, c)
+		c, err = RequestApproval(ctx, e.Approvals, e.Schemas, c)
 	}
 	if err != nil {
 		return nil, err
@@ -237,7 +239,7 @@ func (e *Endpoints) CreatePartnerChange(ctx context.Context, req *gen.PartnerCha
 		Extensions: apitypes.DecodeObject(pl.Extensions.Or(nil))}
 	c, err := RequestUpdate(ctx, e.ports(), req.PartnerID, ch, req.Reason)
 	if err == nil {
-		c, err = RequestApproval(ctx, e.Approvals, c)
+		c, err = RequestApproval(ctx, e.Approvals, e.Schemas, c)
 	}
 	if err != nil {
 		return nil, err
@@ -290,9 +292,9 @@ func (e *Endpoints) ListPartnerChanges(ctx context.Context, params gen.ListPartn
 func (e *Endpoints) RequestBankAccountChange(ctx context.Context, req *gen.BankChangeCreate, params gen.RequestBankAccountChangeParams) (gen.RequestBankAccountChangeRes, error) {
 	c, err := RequestBankAccount(ctx, e.ports(), params.ID, BankInput{Purpose: req.Purpose.Value, AccountNumber: req.AccountNumber,
 		AccountScheme: req.AccountScheme, BIC: apitypes.Ptr[string](req.Bic), BankCountryCode: req.BankCountryCode, HolderName: req.HolderName,
-		ValidFrom: req.ValidFrom}, req.Reason)
+		ValidFrom: req.ValidFrom, InstitutionNumber: req.InstitutionNumber.Value, TransitNumber: req.TransitNumber.Value}, req.Reason)
 	if err == nil {
-		c, err = RequestApproval(ctx, e.Approvals, c)
+		c, err = RequestApproval(ctx, e.Approvals, e.Schemas, c)
 	}
 	if err != nil {
 		return nil, err
@@ -305,7 +307,7 @@ func (e *Endpoints) RequestBankAccountEnd(ctx context.Context, req *gen.BankAcco
 	c, err := RequestBankAccountEnd(ctx, params.ID, params.BankAccountID, func(b BankAccount) error { return etag.Match(params.IfMatch, bankTag(b)) },
 		req.ValidTo, req.Reason)
 	if err == nil {
-		c, err = RequestApproval(ctx, e.Approvals, c)
+		c, err = RequestApproval(ctx, e.Approvals, e.Schemas, c)
 	}
 	if err != nil {
 		return nil, err

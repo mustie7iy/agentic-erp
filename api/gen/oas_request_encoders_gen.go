@@ -133,6 +133,20 @@ func encodeCancelParkedJournalEntryRequest(
 	return nil
 }
 
+func encodeCancelRevaluationRunRequest(
+	req *ReasonInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCancelSupplierInvoiceRequest(
 	req *ReasonInput,
 	r *http.Request,
@@ -546,6 +560,20 @@ func encodeCreateUploadRequest(
 	return nil
 }
 
+func encodeCreateWebhookSubscriptionRequest(
+	req *WebhookSubscriptionCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeDecideRecommendationRequest(
 	req *RecommendationDecide,
 	r *http.Request,
@@ -644,6 +672,20 @@ func encodeEndSodRuleRequest(
 	return nil
 }
 
+func encodeExcludeBankStatementLineRequest(
+	req *ReasonInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeGrantRolePermissionRequest(
 	req *RolePermissionCreate,
 	r *http.Request,
@@ -660,6 +702,77 @@ func encodeGrantRolePermissionRequest(
 
 func encodeHoldSupplierInvoiceRequest(
 	req *ReasonInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeImportBankStatementsRequest(
+	req *BankStatementUploadMultipart,
+	r *http.Request,
+) error {
+	const contentType = "multipart/form-data"
+	request := req
+
+	q := uri.NewFormEncoder(map[string]string{})
+	{
+		// Encode "house_bank_id" form field.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "house_bank_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(request.HouseBankID))
+		}); err != nil {
+			return errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "format" form field.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "format",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(request.Format))
+		}); err != nil {
+			return errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "file" form field.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "file",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(request.File))
+		}); err != nil {
+			return errors.Wrap(err, "encode query")
+		}
+	}
+	body, boundary := ht.CreateMultipartBody(func(w *multipart.Writer) error {
+		if err := q.WriteMultipart(w); err != nil {
+			return errors.Wrap(err, "write multipart")
+		}
+		return nil
+	})
+	ht.SetCloserBody(r, body, mime.FormatMediaType(contentType, map[string]string{"boundary": boundary}))
+	return nil
+}
+
+func encodeMatchBankStatementLineRequest(
+	req *StatementLineMatchInput,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -714,6 +827,20 @@ func encodePostJournalEntryRequest(
 	return nil
 }
 
+func encodePostRevaluationRunRequest(
+	req *RevaluationPreviewRequest,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodePostSupplierInvoiceRequest(
 	req OptSupplierInvoicePost,
 	r *http.Request,
@@ -728,6 +855,20 @@ func encodePostSupplierInvoiceRequest(
 		if req.Set {
 			req.Encode(e)
 		}
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodePreviewRevaluationRequest(
+	req *RevaluationPreviewRequest,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
 	}
 	encoded := e.Bytes()
 	ht.SetBody(r, bytes.NewReader(encoded), contentType)
@@ -844,6 +985,20 @@ func encodeRenewContractRequest(
 	return nil
 }
 
+func encodeReplayWebhookDeliveriesRequest(
+	req *WebhookReplay,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeReportBankFileStatusRequest(
 	req *BankStatusReport,
 	r *http.Request,
@@ -928,6 +1083,20 @@ func encodeReverseJournalEntryRequest(
 
 func encodeReverseSupplierInvoiceRequest(
 	req *SupplierInvoiceReverse,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeRunAnalyticsQueryRequest(
+	req *AnalyticsQuery,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -1166,6 +1335,20 @@ func encodeUpdateRoleRequest(
 
 func encodeUpdateSupplierInvoiceRequest(
 	req *SupplierInvoiceUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateWebhookSubscriptionRequest(
+	req *WebhookSubscriptionUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"

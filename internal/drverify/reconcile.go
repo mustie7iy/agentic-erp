@@ -32,7 +32,10 @@ type Reconciled struct {
 	Directory      int         `json:"directory_entries"`           // entries the directory places in the cell; 0 without a directory
 	Offboarded     []uuid.UUID `json:"offboarded"`                  // offboarded again: the directory had them offboarded or erased
 	Erased         []uuid.UUID `json:"erased"`                      // erased again: the directory had them erased
-	Problems       []string    `json:"problems"`
+	// AnalyticsRebuilt are the tenants whose analytical store the restore
+	// left ahead of the database, deleted to be extracted again (ADR-0044).
+	AnalyticsRebuilt []uuid.UUID `json:"analytics_rebuilt"`
+	Problems         []string    `json:"problems"`
 }
 
 // Passed reports whether the cell agrees with the store and the directory.
@@ -62,6 +65,9 @@ type Reconciler struct {
 	Cell        string          // the cell's name in the directory
 	Control     *controlplane.Service
 	Offboarding *offboarding.Worker
+	// Analytics rebuilds the analytical stores ahead of the restored
+	// database and returns their tenants (extract.RebuildAhead); nil: none.
+	Analytics func(ctx context.Context) ([]uuid.UUID, error)
 }
 
 // operator is who the control plane records the reconciliation as.
@@ -73,7 +79,7 @@ func (rc *Reconciler) Reconcile(ctx context.Context) (Reconciled, error) {
 	if !ok {
 		return Reconciled{}, errors.New("drverify: reconcile needs an object store that lists (a directory or S3)")
 	}
-	rep := Reconciled{Offboarded: []uuid.UUID{}, Erased: []uuid.UUID{}, Problems: []string{}}
+	rep := Reconciled{Offboarded: []uuid.UUID{}, Erased: []uuid.UUID{}, AnalyticsRebuilt: []uuid.UUID{}, Problems: []string{}}
 	tenants, err := rc.tenants(ctx)
 	if err != nil {
 		return Reconciled{}, err
@@ -84,6 +90,13 @@ func (rc *Reconciler) Reconcile(ctx context.Context) (Reconciled, error) {
 		if err := rc.anchors(ctx, store, id, &rep); err != nil {
 			return Reconciled{}, err
 		}
+	}
+	if rc.Analytics != nil {
+		rebuilt, err := rc.Analytics(ctx)
+		if err != nil {
+			return Reconciled{}, fmt.Errorf("drverify: analytical store: %w", err)
+		}
+		rep.AnalyticsRebuilt = append(rep.AnalyticsRebuilt, rebuilt...)
 	}
 	if rc.Directory == nil {
 		return rep, nil

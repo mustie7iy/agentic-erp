@@ -30,9 +30,17 @@ import (
 
 // Config is the server configuration.
 type Config struct {
-	HTTPAddr        string          // ERP_HTTP_ADDR, public API (default :8080)
-	AdminAddr       string          // ERP_ADMIN_ADDR, liveness, readiness, metrics (default :9090)
-	DatabaseURL     string          // DATABASE_URL (required)
+	HTTPAddr    string // ERP_HTTP_ADDR, public API (default :8080)
+	AdminAddr   string // ERP_ADMIN_ADDR, liveness, readiness, metrics (default :9090)
+	DatabaseURL string // DATABASE_URL (required)
+	// DatabaseReplicaURL is DATABASE_REPLICA_URL, the cell's read replica,
+	// which the analytics extract reads once it has replayed a change
+	// (ADR-0044); empty: the extract reads the primary.
+	DatabaseReplicaURL string
+	// AnalyticsURL is ERP_ANALYTICS_URL, erp-analytics' https base URL,
+	// called over mTLS as spiffe://<trust domain>/<cell>/erp-analytics
+	// (ADR-0044); empty: analytics queries are answered from the database.
+	AnalyticsURL    string
 	Environment     string          // ERP_ENV (required, no default): development, or production, where insecure settings refuse to start
 	AppRole         string          // ERP_DB_APP_ROLE (default erp_app)
 	RelayRole       string          // ERP_DB_RELAY_ROLE (default erp_relay)
@@ -155,7 +163,7 @@ type Vault struct {
 
 // SecretSettings are the settings that may carry a secret reference
 // instead of a value.
-var SecretSettings = []string{"DATABASE_URL", "ERP_DIRECTORY_URL", "ERP_PAGE_TOKEN_KEY", "ERP_FIELD_KEY", "ERP_FIELD_KEYS", "ERP_FIELD_KMS_ACCESS_KEY", "ERP_FIELD_KMS_SECRET_KEY",
+var SecretSettings = []string{"DATABASE_URL", "DATABASE_REPLICA_URL", "ERP_DIRECTORY_URL", "ERP_PAGE_TOKEN_KEY", "ERP_FIELD_KEY", "ERP_FIELD_KEYS", "ERP_FIELD_KMS_ACCESS_KEY", "ERP_FIELD_KMS_SECRET_KEY",
 	"ERP_OBJECT_S3_ACCESS_KEY", "ERP_OBJECT_S3_SECRET_KEY", "ERP_NATS_URL", "ERP_TEMPORAL_CODEC_KEY", "ERP_MODEL_API_KEY"}
 
 // AtRest is how each store encrypts its data at rest, as ERP_AT_REST
@@ -224,6 +232,10 @@ type Temporal struct {
 	// 48h; 0 disables escalation), Escalations how often (ERP_APPROVAL_ESCALATIONS, default 3).
 	EscalateAfter time.Duration
 	Escalations   int
+	// StatementFetch is the period of each house bank's statement fetch
+	// from its bank channel (ERP_STATEMENT_FETCH_INTERVAL, default 1h; 0
+	// fetches none; ADR-0047).
+	StatementFetch time.Duration
 }
 
 // Load reads and validates the configuration. The settings in
@@ -336,22 +348,24 @@ func (l *loader) get(key, def string) string {
 func (l *loader) basics() Config {
 	getenv, get := l.getenv, l.get
 	c := Config{
-		Vault:         l.vault,
-		Secrets:       l.resolver,
-		HTTPAddr:      get("ERP_HTTP_ADDR", ":8080"),
-		AdminAddr:     get("ERP_ADMIN_ADDR", ":9090"),
-		DatabaseURL:   getenv("DATABASE_URL"),
-		AppRole:       get("ERP_DB_APP_ROLE", defaultAppRole),
-		RelayRole:     get("ERP_DB_RELAY_ROLE", "erp_relay"),
-		ProjectorRole: get("ERP_DB_PROJECTOR_ROLE", "erp_projector"),
-		WorkerRole:    get("ERP_DB_WORKER_ROLE", "erp_worker"),
-		ControlRole:   get("ERP_DB_CONTROL_ROLE", defaultControlRole),
-		Cell:          get("ERP_CELL", "local"),
-		NATSURL:       getenv("ERP_NATS_URL"),
-		OTLPEndpoint:  getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),
-		Model:         Model{APIKey: getenv("ERP_MODEL_API_KEY"), Endpoint: get("ERP_MODEL_ENDPOINT", "https://api.anthropic.com")},
-		BankOutboxDir: getenv("ERP_BANK_OUTBOX_DIR"),
-		ExtractDir:    getenv("ERP_EXTRACT_DIR"),
+		Vault:              l.vault,
+		Secrets:            l.resolver,
+		HTTPAddr:           get("ERP_HTTP_ADDR", ":8080"),
+		AdminAddr:          get("ERP_ADMIN_ADDR", ":9090"),
+		DatabaseURL:        getenv("DATABASE_URL"),
+		DatabaseReplicaURL: getenv("DATABASE_REPLICA_URL"),
+		AnalyticsURL:       getenv("ERP_ANALYTICS_URL"),
+		AppRole:            get("ERP_DB_APP_ROLE", defaultAppRole),
+		RelayRole:          get("ERP_DB_RELAY_ROLE", "erp_relay"),
+		ProjectorRole:      get("ERP_DB_PROJECTOR_ROLE", "erp_projector"),
+		WorkerRole:         get("ERP_DB_WORKER_ROLE", "erp_worker"),
+		ControlRole:        get("ERP_DB_CONTROL_ROLE", defaultControlRole),
+		Cell:               get("ERP_CELL", "local"),
+		NATSURL:            getenv("ERP_NATS_URL"),
+		OTLPEndpoint:       getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),
+		Model:              Model{APIKey: getenv("ERP_MODEL_API_KEY"), Endpoint: get("ERP_MODEL_ENDPOINT", "https://api.anthropic.com")},
+		BankOutboxDir:      getenv("ERP_BANK_OUTBOX_DIR"),
+		ExtractDir:         getenv("ERP_EXTRACT_DIR"),
 	}
 	if c.DatabaseURL == "" {
 		l.errs = append(l.errs, errors.New("DATABASE_URL is required"))
@@ -370,6 +384,9 @@ func (l *loader) tls(c *Config) {
 	c.TLS = tlsconf.Source{CA: l.raw("ERP_TLS_CA"), Cert: l.raw("ERP_TLS_CERT"), Key: l.raw("ERP_TLS_KEY")}
 	if c.TrustDomain = l.getenv("ERP_TRUST_DOMAIN"); !ValidTrustDomain(c.TrustDomain) {
 		l.errs = append(l.errs, ErrTrustDomain)
+	}
+	if c.AnalyticsURL != "" && (!strings.HasPrefix(c.AnalyticsURL, "https://") || c.TrustDomain == "") {
+		l.errs = append(l.errs, errors.New("ERP_ANALYTICS_URL must be an https URL, with ERP_TRUST_DOMAIN: erp-analytics is called over mTLS by its SPIFFE identity (ADR-0044)"))
 	}
 	if c.TrustDomain != "" && c.TLS.Cert == "" {
 		l.errs = append(l.errs, errors.New("ERP_TRUST_DOMAIN needs ERP_TLS_CERT and ERP_TLS_KEY: the API and /control serve the router by its certificate, over TLS (ADR-0033)"))
@@ -552,6 +569,9 @@ func (l *loader) temporal(c *Config) {
 	if c.Temporal.EscalateAfter, err = time.ParseDuration(get("ERP_APPROVAL_ESCALATE_AFTER", "48h")); err != nil || c.Temporal.EscalateAfter < 0 {
 		l.errs = append(l.errs, errors.New("ERP_APPROVAL_ESCALATE_AFTER must be a duration such as 48h, or 0 not to escalate"))
 	}
+	if c.Temporal.StatementFetch, err = time.ParseDuration(get("ERP_STATEMENT_FETCH_INTERVAL", "1h")); err != nil || c.Temporal.StatementFetch < 0 {
+		l.errs = append(l.errs, errors.New("ERP_STATEMENT_FETCH_INTERVAL must be a duration such as 1h, or 0 not to fetch statements"))
+	}
 	// The deadline workflow counts escalations in an int16 and stores them in a
 	// smallint, so a larger setting would wrap rather than escalate further.
 	if c.Temporal.Escalations, err = strconv.Atoi(get("ERP_APPROVAL_ESCALATIONS", "3")); err != nil || c.Temporal.Escalations < 1 || c.Temporal.Escalations > math.MaxInt16 {
@@ -723,9 +743,9 @@ func checkAtRest(c Config) []error {
 // verified TLS (ADR-0033).
 func checkTransport(c Config) []error {
 	var errs []error
-	for _, s := range []setting{{"DATABASE_URL", c.DatabaseURL}, {"ERP_DIRECTORY_URL", c.DirectoryURL}} {
+	for _, s := range []setting{{"DATABASE_URL", c.DatabaseURL}, {"DATABASE_REPLICA_URL", c.DatabaseReplicaURL}, {"ERP_DIRECTORY_URL", c.DirectoryURL}} {
 		if s.value == "" {
-			continue // DATABASE_URL is required on its own; no directory is a single cell
+			continue // DATABASE_URL is required on its own; no replica reads the primary, no directory is a single cell
 		}
 		if err := CheckDatabaseTLS(s.name, s.value); err != nil {
 			errs = append(errs, err)

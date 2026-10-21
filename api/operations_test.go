@@ -1,6 +1,7 @@
 package api
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -35,7 +36,8 @@ func TestOperationsFromTheContract(t *testing.T) {
 		"submitRequisition": true, "cancelRequisition": true, "createPurchaseOrder": true, "updatePurchaseOrder": true,
 		"createSupplierInvoice": true, "updateSupplierInvoice": true, "cancelApprovalRequest": true,
 		"createDownPaymentRequest": true, "cancelDownPaymentRequest": true, "clearSupplierInvoiceDownPayments": false,
-		"postSupplierInvoice": false, "releasePurchaseOrder": false, "cancelPurchaseOrder": false, "proposePaymentRun": false, "verifyAuditChain": false} {
+		"postSupplierInvoice": false, "releasePurchaseOrder": false, "cancelPurchaseOrder": false, "proposePaymentRun": false, "verifyAuditChain": false,
+		"runAnalyticsQuery": false} {
 		if got := ops[id].Proposes; got != want {
 			t.Errorf("%s proposes: got %v, want %v", id, got, want)
 		}
@@ -44,8 +46,31 @@ func TestOperationsFromTheContract(t *testing.T) {
 		if op.Proposes && op.Method == "GET" {
 			t.Errorf("%s: a read marked x-autonomy: propose", id)
 		}
-		if op.Reads != (id == "verifyAuditChain") {
+		if op.Reads != (id == "verifyAuditChain" || id == "previewRevaluation" || id == "runAnalyticsQuery") {
 			t.Errorf("%s reads: got %v", id, op.Reads)
+		}
+	}
+}
+
+// Every operation has a latency class (ADR-0043): its method and path
+// imply read, list or write; approvals and reports declare theirs.
+func TestOperationClasses(t *testing.T) {
+	ops, err := Operations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]string{"getJournalEntry": ClassRead, "listJournalEntries": ClassList, "postSupplierInvoice": ClassWrite,
+		"updatePurchaseOrder": ClassWrite, "approveApprovalRequest": ClassApproval, "rejectApprovalRequest": ClassApproval,
+		"listBalances": ClassReport, "listGrIrBalances": ClassReport} {
+		t.Run(id, func(t *testing.T) {
+			if got := ops[id].Class; got != want {
+				t.Errorf("class: got %q, want %q", got, want)
+			}
+		})
+	}
+	for id, op := range ops {
+		if !slices.Contains(Classes, op.Class) {
+			t.Errorf("%s class: got %q, want one of %v", id, op.Class, Classes)
 		}
 	}
 }
@@ -56,6 +81,9 @@ func TestOperationsRejectsBadContracts(t *testing.T) {
 		"no permission": "paths:\n  /v1/x:\n    get:\n      operationId: getX\n",
 		"bad operation": "paths:\n  /v1/x:\n    get: [1]\n",
 		"bad autonomy":  "paths:\n  /v1/x:\n    post:\n      operationId: x\n      x-permission: a.b.c\n      x-autonomy: decide\n",
+		"bad class":     "paths:\n  /v1/x:\n    get:\n      operationId: x\n      x-permission: a.b.c\n      x-slo-class: read\n",
+		"both permissions": "paths:\n  /v1/x/{entity}:\n    get:\n      operationId: getX\n      x-permission: a.b.c\n" +
+			"      x-entity-permissions:\n        e: a.b.read\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parseOperations([]byte(src), true); err == nil {
@@ -84,6 +112,17 @@ func TestOperationsRejectsBadContracts(t *testing.T) {
 	}
 	if !strings.HasPrefix(ops["getX"].Path, "/v1/") {
 		t.Errorf("path: got %s, want it under /v1/", ops["getX"].Path)
+	}
+}
+
+// TestEntityPermissions: x-entity-permissions stands in for x-permission.
+func TestEntityPermissions(t *testing.T) {
+	ops, err := parseOperations([]byte("paths:\n  /v1/x/{entity}:\n    get:\n      operationId: getX\n      x-entity-permissions:\n        e: a.b.read\n"), true)
+	if err != nil {
+		t.Fatalf("x-entity-permissions: %v", err)
+	}
+	if got := ops["getX"].EntityPermissions["e"]; got != "a.b.read" {
+		t.Errorf("entity permission: got %q, want a.b.read", got)
 	}
 }
 

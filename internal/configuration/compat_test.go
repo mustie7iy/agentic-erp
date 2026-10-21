@@ -3,6 +3,7 @@ package configuration_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -156,4 +157,61 @@ func TestUnreadableVersion(t *testing.T) {
 		return err
 	})
 	pgtest.WantErr(t, err, "read version 2")
+}
+
+// settingsVersion: an activated version reads by its number; an unknown
+// one is 422, an unreadable one fails, and so does every database failure.
+func settingsVersion(t *testing.T, f fixture.Env) {
+	t.Helper()
+	read := func(n int32) (*config.Config, error) {
+		var doc *config.Config
+		err := apitest.InRequest(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) error {
+			var err error
+			doc, err = configuration.Settings{}.Version(ctx, n)
+			return err
+		})
+		return doc, err
+	}
+	if doc, err := read(1); err != nil || len(doc.Companies) != 2 {
+		t.Errorf("version 1: got %v, %v; want its document", doc, err)
+	}
+	if _, err := read(9); problem.From(err).Code != "config.unknown_version" {
+		t.Errorf("version 9: got %v, want config.unknown_version", err)
+	}
+	if _, err := (configuration.Settings{}).Version(context.Background(), 1); err == nil {
+		t.Error("outside a unit of work: got no error, want one")
+	}
+	apitest.EveryFailure(t, f.Tenant, f.Tenant.Human, "version", func(ctx context.Context) error {
+		_, err := configuration.Settings{}.Version(ctx, 1)
+		return err
+	})
+	activateDocument(t, f.Tenant.ID, `jsonb_set(document, '{payment_terms}', '"none"')`)
+	if _, err := read(2); err == nil || !strings.Contains(err.Error(), "read version 2") {
+		t.Errorf("unreadable version: got %v, want its error", err)
+	}
+}
+
+// TestSimulators: every simulation runs; the change passes when all do,
+// with the summaries joined and the details merged; an error stops them.
+func TestSimulators(t *testing.T) {
+	a := &fakeSimulator{sim: configuration.Simulation{Passed: true, Summary: "Invoices unchanged.", Detail: map[string]any{"invoices": 3}}}
+	b := &fakeSimulator{sim: configuration.Simulation{Passed: false, Summary: "Metrics not computed.", Detail: map[string]any{"metrics": []string{"revenue"}}}}
+	quiet := &fakeSimulator{sim: configuration.Simulation{Passed: true}}
+	got, err := configuration.Simulators{a, quiet, b}.Simulate(context.Background(), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Passed {
+		t.Error("passed: got true, want false (one failed)")
+	}
+	if want := "Invoices unchanged. Metrics not computed."; got.Summary != want {
+		t.Errorf("summary: got %q, want %q", got.Summary, want)
+	}
+	if len(got.Detail) != 2 {
+		t.Errorf("detail: got %v, want both simulations'", got.Detail)
+	}
+	failing := &fakeSimulator{err: errors.New("down")}
+	if _, err := (configuration.Simulators{failing, a}).Simulate(context.Background(), nil, nil); err == nil || a.calls != 1 {
+		t.Errorf("failing: got %v after %d more calls, want its error and none", err, a.calls-1)
+	}
 }

@@ -1,0 +1,13 @@
+# Dataset contract (ADR-0044). Additive changes only (a new nullable
+# column); a removed, renamed or retyped column or a changed grain is a new
+# version under ../v2. Columns are what the extractor writes to Parquet;
+# internal/analytics/datasets_test.go checks them against semantic.yaml.
+dataset: open_items
+version: 1
+kind: dimension
+grain: One row per journal line that is an open supplier item now.
+load: snapshot
+columns:
+  - {name: tenant_id, type: uuid, role: tenant}
+  - {name: document_id, type: uuid, role: key}
+  - {name: line_no, type: int32, role: key}

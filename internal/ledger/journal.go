@@ -53,6 +53,7 @@ type Entry struct {
 	ID               uuid.UUID
 	LegalEntityID    uuid.UUID
 	LedgerID         uuid.UUID
+	Leading          bool // the ledger is the tenant's leading ledger
 	FiscalYear       int16
 	FiscalPeriod     int16
 	DocumentType     string
@@ -100,7 +101,8 @@ type Line struct {
 	SpecialGL *string `json:"special_gl"`
 }
 
-const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id, e.fiscal_year, e.fiscal_period, e.document_type, e.document_number,
+const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id,
+		(SELECT g.is_leading FROM ledger.ledger g WHERE g.tenant_id = e.tenant_id AND g.id = e.ledger_id), e.fiscal_year, e.fiscal_period, e.document_type, e.document_number,
 		e.document_date, e.posting_date, e.currency_tc, e.currency_lc, e.currency_gc, e.rate_tc_lc::text, e.rate_lc_gc::text,
 		e.reference, e.header_text, e.source_context, e.source_document_id, e.reversal_of_id, e.reversal_of_year, r.reversal_entry_id,
 		e.posted_at, e.posted_by, ctc.exponent, clc.exponent, cgc.exponent,
@@ -117,7 +119,7 @@ const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id, e.fiscal_year,
 
 func scanEntry(row pgx.Row) (Entry, error) {
 	var e Entry
-	err := errs.Wrapf(row.Scan(&e.ID, &e.LegalEntityID, &e.LedgerID, &e.FiscalYear, &e.FiscalPeriod, &e.DocumentType, &e.DocumentNumber,
+	err := errs.Wrapf(row.Scan(&e.ID, &e.LegalEntityID, &e.LedgerID, &e.Leading, &e.FiscalYear, &e.FiscalPeriod, &e.DocumentType, &e.DocumentNumber,
 		&e.DocumentDate, &e.PostingDate, &e.CurrencyTC, &e.CurrencyLC, &e.CurrencyGC, &e.RateTCLC, &e.RateLCGC,
 		&e.Reference, &e.HeaderText, &e.SourceContext, &e.SourceDocumentID, &e.ReversalOfID, &e.ReversalOfYear, &e.ReversedByID,
 		&e.PostedAt, &e.PostedBy, &e.ExpTC, &e.ExpLC, &e.ExpGC, &e.Lines), "scan journal entry")
@@ -529,8 +531,9 @@ func checkTaxCodes(ctx context.Context, tx pgx.Tx, le uuid.UUID, date time.Time,
 // (3,000,000,000,000.02 at 1/3) and, for a recorded rate above 2e12 whose
 // rounded reciprocal is 0, converted every amount to 0.
 type exchange struct {
-	exact *big.Rat
-	shown string
+	exact     *big.Rat
+	shown     string
+	validFrom time.Time // the recorded rate's; zero for one currency
 }
 
 // rate is the average rate from one currency to another valid on the date:
@@ -540,31 +543,42 @@ func rate(ctx context.Context, tx pgx.Tx, from, to string, date time.Time) (exch
 	if from == to {
 		return exchange{exact: big.NewRat(1, 1), shown: "1"}, nil
 	}
-	var recorded, shown string
-	var forward bool
-	err := tx.QueryRow(ctx, `SELECT rate::text, from_currency = $1, CASE WHEN from_currency = $1 THEN rate ELSE round(1 / rate, 12) END::text
-		FROM ledger.exchange_rate WHERE rate_type = 'average' AND valid_from <= $3
-			AND ((from_currency = $1 AND to_currency = $2) OR (from_currency = $2 AND to_currency = $1))
-		ORDER BY valid_from DESC, from_currency = $1 DESC LIMIT 1`, from, to, date).Scan(&recorded, &forward, &shown)
-	if errors.Is(err, pgx.ErrNoRows) {
+	x, found, err := rateOfType(ctx, tx, "average", from, to, date)
+	if err == nil && !found {
 		return exchange{}, problem.Unprocessable("ledger.no_exchange_rate",
 			fmt.Sprintf("No average exchange rate from %s to %s is valid on %s.", from, to, date.Format(time.DateOnly)),
 			problem.FieldError{Field: "posting_date", Code: "no_exchange_rate", Message: "record the rate first"})
 	}
+	return x, err
+}
+
+// rateOfType is the latest rate of a type from one currency to another
+// valid on the date, in either direction (rate), with the date it is valid
+// from; found is false when there is none.
+func rateOfType(ctx context.Context, tx pgx.Tx, rateType, from, to string, date time.Time) (x exchange, found bool, err error) {
+	var recorded string
+	var forward bool
+	err = tx.QueryRow(ctx, `SELECT rate::text, from_currency = $1, CASE WHEN from_currency = $1 THEN rate ELSE round(1 / rate, 12) END::text, valid_from
+		FROM ledger.exchange_rate WHERE rate_type = $4 AND valid_from <= $3
+			AND ((from_currency = $1 AND to_currency = $2) OR (from_currency = $2 AND to_currency = $1))
+		ORDER BY valid_from DESC, from_currency = $1 DESC LIMIT 1`, from, to, date, rateType).Scan(&recorded, &forward, &x.shown, &x.validFrom)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return exchange{}, false, nil
+	}
 	if err != nil {
-		return exchange{}, fmt.Errorf("ledger: rate %s/%s on %s: %w", from, to, date.Format(time.DateOnly), err)
+		return exchange{}, false, fmt.Errorf("ledger: %s rate %s/%s on %s: %w", rateType, from, to, date.Format(time.DateOnly), err)
 	}
 	// Read in money's plain grammar: the column's rate > 0 check lets 'NaN'
 	// through, which CreateRate never stores but a direct write could.
 	exact, err := money.ParsePlain(recorded)
 	if err != nil || exact.Sign() <= 0 {
-		return exchange{}, fmt.Errorf("ledger: rate %s/%s on %s: stored rate %q is not a positive decimal", from, to, date.Format(time.DateOnly), recorded)
+		return exchange{}, false, fmt.Errorf("ledger: %s rate %s/%s on %s: stored rate %q is not a positive decimal", rateType, from, to, date.Format(time.DateOnly), recorded)
 	}
-	x := exchange{exact: exact, shown: shown}
+	x.exact = exact
 	if !forward {
 		x.exact.Inv(x.exact) // never zero: checked above
 	}
-	return x, nil
+	return x, true, nil
 }
 
 // postingRates are the rates a posting converts at, from its transaction
@@ -806,7 +820,7 @@ func (e *Endpoints) reverseJournalEntry(ctx context.Context, id uuid.UUID, ifMat
 	if err != nil {
 		return Entry{}, err
 	}
-	orig, err := reversibleEntry(ctx, tx, id, ifMatch)
+	orig, err := reversibleEntry(ctx, tx, id, ifMatch, uuid.Nil)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -824,8 +838,10 @@ func (e *Endpoints) reverseJournalEntry(ctx context.Context, id uuid.UUID, ifMat
 // reversibleEntry locks the entry's bucket and reads the entry, refusing
 // it when ifMatch does, when it cannot be reversed, or when a run holds
 // one of its items. Locked before reading, so requireReversible sees any
-// clearing of the entry that committed while this waited.
-func reversibleEntry(ctx context.Context, tx pgx.Tx, id uuid.UUID, ifMatch func(Entry) error) (Entry, error) {
+// clearing of the entry that committed while this waited. cancelling is
+// the revaluation run being cancelled, whose entries it may reverse, or
+// uuid.Nil.
+func reversibleEntry(ctx context.Context, tx pgx.Tx, id uuid.UUID, ifMatch func(Entry) error, cancelling uuid.UUID) (Entry, error) {
 	if err := lockEntries(ctx, tx, false, []uuid.UUID{id}); err != nil {
 		return Entry{}, err
 	}
@@ -836,7 +852,7 @@ func reversibleEntry(ctx context.Context, tx pgx.Tx, id uuid.UUID, ifMatch func(
 	if err := ifMatch(orig); err != nil {
 		return Entry{}, err
 	}
-	if err := requireReversible(ctx, tx, orig); err != nil {
+	if err := requireReversible(ctx, tx, orig, cancelling); err != nil {
 		return Entry{}, err
 	}
 	if err := requireUnreserved(ctx, tx, orig); err != nil {
@@ -896,9 +912,12 @@ func recordReversal(ctx context.Context, tx pgx.Tx, p reqctx.Principal, orig, re
 	return clearReversal(ctx, tx, p, orig, rev)
 }
 
-// requireReversible refuses to reverse a reversed entry, a reversal, or an
-// entry with cleared lines.
-func requireReversible(ctx context.Context, tx pgx.Tx, orig Entry) error {
+// requireReversible refuses to reverse a reversed entry, a reversal, an
+// entry with cleared lines, or a revaluation run's entry unless that run
+// is cancelling: reversing one alone would leave the run posted with its
+// other entry still in force (ADR-0042; a run's entries are reversed
+// together by cancelling it).
+func requireReversible(ctx context.Context, tx pgx.Tx, orig Entry, cancelling uuid.UUID) error {
 	switch {
 	case orig.ReversedByID != nil:
 		return problem.Conflict("ledger.already_reversed", "The journal entry has already been reversed.")
@@ -906,12 +925,18 @@ func requireReversible(ctx context.Context, tx pgx.Tx, orig Entry) error {
 		return problem.Conflict("ledger.cannot_reverse_reversal", "The journal entry is itself a reversal; post a new entry instead.")
 	}
 	var cleared bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM ledger.clearing_item WHERE fiscal_year = $1 AND journal_entry_id = $2)`,
-		orig.FiscalYear, orig.ID).Scan(&cleared); err != nil {
+	var run *uuid.UUID
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM ledger.clearing_item WHERE fiscal_year = $1 AND journal_entry_id = $2),
+			(SELECT id FROM ledger.revaluation_run WHERE (valuation_entry_year = $1 AND valuation_entry_id = $2) OR (reversal_entry_year = $1 AND reversal_entry_id = $2))`,
+		orig.FiscalYear, orig.ID).Scan(&cleared, &run); err != nil {
 		return fmt.Errorf("ledger: reverse entry %s: %w", orig.ID, err)
 	}
-	if cleared {
+	switch {
+	case cleared:
 		return problem.Conflict("ledger.entry_cleared", "Lines of the journal entry are cleared; an entry with cleared lines cannot be reversed.")
+	case run != nil && *run != cancelling:
+		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted by revaluation run "+run.String()+
+			"; a run's valuation and reset entries are reversed together by cancelling the run.")
 	}
 	return nil
 }

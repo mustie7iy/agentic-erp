@@ -98,12 +98,15 @@ jobs:
           fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "Releasing ${version} from ${GITHUB_SHA}"
+      - name: A buildx builder that exports OCI archives (erp-analytics)
+        run: docker buildx create --use --name erp-images --driver docker-container
       - name: Images, built and scanned before anything is pushed
         env:
           ERP_VERSION: ${{ steps.version.outputs.version }}
         run: |
           echo "ERP_BUILD_STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
-          # A release is every platform of .ko.yaml (scripts/images.sh).
+          # A release is every platform of .ko.yaml (scripts/images.sh),
+          # erp-analytics's included.
           if [ -n "${KO_PLATFORMS:-}" ]; then
             echo "a release builds every platform; KO_PLATFORMS is set to $KO_PLATFORMS" >&2
             exit 1

@@ -20,6 +20,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/cabank"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -643,13 +644,18 @@ func (e *Endpoints) createFile(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 	if ref == "" {
 		ref = "sha256:" + hex.EncodeToString(sum[:])
 	}
+	// The content is render's, or kept content keep compared with it: it
+	// always reads back. Its message id is what a batch booking on the
+	// bank's statement carries (T49e).
+	t, _ := transferOf(content)
 	id := uuid.Must(uuid.NewV7())
 	f, err := scanFile(tx.QueryRow(ctx, `WITH f AS (
-			INSERT INTO payments.bank_file (tenant_id, id, payment_run_id, format, object_ref, sha256, status, created_at, created_by, house_bank_id, payment_method)
-			VALUES ($1, $2, $3, $4, $5, $6, 'created', $7, $8, $10, $11) RETURNING *
+			INSERT INTO payments.bank_file (tenant_id, id, payment_run_id, format, object_ref, sha256, status, created_at, created_by, house_bank_id, payment_method,
+				message_id)
+			VALUES ($1, $2, $3, $4, $5, $6, 'created', $7, $8, $10, $11, $13) RETURNING *
 		) SELECT f.id, f.payment_run_id, $9::uuid, $12::uuid, f.payment_method, f.format, f.object_ref, f.sha256, f.status, f.version, f.created_at,
 			f.created_by, f.updated_at FROM f`,
-		p.TenantID, id, r.ID, Format, ref, sum[:], created, p.ID, r.LegalEntityID, g.v.bank, g.v.method, g.bank.ID))
+		p.TenantID, id, r.ID, Format, ref, sum[:], created, p.ID, r.LegalEntityID, g.v.bank, g.v.method, g.bank.ID, t.MessageID))
 	if err != nil {
 		return BankFile{}, fmt.Errorf("payments: record the bank file of run %s: %w", r.ID, err)
 	}
@@ -743,7 +749,7 @@ func (e *Endpoints) render(ctx context.Context, tenant uuid.UUID, r Run, g fileG
 	if err != nil {
 		return nil, err
 	}
-	iban, err := e.Keys.Open(ctx, tenant, hb.IBANCipher)
+	account, err := e.Keys.Open(ctx, tenant, hb.IBANCipher)
 	if err != nil {
 		return nil, err
 	}
@@ -762,16 +768,22 @@ func (e *Endpoints) render(ctx context.Context, tenant uuid.UUID, r Run, g fileG
 	if err != nil {
 		return nil, err
 	}
-	b := bankfile.Batch{MessageID: g.messageID(le.Code, r), InitiatorName: le.Name, DebtorName: le.Name, DebtorIBAN: iban, DebtorBIC: hb.BIC,
+	b := bankfile.Batch{MessageID: g.messageID(le.Code, r), InitiatorName: le.Name, DebtorName: le.Name, DebtorIBAN: account, DebtorBIC: hb.BIC,
 		Currency: r.Currency, Decimals: r.Exponent, ExecutionDate: r.RunDate.Format(time.DateOnly), Created: created}
+	if hb.Institution != "" { // a Canadian house bank (T45d)
+		b.DebtorIBAN, b.DebtorAccount, b.DebtorClearingID = "", account, cabank.MemberID(hb.Institution, hb.Transit)
+	}
 	for _, pay := range pays {
 		remittance, err := e.remittance(ctx, pay, refs)
 		if err != nil {
 			return nil, err
 		}
 		d := details[pay.BankAccountID]
-		b.Payments = append(b.Payments, bankfile.Payment{EndToEndID: pay.EndToEndID, CreditorName: d.Holder, CreditorAccount: d.Account,
-			Amount: pay.Amount, Remittance: remittance})
+		pm := bankfile.Payment{EndToEndID: pay.EndToEndID, CreditorName: d.Holder, CreditorAccount: d.Account, Amount: pay.Amount, Remittance: remittance}
+		if d.Institution != "" { // a Canadian supplier account (T45d)
+			pm.CreditorClearingID = cabank.MemberID(d.Institution, d.Transit)
+		}
+		b.Payments = append(b.Payments, pm)
 	}
 	content, err := bankfile.Pain001(b)
 	if err != nil {

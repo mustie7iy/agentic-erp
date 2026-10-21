@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/google/uuid"
+
 	"github.com/mustie7iy/agentic-erp/db"
+	"github.com/mustie7iy/agentic-erp/internal/analytics/extract"
 	"github.com/mustie7iy/agentic-erp/internal/controlplane"
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/drverify"
@@ -24,9 +27,10 @@ import (
 //
 // It runs with the cell's own configuration (config.Load: the object store,
 // the directory, ERP_CELL), after erp-server dr verify passed and before
-// the workloads start: the chains against their anchors, every tenant the
-// directory places in the cell present, the tenants the directory has
-// offboarded or erased offboarded and erased again. The report is JSON; a
+// the workloads start: the chains against their anchors, the analytical
+// stores ahead of the database rebuilt, every tenant the directory places
+// in the cell present, the tenants the directory has offboarded or erased
+// offboarded and erased again. The report is JSON; a
 // problem exits 1.
 func reconcileCmd(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	if len(args) > 0 {
@@ -71,6 +75,12 @@ func reconcile(ctx context.Context, cfg platformconfig.Config, stderr io.Writer)
 		Control: &controlplane.Service{Pool: pool, AppRole: cfg.AppRole, ControlRole: cfg.ControlRole},
 		Offboarding: &offboarding.Worker{Pool: pool, Store: store, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole,
 			Grace: cfg.OffboardGrace, Retention: cfg.Objects.Retention, Log: log},
+		// The analytical stores the restore left ahead of the database
+		// are rebuilt (ADR-0044): their watermarks name transactions the
+		// restored database has not reached.
+		Analytics: func(ctx context.Context) ([]uuid.UUID, error) {
+			return extract.RebuildAhead(ctx, pool.Begin, cfg.WorkerRole, store)
+		},
 	}
 	if cfg.DirectoryURL != "" {
 		dir, err := directory.OpenWith(ctx, cfg.DirectoryURL, cfg.DirectoryPassword)

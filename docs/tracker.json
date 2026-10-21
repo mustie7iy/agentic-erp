@@ -707,6 +707,24 @@
         "t": "Proposals without a house bank, in a currency, pay each supplier (items and down payment requests) through its first method a ranked active bank in the run currency can pay (a ranked bank in another currency is skipped), else exclude it with no_house_bank; a run without a bank must name its currency (payments.currency_required) and a run for one bank refuses another currency (payments.currency_mismatch); payments post to their bank's account; one bank file per house bank and method; payment_run.house_bank_id nullable (breaking change accepted); at most one active house bank per ledger account in the schema (house_bank_account_once, a deferrable unique constraint attached to a concurrently built index; ADR-0038)",
         "r": "db/migrations/000093-000098 · payments.router · payment.house_bank_id/payment_method · bank_file_once_per_bank · house_bank_account_once · T45c",
         "c": []
+       },
+       {
+        "s": "D",
+        "t": "Canadian bank accounts (no IBAN): institution (3 digits), transit (5) and account number (7-12) on supplier bank accounts (scheme ca, through the bank change and its approval), house banks (institution_number, transit_number, account_number) and the bank_account_changed event; account number sealed, last four shown; format checks only; pain.001 names each Canadian bank by its CACPA member id (0 + institution + transit) and the account in Othr; redaction of dashed Canadian accounts for tenants in Canada",
+        "r": "platform/cabank · partner scheme ca · payments.HouseBanks · bankfile.Pain001 · platform/redact bankAccounts · 000117-000118 · ADR-0038 amendment · T45d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "CPA-005 (the Canadian Payments Association's 1464-byte AFT file) for Canadian banks that do not take pain.001",
+        "r": "after T45d · ADR-0038 amendment",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "SAP load of Canadian accounts: vendor bank accounts (LFBK) as scheme ca with institution and transit numbers, and Canadian house banks (T012K) without an IBAN",
+        "r": "integration/load.go · delivery/sapconfig · after T45d",
+        "c": []
        }
       ]
      },
@@ -846,10 +864,65 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Bank statement import (camt.053, MT940)",
-      "r": "T49",
-      "c": []
+      "r": "ADR-0047 · T49 (split T49a-T49h)",
+      "c": [
+       {
+        "s": "D",
+        "t": "ADR-0047; house banks' main bank and incoming payments accounts (000119); open-item managed clearing accounts, refused for an account with postings; posting rules by transaction code, matching rules, approval tiers with no default",
+        "r": "ADR-0047 · companies[].bank_statements · house_bank.main_gl_account/incoming_gl_account · chart_of_accounts[].open_items · ledger.Setup.Check and Apply · 000119 · T49a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "camt.053 (.001.02, .001.08) and MT940 parsers into one statement model (signed minor units, booking and value dates, transaction codes, references, counterparties, batches, reversals), each statement held to its balances; samples modelled on Canadian and UAE banks' files; fuzzed in make fuzz",
+        "r": "internal/bankstatement · ParseCamt053 · ParseMT940 · FuzzParseCamt053 · FuzzParseMT940 · T49b",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Statement tables, upload, idempotency by file hash and statement key, balance continuity (gap until the missing statement arrives), parse errors with line numbers; the original file kept as evidence, encrypted and locked, and downloadable",
+        "r": "db/migrations/000120 · payments.bank_statement · bank_statement_line · statement_match · POST/GET /v1/bank-statements · GET /v1/bank-statements/{id}/file (the file kept, locked) · payments.statement.import/read · BankStatementImported · BankStatementGapClosed · BankStatementGapFound · T49c",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "SFTP fetch per house bank once per period (dispatcher-started workflow), each file imported through the upload's path and archived after import; fetched files recorded once (imported, archived, refused), refusals reported once, per-file failures do not stop the others",
+        "r": "db/migrations/000121-000122 · payments.statement_fetch · bank_sftp statements_directory/statements_archive · FetchBankStatements · ERP_STATEMENT_FETCH_INTERVAL · BankStatementFileRefused (also a file of no house bank on the channel: payments.statement_of_no_bank) · BankStatementFileChanged (changed_after_import, read again before the move) · erp_bank_statement_files_refused/unarchived · T49d",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Rule matching in priority order (end-to-end id, batch id, transaction code, amount within tolerance, window and counterparty), exactly one candidate matches and more stay open for a person; on import and on demand, deterministic and idempotent; manual match and exclusion by people, audited",
+        "r": "db/migrations/000123 · payments.statement_match · statement_match_target · bank_file.message_id · POST /v1/bank-statements/{id}:match · GET /v1/bank-statements/{id}/matches · POST /v1/bank-statements/{id}/lines/{line_no}:match/:exclude · payments.statement.match · open lines taken up again on a run · line decisions answer the statement ETag · statement run agent-callable, line decisions x-agent: false · BankStatementLineMatched · BankStatementLineExcluded · T49e",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Posting and clearing, approvals.BankClearing, period locks",
+        "r": "T49f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Agent proposals (x-autonomy: propose)",
+        "r": "T49g",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Reconciliation report and documentation",
+        "r": "T49h",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "ISO-8859-1 statement files, only if a pilot bank cannot send UTF-8 (coordinator 2026-10-20)",
+        "r": "T49",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
@@ -1001,9 +1074,9 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "Document currency separate from company currency",
-      "r": "T48",
+      "s": "D",
+      "t": "Document currency separate from company currency: on the entry header (journal_entry.currency_tc), every posting path takes one other than local currency",
+      "r": "ADR-0042 · ledger.TestDocumentCurrencyOnEveryPostingPath · T48a",
       "c": []
      },
      {
@@ -1013,10 +1086,41 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Open-item revaluation run",
       "r": "T48",
-      "c": []
+      "c": [
+       {
+        "s": "D",
+        "t": "ADR-0042 and schema: flagged G/L accounts (company_account.revalue_foreign_currency), one valuation rate type per legal entity, unrealised gain/loss and adjustment accounts per revalued account from companies[].fx_valuation, revaluation runs per legal entity, ledger and key date (one posted per key date) and their valued items",
+        "r": "db/migrations/000107 · config.FXValuation · ledger.fx_valuation_account · ledger.revaluation_run · T48a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Valuation engine and preview (open to agents): open items of reconciliation accounts and balances of flagged accounts (also a residual in local or group currency of a balance zero in its own) at the key date's rate; group currency valued on its own at the rate tc→gc (PO 2026-10-19); stale rate refused (ledger.rate_stale)",
+        "r": "POST /v1/revaluation-runs/preview (x-autonomy: read) · ledger.valueRevaluation · key date a period end · account without valuation fails closed (ledger.revaluation_account_missing) · budget 10,000 open items p95 1 s · T48b",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Posting run: valuation entry on the key date, reversal on the 1st of the next period, both periods open; 409 ledger.revaluation_exists; audit and RevaluationRunPosted",
+        "r": "POST/GET /v1/revaluation-runs (x-agent: false) · document type SA in local currency · run without differences recorded without entries · tenant's entry locks exclusive · RevaluationRunPosted · T48c",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Cancel and close-out: cancel reverses both entries through the ledger's reversal path (which :reverse refuses alone, ledger.entry_owned_elsewhere), refused when either entry's period is not open (T32) or the run is cancelled; RevaluationRunCancelled; rerun after cancel; a balance zero in its currency valued without a rate (coordinator 2026-10-19)",
+        "r": "POST /v1/revaluation-runs/{id}:cancel (x-agent: false, If-Match the run's version) · 409 ledger.revaluation_not_posted · item rates nullable for a zero balance (revaluation_item_rates) · T48d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Follow-ups from T48b review: paging of very large previews; one shared definition of \"reversed\" for open-item reads; a budget run with reversals seeded, and an index on the reversal lookup if it needs one",
+        "r": "T48e",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",
@@ -1245,7 +1349,7 @@
     "c": [
      {
       "s": "T",
-      "t": "Cost center master and hierarchy",
+      "t": "Cost center master and hierarchy; then lift the custom field schema compiler's refusal of cost object reference fields (ADR-0046, T58d)",
       "r": "T56",
       "c": []
      },
@@ -3338,9 +3442,9 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "Metric changes through the configuration approval loop",
-      "r": "T55",
+      "s": "D",
+      "t": "Metric changes through the configuration approval loop: the semantic model is the configuration document's analytics section (semantic.yaml the seed until a change adds it), checked on submission (no metric derived from itself); words tier 1, definitions tier 2 with a simulation of the affected metrics (config.Evidence) by company and fiscal year before and after, read from the store as the requester (a store that cannot answer fails the simulation), each reader of the change request shown the values of their own companies alone and the summary's counts over those alone, the summary recorded with no count (configuration.Disclosure, fail closed); the endpoint answers under the active version and names it (config_version), or under an earlier version when asked (audit); agents propose, never activate",
+      "r": "config.Analytics · analytics.FromConfig · analytics.Affected · endpoint.Section · endpoint.Simulation · configuration.Simulators · configuration.Disclosure · endpoint.Disclosure · configuration.Settings.Version · api/openapi.yaml AnalyticsQuery.config_version · ADR-0044 · T55g",
       "c": []
      }
     ]
@@ -3363,10 +3467,107 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "Columnar store (DuckDB over Parquet via CDC)",
-      "r": "T55",
-      "c": []
+      "s": "P",
+      "t": "Columnar store (DuckDB over Parquet from per-tenant extracts)",
+      "r": "ADR-0044 · T55",
+      "c": [
+       {
+        "s": "D",
+        "t": "Analytical store decided: per-tenant incremental extracts under RLS on the read replica (not CDC), DuckDB in a separate cgo erp-analytics binary (ADR-0032 amended), Parquet layout, manifest and pointer-swap publication, three-layer isolation, PostgreSQL fallback with lineage; versioned dataset contract checked against semantic.yaml",
+        "r": "ADR-0044 · analytics/datasets/v1 · internal/analytics/datasets_test.go · T55a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Snapshot pointer (one row per tenant, RLS, manifest named by its watermark) and journal posted_xid (expand); per-tenant extractor of gl_lines in one REPEATABLE READ transaction under the tenant's RLS, appending by xid8 watermark, Parquet (parquet-go, no cgo) per posting month through blobstore, write-once files and manifest, guarded pointer swap; run twice writes nothing",
+        "r": "migration 000114 · internal/analytics/extract · db/analytics_snapshot_test.go · ADR-0044 · T55b",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Remaining datasets (po_lines, ap_invoices, open_items, accounts, vendors) in the journal's REPEATABLE READ run, as BuildFacts derives them, masked fields never read; every dataset streamed per month (bounded memory over any backlog); snapshot files named by content and kept when unchanged; manifests named by cutoff and digest; checked_at on the pointer (a run with nothing new records only it; entries pending above the cutoff hold it back); relay hook marks changed tenants once per batch; scheduler claims with FOR UPDATE SKIP LOCKED at most every 5 minutes per tenant",
+        "r": "migration 000115 · internal/analytics/extract · outbox.Relay.Relayed · db/analytics_snapshot_test.go · ADR-0044 · T55c",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "erp-analytics (cmd/erp-analytics, the one cgo binary; static binaries checked by internal/layout TestStaticBinaries): mTLS listener admitting the cell's erp-server alone; reader of semantic query plans (contract columns only, values as parameters) over a tenant's manifest: anchored path guard (FuzzManifestPath in make fuzz), files verified by size and SHA-256 into a digest-named cache, a fresh in-memory DuckDB per query with autoload off, allowed_paths, external access off and configuration locked, views of contract columns filtered by tenant_id and the principal's companies, fact types checked; pre-aggregated rows, exponents checked; refusals 422 for the fallback. Dataset vendors became partners (every partner, supplier and customer flags) so customer lines match BuildFacts",
+        "r": "internal/analytics/reader · cmd/erp-analytics · analytics/datasets · ADR-0044 · T55d",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "erp-analytics image and deployment: pinned multi-stage Dockerfile (Go 1.26.10 bookworm builder cross-compiling with Debian's cross gcc, DuckDB static from duckdb-go-bindings, glibc dynamic on distroless cc-debian12:nonroot, both bases by digest; -trimpath, no build id or VCS stamp, layers at SOURCE_DATE_EPOCH: two clean builds matched per platform), make image-analytics; erp-cell chart: Deployment, Service, PDB, certificate as .../erp-analytics, non-root and read-only with an emptyDir cache, TCP probes, NetworkPolicy admitting erp-server alone on 8443 and egress 443 only, ERP_ANALYTICS_URL and egress on erp-server; Terraform: IRSA role reading analytics/ alone (GetObject, prefixed ListBucket, data key via S3), ECR repository erp-analytics; images.analytics required in release.json (promotion-checks) and in the admission checks",
+        "r": "deploy/images/erp-analytics.Dockerfile · .dockerignore · deploy/helm/erp-cell/templates/analytics.yaml · modules/cell irsa.tf · modules/ecr · scripts/promotion-checks.sh · ADR-0044 · ADR-0032 · T55h",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Remove the .grype.yaml exception for libssl3 3.0.20 in distroless/cc-debian12 (six CVEs; erp-analytics links no libssl) by its expiry on 2026-11-20: move to the fixed base digest when distroless publishes it, or to cc-debian13 by an ADR-0044 amendment",
+        "r": ".grype.yaml · ADR-0044 · T55h follow-up",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "erp-analytics image in the ADR-0032 pipeline: scripts/images.sh builds it after ko's images (buildx one platform at a time, OCI archives dated at the epoch without buildx attestations, joined into an OCI index written by the script, pushed with crane under each tag and refused unless the pushed digest is the one built) into images.txt; its SBOMs (syft: Go modules, DuckDB, the cc base's Debian packages; the index's naming its images) in sign-images.sh's convention (scripts/lib/sbom-root.py, shared with mirror-images.sh); images-reproducible.sh gives each build a buildx builder of its own, removed with its cache; image-scan.sh scans its SBOMs and the cc base; base-image-current.sh checks the builder and the cc base besides ko's; the provenance names them; CI, weekly and the release create a docker-container builder; the release pushes, signs and verifies it, so release.json takes images.analytics from the release's images.txt; scripts/test-images.sh checks the scripts with fake tools; make image-analytics gone",
+        "r": "scripts/images.sh · images-reproducible.sh · image-scan.sh · base-image-current.sh · provenance.sh · lib/sbom-root.py · test-images.sh · ci-changes.sh · ci.yml · weekly.yml · release.yml · ADR-0032 · ADR-0044 · T55p",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Semantic layer reads the store (internal/analytics/store): pointer, leading ledger and freshness rule (checked_at within 15 minutes and no entry posted longer ago at or above the watermark) read under RLS in the request; one reader plan per base metric (fiscal periods from the date and the calendar, cleared from open_items, ledger required for gl_lines: the leading one unless the query names another, in both paths, with JournalEntry.leading_ledger in the API); pre-aggregated groups folded in by Execute; falls back to the database on no or stale snapshot, older than asked, a refusal, the reader busy (503 analytics.busy at its concurrent-query cap) or failing; lineage source and as_of on every result; cgo-free wire package; per-query DuckDB threads and memory_limit; mTLS client; parity test over every metric of semantic.yaml; erp-server starts the extract scheduler and sets the relay hook (primary until T55f)",
+        "r": "internal/analytics/store · internal/analytics/wire · internal/analytics/reader · cmd/erp-analytics · cmd/erp-server · api/openapi.yaml JournalEntry.leading_ledger · ADR-0044 · T55e",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Lifecycle: publications list the manifest they replace (analytics.superseded) and a lost run its own; after each run the scheduler collects, past 7 days, what each supersession dropped (recorded with it; one manifest read per collection) but what the current manifest or a later supersession lists, then (as erp_worker) the row; a month's journal parts merged at 8 into one file named by the interval they cover; erasure deletes analytics/v1/tenant=<id>/ with the tenant's objects (blobstore.TenantPrefixes); a run behind its watermark rebuilds the store when the primary is behind it too (restore) and is retried when only the replica lags; erp-server dr reconcile rebuilds every store ahead of the restored database; the claim records the primary's WAL position and the run reads the replica (DATABASE_REPLICA_URL) only once it has replayed past it, else the primary; hourly sweep of active tenants not found current; gauges erp_analytics_lag_seconds and erp_analytics_stale_tenants in a cell that extracts; claims of active tenants only. The dedicated test database was dropped: each package has one, and the snapshot horizon is the cluster's. erp-server answers POST /v1/analytics-queries (runAnalyticsQuery: metric names, breakdowns, filters, as_of, optional ledger and companies, never SQL; analytics.query.run, x-autonomy read) with the store Source and its database fallback (building only the fact tables the query needs; one the caller's permissions do not read is 403 on either path), the database path reading the API in-process as the caller (httpapi.Loopback), at most 2 answering at once per replica (503 analytics.busy), with lineage (source, as_of, data_through of the datasets read); erp query, ask and report and the agent's run_query call it (analytics.Remote). Parity data without customer journal lines accepted for now (coordinator, 2026-10-20). A store answer requires the permissions of the database path's reads (analytics.Source.Permissions: tenancy.org.read, partner.supplier.read, ledger.account.read for journal and order metrics, and each fact type's), checked before any dimension is named and refused with the same 403; parity test for a person lacking each (no customer read permission exists)",
+        "r": "migration 000116 · internal/analytics/extract lifecycle.go · offboarding.eraseObjects · drverify.Reconciler.Analytics · erp-server DATABASE_REPLICA_URL, ERP_ANALYTICS_URL · api/openapi.yaml runAnalyticsQuery · internal/analytics/endpoint · httpapi.Loopback · analytics.Remote · ADR-0044 · T55f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Reconciliation per tenant and month with the sweep (rows and the sum of amount_minor against the database, as ADR-0030's fingerprint), re-extracting a month that disagrees",
+        "r": "T55i",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Freshness alert rules on erp_analytics_lag_seconds (p95 target 15 minutes) and erp_analytics_stale_tenants in the cell's Prometheus rules, once T54's rules (T54e) are on main; the gauges move to cmd/erp-server/gauges.go with T54b's",
+        "r": "T55j",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The analytics agent's run_query takes an optional ledger (a ledger id from GET /v1/ledgers) once T52a is on main; the endpoint already accepts it",
+        "r": "T55k",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The loopback's in-process reads (the endpoint's database path) counted against the caller's quota and traced as spans of the request",
+        "r": "T55l",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The evaluation harness exercises POST /v1/analytics-queries instead of reading the facts itself",
+        "r": "T55m",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "The analytics agent's tool descriptions and erp metrics, query, ask and report describe the tenant's active metrics instead of the built-in defaults, read through GET /v1/analytics-model (getAnalyticsModel, analytics.query.run: the active configuration version's analytics section, or config_version's; analytics.Remote.Model), so a metric a change request added is offered and a changed definition described as it now is",
+        "r": "api/openapi.yaml getAnalyticsModel · endpoint.GetAnalyticsModel · analytics.Remote.Model · cmd/erp analytics.go · ADR-0044 · T55n",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Decided (coordinator, 2026-10-20): a metric-change simulation reads the analytical store alone; every cell runs erp-analytics (T55h), so no database path for a queued simulation is built",
+        "r": "ADR-0044 · T55o",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -3662,16 +3863,78 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Custom fields",
-      "r": "T58",
-      "c": []
+      "r": "ADR-0046 · T58",
+      "c": [
+       {
+        "s": "D",
+        "t": "Custom fields and CEL rules decided: supplier invoice, purchase order and business partner first; one jsonb column; a JSON Schema subset we compile; typed, flat, at most 50 fields and 16 KiB per row; PII classified per field; tiers; events masked; agents only propose",
+        "r": "ADR-0046 · T58a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Field schemas in the configuration document: compiled with the restrictions, validated on proposal, tier 1 to add optional fields, tier 2 to require, narrow, remove or reclassify, immutable versions",
+        "r": "internal/platform/extensions · Compile, Narrows, FuzzCompile · config.ExtensionTransitions · T58b",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Writes of the supplier invoice, purchase order and business partner validate extensions (422 request.invalid_extension per key)",
+        "r": "extensions.Writes.Check · configuration.Settings.Schema · partner.References · extensions_schema (000113) · TestWritesCheck · T58c",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "The tenant's active schema at GET /v1/schemas/{entity}: ETag the configuration version, 304 on If-None-Match, 404 without a schema, readable by whoever may read the entity (x-entity-permissions); cost object fields refused until T56",
+        "r": "configuration.GetSchema · authz.AuthorizeEntity · etag.NoneMatch · TestGetSchema · T58d",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Events carry extensions and the extensions_schema version, personal and sensitive values masked",
+        "r": "extensions.Writes.Event · Compiled.Mask · apitest.NeverPublished · EventExtensions (asyncapi) · TestEventsMaskCustomFields · T58e",
+        "c": []
+       }
+      ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Custom rules",
-      "r": "T58",
-      "c": []
+      "r": "ADR-0046 · T58",
+      "c": [
+       {
+        "s": "D",
+        "t": "CEL engine: cost and compile-size limits, 10 ms timeout, at most 20 rules per entity, inputs the row and its extensions",
+        "r": "rules.Compile · rules.Set.Check · config rules section · rules:FuzzCompile · T58f",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Validation rules on every create, update and change request of the three entities, after the schema check: 422 request.rule_refused naming the rule, refusals audited with source: rule, the rule and the configuration version, kept although the write rolls back; captured invoices held naming the rule and judged again at posting, on the posting date the post uses; a rule that fails or exceeds a limit on a real input refuses with 422 request.rule_unevaluable naming it (a captured invoice is held naming it instead, audited), logged and counted (erp_rules_unevaluable_total); money inputs carry minor units",
+        "r": "rules.Writes · rules.Money · configuration.Settings.Rules · audit.Refuse · TestRulesOnInvoiceWrites · TestCaptureHeldByRule · TestCaptureHeldByUnevaluableRule · TestRulesOnOrderWrites · TestRulesOnPartnerWrites · TestWritesUnevaluable · TestRulesSeeThePostingDateOfThePost · T58g",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Rules simulated before activation: :simulate replays the last 30 days of each changed entity (at most 200 rows) under the active and proposed rules; per rule the rows newly refused and newly passing among those still writable (custom fields masked per x-pii), historical rows (posted or cancelled invoices, closed or cancelled orders) counted apart as unaffected, unevaluable rows fail the simulation; a change of the custom fields an entity's rules read is tier 3 like the rules; activation needs a passed simulation of the exact proposal (409 config.rules_not_simulated); agents propose, never activate",
+        "r": "rules.Simulate · rules.Sampler · RuleSamples (payables, procurement, partner) · configuration.requireRulesSimulated · Config.ReadByRules · TestRulesSimulatedBeforeActivation · TestSimulate · TestRuleSamplesHistorical · TestExtensionTiersReadByRules · T58h",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Index (tenant_id, updated_at) on supplier invoices, purchase orders and business partners, by a concurrent migration, if the simulation's sample read gets slow",
+        "r": "ADR-0046 · T58j",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Rule inputs from item lines (Phase 2 reads header fields only)",
+        "r": "ADR-0046 · T58i",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
@@ -3687,10 +3950,47 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Country packs",
-      "r": "T62",
-      "c": []
+      "r": "ADR-0048 · T62 (split T62a-T62f)",
+      "c": [
+       {
+        "s": "D",
+        "t": "Pack schema, loader and validation: versioned YAML bundles under packs/<cc>/<version>/ embedded in the image; rates 0-100%, non-overlapping effective dates, account references, sources; released versions immutable by a committed hash list; tax specialist sign-off warned until given (pilot gate)",
+        "r": "internal/countrypack · packs/released.sha256 · ADR-0048 · T62a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Apply a pack to a company: three-way merge (adopted version, tenant document, new version) by account number, account determination field, tax code, number range key and payment term into a draft document with notes; the rate in force on the date of application, later rates noted (until T61); the packs provenance section (company, country, version, applied on), validated, operational tier",
+        "r": "countrypack.Apply · config.PackAdoption · T62b",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The calendars section: a company's holidays",
+        "r": "T62c",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "API: list packs and apply one as a configuration change request",
+        "r": "T62d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Canada pack",
+        "r": "T62e",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "UAE pack",
+        "r": "T62f",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
@@ -4609,7 +4909,7 @@
        {
         "s": "T",
         "t": "Contract reviewed by a consumer",
-        "r": "T50",
+        "r": "T50h · waits for the product owner to name the pilot partner",
         "c": []
        }
       ]
@@ -4683,10 +4983,41 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "API versioning and deprecation policy",
-      "r": "T50",
-      "c": []
+      "r": "ADR-0041 · 04 §4.10 · T50a",
+      "c": [
+       {
+        "s": "D",
+        "t": "Deprecation in the contract (deprecated, x-deprecated-at, x-sunset at least 365 days later, externalDocs) announced with Deprecation, Sunset and Link rel=deprecation headers built from it",
+        "r": "api.Lifecycle · httpapi.announce · T50a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "oasdiff refuses a sunset under 365 days (--deprecation-days-stable) in CI and ci-local",
+        "r": ".github/workflows/ci.yml · scripts/ci-local.sh · T50a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Every accepted breaking change names its T-number and reason",
+        "r": "api/breaking_accepted_test.go · T50a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Events change only additively within a .vN: no removed event or field, type change, or field newly required or no longer required",
+        "r": "api.EventChanges · cmd/eventcompat · T50a",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Accepted breaking changes only for x-stability-level: beta operations once the pilot partner consumes /v1",
+        "r": "ADR-0041 · enforced when the partner is named",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",
@@ -4733,10 +5064,53 @@
       ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Webhooks for business events",
-      "r": "T50",
-      "c": []
+      "r": "ADR-0041 · T50b–g",
+      "c": [
+       {
+        "s": "D",
+        "t": "Egress client: https only, public addresses checked at dial time, no proxy or redirects, system roots, 5 s connect / 10 s total, 64 KB read",
+        "r": "internal/platform/egress · T50b",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Standard Webhooks signer and verifier (whsec_ secrets, rotation, timestamp tolerance) checked against committed vectors",
+        "r": "internal/platform/webhook · api/webhooks-test-vectors.json · T50b",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Webhook subscription and delivery schema, permissions, and x-webhook events (no bank or personal data) checked by a test",
+        "r": "db/migrations/000105 · api/asyncapi.yaml · T50c",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Subscription API: create, list, get, update, :delete, :rotateSecret; URL checked by the egress rules, x-webhook event types, at most 20, secret shown once",
+        "r": "internal/integration/webhooks.go · api/openapi.yaml · T50d",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Fan-out: a durable JetStream consumer turns each x-webhook event into one pending delivery per active subscription naming it, in the event's tenant; the unique key is the inbox",
+        "r": "internal/integration/fanout.go · internal/platform/natsbus · T50e",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Delivery: due deliveries claimed per tenant (10 in flight, 50/s per subscription), signed and sent through egress, retried 30 s to 12 h for 3 days then dead lettered, in event order per resource; webhook-id is the event id; 410 or 5 days failing disables and drops pending; pause holds and stops the failing clock (failing_since cleared), resume releases or re-enables",
+        "r": "internal/integration/dispatch.go · db/migrations/000106 · T50f",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Operations: deliveries listed and read; :redeliver and :replay (since at most 30 days, dead and dropped too) requeue in event order; :ping queues a signed webhook.ping the dispatcher sends once, paused or disabled too; retention in batches of 1000",
+        "r": "internal/integration/deliveries.go · api/openapi.yaml · db/migrations/000106 · T50g",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
@@ -5071,9 +5445,27 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Metrics conventions: labels only bounded enumerations, a catalog test over the registry (promlint, label allow-list, series ceiling); erp_events_published_total{context,event} counted on commit; latency buckets at every objective (0.4 and 3 s added); erp_operation_info{operation,class} with x-slo-class",
+        "r": "internal/platform/telemetry/catalog.go · outbox.Relay.Counter · api.Operation.Class · ADR-0043 · 05 §5.9 · T54a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Business gauges per context, cell-wide: invoices on hold, and entered over 7 days ago and still parked, payment runs proposed and failed in 24 h, bank files unacknowledged (count, oldest age) and rejected in 24 h, approvals pending (count, oldest age), periods past their end still open",
+        "r": "cmd/erp-server/gauges.go · db/migrations/000108-000112 · ADR-0043 · T54b",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Business metrics per context",
-        "r": "T54",
+        "t": "Bank file gauges for the transmission worker's statuses (to_send, sending, failed) once T44 merges",
+        "r": "T44",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Webhook delivery gauges (pending, failing, oldest age) once T50 merges",
+        "r": "T50",
         "c": []
        },
        {
@@ -5091,15 +5483,76 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
+      "t": "Logs and traces leave the cell: Fluent Bit (0.58.3, SHA-256 pinned) ships every container's lines, parsed (tenant_id a field, never a label), to /erp/<cell>/containers through the logs VPC endpoint as its own IRSA role (that group's streams alone); Terraform keeps the group 90 days, encrypted with the cluster key. An OpenTelemetry Collector (0.175.1, contrib) takes OTLP/HTTP from the server alone and tail-samples 5% of traces plus every failed one (5xx, panic: the span's status) to X-Ray through the X-Ray VPC endpoint as its own role; the server's OTLP endpoint in erp-cell's values; neither add-on makes metrics (helm-checks refuses log_to_metrics and connectors)",
+      "r": "addons.txt · addons/values/fluent-bit.yaml, opentelemetry-collector.yaml · cell logs.tf, irsa.tf logging, tracing · network xray endpoint · erp-cell server.otlpEndpoint, network-policy · telemetry.Middleware span status · erp-cluster logging-network-policy · scripts/helm-checks.sh · ADR-0043 · T54g",
+      "c": []
+     },
+     {
+      "s": "P",
       "t": "Dashboards and alerting (Grafana)",
+      "r": "T54",
+      "c": [
+       {
+        "s": "D",
+        "t": "Monitoring stack as a cell add-on: kube-prometheus-stack pinned (Prometheus HA pair keeping 15 days on encrypted gp3, Alertmanager on two replicas, Grafana), ~2.3 vCPU / 9.5 GiB; the server's admin /metrics scraped over verified TLS by a ServiceMonitor, admitted by a NetworkPolicy; Grafana signs in through the operators' IdP (OIDC) alone, no local admin; Alertmanager's receivers and Grafana's client secret from erp/<cell>/ through the add-on's own SecretStore and IRSA role, placeholder receiver erp-alerts",
+        "r": "deploy/helm/addons/values/kube-prometheus-stack.yaml · erp-cell templates/monitoring.yaml · irsa.tf monitoring · scripts/helm-checks.sh · ADR-0043 · ADR-0035 bootstrap · T54d",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "SLOs and alerts as the erp-slo PrometheusRule: availability (5xx and 429 of requests that count) and per-class latency (share over the class's p95 threshold, joined on erp_operation_info) recorded over 5m-3d; multi-window burn-rate alerts on the 99.95% monthly budget, page at 14.4x (1h/5m) and 6x (6h/30m), ticket at 3x (1d/2h) and 1x (3d/6h), the same for latency's 5%; symptom alerts for outbox and projector lag, partition horizon (erp_partition_horizon_* gauges), bank file unacknowledged, payment run failed, audit tamper (page at once), unreadable gauges, no server scraped; ErpWatchdog dead man's switch to erp-heartbeat; the override-rate recording rule; promtool 3.15.0 checks and unit tests pinned by SHA-256; rules held to the catalog by TestRulesUseCatalog",
+        "r": "deploy/helm/erp-cell/rules · templates/rules.yaml · cmd/erp-server/gauges.go horizonGauges · telemetry.Metrics.Series · scripts/helm-checks.sh · deploy.yml · ADR-0043 · T54e",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Dashboards as code: plain Grafana JSON (cell overview: traffic, errors, latency per class, saturation, outbox and projection lag; SLOs and error budget from the recording rules; ledger, payables, payments, procurement, identity; agents: tokens, cost, latency, override rate), one ConfigMap each that Grafana's watching dashboards sidecar loads by grafana_dashboard=1; stable UIDs erp-<file>, no datasource but the default; TestDashboardsUseCatalog parses every panel's PromQL (Prometheus 3.15's parser) against the series the cell exports, the SLO rules' recorded series, the catalog's labels and closed label values; helm-checks renders them. actionlint 1.7.12 pinned by SHA-256 lints the workflows in deploy-checks",
+        "r": "deploy/helm/erp-cell/dashboards · templates/dashboards.yaml · cmd/erp-server/dashboards_test.go · kube-prometheus-stack.yaml sidecar · scripts/helm-checks.sh · scripts/deploy-checks.sh · deploy.yml · ADR-0043 · T54f",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "CPU and memory saturation on the cell overview from the stack: CPU used of requested and working set of the memory limit per container (cAdvisor over kube-state-metrics), restarts; no process collectors in the server; the dashboard lint admits those five series by name with their Kubernetes labels, namespace closed to erp and resource to cpu|memory",
+        "r": "cell-overview.json · cmd/erp-server/dashboards_test.go stackSeries · ADR-0043 · T54g",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Fix the flaky payments TestProposeReleaseTransmit (\"worker did 2 jobs\" under -race/-shuffle)",
+        "r": "internal/payments · T54f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Decide Alertmanager's receivers (PO): set erp/<cell>/alertmanager-receivers' erp-alerts and erp-heartbeat (the dead man's switch's outside service) to the chosen integrations, and whether severity=page and ticket go to different ones",
+        "r": "ADR-0043 · T54d",
+        "c": []
+       }
+      ]
+     },
+     {
+      "s": "D",
+      "t": "Agent telemetry by agent kind: erp_model_tokens_total, erp_model_cost_micro_total, erp_model_call_duration_seconds at the gateway; erp_agent_proposals_decided_total{decision=approved|rejected|modified} counted after commit; override rate recording rule in ADR-0043",
+      "r": "telemetry/agents.go · agents.Gateway.Metrics · approvals.Decider.observe · identity.AgentKind · reqctx.OnCommit · ADR-0043 · T54c",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Count modified-then-approved agent proposals: an owning context whose objects a person may change while their approval waits implements approvals.Modifier (stays opt-in per owning context, coordinator decision on T54c)",
       "r": "T54",
       "c": []
      },
      {
       "s": "T",
-      "t": "Agent telemetry: tokens, cost, latency, override rate per agent",
-      "r": "T54",
+      "t": "Override rate: a payment run proposed by an agent and released or rejected by a person counts as an agent proposal decided (coordinator decision on T54c)",
+      "r": "T54 · erp_agent_proposals_decided_total",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Worker-side decisions (uow.Act) get an OnCommit hook so their agent proposal decisions are counted (coordinator decision on T54c)",
+      "r": "T54 · uow.Act · reqctx.OnCommit",
       "c": []
      }
     ]
@@ -5131,7 +5584,7 @@
      {
       "s": "D",
       "t": "Performance budgets in CI",
-      "r": "internal/nfr · ledger TestTrialBalanceBudget · payments TestProposalBudget · make perf",
+      "r": "internal/nfr · ledger TestTrialBalanceBudget · payments TestProposalBudget · make perf · note (2026-10-20): procurement TestGoodsReceiptBudget fails under load on main; a load-sensitive budget, left unchanged",
       "c": [
        {
         "s": "D",
@@ -5561,7 +6014,14 @@
       "s": "D",
       "t": "Decision changes and ledger impact per account",
       "r": "evidence detail: decisions, postings (accounts, tax codes), breaks",
-      "c": []
+      "c": [
+       {
+        "s": "D",
+        "t": "Fix (T55g review): each reader of a change request is shown the simulated invoices of the companies they may access alone, the detail's and summary's counts over those (fail closed: no company, no invoice and counts of zero; a replay of no legal entity only to a reader of every company); the simulation is recorded by company and its summary with no count, as it reaches the operation's result and the audit trail; one recorded before, with counts over every company, is shown only to readers of every company; the verdict stays the change's. Residual: audit entries and operation results written before the fix keep their counts over every company (the audit trail is immutable, ADR-0011)",
+        "r": "payables.CompanyReplay · payables.Disclosure · configuration.Disclosure · api/openapi.yaml Evidence · 03-data-model §3.5 · TestSimulationShownByCompany · TestDisclosureOfOtherEvidence · TestDisclosure",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",
@@ -5610,7 +6070,14 @@
       "s": "D",
       "t": "Evidence attached to change requests",
       "r": "configuration.SimulationWorker records simulation and regression evidence",
-      "c": []
+      "c": [
+       {
+        "s": "T",
+        "t": "Follow-up of the simulation fix (T55g review): regression evidence shown to each reader for their own companies alone, as simulation evidence is. Today its detail (changed, regressions, stale: cases with invoice, document number and company) and its summary's counts (also the operation's regression_summary and the audit entry) cover every company, and GET/list /v1/regression-suites return every company's cases. Acceptance: recorded by company with a summary of no count; a configuration.Disclosure for kind regression filtering cases by legal entity with counts over those (fail closed); suites' cases filtered by authz.Companies; tests with readers of two companies and of none, and database failures",
+        "r": "configuration regression.go · api_regression.go · payables.Disclosure (pattern)",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",

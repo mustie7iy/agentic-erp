@@ -11,12 +11,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
@@ -422,46 +424,58 @@ func TestAgentErrors(t *testing.T) {
 	}
 }
 
-func page(v ...any) reply {
-	b, _ := json.Marshal(map[string]any{"items": v})
-	return ok(string(b))
-}
+// answer is erp-server's answer to an analytics query: invoices and
+// revenue by fiscal month, revenue not computable.
+const answer = `{"query_id": "q_0123456789ab", "columns": [{"name": "fiscal_month", "label": "Fiscal month", "kind": "dimension"},
+	{"name": "revenue", "label": "Revenue", "kind": "measure", "type": "money", "currency": "USD"},
+	{"name": "invoice_count", "label": "Invoices", "kind": "measure", "type": "count"}],
+	"rows": [[{"value": "3"}, {"value": null}, {"value": "1"}]], "source": "database", "as_of": "2026-10-20T12:00:00Z",
+	"data_through": "2026-03-05", "definitions": [{"name": "invoice_count", "description": "Supplier invoices"}], "truncated": false}`
 
-// facts is the API data analytics reads: one expense, one parked invoice,
-// no revenue.
-func facts() routes {
-	return routes{
-		"GET /v1/legal-entities":    {page(map[string]any{"id": "le", "code": "1000", "local_currency": "USD"})},
-		"GET /v1/business-partners": {page(map[string]any{"id": "p1", "number": "BP1", "name": "Acme"})},
-		"GET /v1/accounts":          {page(map[string]any{"id": "a1", "number": "520000", "name": "Office", "account_type": "expense", "reconciliation_kind": "none"})},
-		"GET /v1/open-items":        {page()},
-		"GET /v1/journal-entries": {page(map[string]any{"id": "j1", "document_type": "KR", "posting_date": "2026-03-02", "lines": []any{
-			map[string]any{"line_no": 1, "account_id": "a1", "amount_lc": map[string]any{"amount": "10.00", "currency": "USD"}}}})},
-		"GET /v1/purchase-orders": {page()},
-		"GET /v1/supplier-invoices": {page(map[string]any{"id": "i1", "supplier_id": "p1", "invoice_date": "2026-03-05", "status": "parked",
-			"gross_amount": map[string]any{"amount": "10.00", "currency": "USD"}})},
-	}
+// refused is erp-server refusing a query the semantic layer cannot answer.
+var refused = reply{422, `{"type": "about:blank", "title": "Unprocessable", "status": 422, "code": "analytics.invalid_query", "detail": "unknown metric nope"}`}
+
+// tenantModelJSON is erp-server's semantic model for the tenant: the seed's,
+// and aa_total, which a change request added.
+var tenantModelJSON = func() string {
+	m, _ := analytics.DefaultModel() // embedded, and TestModelLoadsAndValidates proves it parses
+	a := m.Analytics
+	a.Metrics = append(slices.Clone(a.Metrics), config.Metric{Name: "aa_total", Label: "Total", Description: "Everything posted, added by a change request",
+		Type: analytics.Money, Source: "gl_lines", Aggregate: "sum"})
+	b, _ := json.Marshal(map[string]any{"config_version": 2, "model": a}) // strings, numbers and slices of them
+	return string(b)
+}()
+
+// answers serves the analytics endpoint's replies in order, and the
+// tenant's model.
+func answers(r ...reply) routes {
+	return routes{"POST /v1/analytics-queries": r, "GET /v1/analytics-model": {ok(tenantModelJSON)}}
 }
 
 func TestAnalyticsErrors(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeFile(t, "file", nil)
-	fakeAPI(t, facts())
+	fakeAPI(t, answers(refused))
 	fails(t, "flag provided", "metrics", "-x")
 	fails(t, "missing.yaml", "metrics", "-semantic", "missing.yaml")
 	fails(t, "flag provided", "query", "-x")
 	fails(t, "want \"dim op values\"", "query", "-where", "fiscal_year 2026")
-	fails(t, "missing.yaml", "query", "-semantic", "missing.yaml", "-measures", "revenue")
 	fails(t, "nope", "query", "-measures", "nope")
+	fakeAPI(t, answers(ok(answer)))
+	if got := must(t, "metrics"); !strings.Contains(got, "added by a change request") {
+		t.Errorf("metrics: got %s, want the tenant's aa_total listed", got)
+	}
 	fails(t, "not a directory", "query", "-measures", "invoice_count", "-csv", "file/q.csv")
-	// A month without revenue shows a dash.
-	if got := must(t, "query", "-measures", "revenue,invoice_count", "-by", "fiscal_month"); !strings.Contains(got, "—") {
-		t.Fatalf("query: %s", got)
+	// A month without revenue shows a dash; the answer says where it came from.
+	got := must(t, "query", "-measures", "revenue,invoice_count", "-by", "fiscal_month")
+	for _, want := range []string{"—", "from the database as of 2026-10-20T12:00:00Z"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("query: got %s, want %q", got, want)
+		}
 	}
 
 	fails(t, "flag provided", "ask", "-x")
 	fails(t, "ask a question", "ask")
-	fails(t, "missing.yaml", "ask", "-semantic", "missing.yaml", "how", "much")
 	ask := llmtest.New(t)
 	newAgent = func(*apitools.Client) *analytics.Agent {
 		r := ask.Runner()
@@ -469,8 +483,11 @@ func TestAnalyticsErrors(t *testing.T) {
 	}
 	t.Cleanup(func() { newAgent = defaultAgent })
 	fails(t, "script exhausted", "ask", "how", "much")
+	// The agent is described the tenant's metrics, aa_total among them.
 	ask = llmtest.New(t,
-		llmtest.Tool("run_query", map[string]any{"measures": []string{"invoice_count"}}),
+		llmtest.Tool("list_metrics", map[string]any{}),
+		llmtest.Step{Tool: "run_query", Input: func(string) any { return map[string]any{"measures": []string{"invoice_count"}} },
+			Expect: "added by a change request"},
 		llmtest.ToolFn("build_dashboard", func(b string) any {
 			return map[string]any{"spec": analytics.Spec{Title: "Invoices", Tables: []analytics.Table{{Title: "t", QueryID: qidRe.FindString(b)}}}}
 		}),
@@ -492,13 +509,20 @@ func TestAnalyticsErrors(t *testing.T) {
 		writeFile(t, name, b)
 		return name
 	}
+	fakeAPI(t, answers(refused))
 	fails(t, "query q", "report", "-file", rep("bad.json", "nope"))
+	fakeAPI(t, answers(ok(answer)))
 	fails(t, "not a directory", "report", "-file", rep("good.json", "invoice_count"), "-out", "file/reports")
 	printFails(t, "report", "-file", "good.json", "-out", "reports")
 
-	fakeAPI(t, routes{})
-	fails(t, "/v1/legal-entities", "query", "-measures", "revenue")
+	fakeAPI(t, routes{"POST /v1/analytics-queries": {ok(answer)}, "GET /v1/analytics-model": {{403, `{"code": "identity.permission_missing"}`}}})
+	for _, args := range [][]string{{"metrics"}, {"query", "-measures", "revenue"}, {"ask", "why"}, {"report", "-file", "good.json"}} {
+		fails(t, "the semantic model", args...)
+	}
+	fakeAPI(t, routes{"GET /v1/analytics-model": {ok(tenantModelJSON)}})
+	fails(t, "404", "query", "-measures", "revenue")
 	fakeAPI(t, routes{}, "ERP_TOKEN", "")
+	fails(t, "ERP_TOKEN", "metrics")
 	fails(t, "ERP_TOKEN", "query", "-measures", "revenue")
 	fails(t, "ERP_TOKEN", "ask", "why")
 	fails(t, "ERP_TOKEN", "report", "-file", "good.json")
@@ -582,7 +606,7 @@ func (*closeFails) Close() error { return errors.New("close failed") }
 // that cannot be closed (so it may be truncated) fail the command.
 func TestQueryReportsLostOutput(t *testing.T) {
 	t.Chdir(t.TempDir())
-	fakeAPI(t, facts())
+	fakeAPI(t, answers(ok(answer)))
 	t.Cleanup(func() {
 		out, createFile = os.Stdout, func(name string) (io.WriteCloser, error) { return os.Create(name) }
 	})

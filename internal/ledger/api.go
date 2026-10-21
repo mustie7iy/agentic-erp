@@ -20,7 +20,7 @@ import (
 
 func entryToAPI(e Entry) gen.JournalEntry {
 	out := gen.JournalEntry{
-		ID: e.ID, LegalEntityID: e.LegalEntityID, LedgerID: e.LedgerID, FiscalYear: int32(e.FiscalYear), FiscalPeriod: int32(e.FiscalPeriod),
+		ID: e.ID, LegalEntityID: e.LegalEntityID, LedgerID: e.LedgerID, LeadingLedger: e.Leading, FiscalYear: int32(e.FiscalYear), FiscalPeriod: int32(e.FiscalPeriod),
 		DocumentType: e.DocumentType, DocumentNumber: e.DocumentNumber, DocumentDate: e.DocumentDate, PostingDate: e.PostingDate,
 		Currency: e.CurrencyTC, LocalCurrency: e.CurrencyLC, GroupCurrency: e.CurrencyGC, RateTcLc: gen.Decimal(e.RateTCLC),
 		RateLcGc: gen.Decimal(e.RateLCGC), Reference: apitypes.OptString(e.Reference), HeaderText: apitypes.OptString(e.HeaderText),
@@ -530,33 +530,55 @@ var clearingSort = pagination.Sort{Default: "clearing_date", Fields: []paginatio
 
 // ListClearings implements GET /v1/clearings.
 func (e *Endpoints) ListClearings(ctx context.Context, params gen.ListClearingsParams) (gen.ListClearingsRes, error) {
-	tx, _, err := reqctx.Request(ctx)
+	l := entityList{sort: clearingSort, name: "listClearings", query: clearingSelect, column: "c.legal_entity_id"}
+	l.filter(params.LegalEntityID, params.OrderBy, params.PageSize, params.PageToken)
+	page := gen.ClearingPage{}
+	var err error
+	page.Items, page.NextPageToken, err = listOfEntities(ctx, e, l, scanClearing,
+		func(c Clearing) (string, uuid.UUID) { return c.ClearingDate.Format(time.DateOnly), c.ID }, clearingToAPI)
 	if err != nil {
 		return nil, err
 	}
-	ks, err := e.Pages.Keyset(clearingSort, fmt.Sprintf("listClearings|%s", apitypes.Ptr[uuid.UUID](params.LegalEntityID)),
-		apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
+	return &gen.ClearingPageHeaders{Response: page}, nil
+}
+
+// entityList asks for one page of a list of legal entities' documents.
+type entityList struct {
+	sort        pagination.Sort
+	name        string // the operation, which binds page tokens with the filter
+	page        pagination.Request
+	legalEntity *uuid.UUID // the filter, if any
+	query       string     // the select, without WHERE
+	column      string     // its legal entity column
+}
+
+// filter sets the list's legal entity filter and page from a request.
+func (l *entityList) filter(legalEntity gen.OptUUID, orderBy gen.OptString, size gen.OptInt32, token gen.OptString) {
+	l.legalEntity, l.page = apitypes.Ptr[uuid.UUID](legalEntity), apitypes.Page(orderBy, size, token)
+}
+
+// listOfEntities reads one page of a list, of the legal entities the
+// caller may act in and of the filter's when set.
+func listOfEntities[R, A any](ctx context.Context, e *Endpoints, l entityList, scan func(pgx.Row) (R, error), key func(R) (string, uuid.UUID),
+	toAPI func(R) A) ([]A, gen.OptString, error) {
+	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
-		return nil, err
+		return nil, gen.OptString{}, err
+	}
+	ks, err := e.Pages.Keyset(l.sort, fmt.Sprintf("%s|%s", l.name, l.legalEntity), l.page)
+	if err != nil {
+		return nil, gen.OptString{}, err
 	}
 	access, err := authz.Companies(ctx)
 	if err != nil {
-		return nil, err
+		return nil, gen.OptString{}, err
 	}
-	q, args := ks.SQL(clearingSelect+` WHERE ($1 OR c.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR c.legal_entity_id = $3)`,
-		[]any{access.All, access.IDs, apitypes.Ptr[uuid.UUID](params.LegalEntityID)})
+	q, args := ks.SQL(l.query+` WHERE ($1 OR `+l.column+` = ANY($2)) AND ($3::uuid IS NULL OR `+l.column+` = $3)`, []any{access.All, access.IDs, l.legalEntity})
 	rows, _ := tx.Query(ctx, q, args...)
-	clearings, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Clearing, error) { return scanClearing(r) })
+	got, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (R, error) { return scan(r) })
 	if err != nil {
-		return nil, fmt.Errorf("ledger: list clearings: %w", err)
+		return nil, gen.OptString{}, fmt.Errorf("ledger: %s: %w", l.name, err)
 	}
-	clearings, next := pagination.Page(ks, clearings, func(c Clearing) (string, uuid.UUID) { return c.ClearingDate.Format(time.DateOnly), c.ID })
-	page := gen.ClearingPage{Items: make([]gen.Clearing, len(clearings))}
-	for i, c := range clearings {
-		page.Items[i] = clearingToAPI(c)
-	}
-	if next != "" {
-		page.NextPageToken.SetTo(next)
-	}
-	return &gen.ClearingPageHeaders{Response: page}, nil
+	items, next := apitypes.PageOf(ks, got, key, toAPI)
+	return items, next, nil
 }

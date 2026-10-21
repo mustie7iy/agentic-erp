@@ -82,7 +82,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.images != 'false'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60 # two image builds, erp-analytics's compiling api/gen with cgo
     services:
       registry:
         image: registry:2.8.3
@@ -94,6 +94,8 @@ jobs:
           go-version-file: go.mod
       - name: Free disk for the image build
         run: ./scripts/free-disk.sh
+      - name: A buildx builder that exports OCI archives (erp-analytics)
+        run: docker buildx create --use --name erp-images --driver docker-container
       - name: Signing round trip
         # One platform, to fit the runner: building both on main had the
         # runner shut down mid-build on every push (2026-10-20). The weekly
@@ -218,9 +220,14 @@ jobs:
           for spec in openapi control directory; do
             if git cat-file -e "FETCH_HEAD:api/$spec.yaml" 2>/dev/null; then
               git show "FETCH_HEAD:api/$spec.yaml" > "/tmp/base-$spec.yaml"
-              oasdiff breaking --fail-on ERR --err-ignore api/breaking-accepted.txt "/tmp/base-$spec.yaml" "api/$spec.yaml"
+              oasdiff breaking --fail-on ERR --deprecation-days-stable=365 --err-ignore api/breaking-accepted.txt "/tmp/base-$spec.yaml" "api/$spec.yaml"
             fi
           done
+          # Events change only additively within a .vN (ADR-0041).
+          if git cat-file -e "FETCH_HEAD:api/asyncapi.yaml" 2>/dev/null; then
+            git show "FETCH_HEAD:api/asyncapi.yaml" > /tmp/base-asyncapi.yaml
+            go run ./cmd/eventcompat /tmp/base-asyncapi.yaml api/asyncapi.yaml
+          fi
       - name: Schema tests (migrations and database-enforced rules)
         run: go test -count=1 -v ./db
       - name: Functional and non-functional tests (without the race detector)
@@ -263,9 +270,16 @@ jobs:
         run: |
           go clean -cache
           ./scripts/free-disk.sh
+      - name: Image scripts, with fake tools
+        run: ./scripts/test-images.sh
+      - name: A buildx builder that exports OCI archives (erp-analytics)
+        # For the single build below (make images); the double build makes
+        # builders of its own.
+        run: docker buildx create --use --name erp-images --driver docker-container
       - name: Container images, built twice and compared (ADR-0032)
-        # ko builds the three images (.ko.yaml) twice, each time with empty Go
-        # and ko caches of its own, and fails unless every digest matches:
+        # ko builds the three images (.ko.yaml) and buildx erp-analytics
+        # (cgo, ADR-0044) twice, each time with empty Go and ko caches and a
+        # buildx builder of its own, and fails unless every digest matches:
         # an image that cannot be rebuilt bit for bit from its commit cannot
         # be checked against it. Nothing is pushed here; T39c's release
         # workflow pushes and signs. Only when the image inputs changed (the

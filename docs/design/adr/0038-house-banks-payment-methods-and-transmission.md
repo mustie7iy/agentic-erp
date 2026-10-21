@@ -199,3 +199,57 @@ and France, by EBICS.
   left to the new version's transmitter (06 §6.4; 000102-000104).
   The sweep that removes bank files a cancelled release left in object
   storage is T44f.
+
+## Amendment: Canadian bank accounts (T45d, product owner 2026-10-20)
+
+The pilot countries are Canada and the UAE. The UAE uses IBANs; Canadian
+accounts have none, which blocked paying Canadian suppliers. A Canadian
+account is an institution number (3 digits), a transit (branch) number
+(5 digits) and an account number (7 to 12 digits).
+
+- Supplier bank accounts take the scheme `ca` beside `iban` and
+  `domestic`, with `institution_number` and `transit_number`, required for
+  `ca` and refused for the others (`partner.invalid_institution_number`,
+  `partner.invalid_transit_number`, `partner.invalid_account_number`,
+  `partner.routing_not_allowed`). They go through the bank change, its
+  segregation of duties and approval, and the payment hold as an IBAN
+  does. Only the format is checked (`platform/cabank`): an unknown
+  institution is the bank's to refuse, as an unknown BIC is.
+- The account number is sealed and only its last four digits shown or
+  published, as an IBAN's are. The institution and transit numbers name
+  the bank, as a BIC does, so they are kept, returned and published
+  (`bank_account_changed`) in clear text. A `ca` account's bank is in
+  Canada (`partner.bank_country_mismatch` otherwise). The fingerprint that
+  finds one account on two partners is of the account number alone, as
+  sealed, so key rotation, which recomputes it from the sealed value,
+  keeps it; the same number at two banks is warned about, a look rather
+  than a missed duplicate.
+- A house bank in the configuration gives either `iban` or
+  `institution_number`, `transit_number` and `account_number`, and keeps
+  its BIC. Its account number is sealed in `iban_cipher`; the routing sits
+  in `payments.house_bank` beside it and, like the IBAN, never changes
+  under the same name.
+- Bank files stay pain.001.001.03, so one writer serves both: a Canadian
+  account is written in `Othr`, and its bank as the clearing system member
+  `CACPA` with the member id in the Canadian Payments Association's
+  electronic routing form, `0` + institution + transit (9 digits); the
+  debtor agent keeps its BIC beside it. Files to IBAN accounts are
+  unchanged (a BIC is now left out when empty, which configuration
+  validation already refuses for a house bank). CPA-005, the 1464-byte AFT format, is not built: it is a
+  fixed-width format of its own (originator id, file creation number,
+  header, detail and trailer records) and is a tracker item for banks
+  that do not take pain.001.
+- The model gateway's redaction (ADR-0036) replaces, for a tenant in
+  Canada, accounts written institution-transit-account or
+  transit-institution-account with dashes (`[BANK_ACCOUNT]`); undashed
+  runs of digits are invoice and order numbers far more often and pass.
+- Schema: 000117 adds the columns and checks NOT VALID (the scheme check
+  widened to `ca`; `bank_account_ca_routing`, `house_bank_ca_routing`),
+  000118 validates them (06 §6.4). The previous version reads `ca` as an
+  unknown value of the open enumeration and would write its account in
+  `Othr` without the clearing member, which the bank refuses; an old
+  binary applying a `ca` change a new one requested fails on
+  `bank_account_ca_routing` rather than writing an account without its
+  bank. No Canadian account is entered until the upgrade completes. The
+  SAP load (vendor accounts, T012K) still takes accounts as IBAN or
+  domestic: loading Canadian ones with their routing is a tracker item.

@@ -97,18 +97,25 @@ raw = socket.create_connection(("127.0.0.1", int(port)), timeout=5)
 info = raw.recv(65536)
 if not info.startswith(b"INFO "):
     sys.exit("no INFO: %r" % info)
+out = b""
 try:
     s = ctx.wrap_socket(raw, server_hostname="localhost")
     s.sendall(b'CONNECT {"verbose":true,"pedantic":false,"tls_required":true}\r\n' +
               b"".join(l.encode() + b"\r\n" for l in lines) + b"PING\r\n")
-    out, deadline = b"", time.time() + 5
-    while b"PONG" not in out and b"-ERR" not in out and time.time() < deadline:
+    # Read to the PONG, which the server sends after answering every line
+    # before it, or until it closes the connection (an identity it refuses):
+    # stopping at the first -ERR would miss the refusals that follow it.
+    deadline = time.time() + 5
+    while b"PONG" not in out and time.time() < deadline:
         chunk = s.recv(65536)
         if not chunk:
             break
         out += chunk
     print(out.decode(errors="replace").replace("\r\n", "\n").strip())
 except (ssl.SSLError, ConnectionError, socket.timeout) as e:
+    # A refusal read before the connection broke is still the answer.
+    if out:
+        print(out.decode(errors="replace").replace("\r\n", "\n").strip())
     print("TLS refused: %s" % type(e).__name__)
 PY
 }

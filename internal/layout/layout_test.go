@@ -4,6 +4,8 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -44,13 +46,14 @@ var testSupport = map[string]bool{
 // is no longer made fails it too, so the list stays exact.
 var allowed = map[string][]string{
 	"agent":                   {"apitools", "llm"},
-	"analytics":               {"apitools"},
+	"analytics":               {"apitools", "config", "configuration"},
 	"apitools":                {"llm"},
 	"approvals":               {"config"},
 	"audit":                   {"operations"},
 	"capture":                 {"llm"},
 	"config":                  {"bankfile"},
 	"configuration":           {"approvals", "config", "operations"},
+	"countrypack":             {"config"},
 	"controlplane":            {"agents", "audit", "config", "directory", "identity", "offboarding", "provisioning", "tenancy"},
 	"delivery/configagent":    {"apitools", "llm"},
 	"delivery/migrationagent": {"apitools", "llm"},
@@ -66,7 +69,7 @@ var allowed = map[string][]string{
 	"offboarding":             {"tenancy"},
 	"partner":                 {"approvals", "bankfile", "config", "tenancy"},
 	"payables":                {"approvals", "capture", "config", "configuration", "ledger", "operations", "partner", "procurement", "tenancy"},
-	"payments":                {"bankfile", "config", "ledger", "operations", "partner", "tenancy"},
+	"payments":                {"bankfile", "bankstatement", "config", "ledger", "operations", "partner", "tenancy"},
 	"procurement":             {"approvals", "config", "ledger", "partner", "tenancy"},
 	"provisioning":            {"config", "configuration", "identity", "tenancy"},
 	"router":                  {"directory"},
@@ -202,5 +205,22 @@ func TestUnit(t *testing.T) {
 				t.Errorf("unit(%q): got %q, want %q", pkg, got, want)
 			}
 		})
+	}
+}
+
+// TestStaticBinaries: erp-server, erp-router and erp build without cgo and
+// link no DuckDB; erp-analytics alone carries the cgo exception (ADR-0032,
+// amended by ADR-0044).
+func TestStaticBinaries(t *testing.T) {
+	cmd := exec.CommandContext(t.Context(), "go", "list", "-deps", "-f", "{{.ImportPath}}", "../../cmd/erp-server", "../../cmd/erp-router", "../../cmd/erp")
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go list: %v\n%s", err, out)
+	}
+	for _, dep := range strings.Fields(string(out)) {
+		if strings.Contains(dep, "duckdb") || strings.HasSuffix(dep, "/internal/analytics/reader") {
+			t.Errorf("dependency %s: got it in a static binary, want it in erp-analytics alone", dep)
+		}
 	}
 }

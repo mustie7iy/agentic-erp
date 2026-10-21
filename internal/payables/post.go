@@ -49,6 +49,13 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err := requireReference(ctx, tx, v); err != nil {
 		return Invoice{}, err
 	}
+	date, err := invoicePostingDate(ctx, tx, v, postingDate)
+	if err != nil {
+		return Invoice{}, err
+	}
+	if err := e.postable(ctx, v, date); err != nil {
+		return Invoice{}, err
+	}
 	if err := requireCleanMatch(ctx, tx, v); err != nil {
 		return Invoice{}, err
 	}
@@ -56,10 +63,6 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 		return Invoice{}, problem.Unprocessable("payables.amounts_mismatch", "The gross amount must equal the items plus tax.")
 	}
 	sup, err := e.postableSupplier(ctx, v)
-	if err != nil {
-		return Invoice{}, err
-	}
-	date, err := invoicePostingDate(ctx, tx, v, postingDate)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -78,7 +81,21 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Invoice{}, err
 	}
-	return posted, recordPosted(ctx, posted, entry)
+	return posted, e.recordPosted(ctx, posted, entry)
+}
+
+// postable judges an invoice's custom fields and rules before it posts. A
+// captured invoice may have landed without a required custom field
+// (capturedExtensions); none posts without its required fields. Nor does
+// one a rule refuses: a captured invoice held by a rule and released by
+// hand is judged again on its header as it stands, with the posting date
+// the post uses (the request's, else the invoice's, else today), not the
+// one stored.
+func (e *Endpoints) postable(ctx context.Context, v Invoice, date *time.Time) error {
+	if _, err := e.extensions().Check(ctx, v.Extensions); err != nil {
+		return err
+	}
+	return e.ruleWrites().Check(ctx, storedRuleWrite("payables.supplier_invoice.post", v, Change{PostingDate: &date}))
 }
 
 // posting is the entry an invoice posts, with the payment terms it posts
@@ -125,15 +142,19 @@ func markPosted(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Invoice, e
 }
 
 // recordPosted audits a posted invoice and publishes SupplierInvoicePosted,
-// with its amounts signed by its kind.
-func recordPosted(ctx context.Context, posted Invoice, entry ledger.Entry) error {
+// with its amounts signed by its kind and its custom fields masked.
+func (e *Endpoints) recordPosted(ctx context.Context, posted Invoice, entry ledger.Entry) error {
+	payload := map[string]any{"document_number": posted.DocumentNumber, "supplier_reference": posted.SupplierReference,
+		"invoice_date": posted.InvoiceDate.Format(time.DateOnly), "posting_date": posted.PostingDate.Format(time.DateOnly),
+		"gross_amount": money.EventAmount(signed(posted, posted.Gross), posted.Currency, posted.Exponent),
+		"tax_amount":   money.EventAmount(signed(posted, posted.Tax), posted.Currency, posted.Exponent), "kind": posted.Kind,
+		"purchase_order_id": posted.PurchaseOrderID, "journal_entry_id": entry.ID, "journal_entry_year": entry.FiscalYear, "status": Posted,
+		"payment_terms": termsEvent(posted.Terms)}
+	if err := e.extensions().Event(ctx, payload, posted.Extensions, posted.ExtensionsSchema); err != nil {
+		return err
+	}
 	return record(ctx, "payables.supplier_invoice.post", posted.ID, map[string]any{"journal_entry_id": entry.ID, "document_number": entry.DocumentNumber},
-		event(posted, "supplier_invoice_posted", map[string]any{"document_number": posted.DocumentNumber, "supplier_reference": posted.SupplierReference,
-			"invoice_date": posted.InvoiceDate.Format(time.DateOnly), "posting_date": posted.PostingDate.Format(time.DateOnly),
-			"gross_amount": money.EventAmount(signed(posted, posted.Gross), posted.Currency, posted.Exponent),
-			"tax_amount":   money.EventAmount(signed(posted, posted.Tax), posted.Currency, posted.Exponent), "kind": posted.Kind,
-			"purchase_order_id": posted.PurchaseOrderID, "journal_entry_id": entry.ID, "journal_entry_year": entry.FiscalYear, "status": Posted,
-			"payment_terms": termsEvent(posted.Terms)}))
+		event(posted, "supplier_invoice_posted", payload))
 }
 
 // invoicePosting is the journal entry's header for invoice id of its

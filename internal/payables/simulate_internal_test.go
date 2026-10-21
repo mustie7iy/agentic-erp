@@ -20,7 +20,7 @@ func TestSimulatedMovesOutOfRange(t *testing.T) {
 	ta.move("1000", "account_determination.input_tax", "140000", "140100", 1, inEUR)
 	ta.move("1000", "account_determination.ap_reconciliation", "211000", "211100", top, inEUR)
 	ta.move("1000", "account_determination.ap_reconciliation", "211000", "211100", 1, inEUR)
-	_, err := ta.result(90*24*time.Hour, 2)
+	_, err := ta.result(90 * 24 * time.Hour)
 	if !errors.Is(err, money.ErrOverflow) {
 		t.Fatalf("result: got %v, want %v", err, money.ErrOverflow)
 	}
@@ -36,7 +36,7 @@ func TestSimulatedMoveConvertedOutOfRange(t *testing.T) {
 	ta := &tally{moves: map[string]*Posting{}}
 	ta.move("2000", "account_determination.input_tax", "140000", "140100", math.MaxInt64/2, huge)
 	ta.move("2000", "account_determination.ap_reconciliation", "211000", "211100", math.MaxInt64/2, huge)
-	_, err := ta.result(90*24*time.Hour, 1)
+	_, err := ta.result(90 * 24 * time.Hour)
 	if !errors.Is(err, money.ErrOverflow) {
 		t.Fatalf("result: got %v, want %v", err, money.ErrOverflow)
 	}

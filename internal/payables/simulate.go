@@ -3,7 +3,8 @@ package payables
 import (
 	"context"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -56,7 +57,25 @@ type Decision struct {
 type Broken struct {
 	InvoiceID      uuid.UUID `json:"invoice_id"`
 	DocumentNumber string    `json:"document_number"`
+	Company        string    `json:"company"`
 	Reason         string    `json:"reason"`
+}
+
+// CompanyReplay is what replaying one company's invoices found. The
+// simulation records it per company, with no total over companies, so that
+// each reader of the change request is shown the companies they may access
+// alone and counts over those (Disclosure).
+type CompanyReplay struct {
+	Company       string         `json:"company"`
+	LegalEntityID uuid.UUID      `json:"legal_entity_id"`
+	Invoices      int            `json:"invoices"`
+	Changed       int            `json:"changed"`
+	Broken        int            `json:"broken"`
+	Base          map[string]int `json:"base"`     // decisions under the base configuration by outcome
+	Proposed      map[string]int `json:"proposed"` // and under the proposal
+	Changes       []Decision     `json:"changes"`  // the first examples of them
+	Breaks        []Broken       `json:"breaks"`   // likewise
+	Postings      []Posting      `json:"postings"`
 }
 
 // Posting is a posting rule that moves, with the invoices and amount of
@@ -89,22 +108,20 @@ func (s Simulation) Simulate(ctx context.Context, base, proposed *config.Config)
 	if err != nil {
 		return configuration.Simulation{}, err
 	}
-	t := &tally{counts: map[string]map[string]int{"base": {}, "proposed": {}}, moves: map[string]*Posting{}}
+	t := &tally{moves: map[string]*Posting{}}
 	for _, r := range replays {
 		if err := t.invoice(r, base.Company(r.Company), proposed.Company(r.Company)); err != nil {
 			return configuration.Simulation{}, err
 		}
 	}
-	return t.result(window, len(replays))
+	return t.result(window)
 }
 
 // tally collects the outcome of replaying invoices under the base and the
 // proposed configuration.
 type tally struct {
-	counts  map[string]map[string]int
-	changes []Decision
-	breaks  []Broken
-	moves   map[string]*Posting
+	companies map[string]*CompanyReplay // by company code
+	moves     map[string]*Posting
 	// err is the first amount a posting rule moves that is out of range in
 	// the company's currency; result returns it.
 	err error
@@ -114,12 +131,14 @@ type tally struct {
 // break, a changed decision and the posting rules that move.
 func (t *tally) invoice(r replayed, before, after *config.Company) error {
 	v, co := r.Invoice, r.Company
+	c := t.company(co, v.LegalEntityID)
+	c.Invoices++
 	if after == nil {
-		t.breaks = append(t.breaks, Broken{v.ID, v.DocumentNumber, "company " + co + " is not in the proposed configuration"})
+		c.broken(Broken{v.ID, v.DocumentNumber, co, "company " + co + " is not in the proposed configuration"})
 		return nil
 	}
 	if r.Unevaluable != "" {
-		t.breaks = append(t.breaks, Broken{v.ID, v.DocumentNumber, r.Unevaluable})
+		c.broken(Broken{v.ID, v.DocumentNumber, co, r.Unevaluable})
 		return nil
 	}
 	missing := ""
@@ -129,7 +148,7 @@ func (t *tally) invoice(r replayed, before, after *config.Company) error {
 		}
 	}
 	if missing != "" {
-		t.breaks = append(t.breaks, Broken{v.ID, v.DocumentNumber, "tax code " + missing + " is not in the proposed configuration"})
+		c.broken(Broken{v.ID, v.DocumentNumber, co, "tax code " + missing + " is not in the proposed configuration"})
 		return nil
 	}
 	was, err := companyLimits(before)
@@ -142,15 +161,18 @@ func (t *tally) invoice(r replayed, before, after *config.Company) error {
 	}
 	b, bi := decide(was, r)
 	a, ai := decide(is, r)
-	t.counts["base"][b.Outcome]++
-	t.counts["proposed"][a.Outcome]++
+	c.Base[b.Outcome]++
+	c.Proposed[a.Outcome]++
 	// The reasons name the limits, so only the outcomes are compared.
 	if b.Outcome != a.Outcome || len(bi) != len(ai) {
 		issues := make([]string, 0, len(ai))
 		for _, i := range ai {
 			issues = append(issues, i.Code)
 		}
-		t.changes = append(t.changes, Decision{v.ID, v.DocumentNumber, co, b.Outcome, a.Outcome, issues})
+		c.Changed++
+		if len(c.Changes) < examples {
+			c.Changes = append(c.Changes, Decision{v.ID, v.DocumentNumber, co, b.Outcome, a.Outcome, issues})
+		}
 	}
 	if before != nil {
 		t.postingMoves(co, before, after, r)
@@ -217,42 +239,61 @@ func (t *tally) move(co, key, from, to string, amount money.Minor, conv ledger.C
 	t.moves[k].amounts = append(t.moves[k].amounts, v)
 }
 
+// company is the replay of a company's invoices, started on its first.
+func (t *tally) company(code string, legalEntity uuid.UUID) *CompanyReplay {
+	if t.companies == nil {
+		t.companies = map[string]*CompanyReplay{}
+	}
+	c := t.companies[code]
+	if c == nil {
+		c = &CompanyReplay{Company: code, LegalEntityID: legalEntity, Base: map[string]int{}, Proposed: map[string]int{},
+			Changes: []Decision{}, Breaks: []Broken{}, Postings: []Posting{}}
+		t.companies[code] = c
+	}
+	return c
+}
+
+// broken counts an invoice the proposal cannot evaluate, listed among the
+// first examples.
+func (c *CompanyReplay) broken(b Broken) {
+	c.Broken++
+	if len(c.Breaks) < examples {
+		c.Breaks = append(c.Breaks, b)
+	}
+}
+
 // result is the simulation's verdict, summary and detail; it passes when
 // every invoice can be evaluated under the proposal. An amount moved out of
-// range fails the simulation.
-func (t *tally) result(window time.Duration, invoices int) (configuration.Simulation, error) {
+// range fails the simulation. The detail is by company and the summary
+// carries no count: both reach readers of narrower company access than the
+// requester's (the summary the operation's result and the audit trail too),
+// who are each shown counts over their own companies (Disclosure).
+func (t *tally) result(window time.Duration) (configuration.Simulation, error) {
 	if t.err != nil {
 		return configuration.Simulation{}, t.err
 	}
-	postings := []Posting{}
-	for _, p := range t.moves {
-		postings = append(postings, *p)
-	}
-	sort.Slice(postings, func(i, j int) bool { return postings[i].Company+postings[i].Key < postings[j].Company+postings[j].Key })
-	for i := range postings {
-		sum, err := money.Sum(postings[i].amounts...)
+	keys := slices.Sorted(maps.Keys(t.moves))
+	for _, k := range keys {
+		p := t.moves[k]
+		sum, err := money.Sum(p.amounts...)
 		if err != nil {
-			return configuration.Simulation{}, fmt.Errorf("payables: simulate: amount moved by %s/%s: %w", postings[i].Company, postings[i].Key, err)
+			return configuration.Simulation{}, fmt.Errorf("payables: simulate: amount moved by %s/%s: %w", p.Company, p.Key, err)
 		}
-		postings[i].Amount = sum
+		p.Amount = sum
+		// A rule moves only for an invoice, which started its company's
+		// replay; the legal entity is that replay's.
+		c := t.company(p.Company, uuid.Nil)
+		c.Postings = append(c.Postings, *p)
 	}
-	detail := map[string]any{
-		"window_days": int(window.Hours() / 24), "invoices": invoices,
-		"decisions": map[string]any{"changed": len(t.changes), "unchanged": invoices - len(t.changes) - len(t.breaks), "base": t.counts["base"], "proposed": t.counts["proposed"]},
-		"changes":   first(t.changes, examples), "breaks": first(t.breaks, examples), "postings": postings,
+	companies := make([]CompanyReplay, 0, len(t.companies))
+	passed := true
+	for _, code := range slices.Sorted(maps.Keys(t.companies)) {
+		companies = append(companies, *t.companies[code])
+		passed = passed && t.companies[code].Broken == 0
 	}
-	summary := fmt.Sprintf("%d invoices of the last %d days replayed: %d decided differently, %d posting rules move", invoices, int(window.Hours()/24), len(t.changes), len(postings))
-	if len(t.breaks) > 0 {
-		summary += fmt.Sprintf("; %d cannot be evaluated under the proposal", len(t.breaks))
-	}
-	return configuration.Simulation{Passed: len(t.breaks) == 0, Summary: summary, Detail: detail}, nil
-}
-
-func first[T any](list []T, n int) []T {
-	if list == nil {
-		return []T{}
-	}
-	return list[:min(n, len(list))]
+	days := int(window.Hours() / 24)
+	return configuration.Simulation{Passed: passed, Summary: recordedSummary(days),
+		Detail: map[string]any{"window_days": days, byCompanyKey: companies}}, nil
 }
 
 func taxCode(co *config.Company, code string) *config.TaxCode {

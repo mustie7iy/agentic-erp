@@ -1,8 +1,11 @@
 # Governed metric definitions (configuration as code).
 #
 # Every on-demand report and dashboard is computed from these definitions, so
-# "revenue" means the same thing in every answer. Owned by Finance; changes go
-# through the configuration approval loop as tier 2 changes.
+# "revenue" means the same thing in every answer. This file is the seed: a
+# tenant's model is the analytics section of its active configuration
+# version, this one until a change request adds it. Owned by Finance; changes
+# go through the configuration approval loop as tier 2 changes with a
+# simulation of the affected metrics (ADR-0044, T55g).
 version: 1
 
 calendar:

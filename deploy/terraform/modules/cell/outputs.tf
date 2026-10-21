@@ -72,6 +72,11 @@ output "aws_endpoints" {
   }
 }
 
+output "container_log_group" {
+  description = "The log group Fluent Bit ships the cell's container logs to (the fluent-bit add-on's erp.logGroup, T54g)."
+  value       = aws_cloudwatch_log_group.containers.name
+}
+
 output "workload_role_arns" {
   description = "IRSA roles by workload, for the service accounts' eks.amazonaws.com/role-arn annotation (deploy/helm, T40c)."
   value       = { for name, role in aws_iam_role.workload : name => role.arn }

@@ -2,6 +2,7 @@ package analytics
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -16,28 +17,55 @@ import (
 // Session holds the results of one conversation with the analytics agent,
 // so dashboards can refer to them by query_id.
 type Session struct {
-	Model     *Model
+	Model *Model
+	// Facts are what a session without a Runner computes its answers
+	// from.
 	Facts     *Facts
 	Principal Principal
 	Results   map[string]*Result
 	// Now is the clock reports are built and rendered with; nil reads the
 	// wall clock (clock.Now).
 	Now func() time.Time
+	// Runner answers the session's queries elsewhere: erp-server's
+	// analytics endpoint (Remote), which reads the analytical store or the
+	// database (ADR-0044); nil computes them from Facts.
+	Runner Runner
+}
+
+// Runner answers semantic queries.
+type Runner interface {
+	Query(ctx context.Context, q Query) (*Result, error)
 }
 
 func NewSession(m *Model, f *Facts, p Principal) *Session {
 	return &Session{Model: m, Facts: f, Principal: p, Results: map[string]*Result{}}
 }
 
-// Run executes a semantic query for the session's principal. The data was
-// read through the API with the principal's permissions and company access.
-func (s *Session) Run(q Query) (*Result, error) {
-	r, err := Execute(s.Model, s.Facts, s.Principal, q)
+// Run executes a semantic query for the session's principal, through its
+// Runner or over its Facts; either way the data is what the principal's
+// permissions and company access allow.
+func (s *Session) Run(ctx context.Context, q Query) (*Result, error) {
+	var r *Result
+	var err error
+	if s.Runner != nil {
+		r, err = s.Runner.Query(ctx, q)
+	} else {
+		r, err = Execute(s.Model, s.Facts, s.Principal, q)
+	}
 	if err != nil {
 		return nil, err
 	}
 	s.Results[r.ID] = r
 	return r, nil
+}
+
+// DataThrough is the latest date in the data of the session's results.
+func (s *Session) DataThrough() string {
+	latest := ""
+	for _, r := range s.Results {
+		latest = max(latest, r.DataThrough)
+	}
+	return latest
 }
 
 // Report is a saved answer: the question, the dashboard spec and the queries
@@ -130,14 +158,14 @@ func specQueryIDs(spec Spec) []string {
 // for the current principal, so hand-written report files may use readable
 // ids. If the commentary no longer matches the new figures it is removed
 // rather than left stale.
-func (s *Session) Rerun(rep *Report) (*Report, map[string]*Result, error) {
+func (s *Session) Rerun(ctx context.Context, rep *Report) (*Report, map[string]*Result, error) {
 	results := map[string]*Result{}
 	remap := map[string]string{}
 	out := *rep
 	out.Principal = s.Principal
 	out.Queries = map[string]Query{}
 	for id, q := range rep.Queries {
-		r, err := s.Run(q)
+		r, err := s.Run(ctx, q)
 		if err != nil {
 			return nil, nil, fmt.Errorf("query %s: %w", id, err)
 		}

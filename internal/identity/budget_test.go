@@ -10,6 +10,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/autonomy"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -63,6 +64,40 @@ func TestAgentBudget(t *testing.T) {
 		var ftx pgx.Tx = &pgtest.FailingTx{Tx: tx, FailAt: 1}
 		if _, _, _, err := identity.AgentBudget(ctx, ftx, ten.Agent.ID); !errors.Is(err, pgtest.ErrInjected) {
 			t.Errorf("got %v, want the injected error", err)
+		}
+	})
+}
+
+// TestAgentKind: an agent's kind is its type, untyped without one, and a
+// person or service is not an agent (metric labels, ADR-0043).
+func TestAgentKind(t *testing.T) {
+	ten := pgtest.NewTenant(t)
+	pool := pgtest.Pool(t)
+	typed := uuid.Must(uuid.NewV7())
+	pgtest.Exec(t, `INSERT INTO identity.principal (tenant_id, id, kind, display_name, status, created_by, updated_by) VALUES ($1, $2, 'agent', 'Typed', 'active', $3, $3)`,
+		ten.ID, typed, ten.Human.ID)
+	pgtest.Exec(t, `INSERT INTO identity.agent_profile (tenant_id, principal_id, autonomy_level, agent_type, model, description, created_by, updated_by)
+		VALUES ($1, $2, 1, 'ap_exceptions', 'erp-default', 'test', $3, $3)`, ten.ID, typed, ten.Human.ID)
+	pgtest.Exec(t, `UPDATE identity.agent_profile SET agent_type = NULL, version = version + 1 WHERE tenant_id = $1 AND principal_id = $2`, ten.ID, ten.Agent.ID)
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx, database.Scope{Role: "erp_app", TenantID: ten.ID, ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // read-only
+	for name, c := range map[string]struct {
+		id   uuid.UUID
+		want string
+	}{"typed": {typed, "ap_exceptions"}, "untyped": {ten.Agent.ID, autonomy.Untyped}, "a person": {ten.Human.ID, autonomy.NotAgent}} {
+		t.Run(name, func(t *testing.T) {
+			if got, err := identity.AgentKind(ctx, tx, c.id); err != nil || got != c.want {
+				t.Errorf("kind: got %q, %v; want %q", got, err, c.want)
+			}
+		})
+	}
+	t.Run("unknown principal", func(t *testing.T) {
+		if _, err := identity.AgentKind(ctx, tx, uuid.Must(uuid.NewV7())); !errors.Is(err, pgx.ErrNoRows) {
+			t.Errorf("got %v, want no rows", err)
 		}
 	})
 }

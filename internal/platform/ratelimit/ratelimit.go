@@ -121,6 +121,14 @@ func (l *Limiter) take(key string, q Quota, now time.Time) state {
 	return s
 }
 
+// Allow spends one token of key's bucket under q, for a limit kept outside
+// the API (the webhook dispatcher's per subscription, ADR-0041); false
+// means the bucket is empty and the caller waits. Keys share the limiter's
+// buckets, so callers name theirs apart (a prefix).
+func (l *Limiter) Allow(key string, q Quota) bool {
+	return !q.limited() || l.take(key, q, l.now()).ok
+}
+
 // Middleware enforces the quotas for the authenticated caller. It runs
 // after authentication (the claims name the tenant and subject) and before
 // the unit of work, so a refused request costs no transaction. A principal

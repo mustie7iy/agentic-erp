@@ -61,11 +61,14 @@ var tierRules = []struct {
 	{rx(`^companies\[\*\]$`), TierStructural},
 	{rx(`^companies\[\*\]\.(code|currency|fiscal_year_start_month)$`), TierStructural},
 	{rx(`^companies\[\*\]\.chart_of_accounts\[\*\]\.name$`), TierCosmetic},
+	// Flagging an account for revaluation changes what runs post (ADR-0042).
+	{rx(`^companies\[\*\]\.chart_of_accounts\[\*\]\.revalue_foreign_currency$`), TierPostingRelated},
 	{rx(`^companies\[\*\]\.chart_of_accounts`), TierStructural},
 	{rx(`^companies\[\*\]\.(name|country)$`), TierCosmetic},
 	{rx(`^companies\[\*\]\.tax_codes\[\*\]\.description$`), TierCosmetic},
 	{rx(`^companies\[\*\]\.withholding_tax_codes\[\*\]\.description$`), TierCosmetic},
 	{rx(`^companies\[\*\]\.payment_methods\[\*\]\.description$`), TierCosmetic},
+	{rx(`^companies\[\*\]\.bank_statements\.posting_rules\[\*\]\.description$`), TierCosmetic},
 	{rx(`^companies\[\*\]\.withholding_tax_codes`), TierPostingRelated},
 	{rx(`^companies\[\*\]\.(account_determination|tax_codes|auto_post_limit|manual_entry_approval_limit|house_bank)`), TierPostingRelated},
 	{rx(`^companies\[\*\]\.(invoice_tolerance|gr_over_delivery_percent)`), TierOperational},
@@ -82,6 +85,18 @@ var tierRules = []struct {
 	// Submission only lets new ranges and raised upper limits through, so
 	// issued numbers stay valid.
 	{rx(`^number_ranges`), TierCosmetic},
+	// A rule refuses writes: tier 3, with :simulate evidence (ADR-0046).
+	{rx(`^rules\.`), TierPostingRelated},
+	// A metric's or dimension's words change no value; its definition
+	// changes every report computing it, so it is simulated (Evidence)
+	// and its owner approves it.
+	{rx(`^analytics\.metrics\[\*\]\.(label|description|synonyms)`), TierCosmetic},
+	{rx(`^analytics\.dimensions\[\*\]\.(label|description)$`), TierCosmetic},
+	{rx(`^analytics(\.|$)`), TierOperational},
+	// Which pack version a company adopted posts nothing itself; the
+	// settings applying it changes carry their own tiers. It decides what
+	// the next upgrade merges from, so it is not cosmetic (ADR-0048).
+	{rx(`^packs`), TierOperational},
 }
 
 func rx(s string) *regexp.Regexp { return regexp.MustCompile(s) }
@@ -103,8 +118,16 @@ func classify(path string) Tier {
 var listKeys = map[string]string{
 	"companies": "code", "chart_of_accounts": "number", "tax_codes": "code", "withholding_tax_codes": "code",
 	"house_banks": "name", "payment_methods": "code", "ranking": "currency",
+	// Keys are list names wherever the list is: "accounts" is today only
+	// fx_valuation.accounts, and a list of that name elsewhere shares it.
+	"accounts":      "account",
+	"posting_rules": "transaction_code", "matching_rules": "kind",
 	"payment_terms": "key",
 	"number_ranges": "company,document_type,fiscal_year",
+	// The analytics section's; a metric's own dimensions are names, listed
+	// by position.
+	"metrics": "name", "dimensions": "name",
+	"packs": "company",
 }
 
 // Diff lists every setting that differs from old to new, with its tier.
@@ -155,7 +178,7 @@ func Diff(old, new *Config) ([]Change, error) {
 		}
 		out = append(out, ch)
 	}
-	return out, nil
+	return append(out, extensionChanges(old, new)...), nil
 }
 
 // wholeItem returns the outermost list item containing path that exists in
@@ -205,7 +228,9 @@ func flatten(c *Config) map[string]string {
 	if c == nil {
 		return out
 	}
-	b, _ := json.Marshal(c)
+	flat := *c
+	flat.Extensions = nil // compared field by field by extensionChanges
+	b, _ := json.Marshal(flat)
 	var v any
 	_ = json.Unmarshal(b, &v)
 	walk("", "", v, out)

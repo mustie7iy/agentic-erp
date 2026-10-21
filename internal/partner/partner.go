@@ -24,10 +24,13 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -99,6 +102,8 @@ type Endpoints struct {
 	PaymentMethods PaymentMethods
 	Keys           *fieldcrypt.Keyring
 	Approvals      Opener
+	Schemas        extensions.Schemas // the tenant's custom field schemas (configuration context)
+	Rules          rules.Source       // the tenant's validation rules (configuration context)
 }
 
 // Ports are the other contexts and keys requests are checked and sealed with.
@@ -107,10 +112,56 @@ type Ports struct {
 	Accounts       Accounts
 	PaymentMethods PaymentMethods
 	Keys           *fieldcrypt.Keyring
+	Schemas        extensions.Schemas
+	Rules          rules.Source
 }
 
 func (e *Endpoints) ports() Ports {
-	return Ports{LegalEntities: e.LegalEntities, Accounts: e.Accounts, PaymentMethods: e.PaymentMethods, Keys: e.Keys}
+	return Ports{LegalEntities: e.LegalEntities, Accounts: e.Accounts, PaymentMethods: e.PaymentMethods, Keys: e.Keys, Schemas: e.Schemas, Rules: e.Rules}
+}
+
+// checkRules evaluates the tenant's validation rules on a business partner
+// as a write leaves it (ADR-0046); the write's audit names the object.
+func (p Ports) checkRules(ctx context.Context, action, objectType string, id uuid.UUID, bp Partner) error {
+	return rules.Writes{Entity: "business_partner", Source: p.Rules}.Check(ctx,
+		rules.Write{Action: action, ObjectType: objectType, ID: id, Row: ruleRow(bp), Extensions: bp.Extensions})
+}
+
+// ruleRow is a business partner's header as its rules read it.
+func ruleRow(bp Partner) map[string]any {
+	return map[string]any{"kind": bp.Kind, "name": bp.Name, "legal_name": rules.Text(bp.LegalName), "country_code": bp.CountryCode,
+		"language": rules.Text(bp.Language), "roles": bp.Roles}
+}
+
+// RuleSamples reads the recent business partners on which a simulation
+// replays proposed rules (rules.Sampler, ADR-0046): those changed since
+// the time given, newest first.
+type RuleSamples struct{}
+
+// Sample implements rules.Sampler.
+func (RuleSamples) Sample(ctx context.Context, since time.Time, limit int) ([]rules.Sample, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, partnerSelect+` WHERE p.updated_at >= $1 ORDER BY p.updated_at DESC, p.id LIMIT $2`, since, limit)
+	ps, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Partner, error) { return scanPartner(r) })
+	if err != nil {
+		return nil, fmt.Errorf("partner: sample business partners for rules: %w", err)
+	}
+	out := make([]rules.Sample, len(ps))
+	for i, bp := range ps { // a partner of any status can be changed: none is historical
+		out[i] = rules.Sample{ID: bp.ID, Reference: bp.Number, Row: ruleRow(bp), Extensions: bp.Extensions}
+	}
+	return out, nil
+}
+
+// extensions checks a business partner's custom fields; the partners they
+// refer to are this context's own.
+func (p Ports) extensions() extensions.Writes { return partnerWrites(p.Schemas) }
+
+func partnerWrites(schemas extensions.Schemas) extensions.Writes {
+	return extensions.Writes{Entity: "business_partner", Schemas: schemas, References: References{}}
 }
 
 // Date is a calendar date as PostgreSQL renders it in JSON.
@@ -172,6 +223,7 @@ type Partner struct {
 	Language          *string
 	Status            string
 	Extensions        map[string]any
+	ExtensionsSchema  *int // the custom field schema version the extensions were written under (ADR-0046)
 	Roles             []string
 	SupplierCompanies []SupplierCompany
 	Addresses         []Address
@@ -183,7 +235,7 @@ type Partner struct {
 	UpdatedBy         uuid.UUID
 }
 
-const partnerSelect = `SELECT p.id, p.number, p.kind, p.name, p.legal_name, p.country_code, p.language, p.status, p.extensions,
+const partnerSelect = `SELECT p.id, p.number, p.kind, p.name, p.legal_name, p.country_code, p.language, p.status, p.extensions, p.extensions_schema,
 		p.version, p.created_at, p.created_by, p.updated_at, p.updated_by,
 		coalesce((SELECT array_agg(r.role ORDER BY r.role) FROM partner.partner_role r WHERE r.tenant_id = p.tenant_id AND r.partner_id = p.id), '{}'),
 		coalesce((SELECT json_agg(json_build_object('legal_entity_id', s.legal_entity_id, 'reconciliation_account_id', s.reconciliation_account_id,
@@ -200,7 +252,7 @@ const partnerSelect = `SELECT p.id, p.number, p.kind, p.name, p.legal_name, p.co
 
 func scanPartner(row pgx.Row) (Partner, error) {
 	var p Partner
-	err := row.Scan(&p.ID, &p.Number, &p.Kind, &p.Name, &p.LegalName, &p.CountryCode, &p.Language, &p.Status, &p.Extensions,
+	err := row.Scan(&p.ID, &p.Number, &p.Kind, &p.Name, &p.LegalName, &p.CountryCode, &p.Language, &p.Status, &p.Extensions, &p.ExtensionsSchema,
 		&p.Version, &p.CreatedAt, &p.CreatedBy, &p.UpdatedAt, &p.UpdatedBy, &p.Roles, &p.SupplierCompanies, &p.Addresses, &p.TaxIdentifiers)
 	return p, errs.Wrapf(err, "scan business partner")
 }
@@ -324,19 +376,23 @@ type BankAccount struct {
 	ValidFrom       time.Time
 	ValidTo         *time.Time
 	PartnerChangeID uuid.UUID
-	CreatedAt       time.Time
-	CreatedBy       uuid.UUID
-	EndedAt         *time.Time
-	EndedBy         *uuid.UUID
+	// InstitutionNumber and TransitNumber are a Canadian account's bank
+	// (scheme ca, T45d); nil for other schemes.
+	InstitutionNumber *string
+	TransitNumber     *string
+	CreatedAt         time.Time
+	CreatedBy         uuid.UUID
+	EndedAt           *time.Time
+	EndedBy           *uuid.UUID
 }
 
 const bankColumns = `id, partner_id, purpose, account_last4, account_scheme, bic, bank_country_code, holder_name, valid_from, valid_to,
-	partner_change_id, created_at, created_by, ended_at, ended_by`
+	partner_change_id, created_at, created_by, ended_at, ended_by, institution_number, transit_number`
 
 func scanBank(row pgx.Row) (BankAccount, error) {
 	var b BankAccount
 	err := row.Scan(&b.ID, &b.PartnerID, &b.Purpose, &b.AccountLast4, &b.AccountScheme, &b.BIC, &b.BankCountryCode, &b.HolderName,
-		&b.ValidFrom, &b.ValidTo, &b.PartnerChangeID, &b.CreatedAt, &b.CreatedBy, &b.EndedAt, &b.EndedBy)
+		&b.ValidFrom, &b.ValidTo, &b.PartnerChangeID, &b.CreatedAt, &b.CreatedBy, &b.EndedAt, &b.EndedBy, &b.InstitutionNumber, &b.TransitNumber)
 	return b, errs.Wrapf(err, "scan bank account")
 }
 

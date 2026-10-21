@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -176,7 +177,7 @@ func TestPostingToANewSupplier(t *testing.T) {
 	changes, _ := e.Must(200, "GET", "/v1/partner-changes?partner_id="+bp["id"].(string), "", "")
 	change := uuid.MustParse(changes["items"].([]any)[0].(map[string]any)["id"].(string))
 	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error {
-		_, err := partner.ApplyChange(ctx, change)
+		_, err := partner.ApplyChange(ctx, configuration.Settings{}, change)
 		return err
 	}); err != nil {
 		t.Fatal(err)

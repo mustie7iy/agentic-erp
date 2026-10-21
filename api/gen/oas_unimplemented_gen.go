@@ -16,7 +16,8 @@ var _ Handler = UnimplementedHandler{}
 // ActivateChangeRequest implements activateChangeRequest operation.
 //
 // Creates and activates a new configuration version from an approved change request; each context
-// applies its part. Human-only. Requires status `approved`.
+// applies its part. Human-only. Requires status `approved`; a change of validation rules also needs a
+// passed simulation of this exact proposal (409 `config.rules_not_simulated`).
 //
 // POST /v1/change-requests/{id}:activate
 func (UnimplementedHandler) ActivateChangeRequest(ctx context.Context, params ActivateChangeRequestParams) (r ActivateChangeRequestRes, _ error) {
@@ -176,6 +177,22 @@ func (UnimplementedHandler) CancelPurchaseOrderChange(ctx context.Context, param
 //
 // POST /v1/requisitions/{id}:cancel
 func (UnimplementedHandler) CancelRequisition(ctx context.Context, params CancelRequisitionParams) (r CancelRequisitionRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CancelRevaluationRun implements cancelRevaluationRun operation.
+//
+// Cancels a posted revaluation run (ADR-0042, T48d): reverses its valuation entry and its reset entry
+// through the ledger's reversal path, each on its own posting date (`JournalEntryReversed` for each),
+// and marks the run `cancelled`, which frees its key date for another run. This is the only way a
+// run's entries are reversed (`journal-entries/{id}:reverse` refuses them with 409
+// `ledger.entry_owned_elsewhere`). Both entries' periods must be open (409 `ledger.period_not_open`,
+// also when one is closed or locked, T32); a cancelled run is 409 `ledger.revaluation_not_posted`. A
+// run without entries is cancelled without reversals. Audited and published
+// (`RevaluationRunCancelled`). The If-Match is the run's ETag. Human-only.
+//
+// POST /v1/revaluation-runs/{id}:cancel
+func (UnimplementedHandler) CancelRevaluationRun(ctx context.Context, req *ReasonInput, params CancelRevaluationRunParams) (r CancelRevaluationRunRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -481,12 +498,36 @@ func (UnimplementedHandler) CreateUpload(ctx context.Context, req *UploadCreate,
 	return r, ht.ErrNotImplemented
 }
 
+// CreateWebhookSubscription implements createWebhookSubscription operation.
+//
+// Subscribes an HTTPS endpoint to event types (ADR-0041). The URL's host must resolve to public
+// addresses only. At most 20 subscriptions that are not deleted per tenant (422
+// `integration.webhook_limit`). Event types are those marked `x-webhook` in the AsyncAPI contract, or
+// `<context>.*` for all of a context's; duplicates are dropped. The answer carries the signing secret,
+// shown only here and by `:rotateSecret`; a replay of the request answers without it.
+//
+// POST /v1/webhook-subscriptions
+func (UnimplementedHandler) CreateWebhookSubscription(ctx context.Context, req *WebhookSubscriptionCreate, params CreateWebhookSubscriptionParams) (r CreateWebhookSubscriptionRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // DecideRecommendation implements decideRecommendation operation.
 //
 // Records what a person did with an open recommendation: accepted, overridden or ignored. Human-only.
 //
 // POST /v1/recommendations/{id}:decide
 func (UnimplementedHandler) DecideRecommendation(ctx context.Context, req *RecommendationDecide, params DecideRecommendationParams) (r DecideRecommendationRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// DeleteWebhookSubscription implements deleteWebhookSubscription operation.
+//
+// Ends the subscription: its status becomes `deleted`, nothing more is sent to it, and it no longer
+// counts toward the limit of 20. The row is kept (no hard deletes). Requires a status other than
+// `deleted`.
+//
+// POST /v1/webhook-subscriptions/{id}:delete
+func (UnimplementedHandler) DeleteWebhookSubscription(ctx context.Context, params DeleteWebhookSubscriptionParams) (r DeleteWebhookSubscriptionRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -559,6 +600,19 @@ func (UnimplementedHandler) EndSodRule(ctx context.Context, req *EndInput, param
 	return r, ht.ErrNotImplemented
 }
 
+// ExcludeBankStatementLine implements excludeBankStatementLine operation.
+//
+// A person excludes the line from reconciliation, with a reason: the bank's booking clears nothing the
+// ledger holds. The line's live match becomes `rejected` and the new one `excluded` (kind `manual`),
+// with no targets; the line is `excluded`. People only; a line on its way to the ledger keeps its
+// match (409 `payments.statement_line_posting`). Audited, and published as BankStatementLineExcluded.
+// The response's ETag is the statement's new one, the If-Match of the next decision on its lines.
+//
+// POST /v1/bank-statements/{id}/lines/{line_no}:exclude
+func (UnimplementedHandler) ExcludeBankStatementLine(ctx context.Context, req *ReasonInput, params ExcludeBankStatementLineParams) (r ExcludeBankStatementLineRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetAccount implements getAccount operation.
 //
 // Returns one general ledger account.
@@ -602,6 +656,20 @@ func (UnimplementedHandler) GetAiUsage(ctx context.Context, params GetAiUsagePar
 	return r, ht.ErrNotImplemented
 }
 
+// GetAnalyticsModel implements getAnalyticsModel operation.
+//
+// The governed metrics, their dimensions, the fiscal calendar and what everyday words mean, as
+// runAnalyticsQuery answers them: the active configuration version's `analytics` section
+// (`semantic.yaml` until a change request adds one), or `config_version`'s. Agents and the CLI
+// describe metrics from it, so a metric a change request added is offered and a changed definition
+// described as it now is (ADR-0044). A tenant without a configuration is 409
+// `config.not_bootstrapped`; an unknown version is 422 `config.unknown_version`.
+//
+// GET /v1/analytics-model
+func (UnimplementedHandler) GetAnalyticsModel(ctx context.Context, params GetAnalyticsModelParams) (r GetAnalyticsModelRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetApprovalRequest implements getApprovalRequest operation.
 //
 // Returns one approval request with steps and decisions.
@@ -638,6 +706,27 @@ func (UnimplementedHandler) GetBankFile(ctx context.Context, params GetBankFileP
 //
 // GET /v1/bank-files/{id}/content
 func (UnimplementedHandler) GetBankFileContent(ctx context.Context, params GetBankFileContentParams) (r GetBankFileContentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetBankStatement implements getBankStatement operation.
+//
+// Returns one bank statement with its lines.
+//
+// GET /v1/bank-statements/{id}
+func (UnimplementedHandler) GetBankStatement(ctx context.Context, params GetBankStatementParams) (r GetBankStatementRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetBankStatementFile implements getBankStatementFile operation.
+//
+// The file a bank statement was imported from, byte for byte as the bank sent it (camt.053 XML or
+// MT940 text): kept as accounting evidence in object storage, written once, encrypted and locked for
+// the retention of financial records (ADR-0047). The statements of one file share it. 503 while the
+// server has no object storage or the store does not answer.
+//
+// GET /v1/bank-statements/{id}/file
+func (UnimplementedHandler) GetBankStatementFile(ctx context.Context, params GetBankStatementFileParams) (r GetBankStatementFileRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -884,6 +973,15 @@ func (UnimplementedHandler) GetRequisition(ctx context.Context, params GetRequis
 	return r, ht.ErrNotImplemented
 }
 
+// GetRevaluationRun implements getRevaluationRun operation.
+//
+// Returns one revaluation run with its items and totals.
+//
+// GET /v1/revaluation-runs/{id}
+func (UnimplementedHandler) GetRevaluationRun(ctx context.Context, params GetRevaluationRunParams) (r GetRevaluationRunRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetRole implements getRole operation.
 //
 // Returns one role.
@@ -908,6 +1006,20 @@ func (UnimplementedHandler) GetRoleAssignment(ctx context.Context, params GetRol
 //
 // GET /v1/roles/{id}/permissions/{permission_id}
 func (UnimplementedHandler) GetRolePermission(ctx context.Context, params GetRolePermissionParams) (r GetRolePermissionRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetSchema implements getSchema operation.
+//
+// The tenant's custom field schema for the entity in the active configuration version (ADR-0046): the
+// restricted subset of JSON Schema that writes of the entity's `extensions` are checked against, every
+// field with its privacy class `x-pii`. The ETag is the configuration version, so `If-None-Match`
+// answers 304 until a change request activates a new version. Whoever may read the entity may read its
+// schema: the permission depends on the entity, listed in `x-entity-permissions`. An entity without a
+// schema, or one that takes no custom fields, is 404.
+//
+// GET /v1/schemas/{entity}
+func (UnimplementedHandler) GetSchema(ctx context.Context, params GetSchemaParams) (r GetSchemaRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -950,6 +1062,24 @@ func (UnimplementedHandler) GetUpload(ctx context.Context, params GetUploadParam
 	return r, ht.ErrNotImplemented
 }
 
+// GetWebhookDelivery implements getWebhookDelivery operation.
+//
+// Returns one delivery: its event, status and the outcome of its last attempt.
+//
+// GET /v1/webhook-subscriptions/{id}/deliveries/{delivery_id}
+func (UnimplementedHandler) GetWebhookDelivery(ctx context.Context, params GetWebhookDeliveryParams) (r GetWebhookDeliveryRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetWebhookSubscription implements getWebhookSubscription operation.
+//
+// Returns one webhook subscription, without its secret.
+//
+// GET /v1/webhook-subscriptions/{id}
+func (UnimplementedHandler) GetWebhookSubscription(ctx context.Context, params GetWebhookSubscriptionParams) (r GetWebhookSubscriptionRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GrantRolePermission implements grantRolePermission operation.
 //
 // Adds an effective-dated permission grant to the role.
@@ -965,6 +1095,28 @@ func (UnimplementedHandler) GrantRolePermission(ctx context.Context, req *RolePe
 //
 // POST /v1/supplier-invoices/{id}:hold
 func (UnimplementedHandler) HoldSupplierInvoice(ctx context.Context, req *ReasonInput, params HoldSupplierInvoiceParams) (r HoldSupplierInvoiceRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ImportBankStatements implements importBankStatements operation.
+//
+// Imports the statements of a bank's file (ADR-0047) for one house bank: camt.053 (.001.02 or .001.08)
+// or MT940, read as UTF-8, at most 4 MB. Each statement must be of the house bank's account and
+// currency, and its entries must take its opening balance to its closing balance. The same file again
+// for the house bank (by its SHA-256) answers 200 with the statements it imported; another file with a
+// statement already imported (the same statement id, account and sequence) is refused with 409
+// `payments.statement_conflict`. A statement whose opening balance is not the closing balance of the
+// house bank's statement before it is imported in status `gap`, and automatic posting stops for the
+// bank; a statement imported between two others becomes the next one's previous statement, whose
+// status follows the comparison again. A file that cannot be read is refused with 422
+// `payments.statement_unreadable`, naming the line where what is wrong starts. Imports are made by
+// people and integrations; agents read statements, and an agent's import is refused with 403
+// `identity.agent_not_allowed`. The file is kept as accounting evidence in object storage
+// (`GET /v1/bank-statements/{id}/file`), so without object storage, or when the store does not take
+// it, nothing is imported (503).
+//
+// POST /v1/bank-statements
+func (UnimplementedHandler) ImportBankStatements(ctx context.Context, req *BankStatementUploadMultipart, params ImportBankStatementsParams) (r ImportBankStatementsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1038,6 +1190,26 @@ func (UnimplementedHandler) ListBankAccounts(ctx context.Context, params ListBan
 //
 // GET /v1/bank-files
 func (UnimplementedHandler) ListBankFiles(ctx context.Context, params ListBankFilesParams) (r ListBankFilesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListBankStatementMatches implements listBankStatementMatches operation.
+//
+// The matches of the statement's lines, by line and in the order they were made: the live one of each
+// line (`open`, `matched` or `excluded`) and those a person's decision replaced (`rejected`).
+//
+// GET /v1/bank-statements/{id}/matches
+func (UnimplementedHandler) ListBankStatementMatches(ctx context.Context, params ListBankStatementMatchesParams) (r ListBankStatementMatchesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListBankStatements implements listBankStatements operation.
+//
+// Bank statements imported for the house banks of the companies the caller may access, without their
+// lines (`GET /v1/bank-statements/{id}` has them). Sortable by: `closing_date`.
+//
+// GET /v1/bank-statements
+func (UnimplementedHandler) ListBankStatements(ctx context.Context, params ListBankStatementsParams) (r ListBankStatementsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1330,6 +1502,16 @@ func (UnimplementedHandler) ListRequisitions(ctx context.Context, params ListReq
 	return r, ht.ErrNotImplemented
 }
 
+// ListRevaluationRuns implements listRevaluationRuns operation.
+//
+// Foreign-currency revaluation runs (ADR-0042), without their items and totals (`getRevaluationRun`
+// has them). Sortable by: `key_date`.
+//
+// GET /v1/revaluation-runs
+func (UnimplementedHandler) ListRevaluationRuns(ctx context.Context, params ListRevaluationRunsParams) (r ListRevaluationRunsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListRoleAssignments implements listRoleAssignments operation.
 //
 // Effective-dated role grants, including ended ones. Sortable by: `valid_from`.
@@ -1375,6 +1557,26 @@ func (UnimplementedHandler) ListSupplierInvoices(ctx context.Context, params Lis
 	return r, ht.ErrNotImplemented
 }
 
+// ListWebhookDeliveries implements listWebhookDeliveries operation.
+//
+// The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by:
+// `created_at`.
+//
+// GET /v1/webhook-subscriptions/{id}/deliveries
+func (UnimplementedHandler) ListWebhookDeliveries(ctx context.Context, params ListWebhookDeliveriesParams) (r ListWebhookDeliveriesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListWebhookSubscriptions implements listWebhookSubscriptions operation.
+//
+// The tenant's webhook subscriptions, newest first; deleted ones only when asked for with
+// `status=deleted`. Secrets are never listed. Sortable by: `created_at`.
+//
+// GET /v1/webhook-subscriptions
+func (UnimplementedHandler) ListWebhookSubscriptions(ctx context.Context, params ListWebhookSubscriptionsParams) (r ListWebhookSubscriptionsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // LockFiscalPeriod implements lockFiscalPeriod operation.
 //
 // Locks the period for good: a locked period refuses postings, reversals and clearings dated in it, as
@@ -1383,6 +1585,42 @@ func (UnimplementedHandler) ListSupplierInvoices(ctx context.Context, params Lis
 //
 // POST /v1/fiscal-periods/{id}:lock
 func (UnimplementedHandler) LockFiscalPeriod(ctx context.Context, params LockFiscalPeriodParams) (r LockFiscalPeriodRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// MatchBankStatement implements matchBankStatement operation.
+//
+// Runs the company's matching rules (`companies[].bank_statements.matching_rules`, ADR-0047) on the
+// statement's unmatched lines, and again on the lines a rule left open, as the import does: in the
+// rules' order, the first rule that finds candidates decides. A rule that finds exactly one candidate,
+// whose payments pay the line's amount, matches the line (`matched`); one that finds several, or
+// payments that do not pay it, leaves an open match listing them for a person (`proposed`). The rules
+// on payments read debits, never reversals; a payment another line's match holds settles no line: the
+// id rules leave the line open for a person, and the amount rule skips it. A line a rule left open is
+// compared with what the rules find now: the same candidates leave it as it is, others reject its open
+// match and record the new one (or make it unmatched again). Lines matched or excluded, and an agent's
+// proposals, are never touched, so running it twice changes nothing the second time. Agents may call
+// it: it only applies the rules, and what they cannot decide stays open for a person. If-Match is the
+// statement's ETag; a run that matches or leaves open a line, and a person's match or exclusion, move
+// it on. Returns the statement with its lines; `GET /v1/bank-statements/{id}/matches` has the matches.
+//
+// POST /v1/bank-statements/{id}:match
+func (UnimplementedHandler) MatchBankStatement(ctx context.Context, params MatchBankStatementParams) (r MatchBankStatementRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// MatchBankStatementLine implements matchBankStatementLine operation.
+//
+// A person matches the line to the payments it clears or to a posting rule of the company (charges,
+// interest), with a reason, whatever the rules found: the line's live match becomes `rejected` and the
+// new one `matched` (kind `manual`). Each payment must be posted, from the statement's house bank, in
+// its currency and matched to no other line (422 `payments.statement_match_target`). People only; a
+// line on its way to the ledger keeps its match (409 `payments.statement_line_posting`). Audited, and
+// published as BankStatementLineMatched. The response's ETag is the statement's new one, the If-Match
+// of the next decision on its lines.
+//
+// POST /v1/bank-statements/{id}/lines/{line_no}:match
+func (UnimplementedHandler) MatchBankStatementLine(ctx context.Context, req *StatementLineMatchInput, params MatchBankStatementLineParams) (r MatchBankStatementLineRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1419,6 +1657,33 @@ func (UnimplementedHandler) OpenFiscalPeriod(ctx context.Context, params OpenFis
 //
 // POST /v1/parked-journal-entries
 func (UnimplementedHandler) ParkJournalEntry(ctx context.Context, req *JournalEntryCreate, params ParkJournalEntryParams) (r ParkJournalEntryRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// PauseWebhookSubscription implements pauseWebhookSubscription operation.
+//
+// Holds the deliveries of an active subscription (how a tenant stops deliveries): events keep being
+// recorded for it but none is sent until `:resume`, which sends them in order. A delivery held past
+// the 30-day retention is dropped. Pausing stops the failure clock: `failing_since` is cleared, so
+// time paused does not count toward the 5 days, which start again at the first failure after
+// `:resume`. Requires status `active` (409 `integration.webhook_not_active`).
+//
+// POST /v1/webhook-subscriptions/{id}:pause
+func (UnimplementedHandler) PauseWebhookSubscription(ctx context.Context, params PauseWebhookSubscriptionParams) (r PauseWebhookSubscriptionRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// PingWebhookSubscription implements pingWebhookSubscription operation.
+//
+// Queues a synthetic `webhook.ping` CloudEvent (data: the subscription's `subscription_id`), signed
+// like any other, which the dispatcher sends at once, also while the subscription is paused or
+// disabled. The request does not wait for the endpoint: the answer is the pending delivery, whose
+// `status`, `last_status` and `last_error` tell the outcome once attempted. A ping is attempted once,
+// is not retried and does not count toward the subscription's failures. Refused for a deleted
+// subscription (409 `integration.webhook_deleted`).
+//
+// POST /v1/webhook-subscriptions/{id}:ping
+func (UnimplementedHandler) PingWebhookSubscription(ctx context.Context, params PingWebhookSubscriptionParams) (r PingWebhookSubscriptionRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1472,6 +1737,26 @@ func (UnimplementedHandler) PostParkedJournalEntry(ctx context.Context, params P
 	return r, ht.ErrNotImplemented
 }
 
+// PostRevaluationRun implements postRevaluationRun operation.
+//
+// Values what `previewRevaluation` values and, in one transaction, posts the differences (ADR-0042,
+// T48c): a valuation entry (document type SA, in local currency, source the run) dated the key date
+// and its reset, a separate entry of the negated lines dated the next day, the first of the next
+// period, so the items stay open at their booked amounts. Each item's local and group differences go
+// to the account itself for a flagged account and to its adjustment account for a reconciliation
+// account, against the unrealised gain or loss account by the item's direction. Both periods must be
+// open (409 `ledger.period_not_open`). A run whose items have no difference is recorded without
+// entries. The run and its items are recorded, audited and published (`RevaluationRunPosted`, besides
+// each entry's `JournalEntryPosted`). One run per legal entity, ledger and key date is posted: a
+// second is 409 `ledger.revaluation_exists`, whose `detail` names the posted run and whose `Location`
+// header links it; cancelling that run (`cancelRevaluationRun`) frees the key date. Concurrent
+// clearings and reversals of the tenant wait for the run. Human-only.
+//
+// POST /v1/revaluation-runs
+func (UnimplementedHandler) PostRevaluationRun(ctx context.Context, req *RevaluationPreviewRequest, params PostRevaluationRunParams) (r PostRevaluationRunRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // PostSupplierInvoice implements postSupplierInvoice operation.
 //
 // Posts the invoice to the ledger (supplier reconciliation, expense or GR/IR, input tax). Requires
@@ -1482,6 +1767,31 @@ func (UnimplementedHandler) PostParkedJournalEntry(ctx context.Context, params P
 //
 // POST /v1/supplier-invoices/{id}:post
 func (UnimplementedHandler) PostSupplierInvoice(ctx context.Context, req OptSupplierInvoicePost, params PostSupplierInvoiceParams) (r PostSupplierInvoiceRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// PreviewRevaluation implements previewRevaluation operation.
+//
+// Values, without posting, what a revaluation run of a legal entity and ledger at a key date would
+// value (ADR-0042, T48): the open items on supplier and customer reconciliation accounts on the key
+// date (posted on or before it and not cleared by a clearing dated on or before it) and, per currency,
+// the balance of each G/L account flagged `revalue_foreign_currency`, in every currency other than
+// local currency. Down payments (special G/L items) and the GR/IR account are not revalued. A flagged
+// account's balance that is zero in its currency but not in local or group currency is valued too, at
+// zero and without a rate (none is looked up or checked for it): that residual is what revaluation
+// corrects. Each item is valued in local and, on its own, in group currency at the legal entity's
+// valuation rate type valid on the key date, each rounded once: `valued_lc` = amount × rate and
+// `valued_gc` = amount × rate_gc (SAP's parallel-currency valuation, not the local difference
+// translated); the differences to the booked amounts are an unrealised gain when positive and a loss
+// when negative, by the local difference's sign, or the group one's when local does not differ. The
+// key date is the last day of a posting period of the ledger (422 `ledger.key_date_not_period_end`); a
+// rate into local or group currency valid from before that period is stale (422 `ledger.rate_stale`)
+// and a missing one is refused (422 `ledger.no_exchange_rate`); an account with items in scope and no
+// active valuation accounts fails the preview (422 `ledger.revaluation_account_missing`, naming the
+// account). Reads only; every agent autonomy level may call it.
+//
+// POST /v1/revaluation-runs/preview
+func (UnimplementedHandler) PreviewRevaluation(ctx context.Context, req *RevaluationPreviewRequest, params PreviewRevaluationParams) (r PreviewRevaluationRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1514,11 +1824,24 @@ func (UnimplementedHandler) ReconcileMigrationRun(ctx context.Context, params Re
 //
 // Records one tool call of a running session, numbered in order. Insert-only. Only the session's agent
 // records its calls. The input's strings and the result summary are recorded minimized, as the model
-// gateway redacts what leaves the cell (ADR-0036): IBANs, card numbers and the tax identifiers of the
-// tenant's countries become `[IBAN]`, `[CARD]` and `[TAX_ID]`.
+// gateway redacts what leaves the cell (ADR-0036): IBANs, card numbers, the tax identifiers of the
+// tenant's countries and, for a tenant in Canada, Canadian bank accounts written
+// institution-transit-account become `[IBAN]`, `[CARD]`, `[TAX_ID]` and `[BANK_ACCOUNT]`.
 //
 // POST /v1/agent-sessions/{id}/tool-calls
 func (UnimplementedHandler) RecordAgentToolCall(ctx context.Context, req *AgentToolCallCreate, params RecordAgentToolCallParams) (r RecordAgentToolCallRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// RedeliverWebhookDelivery implements redeliverWebhookDelivery operation.
+//
+// Queues the delivery again, whatever its status: `pending` with no attempts, sent in its resource's
+// event order under its original `webhook-id`. Refused for a deleted subscription (409
+// `integration.webhook_deleted`) and a disabled one (409 `integration.webhook_disabled`; resume it
+// first), pings included: `:ping` sends a new one.
+//
+// POST /v1/webhook-subscriptions/{id}/deliveries/{delivery_id}:redeliver
+func (UnimplementedHandler) RedeliverWebhookDelivery(ctx context.Context, params RedeliverWebhookDeliveryParams) (r RedeliverWebhookDeliveryRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1619,6 +1942,20 @@ func (UnimplementedHandler) RenewContract(ctx context.Context, req *ContractRene
 	return r, ht.ErrNotImplemented
 }
 
+// ReplayWebhookDeliveries implements replayWebhookDeliveries operation.
+//
+// Queues again every kept delivery of the subscription whose event occurred at or after `since`,
+// whatever its status (delivered, dead and dropped ones too; pings are left out): each becomes
+// `pending` with no attempts, and they go out in event order per resource. `since` is within the
+// 30-day retention (422 `integration.invalid_replay_since`). The endpoint receives each event under
+// its original `webhook-id`. Refused for a deleted subscription (409 `integration.webhook_deleted`)
+// and a disabled one (409 `integration.webhook_disabled`; resume it first).
+//
+// POST /v1/webhook-subscriptions/{id}:replay
+func (UnimplementedHandler) ReplayWebhookDeliveries(ctx context.Context, req *WebhookReplay, params ReplayWebhookDeliveriesParams) (r ReplayWebhookDeliveriesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ReportBankFileStatus implements reportBankFileStatus operation.
 //
 // Applies the bank's status report (pain.002, camt.054) to a transmitted file: `accepted` moves it to
@@ -1651,6 +1988,18 @@ func (UnimplementedHandler) RequestBankAccountChange(ctx context.Context, req *B
 //
 // POST /v1/business-partners/{id}/bank-accounts/{bank_account_id}:end
 func (UnimplementedHandler) RequestBankAccountEnd(ctx context.Context, req *BankAccountEnd, params RequestBankAccountEndParams) (r RequestBankAccountEndRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ResumeWebhookSubscription implements resumeWebhookSubscription operation.
+//
+// Makes a paused or disabled subscription active. A paused one's held deliveries are sent, in event
+// order per resource, and later events as they come. A disabled one starts its failure tracking afresh
+// (`failing_since` cleared); the deliveries dropped while it was disabled are not sent. Refused for an
+// active subscription (409 `integration.webhook_already_active`).
+//
+// POST /v1/webhook-subscriptions/{id}:resume
+func (UnimplementedHandler) ResumeWebhookSubscription(ctx context.Context, params ResumeWebhookSubscriptionParams) (r ResumeWebhookSubscriptionRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1695,10 +2044,46 @@ func (UnimplementedHandler) ReverseSupplierInvoice(ctx context.Context, req *Sup
 	return r, ht.ErrNotImplemented
 }
 
+// RotateWebhookSubscriptionSecret implements rotateWebhookSubscriptionSecret operation.
+//
+// Issues a new signing secret, answered only here. The previous secret keeps signing alongside the new
+// one for 24 hours (`previous_secret_expires_at`), so the endpoint can switch without losing a
+// delivery; rotating again within that time retires the older one at once. A replay of the request
+// answers without the secret. Requires a status other than `deleted`.
+//
+// POST /v1/webhook-subscriptions/{id}:rotateSecret
+func (UnimplementedHandler) RotateWebhookSubscriptionSecret(ctx context.Context, params RotateWebhookSubscriptionSecretParams) (r RotateWebhookSubscriptionSecretRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// RunAnalyticsQuery implements runAnalyticsQuery operation.
+//
+// Answers governed metrics (the semantic model in the active configuration version's `analytics`
+// section, `semantic.yaml` until a change request adds one; metric definitions change only through
+// change requests), broken down by its dimensions and filtered on them, for the companies the
+// principal may read. A query names metrics and dimensions, never SQL. It is answered from the
+// analytical store when the tenant's store was found current within the freshness target and no
+// earlier than `as_of`, else from the database; `source` and `as_of` say which (ADR-0044). The
+// database answers through the API's own reads as the caller, so a metric over data the caller may not
+// read is 403 as that read is, and the store answers only a caller who holds the permissions of those
+// reads. A tenant without a configuration is 409 `config.not_bootstrapped`. A query the semantic layer
+// refuses (an unknown metric or dimension, a filter it cannot apply, amounts of two currencies summed)
+// is 422 `analytics.invalid_query`; too many queries answering at once on the server is 503
+// `analytics.busy` with `Retry-After`. Changes nothing: agents of any autonomy level may run it.
+//
+// POST /v1/analytics-queries
+func (UnimplementedHandler) RunAnalyticsQuery(ctx context.Context, req *AnalyticsQuery, params RunAnalyticsQueryParams) (r RunAnalyticsQueryRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // SimulateChangeRequest implements simulateChangeRequest operation.
 //
 // Replays recent business transactions against the proposed configuration and records the result as
-// `simulation` evidence. Requires status `awaiting_evidence`.
+// `simulation` evidence. A change of validation rules (ADR-0046) also replays the recent rows of each
+// entity whose rules change (the last 30 days, at most 200, newest first) under the active and the
+// proposed rules: the evidence's `detail.rules` lists, per rule, the rows it would newly refuse and
+// newly pass, with personal custom fields masked, and the rows it cannot evaluate, which fail the
+// simulation. Requires status `awaiting_evidence`.
 //
 // POST /v1/change-requests/{id}:simulate
 func (UnimplementedHandler) SimulateChangeRequest(ctx context.Context, params SimulateChangeRequestParams) (r SimulateChangeRequestRes, _ error) {
@@ -1973,6 +2358,17 @@ func (UnimplementedHandler) UpdateRole(ctx context.Context, req *RoleUpdate, par
 //
 // PATCH /v1/supplier-invoices/{id}
 func (UnimplementedHandler) UpdateSupplierInvoice(ctx context.Context, req *SupplierInvoiceUpdate, params UpdateSupplierInvoiceParams) (r UpdateSupplierInvoiceRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateWebhookSubscription implements updateWebhookSubscription operation.
+//
+// Changes a subscription's URL, description or event types, checked as on create; a deleted
+// subscription cannot be changed (409). JSON Merge Patch (RFC 7396): absent fields are unchanged,
+// arrays are replaced as a whole.
+//
+// PATCH /v1/webhook-subscriptions/{id}
+func (UnimplementedHandler) UpdateWebhookSubscription(ctx context.Context, req *WebhookSubscriptionUpdate, params UpdateWebhookSubscriptionParams) (r UpdateWebhookSubscriptionRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

@@ -446,10 +446,11 @@ func (r *Keyring) Rotate(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (Rota
 	return rot, nil
 }
 
-// reseal rewrites one column's rows under k.
+// reseal rewrites one column's rows under k; a NULL cipher (an optional
+// sealed value, such as a webhook's previous secret) has nothing to seal.
 func (r *Keyring) reseal(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, c Column, k *tenantKey) (int, error) {
 	q := c.quoted()
-	rows, _ := tx.Query(ctx, `SELECT `+strings.Join(q.keys, ", ")+`, `+q.cipher+` FROM `+q.table+` WHERE tenant_id = $1`, tenant)
+	rows, _ := tx.Query(ctx, `SELECT `+strings.Join(q.keys, ", ")+`, `+q.cipher+` FROM `+q.table+` WHERE tenant_id = $1 AND `+q.cipher+` IS NOT NULL`, tenant)
 	type row struct {
 		keys   []any
 		sealed []byte

@@ -26,6 +26,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/modelalias"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
 )
 
 // provider is a fake model provider: it answers with status and body, or
@@ -109,6 +110,8 @@ func TestGatewayCall(t *testing.T) {
 	session := startSession(t, ten)
 	p := &provider{status: 200, body: message("claude-opus-5-5", "end_turn", 1000, 100, 200, 300)}
 	g := gateway(t, p)
+	g.Metrics = telemetry.NewMetrics()
+	g.AgentKind = func(context.Context, pgx.Tx, uuid.UUID) (string, error) { return "ap_exceptions", nil }
 	rec := post(t, g, principal(ten), `{"model": "erp-default", "max_tokens": 64, "messages": [{"role": "user", "content": "secret invoice text"}]}`,
 		map[string]string{agents.SessionHeader: session.String()})
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"stop_reason":"end_turn"`) {
@@ -145,6 +148,31 @@ func TestGatewayCall(t *testing.T) {
 	check("session output tokens", sOut, int64(100))
 	check("session cost in millionths", sMicro, int64(want))
 	check("session cost in cents", sCost, int64(1))
+	scrape := httptest.NewRecorder()
+	g.Metrics.Handler().ServeHTTP(scrape, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	for _, series := range []string{`erp_model_tokens_total{agent_kind="ap_exceptions",alias="erp-default",kind="cache_read"} 300`,
+		`erp_model_cost_micro_total{agent_kind="ap_exceptions",currency="USD"} 706000`,
+		`erp_model_call_duration_seconds_count{agent_kind="ap_exceptions",alias="erp-default",status="succeeded"} 1`} {
+		if !strings.Contains(scrape.Body.String(), series) {
+			t.Errorf("metrics: got %s, want %s", scrape.Body, series)
+		}
+	}
+}
+
+// TestGatewayAgentKindFails: a call whose agent kind cannot be read is
+// refused before the provider is called.
+func TestGatewayAgentKindFails(t *testing.T) {
+	priced(t, "claude-opus-5-5")
+	ten := pgtest.NewTenant(t)
+	p := &provider{status: 200, body: message("claude-opus-5-5", "end_turn", 1, 1, 0, 0)}
+	g := gateway(t, p)
+	g.AgentKind = func(context.Context, pgx.Tx, uuid.UUID) (string, error) { return "", pgtest.ErrInjected }
+	if rec := post(t, g, principal(ten), `{"model": "erp-default", "max_tokens": 64, "messages": []}`, nil); rec.Code != http.StatusInternalServerError {
+		t.Errorf("status: got %d, want 500", rec.Code)
+	}
+	if p.sent != nil {
+		t.Errorf("forwarded: got %s, want nothing", p.sent)
+	}
 }
 
 // TestGatewayRefusals: what the gateway does not forward is refused before

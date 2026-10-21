@@ -13,6 +13,10 @@ import (
 	"os"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/cabank"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 )
 
 type Config struct {
@@ -23,6 +27,35 @@ type Config struct {
 	Payments     Payments      `yaml:"payments" json:"payments"`
 	Output       Output        `yaml:"output" json:"output"`
 	NumberRanges []NumberRange `yaml:"number_ranges,omitempty" json:"number_ranges,omitempty"`
+	// Extensions are the tenant's custom field schemas by entity (ADR-0046).
+	Extensions map[string]extensions.Schema `yaml:"extensions,omitempty" json:"extensions,omitempty"`
+	// Rules are the tenant's validation rules by entity and name (ADR-0046).
+	Rules map[string]map[string]rules.Rule `yaml:"rules,omitempty" json:"rules,omitempty"`
+	// Analytics is the semantic layer's governed model; nil: the seed
+	// (internal/analytics/semantic.yaml) until a change request adds it.
+	Analytics *Analytics `yaml:"analytics,omitempty" json:"analytics,omitempty"`
+	// Packs records, per company, the country pack it adopted (ADR-0048):
+	// the base the next upgrade of the pack merges from.
+	Packs []PackAdoption `yaml:"packs,omitempty" json:"packs,omitempty"`
+}
+
+// PackAdoption is the country pack version a company adopted and the date
+// it was applied on, which picked the tax rates then in force.
+type PackAdoption struct {
+	Company   string `yaml:"company" json:"company"`
+	Country   string `yaml:"country" json:"country"`
+	Version   string `yaml:"version" json:"version"`
+	AppliedOn string `yaml:"applied_on" json:"applied_on"`
+}
+
+// Pack is the adoption recorded for a company, or nil.
+func (c *Config) Pack(company string) *PackAdoption {
+	for i := range c.Packs {
+		if c.Packs[i].Company == company {
+			return &c.Packs[i]
+		}
+	}
+	return nil
 }
 
 // NumberRange is a document number interval for one company, document type
@@ -70,7 +103,88 @@ type Company struct {
 	// each ranking per currency the house banks that pay with it (SAP
 	// T042E/T042I; ADR-0038).
 	PaymentMethods []PaymentMethod `yaml:"payment_methods,omitempty" json:"payment_methods,omitempty"`
+	// FXValuation is how a revaluation run values the company's open items
+	// and balances in foreign currency (SAP FAGL_FCV; ADR-0042).
+	FXValuation FXValuation `yaml:"fx_valuation,omitempty" json:"fx_valuation,omitempty"`
+	// BankStatements says how the company's bank statements are matched
+	// and posted (SAP FF_5/FEBAN, T028G; ADR-0047).
+	BankStatements BankStatements `yaml:"bank_statements,omitempty" json:"bank_statements,omitzero"`
 }
+
+// FXValuation is the company's foreign-currency valuation (ADR-0042): the
+// one rate type it values at, average when none is given, and where the
+// valuation of each revalued account posts.
+type FXValuation struct {
+	RateType string               `yaml:"rate_type,omitempty" json:"rate_type,omitempty"`
+	Accounts []FXValuationAccount `yaml:"accounts,omitempty" json:"accounts,omitempty"`
+}
+
+// RateTypeOrAverage is the rate type the company values at, average when
+// none is given.
+func (f FXValuation) RateTypeOrAverage() string {
+	if f.RateType == "" {
+		return "average"
+	}
+	return f.RateType
+}
+
+// FXValuationAccount says where the valuation of one revalued account
+// posts (SAP T030S): its unrealised gain and loss, which may be the
+// realised fx_gain and fx_loss accounts, and, for a vendor reconciliation
+// account, the balance-sheet adjustment account its difference goes to; a
+// flagged account (revalue_foreign_currency) takes the difference itself.
+type FXValuationAccount struct {
+	Account        string `yaml:"account" json:"account"`
+	Adjustment     string `yaml:"adjustment,omitempty" json:"adjustment,omitempty"`
+	UnrealisedGain string `yaml:"unrealised_gain" json:"unrealised_gain"`
+	UnrealisedLoss string `yaml:"unrealised_loss" json:"unrealised_loss"`
+}
+
+// BankStatements is how bank statement lines are matched to what they
+// clear and posted (ADR-0047). A line posts only when matched.
+type BankStatements struct {
+	// PostingRules post the lines the bank books itself, such as charges
+	// and interest, by their bank transaction code (SAP T028G).
+	PostingRules []StatementPostingRule `yaml:"posting_rules,omitempty" json:"posting_rules,omitempty"`
+	// MatchingRules are tried in order; a line is posted automatically only
+	// when the first rule that finds candidates finds exactly one.
+	MatchingRules []MatchingRule `yaml:"matching_rules,omitempty" json:"matching_rules,omitempty"`
+	// ApprovalTiers route a match by the line's amount in the company's
+	// currency (approvals.BankClearing); a tier without steps posts without
+	// approval. There is no default: without tiers every match is approved
+	// first (product owner 2026-10-20).
+	ApprovalTiers []ApprovalTier `yaml:"approval_tiers,omitempty" json:"approval_tiers,omitempty"`
+}
+
+// StatementPostingRule posts statement lines with a bank transaction code
+// to an account: the ISO 20022 domain, family and sub-family (PMNT-CCRD-CHRG),
+// a SWIFT MT940 type (NCHG) or a bank's proprietary code, such as a BAI
+// code (ADR-0047).
+type StatementPostingRule struct {
+	TransactionCode string `yaml:"transaction_code" json:"transaction_code"`
+	Description     string `yaml:"description" json:"description"`
+	Account         string `yaml:"account" json:"account"`
+}
+
+// MatchingRule is one way of finding what a statement line clears.
+type MatchingRule struct {
+	Kind string `yaml:"kind" json:"kind"` // one of the Match* kinds
+	// AmountTolerance, DateWindowDays and Counterparty refine MatchAmount:
+	// the payment's amount within the tolerance (in the company's
+	// currency), its date within the window of the booking date and, when
+	// Counterparty is set, the counterparty's IBAN or name the payee's.
+	AmountTolerance string `yaml:"amount_tolerance,omitempty" json:"amount_tolerance,omitempty"`
+	DateWindowDays  int    `yaml:"date_window_days,omitempty" json:"date_window_days,omitempty"`
+	Counterparty    bool   `yaml:"counterparty,omitempty" json:"counterparty,omitempty"`
+}
+
+// Matching rule kinds (ADR-0047).
+const (
+	MatchEndToEndID      = "end_to_end_id"    // the payment whose end-to-end id the line carries
+	MatchBatchID         = "batch_id"         // the bank file whose PmtInfId or MsgId the line carries
+	MatchTransactionCode = "transaction_code" // a posting rule for the line's transaction code
+	MatchAmount          = "amount"           // a payment by amount, date and counterparty
+)
 
 // AccountType classifies an account for the balance sheet and the income
 // statement.
@@ -89,6 +203,16 @@ type Account struct {
 	Name                 string      `yaml:"name" json:"name"`
 	Type                 AccountType `yaml:"type" json:"type"`
 	VendorReconciliation bool        `yaml:"vendor_reconciliation,omitempty" json:"vendor_reconciliation,omitempty"`
+	// RevalueForeignCurrency marks a balance-sheet account that reconciles
+	// no supplier, such as a foreign-currency bank account, whose balance
+	// in each foreign currency a revaluation run values (ADR-0042);
+	// reconciliation accounts are valued through their open items.
+	RevalueForeignCurrency bool `yaml:"revalue_foreign_currency,omitempty" json:"revalue_foreign_currency,omitempty"`
+	// OpenItems manages the account's lines as open items that a later
+	// posting clears (SAP SKB1-XOPVW), as bank clearing accounts must be
+	// (ADR-0047). It is turned on only for an account without postings and
+	// never turned off.
+	OpenItems bool `yaml:"open_items,omitempty" json:"open_items,omitempty"`
 }
 
 // AccountDetermination says which accounts automatic postings use (SAP T030).
@@ -166,6 +290,12 @@ type HouseBank struct {
 	Name string `yaml:"name" json:"name"`
 	IBAN string `yaml:"iban" json:"iban"`
 	BIC  string `yaml:"bic" json:"bic"`
+	// InstitutionNumber, TransitNumber and AccountNumber are a Canadian
+	// bank account, which has no IBAN (ADR-0038, T45d); a house bank has
+	// either an IBAN or these.
+	InstitutionNumber string `yaml:"institution_number,omitempty" json:"institution_number,omitempty"`
+	TransitNumber     string `yaml:"transit_number,omitempty" json:"transit_number,omitempty"`
+	AccountNumber     string `yaml:"account_number,omitempty" json:"account_number,omitempty"`
 	// GLAccount is the bank's own ledger account, a bank clearing account
 	// (ADR-0038). The main house bank may leave it empty and keeps the
 	// account determination's bank account, as documents before it did;
@@ -175,6 +305,35 @@ type HouseBank struct {
 	// transmitted through (ADR-0038, T44b); without one they go to the
 	// server's directory, which a transfer agent collects from.
 	Connector string `yaml:"connector,omitempty" json:"connector,omitempty"`
+	// MainGLAccount is the bank account itself, which the statement's
+	// lines post to while they clear GLAccount (ADR-0047); a bank without
+	// one has its statements imported but never posted.
+	MainGLAccount string `yaml:"main_gl_account,omitempty" json:"main_gl_account,omitempty"`
+	// IncomingGLAccount takes the bank's incoming payments until accounts
+	// receivable clears them (ADR-0047); a bank without one leaves them
+	// unposted.
+	IncomingGLAccount string `yaml:"incoming_gl_account,omitempty" json:"incoming_gl_account,omitempty"`
+}
+
+// Canadian reports whether the house bank names a Canadian account
+// instead of an IBAN.
+func (hb HouseBank) Canadian() bool {
+	return hb.InstitutionNumber != "" || hb.TransitNumber != "" || hb.AccountNumber != ""
+}
+
+// Account is the house bank's account as it is sealed: its IBAN, or a
+// Canadian account's number, without spaces and dashes.
+func (hb HouseBank) Account() string {
+	if hb.Canadian() {
+		return cabank.Digits(hb.AccountNumber)
+	}
+	return hb.IBAN
+}
+
+// Routing is a Canadian house bank's institution and transit numbers as
+// they are stored, without spaces and dashes; empty for an IBAN.
+func (hb HouseBank) Routing() (institution, transit string) {
+	return cabank.Digits(hb.InstitutionNumber), cabank.Digits(hb.TransitNumber)
 }
 
 // AllHouseBanks is the main house bank followed by the further ones.
@@ -303,9 +462,10 @@ func Load(path string) (*Config, error) {
 
 // Marshal renders a configuration as YAML.
 func (c *Config) Marshal() ([]byte, error) {
-	// Config holds only strings, numbers, bools, slices and structs, and the
-	// buffer never fails, so encoding cannot fail; the error result is kept
-	// for API stability.
+	// Config holds only strings, numbers, bools, slices, string-keyed maps,
+	// structs and the decoded YAML values of rule cases, and the buffer
+	// never fails, so encoding cannot fail; the error result is kept for API
+	// stability.
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)

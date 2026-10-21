@@ -14,12 +14,21 @@ import (
 	"slices"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/mustie7iy/agentic-erp/internal/config"
 )
 
 //go:embed semantic.yaml
 var defaultModelYAML []byte
 
-type MetricType string
+// The semantic model's types are the configuration document's: the model
+// lives in its analytics section (ADR-0044, T55g).
+type (
+	MetricType = config.MetricType
+	Dimension  = config.Dimension
+	Derived    = config.Derived
+	Metric     = config.Metric
+)
 
 const (
 	Money MetricType = "money"
@@ -27,40 +36,10 @@ const (
 	Ratio MetricType = "ratio"
 )
 
-type Dimension struct {
-	Name        string `yaml:"name" json:"name"`
-	Label       string `yaml:"label" json:"label"`
-	Description string `yaml:"description,omitempty" json:"description,omitempty"`
-}
-
-type Derived struct {
-	Op    string `yaml:"op" json:"op"` // subtract | divide
-	Left  string `yaml:"left" json:"left"`
-	Right string `yaml:"right" json:"right"`
-}
-
-type Metric struct {
-	Name        string              `yaml:"name" json:"name"`
-	Label       string              `yaml:"label" json:"label"`
-	Description string              `yaml:"description" json:"description"`
-	Synonyms    []string            `yaml:"synonyms,omitempty" json:"synonyms,omitempty"`
-	Type        MetricType          `yaml:"type" json:"type"`
-	Source      string              `yaml:"source,omitempty" json:"source,omitempty"`
-	Aggregate   string              `yaml:"aggregate,omitempty" json:"aggregate,omitempty"` // sum | count_distinct
-	Sign        int64               `yaml:"sign,omitempty" json:"sign,omitempty"`
-	Filter      map[string][]string `yaml:"filter,omitempty" json:"filter,omitempty"`
-	Dimensions  []string            `yaml:"dimensions,omitempty" json:"dimensions,omitempty"`
-	Derived     *Derived            `yaml:"derived,omitempty" json:"derived,omitempty"`
-}
-
+// Model is the governed semantic model, indexed for queries.
 type Model struct {
-	Version  int `yaml:"version"`
-	Calendar struct {
-		FiscalYearStartMonth int `yaml:"fiscal_year_start_month"`
-	} `yaml:"calendar"`
-	Defaults   map[string]string `yaml:"defaults"`
-	Dimensions []Dimension       `yaml:"dimensions"`
-	Metrics    []Metric          `yaml:"metrics"`
+	Version          int `yaml:"version"`
+	config.Analytics `yaml:",inline"`
 
 	byName map[string]*Metric
 }
@@ -77,6 +56,42 @@ func LoadModel(path string) (*Model, error) {
 	return ParseModel(b)
 }
 
+// FromConfig is the governed model of a configuration document: its
+// analytics section, or the seed (semantic.yaml) for a document without
+// one, as every tenant's is until a change request adds it (ADR-0044,
+// T55g). The document is not changed.
+func FromConfig(c *config.Config) (*Model, error) {
+	if c == nil || c.Analytics == nil {
+		return DefaultModel()
+	}
+	m := &Model{Version: 1, Analytics: *c.Analytics}
+	m.Metrics = slices.Clone(m.Metrics) // index defaults signs in place
+	if err := m.index(); err != nil {
+		return nil, err
+	}
+	if err := m.governed(); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// governed refuses what a model from a change request may not hold beyond
+// what index checks: a metric over a table that is no fact dataset (which
+// no permission would gate and nothing would answer), or of a type the
+// engine does not know.
+func (m *Model) governed() error {
+	for _, met := range m.Metrics {
+		if met.Type != Money && met.Type != Count && met.Type != Ratio {
+			return fmt.Errorf("semantic model: %s has unknown type %q", met.Name, met.Type)
+		}
+		if met.Source != "" && !slices.ContainsFunc(FactDatasets, func(d FactDataset) bool { return d.Dataset == met.Source }) {
+			return fmt.Errorf("semantic model: %s reads unknown dataset %q", met.Name, met.Source)
+		}
+	}
+	return nil
+}
+
+// ParseModel reads a semantic model from YAML.
 func ParseModel(b []byte) (*Model, error) {
 	var m Model
 	if err := yaml.Unmarshal(b, &m); err != nil {
@@ -112,6 +127,12 @@ func (m *Model) index() error {
 			return err
 		}
 	}
+	walked := map[string]int{}
+	for _, met := range m.Metrics {
+		if err := m.acyclic(met.Name, walked); err != nil {
+			return err
+		}
+	}
 	// Sorted, so a model with several bad defaults reports the same one
 	// every time.
 	for _, word := range slices.Sorted(maps.Keys(m.Defaults)) {
@@ -119,6 +140,30 @@ func (m *Model) index() error {
 			return fmt.Errorf("semantic model: default %q points to unknown metric %s", word, metric)
 		}
 	}
+	return nil
+}
+
+// acyclic refuses a metric derived, through any chain, from itself: a
+// model from a change request is not trusted to be well formed, and the
+// derivations are walked recursively. state is each metric's: 1 while its
+// derivation is walked, 2 once it is known acyclic (each walked once).
+func (m *Model) acyclic(name string, state map[string]int) error {
+	switch state[name] {
+	case 1:
+		return fmt.Errorf("semantic model: %s derives from itself", name)
+	case 2:
+		return nil
+	}
+	state[name] = 1
+	if d := m.byName[name].Derived; d != nil {
+		if err := m.acyclic(d.Left, state); err != nil {
+			return err
+		}
+		if err := m.acyclic(d.Right, state); err != nil {
+			return err
+		}
+	}
+	state[name] = 2
 	return nil
 }
 
@@ -194,4 +239,19 @@ func (m *Model) baseMetrics(name string) []string {
 		return []string{name}
 	}
 	return append(m.baseMetrics(met.Derived.Left), m.baseMetrics(met.Derived.Right)...)
+}
+
+// BaseMetrics lists the source metrics a metric is computed from, each
+// once, in the order a derivation names them; nil for an unknown metric.
+func (m *Model) BaseMetrics(name string) []string {
+	if m.byName[name] == nil {
+		return nil
+	}
+	var out []string
+	for _, b := range m.baseMetrics(name) {
+		if !slices.Contains(out, b) {
+			out = append(out, b)
+		}
+	}
+	return out
 }

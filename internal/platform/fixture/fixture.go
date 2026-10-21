@@ -9,6 +9,7 @@ package fixture
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
@@ -27,7 +29,9 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -64,6 +68,7 @@ func Document(tb testing.TB) *config.Config {
 	if err != nil {
 		tb.Fatal(err)
 	}
+	c.Extensions = Schemas()
 	for _, y := range Years() {
 		for _, co := range []string{"1000", "2000"} {
 			for dt, prefix := range DocumentTypes {
@@ -73,6 +78,23 @@ func Document(tb testing.TB) *config.Config {
 		}
 	}
 	return c
+}
+
+// Schemas are the custom field schemas of the prototype's configuration:
+// optional strings on each first entity (ADR-0046), version 1. The last
+// key of each is personal or sensitive, so events mask it.
+func Schemas() map[string]extensions.Schema {
+	schema := func(private string, pii extensions.PII, keys ...string) extensions.Schema {
+		s := extensions.Schema{Version: 1, Type: "object", AdditionalProperties: new(bool), Properties: map[string]extensions.Property{}}
+		for _, k := range keys {
+			s.Properties[k] = extensions.Property{Type: "string", PII: extensions.PIINone}
+		}
+		s.Properties[private] = extensions.Property{Type: "string", PII: pii}
+		return s
+	}
+	return map[string]extensions.Schema{"business_partner": schema("routing", extensions.PIISensitive, "cost_object_hint", "segment"),
+		"purchase_order":   schema("project", extensions.PIIPersonal, "cost_center"),
+		"supplier_invoice": schema("channel", extensions.PIIPersonal, "cost_center")}
 }
 
 // rates converts document amounts into their company's currency, as the
@@ -92,7 +114,10 @@ func Deps() configuration.Dependencies {
 			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Channels: integration.BankChannels{}, Keys: apitest.FieldKeys()},
 			payments.PaymentMethods{LegalEntities: tenancy.Directory{}}},
 		Simulator: payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates},
-		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates}, Actors: identity.Actors{}}
+		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates}, Actors: identity.Actors{},
+		RuleSamplers: map[string]rules.Sampler{"supplier_invoice": payables.RuleSamples{}, "purchase_order": procurement.RuleSamples{},
+			"business_partner": partner.RuleSamples{}},
+		Disclosures: []configuration.Disclosure{payables.Disclosure{}}}
 }
 
 // Env is a configured tenant.
@@ -259,5 +284,74 @@ func (e Env) SupplierWithholding(tb testing.TB, supplier uuid.UUID, codes ...str
 	for _, c := range codes {
 		pgtest.Exec(tb, `INSERT INTO partner.supplier_withholding (tenant_id, partner_id, legal_entity_id, code, created_by, updated_by)
 			VALUES ($1, $2, $3, $4, $5, $5)`, e.Tenant.ID, supplier, e.DE, c, e.Tenant.Human.ID)
+	}
+}
+
+// ActivateRules makes the tenant's active configuration a new version
+// whose validation rules of entity are rs (ADR-0046), as an approved
+// change would leave it, and returns the version's number.
+func ActivateRules(tb testing.TB, tenant uuid.UUID, entity string, rs map[string]rules.Rule) int32 {
+	tb.Helper()
+	b, err := json.Marshal(rs)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	pgtest.Exec(tb, `INSERT INTO config.config_version (tenant_id, id, number, document, hash, source, restored_from, activated_by)
+		SELECT v.tenant_id, gen_random_uuid(), v.number + 1,
+			v.document || jsonb_build_object('rules', coalesce(v.document->'rules', '{}') || jsonb_build_object($2::text, $3::jsonb)),
+			v.hash, 'rollback', v.number, v.activated_by
+		FROM config.config_version v JOIN config.active_version a ON a.tenant_id = v.tenant_id AND a.number = v.number WHERE v.tenant_id = $1`,
+		tenant, entity, string(b))
+	pgtest.Exec(tb, `UPDATE config.active_version SET number = number + 1, version = version + 1 WHERE tenant_id = $1`, tenant)
+	var n int32
+	pgtest.Scan(tb, `SELECT number FROM config.active_version WHERE tenant_id = $1`, []any{tenant}, &n)
+	return n
+}
+
+// RuleAudit is an audit record of a write a validation rule refused or
+// held.
+type RuleAudit struct {
+	ObjectType, Outcome, Rule string
+	ObjectID                  *uuid.UUID // nil for a create refused
+	ConfigVersion             int32
+}
+
+// RuleAudits are the tenant's audit records of action with source rule,
+// in the order they were written.
+func RuleAudits(tb testing.TB, tenant uuid.UUID, action string) []RuleAudit {
+	tb.Helper()
+	rows, err := pgtest.Admin(tb).Query(context.Background(), `SELECT object_type, outcome, detail->>'rule', object_id, (detail->>'config_version')::int
+		FROM audit.audit_event WHERE tenant_id = $1 AND action = $2 AND detail->>'source' = 'rule' ORDER BY seq`, tenant, action)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	var out []RuleAudit
+	var a RuleAudit
+	if _, err := pgx.ForEachRow(rows, []any{&a.ObjectType, &a.Outcome, &a.Rule, &a.ObjectID, &a.ConfigVersion}, func() error {
+		out = append(out, a)
+		return nil
+	}); err != nil {
+		tb.Fatal(err)
+	}
+	return out
+}
+
+// WantRuleAudit checks an audit record against the one wanted, one field
+// at a time.
+func WantRuleAudit(tb testing.TB, got, want RuleAudit) {
+	tb.Helper()
+	id := func(p *uuid.UUID) string {
+		if p == nil {
+			return "none"
+		}
+		return p.String()
+	}
+	for _, c := range []struct{ field, got, want string }{
+		{"object type", got.ObjectType, want.ObjectType}, {"outcome", got.Outcome, want.Outcome}, {"rule", got.Rule, want.Rule},
+		{"object id", id(got.ObjectID), id(want.ObjectID)}, {"config version", fmt.Sprint(got.ConfigVersion), fmt.Sprint(want.ConfigVersion)},
+	} {
+		if c.got != c.want {
+			tb.Errorf("audit %s: got %s, want %s", c.field, c.got, c.want)
+		}
 	}
 }

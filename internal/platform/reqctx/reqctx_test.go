@@ -54,3 +54,20 @@ func TestReadOnly(t *testing.T) {
 		t.Error("ReadOnly after WithReadOnly: got false, want true")
 	}
 }
+
+// TestCommit: what is added runs once, when the unit of work runs it, and
+// nothing is kept outside one.
+func TestCommit(t *testing.T) {
+	runs := 0
+	OnCommit(context.Background(), func() { runs++ }) // no Commit: dropped
+	ctx, c := WithCommit(context.Background())
+	OnCommit(ctx, func() { runs++ })
+	if runs != 0 {
+		t.Fatalf("runs before commit: got %d, want 0", runs)
+	}
+	c.Run()
+	c.Run()
+	if runs != 1 {
+		t.Errorf("runs: got %d, want 1", runs)
+	}
+}

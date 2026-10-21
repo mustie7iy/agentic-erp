@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -35,22 +36,30 @@ import (
 	"go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/google/uuid"
+	"github.com/mustie7iy/agentic-erp/api"
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/eval"
+	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 
+	"github.com/mustie7iy/agentic-erp/internal/agents"
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
+	"github.com/mustie7iy/agentic-erp/internal/platform/autonomy"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt/kmstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
+	"github.com/mustie7iy/agentic-erp/internal/platform/modelalias"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus/natstest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
+	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf/tlstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow/workflowtest"
@@ -96,6 +105,7 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 	env := environment(t, is, natsURL)
 	env["ERP_MODEL_API_KEY"] = "test" // the model gateway and invoice capture are wired; nothing calls the model here
 	env["ERP_BANK_OUTBOX_DIR"] = t.TempDir()
+	env["DATABASE_REPLICA_URL"] = pgtest.URL(t) // the analytics extract reads a replica, here the primary itself
 	maintenanceInterval = 10 * time.Millisecond // the partition maintenance runs while the server serves
 	defer func() { maintenanceInterval = 6 * time.Hour }()
 	ten := pgtest.NewTenant(t, "platform.operation.read", "platform.operation.cancel")
@@ -148,7 +158,7 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 			strings.Contains(string(scraped), "erp_payment_proposals_queued 0") && strings.Contains(string(scraped), "erp_simulations_queued 0")
 	}, "metrics lack a backlog:\n%s", lazy(func() string { return string(scraped) }))
 	for _, want := range []string{"erp_outbox_backlog ", "erp_projection_backlog 0", "erp_payment_proposals_queued 0", "erp_simulations_queued 0",
-		"erp_outbox_lag_seconds ", "erp_projection_lag_seconds 0"} {
+		"erp_outbox_lag_seconds ", "erp_projection_lag_seconds 0", "erp_analytics_lag_seconds ", "erp_analytics_stale_tenants "} {
 		if !strings.Contains(string(scraped), want) {
 			t.Errorf("metrics lack %q:\n%s", want, scraped)
 		}
@@ -357,6 +367,7 @@ func TestAStartupFailureStopsTheWorkersFirst(t *testing.T) {
 	}{
 		{"bus unreachable", func() string { return "nats://127.0.0.1:1" }, func(*config.Config) {}, "natsbus: connect"},
 		{"streams refused", func() string { return natstest.Plain(t) }, func(*config.Config) {}, "natsbus: stream"},
+		{"consumer refused", func() string { return conflictingConsumer(t) }, func(*config.Config) {}, "natsbus: consumer"},
 		{"api port in use", func() string { return natstest.Server(t) }, func(c *config.Config) { c.HTTPAddr = busy.Addr().String() }, "erp-server: listen on"},
 		{"admin port in use", func() string { return natstest.Server(t) }, func(c *config.Config) { c.AdminAddr = busy.Addr().String() }, "erp-server: admin listen on"},
 	}
@@ -385,6 +396,35 @@ func TestAStartupFailureStopsTheWorkersFirst(t *testing.T) {
 			}
 		})
 	}
+}
+
+// conflictingConsumer is JetStream with the cell's streams and a fan-out
+// consumer whose start the server may not change.
+func conflictingConsumer(t *testing.T) string {
+	t.Helper()
+	url := natstest.Server(t)
+	bus, err := natsbus.Connect(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bus.Close()
+	if err := bus.EnsureStreams(t.Context(), "test"); err != nil {
+		t.Fatal(err)
+	}
+	nc, err := nats.Connect(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nc.Close()
+	js, err := jetstream.New(nc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := js.CreateConsumer(t.Context(), natsbus.StreamName("test", integration.WebhookContexts()[0]),
+		jetstream.ConsumerConfig{Durable: integration.FanoutConsumer, AckPolicy: jetstream.AckExplicitPolicy, DeliverPolicy: jetstream.DeliverAllPolicy}); err != nil {
+		t.Fatal(err)
+	}
+	return url
 }
 
 func TestAListenerFailureStopsTheServer(t *testing.T) {
@@ -780,6 +820,7 @@ func TestProductionOperatorWithoutRoles(t *testing.T) {
 	env := environment(t, is, "")
 	env["DATABASE_URL"] = pgtest.EmptyDatabase(t) // a cell whose active tenants each have one
 	_, ca := production(t, env)
+	env["ERP_ANALYTICS_URL"] = "https://127.0.0.1:1" // wired as erp-analytics' client; nothing queries it here
 	router := peerClient(t, ca, tlsconf.ID(trustDomain, "global", "erp-router"))
 	ctx, cancel := context.WithCancel(context.Background())
 	var logs pgtest.SyncBuffer // the server logs on its goroutines while the test reads
@@ -2007,6 +2048,88 @@ func TestEngineOverMutualTLS(t *testing.T) {
 	}
 }
 
+// TestMetricsCatalog: every metric the cell registers passes the catalog
+// of ADR-0043, and the enumerations its labels take fit their bounds.
+func TestMetricsCatalog(t *testing.T) {
+	cfg := config.Config{RelayRole: "erp_relay", ProjectorRole: "erp_projector", WorkerRole: "erp_worker",
+		AtRest: config.AtRest{Postgres: "storage-kms", Objects: "sse-kms", NATS: "file-kms"}}
+	if err := newMetrics(pgtest.Pool(t), cfg, quiet(), true).Check(); err != nil {
+		t.Errorf("catalog: got %v, want none", err)
+	}
+	control, err := api.ControlOperations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := os.ReadFile("../../api/asyncapi.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := map[string]bool{}
+	for _, m := range regexp.MustCompile(`com\.example\.erp\.[a-z_]+\.([a-z_]+)\.v[0-9]+`).FindAllSubmatch(contract, -1) {
+		events[string(m[1])] = true
+	}
+	for label, n := range map[string]int{"operation": len(api.MustOperations()) + len(control) + 1, "class": len(api.Classes),
+		"context": len(outbox.Contexts), "event": len(events), "agent_kind": len(autonomy.Kinds), "alias": len(modelalias.Aliases),
+		"decision": len(telemetry.Decisions), "kind": len(telemetry.TokenKinds), "status": len(agents.CallStatuses), "entity": len(rules.Entities())} {
+		if n > telemetry.Labels[label] {
+			t.Errorf("label %s: got %d values, want at most %d", label, n, telemetry.Labels[label])
+		}
+	}
+}
+
+// TestRulesUseCatalog: the cell's SLO rules (deploy/helm/erp-cell/rules)
+// name only series the cell exports, match only labels those series carry,
+// and group by or print only catalog labels (ADR-0043, T54e).
+func TestRulesUseCatalog(t *testing.T) {
+	rules, err := os.ReadFile("../../deploy/helm/erp-cell/rules/erp.rules.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := regexp.MustCompile(`(?m)^\s*#.*$`).ReplaceAllString(string(rules), "")
+	series := newMetrics(pgtest.Pool(t), config.Config{}, quiet(), true).Series()
+	// Labels a rule makes itself (label_replace) are its own to group on.
+	made := map[string]bool{"le": true, "__name__": true}
+	for _, m := range regexp.MustCompile(`label_replace\([^,]*,\s*"([a-z_]+)"`).FindAllStringSubmatch(src, -1) {
+		made[m[1]] = true
+	}
+	known := func(label string) bool {
+		_, ok := telemetry.Labels[label]
+		return ok || made[label]
+	}
+	for _, sel := range regexp.MustCompile(`\b(erp_[a-z0-9_]+)(\{[^}]*\})?`).FindAllStringSubmatch(src, -1) {
+		labels, ok := series[sel[1]]
+		if !ok {
+			t.Errorf("%s: not a series the cell exports", sel[1])
+			continue
+		}
+		for _, m := range regexp.MustCompile(`([a-z_]+)\s*(?:=~|!~|!=|=)`).FindAllStringSubmatch(sel[2], -1) {
+			if !slices.Contains(labels, m[1]) {
+				t.Errorf("%s: matches label %s, which it does not carry", sel[1], m[1])
+			}
+		}
+	}
+	for _, g := range regexp.MustCompile(`\b(?:by|on|without|ignoring|group_left|group_right)\s*\(([^)]*)\)|\$labels\.([a-z_]+)`).FindAllStringSubmatch(src, -1) {
+		for _, l := range strings.FieldsFunc(g[1]+","+g[2], func(r rune) bool { return r == ',' || r == ' ' }) {
+			if !known(l) {
+				t.Errorf("label %s: not in the catalog", l)
+			}
+		}
+	}
+	// Each latency rule gives every class its threshold: a class without
+	// one would have a denominator and no ratio.
+	latency := regexp.MustCompile(`(?s)record: erp:http_latency_slow:ratio_rate\w+\n.*?(?:\n      - |\n  - )`).FindAllString(src, -1)
+	if len(latency) != 7 {
+		t.Errorf("latency rules: got %d, want one per window (7)", len(latency))
+	}
+	for _, rule := range latency {
+		for _, class := range api.Classes {
+			if !regexp.MustCompile(`class=~?"(?:[a-z|]*\|)?` + class + `(?:\|[a-z|]*)?"`).MatchString(rule) {
+				t.Errorf("%s: no threshold for class %s", strings.SplitN(rule, "\n", 2)[0], class)
+			}
+		}
+	}
+}
+
 // TestAtRestStatedAndChecked: with ERP_AT_REST the cell logs how each
 // store encrypts at rest and exports it as erp_at_rest_info; with
 // objects=sse-kms it asks for KMS encryption on every write and starts
@@ -2051,7 +2174,8 @@ func TestAtRestStatedAndChecked(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close() // read whole
-	for _, want := range []string{`erp_at_rest_info{encryption="storage-kms",store="postgres"} 1`, `erp_at_rest_info{encryption="sse-kms",store="objects"} 1`} {
+	for _, want := range []string{`erp_at_rest_info{encryption="storage-kms",store="postgres"} 1`, `erp_at_rest_info{encryption="sse-kms",store="objects"} 1`,
+		`erp_operation_info{class="report",operation="listBalances"} 1`} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("metrics: got %s, want %s", body, want)
 		}
@@ -2281,5 +2405,16 @@ func TestModelClient(t *testing.T) {
 	_ = resp.Body.Close() // only the status is asserted
 	if resp.StatusCode != http.StatusTemporaryRedirect {
 		t.Errorf("redirect: got %d, want it answered, not followed", resp.StatusCode)
+	}
+}
+
+// TestReplicaDown: a configured read replica the server cannot reach stops
+// it at startup, as the primary does.
+func TestReplicaDown(t *testing.T) {
+	env := environment(t, authntest.New(t), "")
+	env["DATABASE_REPLICA_URL"] = "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"
+	var stderr bytes.Buffer
+	if code := cli(context.Background(), nil, func(k string) string { return env[k] }, io.Discard, &stderr, nil); code != 1 || !strings.Contains(stderr.String(), "the read replica") {
+		t.Errorf("got %d %s, want 1 and the read replica's failure", code, stderr.String())
 	}
 }

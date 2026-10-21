@@ -1,0 +1,12 @@
+# The cell's SLOs and alerts (ADR-0043, T54e): rules/erp.rules.yaml as it
+# is, a Prometheus rule file that promtool checks and tests on its own
+# (scripts/helm-checks.sh). The cell's Prometheus loads every rule of the
+# cluster (ruleSelectorNilUsesHelmValues: false).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: erp-slo
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-server") | nindent 4 }}
+spec:
+  {{- .Files.Get "rules/erp.rules.yaml" | nindent 2 }}

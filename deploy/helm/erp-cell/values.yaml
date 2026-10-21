@@ -12,6 +12,12 @@ trustDomain: ""
 # The namespace the router and the global plane run in (erp-global
 # chart): the only callers of the API and /control.
 routerNamespace: erp-global
+# The cell's monitoring add-on (kube-prometheus-stack, ADR-0043), whose
+# Prometheus scrapes the server's admin /metrics.
+monitoringNamespace: monitoring
+# The cell's traces add-on (opentelemetry-collector, ADR-0043), which the
+# server sends its spans to.
+tracingNamespace: tracing
 # The cell's VPC CIDR (cell.cidr): the database and the AWS endpoints.
 vpcCidr: ""
 
@@ -29,6 +35,10 @@ images:
     digest: ""
   # erp-temporal (temporal/), built and signed with the platform's own.
   temporal:
+    repository: ""
+    digest: ""
+  # erp-analytics (deploy/images/erp-analytics.Dockerfile: cgo, not ko's).
+  analytics:
     repository: ""
     digest: ""
 
@@ -61,10 +71,32 @@ server:
   # Connections each replica opens to PgBouncer.
   dbMaxConns: 20
   logLevel: info
+  # OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: the cell's collector (the
+  # opentelemetry-collector add-on's erp-tracing Service, T54g), which
+  # samples the spans and sends them to X-Ray.
+  otlpEndpoint: http://erp-tracing.tracing.svc:4318/v1/traces
   resources:
     requests: {cpu: 500m, memory: 512Mi}
     limits: {memory: 1Gi}
   # Further settings, by name.
+  extraEnv: {}
+
+# erp-analytics (ADR-0044): every cell runs it; erp-server reaches it at
+# erp-analytics:8443 (ERP_ANALYTICS_URL). It reads the bucket and the AWS
+# endpoints named under server.
+analytics:
+  replicas: 2
+  # IRSA role (cell.workload_role_arns.analytics): analytics/ read only.
+  roleArn: ""
+  # The verified files' cache and DuckDB's spill space, per Pod.
+  cacheSize: 8Gi
+  logLevel: info
+  # DuckDB's per-query memory_limit (ERP_ANALYTICS_MEMORY_LIMIT) times the
+  # concurrent queries (ERP_ANALYTICS_MAX_QUERIES) must fit the limit.
+  resources:
+    requests: {cpu: "1", memory: 2Gi}
+    limits: {memory: 4Gi}
+  # Further settings, by name (ERP_ANALYTICS_THREADS and the like).
   extraEnv: {}
 
 database:

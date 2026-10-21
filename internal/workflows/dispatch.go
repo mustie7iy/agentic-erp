@@ -19,6 +19,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
@@ -42,9 +43,15 @@ type Dispatcher struct {
 	Client      workflow.Client
 	Queue       string        // the task queue the cell's workers listen on
 	Interval    time.Duration // between rounds; default 1 second
-	Log         *slog.Logger
+	// Statements is the period of each house bank's statement fetch
+	// (ERP_STATEMENT_FETCH_INTERVAL, ADR-0047); 0 fetches none.
+	Statements time.Duration
+	Now        func() time.Time // the fetch periods' clock; nil: time.Now
+	Log        *slog.Logger
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
 	Begin database.BeginFunc
+
+	fetched time.Time // the last fetch period started without a failure
 }
 
 func (d *Dispatcher) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
@@ -128,6 +135,13 @@ func (d *Dispatcher) RunOnce(ctx context.Context) (int, error) {
 			failures = append(failures, err)
 		}
 	}
+	if d.Statements > 0 {
+		k, err := d.fetch(ctx, tx)
+		n += k
+		if err != nil {
+			failures = append(failures, err)
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return n, fmt.Errorf("dispatcher: committing the started workflows: %w", err)
 	}
@@ -184,6 +198,46 @@ func (d *Dispatcher) watch(ctx context.Context, tx pgx.Tx) (int, error) {
 	return n, errors.Join(failures...)
 }
 
+// fetch starts, once per period, a statement fetch for every active house
+// bank whose bank channel names statement directories (ADR-0047, T49d).
+// The workflow id names the period, so the engine starts each once however
+// many replicas dispatch; a period started with no failure is not looked
+// at again by this dispatcher.
+func (d *Dispatcher) fetch(ctx context.Context, tx pgx.Tx) (int, error) {
+	slot := clock.Now(d.Now).UTC().Truncate(d.Statements)
+	if slot.Equal(d.fetched) {
+		return 0, nil
+	}
+	channels, err := integration.StatementChannels(ctx, tx)
+	if err != nil {
+		return 0, fmt.Errorf("dispatcher: %w", err)
+	}
+	banks, err := payments.ChannelBanks(ctx, tx)
+	if err != nil {
+		return 0, fmt.Errorf("dispatcher: %w", err)
+	}
+	n := 0
+	var failures []error
+	for _, b := range banks {
+		if !channels[integration.TenantConnector{TenantID: b.TenantID, ID: b.ConnectorID}] {
+			continue
+		}
+		started, err := d.Client.Start(ctx, workflow.Start{ID: FetchWorkflowID(b.TenantID, b.HouseBankID, slot), Queue: d.Queue, Name: FetchWorkflow,
+			Args: []any{FetchInput{TenantID: b.TenantID, HouseBankID: b.HouseBankID}}})
+		if err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		if started {
+			n++
+		}
+	}
+	if len(failures) == 0 {
+		d.fetched = slot
+	}
+	return n, errors.Join(failures...)
+}
+
 // Run dispatches until ctx ends, logging failures and work done.
 func (d *Dispatcher) Run(ctx context.Context) {
 	worker.Loop(ctx, d.Interval, time.Second, func(ctx context.Context) (bool, error) {
@@ -196,7 +250,7 @@ func (d *Dispatcher) Run(ctx context.Context) {
 }
 
 // Register registers the workflows and activities a cell's worker hosts.
-func Register(r workflow.Registry, p *Payments, s *Simulations, m *Migrations, a *Approvals) {
+func Register(r workflow.Registry, p *Payments, s *Simulations, m *Migrations, a *Approvals, st *Statements) {
 	r.RegisterWorkflowWithOptions(ProposePaymentRun, sdkworkflow.RegisterOptions{Name: ProposeWorkflow})
 	r.RegisterWorkflowWithOptions(ReleasePaymentRun, sdkworkflow.RegisterOptions{Name: ReleaseWorkflow})
 	r.RegisterWorkflowWithOptions(SimulateChange, sdkworkflow.RegisterOptions{Name: SimulateWorkflow})
@@ -206,4 +260,6 @@ func Register(r workflow.Registry, p *Payments, s *Simulations, m *Migrations, a
 	r.RegisterWorkflowWithOptions(ApprovalDeadline, sdkworkflow.RegisterOptions{Name: DeadlineWorkflow})
 	r.RegisterActivity(m)
 	r.RegisterActivity(a)
+	r.RegisterWorkflowWithOptions(FetchBankStatements, sdkworkflow.RegisterOptions{Name: FetchWorkflow})
+	r.RegisterActivity(st)
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -102,7 +103,7 @@ func (e env) create(t *testing.T, body string) (map[string]any, map[string]any) 
 func (e env) apply(t *testing.T, change string) error {
 	t.Helper()
 	err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error {
-		_, err := partner.ApplyChange(ctx, uuid.MustParse(change))
+		_, err := partner.ApplyChange(ctx, configuration.Settings{}, uuid.MustParse(change))
 		return err
 	})
 	if err != nil {
@@ -479,7 +480,10 @@ func TestApplyRejectCancel(t *testing.T) {
 		t.Errorf("bank account changed valid_from: got %v, want %s", changed[0]["valid_from"], e.date(5))
 	}
 	for name, fn := range map[string]func(context.Context, uuid.UUID) (partner.Change, error){
-		"apply": partner.ApplyChange, "reject": partner.RejectChange, "cancel": partner.CancelChange,
+		"apply": func(ctx context.Context, id uuid.UUID) (partner.Change, error) {
+			return partner.ApplyChange(ctx, configuration.Settings{}, id)
+		},
+		"reject": partner.RejectChange, "cancel": partner.CancelChange,
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
@@ -490,7 +494,7 @@ func TestApplyRejectCancel(t *testing.T) {
 		})
 	}
 	err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
-		_, err := partner.ApplyChange(ctx, uuid.New())
+		_, err := partner.ApplyChange(ctx, configuration.Settings{}, uuid.New())
 		return err
 	})
 	pgtest.WantErr(t, err, "request.not_found")

@@ -41,6 +41,24 @@ func (r *recorder) Publish(_ context.Context, m outbox.Message) error {
 	return nil
 }
 
+// counter records erp_events_published_total by context and event.
+type counter struct {
+	mu sync.Mutex
+	n  map[string]int
+}
+
+func (c *counter) EventsPublished(context, event string, n int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.n[context+"."+event] += n
+}
+
+func (c *counter) get(context, event string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.n[context+"."+event]
+}
+
 func (r *recorder) forTenant(tenant uuid.UUID) []outbox.Message {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -319,8 +337,17 @@ func TestRelayWaitsForTheContextLock(t *testing.T) {
 func TestRelayRepublishesWhenMarkingFails(t *testing.T) {
 	pool := pgtest.Pool(t)
 	ten := pgtest.NewTenant(t)
+	// An event name of its own, so other tests' events do not add to its
+	// count; digits become letters because the outbox's CHECK allows only
+	// [a-z_] in a name.
+	event := "marked_" + strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return 'g' + (r - '0')
+		}
+		return r
+	}, strings.ReplaceAll(uuid.NewString(), "-", ""))
 	inRequest(t, pool, ten, func(ctx context.Context) error {
-		_, err := outbox.Add(ctx, outbox.Event{Context: "platform", Name: "operation_completed", AggregateID: uuid.New(), Payload: 1})
+		_, err := outbox.Add(ctx, outbox.Event{Context: "platform", Name: event, AggregateID: uuid.New(), Payload: 1})
 		return err
 	})
 	// A role that can read but not mark rows: the batch is published, the
@@ -328,13 +355,21 @@ func TestRelayRepublishesWhenMarkingFails(t *testing.T) {
 	// de-duplicates on the event id (natsbus).
 	pgtest.Exec(t, `DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'test_relay_ro') THEN CREATE ROLE test_relay_ro NOLOGIN BYPASSRLS; END IF; END $$`)
 	pgtest.Exec(t, `GRANT USAGE ON SCHEMA platform TO test_relay_ro; GRANT SELECT ON platform.outbox TO test_relay_ro`)
-	rec := &recorder{}
-	ro := &outbox.Relay{Pool: pool, Role: "test_relay_ro", Publisher: rec, Cell: "eu1"}
+	rec, published := &recorder{}, &counter{n: map[string]int{}}
+	ro := &outbox.Relay{Pool: pool, Role: "test_relay_ro", Publisher: rec, Cell: "eu1", Counter: published}
 	if _, err := ro.RunOnce(context.Background()); err == nil {
 		t.Fatal("marking failure not reported")
 	}
-	if _, err := (&outbox.Relay{Pool: pool, Role: "erp_relay", Publisher: rec, Cell: "eu1"}).RunOnce(context.Background()); err != nil {
+	if got := published.get("platform", event); got != 0 {
+		t.Errorf("counted before the commit: got %d, want 0", got)
+	}
+	if _, err := (&outbox.Relay{Pool: pool, Role: "erp_relay", Publisher: rec, Cell: "eu1", Counter: published}).RunOnce(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+	// erp_events_published_total counts committed events: the event
+	// published twice counts once (ADR-0043).
+	if got := published.get("platform", event); got != 1 {
+		t.Errorf("events published: got %d, want 1", got)
 	}
 	msgs := rec.forTenant(ten.ID)
 	if len(msgs) != 2 {
@@ -395,5 +430,56 @@ func TestRelayPublishesAnUnversionedType(t *testing.T) {
 	}
 	if got := msgs[0].Header["ce-type"]; got != "com.example.erp.platform.operation_completed" {
 		t.Errorf("ce-type: got %q, want the stored type", got)
+	}
+}
+
+// TestRelayedSeesEachBatch: the hook gets a published batch's context and
+// tenants in the transaction that marks it published, and its failure
+// leaves the batch unpublished.
+func TestRelayedSeesEachBatch(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ten := pgtest.NewTenant(t)
+	inRequest(t, pool, ten, func(ctx context.Context) error {
+		_, err := outbox.Add(ctx, outbox.Event{Context: "platform", Name: "operation_completed", AggregateID: uuid.New(), Payload: 1})
+		return err
+	})
+	unpublished := func() int {
+		var n int
+		pgtest.Scan(t, `SELECT count(*) FROM platform.outbox WHERE tenant_id = $1 AND published_at IS NULL`, []any{ten.ID}, &n)
+		return n
+	}
+	relay := &outbox.Relay{Pool: pool, Role: "erp_relay", Publisher: &recorder{}, Cell: "eu1",
+		Relayed: func(context.Context, pgx.Tx, string, []uuid.UUID) error { return errors.New("hook down") }}
+	failed := false
+	for i := 0; i < 50 && !failed; i++ { // another package's relay may hold the context's lock
+		_, err := relay.RunOnce(context.Background())
+		if err != nil {
+			pgtest.WantErr(t, err, "hook down")
+			failed = true
+		}
+	}
+	if !failed {
+		t.Fatal("hook failure: never seen, want the round to fail")
+	}
+	if got := unpublished(); got != 1 {
+		t.Fatalf("unpublished after the hook failed: got %d, want 1", got)
+	}
+	var seen []string
+	relay.Relayed = func(_ context.Context, tx pgx.Tx, schema string, tenants []uuid.UUID) error {
+		if tx == nil {
+			t.Error("hook: got no transaction")
+		}
+		if slices.Contains(tenants, ten.ID) {
+			seen = append(seen, schema)
+		}
+		return nil
+	}
+	for i := 0; i < 10 && unpublished() > 0; i++ {
+		if _, err := relay.RunOnce(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !slices.Equal(seen, []string{"platform"}) {
+		t.Errorf("batches seen with the tenant: got %v, want [platform]", seen)
 	}
 }

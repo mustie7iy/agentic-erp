@@ -23,6 +23,25 @@ const MaxLevel = 3
 // KnownType reports whether t is one of them.
 func KnownType(t string) bool { return slices.Contains(Types, t) }
 
+// Agent kinds beyond the types, so that a metric's agent_kind is a bounded
+// enumeration, never a principal (ADR-0043).
+const (
+	Untyped  = "untyped" // an agent whose profile names no type it knows
+	NotAgent = "none"    // a person or service: not an agent
+)
+
+// Kinds are every agent kind: the types, Untyped and NotAgent.
+var Kinds = append(slices.Clone(Types), Untyped, NotAgent)
+
+// Kind is the agent kind of an agent of type t: t if it is a type, Untyped
+// otherwise (none named, or one since retired).
+func Kind(t string) string {
+	if KnownType(t) {
+		return t
+	}
+	return Untyped
+}
+
 // Agent is an agent of the tenant above level 0: what its type is
 // certified for on the model its alias routes to bounds its level. Type is
 // empty for an agent whose administrators named none (one from before

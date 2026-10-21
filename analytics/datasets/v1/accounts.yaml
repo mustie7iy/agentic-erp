@@ -1,0 +1,18 @@
+# Dataset contract (ADR-0044). Additive changes only (a new nullable
+# column); a removed, renamed or retyped column or a changed grain is a new
+# version under ../v2. Columns are what the extractor writes to Parquet;
+# internal/analytics/datasets_test.go checks them against semantic.yaml.
+dataset: accounts
+version: 1
+kind: dimension
+grain: One row per G/L account of a company's chart.
+# Joined at read time, so a renamed or reclassified account needs no
+# re-extract of posted lines.
+load: snapshot
+columns:
+  - {name: tenant_id, type: uuid, role: tenant}
+  - {name: company, type: string, role: key}
+  - {name: account, type: string, role: key}
+  - {name: account_name, type: string, role: dimension}
+  - {name: account_type, type: string, role: dimension}
+  - {name: vendor_recon, type: bool, role: dimension}

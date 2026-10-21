@@ -120,3 +120,18 @@ func Published(tb testing.TB, ten pgtest.Tenant, e outbox.Event) []map[string]an
 	}
 	return out
 }
+
+// NeverPublished fails tb when any event the tenant's context wrote to its
+// outbox carries value anywhere in its payload: a personal or sensitive
+// custom field is masked in every event (ADR-0046).
+func NeverPublished(tb testing.TB, ten pgtest.Tenant, boundedContext, value string) {
+	tb.Helper()
+	var n int
+	if err := pgtest.Admin(tb).QueryRow(context.Background(), `SELECT count(*) FROM `+pgx.Identifier{boundedContext, "outbox"}.Sanitize()+`
+		WHERE tenant_id = $1 AND strpos(payload::text, $2) > 0`, ten.ID, value).Scan(&n); err != nil {
+		tb.Fatal(err)
+	}
+	if n != 0 {
+		tb.Errorf("%s outbox: got %d events carrying a masked value, want none", boundedContext, n)
+	}
+}

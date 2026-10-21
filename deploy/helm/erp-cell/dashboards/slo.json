@@ -1,0 +1,275 @@
+{
+  "uid": "erp-slo",
+  "title": "ERP SLOs and error budget",
+  "description": "Availability (99.95% a month) and latency per class (5% slow) as the SLO rules record them, as burn rates of their budgets (ADR-0043).",
+  "tags": [
+    "erp"
+  ],
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "timezone": "utc",
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Availability, 3d",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "1 - erp:http_availability_errors:ratio_rate3d",
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Budget left, 30d (approx.)",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "1 - avg_over_time(erp:http_availability_errors:ratio_rate1h[30d]) / 0.0005",
+          "legendFormat": ""
+        }
+      ],
+      "description": "The month's availability budget left: the mean of the hourly failure ratio over 30 days, unweighted by traffic."
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Burn rate, 1h",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "erp:http_availability_errors:ratio_rate1h / 0.0005",
+          "legendFormat": ""
+        }
+      ],
+      "description": "Pages at 14.4 with the 5m window above it too."
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Burn rate, 6h",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "erp:http_availability_errors:ratio_rate6h / 0.0005",
+          "legendFormat": ""
+        }
+      ],
+      "description": "Pages at 6 with the 30m window above it too."
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Availability burn rate",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "erp:http_availability_errors:ratio_rate5m / 0.0005",
+          "legendFormat": "5m"
+        },
+        {
+          "refId": "B",
+          "expr": "erp:http_availability_errors:ratio_rate30m / 0.0005",
+          "legendFormat": "30m"
+        },
+        {
+          "refId": "C",
+          "expr": "erp:http_availability_errors:ratio_rate1h / 0.0005",
+          "legendFormat": "1h"
+        },
+        {
+          "refId": "D",
+          "expr": "erp:http_availability_errors:ratio_rate2h / 0.0005",
+          "legendFormat": "2h"
+        },
+        {
+          "refId": "E",
+          "expr": "erp:http_availability_errors:ratio_rate6h / 0.0005",
+          "legendFormat": "6h"
+        },
+        {
+          "refId": "F",
+          "expr": "erp:http_availability_errors:ratio_rate1d / 0.0005",
+          "legendFormat": "1d"
+        },
+        {
+          "refId": "G",
+          "expr": "erp:http_availability_errors:ratio_rate3d / 0.0005",
+          "legendFormat": "3d"
+        }
+      ],
+      "description": "1 spends the month's budget in exactly a month; the alerts page at 14.4 and 6, ticket at 3 and 1."
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Latency burn rate by class, 1h",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "erp:http_latency_slow:ratio_rate1h / 0.05",
+          "legendFormat": "{{class}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Latency burn rate by class, 6h",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "erp:http_latency_slow:ratio_rate6h / 0.05",
+          "legendFormat": "{{class}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Latency burn rate by class, 1d",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "erp:http_latency_slow:ratio_rate1d / 0.05",
+          "legendFormat": "{{class}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Latency burn rate by class, 3d",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "erp:http_latency_slow:ratio_rate3d / 0.05",
+          "legendFormat": "{{class}}"
+        }
+      ]
+    }
+  ]
+}

@@ -97,7 +97,9 @@ release step, not a multi-step approval. The requester, human or agent, may
 - Custom fields (ADR-0009) appear under `extensions`, validated against the
   tenant's published schema for that resource.
 - Sensitive values are never returned in full: bank accounts expose
-  `account_last4` and `account_scheme` only.
+  `account_last4` and `account_scheme` only, and for a Canadian account
+  (scheme `ca`, T45d) the bank's `institution_number` and `transit_number`,
+  which name the bank as a BIC does.
 
 ## 4.5 Lists, filters and pagination
 
@@ -243,9 +245,14 @@ at most one bank file.
 - Every operation in the spec declares its permission with
   `x-permission: payables.invoice.post`. The generated router refuses to start
   if a handler has no permission, and a test checks that every permission in
-  the spec exists in `ref.permission`.
+  the spec exists in `ref.permission`. An operation whose resource is read by
+  whoever may read an entity (`GET /v1/schemas/{entity}`, ADR-0046) names a
+  read permission per entity in `x-entity-permissions` instead.
 - Company access is checked on every read and write; resources outside the
-  caller's companies are 404, not 403, so ids cannot be probed.
+  caller's companies are 404, not 403, so ids cannot be probed. A resource
+  of no company that holds values of several (a change request's simulation
+  evidence) shows each reader the values of their own companies alone, with
+  counts over those, failing closed (03 §3.5).
 - Segregation of duties is checked on transitions (for example, the user who
   created a payment run cannot release it).
 - A document's journal entry is reversed through the document, never
@@ -265,9 +272,19 @@ at most one bank file.
 Within `/v1`, only additive changes are allowed: new resources, new optional
 fields, new optional parameters, new enum values, new error codes. Removing or
 renaming anything, making a field required or changing a type needs `/v2`,
-which runs side by side with `/v1` for at least 12 months. Deprecations are
-announced with the `Deprecation` and `Sunset` headers. The breaking-change
-check in CI enforces this.
+which runs side by side with `/v1` for at least 12 months (ADR-0041).
+
+A deprecated operation says so in the contract: `deprecated: true`,
+`x-deprecated-at`, `x-sunset` at least 365 days later and `externalDocs.url`
+with its migration notes. Every answer to it carries `Deprecation`
+(RFC 9745, `@<unix seconds>`), `Sunset` (RFC 8594) and
+`Link: <notes>; rel="deprecation"`, built from the contract.
+
+The breaking-change check in CI enforces this: oasdiff against main with
+`--deprecation-days-stable=365`. An accepted break is listed in
+`api/breaking-accepted.txt` under a comment naming its T-number and reason;
+once the pilot partner consumes `/v1`, only operations marked
+`x-stability-level: beta` may be listed.
 
 ## 4.11 Limits and quotas
 
@@ -300,8 +317,18 @@ Events are CloudEvents 1.0 with `type` `com.example.erp.<context>.<event>.v1`
 `subject` = resource id, and the extension attributes `tenantid`, `actorid`
 and `traceid`. Payloads carry ids and the changed facts, not whole
 aggregates. Delivery is at least once and ordered per resource; consumers
-deduplicate on `id` through their inbox table. External subscribers receive
-the same events through signed webhooks.
+deduplicate on `id` through their inbox table.
+
+Within a `.vN` an event changes only additively: no event type or field
+removed, no type changed, no field newly required or no longer required.
+A breaking change
+publishes `.vN+1` beside `.vN` for 12 months. `cmd/eventcompat` checks this
+against main in the breaking-change step (ADR-0041).
+
+External subscribers receive events marked `x-webhook: true` through
+webhooks signed per Standard Webhooks (HMAC-SHA256, a `whsec_` secret per
+subscription, 24 h overlap on rotation), at most 20 subscriptions per tenant,
+retried with backoff for 3 days, ordered per resource (ADR-0041, T50b–g).
 
 ## 4.13 Agents
 

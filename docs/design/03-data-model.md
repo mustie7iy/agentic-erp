@@ -37,6 +37,7 @@ types. Both are reviewed together.
 | `updated_at timestamptz`, `updated_by uuid` | mutable tables | Last change |
 | `version integer` | mutable aggregate roots | Optimistic locking, exposed as ETag (ADR-0008) |
 | `extensions jsonb` | extensible entities | Governed custom fields (ADR-0009) |
+| `extensions_schema integer` | entities with a custom field schema | The schema version the extensions were validated against; NULL without a schema (ADR-0046) |
 
 Insert-only tables (journal entries and lines, clearings, goods movements,
 decisions, audit events) have no `updated_*` or `version`, and the
@@ -329,6 +330,29 @@ activation, each owning context applies its part to its own relational tables
 to `partner`...). Domain tables are therefore always typed and constrained,
 and every change to them traces back to an approved change request.
 
+Country packs (ADR-0048) enter the document the same way: applying one
+(`internal/countrypack`) yields a draft document and notes for a change
+request, merged three-way from the version the company adopted. The
+document's `packs` section records, per company, the country, the pack
+version and the date it was applied on (`packs[company]`, an operational-
+tier change); validation requires a company of that country, one adoption
+per company, a `YYYY.N` version and a date.
+
+A change request's simulation replays the invoices of every company, so
+that its verdict covers the whole change, but each reader is shown the
+invoices of the companies they may access alone, and the detail's and
+summary's counts over those (04-api-design §4.9). The evidence is recorded
+by company (`invoices_by_company`) with a summary that carries no count,
+since the summary also reaches the operation's result and the audit trail;
+reading the change request (`payables.Disclosure`) fails closed: a reader
+of no company is shown no invoice and counts of zero, and a replay of no
+legal entity is shown only to a reader of every company. A simulation
+recorded before this rule, with counts over every company, is shown only
+to readers of every company. The verdict (`passed`) is the change's and is
+shown to every reader, as the request's status shows it anyway. Regression
+evidence and suites' cases are not yet limited this way (tracker follow-up
+under Regression suites).
+
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
 in the currency of the requisition's company), the order release
@@ -405,7 +429,10 @@ erDiagram
     bytea account_cipher
     text account_fingerprint
     text account_last4
+    text account_scheme "iban | domestic | ca"
     text bic
+    text institution_number "scheme ca only: 3 digits"
+    text transit_number "scheme ca only: 5 digits"
     date valid_from
     date valid_to }
   tax_identifier { uuid partner_id PK
@@ -752,6 +779,40 @@ balance, and clearing, settlement and reservation refuse them
 the supplier's invoice (T46d) or by a reversal, which keeps the indicator.
 Listing the `down_payment` account's open items (`account_id`) lists the
 supplier's down payments.
+
+Foreign-currency revaluation (T48, ADR-0042, migration 000107). The
+document currency is the entry's `currency_tc`; lines carry no currency of
+their own. `company_account.revalue_foreign_currency` flags an asset or
+liability that reconciles no partner whose balance per currency is revalued
+(`company_account_revalue_foreign_currency`; the flag stays while an
+active valuation names it). `fx_valuation` holds the legal entity's one
+valuation rate type (default `average`); `fx_valuation_account`, per legal
+entity and revalued account, the unrealised gain (a revenue) and loss (an
+expense) and, exactly for a supplier or customer reconciliation account, a
+balance-sheet adjustment account that reconciles nothing
+(`fx_valuation_account_revalued`, `_adjustment`, `_gain`, `_loss`); both
+from `companies[].fx_valuation`, deactivated when removed.
+`revaluation_run` is one run of a legal entity and ledger at a key date:
+its rate type, status `posted` then `cancelled`, and its valuation entry
+(dated the key date) and reversal entry (the next day), both or neither,
+of its legal entity and ledger and no other run's (`revaluation_run_entries`,
+`revaluation_run_entry_dates`, `revaluation_run_valuation_entry`, `revaluation_run_reversal_entry`), fixed once posted
+(`revaluation_run_lifecycle`, `revaluation_run_fixed`); one posted run per
+key date (`revaluation_run_posted`). `revaluation_item`, insert-only, is
+what a run valued: an open item (a journal line, with its partner) or a
+flagged account's balance in one currency (`revaluation_item_kind`), each
+once per run, with its transaction and booked local and group amounts and,
+for local and for group currency each, the rate, its validity (none for
+the group's own currency) and the amount at that rate: group currency is
+valued on its own. An open item has a transaction-currency amount; a
+balance may be zero in it while its local or group balance is not, the
+residual a run corrects (`revaluation_item_amount`), and is worth zero at
+any rate, so it is valued without rates, every other item with both
+(`revaluation_item_rates`); a group rate without its validity is 1
+(`revaluation_item_rate_gc`). Cancelling a run (T48d) reverses both its
+entries through the ledger's reversal path (`ledger.reversal`) and sets
+`cancelled`, under the entries' bucket locks and the run read `FOR UPDATE`;
+the key date is then free for another posted run.
 
 ## 3.8 Procurement (`procurement`)
 
@@ -1230,6 +1291,9 @@ erDiagram
   payment ||--|{ payment_item : settles
   payment_run ||--o{ payment_exclusion : excludes
   payment_run ||--o{ bank_file : produces
+  house_bank ||--o{ bank_statement : "statements of its account"
+  bank_statement ||--|{ bank_statement_line : books
+  bank_statement_line ||--o{ statement_match : "cleared by"
   payment_method ||--o{ bank_ranking : "ranks banks per currency"
   payment_method { uuid legal_entity_id PK
     text code PK "one character; T45b"
@@ -1268,15 +1332,49 @@ erDiagram
     text reason_code }
   house_bank { uuid id PK
     uuid legal_entity_id
-    bytea iban_cipher
+    bytea iban_cipher "the IBAN, or a Canadian bank's account number (T45d)"
     text bic
+    text institution_number "Canadian bank: 3 digits; null for an IBAN"
+    text transit_number "Canadian bank: 5 digits; null for an IBAN"
     uuid gl_account_id
     uuid active_gl_account_id "gl_account_id while active; unique per legal entity"
-    uuid connector_id "its channel, an integration connector; null: the server's directory (T44b)" }
+    uuid connector_id "its channel, an integration connector; null: the server's directory (T44b)"
+    uuid main_gl_account_id "the main bank account statements post to; null: not posted (ADR-0047)"
+    uuid incoming_gl_account_id "incoming payments clearing (ADR-0047)" }
   sent_bank_file { uuid house_bank_id PK
     bytea sha256 PK
     uuid bank_file_id
     uuid connector_id "null: the server's directory" }
+  bank_statement { uuid id PK
+    uuid house_bank_id "unique with statement_key, and with file_sha256 and file_position"
+    text format "camt.053.001.02 | camt.053.001.08 | mt940"
+    bytea file_sha256
+    text file_ref "the file in the object store, kept as evidence"
+    text statement_key "statement id, account, sequence"
+    bigint opening_balance
+    bigint closing_balance
+    uuid previous_statement_id "the bank's statement before; null for its first"
+    text status "imported | gap | reconciled" }
+  bank_statement_line { uuid statement_id PK
+    int line_no PK
+    bigint amount "signed: credit positive"
+    text transaction_code
+    jsonb details "the transactions: references, counterparty"
+    text status "unmatched | proposed | matched | excluded | pending_approval | posted" }
+  statement_match { uuid id PK
+    uuid statement_id
+    int line_no "one live match per line"
+    text kind "rule | manual | agent"
+    text rule "the matching rule, of kind rule"
+    text reason
+    text status "open | matched | excluded | rejected" }
+  statement_match ||--o{ statement_match_target : clears
+  statement_match_target { uuid match_id PK
+    smallint candidate PK
+    smallint target_no PK
+    uuid payment_id
+    uuid bank_file_id "of a batch booking"
+    text posting_rule }
   bank_file { uuid id PK
     uuid payment_run_id "unique per run, house bank and method"
     uuid house_bank_id "null: the run's (T45c)"
@@ -1311,6 +1409,36 @@ in production until EBICS is certified with a bank (T44d): the control role
 `erp_control` reads every tenant's connectors' kind and status, never their
 settings or secret reference (000101), and a production cell refuses to
 start while one is active; disabling it is the remedy.
+
+Bank statements (ADR-0047, T49c, 000120) are imported per house bank from
+the bank's camt.053 or MT940 file: `payments.bank_statement` once per
+house bank and statement key (`bank_statement_key_once`) and once per file
+hash and position (`bank_statement_file_once`), so the same file again is
+the first import; its lines (`bank_statement_line`, signed minor units,
+the transactions in `details`) and the lines' matches
+(`statement_match`, T49e, 000123: one live match per line, made by a rule
+(naming it), a person or an agent, `open` with candidates for a person or
+`matched`, `excluded` only by a person, `rejected` when a person's decision
+replaces it; its targets in `statement_match_target`, per candidate a
+payment, with the bank file of a batch booking, or a posting rule). A bank
+file records its pain.001 message id (`bank_file.message_id`, 000123), which
+a batch booking carries. A
+statement whose opening balance is not the closing balance of the bank's
+statement before it (`previous_statement_id`) is in `gap`; a statement
+imported between two others becomes the next one's previous statement,
+which is compared again (its gap closes, or one opens). The file itself is
+accounting evidence: it is kept in the object store under the tenant and
+its hash (`file_ref`, `tenants/<id>/bank-statements/<sha256>`), written
+once, encrypted by the store and locked for the retention of financial
+records.
+Statement files fetched from a house bank's SFTP channel (T49d, 000121,
+000122) are recorded once per house bank and content
+(`payments.statement_fetch`, `statement_fetch_file_once`): `imported`, then
+`archived` once moved to the archive directory, `refused` with the
+import's reason, or `changed_after_import` with the content the file holds
+now when it was rewritten before its move (`statement_fetch_reason`: a
+reason exactly for these two), so a fetch cut short never imports a file
+twice and a refused or changed file is reported once.
 
 A company's payment methods (`payments.payment_method`, SAP T042Z) rank,
 per currency, the house banks that pay with them, first preferred
@@ -1471,7 +1599,9 @@ locks on 64 buckets per tenant (`'ledger.journal_entry:' || tenant || ':'
 `platform.require_tenant()` (migration 000039), which fails a transaction
 without one where a NULL key would take no lock), each set
 taken once per transaction in bucket order and before any posting period or
-number range (posting takes those). GR/IR locks (T33b) are advisory locks
+number range (posting takes those). A revaluation run (T48c, ADR-0042)
+takes all 64 exclusively before it reads, so the tenant's clearings and
+reversals wait for it. GR/IR locks (T33b) are advisory locks
 per purchase order (`'ledger.gr_ir:' || tenant || ':' || order`), taken in
 one sorted call by every posting that moves a GR/IR position and by a
 reversal of one, after its entry bucket. The lock order is entry buckets,
@@ -1675,6 +1805,8 @@ activate, and orders under them are refused.
 | `message` | Inbound and outbound messages with status, attempts, payload reference |
 | `output_message` | Business output (purchase orders to suppliers) per channel |
 | `migration_run` | Migration scope, mode, status, reconciliation report |
+| `webhook_subscription` | A tenant's webhook endpoint (https), its event types or `<context>.*`, status (`active`, `paused`, `disabled` with a reason, `deleted`), its sealed `whsec_` secret and, during a rotation, the previous one with its expiry (ADR-0041) |
+| `webhook_delivery` | One delivery of an event to a subscription, unique per (subscription, event): body, the event's `occurred_at` (the order a resource's deliveries are sent in), status (`pending` while an attempt is due, `delivered`, `dead`, `dropped` when its subscription was disabled), attempts, last HTTP status and error; kept 30 days. A paused subscription's stay pending until it resumes; the dispatcher leases one it sends by moving `next_attempt_at` (ADR-0041, T50f). Redelivery and replay reset deliveries to `pending` with no attempts; a ping is a delivery of type `webhook.ping` about its subscription, attempted once (T50g) |
 
 ## 3.14 Agents (`agents`)
 

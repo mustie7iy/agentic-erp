@@ -37,6 +37,22 @@ func TestFixtureIsValid(t *testing.T) {
 	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
 		t.Fatalf("with a further house bank: %v", fs)
 	}
+	c = fixture(t)
+	canadianBank(func(*HouseBank) {})(c)
+	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
+		t.Fatalf("with a Canadian house bank: %v", fs)
+	}
+}
+
+// canadianBank adds a further house bank at a Canadian bank (T45d) to
+// company 2000, changed by mutate.
+func canadianBank(mutate func(hb *HouseBank)) func(c *Config) {
+	return func(c *Config) {
+		furtherBank("101000")(c)
+		hb := &c.Companies[1].HouseBanks[0]
+		hb.IBAN, hb.BIC, hb.InstitutionNumber, hb.TransitNumber, hb.AccountNumber = "", "ROYCCAT2", "003", "00002", "100-0001"
+		mutate(hb)
+	}
 }
 
 func TestParseIsStrict(t *testing.T) {
@@ -62,6 +78,11 @@ func TestValidationRules(t *testing.T) {
 		path   string
 	}{
 		{"version", func(c *Config) { c.Version = 2 }, "version"},
+		{"pack of no company", adopt(PackAdoption{Company: "9000"}), "packs[9000].company"},
+		{"pack of another country", adopt(PackAdoption{Country: "CA"}), "packs[1000].country"},
+		{"pack version", adopt(PackAdoption{Version: "2026"}), "packs[1000].version"},
+		{"pack applied on", adopt(PackAdoption{AppliedOn: "2026-1-5"}), "packs[1000].applied_on"},
+		{"pack adopted twice", func(c *Config) { adopt(PackAdoption{})(c); c.Packs = append(c.Packs, c.Packs[0]) }, "packs[1000]"},
 		{"no companies", func(c *Config) { c.Companies = nil }, "companies"},
 		{"duplicate company", func(c *Config) { c.Companies = append(c.Companies, c.Companies[0]) }, "companies[1000]"},
 		{"empty code", func(c *Config) { c.Companies[0].Code = "" }, "companies[0].code"},
@@ -129,6 +150,10 @@ func TestValidationRules(t *testing.T) {
 			furtherBank("101000")(c)
 			c.Companies[1].HouseBanks[0].BIC = "DEUT"
 		}, "companies[2000].house_banks[DB].bic"},
+		{"Canadian bank with an IBAN", canadianBank(func(hb *HouseBank) { hb.IBAN = "DE02120300000000202051" }), "companies[2000].house_banks[DB].iban"},
+		{"Canadian institution", canadianBank(func(hb *HouseBank) { hb.InstitutionNumber = "3" }), "companies[2000].house_banks[DB].institution_number"},
+		{"Canadian transit", canadianBank(func(hb *HouseBank) { hb.TransitNumber = "" }), "companies[2000].house_banks[DB].transit_number"},
+		{"Canadian account", canadianBank(func(hb *HouseBank) { hb.AccountNumber = "12345" }), "companies[2000].house_banks[DB].account_number"},
 		{"payment method code", method(func(m *PaymentMethod) { m.Code = "TT" }), "companies[1000].payment_methods[TT]"},
 		{"payment method code taken", func(c *Config) {
 			c.Companies[0].PaymentMethods = append(c.Companies[0].PaymentMethods, c.Companies[0].PaymentMethods[0])
@@ -212,6 +237,46 @@ func TestValidationRules(t *testing.T) {
 func furtherBank(account string) func(c *Config) {
 	return func(c *Config) {
 		c.Companies[1].HouseBanks = []HouseBank{{Name: "DB", IBAN: "DE02120300000000202051", BIC: "DEUTDEFFXXX", GLAccount: account}}
+	}
+}
+
+// adopt records company 1000's adoption of the US pack 2026.1, with the
+// fields of a that are set instead.
+func adopt(a PackAdoption) func(c *Config) {
+	return func(c *Config) {
+		p := PackAdoption{Company: "1000", Country: "US", Version: "2026.1", AppliedOn: "2026-10-20"}
+		for _, f := range []struct {
+			to   *string
+			from string
+		}{{&p.Company, a.Company}, {&p.Country, a.Country}, {&p.Version, a.Version}, {&p.AppliedOn, a.AppliedOn}} {
+			if f.from != "" {
+				*f.to = f.from
+			}
+		}
+		c.Packs = []PackAdoption{p}
+	}
+}
+
+// A company's pack adoption is valid provenance, found by company, and
+// changing it is operational (ADR-0048).
+func TestPackAdoption(t *testing.T) {
+	c := fixture(t)
+	adopt(PackAdoption{})(c)
+	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
+		t.Errorf("Validate: got %v, want no errors", fs)
+	}
+	if a := c.Pack("1000"); a == nil || a.Version != "2026.1" {
+		t.Errorf("Pack(1000): got %+v, want version 2026.1", a)
+	}
+	if a := c.Pack("2000"); a != nil {
+		t.Errorf("Pack(2000): got %+v, want nil", a)
+	}
+	changes, _ := Diff(fixture(t), c) // Diff never fails
+	if len(changes) != 1 || changes[0].Path != "packs[1000]" || changes[0].Tier != TierOperational {
+		t.Errorf("Diff: got %v, want packs[1000] added at tier 2", changes)
+	}
+	if n := (Note{Path: "packs[1000]", Message: "adopted"}); n.String() != "packs[1000]: adopted" {
+		t.Errorf("Note.String: got %q", n.String())
 	}
 }
 
@@ -602,5 +667,69 @@ func TestParseActive(t *testing.T) {
 	}
 	if c, _, err := ParseActive([]byte("payment_terms: none\n")); err == nil || c != nil {
 		t.Errorf("an unreadable document: got %v, %v; want an error and no document", c, err)
+	}
+}
+
+// TestAnalyticsChanges: a metric's or dimension's words are cosmetic and
+// need no evidence; its definition is operational and needs a simulation,
+// which a tier needing one already has.
+func TestAnalyticsChanges(t *testing.T) {
+	base := func() *Config {
+		return &Config{Analytics: &Analytics{Dimensions: []Dimension{{Name: "company", Label: "Company"}},
+			Metrics: []Metric{{Name: "revenue", Label: "Revenue", Type: "money", Source: "gl_lines", Aggregate: "sum", Filter: map[string][]string{"account_type": {"revenue"}}}}}}
+	}
+	cases := map[string]struct {
+		change   func(*Config)
+		tier     Tier
+		evidence string
+	}{
+		"a label":       {func(c *Config) { c.Analytics.Metrics[0].Label = "Sales" }, TierCosmetic, ""},
+		"a synonym":     {func(c *Config) { c.Analytics.Metrics[0].Synonyms = []string{"sales"} }, TierCosmetic, ""},
+		"a dimension":   {func(c *Config) { c.Analytics.Dimensions[0].Description = "Code" }, TierCosmetic, ""},
+		"a filter":      {func(c *Config) { c.Analytics.Metrics[0].Filter["account"] = []string{"400000"} }, TierOperational, "simulation"},
+		"a new metric":  {func(c *Config) { c.Analytics.Metrics = append(c.Analytics.Metrics, Metric{Name: "x", Label: "X"}) }, TierOperational, "simulation"},
+		"the calendar":  {func(c *Config) { c.Analytics.Calendar.FiscalYearStartMonth = 7 }, TierOperational, "simulation"},
+		"with a tier 3": {func(c *Config) { c.Analytics.Metrics[0].Sign = -1; c.Payments.ReleaseApprovals = 2 }, TierPostingRelated, "simulation regression"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			proposed := base()
+			c.change(proposed)
+			changes, _ := Diff(base(), proposed) // never fails
+			if got := MaxTier(changes); got != c.tier {
+				t.Errorf("tier: got %v, want %v (%v)", got, c.tier, changes)
+			}
+			if got := strings.Join(Evidence(changes), " "); got != c.evidence {
+				t.Errorf("evidence: got %q, want %q", got, c.evidence)
+			}
+		})
+	}
+	changes, _ := Diff(base(), &Config{}) // never fails
+	var paths []string
+	for _, c := range changes {
+		paths = append(paths, c.Path)
+	}
+	if got, want := strings.Join(paths, " "), "analytics.calendar.fiscal_year_start_month analytics.dimensions[company] analytics.metrics[revenue]"; got != want {
+		t.Errorf("section removed: got %s, want %s", got, want)
+	}
+}
+
+// TestHouseBankAccount: the account sealed is the IBAN, or a Canadian
+// account's number in digits, beside its routing in digits (T45d).
+func TestHouseBankAccount(t *testing.T) {
+	iban := HouseBank{IBAN: "GB33BUKB20201555555555"}
+	ca := HouseBank{InstitutionNumber: "0 03", TransitNumber: "00-002", AccountNumber: "100-0001"}
+	institution, transit := ca.Routing()
+	for _, c := range []struct{ name, got, want string }{
+		{"IBAN account", iban.Account(), "GB33BUKB20201555555555"},
+		{"Canadian account", ca.Account(), "1000001"},
+		{"Canadian institution", institution, "003"},
+		{"Canadian transit", transit, "00002"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if c.got != c.want {
+				t.Errorf("got %q, want %q", c.got, c.want)
+			}
+		})
 	}
 }

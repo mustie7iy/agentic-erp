@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Modelled on Canadian banks' public camt.053.001.02 samples: a CAD
+     account without IBAN (transit and account number), ISO and BAI
+     proprietary transaction codes. Invented parties and numbers. -->
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02">
+  <BkToCstmrStmt>
+    <GrpHdr><MsgId>CA-STMT-20261020-0001</MsgId><CreDtTm>2026-10-21T05:12:00-04:00</CreDtTm></GrpHdr>
+    <Stmt>
+      <Id>20261020-1234567</Id>
+      <ElctrncSeqNb>293</ElctrncSeqNb>
+      <CreDtTm>2026-10-21T05:12:00-04:00</CreDtTm>
+      <Acct>
+        <Id><Othr><Id>00021-1234567</Id></Othr></Id>
+        <Ccy>CAD</Ccy>
+        <Svcr><FinInstnId><BIC>ROYCCAT2</BIC></FinInstnId></Svcr>
+      </Acct>
+      <Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp><Amt Ccy="CAD">50000.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>2026-10-19</Dt></Dt></Bal>
+      <Bal><Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp><Amt Ccy="CAD">53250.44</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>2026-10-20</Dt></Dt></Bal>
+      <Bal><Tp><CdOrPrtry><Cd>CLAV</Cd></CdOrPrtry></Tp><Amt Ccy="CAD">53250.44</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>2026-10-20</Dt></Dt></Bal>
+      <Ntry>
+        <NtryRef>1</NtryRef>
+        <Amt Ccy="CAD">1234.56</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-10-20</Dt></BookgDt><ValDt><Dt>2026-10-20</Dt></ValDt>
+        <AcctSvcrRef>RB2610200001</AcctSvcrRef>
+        <BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>ICDT</Cd><SubFmlyCd>DMCT</SubFmlyCd></Fmly></Domn><Prtry><Cd>495</Cd><Issr>BAI</Issr></Prtry></BkTxCd>
+        <NtryDtls><TxDtls>
+          <Refs><EndToEndId>E2E-1</EndToEndId></Refs>
+          <AmtDtls><TxAmt><Amt Ccy="CAD">1234.56</Amt></TxAmt></AmtDtls>
+          <RltdPties><Cdtr><Nm>Northwind Supplies Ltd</Nm></Cdtr><CdtrAcct><Id><Othr><Id>00456-7654321</Id></Othr></Id></CdtrAcct></RltdPties>
+          <RltdAgts><CdtrAgt><FinInstnId><BIC>BOFMCAM2</BIC></FinInstnId></CdtrAgt></RltdAgts>
+          <RmtInf><Ustrd>INV 4410</Ustrd></RmtInf>
+        </TxDtls></NtryDtls>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="CAD">3000.00</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-10-20</Dt></BookgDt><ValDt><Dt>2026-10-20</Dt></ValDt>
+        <AcctSvcrRef>RB2610200002</AcctSvcrRef>
+        <BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>ICDT</Cd><SubFmlyCd>DMCT</SubFmlyCd></Fmly></Domn></BkTxCd>
+        <NtryDtls>
+          <Btch><PmtInfId>PAY-00000042-T</PmtInfId><NbOfTxs>2</NbOfTxs></Btch>
+          <TxDtls><Refs><PmtInfId>PAY-00000042-T</PmtInfId><EndToEndId>E2E-2</EndToEndId></Refs>
+            <AmtDtls><TxAmt><Amt Ccy="CAD">1000.00</Amt></TxAmt></AmtDtls>
+            <RltdPties><Cdtr><Nm>Initech Canada</Nm></Cdtr></RltdPties></TxDtls>
+          <TxDtls><Refs><PmtInfId>PAY-00000042-T</PmtInfId><EndToEndId>E2E-3</EndToEndId></Refs>
+            <AmtDtls><TxAmt><Amt Ccy="CAD">2000.00</Amt></TxAmt></AmtDtls>
+            <RltdPties><Cdtr><Nm>Umbrella Logistics</Nm></Cdtr></RltdPties></TxDtls>
+        </NtryDtls>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="CAD">15.00</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-10-20</Dt></BookgDt>
+        <AcctSvcrRef>RB2610200003</AcctSvcrRef>
+        <BkTxCd><Prtry><Cd>398</Cd><Issr>BAI</Issr></Prtry></BkTxCd>
+        <AddtlNtryInf>SERVICE CHARGE</AddtlNtryInf>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="CAD">7500.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts>BOOK</Sts>
+        <BookgDt><DtTm>2026-10-20T14:03:11-04:00</DtTm></BookgDt><ValDt><Dt>2026-10-20</Dt></ValDt>
+        <AcctSvcrRef>RB2610200004</AcctSvcrRef>
+        <BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>RCDT</Cd><SubFmlyCd>DMCT</SubFmlyCd></Fmly></Domn></BkTxCd>
+        <NtryDtls><TxDtls>
+          <Refs><EndToEndId>NOTPROVIDED</EndToEndId></Refs>
+          <RltdPties><Dbtr><Nm>Contoso Retail Inc</Nm></Dbtr><DbtrAcct><Id><Othr><Id>00789-1112223</Id></Othr></Id></DbtrAcct></RltdPties>
+          <RmtInf><Ustrd>INV 2026-118</Ustrd></RmtInf>
+        </TxDtls></NtryDtls>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="CAD">99.00</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts>PDNG</Sts>
+        <BookgDt><Dt>2026-10-21</Dt></BookgDt>
+      </Ntry>
+    </Stmt>
+  </BkToCstmrStmt>
+</Document>

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -401,4 +402,28 @@ func lockCodes(ctx context.Context, tx pgx.Tx, name string) error {
 		return fmt.Errorf("partner: lock %s: %w", name, err)
 	}
 	return nil
+}
+
+// References answers whether the record a custom field refers to exists
+// (extensions.References), in the request's transaction. The schema
+// compiler refuses cost object fields until cost objects exist (T56), so a
+// business partner is the one kind of record referred to.
+type References struct{}
+
+// Exists reports whether a business partner, in any status, has the id: a
+// reference names a record, whatever it may be used for. Any other kind
+// names no record this context holds.
+func (References) Exists(ctx context.Context, kind extensions.Kind, id uuid.UUID) (bool, error) {
+	if kind != extensions.Partner {
+		return false, nil
+	}
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return false, err
+	}
+	var ok bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM partner.business_partner WHERE id = $1)`, id).Scan(&ok); err != nil {
+		return false, fmt.Errorf("partner: business partner %s exists: %w", id, err)
+	}
+	return ok, nil
 }

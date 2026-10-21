@@ -20,52 +20,44 @@ const defaultReports = "data/reports"
 
 // analyticsFlags are shared by the analytics commands.
 type analyticsFlags struct {
-	model, companies *string
+	companies *string
 }
 
 func addAnalyticsFlags(fs *flag.FlagSet) analyticsFlags {
 	return analyticsFlags{
-		model:     fs.String("semantic", "", "semantic model YAML (default: built-in governed model)"),
 		companies: fs.String("companies", "", "comma-separated company codes to restrict to (default: all you may read)"),
 	}
 }
 
-func loadModel(path string) (*analytics.Model, error) {
-	if path != "" {
-		return analytics.LoadModel(path)
-	}
-	return analytics.DefaultModel()
-}
-
-// session reads the facts through the API with the person's token: only
-// the legal entities and data they may read.
-func (f analyticsFlags) session(ctx context.Context) (*analytics.Session, error) {
-	m, err := loadModel(*f.model)
-	if err != nil {
-		return nil, err
-	}
-	c, err := client("ERP_TOKEN")
-	if err != nil {
-		return nil, err
-	}
-	facts, err := analytics.Source{API: c}.Facts(ctx, m, time.Now())
-	if err != nil {
-		return nil, err
-	}
+// session runs its queries on erp-server's analytics endpoint with the
+// person's token, which answers from the analytical store or the database
+// over only the companies and data the person may read (ADR-0044). The
+// model it shows the agent is the tenant's active one, read from the
+// endpoint, so a metric a change request added is offered (T55n).
+func (f analyticsFlags) session(ctx context.Context, c *apitools.Client) (*analytics.Session, error) {
 	p := analytics.Principal{ID: "token"}
 	if *f.companies != "" {
 		p.Companies = strings.Split(*f.companies, ",")
 	}
-	return analytics.NewSession(m, facts, p), nil
+	remote := analytics.Remote{API: c, Companies: p.Companies}
+	m, err := remote.Model(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s := analytics.NewSession(m, nil, p)
+	s.Runner = remote
+	return s, nil
 }
 
-func metricsCmd(_ context.Context, args []string) error {
+// metricsCmd lists the tenant's governed metrics as its queries are
+// answered, or a semantic model file's.
+func metricsCmd(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("metrics", flag.ContinueOnError)
-	semantic := fs.String("semantic", "", "semantic model YAML (default: built-in governed model)")
+	semantic := fs.String("semantic", "", "semantic model YAML (default: the tenant's active model, read with ERP_TOKEN)")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
-	m, err := loadModel(*semantic)
+	m, err := tenantModel(ctx, *semantic)
 	if err != nil {
 		return err
 	}
@@ -75,6 +67,18 @@ func metricsCmd(_ context.Context, args []string) error {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", met.Name, met.Type, met.Description, strings.Join(m.AllowedDimensions(met.Name), ", "))
 	}
 	return errs.Wrapf(tw.Flush(), "metrics: print")
+}
+
+// tenantModel is the model in the file path, or the tenant's active one.
+func tenantModel(ctx context.Context, path string) (*analytics.Model, error) {
+	if path != "" {
+		return analytics.LoadModel(path)
+	}
+	c, err := client("ERP_TOKEN")
+	if err != nil {
+		return nil, err
+	}
+	return analytics.Remote{API: c}.Model(ctx)
 }
 
 // queryCmd runs a semantic query directly, without the agent.
@@ -99,11 +103,15 @@ func queryCmd(ctx context.Context, args []string) error {
 		}
 		q.Where = append(q.Where, f)
 	}
-	sess, err := af.session(ctx)
+	c, err := client("ERP_TOKEN")
 	if err != nil {
 		return err
 	}
-	r, err := sess.Run(q)
+	sess, err := af.session(ctx, c)
+	if err != nil {
+		return err
+	}
+	r, err := sess.Run(ctx, q)
 	if err != nil {
 		return err
 	}
@@ -112,7 +120,8 @@ func queryCmd(ctx context.Context, args []string) error {
 	if err := tw.Flush(); err != nil {
 		return fmt.Errorf("query: print: %w", err)
 	}
-	if _, err := fmt.Fprintf(out, "\n%s · %d rows · data through %s\n", r.ID, len(r.Rows), r.DataThrough); err != nil {
+	if _, err := fmt.Fprintf(out, "\n%s · %d rows · data through %s · from the %s as of %s\n", r.ID, len(r.Rows), r.DataThrough, r.Source,
+		r.AsOf.UTC().Format(time.RFC3339)); err != nil {
 		return fmt.Errorf("query: print summary: %w", err)
 	}
 	if *csvOut != "" {
@@ -167,7 +176,7 @@ func askCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	sess, err := af.session(ctx)
+	sess, err := af.session(ctx, c)
 	if err != nil {
 		return err
 	}
@@ -204,11 +213,15 @@ func reportCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	sess, err := af.session(ctx)
+	c, err := client("ERP_TOKEN")
 	if err != nil {
 		return err
 	}
-	fresh, results, err := sess.Rerun(rep)
+	sess, err := af.session(ctx, c)
+	if err != nil {
+		return err
+	}
+	fresh, results, err := sess.Rerun(ctx, rep)
 	if err != nil {
 		return err
 	}
@@ -216,7 +229,7 @@ func reportCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return printf("report", "Refreshed %q with data through %s\nDashboard: %s\n", fresh.Spec.Title, sess.Facts.DataThrough, html)
+	return printf("report", "Refreshed %q with data through %s\nDashboard: %s\n", fresh.Spec.Title, sess.DataThrough(), html)
 }
 
 func splitList(s string) []string {

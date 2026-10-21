@@ -194,3 +194,45 @@ func TestDirConnector(t *testing.T) {
 		t.Fatal("renamed onto a directory")
 	}
 }
+
+// TestHouseBankStatementAccounts: a house bank's main bank account and
+// incoming payments clearing account reach payments.house_bank, and a
+// document without them clears them (ADR-0047). The configuration checks
+// which accounts may be named (config.Validate); applying only finds them.
+func TestHouseBankStatementAccounts(t *testing.T) {
+	e := setup(t)
+	h := houseBanks()
+	apply := func(doc *config.Config) error {
+		return apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error { return h.Apply(ctx, doc) })
+	}
+	accounts := func() (main, incoming *uuid.UUID) {
+		t.Helper()
+		if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT main_gl_account_id, incoming_gl_account_id FROM payments.house_bank
+			WHERE legal_entity_id = $1 AND code = 'MAIN'`, e.DE).Scan(&main, &incoming); err != nil {
+			t.Fatal(err)
+		}
+		return main, incoming
+	}
+	doc := fixture.Document(t)
+	doc.Companies[1].HouseBank.MainGLAccount, doc.Companies[1].HouseBank.IncomingGLAccount = "101000", "140000"
+	if err := apply(doc); err != nil {
+		t.Fatal(err)
+	}
+	main, incoming := accounts()
+	if want := e.Account(t, "2000", "101000"); main == nil || *main != want {
+		t.Errorf("main bank account: got %v, want %v", main, want)
+	}
+	if want := e.Account(t, "2000", "140000"); incoming == nil || *incoming != want {
+		t.Errorf("incoming payments account: got %v, want %v", incoming, want)
+	}
+	if err := apply(fixture.Document(t)); err != nil {
+		t.Fatal(err)
+	}
+	if main, incoming := accounts(); main != nil || incoming != nil {
+		t.Errorf("without statement accounts: got %v and %v, want none", main, incoming)
+	}
+	doc.Companies[1].HouseBank.MainGLAccount = "109999"
+	if err := apply(doc); err == nil {
+		t.Fatal("applied a main bank account the legal entity does not have")
+	}
+}

@@ -459,16 +459,21 @@ func (w *Worker) recordErasure(ctx context.Context, tenant, actor uuid.UUID, det
 	return nil
 }
 
-// eraseObjects deletes the tenant's objects, keeping those whose retention
-// holds (anchors, exports) and counting them.
+// eraseObjects deletes the tenant's objects and its analytical store
+// (ADR-0044; its pointer rows go with the tenant's rows), keeping those
+// objects whose retention holds (anchors, exports) and counting them.
 func (w *Worker) eraseObjects(ctx context.Context, tenant uuid.UUID) (deleted, kept int, err error) {
 	eraser, ok := w.Store.(blobstore.Eraser)
 	if !ok {
 		return 0, 0, nil
 	}
-	keys, err := eraser.List(ctx, blobstore.Prefix+"/"+tenant.String()+"/")
-	if err != nil {
-		return 0, 0, err
+	var keys []string
+	for _, prefix := range blobstore.TenantPrefixes(tenant) {
+		listed, err := eraser.List(ctx, prefix)
+		if err != nil {
+			return 0, 0, err
+		}
+		keys = append(keys, listed...)
 	}
 	for _, key := range keys {
 		switch err := eraser.Delete(ctx, key); {
