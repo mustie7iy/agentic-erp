@@ -529,7 +529,7 @@ commit-time check, like the balance trigger).
   their columns), so it runs ahead of the code; but an instance of the
   previous release posts an invoice with the first item's code at the
   invoice date, so invoices are not posted while the rollout is under way
-  (runbook). **Not yet:** down payment requests' tax checked at the run
+  (a step for the release notes). **Not yet:** down payment requests' tax checked at the run
   date's rate, the documentary-requirement warnings for Canada and the UAE
   (tracker, T61d follow-up), and the tax date held to the open return
   periods (P6; with the return periods, T61g/T61i).
