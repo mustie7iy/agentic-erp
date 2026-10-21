@@ -97,9 +97,9 @@ func (p Postings) PostBank(ctx context.Context, in BankPosting) (Entry, error) {
 
 // Postable refuses a posting date of the legal entity outside an open
 // period of any ledger the company keeps, as a bank posting, which goes to
-// them all, would (409
-// ledger.period_not_open): a bank statement line that waits for approval is
-// checked first, since its approval could not post it either.
+// them all, would (409 ledger.period_not_open): a bank statement line that
+// waits for approval is checked first, since its approval could not post
+// it either.
 func (p Postings) Postable(ctx context.Context, legalEntity uuid.UUID, date time.Time) error {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -195,6 +195,9 @@ func accountItems(ctx context.Context, tx pgx.Tx, le, account uuid.UUID, entries
 // not of a reversed entry or a reversal, and not cleared. Payment runs
 // reserve supplier items only, so no reservation holds it.
 func checkAccountItem(i int, it item) error {
+	if !it.found { // a parallel ledger's copy: open items are the leading ledger's (ADR-0045)
+		return problem.Unprocessable("ledger.not_an_open_item", "Item "+fmt.Sprint(i+1)+" is not a line of the leading ledger.")
+	}
 	if it.reversed {
 		return reversedItem(i)
 	}

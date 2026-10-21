@@ -922,8 +922,8 @@ fixed, decided once from `pending` on its `center_change` approval request
 `rejected` only, its code and a cost center's legal entity fixed
 (`check_center_change`).
 
-Revaluation per ledger (T52f, ADR-0045, migrations 000137-000138). A run values its
-ledger's own lines (a parallel ledger's copies of the open items, which
+Revaluation per ledger (T52f, ADR-0045, migrations 000137-000138). A run
+values its ledger's own lines (a parallel ledger's copies of the open items, which
 T52c clears with the leading ledger's, and its ledger-specific postings)
 and posts and reverses its entries in that ledger alone; the posted-run
 index already keys runs by ledger, so each ledger has its run per key

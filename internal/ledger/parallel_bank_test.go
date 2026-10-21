@@ -52,8 +52,18 @@ func TestParallelBankPosting(t *testing.T) {
 		t.Errorf("bank posting posted to: got %s, want 0L,2L", ledgers)
 	}
 	paymentCopy, own := p.copyOf(t, payment["id"]), p.copyOf(t, cleared.ID)
-	wantCleared(t, map[string]string{payment["id"].(string): "2", paymentCopy: "2", own: "1"},
-		map[string]string{payment["id"].(string): "the payment", paymentCopy: "the payment's copy", own: "the bank posting's copy"})
+	wantCleared(t, map[string]string{payment["id"].(string): "2", paymentCopy: "2", cleared.ID.String(): "1", own: "1"},
+		map[string]string{payment["id"].(string): "the payment", paymentCopy: "the payment's copy", cleared.ID.String(): "the bank posting",
+			own: "the bank posting's copy"})
+	// A copy is not an open item: open items are the leading ledger's.
+	second, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-21", "EUR", line{expense, "20.00", ""}, line{clearingAccount, "-20.00", ""}), "")
+	err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+		_, err := postings().PostBank(ctx, ledger.BankPosting{LegalEntityID: e.de, DocumentType: "SA", PostingDate: date("2026-03-22"), Currency: "EUR",
+			BankAccountID: uuid.MustParse(bank), Amount: -2000, ClearingAccountID: uuid.MustParse(clearingAccount),
+			Entries: []ledger.ItemRef{{FiscalYear: 2026, EntryID: uuid.MustParse(p.copyOf(t, second["id"]))}}, SourceContext: "payments", SourceDocumentID: uuid.New()})
+		return err
+	})
+	pgtest.CheckErr(t, err, "not a line of the leading ledger")
 
 	charge := post(ledger.BankPosting{LegalEntityID: e.de, DocumentType: "SA", PostingDate: date("2026-03-23"), Currency: "EUR",
 		BankAccountID: uuid.MustParse(bank), Amount: -500, CounterAccountID: uuid.MustParse(expense), SourceContext: "payments", SourceDocumentID: uuid.New()})
@@ -63,6 +73,6 @@ func TestParallelBankPosting(t *testing.T) {
 
 	pgtest.Exec(t, `UPDATE ledger.period_status SET status = 'closed', version = version + 1 WHERE tenant_id = $1 AND ledger_id = $2
 		AND fiscal_year = 2026 AND period = 4`, e.ten.ID, uuid.MustParse(p.local))
-	err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error { return postings().Postable(ctx, e.de, date("2026-04-15")) })
+	err = apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error { return postings().Postable(ctx, e.de, date("2026-04-15")) })
 	pgtest.CheckErr(t, err, "in ledger 2L")
 }
