@@ -173,6 +173,7 @@ const (
 	ParkJournalEntryOperation                 OperationName = "ParkJournalEntry"
 	PauseWebhookSubscriptionOperation         OperationName = "PauseWebhookSubscription"
 	PingWebhookSubscriptionOperation          OperationName = "PingWebhookSubscription"
+	PostBankStatementLineOperation            OperationName = "PostBankStatementLine"
 	PostGoodsReceiptOperation                 OperationName = "PostGoodsReceipt"
 	PostJournalEntryOperation                 OperationName = "PostJournalEntry"
 	PostParkedJournalEntryOperation           OperationName = "PostParkedJournalEntry"

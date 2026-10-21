@@ -3469,6 +3469,7 @@ func (*BadRequestHeaders) openFiscalPeriodRes()                 {}
 func (*BadRequestHeaders) parkJournalEntryRes()                 {}
 func (*BadRequestHeaders) pauseWebhookSubscriptionRes()         {}
 func (*BadRequestHeaders) pingWebhookSubscriptionRes()          {}
+func (*BadRequestHeaders) postBankStatementLineRes()            {}
 func (*BadRequestHeaders) postGoodsReceiptRes()                 {}
 func (*BadRequestHeaders) postJournalEntryRes()                 {}
 func (*BadRequestHeaders) postParkedJournalEntryRes()           {}
@@ -8370,6 +8371,7 @@ func (*ConflictHeaders) openFiscalPeriodRes()                 {}
 func (*ConflictHeaders) parkJournalEntryRes()                 {}
 func (*ConflictHeaders) pauseWebhookSubscriptionRes()         {}
 func (*ConflictHeaders) pingWebhookSubscriptionRes()          {}
+func (*ConflictHeaders) postBankStatementLineRes()            {}
 func (*ConflictHeaders) postGoodsReceiptRes()                 {}
 func (*ConflictHeaders) postJournalEntryRes()                 {}
 func (*ConflictHeaders) postParkedJournalEntryRes()           {}
@@ -12401,6 +12403,7 @@ func (*ForbiddenHeaders) openFiscalPeriodRes()                 {}
 func (*ForbiddenHeaders) parkJournalEntryRes()                 {}
 func (*ForbiddenHeaders) pauseWebhookSubscriptionRes()         {}
 func (*ForbiddenHeaders) pingWebhookSubscriptionRes()          {}
+func (*ForbiddenHeaders) postBankStatementLineRes()            {}
 func (*ForbiddenHeaders) postGoodsReceiptRes()                 {}
 func (*ForbiddenHeaders) postJournalEntryRes()                 {}
 func (*ForbiddenHeaders) postParkedJournalEntryRes()           {}
@@ -17954,6 +17957,7 @@ func (*NotFoundHeaders) matchSupplierInvoiceRes()             {}
 func (*NotFoundHeaders) openFiscalPeriodRes()                 {}
 func (*NotFoundHeaders) pauseWebhookSubscriptionRes()         {}
 func (*NotFoundHeaders) pingWebhookSubscriptionRes()          {}
+func (*NotFoundHeaders) postBankStatementLineRes()            {}
 func (*NotFoundHeaders) postParkedJournalEntryRes()           {}
 func (*NotFoundHeaders) postSupplierInvoiceRes()              {}
 func (*NotFoundHeaders) reconcileMigrationRunRes()            {}
@@ -20480,6 +20484,52 @@ func (o OptQuantity) Get() (v Quantity, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptQuantity) Or(d Quantity) Quantity {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptStatementLinePostInput returns new OptStatementLinePostInput with value set to v.
+func NewOptStatementLinePostInput(v StatementLinePostInput) OptStatementLinePostInput {
+	return OptStatementLinePostInput{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptStatementLinePostInput is optional StatementLinePostInput.
+type OptStatementLinePostInput struct {
+	Value StatementLinePostInput
+	Set   bool
+}
+
+// IsSet returns true if OptStatementLinePostInput was set.
+func (o OptStatementLinePostInput) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptStatementLinePostInput) Reset() {
+	var v StatementLinePostInput
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptStatementLinePostInput) SetTo(v StatementLinePostInput) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptStatementLinePostInput) Get() (v StatementLinePostInput, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptStatementLinePostInput) Or(d StatementLinePostInput) StatementLinePostInput {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -23288,6 +23338,7 @@ func (*PreconditionFailedHeaders) matchSupplierInvoiceRes()             {}
 func (*PreconditionFailedHeaders) openFiscalPeriodRes()                 {}
 func (*PreconditionFailedHeaders) pauseWebhookSubscriptionRes()         {}
 func (*PreconditionFailedHeaders) pingWebhookSubscriptionRes()          {}
+func (*PreconditionFailedHeaders) postBankStatementLineRes()            {}
 func (*PreconditionFailedHeaders) postParkedJournalEntryRes()           {}
 func (*PreconditionFailedHeaders) postSupplierInvoiceRes()              {}
 func (*PreconditionFailedHeaders) reconcileMigrationRunRes()            {}
@@ -23449,6 +23500,7 @@ func (*PreconditionRequiredHeaders) openFiscalPeriodRes()                 {}
 func (*PreconditionRequiredHeaders) parkJournalEntryRes()                 {}
 func (*PreconditionRequiredHeaders) pauseWebhookSubscriptionRes()         {}
 func (*PreconditionRequiredHeaders) pingWebhookSubscriptionRes()          {}
+func (*PreconditionRequiredHeaders) postBankStatementLineRes()            {}
 func (*PreconditionRequiredHeaders) postGoodsReceiptRes()                 {}
 func (*PreconditionRequiredHeaders) postJournalEntryRes()                 {}
 func (*PreconditionRequiredHeaders) postParkedJournalEntryRes()           {}
@@ -29556,6 +29608,7 @@ func (*ServiceUnavailableHeaders) openFiscalPeriodRes()                 {}
 func (*ServiceUnavailableHeaders) parkJournalEntryRes()                 {}
 func (*ServiceUnavailableHeaders) pauseWebhookSubscriptionRes()         {}
 func (*ServiceUnavailableHeaders) pingWebhookSubscriptionRes()          {}
+func (*ServiceUnavailableHeaders) postBankStatementLineRes()            {}
 func (*ServiceUnavailableHeaders) postGoodsReceiptRes()                 {}
 func (*ServiceUnavailableHeaders) postJournalEntryRes()                 {}
 func (*ServiceUnavailableHeaders) postParkedJournalEntryRes()           {}
@@ -30018,6 +30071,35 @@ func (s *StatementLineMatchInput) SetReason(val string) {
 	s.Reason = val
 }
 
+// A person's posting of a matched line: on its booking date, or on another date with the reason.
+// Ref: #/components/schemas/StatementLinePostInput
+type StatementLinePostInput struct {
+	// The date to post on instead of the booking date, in an open period; with `reason`.
+	PostingDate OptDate `json:"posting_date"`
+	// Why the posting is dated otherwise; recorded in the audit trail. Only with `posting_date`.
+	Reason OptString `json:"reason"`
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *StatementLinePostInput) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetReason returns the value of Reason.
+func (s *StatementLinePostInput) GetReason() OptString {
+	return s.Reason
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *StatementLinePostInput) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetReason sets the value of Reason.
+func (s *StatementLinePostInput) SetReason(val OptString) {
+	s.Reason = val
+}
+
 // Merged schema.
 // Ref: #/components/schemas/StatementMatch
 type StatementMatch struct {
@@ -30052,6 +30134,17 @@ type StatementMatch struct {
 	// What it clears: of an open match, each candidate's targets under its number; of a match decided,
 	// candidate 1's; none when excluded.
 	Targets []StatementMatchTarget `json:"targets"`
+	// The date the line posts on, or was asked to post on: its booking date or the one a person gave.
+	PostingDate OptDate `json:"posting_date"`
+	// Why a person dated the posting otherwise than the booking date.
+	PostingReason OptString `json:"posting_reason"`
+	// The latest `bank_clearing` approval request of the posting (workflow context), also once rejected or
+	// withdrawn.
+	ApprovalRequestID OptUUID `json:"approval_request_id"`
+	// The posting (ledger context), once the line is posted.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The fiscal year of the posting.
+	JournalEntryYear OptInt32 `json:"journal_entry_year"`
 }
 
 // GetID returns the value of ID.
@@ -30119,6 +30212,31 @@ func (s *StatementMatch) GetTargets() []StatementMatchTarget {
 	return s.Targets
 }
 
+// GetPostingDate returns the value of PostingDate.
+func (s *StatementMatch) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetPostingReason returns the value of PostingReason.
+func (s *StatementMatch) GetPostingReason() OptString {
+	return s.PostingReason
+}
+
+// GetApprovalRequestID returns the value of ApprovalRequestID.
+func (s *StatementMatch) GetApprovalRequestID() OptUUID {
+	return s.ApprovalRequestID
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *StatementMatch) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *StatementMatch) GetJournalEntryYear() OptInt32 {
+	return s.JournalEntryYear
+}
+
 // SetID sets the value of ID.
 func (s *StatementMatch) SetID(val uuid.UUID) {
 	s.ID = val
@@ -30182,6 +30300,31 @@ func (s *StatementMatch) SetStatus(val string) {
 // SetTargets sets the value of Targets.
 func (s *StatementMatch) SetTargets(val []StatementMatchTarget) {
 	s.Targets = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *StatementMatch) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetPostingReason sets the value of PostingReason.
+func (s *StatementMatch) SetPostingReason(val OptString) {
+	s.PostingReason = val
+}
+
+// SetApprovalRequestID sets the value of ApprovalRequestID.
+func (s *StatementMatch) SetApprovalRequestID(val OptUUID) {
+	s.ApprovalRequestID = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *StatementMatch) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *StatementMatch) SetJournalEntryYear(val OptInt32) {
+	s.JournalEntryYear = val
 }
 
 // StatementMatchHeaders wraps StatementMatch with response headers.
@@ -30256,6 +30399,7 @@ func (s *StatementMatchHeaders) SetResponse(val StatementMatch) {
 
 func (*StatementMatchHeaders) excludeBankStatementLineRes() {}
 func (*StatementMatchHeaders) matchBankStatementLineRes()   {}
+func (*StatementMatchHeaders) postBankStatementLineRes()    {}
 
 // A bank statement's matches.
 // Ref: #/components/schemas/StatementMatchList
@@ -31811,6 +31955,7 @@ func (*TooManyRequestsHeaders) openFiscalPeriodRes()                 {}
 func (*TooManyRequestsHeaders) parkJournalEntryRes()                 {}
 func (*TooManyRequestsHeaders) pauseWebhookSubscriptionRes()         {}
 func (*TooManyRequestsHeaders) pingWebhookSubscriptionRes()          {}
+func (*TooManyRequestsHeaders) postBankStatementLineRes()            {}
 func (*TooManyRequestsHeaders) postGoodsReceiptRes()                 {}
 func (*TooManyRequestsHeaders) postJournalEntryRes()                 {}
 func (*TooManyRequestsHeaders) postParkedJournalEntryRes()           {}
@@ -32093,6 +32238,7 @@ func (*UnauthorizedHeaders) openFiscalPeriodRes()                 {}
 func (*UnauthorizedHeaders) parkJournalEntryRes()                 {}
 func (*UnauthorizedHeaders) pauseWebhookSubscriptionRes()         {}
 func (*UnauthorizedHeaders) pingWebhookSubscriptionRes()          {}
+func (*UnauthorizedHeaders) postBankStatementLineRes()            {}
 func (*UnauthorizedHeaders) postGoodsReceiptRes()                 {}
 func (*UnauthorizedHeaders) postJournalEntryRes()                 {}
 func (*UnauthorizedHeaders) postParkedJournalEntryRes()           {}
@@ -32266,6 +32412,7 @@ func (*UnprocessableHeaders) openFiscalPeriodRes()                 {}
 func (*UnprocessableHeaders) parkJournalEntryRes()                 {}
 func (*UnprocessableHeaders) pauseWebhookSubscriptionRes()         {}
 func (*UnprocessableHeaders) pingWebhookSubscriptionRes()          {}
+func (*UnprocessableHeaders) postBankStatementLineRes()            {}
 func (*UnprocessableHeaders) postGoodsReceiptRes()                 {}
 func (*UnprocessableHeaders) postJournalEntryRes()                 {}
 func (*UnprocessableHeaders) postParkedJournalEntryRes()           {}

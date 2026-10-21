@@ -624,6 +624,10 @@ func TestRuntime(t *testing.T) {
 	if got := strings.Join(c.RoleNames(), ","); got != "Z_PURCH_MGR,process_owner,Z_PURCH_HEAD,Z_TREASURY_MGR,vendor_master_approver,controller,solution_architect" {
 		t.Fatalf("role names: %s", got)
 	}
+	c.Companies[1].BankStatements.ApprovalTiers = []ApprovalTier{{UpTo: "1000.00"}, {Steps: []ApprovalStep{{Role: "treasurer", Approvals: 1}}}}
+	if got := c.RoleNames(); !slices.Contains(got, "treasurer") {
+		t.Errorf("role names with a bank clearing tier: got %v, want treasurer among them", got)
+	}
 	if c.PaymentTerm("NT30") == nil {
 		t.Error("PaymentTerm(NT30): got nil, want the term")
 	}

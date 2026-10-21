@@ -26,16 +26,29 @@ const matchRules = `{"posting_rules": [{"transaction_code": "NCHG", "description
 // 2000's rules active, and the supplier's bank account.
 func matchSetup(t *testing.T) env {
 	t.Helper()
-	statementPerms := append([]string{"payments.statement.match"}, statementPerms...)
+	return matchSetupWith(t)
+}
+
+// matchSetupWith is matchSetup with more permissions.
+func matchSetupWith(t *testing.T, more ...string) env {
+	t.Helper()
+	statementPerms := append(append([]string{"payments.statement.match"}, more...), statementPerms...)
 	e, _ := statementSetupWith(t, statementPerms)
+	e.statementRules(t, matchRules)
+	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
+	return e
+}
+
+// statementRules activates the configuration with company 2000's bank
+// statement settings replaced by rules.
+func (e env) statementRules(t *testing.T, rules string) {
+	t.Helper()
 	pgtest.Exec(t, `INSERT INTO config.config_version (tenant_id, id, number, document, hash, source, restored_from, activated_by)
 		SELECT v.tenant_id, gen_random_uuid(), v.number + 1, jsonb_set(v.document, '{companies,1,bank_statements}', $2::jsonb), v.hash, 'rollback',
 			v.number, v.activated_by
 		FROM config.config_version v JOIN config.active_version a ON a.tenant_id = v.tenant_id AND a.number = v.number WHERE v.tenant_id = $1`,
-		e.Tenant.ID, matchRules)
+		e.Tenant.ID, rules)
 	pgtest.Exec(t, `UPDATE config.active_version SET number = number + 1, version = version + 1 WHERE tenant_id = $1`, e.Tenant.ID)
-	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
-	return e
 }
 
 // paidRun is a released run's one payment and its bank file.
@@ -88,7 +101,12 @@ type matchScenario struct {
 
 func matchStatementSetup(t *testing.T) matchScenario {
 	t.Helper()
-	e := matchSetup(t)
+	return matchStatementOf(t, matchSetup(t))
+}
+
+// matchStatementOf is the scenario's payments and statement in e.
+func matchStatementOf(t *testing.T, e env) matchScenario {
+	t.Helper()
 	var pays []paidRun
 	for i := range 4 {
 		pays = append(pays, e.paidOne(t, fmt.Sprintf("INV-%d", i+1), fmt.Sprintf("2026-04-%d", 15+i)))

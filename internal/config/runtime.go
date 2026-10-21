@@ -59,7 +59,11 @@ func (c *Config) RoleNames() []string {
 			out = append(out, r)
 		}
 	}
-	for _, tiers := range [][]ApprovalTier{c.Purchasing.RequisitionApproval, c.Purchasing.OrderReleaseApproval} {
+	tiers := [][]ApprovalTier{c.Purchasing.RequisitionApproval, c.Purchasing.OrderReleaseApproval}
+	for _, co := range c.Companies {
+		tiers = append(tiers, co.BankStatements.ApprovalTiers) // approvals.BankClearing (ADR-0047)
+	}
+	for _, tiers := range tiers {
 		for _, t := range tiers {
 			for _, s := range t.Steps {
 				add(s.Role)

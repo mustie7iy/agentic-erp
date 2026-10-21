@@ -669,6 +669,10 @@ type PingWebhookSubscriptionRes interface {
 	pingWebhookSubscriptionRes()
 }
 
+type PostBankStatementLineRes interface {
+	postBankStatementLineRes()
+}
+
 type PostGoodsReceiptRes interface {
 	postGoodsReceiptRes()
 }

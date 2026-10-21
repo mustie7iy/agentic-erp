@@ -368,6 +368,33 @@ func TestRefusals(t *testing.T) {
 	}
 }
 
+// TestDiscardFrom: entries buffered since a mark are dropped and those
+// before it stand; outside a unit of work there is nothing to mark.
+func TestDiscardFrom(t *testing.T) {
+	if got := audit.Mark(context.Background()); got != 0 {
+		t.Errorf("mark outside a unit of work: got %d, want 0", got)
+	}
+	audit.DiscardFrom(context.Background(), 0)
+	ctx, buf := audit.WithBuffer(context.Background())
+	add := func() {
+		if err := audit.Add(ctx, audit.Entry{Action: "platform.operation.cancel"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add()
+	mark := audit.Mark(ctx)
+	add()
+	add()
+	audit.DiscardFrom(ctx, mark)
+	if buf.Len() != 1 {
+		t.Errorf("entries after discarding from the mark: got %d, want 1", buf.Len())
+	}
+	audit.DiscardFrom(ctx, 5)
+	if buf.Len() != 1 {
+		t.Errorf("entries after discarding from a later mark: got %d, want 1", buf.Len())
+	}
+}
+
 // TestObjectTypeOf: the action without its verb; an action without one is
 // its own type.
 func TestObjectTypeOf(t *testing.T) {

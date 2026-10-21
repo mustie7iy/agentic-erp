@@ -218,6 +218,7 @@ var operationRolesOidc = map[string][]string{
 	ParkJournalEntryOperation:                 []string{},
 	PauseWebhookSubscriptionOperation:         []string{},
 	PingWebhookSubscriptionOperation:          []string{},
+	PostBankStatementLineOperation:            []string{},
 	PostGoodsReceiptOperation:                 []string{},
 	PostJournalEntryOperation:                 []string{},
 	PostParkedJournalEntryOperation:           []string{},

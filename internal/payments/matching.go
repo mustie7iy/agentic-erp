@@ -31,7 +31,7 @@ import (
 // match a line by hand or exclude it. Only unmatched lines are matched, in
 // line order, under the house bank's statement lock, and a payment matched
 // to a line is no other line's candidate: matching again finds the same.
-// Posting is T49f.
+// The rules' matches are posted as they are made (posting.go, T49f).
 
 // Match kinds and statuses (payments.statement_match).
 const (
@@ -71,6 +71,13 @@ type Match struct {
 	// StatementVersion is the statement's version after a person's
 	// decision, its ETag for the next one; 0 when read.
 	StatementVersion int32
+	// The posting (T49f): its date and a person's reason for it, the
+	// latest approval request, and the journal entry once posted.
+	PostingDate       *time.Time
+	PostingReason     *string
+	ApprovalRequestID *uuid.UUID
+	JournalEntryYear  *int16
+	JournalEntryID    *uuid.UUID
 }
 
 // matchLine is what the rules read of a line.
@@ -107,8 +114,9 @@ type matcher struct {
 // order, under the bank's statement lock, once the statement's version
 // passes ifMatch (nil: no check, as on import). A line matched in a pass
 // takes its payments from the lines before it, so passes repeat until one
-// changes nothing: a second run then finds nothing to change. A run that
-// changed a line moves the statement's version on.
+// changes nothing: a second run then finds nothing to change. The lines the
+// rules matched are then posted (autoPost, T49f). A run that changed a
+// line moves the statement's version on.
 func (e *Endpoints) matchStatement(ctx context.Context, tx pgx.Tx, p reqctx.Principal, s Statement, ifMatch func(int32) error) error {
 	if err := lockStatement(ctx, tx, s, ifMatch); err != nil {
 		return err
@@ -132,7 +140,11 @@ func (e *Endpoints) matchStatement(ctx context.Context, tx pgx.Tx, p reqctx.Prin
 		}
 		changed = true
 	}
-	if !changed {
+	posted, err := e.autoPost(ctx, tx, p, s)
+	if err != nil {
+		return err
+	}
+	if !changed && !posted {
 		return nil
 	}
 	_, err = bumpStatement(ctx, tx, p, s.ID)
@@ -545,12 +557,13 @@ const matchSelect = `SELECT m.id, m.statement_id, m.line_no, m.kind, m.rule, m.r
 	coalesce((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('candidate', t.candidate, 'payment_id', t.payment_id, 'bank_file_id', t.bank_file_id,
 		'posting_rule', t.posting_rule)) ORDER BY t.candidate, t.target_no)
 		FROM payments.statement_match_target t WHERE t.tenant_id = m.tenant_id AND t.match_id = m.id), '[]'),
-	m.version, m.created_at, m.updated_at, m.created_by, m.updated_by FROM payments.statement_match m`
+	m.version, m.created_at, m.updated_at, m.created_by, m.updated_by, m.posting_date, m.posting_reason, m.approval_request_id,
+	m.journal_entry_year, m.journal_entry_id FROM payments.statement_match m`
 
 func scanMatch(row pgx.CollectableRow) (Match, error) {
 	var m Match
 	err := row.Scan(&m.ID, &m.StatementID, &m.LineNo, &m.Kind, &m.Rule, &m.Reason, &m.Status, &m.Targets, &m.Version, &m.CreatedAt, &m.UpdatedAt,
-		&m.CreatedBy, &m.UpdatedBy)
+		&m.CreatedBy, &m.UpdatedBy, &m.PostingDate, &m.PostingReason, &m.ApprovalRequestID, &m.JournalEntryYear, &m.JournalEntryID)
 	return m, errs.Wrapf(err, "scan statement match")
 }
 

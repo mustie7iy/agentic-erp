@@ -95,6 +95,25 @@ func Refuse(ctx context.Context, e Entry) error {
 	return nil
 }
 
+// Mark is how many entries the request has buffered: the point
+// DiscardFrom returns to. It is 0 outside a unit of work.
+func Mark(ctx context.Context) int {
+	if b, ok := ctx.Value(bufferKey{}).(*Buffer); ok {
+		return len(b.entries)
+	}
+	return 0
+}
+
+// DiscardFrom drops the entries buffered since the mark, for work rolled
+// back to a savepoint taken there: what came before it stands. Refusals
+// stay, as they do when the unit of work rolls a request back for its
+// business outcome (Refuse): the work was refused, not rehearsed.
+func DiscardFrom(ctx context.Context, mark int) {
+	if b, ok := ctx.Value(bufferKey{}).(*Buffer); ok && mark < len(b.entries) {
+		b.entries = b.entries[:mark]
+	}
+}
+
 // Discard drops the entries buffered so far, refusals included, for work
 // a caller rolls back to its own savepoint as though it never ran (a
 // rehearsal); the unit of work keeps the refusals of a request it rolls
