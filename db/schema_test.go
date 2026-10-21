@@ -3273,7 +3273,7 @@ func TestBankStatementSchema(t *testing.T) {
 // statementProposalSchema: an agent's match, and only one, names its
 // session and what it proposes, stays open until a person decides it,
 // never posts, and records the person's outcome once decided; a session
-// proposes once per line (T49g, 000111).
+// proposes once per line (T49g, 000127).
 func statementProposalSchema(t *testing.T, f fixture, statement uuid.UUID) {
 	t.Helper()
 	mustApp(t, f.tenant, func(tx pgx.Tx) error {

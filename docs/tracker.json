@@ -907,7 +907,7 @@
        {
         "s": "D",
         "t": "Agent proposals (x-autonomy: propose): the reconciliation agent proposes for lines the rules left unmatched or open the payments they clear, a posting rule or their exclusion, in its session, once per line and session; a person accepts (the person's own match, posted and approved as any) or rejects it, or overrides it; agents read statements masked; evaluation suite in replay",
-        "r": "db/migrations/000111 · statement_match session_id/proposal/outcome · POST /v1/bank-statements/{id}/lines/{line_no}:propose/:acceptProposal/:rejectProposal · GET /v1/bank-statements/{id}/rules · GET /v1/house-banks · payments.statement.propose · BankStatementLineProposed · BankStatementLineProposalDecided · internal/reconagent · erp agent reconcile · agent type reconciliation · evals/reconciliation · eval setup form · T49g",
+        "r": "db/migrations/000127 · statement_match session_id/proposal/outcome · POST /v1/bank-statements/{id}/lines/{line_no}:propose/:acceptProposal/:rejectProposal · GET /v1/bank-statements/{id}/rules · GET /v1/house-banks · payments.statement.propose · BankStatementLineProposed · BankStatementLineProposalDecided · internal/reconagent · erp agent reconcile · agent type reconciliation · evals/reconciliation · eval setup form · T49g",
         "c": []
        },
        {

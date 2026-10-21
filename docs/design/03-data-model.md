@@ -1476,7 +1476,7 @@ and the journal entry (`statement_match_journal_entry`: one match per
 entry; `statement_match_posted`: a posted match stays `matched`); the
 line becomes `pending_approval`, then `posted`, or `matched` again when
 the request is rejected or withdrawn. The reconciliation agent proposes
-(T49g, 000111) for a line the rules left unmatched or open a match of kind
+(T49g, 000127) for a line the rules left unmatched or open a match of kind
 `agent`, `open`, that names its agent session (`session_id`, agents
 context) and what it proposes (`proposal`: `match`, with one candidate's
 targets, or `exclude`); a session proposes once per line

@@ -321,7 +321,7 @@ Canadian bank may only offer BAI2.
   a second call posts nothing. `BankStatementLinePosted` is published. The
   statement's `reconciled` status and incoming payments posted to the
   incoming clearing account are T49h and later steps.
-- Proposals (T49g, 000111): the reconciliation agent (`internal/reconagent`,
+- Proposals (T49g, 000127): the reconciliation agent (`internal/reconagent`,
   agent type `reconciliation`, `erp agent reconcile -statement ID`) takes
   the statement's lines that are `unmatched` or that a rule left open,
   except one whose proposal a person rejected, and runs one session per
