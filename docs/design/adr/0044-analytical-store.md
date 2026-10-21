@@ -280,17 +280,20 @@ both platforms, through the ADR-0032 gates) is T55h, since ko does not
 cross-compile cgo.
 
 **The image and its deployment (T55h).** `deploy/images/erp-analytics.Dockerfile`
-builds the image with docker buildx (`scripts/images.sh`, T55p): a Go 1.26.10
-Debian 12 builder (the toolchain go.mod names: the golang image builds
-with `GOTOOLCHAIN=local`, so its version is the standard library the
-binary carries, and is bumped with go.mod's) on the build machine's platform cross-compiles with
-Debian's cross gcc (no emulation), DuckDB coming prebuilt and static from
-duckdb-go-bindings; glibc stays dynamic, on
-`gcr.io/distroless/cc-debian12:nonroot` (glibc, libgcc, libstdc++, no
-shell, uid 65532), both bases pinned by index digest. `-trimpath`, no
-build id, no VCS stamp, stripped, layers dated at `SOURCE_DATE_EPOCH`:
-two builds without cache gave the same manifest digest for each platform
-(2026-10-20, arm64 native and amd64 cross). The build context is the Go
+builds the image with docker buildx (`scripts/images.sh`, T55p): a Go
+1.26.10 Debian 12 builder on the build machine's platform cross-compiles
+with Debian's cross gcc (no emulation), DuckDB coming prebuilt and static
+from duckdb-go-bindings. The builder's Go is the toolchain go.mod names,
+bumped with it: the golang image builds with `GOTOOLCHAIN=local`, so its
+version is the standard library the binary carries. glibc stays dynamic,
+on `gcr.io/distroless/cc-debian12:nonroot` (glibc, libgcc, libstdc++, no
+shell, uid 65532), both bases pinned by index digest; the base's own
+advisories in libraries the binary does not load are accepted in
+`.grype.yaml` with a reason and an expiry. `-trimpath`, no build id, no
+VCS stamp, stripped, layers dated at `SOURCE_DATE_EPOCH`: two builds
+without cache gave the same manifest digest for each platform
+(2026-10-20 with the Go 1.26.2 builder, arm64 native and amd64 cross;
+CI's double build holds it since). The build context is the Go
 sources alone (`.dockerignore`). Each platform compiles `api/gen`, a few
 GB of memory apiece, so a small Docker VM builds one platform at a time.
 It joins the ADR-0032 pipeline as ADR-0032's amendment describes

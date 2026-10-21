@@ -15,24 +15,30 @@ ignore:
   - vulnerability: CVE-2026-63076
     package:
       name: libssl3
+      type: deb
       version: 3.0.20-1~deb12u2
   - vulnerability: CVE-2026-63072
     package:
       name: libssl3
+      type: deb
       version: 3.0.20-1~deb12u2
   - vulnerability: CVE-2026-54874
     package:
       name: libssl3
+      type: deb
       version: 3.0.20-1~deb12u2
   - vulnerability: CVE-2026-75803
     package:
       name: libssl3
+      type: deb
       version: 3.0.20-1~deb12u2
   - vulnerability: CVE-2026-63074
     package:
       name: libssl3
+      type: deb
       version: 3.0.20-1~deb12u2
   - vulnerability: CVE-2026-42767
     package:
       name: libssl3
+      type: deb
       version: 3.0.20-1~deb12u2
