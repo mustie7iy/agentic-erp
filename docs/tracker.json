@@ -4132,7 +4132,7 @@
        },
        {
         "s": "D",
-        "t": "Apply a pack to a company: three-way merge (adopted version, tenant document, new version) by account number, account determination field, tax code, number range key and payment term into a draft document with notes; tax codes with all their dated rates (T61a; first the rate in force, later rates noted); the packs provenance section (company, country, version, applied on), validated, operational tier",
+        "t": "Apply a pack to a company: three-way merge (adopted version, tenant document, new version) by account number, account determination field, tax code, number range key and payment term into a draft document with notes; tax codes with all their dated rates, future ones included (T61a; before it, the rate in force with later rates noted); the packs provenance section (company, country, version, applied on), validated, operational tier",
         "r": "countrypack.Apply · config.PackAdoption · T62b",
         "c": []
        },
