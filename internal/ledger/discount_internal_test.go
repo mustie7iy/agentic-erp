@@ -117,7 +117,8 @@ func TestItemTaxShares(t *testing.T) {
 // TestDiscountTaxItems: a settlement's items convert their shares at its
 // rate, each line rounded once: an invoice's and a credit memo's shares of
 // one code cancel to no line and items that add up to none; two discounted
-// lines of one entry each keep their own base in local currency.
+// lines of one entry each keep their own base in local currency; every
+// component of a code has the code's base, in local currency too.
 func TestDiscountTaxItems(t *testing.T) {
 	v1 := taxKey{account: uuid.UUID{1}, code: "V1"}
 	invoice := entryKey{entry: uuid.UUID{9}}
@@ -139,6 +140,11 @@ func TestDiscountTaxItems(t *testing.T) {
 			{discount: 2, paid: 238, items: []sourceItem{{entry: invoice, no: 1, component: "tax", key: v1, base: 200, tax: 38}}},
 			{discount: -2, paid: -119, items: []sourceItem{{entry: credit, no: 1, component: "tax", key: v1, base: -100, tax: -19}}},
 		}, " -2/0 -4/0 2/0 4/0", 0},
+		"two components of one code": {[]taxedItem{
+			{discount: 300, paid: 11500, items: []sourceItem{
+				{entry: invoice, no: 1, component: "gst", key: taxKey{account: uuid.UUID{3}, code: "V1"}, base: 10000, tax: 500},
+				{entry: invoice, no: 2, component: "qst", key: taxKey{account: uuid.UUID{4}, code: "V1"}, base: 10000, tax: 1000}}},
+		}, " -261/-13 -522/-26 -261/-26 -522/-52", 261},
 		"two lines of one entry": {[]taxedItem{
 			{discount: 200, paid: 11900, items: []sourceItem{{entry: invoice, no: 1, component: "tax", key: v1, base: 10000, tax: 1900}}},
 			{discount: 300, paid: 11900, items: []sourceItem{{entry: invoice, no: 1, component: "tax", key: v1, base: 10000, tax: 1900}}},

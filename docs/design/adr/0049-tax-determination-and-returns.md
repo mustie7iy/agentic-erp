@@ -422,7 +422,9 @@ commit-time check, like the balance trigger).
   `tax_item_lines` is the backstop), and a code that posts to no account
   (non-deductible only) has no item and is not required to have one. A
   reversal of an entry without items (such a code) takes its items from its
-  own lines. **Rolling upgrade (06 §6.4):** an instance of the previous
+  own lines. An entry posted before T61c has the items of the components
+  rated on its posting date, the date its codes were validated on, so each
+  code it carries that posts to an account has one, and its reversal posts. **Rolling upgrade (06 §6.4):** an instance of the previous
   release writes neither tax dates nor items; the commit-time check skips
   an entry without a tax date, the rate check does not see such postings
   (T61a's constraint holds: tax code changes wait until the rollout is

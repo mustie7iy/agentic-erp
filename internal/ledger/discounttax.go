@@ -312,7 +312,8 @@ func shareLC(shares []itemShare, bank settlementBank, pick func(itemShare) (any,
 			exact[j] = x.Mul(x, new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(bank.expLC)), nil)))
 		}
 		// The rounded total is the line's converted amount, which paymentLines
-		// converted in range: the allocation cannot fail.
+		// converted in range, and each part lies within a unit of its share
+		// converted: the allocation cannot fail at amounts that are posted.
 		parts, _ := money.Allocate(exact)
 		for j, i := range on[k] {
 			out[i] = parts[j]
