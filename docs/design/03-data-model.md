@@ -511,6 +511,10 @@ erDiagram
   hierarchy_node ||--o{ hierarchy_member : holds
   cost_center ||--o{ hierarchy_member : "placed as"
   profit_center ||--o{ hierarchy_member : "placed as"
+  cost_center_category ||--o{ cost_center_period : "category of"
+  profit_center_company ||--o| company_controlling : "default of"
+  company_account ||--o| default_assignment : "defaults"
+  cost_center ||--o{ default_assignment : "default for"
   journal_entry { uuid id PK
     uuid legal_entity_id
     uuid ledger_id
@@ -869,6 +873,25 @@ hierarchy of its kind at commit (`check_center_placed`, deferred).
 `center_change` gains `hierarchy_id` and the kinds `node_create`,
 `node_rename`, `node_move`, `node_remove` (no center) and `place` (a center
 and a hierarchy): `center_change_one_center`, `center_change_hierarchy`.
+
+The configuration's controlling rules (T56c, ADR-0050 §4, migration 000145)
+are kept by the ledger's setup. `gl_account.cost_element` is the account's
+cost element category: `none`, `primary_cost` only on an expense, `revenue`
+only on a revenue (`gl_account_cost_element`); accounts set up before took
+their type's default. `cost_center_category` (code as a period's category,
+name, `revenue_allowed`, the lock defaults of a new cost center,
+`is_active`) is the tenant's categories, deactivated rather than deleted;
+a cost center period's category is one of them
+(`cost_center_period_category`). `company_controlling` is per legal entity
+the fiscal year cost and profit center accounting apply from (NULL off;
+once set fixed: `company_controlling_stays_on`) and the default profit
+center, assigned to the legal entity
+(`company_controlling_default_profit_center`), required with profit center
+accounting (`company_controlling_needs_default`). `default_assignment` is
+the cost center lines on an account take when none is given (SAP OKB9),
+per legal entity and account set up there, a cost center of that legal
+entity (`default_assignment_cost_center_company`), deactivated when the
+configuration drops it.
 
 ## 3.8 Procurement (`procurement`)
 

@@ -113,11 +113,12 @@ func Deps() configuration.Dependencies {
 			partner.PaymentMethodCodes{LegalEntities: tenancy.Directory{}},
 			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Channels: integration.BankChannels{}, Keys: apitest.FieldKeys()},
 			payments.PaymentMethods{LegalEntities: tenancy.Directory{}}},
-		Simulator: payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates},
+		Simulator: configuration.Simulators{payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates},
+			ledger.AssignmentSimulation{LegalEntities: tenancy.Directory{}}},
 		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates}, Actors: identity.Actors{},
 		RuleSamplers: map[string]rules.Sampler{"supplier_invoice": payables.RuleSamples{}, "purchase_order": procurement.RuleSamples{},
 			"business_partner": partner.RuleSamples{}},
-		Disclosures: []configuration.Disclosure{payables.Disclosure{}}}
+		Disclosures: []configuration.Disclosure{payables.Disclosure{}, ledger.AssignmentDisclosure{}}}
 }
 
 // Env is a configured tenant.

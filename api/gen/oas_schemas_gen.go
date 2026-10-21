@@ -10452,8 +10452,9 @@ type CostCenterCreate struct {
 	Description OptString `json:"description"`
 	// Person responsible (SAP VERAK), as a name.
 	Responsible string `json:"responsible"`
-	// Cost center category (SAP KOSAR), such as ADMIN or SALES; the configuration names categories and
-	// their lock defaults from T56c.
+	// Cost center category (SAP KOSAR), such as ADMIN or SALES: one of the configuration's
+	// `controlling.cost_center_categories` (T56c), which say whether revenue may carry the cost center and
+	// the locks a new one starts with.
 	Category string `json:"category"`
 	// Profit center.
 	ProfitCenterID OptUUID `json:"profit_center_id"`
@@ -10746,8 +10747,9 @@ type CostCenterMove struct {
 	ValidFrom time.Time `json:"valid_from"`
 	// New profit center; null: none.
 	ProfitCenterID OptNilUUID `json:"profit_center_id"`
-	// Cost center category (SAP KOSAR), such as ADMIN or SALES; the configuration names categories and
-	// their lock defaults from T56c.
+	// Cost center category (SAP KOSAR), such as ADMIN or SALES: one of the configuration's
+	// `controlling.cost_center_categories` (T56c), which say whether revenue may carry the cost center and
+	// the locks a new one starts with.
 	Category OptString `json:"category"`
 	// Why; shown to the approver and recorded in the audit trail.
 	Reason string `json:"reason"`
@@ -10892,8 +10894,9 @@ type CostCenterPeriod struct {
 	ValidFrom time.Time `json:"valid_from"`
 	// Day after the last day (exclusive); absent: open-ended.
 	ValidTo OptDate `json:"valid_to"`
-	// Cost center category (SAP KOSAR), such as ADMIN or SALES; the configuration names categories and
-	// their lock defaults from T56c.
+	// Cost center category (SAP KOSAR), such as ADMIN or SALES: one of the configuration's
+	// `controlling.cost_center_categories` (T56c), which say whether revenue may carry the cost center and
+	// the locks a new one starts with.
 	Category string `json:"category"`
 	// Profit center, assigned to the cost center's legal entity; absent: lines take the company's default
 	// profit center.

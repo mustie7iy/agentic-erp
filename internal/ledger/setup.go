@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -41,9 +42,17 @@ import (
 //     supplier has the code (partner.WithholdingCodes);
 //   - the foreign-currency valuation (T48a, ADR-0042) is kept per legal
 //     entity: its rate type, the flagged accounts and each revalued
-//     account's valuation accounts, deactivated when removed.
+//     account's valuation accounts, deactivated when removed;
+//   - the controlling rules (T56c, ADR-0050 §4, controlling.go): each
+//     account's cost element, the tenant's cost center categories, and per
+//     legal entity the fiscal years cost and profit center accounting apply
+//     from, the default profit center and the default cost centers.
 type Setup struct {
 	LegalEntities LegalEntities
+	// Now is the clock the controlling rules read today by (the fiscal year
+	// center accounting is turned on from, whether default centers are
+	// valid); nil is the wall clock.
+	Now func() time.Time
 }
 
 const (
@@ -63,6 +72,9 @@ func (s Setup) Check(ctx context.Context, base, proposed *config.Config) ([]conf
 		return nil, err
 	}
 	var out findings
+	if err := checkCategories(ctx, tx, proposed, &out); err != nil {
+		return nil, err
+	}
 	for _, co := range proposed.Companies {
 		var was *config.Company
 		if base != nil {
@@ -123,6 +135,9 @@ func (s Setup) checkCompany(ctx context.Context, tx pgx.Tx, co config.Company, w
 		return err
 	}
 	if err := checkOpenItemsUnposted(ctx, tx, p, le.ID, co, was, out); err != nil {
+		return err
+	}
+	if _, err := readControlling(ctx, tx, p, le.ID, co, clock.Now(s.Now), false, out); err != nil {
 		return err
 	}
 	return checkGRIRUnposted(ctx, tx, p, le.ID, co, out)
@@ -255,6 +270,9 @@ func (s Setup) Apply(ctx context.Context, doc *config.Config) error {
 		p.TenantID, uuid.Must(uuid.NewV7()), p.ID); err != nil {
 		return fmt.Errorf("ledger: apply leading ledger: %w", err)
 	}
+	if err := applyCategories(ctx, tx, p, doc); err != nil {
+		return err
+	}
 	for _, co := range doc.Companies {
 		if err := s.applyCompany(ctx, tx, p, co, doc); err != nil {
 			return err
@@ -283,6 +301,9 @@ func (s Setup) applyCompany(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 		return fmt.Errorf("ledger: apply company %s: chart of accounts: %w", co.Code, err)
 	}
 	if err := applyAccounts(ctx, tx, p, le.ID, chart, co); err != nil {
+		return err
+	}
+	if err := applyControlling(ctx, tx, p, le.ID, chart, co, clock.Now(s.Now)); err != nil {
 		return err
 	}
 	ad := co.AccountDetermination
@@ -341,7 +362,7 @@ func withholdingTaxCodes(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le,
 // entity.
 func applyAccounts(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, chart uuid.UUID, co config.Company) error {
 	var ids []uuid.UUID
-	var numbers, names, types, kinds []string
+	var numbers, names, types, kinds, elements []string
 	for _, a := range co.ChartOfAccounts {
 		kind := "none"
 		if a.VendorReconciliation {
@@ -349,13 +370,16 @@ func applyAccounts(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, chart
 		}
 		ids = append(ids, uuid.Must(uuid.NewV7()))
 		numbers, names, types, kinds = append(numbers, a.Number), append(names, a.Name), append(types, string(a.Type)), append(kinds, kind)
+		elements = append(elements, string(a.CostElementOrDefault()))
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.gl_account AS g (tenant_id, id, chart_id, number, name, account_type, reconciliation_kind,
-			status, created_by, updated_by)
-		SELECT $1, i, $2, n, nm, t, k, 'active', $3, $3 FROM unnest($4::uuid[], $5::text[], $6::text[], $7::text[], $8::text[]) AS a(i, n, nm, t, k)
-		ON CONFLICT (tenant_id, chart_id, number) DO UPDATE SET name = EXCLUDED.name, status = 'active', version = g.version + 1, updated_by = $3
-		WHERE (g.name, g.status) IS DISTINCT FROM (EXCLUDED.name, 'active')`,
-		p.TenantID, chart, p.ID, ids, numbers, names, types, kinds); err != nil {
+			cost_element, status, created_by, updated_by)
+		SELECT $1, i, $2, n, nm, t, k, ce, 'active', $3, $3
+		FROM unnest($4::uuid[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[]) AS a(i, n, nm, t, k, ce)
+		ON CONFLICT (tenant_id, chart_id, number) DO UPDATE SET name = EXCLUDED.name, cost_element = EXCLUDED.cost_element, status = 'active',
+			version = g.version + 1, updated_by = $3
+		WHERE (g.name, g.cost_element, g.status) IS DISTINCT FROM (EXCLUDED.name, EXCLUDED.cost_element, 'active')`,
+		p.TenantID, chart, p.ID, ids, numbers, names, types, kinds, elements); err != nil {
 		return fmt.Errorf("ledger: apply company %s: accounts: %w", co.Code, err)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE ledger.gl_account SET status = 'inactive', version = version + 1, updated_by = $3

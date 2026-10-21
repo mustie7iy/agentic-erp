@@ -43,6 +43,8 @@ func newCenters(t *testing.T) centerFixture {
 				VALUES ($1, $2, $3, 'create', '{}', 'r', 'applied', $4, now(), $4, $4)`, []any{f.tenant, f.pcChange, f.pc, f.actor}},
 			{`INSERT INTO ledger.center_change (tenant_id, id, cost_center_id, kind, payload, reason, status, requested_by, applied_at, created_by, updated_by)
 				VALUES ($1, $2, $3, 'create', '{}', 'r', 'applied', $4, now(), $4, $4)`, []any{f.tenant, f.ccChange, f.cc, f.actor}},
+			{`INSERT INTO ledger.cost_center_category (tenant_id, code, name, created_by, updated_by) VALUES ($1, 'ADMIN', 'Administration', $2, $2)`,
+				[]any{f.tenant, f.actor}},
 			{`INSERT INTO ledger.cost_center_period (tenant_id, id, cost_center_id, legal_entity_id, valid_from, category, profit_center_id, change_id, created_by, updated_by)
 				VALUES ($1, gen_random_uuid(), $2, $3, '2026-01-01', 'ADMIN', $4, $5, $6, $6)`, []any{f.tenant, f.cc, f.entity, f.pc, f.ccChange, f.actor}},
 			{`INSERT INTO ledger.profit_center_period (tenant_id, id, profit_center_id, valid_from, change_id, created_by, updated_by)

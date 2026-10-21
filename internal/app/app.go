@@ -219,18 +219,21 @@ func (companyCodes) CompanyCode(ctx context.Context, id uuid.UUID) (string, bool
 func Configuration(cfg Config) configuration.Dependencies {
 	return configuration.Dependencies{
 		LegalEntities: tenancy.Directory{},
-		Sections: []configuration.Section{ledger.Setup{LegalEntities: tenancy.Directory{}}, partner.PaymentTerms{}, partner.WithholdingCodes{LegalEntities: tenancy.Directory{}},
+		Sections: []configuration.Section{ledger.Setup{LegalEntities: tenancy.Directory{}, Now: cfg.Now}, partner.PaymentTerms{},
+			partner.WithholdingCodes{LegalEntities: tenancy.Directory{}},
 			partner.PaymentMethodCodes{LegalEntities: tenancy.Directory{}},
 			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Channels: integration.BankChannels{}, Keys: cfg.FieldKeys},
 			payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, endpoint.Section{}},
 		Approvals: opener(),
 		Simulator: configuration.Simulators{payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
-			endpoint.Simulation{Endpoints: analyticsEndpoints(cfg, nil), Now: cfg.Now}},
+			endpoint.Simulation{Endpoints: analyticsEndpoints(cfg, nil), Now: cfg.Now},
+			ledger.AssignmentSimulation{LegalEntities: tenancy.Directory{}, Now: cfg.Now}},
 		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
 		Actors:    identity.Actors{},
 		RuleSamplers: map[string]rules.Sampler{"supplier_invoice": payables.RuleSamples{}, "purchase_order": procurement.RuleSamples{},
 			"business_partner": partner.RuleSamples{}},
-		Disclosures: []configuration.Disclosure{payables.Disclosure{}, endpoint.Disclosure{Endpoints: analyticsEndpoints(cfg, nil)}},
+		Disclosures: []configuration.Disclosure{payables.Disclosure{}, endpoint.Disclosure{Endpoints: analyticsEndpoints(cfg, nil)},
+			ledger.AssignmentDisclosure{}},
 	}
 }
 

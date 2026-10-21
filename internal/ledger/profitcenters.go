@@ -160,7 +160,7 @@ func planProfitCenter(ctx context.Context, tx pgx.Tx, c ProfitCenter, kind strin
 	if _, _, differ := diffSpans(c.Periods, spans); !differ {
 		return nil, nothingToChange()
 	}
-	return spans, nil
+	return spans, keepsDefaultProfitCenter(ctx, tx, c.ID, spans)
 }
 
 func equalIDs(a, b *uuid.UUID) bool {

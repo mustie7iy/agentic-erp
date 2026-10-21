@@ -59,7 +59,7 @@ func (v *validator) fxValuationAccount(ap string, co *Company, f FXValuationAcco
 	}
 	adj := co.Account(f.Adjustment)
 	switch {
-	case recon && (adj == nil || !adj.Type.balanceSheet() || adj.VendorReconciliation):
+	case recon && (adj == nil || !adj.Type.BalanceSheet() || adj.VendorReconciliation):
 		v.err(ap+".adjustment", "a reconciliation account's difference goes to a balance-sheet account of the chart that reconciles no supplier")
 	case !recon && f.Adjustment != "":
 		v.err(ap+".adjustment", "a revalued G/L account takes its difference itself; leave adjustment out")
@@ -72,5 +72,5 @@ func (v *validator) fxValuationAccount(ap string, co *Company, f FXValuationAcco
 	}
 }
 
-// balanceSheet says whether accounts of the type are on the balance sheet.
-func (t AccountType) balanceSheet() bool { return t == Asset || t == Liability || t == Equity }
+// BalanceSheet says whether accounts of the type are on the balance sheet.
+func (t AccountType) BalanceSheet() bool { return t == Asset || t == Liability || t == Equity }
