@@ -202,7 +202,7 @@ channels:
   ledger:
     address: 'erp.{cell}.ledger.{tenant}.{event}'
     title: General ledger events
-    description: Journal entries, clearing, posting periods, and cost centers, profit centers and segments.
+    description: Journal entries, clearing, posting periods, and cost centers, profit centers, segments and their hierarchies.
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
@@ -216,6 +216,7 @@ channels:
       CostCenterChanged: {$ref: '#/components/messages/CostCenterChanged'}
       ProfitCenterChanged: {$ref: '#/components/messages/ProfitCenterChanged'}
       SegmentChanged: {$ref: '#/components/messages/SegmentChanged'}
+      HierarchyChanged: {$ref: '#/components/messages/HierarchyChanged'}
       ParkedJournalEntryChanged: {$ref: '#/components/messages/ParkedJournalEntryChanged'}
       ExchangeRateMaintained: {$ref: '#/components/messages/ExchangeRateMaintained'}
       RevaluationRunPosted: {$ref: '#/components/messages/RevaluationRunPosted'}
@@ -405,6 +406,7 @@ operations:
       - $ref: '#/channels/ledger/messages/CostCenterChanged'
       - $ref: '#/channels/ledger/messages/ProfitCenterChanged'
       - $ref: '#/channels/ledger/messages/SegmentChanged'
+      - $ref: '#/channels/ledger/messages/HierarchyChanged'
       - $ref: '#/channels/ledger/messages/ParkedJournalEntryChanged'
       - $ref: '#/channels/ledger/messages/ExchangeRateMaintained'
       - $ref: '#/channels/ledger/messages/RevaluationRunPosted'
@@ -960,6 +962,29 @@ components:
         - name: created
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000093, source: /erp/eu-1/ledger, type: com.example.erp.ledger.segment_changed.v1, subject: 0192a000-0000-7000-8000-000000000303, time: '2026-10-21T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {segment_id: 0192a000-0000-7000-8000-000000000303, code: RETAIL, name: Retail, change: created}
+    HierarchyChanged:
+      name: HierarchyChanged
+      x-webhook: true
+      title: Hierarchy changed
+      summary: A hierarchy of cost or profit centers was created, or a change to its tree was applied.
+      description: |
+        Emitted by `hierarchies` (POST, `change` create) and when a
+        controller approves a change of a tree (`node_create`,
+        `node_rename`, `node_move`, `node_remove`, `place`), including the
+        placing of a center whose creation was approved. It says what
+        changed, not the tree, which `GET /v1/hierarchies/{id}` returns at
+        `version`. Subject is the hierarchy id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.ledger.hierarchy_changed.v1}
+      payload: {$ref: '#/components/schemas/HierarchyChangedV1'}
+      examples:
+        - name: place
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000094, source: /erp/eu-1/ledger, type: com.example.erp.ledger.hierarchy_changed.v1, subject: 0192a000-0000-7000-8000-000000000310, time: '2026-10-21T09:30:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
+          payload: {hierarchy_id: 0192a000-0000-7000-8000-000000000310, kind: cost_center, code: STANDARD, is_standard: true, version: 5, change: place, center_change_id: 0192a000-0000-7000-8000-000000000306, node_id: 0192a000-0000-7000-8000-000000000312, center_id: 0192a000-0000-7000-8000-000000000304}
     ParkedJournalEntryChanged:
       name: ParkedJournalEntryChanged
       x-webhook: true
@@ -2987,6 +3012,19 @@ components:
         code: {type: string}
         name: {type: string}
         change: {type: string, description: 'Open enum: created, updated.'}
+    HierarchyChangedV1:
+      type: object
+      required: [hierarchy_id, kind, code, is_standard, version, change, center_change_id, node_id, center_id]
+      properties:
+        hierarchy_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.hierarchy.id`.'}
+        kind: {type: string, description: 'Open enum: cost_center, profit_center.'}
+        code: {type: string}
+        is_standard: {type: boolean}
+        version: {type: integer, description: The hierarchy's version after the change.}
+        change: {type: string, description: 'Open enum: create, node_create, node_rename, node_move, node_remove, place.'}
+        center_change_id: {$ref: '#/components/schemas/NullableUuid', description: The applied center change; null when the hierarchy was created.}
+        node_id: {$ref: '#/components/schemas/NullableUuid', description: The node changed, or the node a center was placed at; null when a center left an alternative hierarchy, and on create.}
+        center_id: {$ref: '#/components/schemas/NullableUuid', description: The cost or profit center placed (kind); null for a node change.}
     ParkedJournalEntryChangedV1:
       type: object
       required: [parked_entry_id, legal_entity_id, posting_date, amount, status, previous_status, created_by_kind, owner_id, approval_request_id, journal_entry_id]

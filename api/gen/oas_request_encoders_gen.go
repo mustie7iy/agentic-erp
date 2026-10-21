@@ -15,6 +15,20 @@ import (
 	"github.com/ogen-go/ogen/uri"
 )
 
+func encodeAddHierarchyNodeRequest(
+	req *HierarchyNodeAdd,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeApproveApprovalRequestRequest(
 	req OptDecisionInput,
 	r *http.Request,
@@ -366,6 +380,20 @@ func encodeCreateDownPaymentRequestRequest(
 
 func encodeCreateExchangeRateRequest(
 	req *ExchangeRateCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateHierarchyRequest(
+	req *HierarchyCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -883,6 +911,20 @@ func encodeMoveCostCenterRequest(
 	return nil
 }
 
+func encodeMoveHierarchyNodeRequest(
+	req *HierarchyNodeMove,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeMoveProfitCenterRequest(
 	req *ProfitCenterMove,
 	r *http.Request,
@@ -899,6 +941,20 @@ func encodeMoveProfitCenterRequest(
 
 func encodeParkJournalEntryRequest(
 	req *JournalEntryCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodePlaceInHierarchyRequest(
+	req *HierarchyPlace,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -1105,6 +1161,34 @@ func encodeReleaseSupplierInvoiceRequest(
 		if req.Set {
 			req.Encode(e)
 		}
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeRemoveHierarchyNodeRequest(
+	req *HierarchyNodeRemove,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeRenameHierarchyNodeRequest(
+	req *HierarchyNodeRename,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
 	}
 	encoded := e.Bytes()
 	ht.SetBody(r, bytes.NewReader(encoded), contentType)

@@ -35,6 +35,14 @@ func (s *GoodsReceiptCreate) setDefaults() {
 }
 
 // setDefaults set default value of fields.
+func (s *HierarchyCreate) setDefaults() {
+	{
+		val := bool(false)
+		s.IsStandard.SetTo(val)
+	}
+}
+
+// setDefaults set default value of fields.
 func (s *JournalEntryCreate) setDefaults() {
 	{
 		val := string("SA")

@@ -85,8 +85,8 @@ const DefaultManualEntryRole = "controller"
 
 // DefaultCenterChangeRole approves a center change (T56a, ADR-0050 §11):
 // creating a cost or profit center, its validity, locks, profit center,
-// segment and companies are a controller's decision, a fixed role as for
-// period unlocks.
+// segment and companies, and every change to a hierarchy's tree (T56b),
+// are a controller's decision, a fixed role as for period unlocks.
 const DefaultCenterChangeRole = "controller"
 
 // ObjectPermissions is the approval permission of each object type

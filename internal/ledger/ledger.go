@@ -12,7 +12,9 @@
 // Cost centers, profit centers and segments (ADR-0050, T56a) are the
 // ledger's master data: their texts change at once, their creation and
 // effective-dated periods, segment and companies only through a center
-// change a controller approves (centerchange.go, CenterChanges).
+// change a controller approves (centerchange.go, CenterChanges). Their
+// standard and alternative hierarchies (T56b) change the same way
+// (hierarchies.go, hierarchychange.go).
 //
 // A locked period returns to closed only through an approved period_unlock
 // approval request (T32): the ledger opens it (RequestUnlock) and is called

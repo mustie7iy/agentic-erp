@@ -1359,9 +1359,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Hierarchies: standard and alternative per kind; one leaf per center in the standard (commit-time check), no cycles, depth at most 12; node moves as change requests; GET /v1/hierarchies/{kind}/{code} with members; schema tests",
-        "r": "T56b",
+        "s": "D",
+        "t": "Hierarchies (ledger): hierarchy (kind, code, at most one standard per kind), hierarchy_node (one root, parent in the same hierarchy, code unique, position), hierarchy_member (a center of the kind once per hierarchy, at a leaf); nothing deleted, removed nodes and places carry removed_by_change_id; triggers refuse cycles, a 13th level and centers off leaves under the hierarchy's row lock; every active center is in the standard hierarchy at commit (deferred trigger); every tree change (node create/rename/move/remove, place) is a center_change approved by the controller, planned at request and again at approval, x-autonomy: propose, alternative trees included (PO to confirm); new centers name a standard leaf (standard_node_id), existing ones were placed in STANDARD/UNASSIGNED; /v1/hierarchies (list, create, tree, subtree, :add, :rename, :move, :remove, :place), /v1/cost-centers/{id}/hierarchy-paths, /v1/profit-centers/{id}/hierarchy-paths; HierarchyChanged; schema tests per rule",
+        "r": "migration 000128 · internal/ledger hierarchies.go, hierarchychange.go, hierarchies_api.go · api/openapi.yaml · api/asyncapi.yaml · ADR-0050 · T56b",
         "c": []
        },
        {

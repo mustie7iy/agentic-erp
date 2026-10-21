@@ -3692,6 +3692,44 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/cost-centers/{id}/hierarchy-paths":
+    get:
+      operationId: listCostCenterPaths
+      tags:
+        - ledger
+      summary: List the hierarchy paths of a cost center
+      description: "Where the cost center sits in each hierarchy that holds it, the standard one included: the nodes from the root to its leaf. A cost center outside the legal entities the caller may act in is not found. Sortable by: `code` (the hierarchy's)."
+      x-permission: ledger.cost_center.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of the hierarchy paths of a cost center.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterPathPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   "/v1/cost-centers/{id}:redate":
     post:
       operationId: redateCostCenter
@@ -4252,6 +4290,44 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/profit-centers/{id}/hierarchy-paths":
+    get:
+      operationId: listProfitCenterPaths
+      tags:
+        - ledger
+      summary: List the hierarchy paths of a profit center
+      description: "Where the profit center sits in each hierarchy that holds it, the standard one included: the nodes from the root to its leaf. Sortable by: `code` (the hierarchy's)."
+      x-permission: ledger.cost_center.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of the hierarchy paths of a profit center.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterPathPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   "/v1/profit-centers/{id}:assign":
     post:
       operationId: assignProfitCenter
@@ -4519,6 +4595,13 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: hierarchy_id
+          in: query
+          required: false
+          description: Only changes of this hierarchy's tree.
+          schema:
+            type: string
+            format: uuid
         - name: status
           in: query
           required: false
@@ -4593,6 +4676,483 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/hierarchies:
+    get:
+      operationId: listHierarchies
+      tags:
+        - ledger
+      summary: List hierarchies
+      description: "Standard and alternative hierarchies of cost and profit centers (ADR-0050 §3), without their trees. Sortable by: `code`."
+      x-permission: ledger.cost_center.read
+      parameters:
+        - name: kind
+          in: query
+          required: false
+          description: Only hierarchies of this kind.
+          schema:
+            type: string
+            description: "Hierarchy kind. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - cost_center
+              - profit_center
+        - name: code
+          in: query
+          required: false
+          description: Only the hierarchy with this code.
+          schema:
+            type: string
+            pattern: "^[0-9A-Z_-]{1,15}$"
+        - name: is_standard
+          in: query
+          required: false
+          description: "Only standard (`true`) or alternative (`false`) hierarchies."
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of hierarchies.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HierarchyPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createHierarchy
+      tags:
+        - ledger
+      summary: Create a hierarchy
+      description: "Creates an empty hierarchy of cost or profit centers with its root node, which takes the hierarchy's code and name. A tenant has at most one standard hierarchy per kind (409 `ledger.standard_hierarchy_exists`), and a code is unique per kind (409 `ledger.hierarchy_exists`). An empty tree changes no center; its nodes and centers are added through center changes (ADR-0050 §11)."
+      x-permission: ledger.cost_center.change
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The hierarchy to create.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HierarchyCreate"
+      responses:
+        "201":
+          description: "Created; the new hierarchy."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Hierarchy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/hierarchies/{id}":
+    get:
+      operationId: getHierarchy
+      tags:
+        - ledger
+      summary: Get a hierarchy
+      description: "Returns the hierarchy with its whole tree: its nodes in tree order (each after its parent, siblings by position and code), each with the centers placed at it. Hierarchies are not time-dependent (decision P7): reports read history under this tree."
+      x-permission: ledger.cost_center.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The hierarchy with its tree.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HierarchyTree"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/hierarchies/{id}:place":
+    post:
+      operationId: placeInHierarchy
+      tags:
+        - ledger
+      summary: Request to place a center in a hierarchy
+      description: "Places an active center of the hierarchy's kind at a leaf node (one without child nodes), or moves it there from its node; `node_id` null removes it from an alternative hierarchy. A center is at most once in a hierarchy, and in exactly one leaf of the standard one, which it cannot leave (422 `ledger.hierarchy_change_invalid`). One pending change per center (409 `ledger.center_change_pending`). Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is planned again and applied when the request is approved, and refused then if the tree no longer allows it. `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is applied."
+      x-permission: ledger.cost_center.change
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of placeInHierarchy.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HierarchyPlace"
+      responses:
+        "200":
+          description: The pending center change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/hierarchies/{id}/nodes/{node_id}":
+    get:
+      operationId: getHierarchyNode
+      tags:
+        - ledger
+      summary: Get a hierarchy node
+      description: "Returns the hierarchy with the subtree below the node, the node first, in tree order, each node with the centers placed at it."
+      x-permission: ledger.cost_center.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/NodeId"
+      responses:
+        "200":
+          description: The hierarchy with the subtree below the node.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HierarchyTree"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/hierarchies/{id}/nodes/{node_id}:add":
+    post:
+      operationId: addHierarchyNode
+      tags:
+        - ledger
+      summary: Request a node below a node
+      description: "Adds a node below the node, which must hold no centers (centers sit at leaves), at most 12 levels deep; the code is unique in the hierarchy (409 `ledger.hierarchy_node_exists`). Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is planned again and applied when the request is approved, and refused then if the tree no longer allows it. `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is applied."
+      x-permission: ledger.cost_center.change
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/NodeId"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of addHierarchyNode.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HierarchyNodeAdd"
+      responses:
+        "200":
+          description: The pending center change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/hierarchies/{id}/nodes/{node_id}:rename":
+    post:
+      operationId: renameHierarchyNode
+      tags:
+        - ledger
+      summary: Request a new name of a node
+      description: "Renames the node; its code is fixed. Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is planned again and applied when the request is approved, and refused then if the tree no longer allows it. `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is applied."
+      x-permission: ledger.cost_center.change
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/NodeId"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of renameHierarchyNode.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HierarchyNodeRename"
+      responses:
+        "200":
+          description: The pending center change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/hierarchies/{id}/nodes/{node_id}:move":
+    post:
+      operationId: moveHierarchyNode
+      tags:
+        - ledger
+      summary: Request to move a node
+      description: "Moves the node, with its subtree, below another node of the hierarchy that holds no centers; refused when the new parent is the node or below it (a cycle) or when the subtree would end deeper than 12 levels (422 `ledger.hierarchy_change_invalid`). The root is not moved. Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is planned again and applied when the request is approved, and refused then if the tree no longer allows it. `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is applied."
+      x-permission: ledger.cost_center.change
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/NodeId"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of moveHierarchyNode.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HierarchyNodeMove"
+      responses:
+        "200":
+          description: The pending center change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/hierarchies/{id}/nodes/{node_id}:remove":
+    post:
+      operationId: removeHierarchyNode
+      tags:
+        - ledger
+      summary: Request to remove a node
+      description: "Removes a node without child nodes or centers; the root is not removed (422 `ledger.hierarchy_change_invalid`). Nothing is deleted: the node is kept as removed by the change. Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is planned again and applied when the request is approved, and refused then if the tree no longer allows it. `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is applied."
+      x-permission: ledger.cost_center.change
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/NodeId"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of removeHierarchyNode.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HierarchyNodeRemove"
+      responses:
+        "200":
+          description: The pending center change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/fiscal-periods:
     get:
       operationId: listFiscalPeriods
@@ -12575,6 +13135,15 @@ components:
         type: string
         format: uuid
       example: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+    NodeId:
+      name: node_id
+      in: path
+      required: true
+      description: Hierarchy node identifier (UUIDv7).
+      schema:
+        type: string
+        format: uuid
+      example: "0192a000-0000-7000-8000-000000000311"
     BankAccountId:
       name: bank_account_id
       in: path
@@ -16853,6 +17422,7 @@ components:
         - responsible
         - category
         - valid_from
+        - standard_node_id
         - reason
       properties:
         legal_entity_id:
@@ -16894,6 +17464,10 @@ components:
           type: string
           format: date
           description: "End of validity (exclusive); absent: open-ended."
+        standard_node_id:
+          type: string
+          format: uuid
+          description: "Leaf node of the tenant's standard hierarchy of this kind where the center is placed when its creation is approved (ADR-0050 §3: every active center sits in exactly one leaf of it); a node without child nodes (422 `ledger.hierarchy_change_invalid`)."
         reason:
           type: string
           minLength: 1
@@ -16901,7 +17475,8 @@ components:
           description: "Why; shown to the approver and recorded in the audit trail."
       additionalProperties: false
       examples:
-        - legal_entity_id: "0192a000-0000-7000-8000-000000000201"
+        - standard_node_id: "0192a000-0000-7000-8000-000000000312"
+          legal_entity_id: "0192a000-0000-7000-8000-000000000201"
           code: "1000"
           name: Administration
           responsible: Jane Doe
@@ -17182,6 +17757,7 @@ components:
         - responsible
         - legal_entity_ids
         - valid_from
+        - standard_node_id
         - reason
       properties:
         code:
@@ -17224,6 +17800,10 @@ components:
           type: string
           format: date
           description: "End of validity (exclusive); absent: open-ended."
+        standard_node_id:
+          type: string
+          format: uuid
+          description: "Leaf node of the tenant's standard hierarchy of this kind where the center is placed when its creation is approved (ADR-0050 §3: every active center sits in exactly one leaf of it); a node without child nodes (422 `ledger.hierarchy_change_invalid`)."
         reason:
           type: string
           minLength: 1
@@ -17231,7 +17811,8 @@ components:
           description: "Why; shown to the approver and recorded in the audit trail."
       additionalProperties: false
       examples:
-        - code: CA-SALES
+        - standard_node_id: "0192a000-0000-7000-8000-000000000313"
+          code: CA-SALES
           name: Sales Canada
           responsible: Jane Doe
           legal_entity_ids:
@@ -17458,7 +18039,7 @@ components:
               code: RETAIL
               name: Retail
     CenterChange:
-      description: "A requested change to a cost or profit center (ADR-0050 §11), decided on its `center_change` approval request (`workflow_request_id`): applied when it is approved, rejected when it is rejected, cancelled when its requester withdraws it."
+      description: "A requested change to a cost or profit center, or to a hierarchy's tree (ADR-0050 §11), decided on its `center_change` approval request (`workflow_request_id`): applied when it is approved, rejected when it is rejected, cancelled when its requester withdraws it."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
@@ -17479,6 +18060,11 @@ components:
               format: uuid
               description: Profit center changed; absent for a cost center's change.
               readOnly: true
+            hierarchy_id:
+              type: string
+              format: uuid
+              description: "Hierarchy whose tree the change changes (kinds `node_*` and `place`); a `place` also names its center."
+              readOnly: true
             kind:
               type: string
               description: "Kind of change. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
@@ -17488,6 +18074,11 @@ components:
                 - lock
                 - move
                 - assign
+                - node_create
+                - node_rename
+                - node_move
+                - node_remove
+                - place
               readOnly: true
             payload:
               type: object
@@ -17570,6 +18161,406 @@ components:
               workflow_request_id: "0192a000-0000-7000-8000-000000000305"
               requested_by: "0192a000-0000-7000-8000-000000000101"
               applied_at: "2026-10-21T09:30:00Z"
+    Hierarchy:
+      description: "A standard or alternative hierarchy of cost or profit centers (ADR-0050 §3; SAP cost and profit center groups). Its `version`, the ETag, moves on with every change applied to its tree."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - kind
+            - code
+            - name
+            - is_standard
+            - root_node_id
+          properties:
+            kind:
+              type: string
+              description: "Kind of center it holds. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - cost_center
+                - profit_center
+              readOnly: true
+            code:
+              type: string
+              description: Code, unique per kind. Immutable.
+              readOnly: true
+            name:
+              type: string
+              description: Name.
+              readOnly: true
+            is_standard:
+              type: boolean
+              description: "The tenant's standard hierarchy of its kind: every active center sits in exactly one of its leaves."
+              readOnly: true
+            root_node_id:
+              type: string
+              format: uuid
+              description: Root node, created with the hierarchy.
+              readOnly: true
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000310"
+          version: 4
+          created_at: "2026-10-21T09:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+          updated_at: "2026-10-21T09:30:00Z"
+          kind: cost_center
+          code: STANDARD
+          name: Standard hierarchy
+          is_standard: true
+          root_node_id: "0192a000-0000-7000-8000-000000000311"
+    HierarchyCreate:
+      type: object
+      description: "A new hierarchy; its root node takes its code and name."
+      required:
+        - kind
+        - code
+        - name
+      properties:
+        kind:
+          type: string
+          description: "Kind of center it holds (422 `request.validation_failed` for another). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - cost_center
+            - profit_center
+        code:
+          type: string
+          pattern: "^[0-9A-Z_-]{1,15}$"
+          description: "Code (up to 15 of 0-9, A-Z, _ and -), unique per kind. Immutable."
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Name.
+        is_standard:
+          type: boolean
+          default: false
+          description: "The tenant's standard hierarchy of the kind; one per kind."
+      additionalProperties: false
+      examples:
+        - kind: cost_center
+          code: STANDARD
+          name: Standard hierarchy
+          is_standard: true
+    HierarchyNode:
+      type: object
+      description: "A node of a hierarchy (SAP cost or profit center group) with the centers placed at it; only leaves hold centers."
+      required:
+        - id
+        - code
+        - name
+        - position
+        - level
+        - center_ids
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier (UUIDv7).
+          readOnly: true
+        parent_id:
+          type: string
+          format: uuid
+          description: Parent node; absent for the root.
+          readOnly: true
+        code:
+          type: string
+          description: Code, unique in the hierarchy. Immutable.
+          readOnly: true
+        name:
+          type: string
+          description: Name.
+          readOnly: true
+        position:
+          type: integer
+          format: int32
+          description: Order among its siblings.
+          readOnly: true
+        level:
+          type: integer
+          format: int32
+          description: "Depth: 1 for the root, at most 12."
+          readOnly: true
+        center_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: "Cost or profit centers placed at the node (the hierarchy's kind)."
+          readOnly: true
+    HierarchyTree:
+      description: "A hierarchy with its tree, or the subtree below one node: the nodes in tree order, each after its parent, siblings by position and code."
+      allOf:
+        - $ref: "#/components/schemas/Hierarchy"
+        - type: object
+          required:
+            - nodes
+          properties:
+            nodes:
+              type: array
+              items:
+                $ref: "#/components/schemas/HierarchyNode"
+              description: The nodes, in tree order.
+              readOnly: true
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000310"
+          version: 4
+          created_at: "2026-10-21T09:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+          updated_at: "2026-10-21T09:30:00Z"
+          kind: cost_center
+          code: STANDARD
+          name: Standard hierarchy
+          is_standard: true
+          root_node_id: "0192a000-0000-7000-8000-000000000311"
+          nodes:
+            - id: "0192a000-0000-7000-8000-000000000311"
+              code: STANDARD
+              name: Standard hierarchy
+              position: 0
+              level: 1
+              center_ids: []
+            - id: "0192a000-0000-7000-8000-000000000312"
+              parent_id: "0192a000-0000-7000-8000-000000000311"
+              code: ADMIN
+              name: Administration
+              position: 1
+              level: 2
+              center_ids: ["0192a000-0000-7000-8000-000000000304"]
+    HierarchyPage:
+      type: object
+      description: One page of hierarchies.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Hierarchy"
+          description: The hierarchies on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+      examples:
+        - items:
+            - id: "0192a000-0000-7000-8000-000000000310"
+              version: 4
+              created_at: "2026-10-21T09:00:00Z"
+              created_by: "0192a000-0000-7000-8000-000000000101"
+              updated_at: "2026-10-21T09:30:00Z"
+              kind: cost_center
+              code: STANDARD
+              name: Standard hierarchy
+              is_standard: true
+              root_node_id: "0192a000-0000-7000-8000-000000000311"
+    HierarchyNodeAdd:
+      type: object
+      description: "A node to add below a node."
+      required:
+        - code
+        - name
+        - reason
+      properties:
+        code:
+          type: string
+          pattern: "^[0-9A-Z_-]{1,15}$"
+          description: "Code (up to 15 of 0-9, A-Z, _ and -), unique in the hierarchy. Immutable."
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Name.
+        position:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 100000
+          description: "Order among its siblings; absent: after them."
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: "Why; shown to the approver and recorded in the audit trail."
+      additionalProperties: false
+      examples:
+        - code: ADMIN
+          name: Administration
+          reason: Administration cost centers grouped for the monthly report.
+    HierarchyNodeRename:
+      type: object
+      description: "A node's new name."
+      required:
+        - name
+        - reason
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: New name.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: "Why; shown to the approver and recorded in the audit trail."
+      additionalProperties: false
+      examples:
+        - name: Administration and finance
+          reason: Finance joined administration.
+    HierarchyNodeMove:
+      type: object
+      description: "A node's new parent."
+      required:
+        - parent_id
+        - reason
+      properties:
+        parent_id:
+          type: string
+          format: uuid
+          description: New parent node, in the same hierarchy.
+        position:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 100000
+          description: "Order among its new siblings; absent: after them."
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: "Why; shown to the approver and recorded in the audit trail."
+      additionalProperties: false
+      examples:
+        - parent_id: "0192a000-0000-7000-8000-000000000311"
+          reason: Region reorganised.
+    HierarchyNodeRemove:
+      type: object
+      description: "Why a node is removed."
+      required:
+        - reason
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: "Why; shown to the approver and recorded in the audit trail."
+      additionalProperties: false
+      examples:
+        - reason: Group no longer used.
+    HierarchyPlace:
+      type: object
+      description: "Where a center goes in the hierarchy."
+      required:
+        - center_id
+        - node_id
+        - reason
+      properties:
+        center_id:
+          type: string
+          format: uuid
+          description: "Cost or profit center, of the hierarchy's kind."
+        node_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+          description: "Leaf node to place it at; null: out of this alternative hierarchy."
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: "Why; shown to the approver and recorded in the audit trail."
+      additionalProperties: false
+      examples:
+        - center_id: "0192a000-0000-7000-8000-000000000304"
+          node_id: "0192a000-0000-7000-8000-000000000312"
+          reason: Belongs with administration.
+    CenterPathNode:
+      type: object
+      description: A node on a center's path.
+      required:
+        - id
+        - code
+        - name
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Node.
+          readOnly: true
+        code:
+          type: string
+          description: Code.
+          readOnly: true
+        name:
+          type: string
+          description: Name.
+          readOnly: true
+    CenterPath:
+      type: object
+      description: "Where a center sits in one hierarchy: the nodes from the root to its leaf."
+      required:
+        - hierarchy_id
+        - hierarchy_code
+        - is_standard
+        - nodes
+      properties:
+        hierarchy_id:
+          type: string
+          format: uuid
+          description: Hierarchy.
+          readOnly: true
+        hierarchy_code:
+          type: string
+          description: The hierarchy's code.
+          readOnly: true
+        is_standard:
+          type: boolean
+          description: Whether it is the standard hierarchy.
+          readOnly: true
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/CenterPathNode"
+          description: "The root first, the center's leaf last."
+          readOnly: true
+    CenterPathPage:
+      type: object
+      description: One page of hierarchy paths.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CenterPath"
+          description: The hierarchy paths on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+      examples:
+        - items:
+            - hierarchy_id: "0192a000-0000-7000-8000-000000000310"
+              hierarchy_code: STANDARD
+              is_standard: true
+              nodes:
+                - id: "0192a000-0000-7000-8000-000000000311"
+                  code: STANDARD
+                  name: Standard hierarchy
+                - id: "0192a000-0000-7000-8000-000000000312"
+                  code: ADMIN
+                  name: Administration
     FiscalPeriod:
       type: object
       description: The posting status of one fiscal period for one legal entity and ledger.

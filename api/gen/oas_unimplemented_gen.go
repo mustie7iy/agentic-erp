@@ -42,6 +42,21 @@ func (UnimplementedHandler) ActivateOrgUnit(ctx context.Context, params Activate
 	return r, ht.ErrNotImplemented
 }
 
+// AddHierarchyNode implements addHierarchyNode operation.
+//
+// Adds a node below the node, which must hold no centers (centers sit at leaves), at most 12 levels
+// deep; the code is unique in the hierarchy (409 `ledger.hierarchy_node_exists`). Opens a pending
+// center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a
+// controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the
+// change is planned again and applied when the request is approved, and refused then if the tree no
+// longer allows it. `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is
+// applied.
+//
+// POST /v1/hierarchies/{id}/nodes/{node_id}:add
+func (UnimplementedHandler) AddHierarchyNode(ctx context.Context, req *HierarchyNodeAdd, params AddHierarchyNodeParams) (r AddHierarchyNodeRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ApproveApprovalRequest implements approveApprovalRequest operation.
 //
 // Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`);
@@ -365,6 +380,19 @@ func (UnimplementedHandler) CreateDownPaymentRequest(ctx context.Context, req *D
 //
 // POST /v1/exchange-rates
 func (UnimplementedHandler) CreateExchangeRate(ctx context.Context, req *ExchangeRateCreate, params CreateExchangeRateParams) (r CreateExchangeRateRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateHierarchy implements createHierarchy operation.
+//
+// Creates an empty hierarchy of cost or profit centers with its root node, which takes the hierarchy's
+// code and name. A tenant has at most one standard hierarchy per kind (409
+// `ledger.standard_hierarchy_exists`), and a code is unique per kind (409 `ledger.hierarchy_exists`).
+// An empty tree changes no center; its nodes and centers are added through center changes (ADR-0050
+// §11).
+//
+// POST /v1/hierarchies
+func (UnimplementedHandler) CreateHierarchy(ctx context.Context, req *HierarchyCreate, params CreateHierarchyParams) (r CreateHierarchyRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -898,6 +926,27 @@ func (UnimplementedHandler) GetGoodsReceipt(ctx context.Context, params GetGoods
 	return r, ht.ErrNotImplemented
 }
 
+// GetHierarchy implements getHierarchy operation.
+//
+// Returns the hierarchy with its whole tree: its nodes in tree order (each after its parent, siblings
+// by position and code), each with the centers placed at it. Hierarchies are not time-dependent
+// (decision P7): reports read history under this tree.
+//
+// GET /v1/hierarchies/{id}
+func (UnimplementedHandler) GetHierarchy(ctx context.Context, params GetHierarchyParams) (r GetHierarchyRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetHierarchyNode implements getHierarchyNode operation.
+//
+// Returns the hierarchy with the subtree below the node, the node first, in tree order, each node with
+// the centers placed at it.
+//
+// GET /v1/hierarchies/{id}/nodes/{node_id}
+func (UnimplementedHandler) GetHierarchyNode(ctx context.Context, params GetHierarchyNodeParams) (r GetHierarchyNodeRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetJournalEntry implements getJournalEntry operation.
 //
 // Returns one journal entry with its lines.
@@ -1374,6 +1423,17 @@ func (UnimplementedHandler) ListContracts(ctx context.Context, params ListContra
 	return r, ht.ErrNotImplemented
 }
 
+// ListCostCenterPaths implements listCostCenterPaths operation.
+//
+// Where the cost center sits in each hierarchy that holds it, the standard one included: the nodes
+// from the root to its leaf. A cost center outside the legal entities the caller may act in is not
+// found. Sortable by: `code` (the hierarchy's).
+//
+// GET /v1/cost-centers/{id}/hierarchy-paths
+func (UnimplementedHandler) ListCostCenterPaths(ctx context.Context, params ListCostCenterPathsParams) (r ListCostCenterPathsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListCostCenters implements listCostCenters operation.
 //
 // Cost centers of the legal entities the caller may act in, with their active periods. Sortable by:
@@ -1431,6 +1491,16 @@ func (UnimplementedHandler) ListGoodsReceipts(ctx context.Context, params ListGo
 //
 // GET /v1/gr-ir-balances
 func (UnimplementedHandler) ListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (r ListGrIrBalancesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListHierarchies implements listHierarchies operation.
+//
+// Standard and alternative hierarchies of cost and profit centers (ADR-0050 §3), without their trees.
+// Sortable by: `code`.
+//
+// GET /v1/hierarchies
+func (UnimplementedHandler) ListHierarchies(ctx context.Context, params ListHierarchiesParams) (r ListHierarchiesRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1560,6 +1630,16 @@ func (UnimplementedHandler) ListPayments(ctx context.Context, params ListPayment
 //
 // GET /v1/principals
 func (UnimplementedHandler) ListPrincipals(ctx context.Context, params ListPrincipalsParams) (r ListPrincipalsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListProfitCenterPaths implements listProfitCenterPaths operation.
+//
+// Where the profit center sits in each hierarchy that holds it, the standard one included: the nodes
+// from the root to its leaf. Sortable by: `code` (the hierarchy's).
+//
+// GET /v1/profit-centers/{id}/hierarchy-paths
+func (UnimplementedHandler) ListProfitCenterPaths(ctx context.Context, params ListProfitCenterPathsParams) (r ListProfitCenterPathsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1806,6 +1886,21 @@ func (UnimplementedHandler) MoveCostCenter(ctx context.Context, req *CostCenterM
 	return r, ht.ErrNotImplemented
 }
 
+// MoveHierarchyNode implements moveHierarchyNode operation.
+//
+// Moves the node, with its subtree, below another node of the hierarchy that holds no centers; refused
+// when the new parent is the node or below it (a cycle) or when the subtree would end deeper than 12
+// levels (422 `ledger.hierarchy_change_invalid`). The root is not moved. Opens a pending center change
+// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is planned
+// again and applied when the request is approved, and refused then if the tree no longer allows it.
+// `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is applied.
+//
+// POST /v1/hierarchies/{id}/nodes/{node_id}:move
+func (UnimplementedHandler) MoveHierarchyNode(ctx context.Context, req *HierarchyNodeMove, params MoveHierarchyNodeParams) (r MoveHierarchyNodeRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // MoveProfitCenter implements moveProfitCenter operation.
 //
 // Assigns the profit center to another segment (`null`: none). Once lines carry the profit center
@@ -1870,6 +1965,23 @@ func (UnimplementedHandler) PauseWebhookSubscription(ctx context.Context, params
 //
 // POST /v1/webhook-subscriptions/{id}:ping
 func (UnimplementedHandler) PingWebhookSubscription(ctx context.Context, params PingWebhookSubscriptionParams) (r PingWebhookSubscriptionRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// PlaceInHierarchy implements placeInHierarchy operation.
+//
+// Places an active center of the hierarchy's kind at a leaf node (one without child nodes), or moves
+// it there from its node; `node_id` null removes it from an alternative hierarchy. A center is at most
+// once in a hierarchy, and in exactly one leaf of the standard one, which it cannot leave (422
+// `ledger.hierarchy_change_invalid`). One pending change per center (409
+// `ledger.center_change_pending`). Opens a pending center change (`GET /v1/center-changes/{id}`) and
+// its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
+// decides, never its requester and never an agent; the change is planned again and applied when the
+// request is approved, and refused then if the tree no longer allows it. `If-Match` is the hierarchy's
+// ETag, which moves on when a change to its tree is applied.
+//
+// POST /v1/hierarchies/{id}:place
+func (UnimplementedHandler) PlaceInHierarchy(ctx context.Context, req *HierarchyPlace, params PlaceInHierarchyParams) (r PlaceInHierarchyRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -2139,6 +2251,34 @@ func (UnimplementedHandler) ReleasePurchaseOrder(ctx context.Context, params Rel
 //
 // POST /v1/supplier-invoices/{id}:release
 func (UnimplementedHandler) ReleaseSupplierInvoice(ctx context.Context, req OptDecisionInput, params ReleaseSupplierInvoiceParams) (r ReleaseSupplierInvoiceRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// RemoveHierarchyNode implements removeHierarchyNode operation.
+//
+// Removes a node without child nodes or centers; the root is not removed (422
+// `ledger.hierarchy_change_invalid`). Nothing is deleted: the node is kept as removed by the change.
+// Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval
+// request, which a controller holding `ledger.cost_center.approve` decides, never its requester and
+// never an agent; the change is planned again and applied when the request is approved, and refused
+// then if the tree no longer allows it. `If-Match` is the hierarchy's ETag, which moves on when a
+// change to its tree is applied.
+//
+// POST /v1/hierarchies/{id}/nodes/{node_id}:remove
+func (UnimplementedHandler) RemoveHierarchyNode(ctx context.Context, req *HierarchyNodeRemove, params RemoveHierarchyNodeParams) (r RemoveHierarchyNodeRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// RenameHierarchyNode implements renameHierarchyNode operation.
+//
+// Renames the node; its code is fixed. Opens a pending center change (`GET /v1/center-changes/{id}`)
+// and its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
+// decides, never its requester and never an agent; the change is planned again and applied when the
+// request is approved, and refused then if the tree no longer allows it. `If-Match` is the hierarchy's
+// ETag, which moves on when a change to its tree is applied.
+//
+// POST /v1/hierarchies/{id}/nodes/{node_id}:rename
+func (UnimplementedHandler) RenameHierarchyNode(ctx context.Context, req *HierarchyNodeRename, params RenameHierarchyNodeParams) (r RenameHierarchyNodeRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

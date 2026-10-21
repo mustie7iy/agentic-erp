@@ -28,6 +28,18 @@ type Handler interface {
 	//
 	// POST /v1/org-units/{id}:activate
 	ActivateOrgUnit(ctx context.Context, params ActivateOrgUnitParams) (ActivateOrgUnitRes, error)
+	// AddHierarchyNode implements addHierarchyNode operation.
+	//
+	// Adds a node below the node, which must hold no centers (centers sit at leaves), at most 12 levels
+	// deep; the code is unique in the hierarchy (409 `ledger.hierarchy_node_exists`). Opens a pending
+	// center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a
+	// controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the
+	// change is planned again and applied when the request is approved, and refused then if the tree no
+	// longer allows it. `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is
+	// applied.
+	//
+	// POST /v1/hierarchies/{id}/nodes/{node_id}:add
+	AddHierarchyNode(ctx context.Context, req *HierarchyNodeAdd, params AddHierarchyNodeParams) (AddHierarchyNodeRes, error)
 	// ApproveApprovalRequest implements approveApprovalRequest operation.
 	//
 	// Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`);
@@ -267,6 +279,16 @@ type Handler interface {
 	//
 	// POST /v1/exchange-rates
 	CreateExchangeRate(ctx context.Context, req *ExchangeRateCreate, params CreateExchangeRateParams) (CreateExchangeRateRes, error)
+	// CreateHierarchy implements createHierarchy operation.
+	//
+	// Creates an empty hierarchy of cost or profit centers with its root node, which takes the hierarchy's
+	// code and name. A tenant has at most one standard hierarchy per kind (409
+	// `ledger.standard_hierarchy_exists`), and a code is unique per kind (409 `ledger.hierarchy_exists`).
+	// An empty tree changes no center; its nodes and centers are added through center changes (ADR-0050
+	// §11).
+	//
+	// POST /v1/hierarchies
+	CreateHierarchy(ctx context.Context, req *HierarchyCreate, params CreateHierarchyParams) (CreateHierarchyRes, error)
 	// CreateLegalEntity implements createLegalEntity operation.
 	//
 	// Creates a legal entity in status `inactive`.
@@ -641,6 +663,21 @@ type Handler interface {
 	//
 	// GET /v1/goods-receipts/{id}
 	GetGoodsReceipt(ctx context.Context, params GetGoodsReceiptParams) (GetGoodsReceiptRes, error)
+	// GetHierarchy implements getHierarchy operation.
+	//
+	// Returns the hierarchy with its whole tree: its nodes in tree order (each after its parent, siblings
+	// by position and code), each with the centers placed at it. Hierarchies are not time-dependent
+	// (decision P7): reports read history under this tree.
+	//
+	// GET /v1/hierarchies/{id}
+	GetHierarchy(ctx context.Context, params GetHierarchyParams) (GetHierarchyRes, error)
+	// GetHierarchyNode implements getHierarchyNode operation.
+	//
+	// Returns the hierarchy with the subtree below the node, the node first, in tree order, each node with
+	// the centers placed at it.
+	//
+	// GET /v1/hierarchies/{id}/nodes/{node_id}
+	GetHierarchyNode(ctx context.Context, params GetHierarchyNodeParams) (GetHierarchyNodeRes, error)
 	// GetJournalEntry implements getJournalEntry operation.
 	//
 	// Returns one journal entry with its lines.
@@ -967,6 +1004,14 @@ type Handler interface {
 	//
 	// GET /v1/contracts
 	ListContracts(ctx context.Context, params ListContractsParams) (ListContractsRes, error)
+	// ListCostCenterPaths implements listCostCenterPaths operation.
+	//
+	// Where the cost center sits in each hierarchy that holds it, the standard one included: the nodes
+	// from the root to its leaf. A cost center outside the legal entities the caller may act in is not
+	// found. Sortable by: `code` (the hierarchy's).
+	//
+	// GET /v1/cost-centers/{id}/hierarchy-paths
+	ListCostCenterPaths(ctx context.Context, params ListCostCenterPathsParams) (ListCostCenterPathsRes, error)
 	// ListCostCenters implements listCostCenters operation.
 	//
 	// Cost centers of the legal entities the caller may act in, with their active periods. Sortable by:
@@ -1009,6 +1054,13 @@ type Handler interface {
 	//
 	// GET /v1/gr-ir-balances
 	ListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (ListGrIrBalancesRes, error)
+	// ListHierarchies implements listHierarchies operation.
+	//
+	// Standard and alternative hierarchies of cost and profit centers (ADR-0050 §3), without their trees.
+	// Sortable by: `code`.
+	//
+	// GET /v1/hierarchies
+	ListHierarchies(ctx context.Context, params ListHierarchiesParams) (ListHierarchiesRes, error)
 	// ListJournalEntries implements listJournalEntries operation.
 	//
 	// Posted journal entries. Sortable by: `posting_date`, `document_number`.
@@ -1096,6 +1148,13 @@ type Handler interface {
 	//
 	// GET /v1/principals
 	ListPrincipals(ctx context.Context, params ListPrincipalsParams) (ListPrincipalsRes, error)
+	// ListProfitCenterPaths implements listProfitCenterPaths operation.
+	//
+	// Where the profit center sits in each hierarchy that holds it, the standard one included: the nodes
+	// from the root to its leaf. Sortable by: `code` (the hierarchy's).
+	//
+	// GET /v1/profit-centers/{id}/hierarchy-paths
+	ListProfitCenterPaths(ctx context.Context, params ListProfitCenterPathsParams) (ListProfitCenterPathsRes, error)
 	// ListProfitCenters implements listProfitCenters operation.
 	//
 	// Profit centers of the tenant with their companies and active periods. Sortable by: `code`.
@@ -1273,6 +1332,18 @@ type Handler interface {
 	//
 	// POST /v1/cost-centers/{id}:move
 	MoveCostCenter(ctx context.Context, req *CostCenterMove, params MoveCostCenterParams) (MoveCostCenterRes, error)
+	// MoveHierarchyNode implements moveHierarchyNode operation.
+	//
+	// Moves the node, with its subtree, below another node of the hierarchy that holds no centers; refused
+	// when the new parent is the node or below it (a cycle) or when the subtree would end deeper than 12
+	// levels (422 `ledger.hierarchy_change_invalid`). The root is not moved. Opens a pending center change
+	// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+	// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is planned
+	// again and applied when the request is approved, and refused then if the tree no longer allows it.
+	// `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is applied.
+	//
+	// POST /v1/hierarchies/{id}/nodes/{node_id}:move
+	MoveHierarchyNode(ctx context.Context, req *HierarchyNodeMove, params MoveHierarchyNodeParams) (MoveHierarchyNodeRes, error)
 	// MoveProfitCenter implements moveProfitCenter operation.
 	//
 	// Assigns the profit center to another segment (`null`: none). Once lines carry the profit center
@@ -1325,6 +1396,20 @@ type Handler interface {
 	//
 	// POST /v1/webhook-subscriptions/{id}:ping
 	PingWebhookSubscription(ctx context.Context, params PingWebhookSubscriptionParams) (PingWebhookSubscriptionRes, error)
+	// PlaceInHierarchy implements placeInHierarchy operation.
+	//
+	// Places an active center of the hierarchy's kind at a leaf node (one without child nodes), or moves
+	// it there from its node; `node_id` null removes it from an alternative hierarchy. A center is at most
+	// once in a hierarchy, and in exactly one leaf of the standard one, which it cannot leave (422
+	// `ledger.hierarchy_change_invalid`). One pending change per center (409
+	// `ledger.center_change_pending`). Opens a pending center change (`GET /v1/center-changes/{id}`) and
+	// its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
+	// decides, never its requester and never an agent; the change is planned again and applied when the
+	// request is approved, and refused then if the tree no longer allows it. `If-Match` is the hierarchy's
+	// ETag, which moves on when a change to its tree is applied.
+	//
+	// POST /v1/hierarchies/{id}:place
+	PlaceInHierarchy(ctx context.Context, req *HierarchyPlace, params PlaceInHierarchyParams) (PlaceInHierarchyRes, error)
 	// PostGoodsReceipt implements postGoodsReceipt operation.
 	//
 	// Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122,
@@ -1540,6 +1625,28 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices/{id}:release
 	ReleaseSupplierInvoice(ctx context.Context, req OptDecisionInput, params ReleaseSupplierInvoiceParams) (ReleaseSupplierInvoiceRes, error)
+	// RemoveHierarchyNode implements removeHierarchyNode operation.
+	//
+	// Removes a node without child nodes or centers; the root is not removed (422
+	// `ledger.hierarchy_change_invalid`). Nothing is deleted: the node is kept as removed by the change.
+	// Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval
+	// request, which a controller holding `ledger.cost_center.approve` decides, never its requester and
+	// never an agent; the change is planned again and applied when the request is approved, and refused
+	// then if the tree no longer allows it. `If-Match` is the hierarchy's ETag, which moves on when a
+	// change to its tree is applied.
+	//
+	// POST /v1/hierarchies/{id}/nodes/{node_id}:remove
+	RemoveHierarchyNode(ctx context.Context, req *HierarchyNodeRemove, params RemoveHierarchyNodeParams) (RemoveHierarchyNodeRes, error)
+	// RenameHierarchyNode implements renameHierarchyNode operation.
+	//
+	// Renames the node; its code is fixed. Opens a pending center change (`GET /v1/center-changes/{id}`)
+	// and its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
+	// decides, never its requester and never an agent; the change is planned again and applied when the
+	// request is approved, and refused then if the tree no longer allows it. `If-Match` is the hierarchy's
+	// ETag, which moves on when a change to its tree is applied.
+	//
+	// POST /v1/hierarchies/{id}/nodes/{node_id}:rename
+	RenameHierarchyNode(ctx context.Context, req *HierarchyNodeRename, params RenameHierarchyNodeParams) (RenameHierarchyNodeRes, error)
 	// RenewContract implements renewContract operation.
 	//
 	// Creates a draft successor of an `active` or `expired` contract (409 `procurement.invalid_status`

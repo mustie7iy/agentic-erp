@@ -12,15 +12,17 @@ import (
 
 // centerFixture is a fixture with a second legal entity, a profit center
 // assigned to the first, a cost center of the first and their create
-// changes, all active.
+// changes, all active, each in the leaf of its standard hierarchy (T56b).
 type centerFixture struct {
 	fixture
-	other, pc, cc, pcChange, ccChange, rejected uuid.UUID
+	other, pc, cc, pcChange, ccChange, rejected    uuid.UUID
+	ccTree, pcTree, ccRoot, pcRoot, ccLeaf, pcLeaf uuid.UUID
 }
 
 func newCenters(t *testing.T) centerFixture {
 	t.Helper()
-	f := centerFixture{fixture: newFixture(t), other: id(), pc: id(), cc: id(), pcChange: id(), ccChange: id(), rejected: id()}
+	f := centerFixture{fixture: newFixture(t), other: id(), pc: id(), cc: id(), pcChange: id(), ccChange: id(), rejected: id(),
+		ccTree: id(), pcTree: id(), ccRoot: id(), pcRoot: id(), ccLeaf: id(), pcLeaf: id()}
 	mustApp(t, f.tenant, func(tx pgx.Tx) error {
 		for _, s := range []struct {
 			sql  string
@@ -45,6 +47,14 @@ func newCenters(t *testing.T) centerFixture {
 				VALUES ($1, gen_random_uuid(), $2, $3, '2026-01-01', 'ADMIN', $4, $5, $6, $6)`, []any{f.tenant, f.cc, f.entity, f.pc, f.ccChange, f.actor}},
 			{`INSERT INTO ledger.profit_center_period (tenant_id, id, profit_center_id, valid_from, change_id, created_by, updated_by)
 				VALUES ($1, gen_random_uuid(), $2, '2026-01-01', $3, $4, $4)`, []any{f.tenant, f.pc, f.pcChange, f.actor}},
+			{hierarchy, []any{f.tenant, f.ccTree, "cost_center", "STD", true, f.actor}},
+			{hierarchy, []any{f.tenant, f.pcTree, "profit_center", "STD", true, f.actor}},
+			{node, []any{f.tenant, f.ccRoot, f.ccTree, nil, "STD", f.actor}},
+			{node, []any{f.tenant, f.pcRoot, f.pcTree, nil, "STD", f.actor}},
+			{node, []any{f.tenant, f.ccLeaf, f.ccTree, f.ccRoot, "LEAF", f.actor}},
+			{node, []any{f.tenant, f.pcLeaf, f.pcTree, f.pcRoot, "LEAF", f.actor}},
+			{member, []any{f.tenant, f.ccTree, "cost_center", f.ccLeaf, f.cc, nil, f.actor}},
+			{member, []any{f.tenant, f.pcTree, "profit_center", f.pcLeaf, nil, f.pc, f.actor}},
 		} {
 			if err := exec(tx, s.sql, s.args...); err != nil {
 				return err
@@ -54,6 +64,15 @@ func newCenters(t *testing.T) centerFixture {
 	})
 	return f
 }
+
+// Statements that write hierarchies (T56b, migration 000128).
+const (
+	hierarchy = `INSERT INTO ledger.hierarchy (tenant_id, id, kind, code, name, is_standard, created_by, updated_by) VALUES ($1, $2, $3, $4, 'H', $5, $6, $6)`
+	node      = `INSERT INTO ledger.hierarchy_node (tenant_id, id, hierarchy_id, parent_id, code, name, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, 'N', $6, $6)`
+	member = `INSERT INTO ledger.hierarchy_member (tenant_id, id, hierarchy_id, kind, node_id, cost_center_id, profit_center_id, created_by, updated_by)
+		VALUES ($1, gen_random_uuid(), $2, $3, $4, $5, $6, $7, $7)`
+)
 
 // try runs one statement as the application in the fixture's tenant.
 func (f centerFixture) try(t *testing.T, sql string, args ...any) error {

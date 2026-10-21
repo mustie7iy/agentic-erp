@@ -13,6 +13,10 @@ type ActivateOrgUnitRes interface {
 	activateOrgUnitRes()
 }
 
+type AddHierarchyNodeRes interface {
+	addHierarchyNodeRes()
+}
+
 type ApproveApprovalRequestRes interface {
 	approveApprovalRequestRes()
 }
@@ -127,6 +131,10 @@ type CreateDownPaymentRequestRes interface {
 
 type CreateExchangeRateRes interface {
 	createExchangeRateRes()
+}
+
+type CreateHierarchyRes interface {
+	createHierarchyRes()
 }
 
 type CreateLegalEntityRes interface {
@@ -337,6 +345,14 @@ type GetGoodsReceiptRes interface {
 	getGoodsReceiptRes()
 }
 
+type GetHierarchyNodeRes interface {
+	getHierarchyNodeRes()
+}
+
+type GetHierarchyRes interface {
+	getHierarchyRes()
+}
+
 type GetJournalEntryRes interface {
 	getJournalEntryRes()
 }
@@ -537,6 +553,10 @@ type ListContractsRes interface {
 	listContractsRes()
 }
 
+type ListCostCenterPathsRes interface {
+	listCostCenterPathsRes()
+}
+
 type ListCostCentersRes interface {
 	listCostCentersRes()
 }
@@ -559,6 +579,10 @@ type ListGoodsReceiptsRes interface {
 
 type ListGrIrBalancesRes interface {
 	listGrIrBalancesRes()
+}
+
+type ListHierarchiesRes interface {
+	listHierarchiesRes()
 }
 
 type ListJournalEntriesRes interface {
@@ -615,6 +639,10 @@ type ListPaymentsRes interface {
 
 type ListPrincipalsRes interface {
 	listPrincipalsRes()
+}
+
+type ListProfitCenterPathsRes interface {
+	listProfitCenterPathsRes()
 }
 
 type ListProfitCentersRes interface {
@@ -705,6 +733,10 @@ type MoveCostCenterRes interface {
 	moveCostCenterRes()
 }
 
+type MoveHierarchyNodeRes interface {
+	moveHierarchyNodeRes()
+}
+
 type MoveProfitCenterRes interface {
 	moveProfitCenterRes()
 }
@@ -723,6 +755,10 @@ type PauseWebhookSubscriptionRes interface {
 
 type PingWebhookSubscriptionRes interface {
 	pingWebhookSubscriptionRes()
+}
+
+type PlaceInHierarchyRes interface {
+	placeInHierarchyRes()
 }
 
 type PostGoodsReceiptRes interface {
@@ -795,6 +831,14 @@ type ReleasePurchaseOrderRes interface {
 
 type ReleaseSupplierInvoiceRes interface {
 	releaseSupplierInvoiceRes()
+}
+
+type RemoveHierarchyNodeRes interface {
+	removeHierarchyNodeRes()
+}
+
+type RenameHierarchyNodeRes interface {
+	renameHierarchyNodeRes()
 }
 
 type RenewContractRes interface {

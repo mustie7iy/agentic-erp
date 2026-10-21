@@ -26,6 +26,7 @@ type costCenterPayload struct {
 	ValidTo        string     `json:"valid_to,omitempty"`
 	Category       string     `json:"category,omitempty"`
 	ProfitCenterID *uuid.UUID `json:"profit_center_id,omitempty"` // create
+	StandardNodeID *uuid.UUID `json:"standard_node_id,omitempty"` // create: its leaf in the standard hierarchy (T56b)
 	LockCost       *bool      `json:"lock_actual_cost,omitempty"`
 	LockRevenue    *bool      `json:"lock_actual_revenue,omitempty"`
 	LockPlan       *bool      `json:"lock_plan,omitempty"`
@@ -45,6 +46,7 @@ type NewCostCenter struct {
 	Texts          Texts
 	Category       string
 	ProfitCenterID *uuid.UUID
+	StandardNodeID uuid.UUID // its leaf in the standard hierarchy
 	ValidFrom      time.Time
 	ValidTo        time.Time // zero: open-ended
 	Reason         string
@@ -86,7 +88,11 @@ func (e *Endpoints) RequestCostCenter(ctx context.Context, in NewCostCenter) (Co
 		VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $8)`, p.TenantID, id, le.ID, in.Code, in.Texts.Name, in.Texts.Description, in.Texts.Responsible, p.ID); err != nil {
 		return CostCenter{}, fmt.Errorf("ledger: insert cost center %s: %w", in.Code, err)
 	}
-	payload := costCenterPayload{ValidFrom: dateText(in.ValidFrom), ValidTo: dateText(in.ValidTo), Category: in.Category, ProfitCenterID: in.ProfitCenterID}
+	if err := checkStandardNode(ctx, tx, HierarchyCostCenters, id, in.StandardNodeID); err != nil {
+		return CostCenter{}, err
+	}
+	payload := costCenterPayload{ValidFrom: dateText(in.ValidFrom), ValidTo: dateText(in.ValidTo), Category: in.Category, ProfitCenterID: in.ProfitCenterID,
+		StandardNodeID: &in.StandardNodeID}
 	c := CostCenter{LegalEntityID: le.ID}
 	if _, err := planCostCenter(ctx, tx, c, KindCreate, payload); err != nil {
 		return CostCenter{}, err
@@ -268,11 +274,11 @@ func applyCostCenterChange(ctx context.Context, tx pgx.Tx, ch CenterChange) erro
 	if err := writeCostCenterPeriods(ctx, tx, c, ch.ID, retire, insert); err != nil {
 		return err
 	}
-	set := ""
-	if ch.Kind == KindCreate {
-		set = "status = 'active', "
-	}
-	if err := costCenters.touch(ctx, tx, c.ID, set); err != nil {
+	if ch.Kind != KindCreate {
+		if err := costCenters.touch(ctx, tx, c.ID, ""); err != nil {
+			return err
+		}
+	} else if err := activate(ctx, tx, costCenters, c.ID, ch.ID, p.StandardNodeID); err != nil {
 		return err
 	}
 	return recordCostCenter(ctx, tx, c.ID, ch.Kind, &ch.ID)

@@ -22,6 +22,7 @@ type profitCenterPayload struct {
 	ValidTo        string      `json:"valid_to,omitempty"`
 	Locked         *bool       `json:"locked,omitempty"`
 	LegalEntityIDs []uuid.UUID `json:"legal_entity_ids,omitempty"` // create, assign
+	StandardNodeID *uuid.UUID  `json:"standard_node_id,omitempty"` // create: its leaf in the standard hierarchy (T56b)
 	// Segment is a move's new segment, its id null for none.
 	Segment *segmentRef `json:"segment,omitempty"`
 }
@@ -36,6 +37,7 @@ type NewProfitCenter struct {
 	Texts          Texts
 	SegmentID      *uuid.UUID
 	LegalEntityIDs []uuid.UUID
+	StandardNodeID uuid.UUID // its leaf in the standard hierarchy
 	ValidFrom      time.Time
 	ValidTo        time.Time // zero: open-ended
 	Reason         string
@@ -82,7 +84,11 @@ func (e *Endpoints) RequestProfitCenter(ctx context.Context, in NewProfitCenter)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $8)`, p.TenantID, id, in.Code, in.SegmentID, in.Texts.Name, in.Texts.Description, in.Texts.Responsible, p.ID); err != nil {
 		return ProfitCenter{}, fmt.Errorf("ledger: insert profit center %s: %w", in.Code, err)
 	}
-	payload := profitCenterPayload{ValidFrom: dateText(in.ValidFrom), ValidTo: dateText(in.ValidTo), LegalEntityIDs: in.LegalEntityIDs}
+	if err := checkStandardNode(ctx, tx, HierarchyProfitCenters, id, in.StandardNodeID); err != nil {
+		return ProfitCenter{}, err
+	}
+	payload := profitCenterPayload{ValidFrom: dateText(in.ValidFrom), ValidTo: dateText(in.ValidTo), LegalEntityIDs: in.LegalEntityIDs,
+		StandardNodeID: &in.StandardNodeID}
 	if _, err := requestChange(ctx, tx, e.Approvals, profitCenterRef(id, in.Code), KindCreate, payload, in.Reason); err != nil {
 		return ProfitCenter{}, err
 	}
@@ -221,14 +227,15 @@ func applyProfitCenterChange(ctx context.Context, tx pgx.Tx, ch CenterChange) er
 	if err := writeProfitCenter(ctx, tx, c, ch, p, spans); err != nil {
 		return err
 	}
-	set, args := "", []any{}
 	switch ch.Kind {
 	case KindCreate:
-		set = "status = 'active', "
+		err = activate(ctx, tx, profitCenters, c.ID, ch.ID, p.StandardNodeID)
 	case KindMove:
-		set, args = "segment_id = $3, ", []any{p.Segment.ID}
+		err = profitCenters.touch(ctx, tx, c.ID, "segment_id = $3, ", p.Segment.ID)
+	default:
+		err = profitCenters.touch(ctx, tx, c.ID, "")
 	}
-	if err := profitCenters.touch(ctx, tx, c.ID, set, args...); err != nil {
+	if err != nil {
 		return err
 	}
 	return recordProfitCenter(ctx, tx, c.ID, ch.Kind, &ch.ID)
