@@ -173,3 +173,10 @@ payments:
   vendor_approver_role: vendor_master_approver
 output:
   purchase_order_channel: email
+controlling:
+  cost_center_categories:
+    - code: ADMIN
+      name: Administration
+    - code: SALES
+      name: Sales
+      revenue_allowed: true

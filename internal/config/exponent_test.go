@@ -26,6 +26,11 @@ func TestThresholdsUseTheCompanyCurrencyDigits(t *testing.T) {
 				doc.Companies[i].Currency = c.currency
 				doc.Companies[i].AutoPostLimit, doc.Companies[i].InvoiceTolerance.PriceAbsolute = "1000", "5"
 				doc.Companies[i].ManualEntryApprovalLimit = "1000"
+				for m := range doc.Companies[i].PaymentMethods { // its house banks are in the new currency, so their rankings are too
+					for r := range doc.Companies[i].PaymentMethods[m].Ranking {
+						doc.Companies[i].PaymentMethods[m].Ranking[r].Currency = c.currency
+					}
+				}
 			}
 			doc.Purchasing.RequisitionApproval[0].UpTo = c.upTo
 			var got []Finding

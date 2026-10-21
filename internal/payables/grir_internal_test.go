@@ -72,6 +72,8 @@ func (o orders) Order(context.Context, uuid.UUID) (procurement.Order, bool, erro
 	return o.order, o.found, o.err
 }
 
+func (orders) LockItems(context.Context, uuid.UUID, []int32) error { return nil }
+
 // TestInvoiceOrder: an invoice clears GR/IR only on an order valued
 // through GR/IR; an order its context does not have, or cannot read, is
 // refused, as is an item on an order item the order no longer has.

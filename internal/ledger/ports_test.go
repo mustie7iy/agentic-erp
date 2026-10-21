@@ -160,8 +160,10 @@ func TestAccountsAndCalendarPorts(t *testing.T) {
 }
 
 // TestAccountBalances: an account's balances on dates are what the
-// leading ledger posted to it on or before each date, in the legal
-// entity's local currency, in the dates' order (T49h).
+// leading ledger posted to it on or before each date, in the dates' order
+// (T49h): in the legal entity's local currency every entry's local
+// amount, in another currency the transaction amounts of the entries in it
+// (T53a).
 func TestAccountBalances(t *testing.T) {
 	e := setup(t)
 	bank, revenue, expense := e.account(t, "2000", "100000"), e.account(t, "2000", "400000"), e.account(t, "2000", "520000")
@@ -172,13 +174,15 @@ func TestAccountBalances(t *testing.T) {
 	a, account := ledger.Accounts{}, uuid.MustParse(bank)
 	dates := []time.Time{date("2026-04-02"), date("2026-03-14"), date("2026-03-15"), date("2026-03-31")}
 	err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
-		got, err := a.Balances(ctx, e.de, account, dates)
-		if err != nil {
-			return err
-		}
-		for i, want := range []money.Minor{6500, 0, 10000, 7000} {
-			if got[i] != want {
-				t.Errorf("balance on %s: got %d, want %d", dates[i].Format(time.DateOnly), got[i], want)
+		for currency, wants := range map[string][]money.Minor{"EUR": {6500, 0, 10000, 7000}, "USD": {-1000, 0, 0, 0}, "GBP": {0, 0, 0, 0}} {
+			got, err := a.Balances(ctx, e.de, account, currency, dates)
+			if err != nil {
+				return err
+			}
+			for i, want := range wants {
+				if got[i] != want {
+					t.Errorf("balance in %s on %s: got %d, want %d", currency, dates[i].Format(time.DateOnly), got[i], want)
+				}
 			}
 		}
 		return nil
@@ -186,7 +190,7 @@ func TestAccountBalances(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	call := func(ctx context.Context) error { _, err := a.Balances(ctx, e.de, account, dates); return err }
+	call := func(ctx context.Context) error { _, err := a.Balances(ctx, e.de, account, "EUR", dates); return err }
 	if call(context.Background()) == nil {
 		t.Error("outside a unit of work: got no error, want one")
 	}

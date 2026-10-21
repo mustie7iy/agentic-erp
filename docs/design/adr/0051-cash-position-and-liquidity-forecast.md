@@ -1,0 +1,791 @@
+# ADR-0051: Cash position and liquidity forecast
+
+**Status:** accepted (T53, product owner 2026-10-21: P1-P8 as recommended,
+see "Decisions taken"). The steps T53a-T53l are in the tracker.
+
+## Context
+T53 is "Cash position and liquidity forecast" (07 §7.6): "A daily cash
+position and a liquidity forecast from open items and orders; an agent
+explains the variance between forecast and actual; the treasury connector
+exports position and forecast only (deals are phase 9). Lane S." The
+tracker holds four items for it: "Daily cash position", "Liquidity
+forecast from open items and orders", "Forecast agent with variance
+explanations" (module Cash management and liquidity forecast) and
+"Treasury system connector" (module Treasury and risk management). The
+pilots are a Canadian and a UAE company. Nothing in the code speaks of
+cash, liquidity or a forecast; what a forecast can read exists, spread
+over four contexts:
+
+- **Bank balances** (payments, ADR-0047, 000120): each imported statement
+  (`payments.bank_statement`) carries its currency, `opening_balance`,
+  `closing_balance` and `closing_date`, signed minor units; a statement
+  whose lines do not take the opening to the closing balance is refused,
+  and one whose opening balance differs from the previous closing balance
+  is `gap`. Lines (`bank_statement_line`) carry a signed amount, the
+  booking date and the **value date**, the bank transaction code, the
+  counterparty, and a status; a posted line names its match, which names
+  the payments or the posting rule it cleared. Only booked entries are
+  read (no intraday camt.052, no available balance).
+- **House banks** (payments, ADR-0038): several per company, each with its
+  bank clearing account (outgoing payments credit it), main bank account
+  and incoming clearing account (ADR-0047; nothing posts to the incoming
+  one yet). **A house bank's currency is
+  always the company's local currency** (`payments.HouseBanks.upsert`
+  writes `co.Currency`; `HouseBank` in the configuration has no currency),
+  so a Canadian company's USD account or a UAE company's USD account
+  cannot be a house bank today: its statements would be refused as not of
+  the bank's currency. The routing and the statement import already
+  compare currencies per bank, so the gap is the configuration and its
+  validation.
+- **Supplier open items** (ledger): open items on the supplier
+  reconciliation accounts with their payment terms kept beside them
+  (`ledger.open_item_terms`, T36b: term code, baseline date, net days, up
+  to two discount tiers; `ItemTerms.NetDueDate`, `Until`), withholding
+  (`open_item_withholding`, T46f), special G/L items for down payments
+  (ADR-0037). Due dates are computed, not stored or indexed; the payment
+  proposer's `dueDate` (`internal/payments/propose.go`) and the discount
+  helpers (`payments/discount.go`) decide when a run takes an item. Items
+  are in the entry's transaction currency with local and group amounts
+  (ADR-0042). No journal line carries a value date or due date.
+- **Supplier invoices and blocks** (payables): invoices that are `parked`
+  or `on_hold` are not yet open items; their terms are kept beside them
+  (`payables.supplier_invoice_terms`). A payment block exists only per
+  supplier and company (`partner.supplier_company.is_payment_blocked`),
+  not per invoice. Down payment requests (`payables.down_payment_request`,
+  000079) carry an amount, currency and `due_date` and are `open` until
+  paid.
+- **Payment runs** (payments): runs `proposing | proposed | releasing |
+  released | rejected | failed` with a run date, payments per supplier,
+  house bank and method, bank files with their transmission status (no
+  run or payment status says "sent" or "cleared"). A released payment
+  credits its bank's clearing account on the run date; the statement's
+  posting clears that line (ADR-0047). The open items of the clearing
+  accounts are therefore exactly the **payments in transit**.
+- **Purchase orders and requisitions** (procurement): released orders with
+  currency, order date, payment term, items with quantity, price, tax code
+  and account; received quantities from goods movements, invoiced ones
+  from payables' invoice items (and `ledger.gr_ir_position` for GR/IR
+  valued orders, T33); no stored "not yet invoiced" value. Requisitions
+  have a header `needed_by` date and estimated prices. **Order items have
+  no delivery date** (`procurement.purchase_order_item`, 000006), so there
+  is no date on which an order's cash out could be expected.
+- **Receivables**: none. Sales and receivables are phase 3 (07 §7.6);
+  the configuration cannot even create a customer reconciliation account.
+  Incoming payments post to the incoming clearing account and stay there
+  until accounts receivable clears them (ADR-0047). A forecast built from
+  documents alone shows outflows only.
+- **Exchange rates** (ledger): rate types `average`, `bank_buying`,
+  `bank_selling`, `planning`, loaded through `/v1/exchange-rates`; the
+  latest valid rate of a type is looked up as revaluation does (ADR-0042).
+  No forward rates.
+- **Analytics** (ADR-0044): per-tenant Parquet extracts within fifteen
+  minutes (p95), datasets `gl_lines`, `po_lines`, `ap_invoices`,
+  `accounts`, `partners`, `open_items`; the semantic layer falls back to
+  PostgreSQL. No statement or cash dataset, and the relay does not mark a
+  tenant due for payments' events.
+- **Calendars**: the configuration's calendars and `Config.Holiday`
+  (ADR-0048) tell a company's working days, holidays included.
+- **Contexts** import each other only along the allow-list of
+  `internal/layout/layout_test.go` (`TestImportRules`); the integration
+  context's connector kinds are a fixed list (`bank_sftp`, `bank_ebics`,
+  `sap_odata`, ...), with no treasury kind.
+- **Tax returns** (T61, ADR-0049) will compute a payable per return with a
+  filing due date; not built yet.
+
+### What SAP does (the parity target)
+Sources at the end; where I rely on memory it says so. SAP Help pages are
+partly rendered by script, and the facts below come from the pages'
+indexed text; field and table names marked "from memory" need checking
+against the pilot's release.
+
+- **Cash position and liquidity forecast are one view over flows of
+  different certainty.** Classic Cash Management (FF7A cash position,
+  FF7B liquidity forecast) shows bank account movements in the cash
+  position and subledger movements (payables, receivables) in the
+  liquidity forecast, by value date, with a grouping that selects what to
+  show, a display currency and a delta or cumulative presentation; an item
+  planned on a public holiday is moved to the next working day. S/4HANA's
+  Cash Management keeps both: the cash position covers bank accounts and
+  bank clearing accounts, the medium-term forecast cards cover 90 days,
+  and a **balance profile** (a set of planning levels) chooses the sources
+  shown.
+- **Planning levels** say what kind of transaction a flow comes from (a
+  bank posting, a payment advice, a supplier item) and so how reliable it
+  is; **planning groups** classify customers and suppliers by behaviour or
+  risk (from memory: the supplier's planning group is `LFB1-FDGRV`, and
+  each G/L account names its planning level, `SKB1-FDLEV`). In S/4HANA,
+  **flow types** carry the lifecycle of a flow and a **certainty level**
+  (actual, forecast, the sources such as purchase or sales orders).
+- **Liquidity items** say where cash comes from or goes to (source and
+  use), with a direction and a hierarchy. They are derived by **query
+  sequences** at posting from the offsetting account and other
+  characteristics, with a default when none hits; the **Flow Builder**
+  traces a bank posting back through clearings to the original
+  documents and splits the actual cash flow over their liquidity items
+  (as far as I know, proportionally to the offsetting lines). Bank
+  statement items not traced get default liquidity items (incoming or
+  outgoing cash transfer).
+- **One Exposure from Operations** (table `FQM_FLOW`) is the hub for
+  forecast flows from operational sources: purchase requisitions, orders
+  and scheduling agreements (forecasts revised as invoices arrive), sales
+  orders (transaction date from the expected billing date and the payment
+  terms), FI-CA, and **memo records**. Memo records are entered by hand
+  (Manage Memo Records) with a planning level, an amount, a value date,
+  an expiry date (from memory) and either a bank account (bank-related
+  levels) or a planning group; they appear in the cash position and the
+  forecast until they expire or are archived.
+- **Bank Account Management** keeps bank accounts as master data with
+  dual control for sensitive fields (the submitter cannot activate their
+  own change), overdraft limits, signatories, bank account groups and
+  cash pools.
+- **Liquidity planning, cash pooling, in-house bank, hedging and exposure
+  management** are separate products or components (SAP Analytics Cloud
+  liquidity planning, In-House Cash/In-House Banking, Treasury and Risk
+  Management with Hedge Management and Exposure Management 2.0). They are
+  phase 9 here (§12).
+
+## Decision
+
+### 1. Scope of T53
+In: house banks in a foreign currency (P2); a **daily cash position** per
+house bank, currency and value date from statement balances, payments in
+transit, payment runs and memo records; a **liquidity forecast** over
+configurable horizons from supplier open items (with cash discount and
+blocks), down payment requests, payment runs, purchase orders and, if
+chosen, requisitions, and memo records (manual, recurring, uploaded);
+classification by source, certainty and tenant-defined liquidity items;
+conversion to a display currency; daily **snapshots** of the forecast and
+the **variance** between a snapshot and the actual statement flows; the
+analytics datasets; the **forecast agent** explaining variances and
+proposing memo records; the **treasury connector** exporting position and
+forecast; the SAP migration of liquidity items, planning groups and open
+memo records (if the pilot uses them).
+
+Out (and where it goes, §12): receivables and sales orders as sources
+(phase 3 adds them as sources of this model); tax payables from returns
+(added when T61's returns exist); payroll (phase 8); intraday statements
+(camt.052) and available balances; bank calendars of their own; bank account management with signatories and dual control
+beyond the configuration's change control; cash pooling, cash
+concentration and in-house bank; money market, debt and investment deals;
+FX exposure management and hedging; liquidity planning with versions and
+plan/actual (phase 9 planning); bank fee analysis; payment factories. No
+posting: T53 never moves money or writes the journal.
+
+### 2. Ownership: a new `cash` context (decision P1)
+A new context **`cash`** (schema `cash`, package `internal/cash`) owns
+liquidity items, memo records, snapshots, variance comments and the
+treasury export. It is a **leaf**: it reads through published ports of
+the ledger (open items, account balances, rates), payments (statements,
+house banks, runs, payments in transit), payables (blocks, down payment
+requests) and procurement (open order values); nothing depends on it.
+
+```mermaid
+flowchart LR
+  ledger --> cash
+  payments --> cash
+  payables --> cash
+  procurement --> cash
+  cash -.events.-> analytics
+```
+
+Reasons:
+- The forecast reads four contexts; put in payments it would make payments
+  depend on procurement, a new and backwards direction (procurement →
+  payables → payments today). A leaf adds arrows only into itself, so no
+  existing direction changes (CLAUDE.md: a new cross-context import needs
+  the callee's published interface; this ADR is the record of the new
+  arrows).
+- Its data has its own lifecycle (memo records expire, snapshots age out)
+  and its own users (treasurer, controller), unlike payments' runs.
+- Phase 3 (receivables, sales orders), T61 (tax returns) and phase 9
+  (deals, cash pools) become new sources of the same context without
+  touching payments.
+
+The ports are read-only, take the legal entity and a horizon, and run in
+the request's transaction under RLS (ADR-0003), as `ledger.Partners` and
+the other ports do. They return flows in the shape of §4, so `cash` never
+reads another schema's tables.
+
+### 3. House banks in a foreign currency (T53a, decision P2)
+`companies[].house_bank(s)[].currency` (ISO 4217, default the company's
+currency) is stored on `payments.house_bank.currency`, which exists and
+is today always local. Validation (configuration, tier 3 posting-related):
+- a foreign-currency bank's clearing, main and incoming accounts are
+  flagged `revalue_foreign_currency` (ADR-0042), so period-end valuation
+  covers them, and none of them is shared with a bank of another currency;
+- a currency never changes under a house bank's code (a new account is a
+  new code, as IBANs are, ADR-0038);
+- the ranking (`payment_methods[].ranking[].currency`) may name the bank
+  only for its currency; the routing already skips banks of another
+  currency.
+A run in USD then pays from the USD bank in USD (document currency,
+ADR-0042), its statement in USD is accepted, and the posting converts at
+the posting date's rate with realised differences, all of which T48 and
+T49f built. Without this step a pilot's foreign-currency accounts are
+outside the cash position, which is why it comes first (facts at the
+end).
+
+As built (T53a): no migration (the column existed); the currency never
+changes under a code, checked as the IBAN is; the bank file names the
+debtor account's currency (`DbtrAcct/Ccy`) for a foreign-currency bank;
+the reconciliation report (T49h) compares the statement with the
+ledger's balance of the bank account in the bank's currency (the
+transaction amounts of the entries in it), so exchange differences and
+valuations are not unexplained. ADR-0038's amendment has the details.
+
+### 4. The flow model: sources, certainty, liquidity items
+Every figure is a sum of **flows**: (company, house bank or none,
+currency, value date, signed amount in minor units of the currency
+(`money.Minor`, ADR-0005), source, certainty, liquidity item, reference to
+the document). Flows are computed from their sources at read time (§6);
+only memo records and snapshots are stored by `cash`.
+
+**Sources** (SAP's planning levels, fixed by the code because each is a
+reader of its own):
+
+| Source | Read from | Certainty | Value date | Bank |
+|---|---|---|---|---|
+| `bank_balance` | latest statement's closing balance per house bank | actual | statement closing date | yes |
+| `in_transit` | released payments whose line on the bank clearing account is still open | confirmed | run date + the bank's value days | yes |
+| `payment_run` | payments of runs `proposed` or `releasing` | confirmed | run date + value days | yes |
+| `payable` | supplier open items, not special G/L, not in a run | expected | expected payment date (§5) | the supplier's ranked bank if one fits, else none |
+| `payable_blocked` | supplier open items of a supplier blocked for payment in the company | expected, shown apart | net due date | none |
+| `invoice_unposted` | supplier invoices `parked` or `on_hold`, by their kept terms | planned | as `payable` | none |
+| `down_payment` | down payment requests not yet paid (ADR-0037) | expected | the request's due date | none |
+| `purchase_order` | released orders' open value, not invoiced (§5) | planned | expected invoice date + payment terms | none |
+| `requisition` | released requisitions not ordered (P7) | planned | need date + terms, if chosen | none |
+| `memo` | memo records (§7) | as entered: confirmed, expected or planned | as entered | optional |
+| `unapplied_receipt` | the incoming clearing accounts' open balance | actual (already in the bank; shown for information, not added) | — | yes |
+
+Phase 3 adds `receivable` and `sales_order`; T61's returns add
+`tax_payable`; each is a new reader and a new row, nothing else.
+
+**Certainty** (SAP's flow levels): `actual` (in the bank), `confirmed` (the
+money is committed: released or proposed payments, confirmed memos),
+`expected` (a posted document owes or is owed), `planned` (an order or a
+plan). Reports show certainty as a dimension and can be cut at a level
+("confirmed and above"), which is SAP's balance profile in one parameter.
+
+**Liquidity items** (SAP's liquidity items, decision P4) are the tenant's
+classification of cash by purpose, in the configuration:
+```yaml
+cash:
+  liquidity_items:
+    - {code: OP_SUPPLIERS, name: Supplier payments, direction: outflow, parent: OPERATING}
+    - {code: OP_RENT, name: Rent, direction: outflow, parent: OPERATING}
+    - {code: TAX, name: Taxes, direction: outflow, parent: OPERATING}
+    - {code: CAPEX, name: Capital expenditure, direction: outflow, parent: INVESTING}
+    - {code: FIN_LOAN, name: Loan repayment, direction: outflow, parent: FINANCING}
+    - {code: REC_CUSTOMERS, name: Customer receipts, direction: inflow, parent: OPERATING}
+    - {code: BANK_CHARGES, name: Bank charges and interest, direction: both, parent: OPERATING}
+  derivation:                    # first hit wins, in this order
+    accounts:                    # by the offsetting G/L account (SAP query sequence, origin C/D)
+      - {from: "1500", to: "1599", item: CAPEX}
+      - {from: "6100", to: "6100", item: OP_RENT}
+    planning_groups:             # by the supplier's planning group (SAP FDGRV)
+      - {group: TAX_AUTHORITY, item: TAX}
+    posting_rules:               # statement lines posted by a posting rule (ADR-0047)
+      - {rule: CHARGES, item: BANK_CHARGES}
+    defaults: {outflow: OP_SUPPLIERS, inflow: REC_CUSTOMERS}
+```
+- A **document flow** (supplier item, order item, payment) takes its item
+  from the **offsetting lines** of its document: a supplier invoice's
+  expense and asset lines (tax lines follow their base line), an order
+  item's account; a document with several offsetting accounts is split
+  over their items in proportion to their amounts (`money.Allocate`), as
+  SAP's Flow Builder splits a cash flow. Then the supplier's planning
+  group, then the default for the direction.
+- A **memo record** names its item.
+- A **statement line** (an actual) takes the items of what its match
+  cleared: the payments' supplier items (each with the split above), the
+  posting rule's item, or for a line not posted the default of its
+  direction (SAP's default items for untraced bank items).
+- The supplier's **planning group** is a new optional field of the
+  partner's company data (`planning_group`, a code from
+  `cash.planning_groups`), added in T53b.
+- Items form one hierarchy (parent codes, a tree, depth at most 4). The
+  three top nodes OPERATING, INVESTING and FINANCING are suggested by the
+  packs (ADR-0048), not required.
+- Tiers: names and hierarchy cosmetic (1); derivation rules tier 2 (they
+  change classification, never postings), with a simulation that lists
+  the open flows whose item would change. Snapshots keep the item they
+  were taken with; a rule change does not restate history (as P7 of
+  ADR-0050).
+
+### 5. Dates and amounts of document flows
+**Supplier open items** (decision P5). The expected payment date of an
+item is:
+1. if a discount tier is still open on the read date and the company takes
+   discounts (`cash.take_discounts`, default true, which is what the
+   proposer does when a run pays within a tier, T36), the last day of the
+   earliest open tier, at the gross amount less the discount;
+2. otherwise the net due date, at the gross amount;
+3. moved back to the company's last **payment day** on or before that
+   date (`cash.payment_days`, weekdays the company runs payments, e.g.
+   `[tue, thu]`; none configured: the date itself), not before the read
+   date; an overdue item is expected on the next payment day;
+4. plus the value days of the bank the supplier's first method ranks for
+   the item's currency (`cash.value_days` per house bank and method,
+   default 0), and moved to the next working day of the company's
+   calendar (`Config.Holiday`, ADR-0048: weekends and holidays).
+The rule reuses the proposer's due-date and discount-tier logic, moved
+to a shared place (the ledger's `ItemTerms`, beside `NetDueDate` and
+`Until`) rather than copied (CLAUDE.md). Withholding at payment (T46) is deducted from the supplier flow; its
+remittance to the authority is not forecast until the tax payable source
+exists (a memo record covers it meanwhile). Credit memos are negative
+flows on the same date rule, so a supplier nets as the run nets it.
+Items in a payment run are the run's flows, not the item's (never twice).
+Items of a blocked supplier are shown apart on their net due date and are
+not in the totals unless asked (`include_blocked`); a per-invoice block
+does not exist and is not added by T53.
+
+**Down payment requests**: their due date and amount, until paid.
+
+**Purchase orders** (decision P7): the open value of a released order
+item is (ordered quantity − invoiced quantity) × price (the invoiced
+quantity read from payables per order item, so `cash` reads both
+contexts and procurement gains no dependency), plus the tax its
+tax code gives at the read date's rate (T61's engine port once it is
+there; until then the code's rate), in the order's currency. Its expected
+invoice date is the item's **delivery date** (a new optional
+`delivery_date` on order items, SAP `EKET-EINDT`, added in T53g as an
+additive contract change, copied from the requisition's need date), else
+the order date plus the company's `cash.order_lead_days` (default 30);
+the cash date then follows the order's payment terms from that date as
+for an item (net, or the discount tier if taken), then payment days and
+value days. Received but not invoiced quantities are in GR/IR and still
+here (they are not yet open items). Orders closed, cancelled or fully
+invoiced add nothing. Requisitions, if chosen, are at their estimated
+value, the header's `needed_by` plus terms, certainty `planned`.
+
+**Payment runs and in-transit payments**: each payment's amount in its
+currency on its bank, value date the run date plus value days (a run
+date in the past with the payment still unmatched: tomorrow, flagged
+`late`).
+
+### 6. Where it is computed, and freshness (decision P3)
+**Position and forecast are computed at read time from PostgreSQL**
+through the ports of §2, in one `REPEATABLE READ` read-only transaction,
+so position, items, runs and orders are of one database state and exact
+at the read (as the trial balance is). The ports are bounded per company
+and horizon; the open items read gains a functional index on the net due
+date (`baseline_date + net_days`) if the performance budget needs it
+(T53e measures against 05: a company with 100,000 open items answers
+within 2 s p95, a budget to confirm).
+
+**Snapshots** are stored: once a day per company, after the statements of
+the day are usually in (`cash.snapshot_time`, local time, default 07:00),
+a workflow `TakeCashSnapshot` (id from company and date, so replicas and
+retries start it once; ADR-0012's dispatcher pattern, as the statement
+fetch) writes the forecast as it is then:
+- `cash.snapshot (tenant_id, id, legal_entity_id, snapshot_date, taken_at,
+  horizon_end, status)`, unique per company and date, insert-only;
+- `cash.snapshot_flow (tenant_id, snapshot_id, line_no, house_bank_id,
+  currency, value_date, source, certainty, liquidity_item, amount,
+  document_ref)`: **at document level for value dates within 31 days**
+  (what explains a variance), aggregated per bucket beyond.
+Taking it twice for the same company and date finds the first and writes
+nothing (run-twice test, CLAUDE.md). A person may take an extra snapshot
+(`POST /v1/cash-snapshots`, e.g. before a board meeting), named and kept
+like the daily ones. Retention: 25 months (two years of comparison), then
+deleted by the workflow that takes them; a snapshot referenced by a
+variance comment is kept with it.
+
+**The analytical store** (ADR-0044) gets the snapshots and the classified
+actuals as datasets (T53j): history, accuracy trends, dashboards (T59)
+and the agent's ad-hoc questions go there, with its fifteen-minute
+freshness and PostgreSQL fallback. The position a treasurer acts on is
+never read from the store: a payment released ten minutes ago must be in
+it.
+
+Rejected for now: a stored flow table maintained from events (SAP's
+`FQM_FLOW`, decision P3 b). It would make reads cheap at any size, at the
+cost of a second copy of every open item and order kept in step by event
+handlers, with its own reconciliation; it is the path if the read budget
+fails at a larger tenant, and the flow shape of §4 is its schema.
+
+### 7. Memo records
+`cash.memo_record (tenant_id, id, legal_entity_id, house_bank_id NULL,
+currency, amount, value_date, expires_on, certainty, liquidity_item,
+description, reference, recurrence, status, origin, session_id NULL,
+batch_key NULL, version, created_by, ...)`:
+- **Kinds**: a one-off expected receipt or payment (a customer's receipt
+  before receivables exist, a loan instalment, a tax payment, payroll), on
+  a house bank (it then counts in the cash position) or not (forecast
+  only).
+- **Recurrence** (`monthly` on a day, `weekly` on a weekday, `quarterly`,
+  with an end date or a count) is expanded at read time over the
+  horizon; an occurrence can be overridden or skipped by a child record
+  for that date (`recurrence_of`, `occurrence_date`).
+- **Expiry**: a record stops counting the day after `expires_on` (default
+  its value date + 7 days, SAP's expiry), so a forgotten receipt does
+  not stay forecast forever; expired records are listed for a person to
+  confirm, move or cancel. **Actualisation**: a person (or the agent's
+  proposal, accepted) marks a record `realised` by a statement line,
+  which makes it stop counting at once and feeds variance.
+- **Upload**: CSV or XLSX through T63's import or the API, idempotent by
+  `batch_key` (a batch replaces the records of its key that are not
+  realised), so the pilot can load expected receipts from the system that
+  issues its invoices until phase 3.
+- Statuses: `active`, `proposed` (an agent's, not counted until a person
+  accepts it), `realised`, `expired`, `cancelled`. Changes are versions
+  (ETag, If-Match, ADR-0008), audited; no approval (they post nothing), a
+  decision the product owner may revisit for large amounts (facts).
+- Permissions: `cash.memo.write` (people, integrations), `cash.memo.propose`
+  (agents, `x-autonomy: propose`), `cash.memo.read`.
+
+### 8. Cash position (the daily view)
+`GET /v1/cash-position?company=…&from=…&days=…` (`cash.position.read`;
+days ≤ 31, default 14):
+- per house bank (its currency) and day: the **opening balance** (the
+  latest statement's closing balance before the day, with its date and
+  whether the bank has a `gap`), the flows of the day by source and
+  certainty (in transit, runs, bank memo records, and if asked
+  `include_forecast` the `payable`/`purchase_order` flows assigned to the
+  bank), and the **closing balance**; the first day's opening is flagged
+  stale if the latest statement is older than one working day;
+- per currency: the sum of its banks;
+- a **book balance** check per bank: the main bank account's G/L balance
+  plus the clearing accounts' open items against the statement balance,
+  showing what is posted and not yet on the statement and the reverse
+  (the reconciliation report of ADR-0047 is the detail);
+- optional **credit lines** (`cash.credit_lines` per house bank, an
+  amount in the bank's currency) to show available liquidity; no limits
+  are enforced (Bank Account Management's overdraft limits are
+  information here too).
+
+### 9. Liquidity forecast
+`GET /v1/liquidity-forecast?company=…&horizon=…` (`cash.forecast.read`):
+- **Buckets** from the company's configuration (`cash.buckets`, default:
+  daily for 14 days, weekly to 13 weeks, monthly to 12 months, the
+  "13-week cash flow" practice with a year's tail); a request can ask for
+  one grain over a range;
+- rows by liquidity item (and its hierarchy), source and certainty;
+  columns per bucket; an opening position (§8's cash position total of
+  the first day) and a cumulative closing balance per bucket;
+- `min_certainty` cuts the sources (SAP's balance profile);
+- **drill-down**: a bucket and item to its flows and documents (open
+  items, runs, order items, memo records), through the owning contexts'
+  APIs;
+- per currency always; a converted total in a display currency (§10) on
+  request; across companies the caller has, in group currency.
+
+### 10. Currency conversion
+Amounts are kept and shown in their own currency first: a bank's balance
+is never converted in its own row. Totals in a display currency (the
+company's local currency by default, group currency across companies,
+or any currency asked for) convert each currency's bucket at the
+**latest rate of `cash.rate_type`** (default `planning`, falling back to
+`average` if the company sets none) valid on the read date, the same
+rate for every bucket: no forward rates, which a treasury system or the
+phase 9 exposure management supplies. A rate older than
+`cash.rate_max_age_days` (default 7) is used and flagged; a missing rate
+leaves that currency unconverted and the total marked incomplete
+(`incomplete_currencies`), rather than refused, since the per-currency
+figures stand without it. Snapshots store transaction-currency amounts,
+so a later conversion uses the rate of its own read.
+
+### 11. Actuals and variance
+**Actual flows** are the posted and unposted statement lines by **value
+date**, per house bank and currency, classified as in §4 (a line not yet
+matched takes its direction's default item and is shown as
+`unclassified`, so variance is visible before reconciliation finishes).
+`GET /v1/cash-actuals` lists them by item and bucket.
+
+**Variance** (`GET /v1/liquidity-forecast-variance?company=…&from=…&to=…&lag=…`):
+for a period, the forecast of the snapshot taken `lag` days before the
+period's start (default 7; 0, 7 and 30 offered) against the actual
+flows, per liquidity item, currency and bucket: forecast, actual,
+variance, and absolute percentage. Within the 31 days kept at document
+level, the variance is **attributed**:
+- `timing`: a forecast document paid in another bucket (a run moved, a
+  discount not taken);
+- `amount`: paid in the bucket at another amount (discount, partial
+  payment, FX on a foreign-currency payment from a local bank);
+- `new`: an actual flow whose document did not exist or was not forecast
+  at the snapshot (an invoice posted after it, an unforecast receipt);
+- `missing`: a forecast flow not paid (blocked later, cancelled order,
+  memo record not realised);
+- `unclassified`: unmatched statement lines.
+Beyond 31 days the variance is per item only. A **forecast accuracy**
+measure per item and lag over the last periods comes from the analytical
+store (T53j).
+
+**Variance comments** (`cash.variance_comment`: company, period, item,
+lag, text, status `proposed | accepted | rejected`, author, session) are
+written by people or proposed by the agent (§13); T64's close can ask for
+them on variances above a threshold.
+
+### 12. Out of scope, and where it goes
+- **Receivables and sales orders** as sources: phase 3, as readers of §4;
+  until then expected receipts are memo records (decision P6).
+- **Tax payables** from T61's returns: a `tax_payable` reader once returns
+  are filed with a due date (a small step after T61's returns).
+- **Intraday statements** (camt.052) and available balances: a later
+  step if the pilot's banks send them; the parser model of ADR-0047
+  takes them.
+- **Bank calendars** distinct from the company's: the company's calendar
+  (ADR-0048) is used for every date; a bank's own calendar is later.
+- **Bank Account Management** (signatories, opening and closing workflow,
+  dual control): house banks remain configuration under its change
+  control (tier 3, a second approver), which is the dual control we have.
+- **Cash pooling, concentration and in-house bank**, **money market,
+  debt and investment deals**, **FX exposure management and hedging**
+  (hedge accounting under IFRS 9): phase 9 (treasury), in a `treasury`
+  context next to `cash`, reading its positions; the connector of §14
+  exports to a treasury system meanwhile. No hedge designation, no deal
+  capture, no forward rates in T53.
+- **Liquidity planning** (versions, plan against actual by item, rolling
+  plans): phase 9 planning; T53's snapshots and items are its actuals
+  and structure.
+
+### 13. Agent
+The **forecast agent** (agent type `cash_forecast`, `erp agent
+cash-variance -company CODE -period …`) runs on read-only tools
+(`getLiquidityForecast`, `getLiquidityForecastVariance`, `getCashActuals`,
+`getCashSnapshot`, `listMemoRecords`, `listPaymentRuns`, supplier open
+items, `getBankStatement` masked as ADR-0047 shows it to agents,
+`listPurchaseOrders`, the semantic layer) and two that propose:
+- `POST /v1/liquidity-forecast-variance/comments` (`cash.variance.propose`,
+  `x-autonomy: propose`): an explanation per item and period naming the
+  documents behind the attributed variance ("supplier X's invoices of
+  CAD 120,000 paid on the 14th, forecast on the 7th: the run of the 7th
+  was released a week late"), checked against the attribution: every
+  document it cites must be one the variance lists;
+- `POST /v1/memo-records` with status `proposed`: expected flows it sees
+  in history and not in the forecast (a monthly receipt from a customer,
+  quarterly tax instalments), with the evidence (statement lines).
+A person accepts, edits or rejects each (`cash.variance.comment`,
+`cash.memo.write`, `x-agent: false`). The agent never confirms a memo
+record, changes configuration, releases or proposes a payment run,
+blocks an item or moves money. Its evaluation suite `evals/cash`
+(ADR-0039): a late run, a discount not taken, an unforecast receipt, an
+instruction planted in a statement's text ignored, a variance it cannot
+explain left as "not explained". Model calls go through the gateway
+(ADR-0036) with IBANs redacted.
+
+### 14. Treasury connector (decision P8)
+Export only, as 07 says: no deals, no positions or payments come back.
+- **Content**: per snapshot (and on demand), the cash position per bank
+  and day and the forecast per item, bucket, source, certainty and
+  currency, in a documented, versioned schema
+  (`api/schemas/cash-export.v1.json`, JSON lines and a CSV of the same
+  columns), bank accounts by house bank code and last four characters.
+- **Channels**: pull through the API (the reads above), push through an
+  integration connector of kind `treasury_export` (the SFTP transport of
+  ADR-0038, a directory of the treasury system's choice; the file named by
+  company, snapshot date and content hash so a resend is recognised), and
+  a new connector kind added to `integration.connector.kind` by an
+  expand migration; and the webhook event `CashSnapshotTaken` (ADR-0041) pointing at the
+  snapshot for systems that pull.
+- A format of a named treasury system (Kyriba, SAP TRM's memo record
+  import, others) is a mapping on top of this schema, built when the pilot
+  names one (facts).
+
+### 15. Access, audit and events
+- Company-level access as everywhere (ADR-0010); permissions
+  `cash.position.read`, `cash.forecast.read` (agents too),
+  `cash.memo.read|write|propose`, `cash.variance.comment|propose`,
+  `cash.snapshot.take`, `cash.export.read`. Bank accounts appear by code
+  and last four; full account numbers are payments' and never in `cash`.
+- Every write (memo records, comments, snapshots, exports) is audited
+  (ADR-0011) and publishes through the outbox (ADR-0007):
+  `MemoRecordChanged`, `CashSnapshotTaken`, `VarianceCommentDecided`,
+  `CashExportDelivered`.
+- Cross-company views (group cash position) need the caller's access to
+  each company; they sum in group currency (§10).
+
+### 16. SAP migration (T53k, if the pilot uses SAP Cash Management)
+From memory, to check against the pilot's release: liquidity items and
+their hierarchy (`FLQLITEM`/`FLQLITEMT` or the S/4 liquidity item master),
+planning levels (`T036`) and groups (`T035`) mapped to our certainty and
+planning groups by the migration lead, the supplier's planning group
+(`LFB1-FDGRV`) onto partner company data, the G/L accounts' planning
+levels (`SKB1-FDLEV`) as derivation hints, and open memo records (classic
+`FDES` or the S/4 memo flows in `FQM_FLOW`) with a value date after the
+cutover as memo records with origin `migration`. Liquidity item query
+sequences are not migrated: they are rebuilt as §4's rules and reviewed.
+Snapshots and history are not migrated; variance starts at go-live.
+
+## Alternatives
+- **Cash position and forecast inside payments.** Fewer packages, but
+  payments would read procurement against today's direction, and phase 3
+  and 9 would pile receivables and deals into it. Rejected (P1).
+- **A stored flow hub fed by events** (One Exposure's `FQM_FLOW`). Cheap
+  reads and SAP's shape, but a second copy of every document's cash
+  effect to keep in step and reconcile. Deferred as the scaling path (P3).
+- **Forecast from the analytical store only.** No new read paths in the
+  operational database, but a position fifteen minutes behind a payment
+  release, and no document-level variance. Rejected (P3).
+- **No liquidity items, sources only.** Simpler, but a treasurer reads
+  cash by purpose (operating, investing, financing; rent, payroll, tax),
+  and the agent's explanations need it. Rejected (P4).
+- **A statistical or learned forecast now** (time series over statement
+  history). Useful for receipts before receivables exist, but opaque and
+  untestable as a figure; the agent proposes memo records from history
+  instead, and a person accepts them (P6).
+
+## Consequences
+- A new context and schema with ports into four contexts; payments gains a
+  configuration field (currency), partner company data a planning group,
+  procurement an optional delivery date on order items, all additive.
+- The pilot sees outflows from documents and inflows only as memo records
+  until phase 3; the forecast is only as good as the receipts someone
+  records, which the variance makes visible within a week.
+- Variance needs history: the first meaningful variance is a week (lag 7)
+  after go-live, and accuracy trends a quarter after.
+- Every statement imported and every run released changes the position
+  at once; snapshots fix what was forecast, so explanations are about a
+  forecast as it was, not as recomputed.
+- T64 (close) can require variance comments; T59 dashboards show the
+  position and accuracy from the store; phase 3 and T61 add readers;
+  phase 9 builds treasury on these positions.
+
+## Boundaries with the other steps
+- **T49 (bank statements)**: T53 reads statements, matches and the
+  reconciliation; it never matches or posts. Statement lines' value date
+  is the actual's date; their classification follows their match.
+- **T45/T44 (house banks, transmission)**: T53a adds the currency; the
+  connector of §14 reuses the SFTP transport.
+- **T48 (FX)**: rates and rate types; revaluation of foreign-currency bank
+  accounts is ADR-0042's, T53 only requires the flag.
+- **T52 (parallel ledgers)**: cash is ledger-independent; book balances
+  read the leading ledger.
+- **T55/T59 (analytics, dashboards)**: datasets and semantic metrics of
+  T53j; dashboards are T59's.
+- **T56 (centers)**: none needed; a forecast by profit center is a later
+  question (documents carry centers since T56d if the pilot asks).
+- **T61 (tax)**: tax on order values through the engine port; tax
+  payables a later reader.
+- **T63 (delivery)**: CSV/XLSX upload of memo records, scheduled delivery
+  of the forecast report.
+- **T64 (close)**: variance comments as a close task.
+
+## Steps
+Ordered so the pilot's must-haves come first; each ends green (lint,
+tests, coverage 100%, reviewer). Lane S. T53a touches payments and the
+configuration; T53g touches procurement; the rest is the new context.
+
+| Step | Work | Acceptance criteria |
+|---|---|---|
+| T53a | **Foreign-currency house banks** (P2) | `currency` on house banks in configuration and `payments.house_bank`; validation (accounts flagged for revaluation, one currency per code, ranking only in the bank's currency); a USD run paid from a USD bank of a CAD company, its file, its USD statement imported, matched and posted with the realised difference; revaluation at period end covers the bank accounts; ADR-0038 amended |
+| T53b | **Cash context and configuration** | `cash` schema and package with its imports added to `TestImportRules`, RLS, `tenant_id` first; `cash.liquidity_items` (tree, direction), `derivation` (accounts, planning groups, posting rules, defaults), `planning_groups`, per company `take_discounts`, `payment_days`, `value_days`, `buckets`, `rate_type`, `rate_max_age_days`, `order_lead_days`, `credit_lines`, `snapshot_time`; tiers and the derivation simulation; `planning_group` on partner company data; packs suggest the operating/investing/financing tree |
+| T53c | **Cash position** | Ports from payments (statement balances, in-transit payments, runs) and ledger (book balances, rates); `GET /v1/cash-position` per bank, currency and day with opening, flows by source and certainty, closing, staleness and gap flags, book balance check, credit lines; converted totals with incomplete currencies; one-snapshot read; `FailingTx` on every path |
+| T53d | **Memo records** | Table, API (create, change with If-Match, cancel, realise by a statement line, list), recurrence expanded at read with overrides, expiry, upload idempotent by batch key, agent proposals not counted until accepted; audit and events; schema tests for each database rule |
+| T53e | **Forecast from payables and payments** (P5) | Ports for supplier open items (terms, discount tiers, supplier blocks, withholding, credit memos, items in runs excluded), parked and held invoices, down payment requests; the proposer's due-date and tier logic moved to `ledger.ItemTerms` and used by both; expected-date rule of §5 with payment days, value days and the company calendar; liquidity item derivation with proportional split; `GET /v1/liquidity-forecast` with buckets, certainty cut, per currency and converted, drill-down; performance budget measured at 100,000 open items |
+| T53f | **Snapshots, actuals and variance** | `TakeCashSnapshot` workflow per company and day (run-twice test, document level within 31 days), on-demand snapshots, retention; `GET /v1/cash-actuals` classifying statement lines by their matches; `GET /v1/liquidity-forecast-variance` with lag and attribution (timing, amount, new, missing, unclassified); variance comments by people |
+| T53g | **Forecast from procurement** (P7) | Optional `delivery_date` on order items (contract first, additive, copied from requisitions' need date), open value net of invoiced quantity plus tax, expected dates from delivery or lead days and the order's terms; requisitions if chosen; ADR-0034 note |
+| T53h | **Treasury connector** (P8) | Export schema v1 (JSON lines, CSV); `treasury_export` connector on the SFTP transport, files named by company, date and hash, resend recognised; `CashSnapshotTaken` webhook; export audited |
+| T53i | **Forecast agent** | Agent type, read tools, variance comment and memo proposals (`x-autonomy: propose`), citations checked against the attribution; `evals/cash` with the cases of §13; never confirms or posts |
+| T53j | **Analytics** | Datasets `cash_snapshots` and `cash_actuals` (contract files, extraction in the tenant's run; the relay marks a tenant due for payments' and cash's events), semantic dimensions (liquidity item, source, certainty, house bank) and metrics (forecast, actual, variance, accuracy); isolation tests passing |
+| T53k | **SAP migration** (if the pilot uses SAP Cash Management) | Liquidity items, planning groups, supplier planning groups, open memo records extracted and loaded through the services; quality-gate issues for items with no mapping |
+| T53l | **Deferred** | Intraday camt.052, bank-specific calendars, tax payable reader (after T61 returns), receivables reader (phase 3): each its own step when its trigger arrives |
+
+T53a-T53f are the pilot's must-haves (a daily position and a forecast
+from what is posted, with variance from the first week); T53g follows as
+soon as orders carry delivery dates; T53h and T53i complete the exit
+criterion; T53j and T53k can follow the pilot's first month.
+
+## Decisions taken (product owner, 2026-10-21)
+All eight as recommended:
+- **P1** (a): a new leaf context `cash` reads ledger, payments, payables
+  and procurement through their published ports; nothing depends on it.
+- **P2** (a): house banks may hold a currency other than the company's,
+  built first (T53a), before the cash position.
+- **P3** (a): position and forecast are computed on read from PostgreSQL,
+  plus a stored daily snapshot; a stored flow table kept from events only
+  if a larger tenant breaks the read budget.
+- **P4** (a): fixed sources and certainty levels plus the tenant's
+  liquidity items, derived by rules from the offsetting account, the
+  supplier's planning group and posting rules.
+- **P5** (a): a supplier item is expected on the last day of its earliest
+  open discount tier while the company takes discounts, else on its net
+  due date, moved to the company's payment days, plus the bank's value
+  days.
+- **P6** (a): inflows before receivables exist are memo records (manual,
+  recurring, uploaded), with agent proposals from statement history.
+- **P7** (a): purchase order items gain an optional delivery date;
+  requisitions are not a source.
+- **P8** (a): our own versioned export schema by API pull, SFTP push and a
+  webhook; a named treasury system's format is a mapping when the pilot
+  names one.
+
+The options as proposed:
+
+| # | Decision | Options | Recommendation |
+|---|---|---|---|
+| P1 | Where cash management lives | (a) a new leaf context `cash` reading four contexts through ports; (b) inside payments | (a): payments would otherwise depend on procurement against today's direction, and receivables (phase 3) and treasury (phase 9) join `cash`, not payments |
+| P2 | Foreign-currency bank accounts | (a) house banks in any currency, in T53a before the position; (b) local currency only, other accounts outside the system | (a), if the pilots hold USD (or other) accounts, which Canadian and UAE companies usually do: without it those balances are not in the cash position |
+| P3 | Where position and forecast are computed | (a) on read from PostgreSQL through ports, exact, plus stored daily snapshots, the store for history; (b) a stored flow table kept from events (SAP `FQM_FLOW`); (c) the analytical store only | (a): exact at the read with no second copy to reconcile; (b) stays the path if the read budget fails at a larger tenant |
+| P4 | Classification of cash | (a) fixed sources and certainty levels plus tenant liquidity items derived by rules from the offsetting account, the supplier's planning group and posting rules; (b) sources and certainty only | (a): cash by purpose is what a treasurer and the variance explanations need; rules are tier 2, posting nothing |
+| P5 | When a supplier item is expected to be paid | (a) the discount date while a tier is open (if the company takes discounts), else the net due date, moved to the company's payment days, plus value days; (b) the net due date only; (c) learned from each supplier's payment history | (a): it is what the payment run will do; (c) is the agent's to suggest as memo records or rule changes later |
+| P6 | Inflows before receivables exist (phase 3) | (a) memo records, one-off, recurring and uploaded, with agent proposals from statement history; (b) a statistical forecast of receipts; (c) outflows only until phase 3 | (a): a forecast without receipts misleads; people own the figures and the agent helps fill them |
+| P7 | Purchase orders and requisitions | (a) order items gain an optional delivery date (else order date + lead days), requisitions not included; (b) as (a) with requisitions at `planned`; (c) orders by order date + lead days only, no contract change | (a): delivery dates are what make order outflows land in the right week, and requisitions add noise before approval; (b) if the pilot's purchasing approves requisitions long before ordering |
+| P8 | Treasury connector | (a) our versioned export schema (JSON lines, CSV) by API pull, SFTP push per snapshot and a webhook; a named system's format as a mapping when the pilot names one; (b) build to one treasury system's import format now | (a): no pilot treasury system is named, and 07 limits the connector to export |
+
+Information needed from the pilot (not decisions): which bank accounts
+each company holds, in which currencies, and whether each bank sends
+statements daily (camt.053 or MT940) and intraday (camt.052); whether
+the companies use a treasury system today (which, and what it imports);
+whether SAP Cash Management (FF7A/FF7B, liquidity items, memo records,
+One Exposure) is used in the source and with what planning levels,
+groups and items; how receipts are forecast today (spreadsheet, CRM,
+SAP SD) and from which system expected receipts could be uploaded; the
+payment run days and the banks' value days; whether the companies' calendars in the packs
+hold the bank holidays that matter; credit lines or overdraft
+facilities per account; the forecast horizon and grain the treasurer
+works in (13 weeks? 12 months?) and the display currency (CAD, AED, USD
+or group currency); whether purchase orders carry delivery dates in the
+source; whether large memo records should need approval.
+
+## Sources
+- SAP Help, Cash Management (S/4HANA Cloud; cash position over bank
+  accounts and bank clearing accounts, 90-day forecast cards, balance
+  profile as a set of planning levels):
+  https://help.sap.com/docs/SAP_S4HANA_CLOUD/6b39bd1d0e5e4099a5b65d835c29c696/b54be33ef65c45a6be2dbb67487e432e.html
+- SAP Help, Cash Position:
+  https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/ac319d8fa4ea4624b40a58d23e3c4627/f07b8854c46ee75ee10000000a44176d.html
+- SAP Help, Cash Flow Analyzer (Basic Cash Management: cash position,
+  medium- and long-term forecast and actual flows; memo records from One
+  Exposure; no liquidity items in basic):
+  https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/ac319d8fa4ea4624b40a58d23e3c4627/1eb9cfdc987742b993b5045cafbe5227.html
+- SAP Help, Planning Levels and Planning Groups:
+  https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/ac319d8fa4ea4624b40a58d23e3c4627/12106156c4b61e58e10000000a4450e5.html
+- SAP Help, Flow Type (certainty levels):
+  https://help.sap.com/docs/SAP_S4HANA_CLOUD/186460fdc35a4b64a713da9bb00deb1e/6b02798d81064337abb6bc738914f30c.html
+- SAP Help, Liquidity Item; Liquidity Item Hierarchy; Configuration Tips
+  for SAP Liquidity Planner Customers (query sequences, origins C/D/X,
+  default liquidity item, default items for bank statement items):
+  https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/48b1ed26c54c440abd913f4a174d7b4d/70491a523ec59e60e10000000a44176d.html ;
+  https://help.sap.com/docs/SAP_S4HANA_CLOUD/186460fdc35a4b64a713da9bb00deb1e/53648a542f2b0165e10000000a44538d.html ;
+  https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/ac319d8fa4ea4624b40a58d23e3c4627/d2566556f2441d58e10000000a4450e5.html
+- SAP Help, Flow Builder (tracing bank flows to original documents; MM
+  flows from requisition to invoice):
+  https://help.sap.com/docs/SAP_S4HANA_CLOUD/186460fdc35a4b64a713da9bb00deb1e/835cc0f9ff554154bf06245b70c4c79b.html
+- SAP Help, One Exposure from Operations; Sales and Distribution in One
+  Exposure (dates from billing date and payment terms):
+  https://help.sap.com/docs/SAP_S4HANA_CLOUD/186460fdc35a4b64a713da9bb00deb1e/abd32554225fea6fe10000000a423f68.html ;
+  https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/ac319d8fa4ea4624b40a58d23e3c4627/b57e3b57bd2b3b70e10000000a44147b.html
+- SAP Help, Memo Records; Manually Created Memo Records; Manage Memo
+  Records (stored in One Exposure, `FQM_FLOW`; planning level; bank
+  account for bank-related levels):
+  https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/ac319d8fa4ea4624b40a58d23e3c4627/0ad7bd57f103122be10000000a441470.html ;
+  https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/ac319d8fa4ea4624b40a58d23e3c4627/095440df66294129bf044b8016039bec.html ;
+  https://help.sap.com/docs/SAP_S4HANA_CLOUD/186460fdc35a4b64a713da9bb00deb1e/92cd53859b23418eb6bfc4b95c773878.html
+- SAP Help (SAP ERP), SAP Cash Management (cash position for bank
+  accounts, liquidity forecast for subledgers; FF7B grouping, display
+  currency, value date moved off holidays):
+  https://help.sap.com/docs/SAP_ERP/495b05f6dbb24b1da46e4027d3a28fef/8a3102521aa53c3ae10000000a441470.html
+- SAP Help, Manage Bank Accounts; Configuration for Dual Control (the
+  submitter cannot activate their own change):
+  https://help.sap.com/docs/SAP_S4HANA_CLOUD/186460fdc35a4b64a713da9bb00deb1e/fd6073c2b5db4e8fa19e4efce7629a96.html ;
+  https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/ac319d8fa4ea4624b40a58d23e3c4627/b643769c27fa47f79e070c1e86b9949b.html
+
+**From memory, to check against the pilot's release:** FF7A as the cash
+position transaction (only FF7B was confirmed); `LFB1-FDGRV` and
+`SKB1-FDLEV`; tables `T035`, `T036`, `FDES`, `FLQLITEM`/`FLQLITEMT`; memo
+records' expiry date; the Flow Builder's proportional split over
+offsetting lines; the product names of phase 9's components (In-House
+Banking, Exposure Management 2.0, Hedge Management). The Flow Type,
+Planning Levels and Memo Records pages render by script and were read
+from their indexed text only.

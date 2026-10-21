@@ -18,8 +18,8 @@ import (
 // not route to a controller is refused.
 func TestCenterChangeCallbacks(t *testing.T) {
 	c := setupCenters(t)
-	pc, _ := c.Must(201, "POST", "/v1/profit-centers", `{"code": "PC", "name": "P", "responsible": "J", "legal_entity_ids": ["`+c.de.String()+`"],
-		"valid_from": "2026-01-01", "reason": "r"}`, "")
+	pc, _ := c.Must(201, "POST", "/v1/profit-centers", c.pcBody(`{"code": "PC", "name": "P", "responsible": "J", "legal_entity_ids": ["`+c.de.String()+`"],
+		"valid_from": "2026-01-01", "reason": "r"}`), "")
 	ch, _ := c.Must(200, "GET", "/v1/center-changes/"+pc["pending_change_id"].(string), "", "")
 	change, request := uuid.MustParse(ch["id"].(string)), uuid.MustParse(ch["workflow_request_id"].(string))
 	h := ledger.CenterChanges{}

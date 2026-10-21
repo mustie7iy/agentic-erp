@@ -2,6 +2,7 @@ package ledger_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -17,13 +18,14 @@ import (
 type centers struct {
 	env
 	ctl apitest.Client
+	// The standard hierarchies (T56b) and the leaf each has, where the
+	// helpers place new centers.
+	ccTree, pcTree, ccLeaf, pcLeaf uuid.UUID
 }
 
-func setupCenters(t *testing.T) centers {
+func setupBareCenters(t *testing.T) centers {
 	t.Helper()
-	e := setup(t)
-	pgtest.Exec(t, `INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1, gen_random_uuid(), $2, $2, 'active', $3, $3)`,
-		e.ten.ID, approvals.DefaultCenterChangeRole, e.ten.Human.ID)
+	e := withControllerRole(t, setup(t))
 	a := pgtest.Actor{ID: uuid.Must(uuid.NewV7()), Kind: "human"}
 	a.Subject = "human|" + a.ID.String()
 	pgtest.Exec(t, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, all_companies, status, created_by, updated_by)
@@ -34,6 +36,43 @@ func setupCenters(t *testing.T) centers {
 	ctl := e.Client
 	ctl.As = a
 	return centers{env: e, ctl: ctl}
+}
+
+// setupCenters is setupBareCenters with a standard hierarchy of each kind,
+// each with one leaf.
+func setupCenters(t *testing.T) centers {
+	t.Helper()
+	c := setupBareCenters(t)
+	c.ccTree, c.ccLeaf = c.standard(t, "cost_center")
+	c.pcTree, c.pcLeaf = c.standard(t, "profit_center")
+	return c
+}
+
+// withControllerRole gives the tenant the role center changes are
+// approved by.
+func withControllerRole(t *testing.T, e env) env {
+	t.Helper()
+	pgtest.Exec(t, `INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1, gen_random_uuid(), $2, $2, 'active', $3, $3)`,
+		e.ten.ID, approvals.DefaultCenterChangeRole, e.ten.Human.ID)
+	return e
+}
+
+// standard creates the standard hierarchy of a kind with one leaf, LEAF,
+// and returns their ids.
+func (c centers) standard(t *testing.T, kind string) (tree, leaf uuid.UUID) {
+	t.Helper()
+	h, tag := c.Must(201, "POST", "/v1/hierarchies", fmt.Sprintf(`{"kind": %q, "code": "STANDARD", "name": "Standard", "is_standard": true}`, kind), "")
+	ch, _ := c.Must(200, "POST", fmt.Sprintf("/v1/hierarchies/%v/nodes/%v:add", h["id"], h["root_node_id"]), `{"code": "LEAF", "name": "Leaf", "reason": "r"}`, tag)
+	c.decide(t, ch["id"], "approve")
+	return uuid.MustParse(h["id"].(string)), uuid.MustParse(ch["payload"].(map[string]any)["node_id"].(string))
+}
+
+// ccBody and pcBody add the standard leaf to a create request's body.
+func (c centers) ccBody(body string) string { return withNode(body, c.ccLeaf) }
+func (c centers) pcBody(body string) string { return withNode(body, c.pcLeaf) }
+
+func withNode(body string, node uuid.UUID) string {
+	return strings.Replace(body, `"reason"`, fmt.Sprintf(`"standard_node_id": %q, "reason"`, node), 1)
 }
 
 func (c centers) in(t *testing.T) centers {
@@ -81,8 +120,8 @@ func (c centers) profitCenter(t *testing.T, code, until string, companies ...uui
 		}
 		les += `"` + le.String() + `"`
 	}
-	pc, _ := c.Must(201, "POST", "/v1/profit-centers", fmt.Sprintf(`{"code": %q, "name": "PC %s", "responsible": "Jane Doe", "legal_entity_ids": [%s],
-		"valid_from": "2026-01-01"%s, "reason": "New region"}`, code, code, les, to), "")
+	pc, _ := c.Must(201, "POST", "/v1/profit-centers", c.pcBody(fmt.Sprintf(`{"code": %q, "name": "PC %s", "responsible": "Jane Doe", "legal_entity_ids": [%s],
+		"valid_from": "2026-01-01"%s, "reason": "New region"}`, code, code, les, to)), "")
 	c.decide(t, pc["pending_change_id"], "approve")
 	return "/v1/profit-centers/" + pc["id"].(string)
 }
@@ -91,8 +130,8 @@ func (c centers) profitCenter(t *testing.T, code, until string, companies ...uui
 // pending.
 func (c centers) costCenter(t *testing.T, code, extra string) map[string]any {
 	t.Helper()
-	cc, _ := c.Must(201, "POST", "/v1/cost-centers", fmt.Sprintf(`{"legal_entity_id": %q, "code": %q, "name": "CC %s", "responsible": "Jane Doe",
-		"category": "ADMIN", "valid_from": "2026-01-01"%s, "reason": "New office"}`, c.de, code, code, extra), "")
+	cc, _ := c.Must(201, "POST", "/v1/cost-centers", c.ccBody(fmt.Sprintf(`{"legal_entity_id": %q, "code": %q, "name": "CC %s", "responsible": "Jane Doe",
+		"category": "ADMIN", "valid_from": "2026-01-01"%s, "reason": "New office"}`, c.de, code, code, extra)), "")
 	return cc
 }
 
@@ -159,12 +198,12 @@ func TestProfitCenterLifecycle(t *testing.T) {
 	retail := c.segment(t, "RETAIL")
 	body := fmt.Sprintf(`{"code": "CA-SALES", "name": "Sales", "responsible": "Jane Doe", "segment_id": %q, "legal_entity_ids": [%q],
 		"valid_from": "2026-01-01", "reason": "New region"}`, retail, c.us)
-	pc, _ := c.Must(201, "POST", "/v1/profit-centers", body, "")
+	pc, _ := c.Must(201, "POST", "/v1/profit-centers", c.pcBody(body), "")
 	path := "/v1/profit-centers/" + pc["id"].(string)
 	if pc["status"] != "pending" || len(pc["periods"].([]any)) != 0 || pc["pending_change_id"] == nil {
 		t.Errorf("requested: got %v, want pending, no periods, a pending change", pc)
 	}
-	c.Problem(409, "ledger.profit_center_exists", "POST", "/v1/profit-centers", body, "")
+	c.Problem(409, "ledger.profit_center_exists", "POST", "/v1/profit-centers", c.pcBody(body), "")
 	_, tag := c.Must(200, "GET", path, "", "")
 	c.Problem(409, "ledger.invalid_center_status", "POST", path+":lock", `{"valid_from": "2026-02-01", "locked": true, "reason": "r"}`, tag)
 	// The requester cannot decide their own change.
@@ -243,14 +282,14 @@ func (c centers) profitCenterChanges(t *testing.T, path, tag string) {
 func TestCenterChangesRejectedAndWithdrawn(t *testing.T) {
 	c := setupCenters(t)
 	body := fmt.Sprintf(`{"code": "PC1", "name": "PC", "responsible": "Jane Doe", "legal_entity_ids": [%q], "valid_from": "2026-01-01", "reason": "r"}`, c.de)
-	pc, _ := c.Must(201, "POST", "/v1/profit-centers", body, "")
+	pc, _ := c.Must(201, "POST", "/v1/profit-centers", c.pcBody(body), "")
 	c.decide(t, pc["pending_change_id"], "reject")
 	pc, tag := c.Must(200, "GET", "/v1/profit-centers/"+pc["id"].(string), "", "")
 	if pc["status"] != "rejected" {
 		t.Errorf("rejected create: status got %v, want rejected", pc["status"])
 	}
 	c.Problem(409, "ledger.invalid_center_status", "PATCH", "/v1/profit-centers/"+pc["id"].(string), `{"name": "X"}`, tag)
-	pc, _ = c.Must(201, "POST", "/v1/profit-centers", body, "")
+	pc, _ = c.Must(201, "POST", "/v1/profit-centers", c.pcBody(body), "")
 	page, _ := c.Must(200, "GET", fmt.Sprintf("/v1/approval-requests?object_id=%v", pc["pending_change_id"]), "", "")
 	r := page["items"].([]any)[0].(map[string]any)
 	c.Must(200, "POST", "/v1/approval-requests/"+r["id"].(string)+":cancel", `{"comment": "Wrong code"}`, fmt.Sprintf(`"%v"`, r["version"]))
@@ -283,8 +322,8 @@ func TestCostCenterLifecycle(t *testing.T) {
 	salesID := sales[len("/v1/profit-centers/"):]
 	cc := c.costCenter(t, "1000", fmt.Sprintf(`, "profit_center_id": %q`, salesID))
 	path := "/v1/cost-centers/" + cc["id"].(string)
-	c.Problem(409, "ledger.cost_center_exists", "POST", "/v1/cost-centers", fmt.Sprintf(`{"legal_entity_id": %q, "code": "1000", "name": "Again",
-		"responsible": "J", "category": "ADMIN", "valid_from": "2026-01-01", "reason": "r"}`, c.de), "")
+	c.Problem(409, "ledger.cost_center_exists", "POST", "/v1/cost-centers", c.ccBody(fmt.Sprintf(`{"legal_entity_id": %q, "code": "1000", "name": "Again",
+		"responsible": "J", "category": "ADMIN", "valid_from": "2026-01-01", "reason": "r"}`, c.de)), "")
 	c.decide(t, cc["pending_change_id"], "approve")
 	cc, tag := c.Must(200, "GET", path, "", "")
 	wantPeriods(t, "created", periods(t, cc, "profit_center_id"), "2026-01-01..<nil> "+salesID)
@@ -345,8 +384,8 @@ func TestCostCenterRefusals(t *testing.T) {
 	c := setupCenters(t)
 	us := c.profitCenter(t, "US", "", c.us)
 	short := c.profitCenter(t, "SHORT", "2026-06-01", c.de)
-	pending, _ := c.Must(201, "POST", "/v1/profit-centers", fmt.Sprintf(`{"code": "PEND", "name": "P", "responsible": "J", "legal_entity_ids": [%q],
-		"valid_from": "2026-01-01", "reason": "r"}`, c.de), "")
+	pending, _ := c.Must(201, "POST", "/v1/profit-centers", c.pcBody(fmt.Sprintf(`{"code": "PEND", "name": "P", "responsible": "J", "legal_entity_ids": [%q],
+		"valid_from": "2026-01-01", "reason": "r"}`, c.de)), "")
 	for name, tc := range map[string]struct{ pc, reason string }{
 		"unknown":             {uuid.NewString(), "unknown"},
 		"pending":             {pending["id"].(string), "not_active"},
@@ -355,17 +394,17 @@ func TestCostCenterRefusals(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := c.in(t)
-			p := c.Problem(422, "ledger.profit_center_invalid", "POST", "/v1/cost-centers", fmt.Sprintf(`{"legal_entity_id": %q, "code": "X1", "name": "X",
-				"responsible": "J", "category": "ADMIN", "profit_center_id": %q, "valid_from": "2026-01-01", "reason": "r"}`, c.de, tc.pc), "")
+			p := c.Problem(422, "ledger.profit_center_invalid", "POST", "/v1/cost-centers", c.ccBody(fmt.Sprintf(`{"legal_entity_id": %q, "code": "X1", "name": "X",
+				"responsible": "J", "category": "ADMIN", "profit_center_id": %q, "valid_from": "2026-01-01", "reason": "r"}`, c.de, tc.pc)), "")
 			if errs, _ := p["errors"].([]any); len(errs) != 1 || errs[0].(map[string]any)["code"] != tc.reason {
 				t.Errorf("errors: got %v, want %s", p["errors"], tc.reason)
 			}
 		})
 	}
-	c.Problem(422, "ledger.invalid_validity", "POST", "/v1/cost-centers", fmt.Sprintf(`{"legal_entity_id": %q, "code": "X2", "name": "X",
-		"responsible": "J", "category": "ADMIN", "valid_from": "2026-05-01", "valid_to": "2026-05-01", "reason": "r"}`, c.de), "")
-	c.Problem(422, "request.reference_not_found", "POST", "/v1/cost-centers", fmt.Sprintf(`{"legal_entity_id": %q, "code": "X3", "name": "X",
-		"responsible": "J", "category": "ADMIN", "valid_from": "2026-05-01", "reason": "r"}`, uuid.New()), "")
+	c.Problem(422, "ledger.invalid_validity", "POST", "/v1/cost-centers", c.ccBody(fmt.Sprintf(`{"legal_entity_id": %q, "code": "X2", "name": "X",
+		"responsible": "J", "category": "ADMIN", "valid_from": "2026-05-01", "valid_to": "2026-05-01", "reason": "r"}`, c.de)), "")
+	c.Problem(422, "request.reference_not_found", "POST", "/v1/cost-centers", c.ccBody(fmt.Sprintf(`{"legal_entity_id": %q, "code": "X3", "name": "X",
+		"responsible": "J", "category": "ADMIN", "valid_from": "2026-05-01", "reason": "r"}`, uuid.New())), "")
 	cc := c.costCenter(t, "2000", `, "valid_to": "2027-01-01"`)
 	c.decide(t, cc["pending_change_id"], "approve")
 	path := "/v1/cost-centers/" + cc["id"].(string)
@@ -434,14 +473,15 @@ func TestCenterAccess(t *testing.T) {
 	us.As = other
 	us.Problem(404, "request.not_found", "GET", "/v1/cost-centers/"+cc["id"].(string), "", "")
 	us.Problem(404, "request.not_found", "GET", fmt.Sprintf("/v1/center-changes/%v", cc["pending_change_id"]), "", "")
-	for _, list := range []string{"/v1/cost-centers", "/v1/center-changes"} {
+	// Changes of hierarchies' nodes name no company, so are listed to all.
+	for _, list := range []string{"/v1/cost-centers", "/v1/center-changes?status=pending"} {
 		page, _ := us.Must(200, "GET", list, "", "")
 		if items := page["items"].([]any); len(items) != 0 {
 			t.Errorf("%s outside access: got %v, want none", list, items)
 		}
 	}
-	us.Problem(422, "request.reference_not_found", "POST", "/v1/profit-centers", fmt.Sprintf(`{"code": "PC", "name": "P", "responsible": "J",
-		"legal_entity_ids": [%q], "valid_from": "2026-01-01", "reason": "r"}`, c.de), "")
+	us.Problem(422, "request.reference_not_found", "POST", "/v1/profit-centers", c.pcBody(fmt.Sprintf(`{"code": "PC", "name": "P", "responsible": "J",
+		"legal_entity_ids": [%q], "valid_from": "2026-01-01", "reason": "r"}`, c.de)), "")
 	page, _ := c.Must(200, "GET", fmt.Sprintf("/v1/cost-centers?legal_entity_id=%s&code=1000&status=pending", c.de), "", "")
 	if items := page["items"].([]any); len(items) != 1 {
 		t.Errorf("own cost centers: got %v, want one", items)
@@ -450,6 +490,19 @@ func TestCenterAccess(t *testing.T) {
 	if items := page["items"].([]any); len(items) != 1 {
 		t.Errorf("own center changes: got %v, want one", items)
 	}
+	// A tree shows the cost centers of one's companies only (T56b).
+	c.decide(t, cc["pending_change_id"], "approve")
+	leafCenters := func(cl apitest.Client) any {
+		tr, _ := cl.Must(200, "GET", "/v1/hierarchies/"+c.ccTree.String(), "", "")
+		return tr["nodes"].([]any)[1].(map[string]any)["center_ids"]
+	}
+	if got := fmt.Sprint(leafCenters(c.Client)); got != fmt.Sprintf("[%v]", cc["id"]) {
+		t.Errorf("the leaf in one's company: got %v, want the cost center", got)
+	}
+	if got := fmt.Sprint(leafCenters(us)); got != "[]" {
+		t.Errorf("the leaf outside access: got %v, want no centers", got)
+	}
+	us.Problem(404, "request.not_found", "GET", fmt.Sprintf("/v1/cost-centers/%v/hierarchy-paths", cc["id"]), "", "")
 }
 
 // TestCenterRequestChecks: the listings' paging and order, and the checks
@@ -481,8 +534,8 @@ func TestCenterRequestChecks(t *testing.T) {
 	if items := page["items"].([]any); len(items) != 1 {
 		t.Errorf("profit centers by company and code: got %v, want one", items)
 	}
-	c.Problem(422, "ledger.invalid_validity", "POST", "/v1/profit-centers", fmt.Sprintf(`{"code": "PC3", "name": "P", "responsible": "J",
-		"legal_entity_ids": [%q], "valid_from": "2026-05-01", "valid_to": "2026-04-01", "reason": "r"}`, c.de), "")
+	c.Problem(422, "ledger.invalid_validity", "POST", "/v1/profit-centers", c.pcBody(fmt.Sprintf(`{"code": "PC3", "name": "P", "responsible": "J",
+		"legal_entity_ids": [%q], "valid_from": "2026-05-01", "valid_to": "2026-04-01", "reason": "r"}`, c.de)), "")
 	_, tag := c.Must(200, "GET", pc, "", "")
 	for name, tc := range map[string]struct{ op, body string }{
 		"lock ending before it starts":   {":lock", `{"valid_from": "2026-05-01", "valid_to": "2026-04-01", "locked": true, "reason": "r"}`},

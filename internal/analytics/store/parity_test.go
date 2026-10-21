@@ -97,9 +97,14 @@ func (p parity) invoice(t *testing.T, le, supplier uuid.UUID, cur, date, status 
 func parityDoc(t *testing.T) *config.Config {
 	t.Helper()
 	doc := fixture.Document(t)
+	parityLedgers(doc)
+	return doc
+}
+
+// parityLedgers gives company 2000 the local-GAAP ledger 2L beside 0L.
+func parityLedgers(doc *config.Config) {
 	doc.Ledgers = []config.Ledger{{Code: "0L", Name: "Leading ledger", AccountingPrinciple: "IFRS"}, {Code: "2L", Name: "Local GAAP", AccountingPrinciple: "HGB"}}
 	doc.Company("2000").Ledgers = []string{"0L", "2L"}
-	return doc
 }
 
 // setupParity seeds the tenant: revenue, expenses and supplier items in
@@ -109,7 +114,7 @@ func setupParity(t *testing.T) parity {
 	t.Helper()
 	// Company 2000 keeps a local-GAAP ledger 2L beside 0L (ADR-0045), its
 	// periods opened with 0L's: every posting of 2000 is copied into it.
-	p := parity{Env: fixture.NewWith(t, parityDoc(t), parityPerms...)}
+	p := parity{Env: fixture.NewWith(t, nil, parityLedgers, parityPerms...)}
 	ten := p.Tenant
 	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
 		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2025-01-01', 0.9, 'ECB', $2)`, ten.ID, ten.Human.ID)
