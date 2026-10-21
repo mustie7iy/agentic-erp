@@ -1446,7 +1446,7 @@
        {
         "s": "D",
         "t": "Center master data (ledger): segment, profit_center (+ profit_center_company, insert-only), cost_center of one legal entity, their effective-dated periods (category, profit center, locks; valid_to exclusive) written once and retired by the change that replaces them, EXCLUDE on active validity, a cost center period's profit center assigned to its company (FK), RLS, tenant_id first, schema tests per rule; texts change at once (audited by field name); creating a center and every validity, lock, profit center/category, segment or company change is a center_change on a center_change approval request decided by the controller (ledger.cost_center.approve, never the requester, never an agent; locks x-agent: false, the rest x-autonomy: propose), planned and checked at request and again at approval; /v1/cost-centers, /v1/profit-centers, /v1/segments, /v1/center-changes with ETag/If-Match and Idempotency-Key; CostCenterChanged, ProfitCenterChanged, SegmentChanged; the in-use refusals that need postings move to T56d",
-        "r": "migration 000125 · internal/ledger centers.go, costcenters.go, profitcenters.go, centerchange.go · approvals.CenterChange · api/openapi.yaml · api/asyncapi.yaml · ADR-0050 · T56a",
+        "r": "migration 000128 · internal/ledger centers.go, costcenters.go, profitcenters.go, centerchange.go · approvals.CenterChange · api/openapi.yaml · api/asyncapi.yaml · ADR-0050 · T56a",
         "c": []
        },
        {

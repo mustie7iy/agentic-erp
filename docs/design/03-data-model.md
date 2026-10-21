@@ -863,7 +863,7 @@ entries through the ledger's reversal path (`ledger.reversal`) and sets
 the key date is then free for another posted run.
 
 Cost centers, profit centers and segments (T56a, ADR-0050, migration
-000125) are the ledger's master data, which journal lines carry from T56d.
+000128) are the ledger's master data, which journal lines carry from T56d.
 `segment` (IFRS 8) and `profit_center` are tenant-wide, `cost_center`
 belongs to one legal entity, fixed; codes are SAP's (`^[0-9A-Z_-]{1,10}$`),
 unique per tenant (per legal entity for cost centers) among centers not

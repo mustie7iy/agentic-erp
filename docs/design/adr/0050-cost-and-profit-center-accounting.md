@@ -168,7 +168,7 @@ ledger.cost_center_period   (tenant_id, id, cost_center_id, legal_entity_id, val
 ledger.center_change        (tenant_id, id, cost_center_id | profit_center_id, kind,
                              payload, reason, status, workflow_request_id, ...)     one pending per center
 ```
-As built in T56a (migration 000125):
+As built in T56a (migration 000128):
 - **Texts on the center, attributes in periods.** Name, description and
   person responsible are on the center and change at once without approval
   (decision P1), their history in the audit trail; what a posting reads

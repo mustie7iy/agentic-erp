@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Cost centers, profit centers and segments (T56a, migration 000125): the
+// Cost centers, profit centers and segments (T56a, migration 000128): the
 // rules the database keeps for the centers, their periods and changes.
 
 // centerFixture is a fixture with a second legal entity, a profit center

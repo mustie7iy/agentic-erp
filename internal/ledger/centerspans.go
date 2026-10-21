@@ -11,7 +11,7 @@ import (
 // them read. A center's spans are contiguous and in date order. Changes are
 // computed on spans in Go and written as the difference: the spans that
 // are no longer there are retired, the new ones inserted (periods are
-// written once, 000125).
+// written once, 000128).
 type span[A comparable] struct {
 	ID   uuid.UUID // the period's row; uuid.Nil for a span not yet written
 	From time.Time
