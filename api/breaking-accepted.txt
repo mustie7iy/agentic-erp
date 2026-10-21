@@ -1,11 +1,14 @@
 # Breaking changes accepted before v1 has external consumers (oasdiff --err-ignore:
 # a line is matched as text against an entry of the breaking-change report).
+# Each entry sits under a comment "# T<n> ...: <reason>" naming the tracker item
+# that accepted it and why (api/breaking_accepted_test.go, ADR-0041). Once the
+# pilot partner consumes /v1, only x-stability-level: beta operations may be listed.
 # Remove a line once the base contract carries the change.
 # T27 (ADR-0012 accepted): the payment release answers 202 with an Operation.
 POST /v1/payment-runs/{id}:release removed the success response with the status `200`
-# T45c (ADR-0038, product owner accepted): a run proposed without a house bank
-# pays each supplier through the bank its payment methods rank, so a run has
-# no house bank of its own.
+# A run proposed without a house bank pays each supplier through the bank its
+# payment methods rank, so a run has no house bank of its own.
+# T45c (ADR-0038, product owner accepted): a payment run may have no house bank.
 GET /v1/payment-runs the response property `items/items/allOf[subschema #2]/house_bank_id` became optional for the status `200`
 GET /v1/payment-runs/{id} the response property `allOf[subschema #2]/house_bank_id` became optional for the status `200`
 POST /v1/payment-runs/{id}:reject the response property `allOf[subschema #2]/house_bank_id` became optional for the status `200`

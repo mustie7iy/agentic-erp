@@ -2,6 +2,7 @@ package api
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -35,6 +36,97 @@ type Operation struct {
 	// Reads is x-autonomy: read: the operation changes no business data though it is
 	// not a GET, and an agent of any level may perform it.
 	Reads bool
+	// Lifecycle is the operation's deprecation, zero while it is not
+	// deprecated (ADR-0041).
+	Lifecycle Lifecycle
+	// Stability is x-stability-level: draft, alpha, beta or stable (the
+	// default). Breaking changes to beta operations may be accepted after
+	// the first partner consumes /v1; to stable ones never (ADR-0041).
+	Stability string
+}
+
+// Lifecycle is a deprecated operation's schedule: deprecated: true with
+// x-deprecated-at, x-sunset and externalDocs (ADR-0041).
+type Lifecycle struct {
+	Deprecated   bool
+	DeprecatedAt time.Time // x-deprecated-at: the Deprecation header (RFC 9745)
+	Sunset       time.Time // x-sunset: the Sunset header (RFC 8594)
+	Link         string    // externalDocs.url: the Link rel="deprecation" target
+}
+
+// MinSunsetNotice is the least time between deprecating an operation and
+// removing it (ADR-0041); oasdiff's --deprecation-days-stable holds the same.
+const MinSunsetNotice = 365 * 24 * time.Hour
+
+// operationNode is an operation's fields that the request pipeline reads.
+type operationNode struct {
+	ID           string `yaml:"operationId"`
+	Permission   string `yaml:"x-permission"`
+	Agent        *bool  `yaml:"x-agent"`
+	Autonomy     string `yaml:"x-autonomy"`
+	Deprecated   bool   `yaml:"deprecated"`
+	DeprecatedAt string `yaml:"x-deprecated-at"`
+	Sunset       string `yaml:"x-sunset"`
+	Stability    string `yaml:"x-stability-level"`
+	ExternalDocs struct {
+		URL string `yaml:"url"`
+	} `yaml:"externalDocs"`
+}
+
+// decodeOperation reads one operation; permissioned says whether it must
+// declare x-permission.
+func decodeOperation(node yaml.Node, permissioned bool) (Operation, error) {
+	var op operationNode
+	if err := node.Decode(&op); err != nil {
+		return Operation{}, fmt.Errorf("decode: %w", err)
+	}
+	if op.ID == "" || (permissioned && op.Permission == "") {
+		return Operation{}, errors.New("operationId and x-permission are required")
+	}
+	if op.Autonomy != "" && op.Autonomy != "propose" && op.Autonomy != "read" {
+		return Operation{}, errors.New("x-autonomy is propose, read or absent")
+	}
+	switch op.Stability {
+	case "":
+		op.Stability = "stable"
+	case "draft", "alpha", "beta", "stable":
+	default:
+		return Operation{}, errors.New("x-stability-level is draft, alpha, beta, stable or absent")
+	}
+	life, err := lifecycle(op)
+	if err != nil {
+		return Operation{}, err
+	}
+	return Operation{
+		ID: op.ID, Permission: op.Permission, AgentAllowed: op.Agent == nil || *op.Agent,
+		Proposes: op.Autonomy == "propose", Reads: op.Autonomy == "read", Lifecycle: life, Stability: op.Stability,
+	}, nil
+}
+
+// lifecycle checks a deprecation: all of its fields or none, dates as
+// YYYY-MM-DD, and the sunset at least MinSunsetNotice after the deprecation.
+func lifecycle(op operationNode) (Lifecycle, error) {
+	if !op.Deprecated {
+		if op.DeprecatedAt != "" || op.Sunset != "" {
+			return Lifecycle{}, errors.New("x-deprecated-at and x-sunset need deprecated: true")
+		}
+		return Lifecycle{}, nil
+	}
+	at, err := time.Parse(time.DateOnly, op.DeprecatedAt)
+	if err != nil {
+		return Lifecycle{}, fmt.Errorf("x-deprecated-at: %w", err)
+	}
+	sunset, err := time.Parse(time.DateOnly, op.Sunset)
+	if err != nil {
+		return Lifecycle{}, fmt.Errorf("x-sunset: %w", err)
+	}
+	if sunset.Sub(at) < MinSunsetNotice {
+		return Lifecycle{}, fmt.Errorf("x-sunset %s is less than 365 days after x-deprecated-at %s", op.Sunset, op.DeprecatedAt)
+	}
+	if op.ExternalDocs.URL == "" {
+		return Lifecycle{}, errors.New("a deprecated operation links its migration notes in externalDocs.url")
+	}
+	return Lifecycle{Deprecated: true, DeprecatedAt: at, Sunset: sunset, Link: op.ExternalDocs.URL}, nil
 }
 
 // Autonomy levels (ADR-0036): what an agent of the level performs beyond
@@ -82,25 +174,12 @@ func parseOperations(src []byte, permissioned bool) (map[string]Operation, error
 			default:
 				continue
 			}
-			var op struct {
-				ID         string `yaml:"operationId"`
-				Permission string `yaml:"x-permission"`
-				Agent      *bool  `yaml:"x-agent"`
-				Autonomy   string `yaml:"x-autonomy"`
-			}
-			if err := node.Decode(&op); err != nil {
+			op, err := decodeOperation(node, permissioned)
+			if err != nil {
 				return nil, fmt.Errorf("api: %s %s: %w", method, path, err)
 			}
-			if op.ID == "" || (permissioned && op.Permission == "") {
-				return nil, fmt.Errorf("api: %s %s: operationId and x-permission are required", method, path)
-			}
-			if op.Autonomy != "" && op.Autonomy != "propose" && op.Autonomy != "read" {
-				return nil, fmt.Errorf("api: %s %s: x-autonomy is propose, read or absent", method, path)
-			}
-			ops[op.ID] = Operation{
-				ID: op.ID, Method: strings.ToUpper(method), Path: path, Permission: op.Permission,
-				AgentAllowed: op.Agent == nil || *op.Agent, Proposes: op.Autonomy == "propose", Reads: op.Autonomy == "read",
-			}
+			op.Method, op.Path = strings.ToUpper(method), path
+			ops[op.ID] = op
 		}
 	}
 	return ops, nil

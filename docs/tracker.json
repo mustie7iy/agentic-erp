@@ -4609,7 +4609,7 @@
        {
         "s": "T",
         "t": "Contract reviewed by a consumer",
-        "r": "T50",
+        "r": "T50h · waits for the product owner to name the pilot partner",
         "c": []
        }
       ]
@@ -4683,10 +4683,41 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "API versioning and deprecation policy",
-      "r": "T50",
-      "c": []
+      "r": "ADR-0041 · 04 §4.10 · T50a",
+      "c": [
+       {
+        "s": "D",
+        "t": "Deprecation in the contract (deprecated, x-deprecated-at, x-sunset at least 365 days later, externalDocs) announced with Deprecation, Sunset and Link rel=deprecation headers built from it",
+        "r": "api.Lifecycle · httpapi.announce · T50a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "oasdiff refuses a sunset under 365 days (--deprecation-days-stable) in CI and ci-local",
+        "r": ".github/workflows/ci.yml · scripts/ci-local.sh · T50a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Every accepted breaking change names its T-number and reason",
+        "r": "api/breaking_accepted_test.go · T50a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Events change only additively within a .vN: no removed event or field, type change, or field newly required or no longer required",
+        "r": "api.EventChanges · cmd/eventcompat · T50a",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Accepted breaking changes only for x-stability-level: beta operations once the pilot partner consumes /v1",
+        "r": "ADR-0041 · enforced when the partner is named",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",
@@ -4733,10 +4764,53 @@
       ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Webhooks for business events",
-      "r": "T50",
-      "c": []
+      "r": "ADR-0041 · T50b–g",
+      "c": [
+       {
+        "s": "D",
+        "t": "Egress client: https only, public addresses checked at dial time, no proxy or redirects, system roots, 5 s connect / 10 s total, 64 KB read",
+        "r": "internal/platform/egress · T50b",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Standard Webhooks signer and verifier (whsec_ secrets, rotation, timestamp tolerance) checked against committed vectors",
+        "r": "internal/platform/webhook · api/webhooks-test-vectors.json · T50b",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Webhook subscription and delivery schema, permissions, and x-webhook events (no bank or personal data) checked by a test",
+        "r": "db/migrations/000105 · api/asyncapi.yaml · T50c",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Subscription API: create, list, get, update, :delete, :rotateSecret; URL checked by the egress rules, x-webhook event types, at most 20, secret shown once",
+        "r": "internal/integration/webhooks.go · api/openapi.yaml · T50d",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Fan-out: a durable JetStream consumer turns each x-webhook event into one pending delivery per active subscription naming it, in the event's tenant; the unique key is the inbox",
+        "r": "internal/integration/fanout.go · internal/platform/natsbus · T50e",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Delivery: due deliveries claimed per tenant (10 in flight, 50/s per subscription), signed and sent through egress, retried 30 s to 12 h for 3 days then dead lettered, in event order per resource; webhook-id is the event id; 410 or 5 days failing disables and drops pending; pause holds and stops the failing clock (failing_since cleared), resume releases or re-enables",
+        "r": "internal/integration/dispatch.go · db/migrations/000106 · T50f",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Operations: deliveries listed and read; :redeliver and :replay (since at most 30 days, dead and dropped too) requeue in event order; :ping queues a signed webhook.ping the dispatcher sends once, paused or disabled too; retention in batches of 1000",
+        "r": "internal/integration/deliveries.go · api/openapi.yaml · db/migrations/000106 · T50g",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",

@@ -1,0 +1,242 @@
+{
+ "description": "Standard Webhooks (https://www.standardwebhooks.com) signatures as this ERP sends them (ADR-0041): webhook-signature is v1,<base64 HMAC-SHA256 of id.timestamp.payload> keyed by the base64 bytes after whsec_, space-separated when several secrets sign during a rotation. Verify allows a timestamp within tolerance_seconds of now. The first case is the reference vector of the Standard Webhooks specification; the rest were computed independently of the Go implementation (Python hmac). internal/platform/webhook tests check every case.",
+ "tolerance_seconds": 300,
+ "verify": [
+  {
+   "name": "Standard Webhooks reference vector",
+   "secrets": [
+    "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"
+   ],
+   "id": "msg_p5jXN8AQM9LWM0D4loKWxJek",
+   "timestamp": "1614265330",
+   "payload": "{\"test\": 2432232314}",
+   "now": 1614265330,
+   "signature": "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=",
+   "valid": true
+  },
+  {
+   "name": "event body",
+   "secrets": [
+    "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+   ],
+   "id": "01JAB3XG0Z6Y4K9W8V7T5R3Q1P",
+   "timestamp": "1792400000",
+   "payload": "{\"specversion\":\"1.0\",\"type\":\"com.example.erp.payables.invoice-approved.v1\",\"data\":{\"amount\":\"1250.00\"}}",
+   "now": 1792400000,
+   "signature": "v1,iB1BsFMUvWcOVpDF3VLW7fLqDWh1ePRwVVqYIvWEJFo=",
+   "valid": true
+  },
+  {
+   "name": "rotation: signed with secret A (old) and B (new), verified with B",
+   "secrets": [
+    "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+   ],
+   "id": "01JAB3XG0Z6Y4K9W8V7T5R3Q1P",
+   "timestamp": "1792400000",
+   "payload": "{\"specversion\":\"1.0\",\"type\":\"com.example.erp.payables.invoice-approved.v1\",\"data\":{\"amount\":\"1250.00\"}}",
+   "now": 1792400000,
+   "signature": "v1,24tXXztK8huXGlIs5z9w+Gxgw5OTkjrwns822Nbv7Vg= v1,iB1BsFMUvWcOVpDF3VLW7fLqDWh1ePRwVVqYIvWEJFo=",
+   "valid": true
+  },
+  {
+   "name": "rotation: signed with B (new), verified holding A (old) and B",
+   "secrets": [
+    "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+    "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+   ],
+   "id": "01JAB3XG0Z6Y4K9W8V7T5R3Q1P",
+   "timestamp": "1792400000",
+   "payload": "{\"specversion\":\"1.0\",\"type\":\"com.example.erp.payables.invoice-approved.v1\",\"data\":{\"amount\":\"1250.00\"}}",
+   "now": 1792400000,
+   "signature": "v1,iB1BsFMUvWcOVpDF3VLW7fLqDWh1ePRwVVqYIvWEJFo=",
+   "valid": true
+  },
+  {
+   "name": "unknown signature version ignored",
+   "secrets": [
+    "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+   ],
+   "id": "01JAB3XG0Z6Y4K9W8V7T5R3Q1P",
+   "timestamp": "1792400000",
+   "payload": "{\"specversion\":\"1.0\",\"type\":\"com.example.erp.payables.invoice-approved.v1\",\"data\":{\"amount\":\"1250.00\"}}",
+   "now": 1792400000,
+   "signature": "v1a,iB1BsFMUvWcOVpDF3VLW7fLqDWh1ePRwVVqYIvWEJFo= v1,iB1BsFMUvWcOVpDF3VLW7fLqDWh1ePRwVVqYIvWEJFo=",
+   "valid": true
+  },
+  {
+   "name": "timestamp at the tolerance edge",
+   "secrets": [
+    "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+   ],
+   "id": "01JAB3XG0Z6Y4K9W8V7T5R3Q1P",
+   "timestamp": "1792400000",
+   "payload": "{\"specversion\":\"1.0\",\"type\":\"com.example.erp.payables.invoice-approved.v1\",\"data\":{\"amount\":\"1250.00\"}}",
+   "now": 1792400300,
+   "signature": "v1,iB1BsFMUvWcOVpDF3VLW7fLqDWh1ePRwVVqYIvWEJFo=",
+   "valid": true
+  },
+  {
+   "name": "wrong secret",
+   "secrets": [
+    "whsec_/wZ4caLxbZAhqIwMHSonKUZL+u1V2dk7tcFJIaQidVA="
+   ],
+   "id": "01JAB3XG0Z6Y4K9W8V7T5R3Q1P",
+   "timestamp": "1792400000",
+   "payload": "{\"specversion\":\"1.0\",\"type\":\"com.example.erp.payables.invoice-approved.v1\",\"data\":{\"amount\":\"1250.00\"}}",
+   "now": 1792400000,
+   "signature": "v1,iB1BsFMUvWcOVpDF3VLW7fLqDWh1ePRwVVqYIvWEJFo=",
+   "valid": false,
+   "error": "signature"
+  },
+  {
+   "name": "tampered body",
+   "secrets": [
+    "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+   ],
+   "id": "01JAB3XG0Z6Y4K9W8V7T5R3Q1P",
+   "timestamp": "1792400000",
+   "payload": "{\"specversion\":\"1.0\",\"type\":\"com.example.erp.payables.invoice-approved.v1\",\"data\":{\"amount\":\"9250.00\"}}",
+   "now": 1792400000,
+   "signature": "v1,iB1BsFMUvWcOVpDF3VLW7fLqDWh1ePRwVVqYIvWEJFo=",
+   "valid": false,
+   "error": "signature"
+  },
+  {
+   "name": "tampered id",
+   "secrets": [
+    "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+   ],
+   "id": "01JAB3XG0Z6Y4K9W8V7T5R3Q1PX",
+   "timestamp": "1792400000",
+   "payload": "{\"specversion\":\"1.0\",\"type\":\"com.example.erp.payables.invoice-approved.v1\",\"data\":{\"amount\":\"1250.00\"}}",
+   "now": 1792400000,
+   "signature": "v1,iB1BsFMUvWcOVpDF3VLW7fLqDWh1ePRwVVqYIvWEJFo=",
+   "valid": false,
+   "error": "signature"
+  },
+  {
+   "name": "timestamp too old",
+   "secrets": [
+    "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+   ],
+   "id": "01JAB3XG0Z6Y4K9W8V7T5R3Q1P",
+   "timestamp": "1792400000",
+   "payload": "{\"specversion\":\"1.0\",\"type\":\"com.example.erp.payables.invoice-approved.v1\",\"data\":{\"amount\":\"1250.00\"}}",
+   "now": 1792400301,
+   "signature": "v1,iB1BsFMUvWcOVpDF3VLW7fLqDWh1ePRwVVqYIvWEJFo=",
+   "valid": false,
+   "error": "timestamp"
+  },
+  {
+   "name": "timestamp too new",
+   "secrets": [
+    "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+   ],
+   "id": "01JAB3XG0Z6Y4K9W8V7T5R3Q1P",
+   "timestamp": "1792400000",
+   "payload": "{\"specversion\":\"1.0\",\"type\":\"com.example.erp.payables.invoice-approved.v1\",\"data\":{\"amount\":\"1250.00\"}}",
+   "now": 1792399699,
+   "signature": "v1,iB1BsFMUvWcOVpDF3VLW7fLqDWh1ePRwVVqYIvWEJFo=",
+   "valid": false,
+   "error": "timestamp"
+  },
+  {
+   "name": "timestamp not a number",
+   "secrets": [
+    "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+   ],
+   "id": "01JAB3XG0Z6Y4K9W8V7T5R3Q1P",
+   "timestamp": "17924e5",
+   "payload": "{\"specversion\":\"1.0\",\"type\":\"com.example.erp.payables.invoice-approved.v1\",\"data\":{\"amount\":\"1250.00\"}}",
+   "now": 1792400000,
+   "signature": "v1,iB1BsFMUvWcOVpDF3VLW7fLqDWh1ePRwVVqYIvWEJFo=",
+   "valid": false,
+   "error": "timestamp"
+  },
+  {
+   "name": "only unknown versions",
+   "secrets": [
+    "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+   ],
+   "id": "01JAB3XG0Z6Y4K9W8V7T5R3Q1P",
+   "timestamp": "1792400000",
+   "payload": "{\"specversion\":\"1.0\",\"type\":\"com.example.erp.payables.invoice-approved.v1\",\"data\":{\"amount\":\"1250.00\"}}",
+   "now": 1792400000,
+   "signature": "v2,iB1BsFMUvWcOVpDF3VLW7fLqDWh1ePRwVVqYIvWEJFo=",
+   "valid": false,
+   "error": "signature"
+  },
+  {
+   "name": "signature not base64",
+   "secrets": [
+    "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+   ],
+   "id": "01JAB3XG0Z6Y4K9W8V7T5R3Q1P",
+   "timestamp": "1792400000",
+   "payload": "{\"specversion\":\"1.0\",\"type\":\"com.example.erp.payables.invoice-approved.v1\",\"data\":{\"amount\":\"1250.00\"}}",
+   "now": 1792400000,
+   "signature": "v1,***",
+   "valid": false,
+   "error": "signature"
+  },
+  {
+   "name": "missing id",
+   "secrets": [
+    "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+   ],
+   "id": "",
+   "timestamp": "1792400000",
+   "payload": "{\"specversion\":\"1.0\",\"type\":\"com.example.erp.payables.invoice-approved.v1\",\"data\":{\"amount\":\"1250.00\"}}",
+   "now": 1792400000,
+   "signature": "v1,iB1BsFMUvWcOVpDF3VLW7fLqDWh1ePRwVVqYIvWEJFo=",
+   "valid": false,
+   "error": "headers"
+  },
+  {
+   "name": "missing signature",
+   "secrets": [
+    "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+   ],
+   "id": "01JAB3XG0Z6Y4K9W8V7T5R3Q1P",
+   "timestamp": "1792400000",
+   "payload": "{\"specversion\":\"1.0\",\"type\":\"com.example.erp.payables.invoice-approved.v1\",\"data\":{\"amount\":\"1250.00\"}}",
+   "now": 1792400000,
+   "signature": "",
+   "valid": false,
+   "error": "headers"
+  }
+ ],
+ "sign": [
+  {
+   "name": "one secret",
+   "secrets": [
+    "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"
+   ],
+   "id": "msg_p5jXN8AQM9LWM0D4loKWxJek",
+   "timestamp": 1614265330,
+   "payload": "{\"test\": 2432232314}",
+   "signature": "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE="
+  },
+  {
+   "name": "rotation signs with both",
+   "secrets": [
+    "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+    "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+   ],
+   "id": "01JAB3XG0Z6Y4K9W8V7T5R3Q1P",
+   "timestamp": 1792400000,
+   "payload": "{\"specversion\":\"1.0\",\"type\":\"com.example.erp.payables.invoice-approved.v1\",\"data\":{\"amount\":\"1250.00\"}}",
+   "signature": "v1,24tXXztK8huXGlIs5z9w+Gxgw5OTkjrwns822Nbv7Vg= v1,iB1BsFMUvWcOVpDF3VLW7fLqDWh1ePRwVVqYIvWEJFo="
+  },
+  {
+   "name": "third secret",
+   "secrets": [
+    "whsec_/wZ4caLxbZAhqIwMHSonKUZL+u1V2dk7tcFJIaQidVA="
+   ],
+   "id": "01JAB3XG0Z6Y4K9W8V7T5R3Q1P",
+   "timestamp": 1792400000,
+   "payload": "{\"specversion\":\"1.0\",\"type\":\"com.example.erp.payables.invoice-approved.v1\",\"data\":{\"amount\":\"1250.00\"}}",
+   "signature": "v1,HrLs2j2Yga29NInqgwg1IeSKI6CE5zDN/0wj4smhBWE="
+  }
+ ]
+}

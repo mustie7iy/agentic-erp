@@ -546,6 +546,20 @@ func encodeCreateUploadRequest(
 	return nil
 }
 
+func encodeCreateWebhookSubscriptionRequest(
+	req *WebhookSubscriptionCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeDecideRecommendationRequest(
 	req *RecommendationDecide,
 	r *http.Request,
@@ -832,6 +846,20 @@ func encodeReleaseSupplierInvoiceRequest(
 
 func encodeRenewContractRequest(
 	req *ContractRenew,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeReplayWebhookDeliveriesRequest(
+	req *WebhookReplay,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -1166,6 +1194,20 @@ func encodeUpdateRoleRequest(
 
 func encodeUpdateSupplierInvoiceRequest(
 	req *SupplierInvoiceUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateWebhookSubscriptionRequest(
+	req *WebhookSubscriptionUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"

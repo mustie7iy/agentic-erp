@@ -63,7 +63,7 @@ tags:
   - name: agents
     description: Agent sessions, their tool calls and recommendations for people to decide.
   - name: integration
-    description: Connectors to external systems and data migration runs.
+    description: Connectors to external systems, data migration runs and webhook subscriptions.
   - name: platform
     description: Long-running operations.
 paths:
@@ -8952,6 +8952,655 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/webhook-subscriptions:
+    get:
+      operationId: listWebhookSubscriptions
+      tags:
+        - integration
+      summary: List webhook subscriptions
+      description: "The tenant's webhook subscriptions, newest first; deleted ones only when asked for with `status=deleted`. Secrets are never listed. Sortable by: `created_at`."
+      x-permission: integration.webhook.read
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: "Only subscriptions in this status; without it, all but the deleted ones."
+          schema:
+            type: string
+            description: "Subscription status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - active
+              - paused
+              - disabled
+              - deleted
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of webhook subscriptions.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookSubscriptionPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createWebhookSubscription
+      tags:
+        - integration
+      summary: Create a webhook subscription
+      description: "Subscribes an HTTPS endpoint to event types (ADR-0041). The URL's host must resolve to public addresses only. At most 20 subscriptions that are not deleted per tenant (422 `integration.webhook_limit`). Event types are those marked `x-webhook` in the AsyncAPI contract, or `<context>.*` for all of a context's; duplicates are dropped. The answer carries the signing secret, shown only here and by `:rotateSecret`; a replay of the request answers without it."
+      x-permission: integration.webhook.manage
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The webhook subscription create request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookSubscriptionCreate"
+      responses:
+        "201":
+          description: "Created; the new subscription with its signing secret."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookSubscription"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/webhook-subscriptions/{id}":
+    get:
+      operationId: getWebhookSubscription
+      tags:
+        - integration
+      summary: Get a webhook subscription
+      description: Returns one webhook subscription, without its secret.
+      x-permission: integration.webhook.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The webhook subscription.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookSubscription"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateWebhookSubscription
+      tags:
+        - integration
+      summary: Update a webhook subscription
+      description: "Changes a subscription's URL, description or event types, checked as on create; a deleted subscription cannot be changed (409). JSON Merge Patch (RFC 7396): absent fields are unchanged, arrays are replaced as a whole."
+      x-permission: integration.webhook.manage
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the webhook subscription.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/WebhookSubscriptionUpdate"
+      responses:
+        "200":
+          description: "Updated; the subscription after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookSubscription"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/webhook-subscriptions/{id}:delete":
+    post:
+      operationId: deleteWebhookSubscription
+      tags:
+        - integration
+      summary: Delete a webhook subscription
+      description: "Ends the subscription: its status becomes `deleted`, nothing more is sent to it, and it no longer counts toward the limit of 20. The row is kept (no hard deletes). Requires a status other than `deleted`."
+      x-permission: integration.webhook.manage
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The webhook subscription after deleteWebhookSubscription.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookSubscription"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/webhook-subscriptions/{id}:rotateSecret":
+    post:
+      operationId: rotateWebhookSubscriptionSecret
+      tags:
+        - integration
+      summary: Rotate a webhook subscription's secret
+      description: "Issues a new signing secret, answered only here. The previous secret keeps signing alongside the new one for 24 hours (`previous_secret_expires_at`), so the endpoint can switch without losing a delivery; rotating again within that time retires the older one at once. A replay of the request answers without the secret. Requires a status other than `deleted`."
+      x-permission: integration.webhook.manage
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The webhook subscription with its new signing secret.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookSubscription"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/webhook-subscriptions/{id}:pause":
+    post:
+      operationId: pauseWebhookSubscription
+      tags:
+        - integration
+      summary: Pause a webhook subscription
+      description: "Holds the deliveries of an active subscription (how a tenant stops deliveries): events keep being recorded for it but none is sent until `:resume`, which sends them in order. A delivery held past the 30-day retention is dropped. Pausing stops the failure clock: `failing_since` is cleared, so time paused does not count toward the 5 days, which start again at the first failure after `:resume`. Requires status `active` (409 `integration.webhook_not_active`)."
+      x-permission: integration.webhook.manage
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The paused webhook subscription.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookSubscription"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/webhook-subscriptions/{id}:resume":
+    post:
+      operationId: resumeWebhookSubscription
+      tags:
+        - integration
+      summary: Resume a webhook subscription
+      description: "Makes a paused or disabled subscription active. A paused one's held deliveries are sent, in event order per resource, and later events as they come. A disabled one starts its failure tracking afresh (`failing_since` cleared); the deliveries dropped while it was disabled are not sent. Refused for an active subscription (409 `integration.webhook_already_active`)."
+      x-permission: integration.webhook.manage
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The resumed webhook subscription.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookSubscription"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/webhook-subscriptions/{id}:replay":
+    post:
+      operationId: replayWebhookDeliveries
+      tags:
+        - integration
+      summary: Replay a webhook subscription's deliveries
+      description: "Queues again every kept delivery of the subscription whose event occurred at or after `since`, whatever its status (delivered, dead and dropped ones too; pings are left out): each becomes `pending` with no attempts, and they go out in event order per resource. `since` is within the 30-day retention (422 `integration.invalid_replay_since`). The endpoint receives each event under its original `webhook-id`. Refused for a deleted subscription (409 `integration.webhook_deleted`) and a disabled one (409 `integration.webhook_disabled`; resume it first)."
+      x-permission: integration.webhook.manage
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The replay request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookReplay"
+      responses:
+        "200":
+          description: How many deliveries were queued again.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookReplayResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/webhook-subscriptions/{id}:ping":
+    post:
+      operationId: pingWebhookSubscription
+      tags:
+        - integration
+      summary: Ping a webhook endpoint
+      description: "Queues a synthetic `webhook.ping` CloudEvent (data: the subscription's `subscription_id`), signed like any other, which the dispatcher sends at once, also while the subscription is paused or disabled. The request does not wait for the endpoint: the answer is the pending delivery, whose `status`, `last_status` and `last_error` tell the outcome once attempted. A ping is attempted once, is not retried and does not count toward the subscription's failures. Refused for a deleted subscription (409 `integration.webhook_deleted`)."
+      x-permission: integration.webhook.manage
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The ping's delivery, pending.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDelivery"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/webhook-subscriptions/{id}/deliveries":
+    get:
+      operationId: listWebhookDeliveries
+      tags:
+        - integration
+      summary: List a webhook subscription's deliveries
+      description: "The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by: `created_at`."
+      x-permission: integration.webhook.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: status
+          in: query
+          required: false
+          description: Only deliveries in this status.
+          schema:
+            type: string
+            description: "Delivery status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - pending
+              - delivered
+              - dead
+              - dropped
+        - name: since
+          in: query
+          required: false
+          description: "Only deliveries recorded (`created_at`) at or after this instant; `:replay`'s `since` is the events' time instead."
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of webhook deliveries.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDeliveryPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/webhook-subscriptions/{id}/deliveries/{delivery_id}":
+    get:
+      operationId: getWebhookDelivery
+      tags:
+        - integration
+      summary: Get a webhook delivery
+      description: "Returns one delivery: its event, status and the outcome of its last attempt."
+      x-permission: integration.webhook.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/DeliveryId"
+      responses:
+        "200":
+          description: The webhook delivery.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDelivery"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/webhook-subscriptions/{id}/deliveries/{delivery_id}:redeliver":
+    post:
+      operationId: redeliverWebhookDelivery
+      tags:
+        - integration
+      summary: Redeliver a webhook delivery
+      description: "Queues the delivery again, whatever its status: `pending` with no attempts, sent in its resource's event order under its original `webhook-id`. Refused for a deleted subscription (409 `integration.webhook_deleted`) and a disabled one (409 `integration.webhook_disabled`; resume it first), pings included: `:ping` sends a new one."
+      x-permission: integration.webhook.manage
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/DeliveryId"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The delivery after redeliverWebhookDelivery.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDelivery"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/migration-runs:
     get:
       operationId: listMigrationRuns
@@ -9994,6 +10643,15 @@ components:
         type: string
         format: uuid
       example: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d1f"
+    DeliveryId:
+      name: delivery_id
+      in: path
+      required: true
+      description: Webhook delivery identifier (UUIDv7).
+      schema:
+        type: string
+        format: uuid
+      example: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
     BankAccountId:
       name: bank_account_id
       in: path
@@ -18792,6 +19450,330 @@ components:
       additionalProperties: false
       examples:
         - from_seq: 1
+    WebhookSubscription:
+      description: "A subscription that sends the tenant's events of the listed types to an HTTPS endpoint, signed per Standard Webhooks with the subscription's own secret (ADR-0041)."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - url
+            - description
+            - event_types
+            - status
+          properties:
+            url:
+              type: string
+              description: "The HTTPS endpoint, without credentials or fragment; a query may carry the endpoint's token."
+              maxLength: 2048
+            description:
+              type: string
+              description: What the endpoint is for.
+              maxLength: 200
+            event_types:
+              type: array
+              description: "CloudEvents types marked `x-webhook` in the AsyncAPI contract, or `<context>.*` for all of a context's."
+              minItems: 1
+              maxItems: 100
+              items:
+                type: string
+                description: An event type or a context wildcard.
+                maxLength: 200
+            status:
+              type: string
+              description: "Status. `paused` (by `:pause`, how a tenant stops deliveries): deliveries are held and sent in order on `:resume`. `disabled`: the dispatcher stopped after 5 days of failures or a 410 Gone (`disabled_reason`); its pending deliveries are dropped, and `:resume` makes it active again for later events. Moving to `disabled` changes the version; `failing_since` alone does not. `deleted`: ended by `:delete`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - active
+                - paused
+                - disabled
+                - deleted
+              readOnly: true
+            disabled_reason:
+              type: string
+              description: "Why the dispatcher disabled it; present only when `disabled`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - failing
+                - gone
+              readOnly: true
+            failing_since:
+              type: string
+              format: date-time
+              description: First failed delivery since the last success or the last `:pause` or `:resume`; absent while deliveries succeed.
+              readOnly: true
+            previous_secret_expires_at:
+              type: string
+              format: date-time
+              description: "Until when the previous secret also signs, after a rotation; absent otherwise."
+              readOnly: true
+            secret:
+              type: string
+              description: "The `whsec_` signing secret: present only in the answers to create and `:rotateSecret`, never stored in the clear."
+              readOnly: true
+              maxLength: 200
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
+          version: 1
+          created_at: "2026-10-19T09:00:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
+          updated_at: "2026-10-19T09:00:00Z"
+          url: "https://hooks.example.com/erp"
+          description: Supplier portal
+          event_types:
+            - ledger.*
+          status: active
+    WebhookSubscriptionCreate:
+      type: object
+      description: "Create a webhook subscription (status `active`)."
+      required:
+        - url
+        - event_types
+      properties:
+        url:
+          type: string
+          description: "The HTTPS endpoint; its host must resolve to public addresses only."
+          maxLength: 2048
+        description:
+          type: string
+          description: What the endpoint is for.
+          maxLength: 200
+        event_types:
+          type: array
+          description: "Event types marked `x-webhook`, or `<context>.*`; duplicates are dropped."
+          minItems: 1
+          maxItems: 100
+          items:
+            type: string
+            description: An event type or a context wildcard.
+            maxLength: 200
+      additionalProperties: false
+      examples:
+        - url: "https://hooks.example.com/erp"
+          description: Supplier portal
+          event_types:
+            - ledger.*
+    WebhookSubscriptionUpdate:
+      type: object
+      description: Merge patch of a webhook subscription.
+      properties:
+        url:
+          type: string
+          description: "The HTTPS endpoint; its host must resolve to public addresses only."
+          maxLength: 2048
+        description:
+          type: string
+          description: What the endpoint is for.
+          maxLength: 200
+        event_types:
+          type: array
+          description: "Event types marked `x-webhook`, or `<context>.*`; replaced as a whole."
+          minItems: 1
+          maxItems: 100
+          items:
+            type: string
+            description: An event type or a context wildcard.
+            maxLength: 200
+      additionalProperties: false
+      examples:
+        - description: Supplier portal (production)
+    WebhookSubscriptionPage:
+      type: object
+      description: One page of webhook subscriptions.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebhookSubscription"
+          description: The webhook subscriptions on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+      examples:
+        - items:
+            - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
+              version: 1
+              created_at: "2026-10-19T09:00:00Z"
+              created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
+              updated_at: "2026-10-19T09:00:00Z"
+              url: "https://hooks.example.com/erp"
+              description: Supplier portal
+              event_types:
+                - ledger.*
+              status: active
+    WebhookDelivery:
+      type: object
+      description: "One event sent, or to be sent, to a subscription's endpoint (ADR-0041). Kept 30 days."
+      required:
+        - id
+        - version
+        - subscription_id
+        - event_id
+        - type
+        - subject
+        - occurred_at
+        - status
+        - attempts
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: "Identifier (UUIDv7); the `webhook-delivery-id` header of its requests."
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          description: "Optimistic-lock version; equals the ETag. Moves with every attempt."
+          minimum: 1
+          readOnly: true
+        subscription_id:
+          type: string
+          format: uuid
+          description: The subscription it is sent to.
+          readOnly: true
+        event_id:
+          type: string
+          format: uuid
+          description: "The CloudEvent id: the `webhook-id` of every attempt, redelivery and replay."
+          readOnly: true
+        type:
+          type: string
+          description: "The CloudEvents type, or `webhook.ping` for a ping."
+          maxLength: 200
+          readOnly: true
+        subject:
+          type: string
+          format: uuid
+          description: "The resource the event is about (the subscription, for a ping); a resource's deliveries go out in event order."
+          readOnly: true
+        occurred_at:
+          type: string
+          format: date-time
+          description: When the event occurred.
+          readOnly: true
+        status:
+          type: string
+          description: "`pending`: waiting for its first or next attempt. `delivered`: the endpoint answered 2xx. `dead`: retries ran out or the endpoint answered 410 (a ping: its one attempt failed). `dropped`: never sent, since the subscription was disabled. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - pending
+            - delivered
+            - dead
+            - dropped
+          readOnly: true
+        attempts:
+          type: integer
+          format: int32
+          description: Attempts made since it was last queued.
+          minimum: 0
+          readOnly: true
+        next_attempt_at:
+          type: string
+          format: date-time
+          description: "When it is attempted next; present only while `pending`."
+          readOnly: true
+        last_status:
+          type: integer
+          format: int32
+          description: The endpoint's HTTP status at the last attempt.
+          minimum: 100
+          maximum: 599
+          readOnly: true
+        last_error:
+          type: string
+          description: Why the last attempt got no HTTP status.
+          maxLength: 1000
+          readOnly: true
+        delivered_at:
+          type: string
+          format: date-time
+          description: "When the endpoint accepted it; present only when `delivered`."
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: When the delivery was recorded (UTC).
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: Last change (UTC).
+          readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+          version: 3
+          subscription_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
+          event_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d62"
+          type: com.example.erp.ledger.journal_entry_posted.v1
+          subject: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d63"
+          occurred_at: "2026-10-19T08:59:59Z"
+          status: delivered
+          attempts: 1
+          last_status: 204
+          delivered_at: "2026-10-19T09:00:01Z"
+          created_at: "2026-10-19T09:00:00Z"
+          updated_at: "2026-10-19T09:00:01Z"
+    WebhookDeliveryPage:
+      type: object
+      description: One page of webhook deliveries.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebhookDelivery"
+          description: The webhook deliveries on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items:
+            - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+              version: 1
+              subscription_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
+              event_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d62"
+              type: com.example.erp.ledger.journal_entry_posted.v1
+              subject: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d63"
+              occurred_at: "2026-10-19T08:59:59Z"
+              status: pending
+              attempts: 0
+              next_attempt_at: "2026-10-19T09:00:00Z"
+              created_at: "2026-10-19T09:00:00Z"
+              updated_at: "2026-10-19T09:00:00Z"
+    WebhookReplay:
+      type: object
+      description: Replay the deliveries of the events since an instant.
+      required:
+        - since
+      properties:
+        since:
+          type: string
+          format: date-time
+          description: "Replay the events that occurred at or after this instant: at most 30 days back."
+      additionalProperties: false
+      examples:
+        - since: "2026-10-18T00:00:00Z"
+    WebhookReplayResult:
+      type: object
+      description: What a replay queued.
+      required:
+        - queued
+      properties:
+        queued:
+          type: integer
+          format: int32
+          description: How many deliveries were queued again.
+          minimum: 0
+      examples:
+        - queued: 12
     Connector:
       description: A configured connection to an external system. Secrets live in the vault and are referenced, never stored or returned.
       allOf:

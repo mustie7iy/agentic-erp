@@ -104,6 +104,16 @@ func newApp(t *testing.T, pool *database.Pool, also ...*authntest.Issuer) *app {
 		<-a.release
 		w.WriteHeader(204)
 	})
+	mux.HandleFunc("POST /secret", func(w http.ResponseWriter, r *http.Request) {
+		uow.OmitOnReplay(r.Context(), "secret")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		a.check(json.NewEncoder(w).Encode(map[string]string{"id": "x", "secret": "whsec_shown_once"}))
+	})
+	mux.HandleFunc("POST /secret-array", func(w http.ResponseWriter, r *http.Request) {
+		uow.OmitOnReplay(r.Context(), "secret")
+		w.Write([]byte(`["whsec_shown_once"]`))
+	})
 	mux.HandleFunc("POST /not-json", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("plain text"))
 	})
@@ -601,5 +611,36 @@ func TestInjectedDatabaseFailures(t *testing.T) {
 	a.mw.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errInjected }
 	if r := a.do(call{method: "GET", path: "/read", tenant: ten.ID, subject: ten.Human.Subject}); r.Code != 500 {
 		t.Fatalf("begin failure: %d", r.Code)
+	}
+}
+
+// TestOmitOnReplay: a field the handler omits is answered once and not kept
+// with the idempotency key, so a replay answers without it (ADR-0041).
+func TestOmitOnReplay(t *testing.T) {
+	a := newApp(t, pgtest.Pool(t))
+	ten := pgtest.NewTenant(t)
+	c := call{method: "POST", path: "/secret", key: "key-secret01", tenant: ten.ID, subject: ten.Human.Subject}
+	first := a.do(c)
+	if !strings.Contains(first.Body.String(), "whsec_shown_once") {
+		t.Fatalf("first answer: got %s, want the secret", first.Body)
+	}
+	if n := count(t, `SELECT count(*) FROM platform.idempotency_key WHERE tenant_id = $1 AND response_body::text LIKE '%whsec_%'`, ten.ID); n != 0 {
+		t.Errorf("stored answers with the secret: got %d, want 0", n)
+	}
+	replay := a.do(c)
+	if replay.Code != 201 || replay.Header().Get("Idempotent-Replayed") != "true" {
+		t.Fatalf("replay: got %d %v, want a replayed 201", replay.Code, replay.Header())
+	}
+	var got map[string]string
+	if err := json.Unmarshal(replay.Body.Bytes(), &got); err != nil {
+		t.Fatalf("replay body %s: %v", replay.Body, err)
+	}
+	if _, ok := got["secret"]; ok || got["id"] != "x" {
+		t.Errorf("replay body: got %v, want the id without the secret", got)
+	}
+	// A body that is not an object cannot have the field taken out: the
+	// request fails rather than keep the secret.
+	if r := a.do(call{method: "POST", path: "/secret-array", key: "key-secret02", tenant: ten.ID, subject: ten.Human.Subject}); r.Code != 500 {
+		t.Errorf("array body: got %d, want 500", r.Code)
 	}
 }

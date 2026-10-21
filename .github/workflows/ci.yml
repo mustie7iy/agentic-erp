@@ -218,9 +218,14 @@ jobs:
           for spec in openapi control directory; do
             if git cat-file -e "FETCH_HEAD:api/$spec.yaml" 2>/dev/null; then
               git show "FETCH_HEAD:api/$spec.yaml" > "/tmp/base-$spec.yaml"
-              oasdiff breaking --fail-on ERR --err-ignore api/breaking-accepted.txt "/tmp/base-$spec.yaml" "api/$spec.yaml"
+              oasdiff breaking --fail-on ERR --deprecation-days-stable=365 --err-ignore api/breaking-accepted.txt "/tmp/base-$spec.yaml" "api/$spec.yaml"
             fi
           done
+          # Events change only additively within a .vN (ADR-0041).
+          if git cat-file -e "FETCH_HEAD:api/asyncapi.yaml" 2>/dev/null; then
+            git show "FETCH_HEAD:api/asyncapi.yaml" > /tmp/base-asyncapi.yaml
+            go run ./cmd/eventcompat /tmp/base-asyncapi.yaml api/asyncapi.yaml
+          fi
       - name: Schema tests (migrations and database-enforced rules)
         run: go test -count=1 -v ./db
       - name: Functional and non-functional tests (without the race detector)

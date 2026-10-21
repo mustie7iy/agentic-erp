@@ -177,8 +177,16 @@ type CreateUploadRes interface {
 	createUploadRes()
 }
 
+type CreateWebhookSubscriptionRes interface {
+	createWebhookSubscriptionRes()
+}
+
 type DecideRecommendationRes interface {
 	decideRecommendationRes()
+}
+
+type DeleteWebhookSubscriptionRes interface {
+	deleteWebhookSubscriptionRes()
 }
 
 type DisableConnectorRes interface {
@@ -377,6 +385,14 @@ type GetUploadRes interface {
 	getUploadRes()
 }
 
+type GetWebhookDeliveryRes interface {
+	getWebhookDeliveryRes()
+}
+
+type GetWebhookSubscriptionRes interface {
+	getWebhookSubscriptionRes()
+}
+
 type GrantRolePermissionRes interface {
 	grantRolePermissionRes()
 }
@@ -561,6 +577,14 @@ type ListSupplierInvoicesRes interface {
 	listSupplierInvoicesRes()
 }
 
+type ListWebhookDeliveriesRes interface {
+	listWebhookDeliveriesRes()
+}
+
+type ListWebhookSubscriptionsRes interface {
+	listWebhookSubscriptionsRes()
+}
+
 type LockFiscalPeriodRes interface {
 	lockFiscalPeriodRes()
 }
@@ -575,6 +599,14 @@ type OpenFiscalPeriodRes interface {
 
 type ParkJournalEntryRes interface {
 	parkJournalEntryRes()
+}
+
+type PauseWebhookSubscriptionRes interface {
+	pauseWebhookSubscriptionRes()
+}
+
+type PingWebhookSubscriptionRes interface {
+	pingWebhookSubscriptionRes()
 }
 
 type PostGoodsReceiptRes interface {
@@ -605,6 +637,10 @@ type RecordAgentToolCallRes interface {
 	recordAgentToolCallRes()
 }
 
+type RedeliverWebhookDeliveryRes interface {
+	redeliverWebhookDeliveryRes()
+}
+
 type RejectApprovalRequestRes interface {
 	rejectApprovalRequestRes()
 }
@@ -633,6 +669,10 @@ type RenewContractRes interface {
 	renewContractRes()
 }
 
+type ReplayWebhookDeliveriesRes interface {
+	replayWebhookDeliveriesRes()
+}
+
 type ReportBankFileStatusRes interface {
 	reportBankFileStatusRes()
 }
@@ -645,6 +685,10 @@ type RequestBankAccountEndRes interface {
 	requestBankAccountEndRes()
 }
 
+type ResumeWebhookSubscriptionRes interface {
+	resumeWebhookSubscriptionRes()
+}
+
 type ReverseGoodsReceiptRes interface {
 	reverseGoodsReceiptRes()
 }
@@ -655,6 +699,10 @@ type ReverseJournalEntryRes interface {
 
 type ReverseSupplierInvoiceRes interface {
 	reverseSupplierInvoiceRes()
+}
+
+type RotateWebhookSubscriptionSecretRes interface {
+	rotateWebhookSubscriptionSecretRes()
 }
 
 type SimulateChangeRequestRes interface {
@@ -755,6 +803,10 @@ type UpdateRoleRes interface {
 
 type UpdateSupplierInvoiceRes interface {
 	updateSupplierInvoiceRes()
+}
+
+type UpdateWebhookSubscriptionRes interface {
+	updateWebhookSubscriptionRes()
 }
 
 type VerifyAuditChainRes interface {
