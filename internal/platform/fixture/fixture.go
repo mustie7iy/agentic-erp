@@ -40,7 +40,8 @@ import (
 // ApprovalPermissions are added to every fixture tenant's human role.
 var ApprovalPermissions = []string{"workflow.request.read", "workflow.request.decide", "workflow.request.cancel",
 	"procurement.requisition.approve", "partner.change.approve", "payables.invoice.approve", "config.change.approve",
-	"ledger.period.unlock.approve", "ledger.entry.approve", "procurement.order.approve", "payments.statement.clearing.approve"}
+	"ledger.period.unlock.approve", "ledger.entry.approve", "procurement.order.approve", "payments.statement.clearing.approve",
+	"ledger.cost_center.approve"}
 
 // Years are the fiscal years the fixture sets up: 2026, which tests date
 // documents in, and the current year, which numbers documents dated today.

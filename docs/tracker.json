@@ -1439,21 +1439,100 @@
     "ph": 2,
     "c": [
      {
+      "s": "P",
+      "t": "Cost and profit center accounting decided: centers, segments and hierarchies as ledger master data maintained by API with approved change requests; cost element category per account; cost center, profit center and segment on every journal line; minimal plan; no document splitting (product owner 2026-10-21, P1-P8 as recommended)",
+      "r": "ADR-0050 · T56 (split T56a-T56l)",
+      "c": [
+       {
+        "s": "D",
+        "t": "Center master data (ledger): segment, profit_center (+ profit_center_company, insert-only), cost_center of one legal entity, their effective-dated periods (category, profit center, locks; valid_to exclusive) written once and retired by the change that replaces them, EXCLUDE on active validity, a cost center period's profit center assigned to its company (FK), RLS, tenant_id first, schema tests per rule; texts change at once (audited by field name); creating a center and every validity, lock, profit center/category, segment or company change is a center_change on a center_change approval request decided by the controller (ledger.cost_center.approve, never the requester, never an agent; locks x-agent: false, the rest x-autonomy: propose), planned and checked at request and again at approval; /v1/cost-centers, /v1/profit-centers, /v1/segments, /v1/center-changes with ETag/If-Match and Idempotency-Key; CostCenterChanged, ProfitCenterChanged, SegmentChanged; the in-use refusals that need postings move to T56d",
+        "r": "migration 000125 · internal/ledger centers.go, costcenters.go, profitcenters.go, centerchange.go · approvals.CenterChange · api/openapi.yaml · api/asyncapi.yaml · ADR-0050 · T56a",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Hierarchies: standard and alternative per kind; one leaf per center in the standard (commit-time check), no cycles, depth at most 12; node moves as change requests; GET /v1/hierarchies/{kind}/{code} with members; schema tests",
+        "r": "T56b",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Configuration rules: controlling.cost_center_categories, cost_element per account (defaults by type), default_assignments, profit_center_accounting, default_profit_center; tiers as ADR-0050 §4; activation refuses an automatically posted account needing a cost object without a default; packs set cost_element; simulation lists lines that would be refused or reassigned",
+        "r": "T56c",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Assignment on the journal: the in-use refusals T56a leaves out (ledger.cost_center_period_in_use, ledger.cost_center_posted_after, ledger.segment_in_use); expand migration (cost_center_id, profit_center_id, segment_id; FKs NOT VALID then validated per partition, partial indexes concurrently); derivation and validation in every posting path incl. parked and Postings; commit-time check of ADR-0050 §5's table; reversals copy; T52 copies carry the same; journal API, list filters and event fields (additive); FOR SHARE on center periods with a race test against a lock. After T52's posting steps are in main",
+        "r": "T56d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Procurement and payables: account_assignment and cost_center_id on requisition and PO items (validated at release), GR and price-difference lines with the item's center; invoice items' cost_center_id/profit_center_id; capture agent proposals with eval cases; the free-text custom field in fixtures replaced; ADR-0034 note",
+        "r": "T56e",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Actual reports: ledger.assignment_balance maintained by the projector (exactly once, run-twice test); GET /v1/cost-center-balances, /v1/profit-center-balances (by center, node, segment, account, period; exact at the read); schema test that assignment balances add up to period_balance on P&L accounts; drill-down via journal filters",
+        "r": "T56f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Plan and plan/actual (P5): controlling context and schema; plan categories with a human-only lock; plan lines by upload and API, idempotent by batch; GET /v1/cost-center-plan-actual; actuals through ledger.AssignmentBalances",
+        "r": "T56g",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "SAP migration: CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), CSKB categories, OKB9 defaults, sets 0101/0106 with ranges expanded; ACDOCA RCNTR/PRCTR/SEGMENT; quality-gate issues; mock generator extended; reconciliation of migrated center totals",
+        "r": "T56h",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Analytics: dataset contract change (journal columns, center and hierarchy snapshots); semantic dimensions and plan metrics; isolation tests unchanged and passing",
+        "r": "T56i",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Controlling agent: proposes assignments and repostings (parked), new centers as change requests, explains plan/actual variances; evaluation suite; never approves or locks",
+        "r": "T56j",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Cost object custom fields: ADR-0046's cost_object reference type, checked on write; the compiler's refusal lifted; ADR-0046 amended",
+        "r": "T56k",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Deferred by the product owner (2026-10-21, P3): document splitting, only if a balance sheet per profit center or segment is needed; its own ADR amendment first, from a fiscal year start",
+        "r": "T56l",
+        "c": []
+       }
+      ]
+     },
+     {
       "s": "T",
       "t": "Cost center master and hierarchy; then lift the custom field schema compiler's refusal of cost object reference fields (ADR-0046, T58d)",
-      "r": "T56",
+      "r": "T56a · T56b · T56k",
       "c": []
      },
      {
       "s": "T",
       "t": "Plan vs actual",
-      "r": "T56",
+      "r": "T56g",
       "c": []
      },
      {
       "s": "T",
       "t": "Cost center reports",
-      "r": "T56",
+      "r": "T56f",
       "c": []
      }
     ]
@@ -1466,13 +1545,13 @@
      {
       "s": "T",
       "t": "Profit center derivation",
-      "r": "T56",
+      "r": "T56a · T56d",
       "c": []
      },
      {
       "s": "T",
       "t": "Profit center reporting",
-      "r": "T56",
+      "r": "T56f",
       "c": []
      }
     ]

@@ -25,6 +25,10 @@ type ApproveApprovalRequestRes interface {
 	approveApprovalRequestRes()
 }
 
+type AssignProfitCenterRes interface {
+	assignProfitCenterRes()
+}
+
 type BlockBusinessPartnerRes interface {
 	blockBusinessPartnerRes()
 }
@@ -121,6 +125,10 @@ type CreateContractRes interface {
 	createContractRes()
 }
 
+type CreateCostCenterRes interface {
+	createCostCenterRes()
+}
+
 type CreateDownPaymentRequestRes interface {
 	createDownPaymentRequestRes()
 }
@@ -149,6 +157,10 @@ type CreatePrincipalRes interface {
 	createPrincipalRes()
 }
 
+type CreateProfitCenterRes interface {
+	createProfitCenterRes()
+}
+
 type CreatePurchaseOrderChangeRes interface {
 	createPurchaseOrderChangeRes()
 }
@@ -175,6 +187,10 @@ type CreateRoleAssignmentRes interface {
 
 type CreateRoleRes interface {
 	createRoleRes()
+}
+
+type CreateSegmentRes interface {
+	createSegmentRes()
 }
 
 type CreateSodRuleRes interface {
@@ -285,6 +301,10 @@ type GetBusinessPartnerRes interface {
 	getBusinessPartnerRes()
 }
 
+type GetCenterChangeRes interface {
+	getCenterChangeRes()
+}
+
 type GetChangeRequestRes interface {
 	getChangeRequestRes()
 }
@@ -307,6 +327,10 @@ type GetConnectorRes interface {
 
 type GetContractRes interface {
 	getContractRes()
+}
+
+type GetCostCenterRes interface {
+	getCostCenterRes()
 }
 
 type GetDownPaymentRequestRes interface {
@@ -369,6 +393,10 @@ type GetPrincipalRes interface {
 	getPrincipalRes()
 }
 
+type GetProfitCenterRes interface {
+	getProfitCenterRes()
+}
+
 type GetPurchaseOrderChangeRes interface {
 	getPurchaseOrderChangeRes()
 }
@@ -407,6 +435,10 @@ type GetRoleRes interface {
 
 type GetSchemaRes interface {
 	getSchemaRes()
+}
+
+type GetSegmentRes interface {
+	getSegmentRes()
 }
 
 type GetSodRuleRes interface {
@@ -489,6 +521,10 @@ type ListBusinessPartnersRes interface {
 	listBusinessPartnersRes()
 }
 
+type ListCenterChangesRes interface {
+	listCenterChangesRes()
+}
+
 type ListChangeRequestsRes interface {
 	listChangeRequestsRes()
 }
@@ -511,6 +547,10 @@ type ListConnectorsRes interface {
 
 type ListContractsRes interface {
 	listContractsRes()
+}
+
+type ListCostCentersRes interface {
+	listCostCentersRes()
 }
 
 type ListCountryPacksRes interface {
@@ -597,6 +637,10 @@ type ListPrincipalsRes interface {
 	listPrincipalsRes()
 }
 
+type ListProfitCentersRes interface {
+	listProfitCentersRes()
+}
+
 type ListPurchaseOrderChangesRes interface {
 	listPurchaseOrderChangesRes()
 }
@@ -633,6 +677,10 @@ type ListRolesRes interface {
 	listRolesRes()
 }
 
+type ListSegmentsRes interface {
+	listSegmentsRes()
+}
+
 type ListSodRulesRes interface {
 	listSodRulesRes()
 }
@@ -649,8 +697,16 @@ type ListWebhookSubscriptionsRes interface {
 	listWebhookSubscriptionsRes()
 }
 
+type LockCostCenterRes interface {
+	lockCostCenterRes()
+}
+
 type LockFiscalPeriodRes interface {
 	lockFiscalPeriodRes()
+}
+
+type LockProfitCenterRes interface {
+	lockProfitCenterRes()
 }
 
 type MatchBankStatementLineRes interface {
@@ -663,6 +719,14 @@ type MatchBankStatementRes interface {
 
 type MatchSupplierInvoiceRes interface {
 	matchSupplierInvoiceRes()
+}
+
+type MoveCostCenterRes interface {
+	moveCostCenterRes()
+}
+
+type MoveProfitCenterRes interface {
+	moveProfitCenterRes()
 }
 
 type OpenFiscalPeriodRes interface {
@@ -723,6 +787,14 @@ type ReconcileMigrationRunRes interface {
 
 type RecordAgentToolCallRes interface {
 	recordAgentToolCallRes()
+}
+
+type RedateCostCenterRes interface {
+	redateCostCenterRes()
+}
+
+type RedateProfitCenterRes interface {
+	redateProfitCenterRes()
 }
 
 type RedeliverWebhookDeliveryRes interface {
@@ -865,6 +937,10 @@ type UpdateContractRes interface {
 	updateContractRes()
 }
 
+type UpdateCostCenterRes interface {
+	updateCostCenterRes()
+}
+
 type UpdateLegalEntityRes interface {
 	updateLegalEntityRes()
 }
@@ -881,6 +957,10 @@ type UpdatePrincipalRes interface {
 	updatePrincipalRes()
 }
 
+type UpdateProfitCenterRes interface {
+	updateProfitCenterRes()
+}
+
 type UpdatePurchaseOrderChangeRes interface {
 	updatePurchaseOrderChangeRes()
 }
@@ -895,6 +975,10 @@ type UpdateRequisitionRes interface {
 
 type UpdateRoleRes interface {
 	updateRoleRes()
+}
+
+type UpdateSegmentRes interface {
+	updateSegmentRes()
 }
 
 type UpdateSupplierInvoiceRes interface {

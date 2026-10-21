@@ -71,6 +71,18 @@ type Handler interface {
 	//
 	// POST /v1/approval-requests/{id}:approve
 	ApproveApprovalRequest(ctx context.Context, req OptDecisionInput, params ApproveApprovalRequestParams) (ApproveApprovalRequestRes, error)
+	// AssignProfitCenter implements assignProfitCenter operation.
+	//
+	// Assigns the profit center to further legal entities, which the caller must be allowed to act in;
+	// assignments are never removed. Companies it is already assigned to are refused (422
+	// `ledger.nothing_to_change`). Opens a pending center change (`GET /v1/center-changes/{id}`) and its
+	// `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides,
+	// never its requester and never an agent; the change is applied when the request is approved. One
+	// pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409
+	// `ledger.invalid_center_status`).
+	//
+	// POST /v1/profit-centers/{id}:assign
+	AssignProfitCenter(ctx context.Context, req *ProfitCenterAssign, params AssignProfitCenterParams) (AssignProfitCenterRes, error)
 	// BlockBusinessPartner implements blockBusinessPartner operation.
 	//
 	// Blocks the partner for postings and payments immediately (blocking reduces risk, so it needs no
@@ -258,6 +270,16 @@ type Handler interface {
 	//
 	// POST /v1/contracts
 	CreateContract(ctx context.Context, req *ContractCreate, params CreateContractParams) (CreateContractRes, error)
+	// CreateCostCenter implements createCostCenter operation.
+	//
+	// Creates the cost center in status `pending` together with its center change of kind `create` and
+	// that change's `center_change` approval request; it becomes `active`, with its first period, when a
+	// controller approves (ADR-0050 §11). A code is unique per legal entity among centers not rejected
+	// (409 `ledger.cost_center_exists`). The profit center, if given, must be active, assigned to the
+	// legal entity and valid over the whole validity (422 `ledger.profit_center_invalid`).
+	//
+	// POST /v1/cost-centers
+	CreateCostCenter(ctx context.Context, req *CostCenterCreate, params CreateCostCenterParams) (CreateCostCenterRes, error)
 	// CreateDownPaymentRequest implements createDownPaymentRequest operation.
 	//
 	// Requests a down payment to a supplier (SAP F-47, special G/L F): a payables document, not a ledger
@@ -310,6 +332,16 @@ type Handler interface {
 	//
 	// POST /v1/principals
 	CreatePrincipal(ctx context.Context, req *PrincipalCreate, params CreatePrincipalParams) (CreatePrincipalRes, error)
+	// CreateProfitCenter implements createProfitCenter operation.
+	//
+	// Creates the profit center in status `pending` together with its center change of kind `create` and
+	// that change's `center_change` approval request; it becomes `active`, with its first period and its
+	// companies, when a controller approves (ADR-0050 §11). A code is unique in the tenant among centers
+	// not rejected (409 `ledger.profit_center_exists`). The caller must be allowed to act in every company
+	// named.
+	//
+	// POST /v1/profit-centers
+	CreateProfitCenter(ctx context.Context, req *ProfitCenterCreate, params CreateProfitCenterParams) (CreateProfitCenterRes, error)
 	// CreatePurchaseOrder implements createPurchaseOrder operation.
 	//
 	// Creates a draft purchase order, optionally from an approved requisition (one live order per
@@ -365,6 +397,13 @@ type Handler interface {
 	//
 	// POST /v1/role-assignments
 	CreateRoleAssignment(ctx context.Context, req *RoleAssignmentCreate, params CreateRoleAssignmentParams) (CreateRoleAssignmentRes, error)
+	// CreateSegment implements createSegment operation.
+	//
+	// Creates a segment at once: a segment changes nothing until a profit center names it, which is an
+	// approved change. A code is unique in the tenant (409 `ledger.segment_exists`).
+	//
+	// POST /v1/segments
+	CreateSegment(ctx context.Context, req *SegmentCreate, params CreateSegmentParams) (CreateSegmentRes, error)
 	// CreateSodRule implements createSodRule operation.
 	//
 	// Adds a segregation-of-duties rule.
@@ -570,6 +609,12 @@ type Handler interface {
 	//
 	// GET /v1/business-partners/{id}
 	GetBusinessPartner(ctx context.Context, params GetBusinessPartnerParams) (GetBusinessPartnerRes, error)
+	// GetCenterChange implements getCenterChange operation.
+	//
+	// Returns one center change.
+	//
+	// GET /v1/center-changes/{id}
+	GetCenterChange(ctx context.Context, params GetCenterChangeParams) (GetCenterChangeRes, error)
 	// GetChangeRequest implements getChangeRequest operation.
 	//
 	// Returns one change request with items and evidence.
@@ -606,6 +651,12 @@ type Handler interface {
 	//
 	// GET /v1/contracts/{id}
 	GetContract(ctx context.Context, params GetContractParams) (GetContractRes, error)
+	// GetCostCenter implements getCostCenter operation.
+	//
+	// Returns one cost center with its active periods.
+	//
+	// GET /v1/cost-centers/{id}
+	GetCostCenter(ctx context.Context, params GetCostCenterParams) (GetCostCenterRes, error)
 	// GetDownPaymentRequest implements getDownPaymentRequest operation.
 	//
 	// Returns one down payment request.
@@ -696,6 +747,12 @@ type Handler interface {
 	//
 	// GET /v1/principals/{id}
 	GetPrincipal(ctx context.Context, params GetPrincipalParams) (GetPrincipalRes, error)
+	// GetProfitCenter implements getProfitCenter operation.
+	//
+	// Returns one profit center with its companies and active periods.
+	//
+	// GET /v1/profit-centers/{id}
+	GetProfitCenter(ctx context.Context, params GetProfitCenterParams) (GetProfitCenterRes, error)
 	// GetPurchaseOrder implements getPurchaseOrder operation.
 	//
 	// Returns one purchase order. Expandable: `supplier`.
@@ -762,6 +819,12 @@ type Handler interface {
 	//
 	// GET /v1/schemas/{entity}
 	GetSchema(ctx context.Context, params GetSchemaParams) (GetSchemaRes, error)
+	// GetSegment implements getSegment operation.
+	//
+	// Returns one segment.
+	//
+	// GET /v1/segments/{id}
+	GetSegment(ctx context.Context, params GetSegmentParams) (GetSegmentRes, error)
 	// GetSodRule implements getSodRule operation.
 	//
 	// Returns one segregation-of-duties rule.
@@ -903,6 +966,13 @@ type Handler interface {
 	//
 	// GET /v1/business-partners
 	ListBusinessPartners(ctx context.Context, params ListBusinessPartnersParams) (ListBusinessPartnersRes, error)
+	// ListCenterChanges implements listCenterChanges operation.
+	//
+	// Requested changes to cost and profit centers (ADR-0050 §11). Changes of cost centers in legal
+	// entities the caller may not act in are not listed. Sortable by: `created_at`.
+	//
+	// GET /v1/center-changes
+	ListCenterChanges(ctx context.Context, params ListCenterChangesParams) (ListCenterChangesRes, error)
 	// ListChangeRequests implements listChangeRequests operation.
 	//
 	// Configuration change requests. Sortable by: `created_at`.
@@ -939,6 +1009,13 @@ type Handler interface {
 	//
 	// GET /v1/contracts
 	ListContracts(ctx context.Context, params ListContractsParams) (ListContractsRes, error)
+	// ListCostCenters implements listCostCenters operation.
+	//
+	// Cost centers of the legal entities the caller may act in, with their active periods. Sortable by:
+	// `code`.
+	//
+	// GET /v1/cost-centers
+	ListCostCenters(ctx context.Context, params ListCostCentersParams) (ListCostCentersRes, error)
 	// ListCountryPacks implements listCountryPacks operation.
 	//
 	// The released country packs in the image (ADR-0048): each country's versions with the hash they were
@@ -1077,6 +1154,12 @@ type Handler interface {
 	//
 	// GET /v1/principals
 	ListPrincipals(ctx context.Context, params ListPrincipalsParams) (ListPrincipalsRes, error)
+	// ListProfitCenters implements listProfitCenters operation.
+	//
+	// Profit centers of the tenant with their companies and active periods. Sortable by: `code`.
+	//
+	// GET /v1/profit-centers
+	ListProfitCenters(ctx context.Context, params ListProfitCentersParams) (ListProfitCentersRes, error)
 	// ListPurchaseOrderChanges implements listPurchaseOrderChanges operation.
 	//
 	// The order changes of a released purchase order, newest first: its versions, each with the order as
@@ -1134,6 +1217,12 @@ type Handler interface {
 	//
 	// GET /v1/roles
 	ListRoles(ctx context.Context, params ListRolesParams) (ListRolesRes, error)
+	// ListSegments implements listSegments operation.
+	//
+	// Segments of the tenant (IFRS 8 operating segments). Sortable by: `code`.
+	//
+	// GET /v1/segments
+	ListSegments(ctx context.Context, params ListSegmentsParams) (ListSegmentsRes, error)
 	// ListSodRules implements listSodRules operation.
 	//
 	// Segregation-of-duties rules of the tenant, including ended ones. Sortable by: `created_at`.
@@ -1160,6 +1249,19 @@ type Handler interface {
 	//
 	// GET /v1/webhook-subscriptions
 	ListWebhookSubscriptions(ctx context.Context, params ListWebhookSubscriptionsParams) (ListWebhookSubscriptionsRes, error)
+	// LockCostCenter implements lockCostCenter operation.
+	//
+	// Sets or clears the cost center's locks for actual primary costs, actual revenue and plan from
+	// `valid_from` to `valid_to` (exclusive; absent: to the end of its validity), within its validity (422
+	// `ledger.invalid_validity`). Locking and unlocking are people's decisions: agents may not request
+	// them. Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval
+	// request, which a controller holding `ledger.cost_center.approve` decides, never its requester and
+	// never an agent; the change is applied when the request is approved. One pending change per center
+	// (409 `ledger.center_change_pending`). The center must be `active` (409
+	// `ledger.invalid_center_status`).
+	//
+	// POST /v1/cost-centers/{id}:lock
+	LockCostCenter(ctx context.Context, req *CostCenterLock, params LockCostCenterParams) (LockCostCenterRes, error)
 	// LockFiscalPeriod implements lockFiscalPeriod operation.
 	//
 	// Locks the period for good: a locked period refuses postings, reversals and clearings dated in it, as
@@ -1168,6 +1270,18 @@ type Handler interface {
 	//
 	// POST /v1/fiscal-periods/{id}:lock
 	LockFiscalPeriod(ctx context.Context, params LockFiscalPeriodParams) (LockFiscalPeriodRes, error)
+	// LockProfitCenter implements lockProfitCenter operation.
+	//
+	// Sets or clears the profit center's lock from `valid_from` to `valid_to` (exclusive; absent: to the
+	// end of its validity), within its validity (422 `ledger.invalid_validity`). Locking and unlocking are
+	// people's decisions: agents may not request them. Opens a pending center change
+	// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+	// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
+	// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
+	// The center must be `active` (409 `ledger.invalid_center_status`).
+	//
+	// POST /v1/profit-centers/{id}:lock
+	LockProfitCenter(ctx context.Context, req *ProfitCenterLock, params LockProfitCenterParams) (LockProfitCenterRes, error)
 	// MatchBankStatement implements matchBankStatement operation.
 	//
 	// Runs the company's matching rules (`companies[].bank_statements.matching_rules`, ADR-0047) on the
@@ -1211,6 +1325,30 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices/{id}:match
 	MatchSupplierInvoice(ctx context.Context, params MatchSupplierInvoiceParams) (MatchSupplierInvoiceRes, error)
+	// MoveCostCenter implements moveCostCenter operation.
+	//
+	// Assigns the cost center to another profit center (`null`: none, so its lines take the company's
+	// default) or category from `valid_from` to the end of its validity, as a new period (ADR-0050 §3).
+	// The profit center must be active, assigned to the cost center's legal entity and valid from
+	// `valid_from` to the end of the cost center's validity (422 `ledger.profit_center_invalid`). Opens a
+	// pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request,
+	// which a controller holding `ledger.cost_center.approve` decides, never its requester and never an
+	// agent; the change is applied when the request is approved. One pending change per center (409
+	// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
+	//
+	// POST /v1/cost-centers/{id}:move
+	MoveCostCenter(ctx context.Context, req *CostCenterMove, params MoveCostCenterParams) (MoveCostCenterRes, error)
+	// MoveProfitCenter implements moveProfitCenter operation.
+	//
+	// Assigns the profit center to another segment (`null`: none). Once lines carry the profit center
+	// (T56d), its segment is fixed: a segment move is then a reorganisation (ADR-0050 §3). Opens a
+	// pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request,
+	// which a controller holding `ledger.cost_center.approve` decides, never its requester and never an
+	// agent; the change is applied when the request is approved. One pending change per center (409
+	// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
+	//
+	// POST /v1/profit-centers/{id}:move
+	MoveProfitCenter(ctx context.Context, req *ProfitCenterMove, params MoveProfitCenterParams) (MoveProfitCenterRes, error)
 	// OpenFiscalPeriod implements openFiscalPeriod operation.
 	//
 	// Opens the period for postings. Requires status `closed`: a `locked` period is not reopened here (409
@@ -1416,6 +1554,29 @@ type Handler interface {
 	//
 	// POST /v1/agent-sessions/{id}/tool-calls
 	RecordAgentToolCall(ctx context.Context, req *AgentToolCallCreate, params RecordAgentToolCallParams) (RecordAgentToolCallRes, error)
+	// RedateCostCenter implements redateCostCenter operation.
+	//
+	// Extends or ends the cost center's validity: the first period starts at `valid_from`, the last ends
+	// at `valid_to` (exclusive; `null` open-ended). Opens a pending center change
+	// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+	// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
+	// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
+	// The center must be `active` (409 `ledger.invalid_center_status`).
+	//
+	// POST /v1/cost-centers/{id}:redate
+	RedateCostCenter(ctx context.Context, req *CenterRedate, params RedateCostCenterParams) (RedateCostCenterRes, error)
+	// RedateProfitCenter implements redateProfitCenter operation.
+	//
+	// Extends or ends the profit center's validity: the first period starts at `valid_from`, the last ends
+	// at `valid_to` (exclusive; `null` open-ended). A validity that no longer covers an active cost center
+	// period naming the profit center is refused (409 `ledger.profit_center_in_use`). Opens a pending
+	// center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a
+	// controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the
+	// change is applied when the request is approved. One pending change per center (409
+	// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
+	//
+	// POST /v1/profit-centers/{id}:redate
+	RedateProfitCenter(ctx context.Context, req *CenterRedate, params RedateProfitCenterParams) (RedateProfitCenterRes, error)
 	// RedeliverWebhookDelivery implements redeliverWebhookDelivery operation.
 	//
 	// Queues the delivery again, whatever its status: `pending` with no attempts, sent in its resource's
@@ -1755,6 +1916,14 @@ type Handler interface {
 	//
 	// PATCH /v1/contracts/{id}
 	UpdateContract(ctx context.Context, req *ContractUpdate, params UpdateContractParams) (UpdateContractRes, error)
+	// UpdateCostCenter implements updateCostCenter operation.
+	//
+	// Changes name, description or person responsible at once: texts need no approval (ADR-0050 §11,
+	// decision P1) and are recorded in the audit trail. JSON Merge Patch (RFC 7396): absent fields are
+	// unchanged, `null` clears the description.
+	//
+	// PATCH /v1/cost-centers/{id}
+	UpdateCostCenter(ctx context.Context, req *CenterTextsUpdate, params UpdateCostCenterParams) (UpdateCostCenterRes, error)
 	// UpdateLegalEntity implements updateLegalEntity operation.
 	//
 	// Changes master data of a legal entity. JSON Merge Patch (RFC 7396): absent fields are unchanged,
@@ -1788,6 +1957,14 @@ type Handler interface {
 	//
 	// PATCH /v1/principals/{id}
 	UpdatePrincipal(ctx context.Context, req *PrincipalUpdate, params UpdatePrincipalParams) (UpdatePrincipalRes, error)
+	// UpdateProfitCenter implements updateProfitCenter operation.
+	//
+	// Changes name, description or person responsible at once: texts need no approval (ADR-0050 §11,
+	// decision P1) and are recorded in the audit trail. JSON Merge Patch (RFC 7396): absent fields are
+	// unchanged, `null` clears the description.
+	//
+	// PATCH /v1/profit-centers/{id}
+	UpdateProfitCenter(ctx context.Context, req *CenterTextsUpdate, params UpdateProfitCenterParams) (UpdateProfitCenterRes, error)
 	// UpdatePurchaseOrder implements updatePurchaseOrder operation.
 	//
 	// Changes a purchase order in status `draft`. JSON Merge Patch (RFC 7396): absent fields are
@@ -1817,6 +1994,13 @@ type Handler interface {
 	//
 	// PATCH /v1/roles/{id}
 	UpdateRole(ctx context.Context, req *RoleUpdate, params UpdateRoleParams) (UpdateRoleRes, error)
+	// UpdateSegment implements updateSegment operation.
+	//
+	// Changes the segment's name or description at once. JSON Merge Patch (RFC 7396): absent fields are
+	// unchanged, `null` clears the description.
+	//
+	// PATCH /v1/segments/{id}
+	UpdateSegment(ctx context.Context, req *SegmentUpdate, params UpdateSegmentParams) (UpdateSegmentRes, error)
 	// UpdateSupplierInvoice implements updateSupplierInvoice operation.
 	//
 	// Changes a supplier invoice in status `parked`. JSON Merge Patch (RFC 7396): absent fields are

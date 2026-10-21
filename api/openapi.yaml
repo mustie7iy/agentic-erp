@@ -3589,6 +3589,1106 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/cost-centers:
+    get:
+      operationId: listCostCenters
+      tags:
+        - ledger
+      summary: List cost centers
+      description: "Cost centers of the legal entities the caller may act in, with their active periods. Sortable by: `code`."
+      x-permission: ledger.cost_center.read
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: code
+          in: query
+          required: false
+          description: Only the cost center with this code.
+          schema:
+            type: string
+            pattern: "^[0-9A-Z_-]{1,10}$"
+        - name: status
+          in: query
+          required: false
+          description: Only cost centers in this status.
+          schema:
+            type: string
+            description: "Cost center status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - pending
+              - active
+              - rejected
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of cost center results.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostCenterPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createCostCenter
+      tags:
+        - ledger
+      summary: Request a new cost center
+      description: "Creates the cost center in status `pending` together with its center change of kind `create` and that change's `center_change` approval request; it becomes `active`, with its first period, when a controller approves (ADR-0050 §11). A code is unique per legal entity among centers not rejected (409 `ledger.cost_center_exists`). The profit center, if given, must be active, assigned to the legal entity and valid over the whole validity (422 `ledger.profit_center_invalid`)."
+      x-permission: ledger.cost_center.change
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The cost center create request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CostCenterCreate"
+      responses:
+        "201":
+          description: "Created; the new cost center."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostCenter"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/cost-centers/{id}":
+    get:
+      operationId: getCostCenter
+      tags:
+        - ledger
+      summary: Get a cost center
+      description: "Returns one cost center with its active periods."
+      x-permission: ledger.cost_center.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The cost center.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostCenter"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateCostCenter
+      tags:
+        - ledger
+      summary: Update the texts of a cost center
+      description: "Changes name, description or person responsible at once: texts need no approval (ADR-0050 §11, decision P1) and are recorded in the audit trail. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears the description."
+      x-permission: ledger.cost_center.change
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the cost center.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/CenterTextsUpdate"
+      responses:
+        "200":
+          description: "Updated; the cost center after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostCenter"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/cost-centers/{id}:redate":
+    post:
+      operationId: redateCostCenter
+      tags:
+        - ledger
+      summary: Request a new validity of a cost center
+      description: "Extends or ends the cost center's validity: the first period starts at `valid_from`, the last ends at `valid_to` (exclusive; `null` open-ended). Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied when the request is approved. One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`)."
+      x-permission: ledger.cost_center.change
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of redateCostCenter.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CenterRedate"
+      responses:
+        "200":
+          description: The pending center change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/cost-centers/{id}:lock":
+    post:
+      operationId: lockCostCenter
+      tags:
+        - ledger
+      summary: Request to lock or unlock a cost center
+      description: "Sets or clears the cost center's locks for actual primary costs, actual revenue and plan from `valid_from` to `valid_to` (exclusive; absent: to the end of its validity), within its validity (422 `ledger.invalid_validity`). Locking and unlocking are people's decisions: agents may not request them. Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied when the request is approved. One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`)."
+      x-permission: ledger.cost_center.change
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of lockCostCenter.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CostCenterLock"
+      responses:
+        "200":
+          description: The pending center change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/cost-centers/{id}:move":
+    post:
+      operationId: moveCostCenter
+      tags:
+        - ledger
+      summary: Request to move a cost center
+      description: "Assigns the cost center to another profit center (`null`: none, so its lines take the company's default) or category from `valid_from` to the end of its validity, as a new period (ADR-0050 §3). The profit center must be active, assigned to the cost center's legal entity and valid from `valid_from` to the end of the cost center's validity (422 `ledger.profit_center_invalid`). Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied when the request is approved. One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`)."
+      x-permission: ledger.cost_center.change
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of moveCostCenter.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CostCenterMove"
+      responses:
+        "200":
+          description: The pending center change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/profit-centers:
+    get:
+      operationId: listProfitCenters
+      tags:
+        - ledger
+      summary: List profit centers
+      description: "Profit centers of the tenant with their companies and active periods. Sortable by: `code`."
+      x-permission: ledger.cost_center.read
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: false
+          description: Only profit centers assigned to this legal entity.
+          schema:
+            type: string
+            format: uuid
+        - name: segment_id
+          in: query
+          required: false
+          description: Only profit centers of this segment.
+          schema:
+            type: string
+            format: uuid
+        - name: code
+          in: query
+          required: false
+          description: Only the profit center with this code.
+          schema:
+            type: string
+            pattern: "^[0-9A-Z_-]{1,10}$"
+        - name: status
+          in: query
+          required: false
+          description: Only profit centers in this status.
+          schema:
+            type: string
+            description: "Profit center status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - pending
+              - active
+              - rejected
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of profit center results.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfitCenterPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createProfitCenter
+      tags:
+        - ledger
+      summary: Request a new profit center
+      description: "Creates the profit center in status `pending` together with its center change of kind `create` and that change's `center_change` approval request; it becomes `active`, with its first period and its companies, when a controller approves (ADR-0050 §11). A code is unique in the tenant among centers not rejected (409 `ledger.profit_center_exists`). The caller must be allowed to act in every company named."
+      x-permission: ledger.cost_center.change
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The profit center create request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfitCenterCreate"
+      responses:
+        "201":
+          description: "Created; the new profit center."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfitCenter"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/profit-centers/{id}":
+    get:
+      operationId: getProfitCenter
+      tags:
+        - ledger
+      summary: Get a profit center
+      description: "Returns one profit center with its companies and active periods."
+      x-permission: ledger.cost_center.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The profit center.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfitCenter"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateProfitCenter
+      tags:
+        - ledger
+      summary: Update the texts of a profit center
+      description: "Changes name, description or person responsible at once: texts need no approval (ADR-0050 §11, decision P1) and are recorded in the audit trail. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears the description."
+      x-permission: ledger.cost_center.change
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the profit center.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/CenterTextsUpdate"
+      responses:
+        "200":
+          description: "Updated; the profit center after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfitCenter"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/profit-centers/{id}:redate":
+    post:
+      operationId: redateProfitCenter
+      tags:
+        - ledger
+      summary: Request a new validity of a profit center
+      description: "Extends or ends the profit center's validity: the first period starts at `valid_from`, the last ends at `valid_to` (exclusive; `null` open-ended). A validity that no longer covers an active cost center period naming the profit center is refused (409 `ledger.profit_center_in_use`). Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied when the request is approved. One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`)."
+      x-permission: ledger.cost_center.change
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of redateProfitCenter.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CenterRedate"
+      responses:
+        "200":
+          description: The pending center change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/profit-centers/{id}:lock":
+    post:
+      operationId: lockProfitCenter
+      tags:
+        - ledger
+      summary: Request to lock or unlock a profit center
+      description: "Sets or clears the profit center's lock from `valid_from` to `valid_to` (exclusive; absent: to the end of its validity), within its validity (422 `ledger.invalid_validity`). Locking and unlocking are people's decisions: agents may not request them. Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied when the request is approved. One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`)."
+      x-permission: ledger.cost_center.change
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of lockProfitCenter.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfitCenterLock"
+      responses:
+        "200":
+          description: The pending center change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/profit-centers/{id}:move":
+    post:
+      operationId: moveProfitCenter
+      tags:
+        - ledger
+      summary: Request to move a profit center to another segment
+      description: "Assigns the profit center to another segment (`null`: none). Once lines carry the profit center (T56d), its segment is fixed: a segment move is then a reorganisation (ADR-0050 §3). Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied when the request is approved. One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`)."
+      x-permission: ledger.cost_center.change
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of moveProfitCenter.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfitCenterMove"
+      responses:
+        "200":
+          description: The pending center change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/profit-centers/{id}:assign":
+    post:
+      operationId: assignProfitCenter
+      tags:
+        - ledger
+      summary: Request to assign a profit center to companies
+      description: "Assigns the profit center to further legal entities, which the caller must be allowed to act in; assignments are never removed. Companies it is already assigned to are refused (422 `ledger.nothing_to_change`). Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied when the request is approved. One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`)."
+      x-permission: ledger.cost_center.change
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of assignProfitCenter.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfitCenterAssign"
+      responses:
+        "200":
+          description: The pending center change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/segments:
+    get:
+      operationId: listSegments
+      tags:
+        - ledger
+      summary: List segments
+      description: "Segments of the tenant (IFRS 8 operating segments). Sortable by: `code`."
+      x-permission: ledger.cost_center.read
+      parameters:
+        - name: code
+          in: query
+          required: false
+          description: Only the segment with this code.
+          schema:
+            type: string
+            pattern: "^[0-9A-Z_-]{1,10}$"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of segment results.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SegmentPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createSegment
+      tags:
+        - ledger
+      summary: Create a segment
+      description: "Creates a segment at once: a segment changes nothing until a profit center names it, which is an approved change. A code is unique in the tenant (409 `ledger.segment_exists`)."
+      x-permission: ledger.cost_center.change
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The segment create request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SegmentCreate"
+      responses:
+        "201":
+          description: "Created; the new segment."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Segment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/segments/{id}":
+    get:
+      operationId: getSegment
+      tags:
+        - ledger
+      summary: Get a segment
+      description: "Returns one segment."
+      x-permission: ledger.cost_center.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The segment.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Segment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateSegment
+      tags:
+        - ledger
+      summary: Update a segment
+      description: "Changes the segment's name or description at once. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears the description."
+      x-permission: ledger.cost_center.change
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the segment.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/SegmentUpdate"
+      responses:
+        "200":
+          description: "Updated; the segment after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Segment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/center-changes:
+    get:
+      operationId: listCenterChanges
+      tags:
+        - ledger
+      summary: List center changes
+      description: "Requested changes to cost and profit centers (ADR-0050 §11). Changes of cost centers in legal entities the caller may not act in are not listed. Sortable by: `created_at`."
+      x-permission: ledger.cost_center.read
+      parameters:
+        - name: cost_center_id
+          in: query
+          required: false
+          description: Only changes of this cost center.
+          schema:
+            type: string
+            format: uuid
+        - name: profit_center_id
+          in: query
+          required: false
+          description: Only changes of this profit center.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only changes in this status.
+          schema:
+            type: string
+            description: "Center change status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - pending
+              - applied
+              - rejected
+              - cancelled
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of center change results.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChangePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/center-changes/{id}":
+    get:
+      operationId: getCenterChange
+      tags:
+        - ledger
+      summary: Get a center change
+      description: "Returns one center change."
+      x-permission: ledger.cost_center.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The center change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CenterChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/fiscal-periods:
     get:
       operationId: listFiscalPeriods
@@ -9367,6 +10467,7 @@ paths:
               - purchase_order
               - order_change
               - bank_clearing
+              - center_change
         - name: object_id
           in: query
           required: false
@@ -9599,6 +10700,7 @@ paths:
         purchase_order: procurement.order.approve
         order_change: procurement.order.approve
         bank_clearing: payments.statement.clearing.approve
+        center_change: ledger.cost_center.approve
   "/v1/approval-requests/{id}:reject":
     post:
       operationId: rejectApprovalRequest
@@ -9668,6 +10770,7 @@ paths:
         purchase_order: procurement.order.approve
         order_change: procurement.order.approve
         bank_clearing: payments.statement.clearing.approve
+        center_change: ledger.cost_center.approve
   "/v1/approval-requests/{id}:cancel":
     post:
       operationId: cancelApprovalRequest
@@ -16345,6 +17448,861 @@ components:
                 - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
                   is_posting_blocked: false
                   is_open_item_managed: false
+    CostCenterPeriod:
+      type: object
+      description: "An effective-dated period of a cost center: what postings dated in it read (ADR-0050 §3)."
+      required:
+        - valid_from
+        - category
+        - lock_actual_cost
+        - lock_actual_revenue
+        - lock_plan
+      properties:
+        valid_from:
+          type: string
+          format: date
+          description: "First day."
+        valid_to:
+          type: string
+          format: date
+          description: "Day after the last day (exclusive); absent: open-ended."
+        category:
+          type: string
+          pattern: "^[0-9A-Z_]{1,10}$"
+          description: "Cost center category (SAP KOSAR), such as ADMIN or SALES; the configuration names categories and their lock defaults from T56c."
+        profit_center_id:
+          type: string
+          format: uuid
+          description: "Profit center, assigned to the cost center's legal entity; absent: lines take the company's default profit center."
+        lock_actual_cost:
+          type: boolean
+          description: Actual primary costs may not be posted.
+        lock_actual_revenue:
+          type: boolean
+          description: Actual revenue may not be posted.
+        lock_plan:
+          type: boolean
+          description: Plan values may not be entered.
+      additionalProperties: false
+      examples:
+        - valid_from: "2026-01-01"
+          category: ADMIN
+          profit_center_id: "0192a000-0000-7000-8000-000000000302"
+          lock_actual_cost: false
+          lock_actual_revenue: false
+          lock_plan: false
+    CostCenter:
+      description: "A cost center (SAP CSKS): ledger master data of one legal entity (ADR-0050 §3)."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - legal_entity_id
+            - code
+            - name
+            - responsible
+            - status
+            - periods
+          properties:
+            legal_entity_id:
+              type: string
+              format: uuid
+              description: "Legal entity (company code) the cost center belongs to. Immutable: a changed company is a new cost center."
+              readOnly: true
+            code:
+              type: string
+              pattern: "^[0-9A-Z_-]{1,10}$"
+              description: "Code (SAP KOSTL/PRCTR: up to 10 of 0-9, A-Z, _ and -). Unique: see the create operation. Immutable."
+              readOnly: true
+            name:
+              type: string
+              minLength: 1
+              maxLength: 100
+              description: Name.
+            description:
+              type: string
+              minLength: 1
+              maxLength: 500
+              description: Description.
+            responsible:
+              type: string
+              minLength: 1
+              maxLength: 100
+              description: Person responsible (SAP VERAK), as a name.
+            status:
+              type: string
+              description: "`pending` until its create change is approved, then `active`; `rejected` when it is not, which frees the code. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - pending
+                - active
+                - rejected
+              readOnly: true
+            valid_from:
+              type: string
+              format: date
+              description: "Start of validity: the first period's start; absent while pending."
+              readOnly: true
+            valid_to:
+              type: string
+              format: date
+              description: "End of validity (exclusive): the last period's end; absent: open-ended or pending."
+              readOnly: true
+            periods:
+              type: array
+              items:
+                $ref: "#/components/schemas/CostCenterPeriod"
+              description: "Active periods in date order; none while pending."
+              readOnly: true
+            pending_change_id:
+              type: string
+              format: uuid
+              description: "The center's pending center change; absent when none."
+              readOnly: true
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000301"
+          version: 1
+          created_at: "2026-10-21T09:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+          updated_at: "2026-10-21T09:00:00Z"
+          legal_entity_id: "0192a000-0000-7000-8000-000000000201"
+          code: "1000"
+          name: Administration
+          responsible: Jane Doe
+          status: active
+          valid_from: "2026-01-01"
+          periods:
+            - valid_from: "2026-01-01"
+              category: ADMIN
+              lock_actual_cost: false
+              lock_actual_revenue: false
+              lock_plan: false
+    CostCenterCreate:
+      type: object
+      description: "A new cost center and its first period."
+      required:
+        - legal_entity_id
+        - code
+        - name
+        - responsible
+        - category
+        - valid_from
+        - reason
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity (company code).
+        code:
+          type: string
+          pattern: "^[0-9A-Z_-]{1,10}$"
+          description: "Code (SAP KOSTL/PRCTR: up to 10 of 0-9, A-Z, _ and -). Unique: see the create operation. Immutable."
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Name.
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Description.
+        responsible:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Person responsible (SAP VERAK), as a name.
+        category:
+          type: string
+          pattern: "^[0-9A-Z_]{1,10}$"
+          description: "Cost center category (SAP KOSAR), such as ADMIN or SALES; the configuration names categories and their lock defaults from T56c."
+        profit_center_id:
+          type: string
+          format: uuid
+          description: Profit center.
+        valid_from:
+          type: string
+          format: date
+          description: "Start of validity."
+        valid_to:
+          type: string
+          format: date
+          description: "End of validity (exclusive); absent: open-ended."
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: "Why; shown to the approver and recorded in the audit trail."
+      additionalProperties: false
+      examples:
+        - legal_entity_id: "0192a000-0000-7000-8000-000000000201"
+          code: "1000"
+          name: Administration
+          responsible: Jane Doe
+          category: ADMIN
+          valid_from: "2026-01-01"
+          reason: New administration cost center for the Canadian company.
+    CenterTextsUpdate:
+      type: object
+      description: "Merge patch of a center's texts."
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Name.
+        description:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          maxLength: 500
+          description: Description. Send null to clear.
+        responsible:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Person responsible (SAP VERAK), as a name.
+      additionalProperties: false
+      examples:
+        - name: Administration and finance
+    CenterRedate:
+      type: object
+      description: "A center's new validity; at least one of the dates."
+      required:
+        - reason
+      properties:
+        valid_from:
+          type: string
+          format: date
+          description: "New start of validity."
+        valid_to:
+          type:
+            - string
+            - "null"
+          format: date
+          description: "New end of validity (exclusive); null: open-ended."
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: "Why; shown to the approver and recorded in the audit trail."
+      additionalProperties: false
+      examples:
+        - valid_to: "2027-01-01"
+          reason: The office closes at the end of 2026.
+    CostCenterLock:
+      type: object
+      description: "Locks of a cost center from a date; absent flags are unchanged, at least one is given."
+      required:
+        - valid_from
+        - reason
+      properties:
+        valid_from:
+          type: string
+          format: date
+          description: "First day the locks apply."
+        valid_to:
+          type: string
+          format: date
+          description: "Day after the last (exclusive); absent: to the end of validity."
+        lock_actual_cost:
+          type: boolean
+          description: Lock or unlock actual primary costs.
+        lock_actual_revenue:
+          type: boolean
+          description: Lock or unlock actual revenue.
+        lock_plan:
+          type: boolean
+          description: Lock or unlock plan values.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: "Why; shown to the approver and recorded in the audit trail."
+      additionalProperties: false
+      examples:
+        - valid_from: "2026-11-01"
+          lock_actual_cost: true
+          reason: Cost center being wound down.
+    CostCenterMove:
+      type: object
+      description: "A cost center's new profit center or category from a date; at least one of them."
+      required:
+        - valid_from
+        - reason
+      properties:
+        valid_from:
+          type: string
+          format: date
+          description: "First day of the new period."
+        profit_center_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+          description: "New profit center; null: none."
+        category:
+          type: string
+          pattern: "^[0-9A-Z_]{1,10}$"
+          description: "Cost center category (SAP KOSAR), such as ADMIN or SALES; the configuration names categories and their lock defaults from T56c."
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: "Why; shown to the approver and recorded in the audit trail."
+      additionalProperties: false
+      examples:
+        - valid_from: "2026-11-01"
+          profit_center_id: "0192a000-0000-7000-8000-000000000302"
+          reason: Reorganisation of the sales regions.
+    CostCenterPage:
+      type: object
+      description: One page of cost centers.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CostCenter"
+          description: The cost centers on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+      examples:
+        - items:
+            - id: "0192a000-0000-7000-8000-000000000304"
+              version: 3
+              created_at: "2026-10-21T09:00:00Z"
+              created_by: "0192a000-0000-7000-8000-000000000101"
+              updated_at: "2026-10-21T09:30:00Z"
+              legal_entity_id: "0192a000-0000-7000-8000-000000000201"
+              code: "1000"
+              name: Administration
+              responsible: Jane Doe
+              status: active
+              valid_from: "2026-01-01"
+              periods:
+                - valid_from: "2026-01-01"
+                  category: ADMIN
+                  lock_actual_cost: false
+                  lock_actual_revenue: false
+                  lock_plan: false
+    ProfitCenterPeriod:
+      type: object
+      description: "An effective-dated period of a profit center."
+      required:
+        - valid_from
+        - locked
+      properties:
+        valid_from:
+          type: string
+          format: date
+          description: "First day."
+        valid_to:
+          type: string
+          format: date
+          description: "Day after the last day (exclusive); absent: open-ended."
+        locked:
+          type: boolean
+          description: Postings to the profit center are refused (from T56d).
+      additionalProperties: false
+      examples:
+        - valid_from: "2026-01-01"
+          locked: false
+    ProfitCenter:
+      description: "A profit center (SAP CEPC): tenant-wide ledger master data, assigned to the legal entities it may be posted in (ADR-0050 §3)."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - code
+            - name
+            - responsible
+            - status
+            - legal_entity_ids
+            - periods
+          properties:
+            code:
+              type: string
+              pattern: "^[0-9A-Z_-]{1,10}$"
+              description: "Code (SAP KOSTL/PRCTR: up to 10 of 0-9, A-Z, _ and -). Unique: see the create operation. Immutable."
+              readOnly: true
+            name:
+              type: string
+              minLength: 1
+              maxLength: 100
+              description: Name.
+            description:
+              type: string
+              minLength: 1
+              maxLength: 500
+              description: Description.
+            responsible:
+              type: string
+              minLength: 1
+              maxLength: 100
+              description: Person responsible (SAP VERAK), as a name.
+            segment_id:
+              type: string
+              format: uuid
+              description: "Segment lines of the profit center carry; absent: none."
+              readOnly: true
+            status:
+              type: string
+              description: "`pending` until its create change is approved, then `active`; `rejected` when it is not, which frees the code. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - pending
+                - active
+                - rejected
+              readOnly: true
+            legal_entity_ids:
+              type: array
+              items:
+                type: string
+                format: uuid
+              description: "Legal entities the profit center is assigned to (SAP CEPC_BUKRS)."
+              readOnly: true
+            valid_from:
+              type: string
+              format: date
+              description: "Start of validity: the first period's start; absent while pending."
+              readOnly: true
+            valid_to:
+              type: string
+              format: date
+              description: "End of validity (exclusive): the last period's end; absent: open-ended or pending."
+              readOnly: true
+            periods:
+              type: array
+              items:
+                $ref: "#/components/schemas/ProfitCenterPeriod"
+              description: "Active periods in date order; none while pending."
+              readOnly: true
+            pending_change_id:
+              type: string
+              format: uuid
+              description: "The center's pending center change; absent when none."
+              readOnly: true
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000301"
+          version: 1
+          created_at: "2026-10-21T09:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+          updated_at: "2026-10-21T09:00:00Z"
+          code: CA-SALES
+          name: Sales Canada
+          responsible: Jane Doe
+          status: active
+          legal_entity_ids:
+            - "0192a000-0000-7000-8000-000000000201"
+          valid_from: "2026-01-01"
+          periods:
+            - valid_from: "2026-01-01"
+              locked: false
+    ProfitCenterCreate:
+      type: object
+      description: "A new profit center, its first period and its companies."
+      required:
+        - code
+        - name
+        - responsible
+        - legal_entity_ids
+        - valid_from
+        - reason
+      properties:
+        code:
+          type: string
+          pattern: "^[0-9A-Z_-]{1,10}$"
+          description: "Code (SAP KOSTL/PRCTR: up to 10 of 0-9, A-Z, _ and -). Unique: see the create operation. Immutable."
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Name.
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Description.
+        responsible:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Person responsible (SAP VERAK), as a name.
+        segment_id:
+          type: string
+          format: uuid
+          description: Segment.
+        legal_entity_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+          description: Legal entities it may be posted in.
+        valid_from:
+          type: string
+          format: date
+          description: "Start of validity."
+        valid_to:
+          type: string
+          format: date
+          description: "End of validity (exclusive); absent: open-ended."
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: "Why; shown to the approver and recorded in the audit trail."
+      additionalProperties: false
+      examples:
+        - code: CA-SALES
+          name: Sales Canada
+          responsible: Jane Doe
+          legal_entity_ids:
+            - "0192a000-0000-7000-8000-000000000201"
+          valid_from: "2026-01-01"
+          reason: New sales region.
+    ProfitCenterLock:
+      type: object
+      description: "The lock of a profit center from a date."
+      required:
+        - valid_from
+        - locked
+        - reason
+      properties:
+        valid_from:
+          type: string
+          format: date
+          description: "First day the lock applies."
+        valid_to:
+          type: string
+          format: date
+          description: "Day after the last (exclusive); absent: to the end of validity."
+        locked:
+          type: boolean
+          description: Lock (true) or unlock (false).
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: "Why; shown to the approver and recorded in the audit trail."
+      additionalProperties: false
+      examples:
+        - valid_from: "2026-11-01"
+          locked: true
+          reason: Region closed.
+    ProfitCenterMove:
+      type: object
+      description: "A profit center's new segment."
+      required:
+        - segment_id
+        - reason
+      properties:
+        segment_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+          description: "New segment; null: none."
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: "Why; shown to the approver and recorded in the audit trail."
+      additionalProperties: false
+      examples:
+        - segment_id: "0192a000-0000-7000-8000-000000000303"
+          reason: Segments redrawn before the first posting.
+    ProfitCenterAssign:
+      type: object
+      description: "Further legal entities for a profit center."
+      required:
+        - legal_entity_ids
+        - reason
+      properties:
+        legal_entity_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+          description: Legal entities to assign.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: "Why; shown to the approver and recorded in the audit trail."
+      additionalProperties: false
+      examples:
+        - legal_entity_ids:
+              - "0192a000-0000-7000-8000-000000000204"
+          reason: The UAE company sells for the region too.
+    ProfitCenterPage:
+      type: object
+      description: One page of profit centers.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProfitCenter"
+          description: The profit centers on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+      examples:
+        - items:
+            - id: "0192a000-0000-7000-8000-000000000302"
+              version: 3
+              created_at: "2026-10-21T09:00:00Z"
+              created_by: "0192a000-0000-7000-8000-000000000101"
+              updated_at: "2026-10-21T09:30:00Z"
+              code: CA-SALES
+              name: Sales Canada
+              responsible: Jane Doe
+              status: active
+              legal_entity_ids:
+                - "0192a000-0000-7000-8000-000000000201"
+              valid_from: "2026-01-01"
+              periods:
+                - valid_from: "2026-01-01"
+                  locked: false
+    Segment:
+      description: "A segment (IFRS 8 operating segment, SAP FAGL_SEGM): tenant-wide master data that profit centers name."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - code
+            - name
+          properties:
+            code:
+              type: string
+              pattern: "^[0-9A-Z_-]{1,10}$"
+              description: Code, unique in the tenant. Immutable.
+              readOnly: true
+            name:
+              type: string
+              minLength: 1
+              maxLength: 100
+              description: Name.
+            description:
+              type: string
+              minLength: 1
+              maxLength: 500
+              description: Description.
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000301"
+          version: 1
+          created_at: "2026-10-21T09:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+          updated_at: "2026-10-21T09:00:00Z"
+          code: RETAIL
+          name: Retail
+    SegmentCreate:
+      type: object
+      description: "A new segment."
+      required:
+        - code
+        - name
+      properties:
+        code:
+          type: string
+          pattern: "^[0-9A-Z_-]{1,10}$"
+          description: Code, unique in the tenant.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Name.
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Description.
+      additionalProperties: false
+      examples:
+        - code: RETAIL
+          name: Retail
+    SegmentUpdate:
+      type: object
+      description: "Merge patch of a segment."
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Name.
+        description:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          maxLength: 500
+          description: Description. Send null to clear.
+      additionalProperties: false
+      examples:
+        - name: Retail and online
+    SegmentPage:
+      type: object
+      description: One page of segments.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Segment"
+          description: The segments on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+      examples:
+        - items:
+            - id: "0192a000-0000-7000-8000-000000000303"
+              version: 1
+              created_at: "2026-10-21T09:00:00Z"
+              created_by: "0192a000-0000-7000-8000-000000000101"
+              updated_at: "2026-10-21T09:00:00Z"
+              code: RETAIL
+              name: Retail
+    CenterChange:
+      description: "A requested change to a cost or profit center (ADR-0050 §11), decided on its `center_change` approval request (`workflow_request_id`): applied when it is approved, rejected when it is rejected, cancelled when its requester withdraws it."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - kind
+            - payload
+            - reason
+            - status
+            - requested_by
+          properties:
+            cost_center_id:
+              type: string
+              format: uuid
+              description: Cost center changed; absent for a profit center's change.
+              readOnly: true
+            profit_center_id:
+              type: string
+              format: uuid
+              description: Profit center changed; absent for a cost center's change.
+              readOnly: true
+            kind:
+              type: string
+              description: "Kind of change. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - create
+                - redate
+                - lock
+                - move
+                - assign
+              readOnly: true
+            payload:
+              type: object
+              additionalProperties: true
+              description: The requested values, as requested.
+              readOnly: true
+            reason:
+              type: string
+              description: Why the change was requested.
+              readOnly: true
+            status:
+              type: string
+              description: "Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - pending
+                - applied
+                - rejected
+                - cancelled
+              readOnly: true
+            workflow_request_id:
+              type: string
+              format: uuid
+              description: Approval request (workflow context).
+              readOnly: true
+            requested_by:
+              type: string
+              format: uuid
+              description: Principal that requested the change.
+              readOnly: true
+            applied_at:
+              type: string
+              format: date-time
+              description: When the change was applied; absent until then.
+              readOnly: true
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000301"
+          version: 1
+          created_at: "2026-10-21T09:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+          updated_at: "2026-10-21T09:00:00Z"
+          cost_center_id: "0192a000-0000-7000-8000-000000000304"
+          kind: lock
+          payload: {valid_from: "2026-11-01", lock_actual_cost: true}
+          reason: Cost center being wound down.
+          status: pending
+          workflow_request_id: "0192a000-0000-7000-8000-000000000305"
+          requested_by: "0192a000-0000-7000-8000-000000000101"
+    CenterChangePage:
+      type: object
+      description: One page of center changes.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CenterChange"
+          description: The center changes on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+      examples:
+        - items:
+            - id: "0192a000-0000-7000-8000-000000000306"
+              version: 3
+              created_at: "2026-10-21T09:00:00Z"
+              created_by: "0192a000-0000-7000-8000-000000000101"
+              updated_at: "2026-10-21T09:30:00Z"
+              cost_center_id: "0192a000-0000-7000-8000-000000000304"
+              kind: lock
+              payload: {valid_from: "2026-11-01", lock_actual_cost: true}
+              reason: Cost center being wound down.
+              status: applied
+              workflow_request_id: "0192a000-0000-7000-8000-000000000305"
+              requested_by: "0192a000-0000-7000-8000-000000000101"
+              applied_at: "2026-10-21T09:30:00Z"
     FiscalPeriod:
       type: object
       description: The posting status of one fiscal period for one legal entity and ledger.
@@ -21725,6 +23683,7 @@ components:
                 - purchase_order
                 - order_change
                 - bank_clearing
+                - center_change
               readOnly: true
             object_id:
               type: string

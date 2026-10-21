@@ -94,6 +94,21 @@ func (UnimplementedHandler) ApproveApprovalRequest(ctx context.Context, req OptD
 	return r, ht.ErrNotImplemented
 }
 
+// AssignProfitCenter implements assignProfitCenter operation.
+//
+// Assigns the profit center to further legal entities, which the caller must be allowed to act in;
+// assignments are never removed. Companies it is already assigned to are refused (422
+// `ledger.nothing_to_change`). Opens a pending center change (`GET /v1/center-changes/{id}`) and its
+// `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides,
+// never its requester and never an agent; the change is applied when the request is approved. One
+// pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409
+// `ledger.invalid_center_status`).
+//
+// POST /v1/profit-centers/{id}:assign
+func (UnimplementedHandler) AssignProfitCenter(ctx context.Context, req *ProfitCenterAssign, params AssignProfitCenterParams) (r AssignProfitCenterRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // BlockBusinessPartner implements blockBusinessPartner operation.
 //
 // Blocks the partner for postings and payments immediately (blocking reduces risk, so it needs no
@@ -353,6 +368,19 @@ func (UnimplementedHandler) CreateContract(ctx context.Context, req *ContractCre
 	return r, ht.ErrNotImplemented
 }
 
+// CreateCostCenter implements createCostCenter operation.
+//
+// Creates the cost center in status `pending` together with its center change of kind `create` and
+// that change's `center_change` approval request; it becomes `active`, with its first period, when a
+// controller approves (ADR-0050 §11). A code is unique per legal entity among centers not rejected
+// (409 `ledger.cost_center_exists`). The profit center, if given, must be active, assigned to the
+// legal entity and valid over the whole validity (422 `ledger.profit_center_invalid`).
+//
+// POST /v1/cost-centers
+func (UnimplementedHandler) CreateCostCenter(ctx context.Context, req *CostCenterCreate, params CreateCostCenterParams) (r CreateCostCenterRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateDownPaymentRequest implements createDownPaymentRequest operation.
 //
 // Requests a down payment to a supplier (SAP F-47, special G/L F): a payables document, not a ledger
@@ -423,6 +451,19 @@ func (UnimplementedHandler) CreatePartnerChange(ctx context.Context, req *Partne
 //
 // POST /v1/principals
 func (UnimplementedHandler) CreatePrincipal(ctx context.Context, req *PrincipalCreate, params CreatePrincipalParams) (r CreatePrincipalRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateProfitCenter implements createProfitCenter operation.
+//
+// Creates the profit center in status `pending` together with its center change of kind `create` and
+// that change's `center_change` approval request; it becomes `active`, with its first period and its
+// companies, when a controller approves (ADR-0050 §11). A code is unique in the tenant among centers
+// not rejected (409 `ledger.profit_center_exists`). The caller must be allowed to act in every company
+// named.
+//
+// POST /v1/profit-centers
+func (UnimplementedHandler) CreateProfitCenter(ctx context.Context, req *ProfitCenterCreate, params CreateProfitCenterParams) (r CreateProfitCenterRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -499,6 +540,16 @@ func (UnimplementedHandler) CreateRole(ctx context.Context, req *RoleCreate, par
 //
 // POST /v1/role-assignments
 func (UnimplementedHandler) CreateRoleAssignment(ctx context.Context, req *RoleAssignmentCreate, params CreateRoleAssignmentParams) (r CreateRoleAssignmentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateSegment implements createSegment operation.
+//
+// Creates a segment at once: a segment changes nothing until a profit center names it, which is an
+// approved change. A code is unique in the tenant (409 `ledger.segment_exists`).
+//
+// POST /v1/segments
+func (UnimplementedHandler) CreateSegment(ctx context.Context, req *SegmentCreate, params CreateSegmentParams) (r CreateSegmentRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -788,6 +839,15 @@ func (UnimplementedHandler) GetBusinessPartner(ctx context.Context, params GetBu
 	return r, ht.ErrNotImplemented
 }
 
+// GetCenterChange implements getCenterChange operation.
+//
+// Returns one center change.
+//
+// GET /v1/center-changes/{id}
+func (UnimplementedHandler) GetCenterChange(ctx context.Context, params GetCenterChangeParams) (r GetCenterChangeRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetChangeRequest implements getChangeRequest operation.
 //
 // Returns one change request with items and evidence.
@@ -839,6 +899,15 @@ func (UnimplementedHandler) GetConnector(ctx context.Context, params GetConnecto
 //
 // GET /v1/contracts/{id}
 func (UnimplementedHandler) GetContract(ctx context.Context, params GetContractParams) (r GetContractRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetCostCenter implements getCostCenter operation.
+//
+// Returns one cost center with its active periods.
+//
+// GET /v1/cost-centers/{id}
+func (UnimplementedHandler) GetCostCenter(ctx context.Context, params GetCostCenterParams) (r GetCostCenterRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -977,6 +1046,15 @@ func (UnimplementedHandler) GetPrincipal(ctx context.Context, params GetPrincipa
 	return r, ht.ErrNotImplemented
 }
 
+// GetProfitCenter implements getProfitCenter operation.
+//
+// Returns one profit center with its companies and active periods.
+//
+// GET /v1/profit-centers/{id}
+func (UnimplementedHandler) GetProfitCenter(ctx context.Context, params GetProfitCenterParams) (r GetProfitCenterRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetPurchaseOrder implements getPurchaseOrder operation.
 //
 // Returns one purchase order. Expandable: `supplier`.
@@ -1070,6 +1148,15 @@ func (UnimplementedHandler) GetRolePermission(ctx context.Context, params GetRol
 //
 // GET /v1/schemas/{entity}
 func (UnimplementedHandler) GetSchema(ctx context.Context, params GetSchemaParams) (r GetSchemaRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetSegment implements getSegment operation.
+//
+// Returns one segment.
+//
+// GET /v1/segments/{id}
+func (UnimplementedHandler) GetSegment(ctx context.Context, params GetSegmentParams) (r GetSegmentRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1274,6 +1361,16 @@ func (UnimplementedHandler) ListBusinessPartners(ctx context.Context, params Lis
 	return r, ht.ErrNotImplemented
 }
 
+// ListCenterChanges implements listCenterChanges operation.
+//
+// Requested changes to cost and profit centers (ADR-0050 §11). Changes of cost centers in legal
+// entities the caller may not act in are not listed. Sortable by: `created_at`.
+//
+// GET /v1/center-changes
+func (UnimplementedHandler) ListCenterChanges(ctx context.Context, params ListCenterChangesParams) (r ListCenterChangesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListChangeRequests implements listChangeRequests operation.
 //
 // Configuration change requests. Sortable by: `created_at`.
@@ -1325,6 +1422,16 @@ func (UnimplementedHandler) ListConnectors(ctx context.Context, params ListConne
 //
 // GET /v1/contracts
 func (UnimplementedHandler) ListContracts(ctx context.Context, params ListContractsParams) (r ListContractsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListCostCenters implements listCostCenters operation.
+//
+// Cost centers of the legal entities the caller may act in, with their active periods. Sortable by:
+// `code`.
+//
+// GET /v1/cost-centers
+func (UnimplementedHandler) ListCostCenters(ctx context.Context, params ListCostCentersParams) (r ListCostCentersRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1529,6 +1636,15 @@ func (UnimplementedHandler) ListPrincipals(ctx context.Context, params ListPrinc
 	return r, ht.ErrNotImplemented
 }
 
+// ListProfitCenters implements listProfitCenters operation.
+//
+// Profit centers of the tenant with their companies and active periods. Sortable by: `code`.
+//
+// GET /v1/profit-centers
+func (UnimplementedHandler) ListProfitCenters(ctx context.Context, params ListProfitCentersParams) (r ListProfitCentersRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListPurchaseOrderChanges implements listPurchaseOrderChanges operation.
 //
 // The order changes of a released purchase order, newest first: its versions, each with the order as
@@ -1613,6 +1729,15 @@ func (UnimplementedHandler) ListRoles(ctx context.Context, params ListRolesParam
 	return r, ht.ErrNotImplemented
 }
 
+// ListSegments implements listSegments operation.
+//
+// Segments of the tenant (IFRS 8 operating segments). Sortable by: `code`.
+//
+// GET /v1/segments
+func (UnimplementedHandler) ListSegments(ctx context.Context, params ListSegmentsParams) (r ListSegmentsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListSodRules implements listSodRules operation.
 //
 // Segregation-of-duties rules of the tenant, including ended ones. Sortable by: `created_at`.
@@ -1651,6 +1776,22 @@ func (UnimplementedHandler) ListWebhookSubscriptions(ctx context.Context, params
 	return r, ht.ErrNotImplemented
 }
 
+// LockCostCenter implements lockCostCenter operation.
+//
+// Sets or clears the cost center's locks for actual primary costs, actual revenue and plan from
+// `valid_from` to `valid_to` (exclusive; absent: to the end of its validity), within its validity (422
+// `ledger.invalid_validity`). Locking and unlocking are people's decisions: agents may not request
+// them. Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval
+// request, which a controller holding `ledger.cost_center.approve` decides, never its requester and
+// never an agent; the change is applied when the request is approved. One pending change per center
+// (409 `ledger.center_change_pending`). The center must be `active` (409
+// `ledger.invalid_center_status`).
+//
+// POST /v1/cost-centers/{id}:lock
+func (UnimplementedHandler) LockCostCenter(ctx context.Context, req *CostCenterLock, params LockCostCenterParams) (r LockCostCenterRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // LockFiscalPeriod implements lockFiscalPeriod operation.
 //
 // Locks the period for good: a locked period refuses postings, reversals and clearings dated in it, as
@@ -1659,6 +1800,21 @@ func (UnimplementedHandler) ListWebhookSubscriptions(ctx context.Context, params
 //
 // POST /v1/fiscal-periods/{id}:lock
 func (UnimplementedHandler) LockFiscalPeriod(ctx context.Context, params LockFiscalPeriodParams) (r LockFiscalPeriodRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// LockProfitCenter implements lockProfitCenter operation.
+//
+// Sets or clears the profit center's lock from `valid_from` to `valid_to` (exclusive; absent: to the
+// end of its validity), within its validity (422 `ledger.invalid_validity`). Locking and unlocking are
+// people's decisions: agents may not request them. Opens a pending center change
+// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
+// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
+// The center must be `active` (409 `ledger.invalid_center_status`).
+//
+// POST /v1/profit-centers/{id}:lock
+func (UnimplementedHandler) LockProfitCenter(ctx context.Context, req *ProfitCenterLock, params LockProfitCenterParams) (r LockProfitCenterRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1711,6 +1867,36 @@ func (UnimplementedHandler) MatchBankStatementLine(ctx context.Context, req *Sta
 //
 // POST /v1/supplier-invoices/{id}:match
 func (UnimplementedHandler) MatchSupplierInvoice(ctx context.Context, params MatchSupplierInvoiceParams) (r MatchSupplierInvoiceRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// MoveCostCenter implements moveCostCenter operation.
+//
+// Assigns the cost center to another profit center (`null`: none, so its lines take the company's
+// default) or category from `valid_from` to the end of its validity, as a new period (ADR-0050 §3).
+// The profit center must be active, assigned to the cost center's legal entity and valid from
+// `valid_from` to the end of the cost center's validity (422 `ledger.profit_center_invalid`). Opens a
+// pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request,
+// which a controller holding `ledger.cost_center.approve` decides, never its requester and never an
+// agent; the change is applied when the request is approved. One pending change per center (409
+// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
+//
+// POST /v1/cost-centers/{id}:move
+func (UnimplementedHandler) MoveCostCenter(ctx context.Context, req *CostCenterMove, params MoveCostCenterParams) (r MoveCostCenterRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// MoveProfitCenter implements moveProfitCenter operation.
+//
+// Assigns the profit center to another segment (`null`: none). Once lines carry the profit center
+// (T56d), its segment is fixed: a segment move is then a reorganisation (ADR-0050 §3). Opens a
+// pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request,
+// which a controller holding `ledger.cost_center.approve` decides, never its requester and never an
+// agent; the change is applied when the request is approved. One pending change per center (409
+// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
+//
+// POST /v1/profit-centers/{id}:move
+func (UnimplementedHandler) MoveProfitCenter(ctx context.Context, req *ProfitCenterMove, params MoveProfitCenterParams) (r MoveProfitCenterRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1961,6 +2147,35 @@ func (UnimplementedHandler) ReconcileMigrationRun(ctx context.Context, params Re
 //
 // POST /v1/agent-sessions/{id}/tool-calls
 func (UnimplementedHandler) RecordAgentToolCall(ctx context.Context, req *AgentToolCallCreate, params RecordAgentToolCallParams) (r RecordAgentToolCallRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// RedateCostCenter implements redateCostCenter operation.
+//
+// Extends or ends the cost center's validity: the first period starts at `valid_from`, the last ends
+// at `valid_to` (exclusive; `null` open-ended). Opens a pending center change
+// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
+// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
+// The center must be `active` (409 `ledger.invalid_center_status`).
+//
+// POST /v1/cost-centers/{id}:redate
+func (UnimplementedHandler) RedateCostCenter(ctx context.Context, req *CenterRedate, params RedateCostCenterParams) (r RedateCostCenterRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// RedateProfitCenter implements redateProfitCenter operation.
+//
+// Extends or ends the profit center's validity: the first period starts at `valid_from`, the last ends
+// at `valid_to` (exclusive; `null` open-ended). A validity that no longer covers an active cost center
+// period naming the profit center is refused (409 `ledger.profit_center_in_use`). Opens a pending
+// center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a
+// controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the
+// change is applied when the request is approved. One pending change per center (409
+// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
+//
+// POST /v1/profit-centers/{id}:redate
+func (UnimplementedHandler) RedateProfitCenter(ctx context.Context, req *CenterRedate, params RedateProfitCenterParams) (r RedateProfitCenterRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -2408,6 +2623,17 @@ func (UnimplementedHandler) UpdateContract(ctx context.Context, req *ContractUpd
 	return r, ht.ErrNotImplemented
 }
 
+// UpdateCostCenter implements updateCostCenter operation.
+//
+// Changes name, description or person responsible at once: texts need no approval (ADR-0050 §11,
+// decision P1) and are recorded in the audit trail. JSON Merge Patch (RFC 7396): absent fields are
+// unchanged, `null` clears the description.
+//
+// PATCH /v1/cost-centers/{id}
+func (UnimplementedHandler) UpdateCostCenter(ctx context.Context, req *CenterTextsUpdate, params UpdateCostCenterParams) (r UpdateCostCenterRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // UpdateLegalEntity implements updateLegalEntity operation.
 //
 // Changes master data of a legal entity. JSON Merge Patch (RFC 7396): absent fields are unchanged,
@@ -2453,6 +2679,17 @@ func (UnimplementedHandler) UpdatePrincipal(ctx context.Context, req *PrincipalU
 	return r, ht.ErrNotImplemented
 }
 
+// UpdateProfitCenter implements updateProfitCenter operation.
+//
+// Changes name, description or person responsible at once: texts need no approval (ADR-0050 §11,
+// decision P1) and are recorded in the audit trail. JSON Merge Patch (RFC 7396): absent fields are
+// unchanged, `null` clears the description.
+//
+// PATCH /v1/profit-centers/{id}
+func (UnimplementedHandler) UpdateProfitCenter(ctx context.Context, req *CenterTextsUpdate, params UpdateProfitCenterParams) (r UpdateProfitCenterRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // UpdatePurchaseOrder implements updatePurchaseOrder operation.
 //
 // Changes a purchase order in status `draft`. JSON Merge Patch (RFC 7396): absent fields are
@@ -2491,6 +2728,16 @@ func (UnimplementedHandler) UpdateRequisition(ctx context.Context, req *Requisit
 //
 // PATCH /v1/roles/{id}
 func (UnimplementedHandler) UpdateRole(ctx context.Context, req *RoleUpdate, params UpdateRoleParams) (r UpdateRoleRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateSegment implements updateSegment operation.
+//
+// Changes the segment's name or description at once. JSON Merge Patch (RFC 7396): absent fields are
+// unchanged, `null` clears the description.
+//
+// PATCH /v1/segments/{id}
+func (UnimplementedHandler) UpdateSegment(ctx context.Context, req *SegmentUpdate, params UpdateSegmentParams) (r UpdateSegmentRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
