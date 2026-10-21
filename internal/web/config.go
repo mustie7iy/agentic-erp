@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
@@ -29,6 +30,26 @@ type Config struct {
 	LogLevel        slog.Level     // ERP_LOG_LEVEL (default info)
 	ShutdownTimeout time.Duration  // ERP_SHUTDOWN_TIMEOUT (default 20s)
 	PseudoLocales   bool           // the pseudo-locales en-XA and ar-XB, offered outside production only
+	SignIn
+}
+
+// SignIn is sign-in's configuration (ADR-0052 §5, §11). Without a
+// directory (development only) no one can sign in.
+type SignIn struct {
+	// DirectoryURL is ERP_WEB_DIRECTORY_URL: the global directory's
+	// database, where sessions are kept (sslmode=verify-full in production).
+	DirectoryURL string
+	// DirectoryPassword is ERP_WEB_DIRECTORY_PASSWORD, a reference
+	// (env:, file:, vault:): the login's password, read again for each new
+	// connection, as it rotates; nil: the URL's.
+	DirectoryPassword func(context.Context) (string, error)
+	// SessionSecrets are ERP_WEB_SESSION_KEY, then
+	// ERP_WEB_SESSION_KEY_PREVIOUS while a rotation runs (ADR-0028),
+	// references to secrets of at least 32 bytes that seal sessions.
+	SessionSecrets [][]byte
+	// CredentialPrefix is ERP_WEB_CLIENT_CREDENTIALS: the reference prefix
+	// the web clients' credentials must start with (file:/etc/erp/web-clients/).
+	CredentialPrefix string
 }
 
 // LoadConfig reads and validates the configuration. In production a
@@ -70,6 +91,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		errs = append(errs, err)
 	}
 	errs = append(errs, c.loadTLS(getenv, production)...)
+	errs = append(errs, c.loadSignIn(getenv, production)...)
 	return c, errors.Join(errs...)
 }
 
@@ -108,4 +130,47 @@ func (c *Config) loadTLS(getenv func(string) string, production bool) []error {
 		return []error{errors.New("ERP_WEB_PUBLIC_CERT and ERP_WEB_PUBLIC_KEY are required with ERP_ENV=production: the workspace serves TLS only (ADR-0052 §6)")}
 	}
 	return nil
+}
+
+// loadSignIn reads sign-in's settings: all of them, or (outside
+// production) none. Secrets are references, read now, so a missing one
+// fails startup.
+func (c *Config) loadSignIn(getenv func(string) string, production bool) []error {
+	c.DirectoryURL = getenv("ERP_WEB_DIRECTORY_URL")
+	if c.DirectoryURL == "" {
+		if production {
+			return []error{errors.New("ERP_WEB_DIRECTORY_URL is required with ERP_ENV=production: sessions are kept in the directory database (ADR-0052 §6)")}
+		}
+		return nil
+	}
+	var errs []error
+	if u, err := url.Parse(c.DirectoryURL); err != nil || (production && u.Query().Get("sslmode") != "verify-full") {
+		errs = append(errs, errors.New("ERP_WEB_DIRECTORY_URL must be a postgres URL with sslmode=verify-full with ERP_ENV=production"))
+	}
+	if c.PublicURL == nil {
+		errs = append(errs, errors.New("ERP_WEB_PUBLIC_URL is required to sign in: the redirect URI is its /callback"))
+	}
+	ctx, local := context.Background(), secrets.Local{Getenv: getenv}
+	if ref := getenv("ERP_WEB_DIRECTORY_PASSWORD"); ref != "" {
+		var err error
+		if c.DirectoryPassword, err = secrets.Rotating(ctx, local, ref); err != nil {
+			errs = append(errs, fmt.Errorf("ERP_WEB_DIRECTORY_PASSWORD: %w", err))
+		}
+	}
+	for _, name := range []string{"ERP_WEB_SESSION_KEY", "ERP_WEB_SESSION_KEY_PREVIOUS"} {
+		ref := getenv(name)
+		if ref == "" && name != "ERP_WEB_SESSION_KEY" {
+			continue
+		}
+		v, err := secrets.Value(ctx, local, ref)
+		if err != nil || !secrets.IsRef(ref) || len(v) < 32 {
+			errs = append(errs, fmt.Errorf("%s must reference (env: or file:) a secret of at least 32 bytes", name))
+			continue
+		}
+		c.SessionSecrets = append(c.SessionSecrets, []byte(v))
+	}
+	if c.CredentialPrefix = getenv("ERP_WEB_CLIENT_CREDENTIALS"); !secrets.IsRef(c.CredentialPrefix) || !strings.HasSuffix(c.CredentialPrefix, "/") {
+		errs = append(errs, errors.New("ERP_WEB_CLIENT_CREDENTIALS must be the reference prefix of the web clients' credentials, such as file:/etc/erp/web-clients/"))
+	}
+	return errs
 }

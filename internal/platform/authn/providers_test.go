@@ -542,3 +542,57 @@ func TestProvidersProbe(t *testing.T) {
 		t.Error("an http issuer in production: got no error, want one")
 	}
 }
+
+// TestProvidersEndpoints: the provider's OAuth endpoints come from the
+// discovery document Verify uses, fetched once; an endpoint whose URL is
+// not allowed is left out, and a provider naming no authorization or
+// token endpoint, or whose document cannot be read, is 503 (ADR-0052 §5).
+func TestProvidersEndpoints(t *testing.T) {
+	ctx := context.Background()
+	is := authntest.NewSeparate(t)
+	p := &authn.Providers{}
+	e, err := p.Endpoints(ctx, is.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := authn.Endpoints{Authorization: is.URL + authntest.AuthorizePath, Token: is.URL + authntest.TokenPath, EndSession: is.URL + authntest.EndSessionPath}
+	if e != want {
+		t.Errorf("endpoints: got %+v, want %+v", e, want)
+	}
+	if _, err := p.Verify(ctx, is.URL, authntest.Audience, is.Token(t, uuid.New(), "s", nil)); err != nil {
+		t.Fatal(err)
+	}
+	if d, _ := is.Fetches(); d != 1 {
+		t.Errorf("discovery fetches: got %d, want 1 shared with Verify", d)
+	}
+	if p.Client() == nil {
+		t.Error("client: got nil")
+	}
+	for name, doc := range map[string]string{
+		"no token endpoint":            `{"issuer": "%s", "jwks_uri": "%s/keys", "authorization_endpoint": "%s/auth"}`,
+		"a token endpoint not allowed": `{"issuer": "%s", "jwks_uri": "%s/keys", "authorization_endpoint": "%s/auth", "token_endpoint": "ftp://x/token"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			other := authntest.NewSeparate(t)
+			other.Serve(authntest.DiscoveryPath, []byte(strings.ReplaceAll(doc, "%s", other.URL)))
+			if _, err := (&authn.Providers{}).Endpoints(ctx, other.URL); problem.From(err).Status != 503 {
+				t.Errorf("got %v, want 503", err)
+			}
+		})
+	}
+	t.Run("no end session endpoint", func(t *testing.T) {
+		other := authntest.NewSeparate(t)
+		other.Serve(authntest.DiscoveryPath, []byte(strings.ReplaceAll(`{"issuer": "%s", "jwks_uri": "%s/keys", "authorization_endpoint": "%s/auth", "token_endpoint": "%s/token"}`, "%s", other.URL)))
+		e, err := (&authn.Providers{}).Endpoints(ctx, other.URL)
+		if err != nil || e.EndSession != "" {
+			t.Errorf("got %+v, %v, want no end session endpoint", e, err)
+		}
+	})
+	t.Run("unreachable", func(t *testing.T) {
+		other := authntest.NewSeparate(t)
+		other.FailNext(10)
+		if _, err := (&authn.Providers{}).Endpoints(ctx, other.URL); problem.From(err).Status != 503 {
+			t.Errorf("got %v, want 503", err)
+		}
+	})
+}

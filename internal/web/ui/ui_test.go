@@ -41,8 +41,15 @@ func components() map[string]templ.Component {
 		"ButtonLink":      ButtonLink("/", i18n.NotFoundHome),
 		"Code":            Code("v1.0.0"),
 		"Paragraph":       Paragraph(i18n.HomeJobsCount, 2),
-		"Home":            Home(shell()),
-		"homeContent":     homeContent(),
+		"Home":            Home(signedIn(), HomePage{Companies: []string{"Acme GmbH"}}),
+		"homeContent":     homeContent(HomePage{}),
+		"SignOut":         SignOut("token"),
+		"SignIn":          SignIn(shell(), SignInForm{Code: "acme", Return: "/"}),
+		"signInContent":   signInContent(SignInForm{Code: "Acme", Error: i18n.SignInInvalid}),
+		"Problem":         Problem(shell(), i18n.SignInFailedTitle, i18n.SignInFailedBody, "/login", i18n.SignInAgain),
+		"problemContent":  problemContent(i18n.RefusedTitle, i18n.RefusedBody, "/", i18n.NotFoundHome),
+		"Continue":        Continue(continuing()),
+		"continueContent": continueContent("/"),
 		"StatusPage":      StatusPage(shell(), Status{Version: "v1.2.3", Revision: "abc"}),
 		"statusContent":   statusContent(Status{Version: "devel"}),
 		"NotFound":        NotFound(shell()),
@@ -145,8 +152,71 @@ func parse(t *testing.T, ctx context.Context, c templ.Component) *html.Node {
 	return doc
 }
 
+// signedIn is a signed-in person's shell.
+func signedIn() Shell {
+	s := shell()
+	s.Person = &Person{CSRF: "token-1"}
+	return s
+}
+
+// continuing is a continue page's shell.
+func continuing() Shell {
+	s := shell()
+	s.Continue = "/health?x=1"
+	return s
+}
+
+// TestSignedInLayout: a signed-in person's page has the sign-out form
+// with the CSRF token, which htmx also sends as a header; a continue page
+// goes on to its path at once; a page before sign-in has neither.
+func TestSignedInLayout(t *testing.T) {
+	ctx := locale(t)
+	doc := parse(t, ctx, Home(signedIn(), HomePage{}))
+	form := find(doc, "form")
+	if got, _ := attr(form, "action"); got != "/logout" {
+		t.Errorf("sign-out form: action %q", got)
+	}
+	if got, _ := attr(find(form, "input"), "value"); got != "token-1" {
+		t.Errorf("sign-out form: token %q", got)
+	}
+	if got, _ := attr(find(doc, "body"), "hx-headers"); got != `{"X-CSRF-Token":"token-1"}` {
+		t.Errorf("htmx headers: got %q", got)
+	}
+	cont := parse(t, ctx, Continue(continuing()))
+	var refresh string
+	walkAll(cont, func(n *html.Node) {
+		if v, _ := attr(n, "http-equiv"); n.Data == "meta" && v == "refresh" {
+			refresh, _ = attr(n, "content")
+		}
+	})
+	if refresh != "0;url=/health?x=1" {
+		t.Errorf("continue: refresh %q", refresh)
+	}
+	plain := parse(t, ctx, SignIn(shell(), SignInForm{}))
+	if _, ok := attr(find(plain, "body"), "hx-headers"); ok {
+		t.Error("before sign-in: htmx headers set")
+	}
+	walkAll(parse(t, ctx, SignIn(shell(), SignInForm{Code: "x", Error: i18n.SignInInvalid})), func(n *html.Node) {
+		if id, _ := attr(n, "id"); id != "code" {
+			return
+		}
+		invalid, _ := attr(n, "aria-invalid")
+		described, _ := attr(n, "aria-describedby")
+		if invalid != "true" || described != "code-hint code-error" {
+			t.Errorf("the code with an error: aria-invalid %q, aria-describedby %q", invalid, described)
+		}
+	})
+}
+
+func walkAll(n *html.Node, fn func(*html.Node)) {
+	fn(n)
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		walkAll(c, fn)
+	}
+}
+
 func TestLayout(t *testing.T) {
-	doc := parse(t, locale(t), Home(shell()))
+	doc := parse(t, locale(t), Home(shell(), HomePage{}))
 	root := find(doc, "html")
 	for key, want := range map[string]string{"lang": "en", "dir": "ltr"} {
 		if got, _ := attr(root, key); got != want {

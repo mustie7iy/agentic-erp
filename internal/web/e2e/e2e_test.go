@@ -2,14 +2,20 @@ package e2e
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
+	"encoding/pem"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -18,9 +24,14 @@ import (
 
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
+	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/directory"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/web"
@@ -86,32 +97,111 @@ func browser() string {
 	return ""
 }
 
-// stack is a running erp-web in front of the in-process API.
+// stack is a running erp-web, over TLS, in front of the in-process API,
+// signing people in at a tenant's identity provider: authntest's
+// authorization server, which the cell's registry holds with the
+// tenant's session rule, and whose web client the directory database
+// projects (ADR-0052 §5).
 type stack struct {
 	api *apitest.API
 	web *web.Server
 	url string
+	is  *authntest.Issuer
+	ten pgtest.Tenant
 }
+
+// loginCode is the stack's tenant's login code.
+const loginCode = "acme"
 
 func newStack(t *testing.T) stack {
 	t.Helper()
-	api := apitest.New(t)
+	ctx := context.Background()
+	is := authntest.NewSeparate(t)
+	ten := pgtest.NewTenant(t, "tenancy.org.read")
+	ten.AllCompanies(t, ten.Human)
+	pgtest.Exec(t, `UPDATE identity.principal SET external_issuer = $2, version = version + 1 WHERE tenant_id = $1`, ten.ID, is.URL)
+	pgtest.Exec(t, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
+		VALUES ($1, gen_random_uuid(), '2000', 'Acme GmbH', 'DE', 'EUR', gen_random_uuid(), 'active', $2, $2)`, ten.ID, ten.Human.ID)
+	reg := registry{authn.Registration{TenantID: ten.ID, Issuer: is.URL, Audience: authntest.Audience, SessionMaxAge: 12 * time.Hour, IdleTimeout: time.Hour}}
+	api := apitest.NewWith(t, func(cfg *app.Config) {
+		v, err := authn.NewRegistered(ctx, authn.Development, reg, &authn.Providers{}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.Verifier = v
+	})
 	apiSrv := httptest.NewServer(api.Handler)
 	t.Cleanup(apiSrv.Close)
+	webSrv := httptest.NewUnstartedServer(nil)
+	t.Cleanup(webSrv.Close)
+	public := "https://" + webSrv.Listener.Addr().String()
+	creds := t.TempDir()
+	key := clientKey(t, filepath.Join(creds, "acme.pem"))
+	dirURL := directoryWith(t, directory.Issuer{Issuer: is.URL, Audience: authntest.Audience, TenantID: ten.ID, Cell: "eu-1", ProviderID: uuid.New(),
+		Web: &directory.WebClient{LoginCode: loginCode, ClientID: "erp-web", AuthMethod: "private_key_jwt", CredentialRef: "file:" + filepath.Join(creds, "acme.pem"), Scope: "openid erp-api"}})
+	is.RegisterClient(authntest.Client{ID: "erp-web", RedirectURI: public + "/callback", PostLogoutRedirectURI: public + "/signed-out", Key: &key.PublicKey, Refresh: true})
+	is.SignIn(authntest.User{Tenant: ten.ID, Subject: ten.Human.Subject})
 	// As in the cluster: the API's public name, reached at the router's
 	// Service (here the in-process API's listener).
-	apiURL, err := url.Parse("http://api.example.invalid")
+	apiURL, _ := url.Parse("http://api.example.invalid")
+	publicURL, _ := url.Parse(public)
+	cfg := web.Config{APIURL: apiURL, APIDial: apiSrv.Listener.Addr().String(), PublicURL: publicURL, PseudoLocales: true, Environment: "development",
+		SignIn: web.SignIn{DirectoryURL: dirURL, SessionSecrets: [][]byte{[]byte(strings.Repeat("k", 32))}, CredentialPrefix: "file:" + creds + string(filepath.Separator)}}
+	srv, err := web.New(ctx, cfg, buildinfo.Get(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := web.Config{APIURL: apiURL, APIDial: apiSrv.Listener.Addr().String(), PseudoLocales: true}
-	srv, err := web.New(cfg, buildinfo.Get(), slog.New(slog.DiscardHandler))
+	t.Cleanup(srv.Close)
+	webSrv.Config.Handler = srv.Handler()
+	webSrv.StartTLS()
+	return stack{api: api, web: srv, url: public, is: is, ten: ten}
+}
+
+// registry is the cell's registry of the tenant's one provider.
+type registry struct{ reg authn.Registration }
+
+func (r registry) Resolve(_ context.Context, issuer string, audiences []string) (authn.Registration, error) {
+	if issuer == r.reg.Issuer && slices.Contains(audiences, r.reg.Audience) {
+		return r.reg, nil
+	}
+	return authn.Registration{}, authn.ErrUnknownIssuer
+}
+
+// directoryWith is a directory database of the test's own, with the web
+// schema and the claim.
+func directoryWith(t *testing.T, is directory.Issuer) string {
+	t.Helper()
+	ctx := context.Background()
+	dirURL := pgtest.EmptyDatabase(t)
+	dir, err := directory.Open(ctx, dirURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	webSrv := httptest.NewServer(srv.Handler())
-	t.Cleanup(webSrv.Close)
-	return stack{api: api, web: srv, url: webSrv.URL}
+	t.Cleanup(dir.Close)
+	if err := dir.ClaimIssuer(ctx, is); err != nil {
+		t.Fatal(err)
+	}
+	if err := dir.ClaimWebClient(ctx, is); err != nil {
+		t.Fatal(err)
+	}
+	return dirURL
+}
+
+// clientKey writes the web client's private key, PEM, and returns it.
+func clientKey(t *testing.T, path string) *rsa.PrivateKey {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return key
 }
 
 // TestAPIClientAgainstTheAPI: the typed client erp-web holds reaches the
@@ -119,11 +209,17 @@ func newStack(t *testing.T) stack {
 // refusal for a person without the permission, and sends nothing without
 // a token.
 func TestAPIClientAgainstTheAPI(t *testing.T) {
-	s := newStack(t)
+	api := apitest.New(t)
+	apiSrv := httptest.NewServer(api.Handler)
+	t.Cleanup(apiSrv.Close)
+	client, err := web.NewAPI(apiSrv.URL, http.DefaultClient)
+	if err != nil {
+		t.Fatal(err)
+	}
 	allowed, refused := pgtest.NewTenant(t, "tenancy.org.read"), pgtest.NewTenant(t)
 	call := func(ten pgtest.Tenant) (gen.ListLegalEntitiesRes, error) {
-		ctx := web.WithToken(t.Context(), s.api.Issuer.Token(t, ten.ID, ten.Human.Subject, nil))
-		return s.web.API.ListLegalEntities(ctx, gen.ListLegalEntitiesParams{})
+		ctx := web.WithToken(t.Context(), api.Issuer.Token(t, ten.ID, ten.Human.Subject, nil))
+		return client.ListLegalEntities(ctx, gen.ListLegalEntitiesParams{})
 	}
 	if res, err := call(allowed); err != nil {
 		t.Errorf("allowed: %v", err)
@@ -135,7 +231,7 @@ func TestAPIClientAgainstTheAPI(t *testing.T) {
 	} else if _, ok := res.(*gen.ForbiddenHeaders); !ok {
 		t.Errorf("refused: got %T, want the API's 403", res)
 	}
-	if _, err := s.web.API.ListLegalEntities(t.Context(), gen.ListLegalEntitiesParams{}); err == nil || !strings.Contains(err.Error(), web.ErrNoSession.Error()) {
+	if _, err := client.ListLegalEntities(t.Context(), gen.ListLegalEntitiesParams{}); err == nil || !strings.Contains(err.Error(), web.ErrNoSession.Error()) {
 		t.Errorf("no token: got %v, want ErrNoSession", err)
 	}
 }
@@ -183,7 +279,9 @@ func browse(t *testing.T) context.Context {
 		}
 		t.Skip("no Chromium-based browser (ERP_E2E_BROWSER)")
 	}
-	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.ExecPath(path))
+	// The workspace serves TLS (its cookies are __Host-, Secure) with the
+	// test server's own certificate.
+	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.ExecPath(path), chromedp.Flag("ignore-certificate-errors", true))
 	if os.Getenv("CI") != "" {
 		// CI's runners refuse Chromium's sandbox its user namespaces; the
 		// browser loads this test's own pages alone.
@@ -250,62 +348,161 @@ const inspect = `({
 // The WCAG 2.2 A and AA rules of axe-core (ADR-0052 §10).
 const runAxe = `axe.run(document, {runOnly: {type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]}, resultTypes: ["violations"]}).then(r => r.violations)`
 
-// TestPagesInTheBrowser: every page, in English and both pseudo-locales,
-// at a desktop's and a phone's width: no error in the browser (a CSP
-// violation is one), htmx loaded with eval and script tags off, the
-// locale's language and direction, no sideways scrolling, the skip link
-// first in the tab order, and axe-core at zero violations.
+// TestPagesInTheBrowser: every page, before and after sign-in, in
+// English, French and both pseudo-locales, at a desktop's and a phone's
+// width: no error in the browser (a CSP violation is one), htmx loaded
+// with eval and script tags off, the locale's language and direction, no
+// sideways scrolling, the skip link first in the tab order, and axe-core
+// at zero violations.
 func TestPagesInTheBrowser(t *testing.T) {
 	browserCtx := browse(t)
 	s := newStack(t)
 	src := axe(t)
-	for _, lang := range []struct{ header, lang, dir string }{{"", "en", "ltr"}, {"en-XA", "en-XA", "ltr"}, {"ar-XB", "ar-XB", "rtl"}, {"fr-CA", "fr-CA", "ltr"}} {
-		for _, width := range []int64{1280, 390} {
-			for _, path := range []string{"/", "/health", "/no/such/page"} {
-				t.Run(fmt.Sprintf("%s %d %s", lang.lang, width, path), func(t *testing.T) {
-					ctx, c := tab(t, browserCtx, lang.header, width)
-					if err := chromedp.Do(ctx,
-						chromedp.Navigate(s.url+path),
-						chromedp.WaitReady(chromedp.CSS("main")),
-						chromedp.KeyEvent("\t"),
-					); err != nil {
-						t.Fatal(err)
-					}
-					got, err := chromedp.Run(ctx, chromedp.Evaluate[page](inspect))
-					if err != nil {
-						t.Fatal(err)
-					}
-					if err := chromedp.Do(ctx, chromedp.Evaluate[chromedp.Void](src)); err != nil {
-						t.Fatal(err)
-					}
-					violations, err := chromedp.Run(ctx, chromedp.Evaluate[[]violation](runAxe, chromedp.EvalAwaitPromise))
-					if err != nil {
-						t.Fatal(err)
-					}
-					if got.Lang != lang.lang || got.Dir != lang.dir {
-						t.Errorf("document: lang %q dir %q, want %q %q", got.Lang, got.Dir, lang.lang, lang.dir)
-					}
-					if !got.HTMX {
-						t.Error("htmx: not loaded with the workspace's configuration")
-					}
-					if got.Overflow {
-						t.Errorf("the page scrolls sideways at %d px", width)
-					}
-					if got.Focus != "skip-link" {
-						t.Errorf("first tab stop: got %q, want the skip link", got.Focus)
-					}
-					for _, v := range violations {
-						t.Errorf("axe %s: %s at %v", v.ID, v.Help, v.Nodes)
-					}
-					for _, e := range c.errors() {
-						// The not-found page's own 404 is the browser's to log.
-						if path == "/no/such/page" && strings.HasSuffix(e, " "+s.url+path) && strings.Contains(e, "status of 404") {
-							continue
-						}
-						t.Errorf("browser: %s", e)
-					}
-				})
+	// Pages a person sees before signing in, then after; the 404s are
+	// pages too (the browser logs their status).
+	before := []string{"/login", "/login/nobody", "/signed-out", "/health", "/no/such/page"}
+	after := []string{"/", "/login?other", "/health"}
+	langs := []struct{ header, lang, dir string }{{"", "en", "ltr"}, {"en-XA", "en-XA", "ltr"}, {"ar-XB", "ar-XB", "rtl"}, {"fr-CA", "fr-CA", "ltr"}}
+	for _, paths := range [][]string{before, after} {
+		if paths[0] == "/" {
+			signIn(t, browserCtx, s)
+		}
+		for _, lang := range langs {
+			for _, width := range []int64{1280, 390} {
+				for _, path := range paths {
+					t.Run(fmt.Sprintf("%s %d %s", lang.lang, width, path), func(t *testing.T) {
+						checkPage(t, browserCtx, s, src, lang.header, lang.lang, lang.dir, width, path)
+					})
+				}
 			}
+		}
+	}
+}
+
+// checkPage loads path and checks it as TestPagesInTheBrowser says.
+func checkPage(t *testing.T, browserCtx context.Context, s stack, src, header, lang, dir string, width int64, path string) {
+	t.Helper()
+	ctx, c := tab(t, browserCtx, header, width)
+	if err := chromedp.Do(ctx,
+		chromedp.Navigate(s.url+path),
+		chromedp.WaitReady(chromedp.CSS("main")),
+		chromedp.KeyEvent("\t"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	got, err := chromedp.Run(ctx, chromedp.Evaluate[page](inspect))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := chromedp.Do(ctx, chromedp.Evaluate[chromedp.Void](src)); err != nil {
+		t.Fatal(err)
+	}
+	violations, err := chromedp.Run(ctx, chromedp.Evaluate[[]violation](runAxe, chromedp.EvalAwaitPromise))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Lang != lang || got.Dir != dir {
+		t.Errorf("document: lang %q dir %q, want %q %q", got.Lang, got.Dir, lang, dir)
+	}
+	if !got.HTMX {
+		t.Error("htmx: not loaded with the workspace's configuration")
+	}
+	if got.Overflow {
+		t.Errorf("the page scrolls sideways at %d px", width)
+	}
+	if got.Focus != "skip-link" {
+		t.Errorf("first tab stop: got %q, want the skip link", got.Focus)
+	}
+	for _, v := range violations {
+		t.Errorf("axe %s: %s at %v", v.ID, v.Help, v.Nodes)
+	}
+	for _, e := range c.errors() {
+		// A page answered 4xx is the browser's to log.
+		if strings.HasSuffix(e, " "+s.url+path) && strings.Contains(e, "status of 404") {
+			continue
+		}
+		t.Errorf("browser: %s", e)
+	}
+}
+
+// signIn signs the browser in through the provider, as a person does:
+// the login code page, the provider, the continue page, the home page.
+func signIn(t *testing.T, browserCtx context.Context, s stack) {
+	t.Helper()
+	ctx, _ := tab(t, browserCtx, "", 1280)
+	if err := chromedp.Do(ctx,
+		chromedp.Navigate(s.url+"/"),
+		chromedp.WaitVisible(chromedp.CSS("#code")),
+		chromedp.SendKeys(chromedp.CSS("#code"), loginCode),
+		chromedp.Click(chromedp.CSS("main button[type=submit]")),
+	); err != nil {
+		t.Fatal(err)
+	}
+	var last string
+	pgtest.Eventually(t, 20*time.Second, func() bool {
+		text, err := chromedp.Run(ctx, chromedp.Evaluate[string](`location.href + " " + document.body.innerText`))
+		last = text
+		return err == nil && strings.HasPrefix(text, s.url+"/ ") && strings.Contains(text, "Acme GmbH")
+	}, "the browser did not reach the home page signed in: %s", lastSeen{&last})
+}
+
+// lastSeen is what the browser showed last, said when a wait fails.
+type lastSeen struct{ text *string }
+
+func (l lastSeen) String() string { return *l.text }
+
+// TestSignInInTheBrowser is sign-in and sign-out as a person goes through
+// them (ADR-0052 §5): the session cookie is HttpOnly, Secure and
+// SameSite=Strict, out of the page's scripts' reach, and signing out ends
+// the provider's session too, back on the signed-out page.
+func TestSignInInTheBrowser(t *testing.T) {
+	browserCtx := browse(t)
+	s := newStack(t)
+	signIn(t, browserCtx, s)
+	ctx, c := tab(t, browserCtx, "", 1280)
+	if err := chromedp.Do(ctx, chromedp.Navigate(s.url+"/"), chromedp.WaitReady(chromedp.CSS("main"))); err != nil {
+		t.Fatal(err)
+	}
+	got, err := chromedp.Call(ctx, network.GetCookies, network.GetCookiesParams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookies := got.Cookies
+	found := false
+	for _, ck := range cookies {
+		if ck.Name == "__Host-Http-erp-session" {
+			found = true
+			if !ck.HTTPOnly || !ck.Secure || ck.SameSite != network.CookieSameSiteStrict || ck.Path != "/" {
+				t.Errorf("session cookie: got %+v", ck)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("cookies: got %v, want the session's", cookies)
+	}
+	if seen, err := chromedp.Run(ctx, chromedp.Evaluate[string](`document.cookie`)); err != nil || strings.Contains(seen, "erp-session") {
+		t.Errorf("document.cookie: got %q, want the session out of reach", seen)
+	}
+	if err := chromedp.Do(ctx, chromedp.Click(chromedp.CSS("header form button"))); err != nil {
+		t.Fatal(err)
+	}
+	pgtest.Eventually(t, 20*time.Second, func() bool {
+		text, err := chromedp.Run(ctx, chromedp.Evaluate[string](`location.pathname + " " + document.body.innerText`))
+		return err == nil && strings.HasPrefix(text, "/signed-out ") && strings.Contains(text, "You are signed out")
+	}, "the browser did not reach the signed-out page")
+	if n := len(s.is.Logouts()); n != 1 {
+		t.Errorf("the provider's logouts: got %d, want 1", n)
+	}
+	for _, e := range c.errors() {
+		t.Errorf("browser: %s", e)
+	}
+	after, err := chromedp.Call(ctx, network.GetCookies, network.GetCookiesParams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ck := range after.Cookies {
+		if ck.Name == "__Host-Http-erp-session" {
+			t.Errorf("after sign-out: the session cookie is still there (%+v)", ck)
 		}
 	}
 }
@@ -318,7 +515,7 @@ func TestCSPEnforced(t *testing.T) {
 	s := newStack(t)
 	ctx, c := tab(t, browserCtx, "", 1280)
 	if err := chromedp.Do(ctx,
-		chromedp.Navigate(s.url+"/"),
+		chromedp.Navigate(s.url+"/health"),
 		chromedp.WaitReady(chromedp.CSS("main")),
 		chromedp.Evaluate[chromedp.Void](`(() => { const s = document.createElement("script"); s.textContent = "window.planted = true"; document.body.append(s) })()`),
 		chromedp.Evaluate[chromedp.Void](`(() => { window.htmx = undefined; const s = document.createElement("script"); s.src = "`+s.web.Assets.Script+`"; document.body.append(s) })()`),

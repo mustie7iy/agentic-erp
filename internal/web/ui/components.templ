@@ -66,3 +66,14 @@ templ Paragraph(k i18n.Key, args ...any) {
 		@T(k, args...)
 	</p>
 }
+
+// SignOut is the header's sign-out: a form, so signing out is a POST that
+// carries the CSRF token, never a link a page elsewhere could follow.
+templ SignOut(csrf string) {
+	<form class="header__signout" method="post" action="/logout">
+		<input { csrfInput(csrf)... }/>
+		<button class="button button--secondary" type="submit">
+			@T(i18n.NavSignOut)
+		</button>
+	</form>
+}
