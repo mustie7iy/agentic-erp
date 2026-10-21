@@ -68,6 +68,9 @@ func Apply(cur *config.Config, next *Pack, lib *Library, o Options) (*config.Con
 	draft.NumberRanges = issuedStay(m, cur.NumberRanges, draft.NumberRanges)
 	draft.PaymentTerms = merge3(m, "payment_terms", base.Payments.PaymentTerms, cur.PaymentTerms, next.Payments.PaymentTerms,
 		func(t config.PaymentTerm) string { return t.Key })
+	// Liquidity items are the tenant's, like payment terms (ADR-0051 §4).
+	draft.Cash.LiquidityItems = merge3(m, "cash.liquidity_items", base.Cash.LiquidityItems, cur.Cash.LiquidityItems, next.Cash.LiquidityItems,
+		func(it config.LiquidityItem) string { return it.Code })
 	mergeCalendar(m, &draft, base, next, o.Company)
 	adopt(&draft, next, o)
 	m.note("packs["+o.Company+"]", "applies the %s pack %s (%s) on %s", next.Manifest.Country, next.Manifest.Version, baseText(base), o.On.Format(time.DateOnly))

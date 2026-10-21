@@ -74,6 +74,7 @@ var allowed = map[string][]string{
 	"approvals":               {"config"},
 	"audit":                   {"operations"},
 	"capture":                 {"llm"},
+	"cash":                    {"config"}, // a leaf (ADR-0051 §2): the ledger, payments, payables and procurement through ports the composition root wires
 	"config":                  {"bankfile"},
 	"configuration":           {"approvals", "config", "countrypack", "operations"},
 	"countrypack":             {"config"},
@@ -99,6 +100,14 @@ var allowed = map[string][]string{
 	"router":                  {"directory"},
 	"workflows":               {"approvals", "configuration", "integration", "operations", "payments"},
 }
+
+// leaves are contexts no other context may import, whatever allowed says:
+// they read others through ports and nothing depends on them, so a new
+// arrow into one turns a decided direction around (ADR-0051 §2). The
+// composition root and commands wire them like any context, and a context
+// may ask one a question through a port it declares itself, as partner
+// asks cash about planning groups.
+var leaves = map[string]bool{"cash": true}
 
 // unit is the context a package under internal/ belongs to: its first path
 // segment, the platform package itself, a delivery agent (each agent under
@@ -175,8 +184,8 @@ func walk(root, prefix string, out map[string]map[string]bool) error {
 
 // TestImportRules: production code (internal/ and cmd/) imports no test
 // support, platform packages (other than platformUsers) import no context,
-// the composition root and commands import any, and a context imports
-// another only where allowed says so.
+// the composition root and commands import any, a context imports no leaf
+// and another context only where allowed says so.
 func TestImportRules(t *testing.T) {
 	used := map[string]bool{}
 	for pkg, deps := range imports(t) {
@@ -198,6 +207,8 @@ func TestImportRules(t *testing.T) {
 				if !platformUsers[from] {
 					t.Errorf("%s imports %s: a platform package may not depend on a context", pkg, dep)
 				}
+			case leaves[to]:
+				t.Errorf("%s imports %s: %s is a leaf context, which nothing depends on (ADR-0051 §2); declare a port and let the composition root wire it", pkg, dep, to)
 			case slices.Contains(allowed[from], to):
 				used[from+" -> "+to] = true
 			default:

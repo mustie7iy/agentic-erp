@@ -248,6 +248,10 @@ every production file under `internal/` and `cmd/`:
   The list is exact: a new dependency fails the test until it is added there,
   in the same change as the interface it uses (and an ADR if it reverses a
   dependency direction), and an entry no longer used fails it too.
+- A leaf context (today `cash`, ADR-0051 §2) is imported by no context,
+  whatever the allowlist says: it reads others through ports, and another
+  context that must ask it something declares a port of its own, which the
+  composition root wires (as `partner.PlanningGroups` is).
 - Tests are not checked: a test may import whatever it needs.
 
 The test also refuses a production import of test support (`pgtest`,

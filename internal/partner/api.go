@@ -26,7 +26,10 @@ func partnerToAPI(p Partner) gen.BusinessPartner {
 		Addresses: []gen.Address{}, TaxIdentifiers: []gen.TaxIdentifier{}, Extensions: apitypes.EncodeObject(p.Extensions),
 	}
 	for _, s := range p.SupplierCompanies {
-		out.SupplierCompanies = append(out.SupplierCompanies, gen.SupplierCompany(s))
+		out.SupplierCompanies = append(out.SupplierCompanies, gen.SupplierCompany{LegalEntityID: s.LegalEntityID,
+			ReconciliationAccountID: s.ReconciliationAccountID, PaymentTermCode: s.PaymentTermCode, IsPostingBlocked: s.IsPostingBlocked,
+			IsPaymentBlocked: s.IsPaymentBlocked, WithholdingTaxCodes: s.WithholdingTaxCodes, PaymentMethods: s.PaymentMethods,
+			PlanningGroup: apitypes.OptString(s.PlanningGroup)})
 	}
 	for _, a := range p.Addresses {
 		ga := gen.Address{ID: gen.NewOptUUID(a.ID), Purpose: a.Purpose, Line1: a.Line1, Line2: apitypes.OptString(a.Line2), City: a.City,
@@ -87,7 +90,9 @@ func changeTag(c Change) gen.OptString { return gen.NewOptString(etag.Format(c.V
 func companiesIn(in []gen.SupplierCompanyInput) []SupplierCompanyInput {
 	out := []SupplierCompanyInput{}
 	for _, s := range in {
-		out = append(out, SupplierCompanyInput(s))
+		out = append(out, SupplierCompanyInput{LegalEntityID: s.LegalEntityID, ReconciliationAccountID: s.ReconciliationAccountID,
+			PaymentTermCode: s.PaymentTermCode, WithholdingTaxCodes: s.WithholdingTaxCodes, PaymentMethods: s.PaymentMethods,
+			PlanningGroup: s.PlanningGroup.Or("")})
 	}
 	return out
 }
