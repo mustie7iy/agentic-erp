@@ -285,6 +285,8 @@ func (noOrders) Order(context.Context, uuid.UUID) (procurement.Order, bool, erro
 	return procurement.Order{}, false, nil
 }
 
+func (noOrders) LockItems(context.Context, uuid.UUID, []int32) error { return nil }
+
 func (noEntities) Entity(context.Context, uuid.UUID) (tenancy.Entity, bool, error) {
 	return tenancy.Entity{}, false, nil
 }

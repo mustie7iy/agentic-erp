@@ -436,13 +436,20 @@ unavailable, not guessed. `:post` of an invoice on a purchase order needs
 its latest match to be clean and of the invoice's current version (or an
 exception approved at that version, F16): an invoice changed after its
 match or its approval is refused (409 `payables.match_required`) until it
-is matched, or its exception approved, again (F13). `erp invoices`
+is matched, or its exception approved, again (F13). It is also matched
+again under its order items' locks, and refused (409
+`payables.match_outdated`, left parked) when documents posted on the order
+since, a change of the order or of the tolerances leave it with an issue
+its clean match, or the match its exception was approved on, did not have
+(03 §3.9). `erp invoices`
 posts or holds with the ETag it sent to `:match`, which a clean match of a
 parked invoice leaves valid, so an edit in between fails with 412 and the
 invoice is left parked for the next run rather than acted on unmatched.
 A match of a parked invoice whose exception was approved at its current
 version records its issues but leaves it parked on that approval: it is not
-held again nor its approvers asked again (F18). `erp invoices` does not
+held again nor its approvers asked again (F18), unless it has an issue the
+approvers did not see (a new one, or one whose figures moved since), which
+holds it for a new request, as `:post` refuses it. `erp invoices` does not
 match such an invoice (`workflow_request_id` set) at all, nor post it: a
 match with issues answers no decision and `:post` does not check the
 auto-post limit, so the rule cannot tell an approved exception it may post

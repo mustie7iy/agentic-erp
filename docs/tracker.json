@@ -397,9 +397,9 @@
       ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Quantity re-checked at :post under the order's lock (invoices and credit memos)",
-      "r": "T72a",
+      "r": "payables.lockedOrder · procurement.Orders.LockItems · 409 payables.match_outdated, approved exceptions on new issues too · TestPostRechecksTheMatch · TestConcurrentPostsSerialize · 03 §3.9 · T72a",
       "c": []
      },
      {
@@ -501,9 +501,27 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Payables reads received quantities FOR SHARE when matching and posting",
-      "r": "T72a",
+      "r": "read FOR UPDATE at :post (lockedOrder); :match needs no lock, its verdict is checked again under it (03 §3.9) · T72a",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Quantities checked on reversal: goods receipt and credit memo reversals past the invoiced quantity, invoice reversals under credit memos or subsequent debits naming none",
+      "r": "follow-up of the overpayment fix · 03 §3.9",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Index payables.supplier_invoice_item (tenant_id, purchase_order_id, po_item_no) for the invoiced quantities read at :match and under the item locks at :post",
+      "r": "follow-up of the overpayment fix · invoicedQuantities",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Tests: an invoice's posting against a goods receipt reversal (apitest.Serialized) and against an order change applied through procurement",
+      "r": "follow-up of the overpayment fix · 03 §3.9",
       "c": []
      }
     ]
@@ -6839,9 +6857,9 @@
     "ph": 1,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "Two invoices matched against one order item cannot both post past its received quantity: :post re-checks the quantities under the order's lock, and matching and posting read received quantities FOR SHARE",
-      "r": "Phase 1 triage (PO 2026-10-21) · internal/payables post.go requireCleanMatch, invoicedQuantities · T72a",
+      "r": "Phase 1 triage (PO 2026-10-21) · internal/payables post.go requireCleanMatch, invoicedQuantities · payables.lockedOrder · procurement.Orders.LockItems · 409 payables.match_outdated · fix-overpay (52c7ac32) · T72a",
       "c": []
      },
      {
