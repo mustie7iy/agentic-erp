@@ -89,6 +89,12 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          # No module and build cache: under go.sum's key it is the test
+          # job's (2 GB compressed, several times that unpacked), which this
+          # job never uses and which, with the erp-temporal build and the
+          # renders, filled the runner's disk and killed it without a log
+          # (runs 39597088469). It builds four tools and two binaries cold.
+          cache: false
       - name: Install Helm, kubeconform, Kyverno, zot, syft, promtool, cosign, crane and conftest (pinned)
         run: |
           cd "$RUNNER_TEMP"
@@ -112,7 +118,12 @@ jobs:
           GOBIN="$RUNNER_TEMP/bin" go install github.com/open-policy-agent/conftest@v0.71.0
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Helm and admission checks
-        run: ./scripts/helm-checks.sh
+        # Disk and memory before and after, so a runner that dies in the
+        # step leaves what it had in the log of the steps before it.
+        run: |
+          df -h / "$RUNNER_TEMP" && free -m
+          ./scripts/helm-checks.sh
+          df -h / "$RUNNER_TEMP" && free -m
       - name: Mirroring of the upstream images
         run: ./scripts/test-mirror-images.sh
       - name: NATS authorization by SPIFFE identity
