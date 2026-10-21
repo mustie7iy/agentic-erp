@@ -19706,7 +19706,7 @@ components:
         posting_date:
           type: string
           format: date
-          description: "The date to post on instead of the booking date, after it and in an open period; with `reason`."
+          description: "The date to post on instead of the booking date, on or after it and in an open period; with `reason`."
         reason:
           type: string
           description: "Why the posting is dated otherwise; recorded in the audit trail. Only with `posting_date`."

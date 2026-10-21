@@ -28428,7 +28428,8 @@ func (s *StatementLineMatchInput) SetReason(val string) {
 // A person's posting of a matched line: on its booking date, or on another date with the reason.
 // Ref: #/components/schemas/StatementLinePostInput
 type StatementLinePostInput struct {
-	// The date to post on instead of the booking date, after it and in an open period; with `reason`.
+	// The date to post on instead of the booking date, on or after it and in an open period; with
+	// `reason`.
 	PostingDate OptDate `json:"posting_date"`
 	// Why the posting is dated otherwise; recorded in the audit trail. Only with `posting_date`.
 	Reason OptString `json:"reason"`
