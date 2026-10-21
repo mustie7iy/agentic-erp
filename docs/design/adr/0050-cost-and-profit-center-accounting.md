@@ -1,8 +1,7 @@
 # ADR-0050: Cost and profit center accounting
 
-**Status:** proposed (T56, lane D proposal, 2026-10-20). The decisions P1-P8
-at the end are for the product owner; the steps T56a-T56l enter the tracker
-once they are taken.
+**Status:** accepted (T56, product owner 2026-10-21: P1-P8 as recommended,
+see "Decisions taken"). The steps T56a-T56l are in the tracker.
 
 ## Context
 T56 is "Controlling I: cost and profit centres" (07 §7.6): "cost and profit
@@ -379,7 +378,7 @@ availability control, no plan in transaction currency, no plan per
 parallel ledger (it compares with the leading ledger).
 
 ### 9. Document splitting: not in T56 (decision P3)
-Recommendation: no document splitting now. P&L by cost center, profit
+Decided (P3): no document splitting now. P&L by cost center, profit
 center and segment needs none; a balance sheet by profit center or segment
 does, and only if the CODM reviews segment assets (IFRS 8.23) or a local
 rule asks for it. Splitting touches every posting path (active split of
@@ -522,19 +521,45 @@ coverage 100%, reviewer). Lane F (ledger), after T52 for T56d.
 | T56d | **Assignment on the journal** | Expand migration (columns, FKs NOT VALID then validated per partition, partial indexes concurrently); derivation and validation in every posting path incl. parked and `Postings`; commit-time check of §5's table; reversals copy; T52 copies carry the same; errors and constraint mappings as §5; journal API, list filters and event fields (additive); `FOR SHARE` on center periods with a race test against a lock |
 | T56e | **Procurement and payables** | `account_assignment` and `cost_center_id` on requisition and PO items (validated at release), GR and price-difference lines with the item's center; invoice items' `cost_center_id`/`profit_center_id`; capture agent proposals with eval cases; the free-text custom field in fixtures replaced; ADR-0034 note |
 | T56f | **Actual reports** | `ledger.assignment_balance` maintained by the projector (exactly once, run-twice test); `GET /v1/cost-center-balances`, `/v1/profit-center-balances` (by center, node, segment, account, period; exact at the read); schema test that assignment balances add up to `period_balance` on P&L accounts; drill-down via journal filters |
-| T56g | **Plan and plan/actual** (if P5 = a) | `controlling` context and schema; plan categories with a human-only lock; plan lines by upload and API, idempotent by batch; `GET /v1/cost-center-plan-actual`; actuals through `ledger.AssignmentBalances` |
+| T56g | **Plan and plan/actual** (P5) | `controlling` context and schema; plan categories with a human-only lock; plan lines by upload and API, idempotent by batch; `GET /v1/cost-center-plan-actual`; actuals through `ledger.AssignmentBalances` |
 | T56h | **SAP migration** | Extract and load of CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), CSKB categories, OKB9 defaults, sets 0101/0106 with ranges expanded; ACDOCA RCNTR/PRCTR/SEGMENT; quality-gate issues (center outside the standard hierarchy, range matching nothing, unknown profit center); mock generator extended; reconciliation of migrated center totals |
 | T56i | **Analytics** | Dataset contract change (journal columns, center and hierarchy snapshots); semantic dimensions and plan metrics; isolation tests unchanged and passing |
 | T56j | **Controlling agent** | Proposes assignments and repostings (parked), new centers as change requests, explains plan/actual variances; evaluation suite; never approves or locks |
 | T56k | **Cost object custom fields** | ADR-0046's `cost_object` reference type, checked on write; the compiler's refusal lifted; ADR-0046 amended |
-| T56l | **Document splitting** (only if P3 says so) | Its own ADR amendment first; from a fiscal year start |
+| T56l | **Document splitting** (deferred, P3) | Not built now; if needed later, its own ADR amendment first, from a fiscal year start |
 
-T56a-T56f and T56h are the pilot's must-haves; T56g is too if P5 is (a)
-(the tracker's exit criterion names plan against actual). T56i, T56j and
+T56a-T56h are the pilot's must-haves (T56g because the tracker's exit
+criterion names plan against actual, P5). T56i, T56j and
 T56k can follow the pilot's first close. T56d needs T52's posting steps in
 main and runs when no other lane is changing `journal.go`.
 
-## Decisions for the product owner
+## Decisions taken (product owner, 2026-10-21)
+All eight as recommended:
+- **P1** (a): centers are master data maintained through the API with
+  change requests (§11). Texts, descriptions and the person responsible
+  need no approval (audited); creating a center, a new or re-dated validity
+  period, a lock, and moving a center (profit center, company assignment,
+  standard hierarchy node) need one controller with
+  `ledger.cost_center.approve` who is not the requester. Agents may propose
+  but never approve.
+- **P2** (a): with profit center accounting on for a company, every P&L line
+  carries a profit center, falling back to the company's default profit
+  center.
+- **P3** (a): no document splitting now; if a balance sheet per profit
+  center or segment is needed later, it is introduced from a fiscal year
+  start (T56l, deferred).
+- **P4** (a): segments are master data now and are stored on lines, derived
+  from the profit center.
+- **P5** (a): a minimal plan per center, account and period with plan
+  against actual in T56 (T56g).
+- **P6** (a): every `primary_cost` account (expense by default) needs a cost
+  center; exceptions are set to `none` by the pack or the tenant.
+- **P7** (a): one current hierarchy; reports restate history under it.
+- **P8** (a): company-level access as today; per-center access is a later
+  step if the pilot asks.
+
+The options as proposed:
+
 | # | Decision | Options | Recommendation |
 |---|---|---|---|
 | P1 | Where cost and profit centers are maintained | (a) master-data API with change requests and one approver for financially relevant changes; (b) the configuration document (tier 3/4) | (a): centers change often and are a controller's job; the rules about them (categories, cost element categories, defaults) stay in configuration |
