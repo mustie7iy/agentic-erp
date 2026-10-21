@@ -4156,14 +4156,14 @@
        },
        {
         "s": "T",
-        "t": "Canada pack 2026.2: the tax codes (GST/HST/QST/PST) in the component schema of T61a, from packs/ca/TAX-PENDING-T61a.md, with all their dated rates; released beside 2026.1 (which stays as released); signed off by the tax specialist before the pilot",
-        "r": "packs/ca/2026.2 · packs/released.sha256 · ADR-0048 · ADR-0049 · T62g",
+        "t": "UAE pack",
+        "r": "T62f",
         "c": []
        },
        {
         "s": "T",
-        "t": "UAE pack",
-        "r": "T62f",
+        "t": "Canada pack 2026.2: the tax codes (GST/HST/QST/PST) in the component schema of T61a, from packs/ca/TAX-PENDING-T61a.md, with all their dated rates; released beside 2026.1 (which stays as released); signed off by the tax specialist before the pilot",
+        "r": "packs/ca/2026.2 · packs/released.sha256 · ADR-0048 · ADR-0049 · T62g",
         "c": []
        }
       ]
