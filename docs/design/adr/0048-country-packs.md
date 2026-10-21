@@ -54,10 +54,14 @@ settings cannot simply overwrite their document.
   Nothing is activated: submission, evidence, approval and activation are
   the change request's, and its tier is the draft's. The company must be
   the code of a legal entity the caller has company access to (422
-  `config.unknown_company` otherwise, the two alike); a pack for another
-  country is 422 `config.pack_not_applicable`, an older version than the
-  adopted one 409 `config.pack_downgrade`. A pack without sign-off may be
-  applied, with its note, as the pilot gate is on the pack, not the API.
+  `config.unknown_company` otherwise, the two alike), and that legal entity
+  active (422 `config.legal_entity_not_active`, as postings refuse it); a
+  pack for another country is 422 `config.pack_not_applicable`, an older
+  version than the adopted one 409 `config.pack_downgrade`. **In production
+  a pack without its tax specialist's sign-off is refused** (409
+  `config.pack_not_signed_off`, the server's production switch that also
+  refuses EBICS, product owner 2026-10-20); elsewhere it is applied with a
+  note, so a pack can be tried in test and staging before it is signed off.
 - **Upgrades are a three-way merge**: base = the pack version the company
   adopted (empty on first adoption), the tenant's current document, and the
   new pack version, matched by account number, tax code, number range

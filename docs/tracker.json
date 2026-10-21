@@ -3711,7 +3711,7 @@
        },
        {
         "s": "D",
-        "t": "API: list packs and apply one as a configuration change request: GET /v1/country-packs (version, released hash, sign-off, sources, contents; paged, config.change.read); POST /v1/country-pack-applications applies a version to a company of the caller's company access on a date and fiscal year and stores the draft as a draft change request on the active version, with the merge's notes on it (change_request.notes); x-autonomy propose as createChangeRequest; nothing activated",
+        "t": "API: list packs and apply one as a configuration change request: GET /v1/country-packs (version, released hash, sign-off, sources, contents; paged, config.change.read); POST /v1/country-pack-applications applies a version to an active company of the caller's company access (in production only a signed-off pack) on a date and fiscal year and stores the draft as a draft change request on the active version, with the merge's notes on it (change_request.notes); x-autonomy propose as createChangeRequest; nothing activated",
         "r": "listCountryPacks · applyCountryPack · configuration.ApplyCountryPack · migration 000105 · ADR-0048 · T62d",
         "c": []
        },

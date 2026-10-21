@@ -541,7 +541,7 @@ func (s *server) newAPI() error {
 		Limits: ratelimit.New(cfg.TenantQuota, cfg.PrincipalQuota), RequestTimeout: cfg.RequestTimeout,
 		Metrics: s.metrics, Tracer: s.tp, Meter: otel.GetMeterProvider(), Now: time.Now,
 		RequireBoundAgents: cfg.Environment == config.Production, EvalCell: cfg.EvalCell,
-		RefuseEBICS: cfg.Environment == config.Production,
+		RefuseEBICS: cfg.Environment == config.Production, RefuseUnsignedPacks: cfg.Environment == config.Production,
 	}
 	if s.gateway != nil {
 		s.apiCfg.Model = s.gateway

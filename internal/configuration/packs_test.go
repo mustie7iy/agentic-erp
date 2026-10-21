@@ -23,8 +23,16 @@ import (
 // packs: US 2026.1 (signed off) and 2026.2 (not yet).
 func packEnv(t *testing.T, doc *config.Config) env {
 	t.Helper()
+	return packEnvWith(t, doc, false)
+}
+
+// packEnvWith is packEnv, refusing packs without sign-off as production does.
+func packEnvWith(t *testing.T, doc *config.Config, production bool) env {
+	t.Helper()
 	e := setup(t, true)
-	e.API = apitest.NewWith(t, func(c *app.Config) { c.Packs = apitest.Packs(t, "testdata/packs") })
+	e.API = apitest.NewWith(t, func(c *app.Config) {
+		c.Packs, c.RefuseUnsignedPacks = apitest.Packs(t, "testdata/packs"), production
+	})
 	if err := e.bootstrap(t, jsonOf(t, doc)); err != nil {
 		t.Fatalf("bootstrap the configuration: %v", err)
 	}
@@ -251,6 +259,11 @@ func TestApplyCountryPackRefusals(t *testing.T) {
 		e.ten.AllCompanies(t, e.ten.Agent)
 		agent.Must(201, "POST", "/v1/country-pack-applications", apply("2026.1", "1000"), "")
 	})
+	t.Run("legal entity not active", func(t *testing.T) {
+		blocked := packEnv(t, document(t))
+		pgtest.Exec(t, `UPDATE tenancy.legal_entity SET status = 'blocked', version = version + 1 WHERE tenant_id = $1 AND code = '1000'`, blocked.ten.ID)
+		blocked.Problem(422, "config.legal_entity_not_active", "POST", "/v1/country-pack-applications", apply("2026.1", "1000"), "")
+	})
 	t.Run("downgrade", func(t *testing.T) {
 		newer := packEnv(t, adopted(t, "2026.2"))
 		newer.Problem(409, "config.pack_downgrade", "POST", "/v1/country-pack-applications", apply("2026.1", "1000"), "")
@@ -293,4 +306,12 @@ func packEndpoints(t *testing.T) *configuration.Endpoints {
 	h := endpoints()
 	h.Packs = lib
 	return h
+}
+
+// In production a pack no tax specialist has signed off is refused (the
+// pilot gate); elsewhere it is applied with a note (TestApplyCountryPackUpgrade).
+func TestApplyCountryPackSignOffInProduction(t *testing.T) {
+	e := packEnvWith(t, document(t), true)
+	e.Problem(409, "config.pack_not_signed_off", "POST", "/v1/country-pack-applications", apply("2026.2", "1000"), "")
+	e.Must(201, "POST", "/v1/country-pack-applications", apply("2026.1", "1000"), "")
 }

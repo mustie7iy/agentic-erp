@@ -122,6 +122,9 @@ type Config struct {
 	// certification, on a cell that runs live evaluations (ERP_EVAL_CELL,
 	// ADR-0039): a type's first run needs agents at its suite's levels.
 	EvalCell bool
+	// RefuseUnsignedPacks refuses applying a country pack no tax specialist
+	// has signed off (production, ADR-0048); elsewhere packs can be tried.
+	RefuseUnsignedPacks bool
 	// Packs are the country packs the API lists and applies (ADR-0048);
 	// nil: those embedded in the image (packs.FS). Tests release their own.
 	Packs fs.FS
@@ -144,7 +147,8 @@ func New(cfg Config) (http.Handler, error) {
 		operationsAPI: &operations.Endpoints{Pages: cfg.Pages, Workflows: cfg.Workflows, Log: cfg.Log},
 		tenancyAPI:    &tenancy.Endpoints{Pages: cfg.Pages},
 		identityAPI:   &identity.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Certifications: certifications(cfg)},
-		configAPI:     &configuration.Endpoints{Pages: cfg.Pages, Packs: library, Dependencies: Configuration(cfg)},
+		configAPI: &configuration.Endpoints{Pages: cfg.Pages, Packs: library, RefuseUnsignedPacks: cfg.RefuseUnsignedPacks,
+			Dependencies: Configuration(cfg)},
 		partnerAPI: &partner.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys,
 			PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, Approvals: opener()},
 		ledgerAPI: &ledger.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{},

@@ -32,7 +32,10 @@ type Handler interface {
 	// Merges a country pack version into the active configuration for one company (ADR-0048: three-way,
 	// from the version the company adopted) and creates the result as a change request in status `draft`,
 	// based on the active version, with the merge's notes for the reviewers. Nothing is activated: the
-	// change request is submitted, simulated, approved and activated like any other.
+	// change request is submitted, simulated, approved and activated like any other. In production a pack
+	// no tax specialist has signed off is refused (409 `config.pack_not_signed_off`); elsewhere it is
+	// applied with a note, so packs can be tried before sign-off. The company's legal entity must be
+	// active.
 	//
 	// POST /v1/country-pack-applications
 	ApplyCountryPack(ctx context.Context, req *CountryPackApplication, params ApplyCountryPackParams) (ApplyCountryPackRes, error)

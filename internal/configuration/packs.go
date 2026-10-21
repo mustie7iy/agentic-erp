@@ -74,7 +74,8 @@ func packToAPI(lib *countrypack.Library, p *countrypack.Pack) gen.CountryPack {
 // ApplyCountryPack implements POST /v1/country-pack-applications.
 func (e *Endpoints) ApplyCountryPack(ctx context.Context, req *gen.CountryPackApplication, _ gen.ApplyCountryPackParams) (gen.ApplyCountryPackRes, error) {
 	c, err := ApplyCountryPack(ctx, e.Dependencies, e.Packs, PackApplication{Country: req.Country, Version: req.Version, Company: req.Company,
-		On: req.AppliedOn, FiscalYear: int(req.FiscalYear), Title: req.Title.Value, Rationale: req.Rationale.Value})
+		On: req.AppliedOn, FiscalYear: int(req.FiscalYear), Title: req.Title.Value, Rationale: req.Rationale.Value,
+		RequireSignOff: e.RefuseUnsignedPacks})
 	if err != nil {
 		return nil, err
 	}
@@ -88,6 +89,9 @@ type PackApplication struct {
 	On               time.Time // the date of application
 	FiscalYear       int       // the year the pack's number ranges are created for
 	Title, Rationale string    // an empty title names the pack and the company
+	// RequireSignOff refuses a pack no tax specialist has signed off
+	// (production); elsewhere it is applied with a note, to be tried.
+	RequireSignOff bool
 }
 
 // ApplyCountryPack merges a pack version into the active document for one
@@ -102,9 +106,9 @@ func ApplyCountryPack(ctx context.Context, deps Dependencies, lib *countrypack.L
 	if err != nil {
 		return ChangeRequest{}, err
 	}
-	pack := lib.Get(in.Country, in.Version)
-	if pack == nil {
-		return ChangeRequest{}, problem.NotFoundOf("country pack")
+	pack, err := applicable(lib, in)
+	if err != nil {
+		return ChangeRequest{}, err
 	}
 	if err := accessible(ctx, deps.LegalEntities, in.Company); err != nil {
 		return ChangeRequest{}, err
@@ -133,21 +137,40 @@ func ApplyCountryPack(ctx context.Context, deps Dependencies, lib *countrypack.L
 			"hash": lib.Hash(pack), "company": in.Company, "applied_on": in.On.Format(time.DateOnly), "fiscal_year": in.FiscalYear}})
 }
 
+// applicable is the pack to apply: one in the image and, where sign-off is
+// required, signed off by a tax specialist (the pilot gate, ADR-0048).
+func applicable(lib *countrypack.Library, in PackApplication) (*countrypack.Pack, error) {
+	pack := lib.Get(in.Country, in.Version)
+	switch {
+	case pack == nil:
+		return nil, problem.NotFoundOf("country pack")
+	case in.RequireSignOff && !pack.SignedOff():
+		return nil, problem.Conflict("config.pack_not_signed_off", fmt.Sprintf(
+			"No tax specialist has signed off the %s country pack %s; it cannot be applied in production until one has.", pack.Manifest.Country, pack.Manifest.Version))
+	}
+	return pack, nil
+}
+
 // accessible refuses a company code of no legal entity and one of a legal
 // entity outside the caller's company access alike, so codes cannot be
-// probed (04-api-design §4.9).
+// probed (04-api-design §4.9); a legal entity that is not active is
+// refused as postings refuse it.
 func accessible(ctx context.Context, les LegalEntities, company string) error {
 	access, err := authz.Companies(ctx)
 	if err != nil {
 		return err
 	}
-	id, _, ok, err := les.LegalEntityByCode(ctx, company)
+	id, status, ok, err := les.LegalEntityByCode(ctx, company)
 	if err != nil {
 		return err
 	}
-	if !ok || !access.Allows(id) {
+	switch {
+	case !ok || !access.Allows(id):
 		return problem.Unprocessable("config.unknown_company", "There is no legal entity with this company code that you have access to.",
 			problem.FieldError{Field: "company", Code: "not_found", Message: "the company code of a legal entity you have access to"})
+	case status != "active":
+		return problem.Unprocessable("config.legal_entity_not_active", "The legal entity is "+status+"; a country pack is applied to an active one.",
+			problem.FieldError{Field: "company", Code: "not_active", Message: "an active legal entity"})
 	}
 	return nil
 }

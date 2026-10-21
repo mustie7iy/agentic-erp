@@ -29,6 +29,9 @@ import (
 type Endpoints struct {
 	Pages *pagination.Codec
 	Packs *countrypack.Library // the country packs in the image (ADR-0048); required by the country pack operations
+	// RefuseUnsignedPacks refuses applying a country pack without its tax
+	// specialist's sign-off (production, ADR-0048).
+	RefuseUnsignedPacks bool
 	Dependencies
 }
 
