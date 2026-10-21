@@ -54,7 +54,7 @@ Canadian bank may only offer BAI2.
   missing statement arrives or a person resolves the gap.
 - **Accounts.** A house bank has, besides its clearing account
   (`gl_account`), a main bank account (`main_gl_account`, stored as the
-  nullable `payments.house_bank.main_gl_account_id`, 000105) and an
+  nullable `payments.house_bank.main_gl_account_id`, 000119) and an
   incoming payments clearing account (`incoming_gl_account`,
   `incoming_gl_account_id`). A bank without a main account has its
   statements imported but never posted. The accounts are plain asset
@@ -133,7 +133,7 @@ Canadian bank may only offer BAI2.
   `ledger.open_items_account_posted`, and the activation rolls back. An
   entry committed while the activation itself runs is indistinguishable
   from one posted just after it, and is an open item like it.
-- Import (T49c, 000106): `POST /v1/bank-statements` takes the format
+- Import (T49c, 000120): `POST /v1/bank-statements` takes the format
   (`camt.053` or `mt940`), the house bank and the file (at most 4 MB) as a
   form; nothing of the upload names a path. A statement must be of the
   house bank's account (its IBAN, or account number) and currency (422
@@ -171,7 +171,7 @@ Canadian bank may only offer BAI2.
   agent's import is refused with 403 `identity.agent_not_allowed` by the
   handler: `x-agent: false` would refuse integrations' service principals
   too.
-- SFTP fetch (T49d, 000107, 000108): a `bank_sftp` connector names the
+- SFTP fetch (T49d, 000121, 000122): a `bank_sftp` connector names the
   directory the bank leaves statements in and the one they are moved to
   (`statements_directory`, `statements_archive`: both or neither,
   absolute, not the same). The workflow dispatcher starts, once per
@@ -215,7 +215,7 @@ Canadian bank may only offer BAI2.
   without retries. The gauges `erp_bank_statement_files_refused` and
   `erp_bank_statement_files_unarchived` (imported over an hour ago and not
   yet moved) show what needs a person.
-- Matching (T49e, 000109): the rules run when a statement is imported, in
+- Matching (T49e, 000123): the rules run when a statement is imported, in
   the import's transaction, and again on `POST /v1/bank-statements/{id}:match`,
   over the lines still `unmatched` and those a rule left `open`, in line
   order, under the house bank's statement lock. An open line is compared
@@ -244,7 +244,7 @@ Canadian bank may only offer BAI2.
   with `counterparty`, the payee's IBAN or holder's name (case aside), the
   tolerance applying to a statement in the company's currency (another is
   matched exactly; accepted, coordinator 2026-10-20). Bank files written
-  before 000109 have no message id and are not found by `batch_id`
+  before 000123 have no message id and are not found by `batch_id`
   (accepted before the pilot). A rule that finds candidates records a match
   (`payments.statement_match`, kind `rule`, its rule and a reason saying
   what it found; its targets in `statement_match_target`, by candidate):

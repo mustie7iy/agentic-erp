@@ -1410,18 +1410,18 @@ in production until EBICS is certified with a bank (T44d): the control role
 settings or secret reference (000101), and a production cell refuses to
 start while one is active; disabling it is the remedy.
 
-Bank statements (ADR-0047, T49c, 000106) are imported per house bank from
+Bank statements (ADR-0047, T49c, 000120) are imported per house bank from
 the bank's camt.053 or MT940 file: `payments.bank_statement` once per
 house bank and statement key (`bank_statement_key_once`) and once per file
 hash and position (`bank_statement_file_once`), so the same file again is
 the first import; its lines (`bank_statement_line`, signed minor units,
 the transactions in `details`) and the lines' matches
-(`statement_match`, T49e, 000109: one live match per line, made by a rule
+(`statement_match`, T49e, 000123: one live match per line, made by a rule
 (naming it), a person or an agent, `open` with candidates for a person or
 `matched`, `excluded` only by a person, `rejected` when a person's decision
 replaces it; its targets in `statement_match_target`, per candidate a
 payment, with the bank file of a batch booking, or a posting rule). A bank
-file records its pain.001 message id (`bank_file.message_id`, 000109), which
+file records its pain.001 message id (`bank_file.message_id`, 000123), which
 a batch booking carries. A
 statement whose opening balance is not the closing balance of the bank's
 statement before it (`previous_statement_id`) is in `gap`; a statement
@@ -1431,8 +1431,8 @@ accounting evidence: it is kept in the object store under the tenant and
 its hash (`file_ref`, `tenants/<id>/bank-statements/<sha256>`), written
 once, encrypted by the store and locked for the retention of financial
 records.
-Statement files fetched from a house bank's SFTP channel (T49d, 000107,
-000108) are recorded once per house bank and content
+Statement files fetched from a house bank's SFTP channel (T49d, 000121,
+000122) are recorded once per house bank and content
 (`payments.statement_fetch`, `statement_fetch_file_once`): `imported`, then
 `archived` once moved to the archive directory, `refused` with the
 import's reason, or `changed_after_import` with the content the file holds

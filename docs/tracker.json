@@ -870,8 +870,8 @@
       "c": [
        {
         "s": "D",
-        "t": "ADR-0047; house banks' main bank and incoming payments accounts (000105); open-item managed clearing accounts, refused for an account with postings; posting rules by transaction code, matching rules, approval tiers with no default",
-        "r": "ADR-0047 · companies[].bank_statements · house_bank.main_gl_account/incoming_gl_account · chart_of_accounts[].open_items · ledger.Setup.Check and Apply · 000105 · T49a",
+        "t": "ADR-0047; house banks' main bank and incoming payments accounts (000119); open-item managed clearing accounts, refused for an account with postings; posting rules by transaction code, matching rules, approval tiers with no default",
+        "r": "ADR-0047 · companies[].bank_statements · house_bank.main_gl_account/incoming_gl_account · chart_of_accounts[].open_items · ledger.Setup.Check and Apply · 000119 · T49a",
         "c": []
        },
        {
@@ -883,19 +883,19 @@
        {
         "s": "D",
         "t": "Statement tables, upload, idempotency by file hash and statement key, balance continuity (gap until the missing statement arrives), parse errors with line numbers; the original file kept as evidence, encrypted and locked, and downloadable",
-        "r": "db/migrations/000106 · payments.bank_statement · bank_statement_line · statement_match · POST/GET /v1/bank-statements · GET /v1/bank-statements/{id}/file (the file kept, locked) · payments.statement.import/read · BankStatementImported · BankStatementGapClosed · BankStatementGapFound · T49c",
+        "r": "db/migrations/000120 · payments.bank_statement · bank_statement_line · statement_match · POST/GET /v1/bank-statements · GET /v1/bank-statements/{id}/file (the file kept, locked) · payments.statement.import/read · BankStatementImported · BankStatementGapClosed · BankStatementGapFound · T49c",
         "c": []
        },
        {
         "s": "D",
         "t": "SFTP fetch per house bank once per period (dispatcher-started workflow), each file imported through the upload's path and archived after import; fetched files recorded once (imported, archived, refused), refusals reported once, per-file failures do not stop the others",
-        "r": "db/migrations/000107-000108 · payments.statement_fetch · bank_sftp statements_directory/statements_archive · FetchBankStatements · ERP_STATEMENT_FETCH_INTERVAL · BankStatementFileRefused (also a file of no house bank on the channel: payments.statement_of_no_bank) · BankStatementFileChanged (changed_after_import, read again before the move) · erp_bank_statement_files_refused/unarchived · T49d",
+        "r": "db/migrations/000121-000122 · payments.statement_fetch · bank_sftp statements_directory/statements_archive · FetchBankStatements · ERP_STATEMENT_FETCH_INTERVAL · BankStatementFileRefused (also a file of no house bank on the channel: payments.statement_of_no_bank) · BankStatementFileChanged (changed_after_import, read again before the move) · erp_bank_statement_files_refused/unarchived · T49d",
         "c": []
        },
        {
         "s": "D",
         "t": "Rule matching in priority order (end-to-end id, batch id, transaction code, amount within tolerance, window and counterparty), exactly one candidate matches and more stay open for a person; on import and on demand, deterministic and idempotent; manual match and exclusion by people, audited",
-        "r": "db/migrations/000109 · payments.statement_match · statement_match_target · bank_file.message_id · POST /v1/bank-statements/{id}:match · GET /v1/bank-statements/{id}/matches · POST /v1/bank-statements/{id}/lines/{line_no}:match/:exclude · payments.statement.match · open lines taken up again on a run · line decisions answer the statement ETag · statement run agent-callable, line decisions x-agent: false · BankStatementLineMatched · BankStatementLineExcluded · T49e",
+        "r": "db/migrations/000123 · payments.statement_match · statement_match_target · bank_file.message_id · POST /v1/bank-statements/{id}:match · GET /v1/bank-statements/{id}/matches · POST /v1/bank-statements/{id}/lines/{line_no}:match/:exclude · payments.statement.match · open lines taken up again on a run · line decisions answer the statement ETag · statement run agent-callable, line decisions x-agent: false · BankStatementLineMatched · BankStatementLineExcluded · T49e",
         "c": []
        },
        {

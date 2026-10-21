@@ -3,7 +3,7 @@ DELETE FROM identity.role_permission WHERE permission_code = 'payments.statement
 DELETE FROM ref.permission WHERE code = 'payments.statement.match';
 DROP TABLE payments.statement_match_target;
 DROP TABLE payments.statement_match;
--- 000106's table, empty again: the matches above are lost with the step.
+-- 000120's table, empty again: the matches above are lost with the step.
 CREATE TABLE payments.statement_match (
   tenant_id           uuid NOT NULL,
   id                  uuid NOT NULL,
