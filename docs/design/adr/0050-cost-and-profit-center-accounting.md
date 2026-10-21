@@ -201,6 +201,10 @@ As built in T56a (migration 000125):
 - **In use.** The refusals that need postings (`cost_center_period_in_use`,
   `cost_center_posted_after`, `segment_in_use`) come with T56d, when lines
   carry the centers; until then no center is in use.
+  A change joins neighbouring periods that end up alike, so a period whose
+  attributes did not change may still be retired and re-inserted; T56d's
+  in-use check therefore compares the attributes in force on each posted
+  date, not period rows.
 
 - **Codes**: `^[0-9A-Z_-]{1,10}$`, as SAP's `KOSTL`/`PRCTR` (10 characters,
   migrated with leading zeros stripped by the existing ALPHA rule).
