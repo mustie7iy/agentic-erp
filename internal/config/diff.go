@@ -64,6 +64,13 @@ var tierRules = []struct {
 	{rx(`^companies\[\*\]\.ledgers`), TierStructural},
 	// Flagging an account for revaluation changes what runs post (ADR-0042).
 	{rx(`^companies\[\*\]\.chart_of_accounts\[\*\]\.revalue_foreign_currency$`), TierPostingRelated},
+	// Which cost object an account's lines need, and the default cost
+	// center, change what postings carry or refuse: tier 3, simulated
+	// (ADR-0050 §4). Turning cost or profit center accounting on is
+	// structural: from then on every year's P&L must be complete by center.
+	{rx(`^companies\[\*\]\.chart_of_accounts\[\*\]\.cost_element$`), TierPostingRelated},
+	{rx(`^companies\[\*\]\.(default_assignments|default_profit_center)`), TierPostingRelated},
+	{rx(`^companies\[\*\]\.(cost_center_accounting|profit_center_accounting)$`), TierStructural},
 	{rx(`^companies\[\*\]\.chart_of_accounts`), TierStructural},
 	{rx(`^companies\[\*\]\.(name|country)$`), TierCosmetic},
 	{rx(`^companies\[\*\]\.tax_codes\[\*\]\.description$`), TierCosmetic},
@@ -108,6 +115,11 @@ var tierRules = []struct {
 	// (due dates, payment runs), as payment terms' days do (ADR-0048).
 	{rx(`^calendars\[\*\]\.holidays\[\*\]\.name$`), TierCosmetic},
 	{rx(`^calendars`), TierOperational},
+	// A category's name changes nothing posted; what may be posted to its
+	// cost centers and the locks they start with do (ADR-0050 §11: the
+	// rules about centers are configuration at tier 3 or 4).
+	{rx(`^controlling\.cost_center_categories\[\*\]\.name$`), TierCosmetic},
+	{rx(`^controlling(\.|$)`), TierPostingRelated},
 }
 
 func rx(s string) *regexp.Regexp { return regexp.MustCompile(s) }
@@ -141,9 +153,10 @@ var listKeys = map[string]string{
 	// The analytics section's; a metric's own dimensions are names, listed
 	// by position.
 	"metrics": "name", "dimensions": "name",
-	"packs":     "company",
-	"calendars": "company",
-	"holidays":  "date",
+	"packs":                  "company",
+	"calendars":              "company",
+	"holidays":               "date",
+	"cost_center_categories": "code", "default_assignments": "account",
 }
 
 // Diff lists every setting that differs from old to new, with its tier.

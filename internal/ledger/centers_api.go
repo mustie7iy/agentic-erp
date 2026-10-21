@@ -64,7 +64,7 @@ func segmentToAPI(s Segment) gen.Segment {
 func changeToAPI(c CenterChange) gen.CenterChange {
 	out := gen.CenterChange{ID: c.ID, Version: c.Version, CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(c.UpdatedBy), CostCenterID: apitypes.OptUUID(c.CostCenterID), ProfitCenterID: apitypes.OptUUID(c.ProfitCenterID),
-		Kind: c.Kind, Payload: gen.CenterChangePayload(apitypes.EncodeObject(c.Payload)), Reason: c.Reason, Status: c.Status,
+		HierarchyID: apitypes.OptUUID(c.HierarchyID), Kind: c.Kind, Payload: gen.CenterChangePayload(apitypes.EncodeObject(c.Payload)), Reason: c.Reason, Status: c.Status,
 		WorkflowRequestID: apitypes.OptUUID(c.WorkflowRequestID), RequestedBy: c.RequestedBy}
 	if c.AppliedAt != nil {
 		out.AppliedAt.SetTo(*c.AppliedAt)
@@ -108,7 +108,7 @@ func optBool(b gen.OptBool) *bool { return apitypes.Ptr[bool](b) }
 // CreateCostCenter implements POST /v1/cost-centers.
 func (e *Endpoints) CreateCostCenter(ctx context.Context, req *gen.CostCenterCreate, _ gen.CreateCostCenterParams) (gen.CreateCostCenterRes, error) {
 	c, err := e.RequestCostCenter(ctx, NewCostCenter{LegalEntityID: req.LegalEntityID, Code: req.Code, Texts: texts(req.Name, req.Responsible, req.Description),
-		Category: req.Category, ProfitCenterID: apitypes.Ptr[uuid.UUID](req.ProfitCenterID), ValidFrom: req.ValidFrom, ValidTo: dateOr(req.ValidTo), Reason: req.Reason})
+		Category: req.Category, ProfitCenterID: apitypes.Ptr[uuid.UUID](req.ProfitCenterID), StandardNodeID: req.StandardNodeID, ValidFrom: req.ValidFrom, ValidTo: dateOr(req.ValidTo), Reason: req.Reason})
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +226,7 @@ func (e *Endpoints) MoveCostCenter(ctx context.Context, req *gen.CostCenterMove,
 // CreateProfitCenter implements POST /v1/profit-centers.
 func (e *Endpoints) CreateProfitCenter(ctx context.Context, req *gen.ProfitCenterCreate, _ gen.CreateProfitCenterParams) (gen.CreateProfitCenterRes, error) {
 	c, err := e.RequestProfitCenter(ctx, NewProfitCenter{Code: req.Code, Texts: texts(req.Name, req.Responsible, req.Description),
-		SegmentID: apitypes.Ptr[uuid.UUID](req.SegmentID), LegalEntityIDs: req.LegalEntityIds, ValidFrom: req.ValidFrom, ValidTo: dateOr(req.ValidTo),
+		SegmentID: apitypes.Ptr[uuid.UUID](req.SegmentID), LegalEntityIDs: req.LegalEntityIds, StandardNodeID: req.StandardNodeID, ValidFrom: req.ValidFrom, ValidTo: dateOr(req.ValidTo),
 		Reason: req.Reason})
 	if err != nil {
 		return nil, err
@@ -402,8 +402,8 @@ func (e *Endpoints) ListCenterChanges(ctx context.Context, params gen.ListCenter
 	if err != nil {
 		return nil, err
 	}
-	cc, pc := apitypes.Ptr[uuid.UUID](params.CostCenterID), apitypes.Ptr[uuid.UUID](params.ProfitCenterID)
-	scope := fmt.Sprintf("listCenterChanges|%s|%s|%s", cc, pc, params.Status.Value)
+	cc, pc, h := apitypes.Ptr[uuid.UUID](params.CostCenterID), apitypes.Ptr[uuid.UUID](params.ProfitCenterID), apitypes.Ptr[uuid.UUID](params.HierarchyID)
+	scope := fmt.Sprintf("listCenterChanges|%s|%s|%s|%s", cc, pc, h, params.Status.Value)
 	ks, err := e.Pages.Keyset(changeSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
@@ -413,8 +413,9 @@ func (e *Endpoints) ListCenterChanges(ctx context.Context, params gen.ListCenter
 		return nil, err
 	}
 	q, args := ks.SQL(`SELECT `+changeColumns+` FROM ledger.center_change ch WHERE `+visibleChanges+`
-		AND ($3::uuid IS NULL OR ch.cost_center_id = $3) AND ($4::uuid IS NULL OR ch.profit_center_id = $4) AND ($5 = '' OR ch.status = $5)`,
-		[]any{access.All, access.IDs, cc, pc, params.Status.Value})
+		AND ($3::uuid IS NULL OR ch.cost_center_id = $3) AND ($4::uuid IS NULL OR ch.profit_center_id = $4) AND ($5 = '' OR ch.status = $5)
+		AND ($6::uuid IS NULL OR ch.hierarchy_id = $6)`,
+		[]any{access.All, access.IDs, cc, pc, params.Status.Value, h})
 	rows, _ := tx.Query(ctx, q, args...)
 	cs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (CenterChange, error) { return scanChange(r) })
 	if err != nil {

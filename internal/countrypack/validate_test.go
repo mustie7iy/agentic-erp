@@ -37,6 +37,7 @@ func TestValidate(t *testing.T) {
 		{"duplicate account", func(p *Pack) { p.Accounts.Accounts[1].Number = "1000" }, "accounts.yaml: accounts[1000]"},
 		{"account name", func(p *Pack) { p.Accounts.Accounts[0].Name = "" }, "accounts.yaml: accounts[1000].name"},
 		{"account type", func(p *Pack) { p.Accounts.Accounts[0].Type = "cash" }, "accounts.yaml: accounts[1000].type"},
+		{"cost element", func(p *Pack) { p.Accounts.Accounts[0].CostElement = config.CostElementPrimaryCost }, "accounts.yaml: accounts[1000].cost_element"},
 		{"determination unresolved", func(p *Pack) { p.Accounts.AccountDetermination.Bank = "1999" }, "accounts.yaml: account_determination.bank"},
 		{"duplicate tax code", func(p *Pack) { p.Tax.TaxCodes[1].Code = "V1" }, "tax.yaml: tax_codes[V1]"},
 		{"tax description", func(p *Pack) { p.Tax.TaxCodes[0].Description = "" }, "tax.yaml: tax_codes[V1].description"},

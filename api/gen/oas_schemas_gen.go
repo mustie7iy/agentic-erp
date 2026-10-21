@@ -3306,6 +3306,7 @@ func (*BadRequestHeaders) acceptBankStatementLineProposalRes()  {}
 func (*BadRequestHeaders) activateChangeRequestRes()            {}
 func (*BadRequestHeaders) activateLegalEntityRes()              {}
 func (*BadRequestHeaders) activateOrgUnitRes()                  {}
+func (*BadRequestHeaders) addHierarchyNodeRes()                 {}
 func (*BadRequestHeaders) applyCountryPackRes()                 {}
 func (*BadRequestHeaders) approveApprovalRequestRes()           {}
 func (*BadRequestHeaders) assignProfitCenterRes()               {}
@@ -3336,6 +3337,7 @@ func (*BadRequestHeaders) createContractRes()                   {}
 func (*BadRequestHeaders) createCostCenterRes()                 {}
 func (*BadRequestHeaders) createDownPaymentRequestRes()         {}
 func (*BadRequestHeaders) createExchangeRateRes()               {}
+func (*BadRequestHeaders) createHierarchyRes()                  {}
 func (*BadRequestHeaders) createLegalEntityRes()                {}
 func (*BadRequestHeaders) createMigrationRunRes()               {}
 func (*BadRequestHeaders) createOrgUnitRes()                    {}
@@ -3390,6 +3392,8 @@ func (*BadRequestHeaders) getDownPaymentRequestRes()            {}
 func (*BadRequestHeaders) getExchangeRateRes()                  {}
 func (*BadRequestHeaders) getFiscalPeriodRes()                  {}
 func (*BadRequestHeaders) getGoodsReceiptRes()                  {}
+func (*BadRequestHeaders) getHierarchyNodeRes()                 {}
+func (*BadRequestHeaders) getHierarchyRes()                     {}
 func (*BadRequestHeaders) getJournalEntryRes()                  {}
 func (*BadRequestHeaders) getLegalEntityRes()                   {}
 func (*BadRequestHeaders) getMatchResultRes()                   {}
@@ -3440,6 +3444,7 @@ func (*BadRequestHeaders) listCompanyAccessRes()                {}
 func (*BadRequestHeaders) listConfigVersionsRes()               {}
 func (*BadRequestHeaders) listConnectorsRes()                   {}
 func (*BadRequestHeaders) listContractsRes()                    {}
+func (*BadRequestHeaders) listCostCenterPathsRes()              {}
 func (*BadRequestHeaders) listCostCentersRes()                  {}
 func (*BadRequestHeaders) listCountryPacksRes()                 {}
 func (*BadRequestHeaders) listDownPaymentRequestsRes()          {}
@@ -3447,6 +3452,7 @@ func (*BadRequestHeaders) listExchangeRatesRes()                {}
 func (*BadRequestHeaders) listFiscalPeriodsRes()                {}
 func (*BadRequestHeaders) listGoodsReceiptsRes()                {}
 func (*BadRequestHeaders) listGrIrBalancesRes()                 {}
+func (*BadRequestHeaders) listHierarchiesRes()                  {}
 func (*BadRequestHeaders) listHouseBanksRes()                   {}
 func (*BadRequestHeaders) listJournalEntriesRes()               {}
 func (*BadRequestHeaders) listLedgerGroupsRes()                 {}
@@ -3466,6 +3472,7 @@ func (*BadRequestHeaders) listPaymentExclusionsRes()            {}
 func (*BadRequestHeaders) listPaymentRunsRes()                  {}
 func (*BadRequestHeaders) listPaymentsRes()                     {}
 func (*BadRequestHeaders) listPrincipalsRes()                   {}
+func (*BadRequestHeaders) listProfitCenterPathsRes()            {}
 func (*BadRequestHeaders) listProfitCentersRes()                {}
 func (*BadRequestHeaders) listPurchaseOrderChangesRes()         {}
 func (*BadRequestHeaders) listPurchaseOrdersRes()               {}
@@ -3488,11 +3495,13 @@ func (*BadRequestHeaders) matchBankStatementLineRes()           {}
 func (*BadRequestHeaders) matchBankStatementRes()               {}
 func (*BadRequestHeaders) matchSupplierInvoiceRes()             {}
 func (*BadRequestHeaders) moveCostCenterRes()                   {}
+func (*BadRequestHeaders) moveHierarchyNodeRes()                {}
 func (*BadRequestHeaders) moveProfitCenterRes()                 {}
 func (*BadRequestHeaders) openFiscalPeriodRes()                 {}
 func (*BadRequestHeaders) parkJournalEntryRes()                 {}
 func (*BadRequestHeaders) pauseWebhookSubscriptionRes()         {}
 func (*BadRequestHeaders) pingWebhookSubscriptionRes()          {}
+func (*BadRequestHeaders) placeInHierarchyRes()                 {}
 func (*BadRequestHeaders) postBankStatementLineRes()            {}
 func (*BadRequestHeaders) postGoodsReceiptRes()                 {}
 func (*BadRequestHeaders) postJournalEntryRes()                 {}
@@ -3514,6 +3523,8 @@ func (*BadRequestHeaders) releaseContractRes()                  {}
 func (*BadRequestHeaders) releasePaymentRunRes()                {}
 func (*BadRequestHeaders) releasePurchaseOrderRes()             {}
 func (*BadRequestHeaders) releaseSupplierInvoiceRes()           {}
+func (*BadRequestHeaders) removeHierarchyNodeRes()              {}
+func (*BadRequestHeaders) renameHierarchyNodeRes()              {}
 func (*BadRequestHeaders) renewContractRes()                    {}
 func (*BadRequestHeaders) replayWebhookDeliveriesRes()          {}
 func (*BadRequestHeaders) reportBankFileStatusRes()             {}
@@ -7452,6 +7463,9 @@ type CenterChange struct {
 	CostCenterID OptUUID `json:"cost_center_id"`
 	// Profit center changed; absent for a cost center's change.
 	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// Hierarchy whose tree the change changes (kinds `node_*` and `place`); a `place` also names its
+	// center.
+	HierarchyID OptUUID `json:"hierarchy_id"`
 	// Kind of change. Open enumeration: clients must accept and preserve values not listed here; values
 	// may be added within /v1.
 	Kind string `json:"kind"`
@@ -7508,6 +7522,11 @@ func (s *CenterChange) GetCostCenterID() OptUUID {
 // GetProfitCenterID returns the value of ProfitCenterID.
 func (s *CenterChange) GetProfitCenterID() OptUUID {
 	return s.ProfitCenterID
+}
+
+// GetHierarchyID returns the value of HierarchyID.
+func (s *CenterChange) GetHierarchyID() OptUUID {
+	return s.HierarchyID
 }
 
 // GetKind returns the value of Kind.
@@ -7583,6 +7602,11 @@ func (s *CenterChange) SetCostCenterID(val OptUUID) {
 // SetProfitCenterID sets the value of ProfitCenterID.
 func (s *CenterChange) SetProfitCenterID(val OptUUID) {
 	s.ProfitCenterID = val
+}
+
+// SetHierarchyID sets the value of HierarchyID.
+func (s *CenterChange) SetHierarchyID(val OptUUID) {
+	s.HierarchyID = val
 }
 
 // SetKind sets the value of Kind.
@@ -7784,6 +7808,193 @@ func (s *CenterChangePayload) init() CenterChangePayload {
 	}
 	return m
 }
+
+// Where a center sits in one hierarchy: the nodes from the root to its leaf.
+// Ref: #/components/schemas/CenterPath
+type CenterPath struct {
+	// Hierarchy.
+	HierarchyID uuid.UUID `json:"hierarchy_id"`
+	// The hierarchy's code.
+	HierarchyCode string `json:"hierarchy_code"`
+	// Whether it is the standard hierarchy.
+	IsStandard bool `json:"is_standard"`
+	// The root first, the center's leaf last.
+	Nodes []CenterPathNode `json:"nodes"`
+}
+
+// GetHierarchyID returns the value of HierarchyID.
+func (s *CenterPath) GetHierarchyID() uuid.UUID {
+	return s.HierarchyID
+}
+
+// GetHierarchyCode returns the value of HierarchyCode.
+func (s *CenterPath) GetHierarchyCode() string {
+	return s.HierarchyCode
+}
+
+// GetIsStandard returns the value of IsStandard.
+func (s *CenterPath) GetIsStandard() bool {
+	return s.IsStandard
+}
+
+// GetNodes returns the value of Nodes.
+func (s *CenterPath) GetNodes() []CenterPathNode {
+	return s.Nodes
+}
+
+// SetHierarchyID sets the value of HierarchyID.
+func (s *CenterPath) SetHierarchyID(val uuid.UUID) {
+	s.HierarchyID = val
+}
+
+// SetHierarchyCode sets the value of HierarchyCode.
+func (s *CenterPath) SetHierarchyCode(val string) {
+	s.HierarchyCode = val
+}
+
+// SetIsStandard sets the value of IsStandard.
+func (s *CenterPath) SetIsStandard(val bool) {
+	s.IsStandard = val
+}
+
+// SetNodes sets the value of Nodes.
+func (s *CenterPath) SetNodes(val []CenterPathNode) {
+	s.Nodes = val
+}
+
+// A node on a center's path.
+// Ref: #/components/schemas/CenterPathNode
+type CenterPathNode struct {
+	// Node.
+	ID uuid.UUID `json:"id"`
+	// Code.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+}
+
+// GetID returns the value of ID.
+func (s *CenterPathNode) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCode returns the value of Code.
+func (s *CenterPathNode) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *CenterPathNode) GetName() string {
+	return s.Name
+}
+
+// SetID sets the value of ID.
+func (s *CenterPathNode) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCode sets the value of Code.
+func (s *CenterPathNode) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *CenterPathNode) SetName(val string) {
+	s.Name = val
+}
+
+// One page of hierarchy paths.
+// Ref: #/components/schemas/CenterPathPage
+type CenterPathPage struct {
+	// The hierarchy paths on this page.
+	Items []CenterPath `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *CenterPathPage) GetItems() []CenterPath {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CenterPathPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *CenterPathPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *CenterPathPage) SetItems(val []CenterPath) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CenterPathPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *CenterPathPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+// CenterPathPageHeaders wraps CenterPathPage with response headers.
+type CenterPathPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           CenterPathPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *CenterPathPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *CenterPathPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *CenterPathPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *CenterPathPageHeaders) GetResponse() CenterPathPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *CenterPathPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *CenterPathPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *CenterPathPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CenterPathPageHeaders) SetResponse(val CenterPathPage) {
+	s.Response = val
+}
+
+func (*CenterPathPageHeaders) listCostCenterPathsRes()   {}
+func (*CenterPathPageHeaders) listProfitCenterPathsRes() {}
 
 // A center's new validity; at least one of the dates.
 // Ref: #/components/schemas/CenterRedate
@@ -9680,6 +9891,7 @@ func (*ConflictHeaders) acceptBankStatementLineProposalRes()  {}
 func (*ConflictHeaders) activateChangeRequestRes()            {}
 func (*ConflictHeaders) activateLegalEntityRes()              {}
 func (*ConflictHeaders) activateOrgUnitRes()                  {}
+func (*ConflictHeaders) addHierarchyNodeRes()                 {}
 func (*ConflictHeaders) applyCountryPackRes()                 {}
 func (*ConflictHeaders) approveApprovalRequestRes()           {}
 func (*ConflictHeaders) assignProfitCenterRes()               {}
@@ -9710,6 +9922,7 @@ func (*ConflictHeaders) createContractRes()                   {}
 func (*ConflictHeaders) createCostCenterRes()                 {}
 func (*ConflictHeaders) createDownPaymentRequestRes()         {}
 func (*ConflictHeaders) createExchangeRateRes()               {}
+func (*ConflictHeaders) createHierarchyRes()                  {}
 func (*ConflictHeaders) createLegalEntityRes()                {}
 func (*ConflictHeaders) createMigrationRunRes()               {}
 func (*ConflictHeaders) createOrgUnitRes()                    {}
@@ -9749,11 +9962,13 @@ func (*ConflictHeaders) matchBankStatementLineRes()           {}
 func (*ConflictHeaders) matchBankStatementRes()               {}
 func (*ConflictHeaders) matchSupplierInvoiceRes()             {}
 func (*ConflictHeaders) moveCostCenterRes()                   {}
+func (*ConflictHeaders) moveHierarchyNodeRes()                {}
 func (*ConflictHeaders) moveProfitCenterRes()                 {}
 func (*ConflictHeaders) openFiscalPeriodRes()                 {}
 func (*ConflictHeaders) parkJournalEntryRes()                 {}
 func (*ConflictHeaders) pauseWebhookSubscriptionRes()         {}
 func (*ConflictHeaders) pingWebhookSubscriptionRes()          {}
+func (*ConflictHeaders) placeInHierarchyRes()                 {}
 func (*ConflictHeaders) postBankStatementLineRes()            {}
 func (*ConflictHeaders) postGoodsReceiptRes()                 {}
 func (*ConflictHeaders) postJournalEntryRes()                 {}
@@ -9775,6 +9990,8 @@ func (*ConflictHeaders) releaseContractRes()                  {}
 func (*ConflictHeaders) releasePaymentRunRes()                {}
 func (*ConflictHeaders) releasePurchaseOrderRes()             {}
 func (*ConflictHeaders) releaseSupplierInvoiceRes()           {}
+func (*ConflictHeaders) removeHierarchyNodeRes()              {}
+func (*ConflictHeaders) renameHierarchyNodeRes()              {}
 func (*ConflictHeaders) renewContractRes()                    {}
 func (*ConflictHeaders) replayWebhookDeliveriesRes()          {}
 func (*ConflictHeaders) reportBankFileStatusRes()             {}
@@ -11207,8 +11424,9 @@ type CostCenterCreate struct {
 	Description OptString `json:"description"`
 	// Person responsible (SAP VERAK), as a name.
 	Responsible string `json:"responsible"`
-	// Cost center category (SAP KOSAR), such as ADMIN or SALES; the configuration names categories and
-	// their lock defaults from T56c.
+	// Cost center category (SAP KOSAR), such as ADMIN or SALES: one of the configuration's
+	// `controlling.cost_center_categories` (T56c), which say whether revenue may carry the cost center and
+	// the locks a new one starts with.
 	Category string `json:"category"`
 	// Profit center.
 	ProfitCenterID OptUUID `json:"profit_center_id"`
@@ -11216,6 +11434,10 @@ type CostCenterCreate struct {
 	ValidFrom time.Time `json:"valid_from"`
 	// End of validity (exclusive); absent: open-ended.
 	ValidTo OptDate `json:"valid_to"`
+	// Leaf node of the tenant's standard hierarchy of this kind where the center is placed when its
+	// creation is approved (ADR-0050 §3: every active center sits in exactly one leaf of it); a node
+	// without child nodes (422 `ledger.hierarchy_change_invalid`).
+	StandardNodeID uuid.UUID `json:"standard_node_id"`
 	// Why; shown to the approver and recorded in the audit trail.
 	Reason string `json:"reason"`
 }
@@ -11263,6 +11485,11 @@ func (s *CostCenterCreate) GetValidFrom() time.Time {
 // GetValidTo returns the value of ValidTo.
 func (s *CostCenterCreate) GetValidTo() OptDate {
 	return s.ValidTo
+}
+
+// GetStandardNodeID returns the value of StandardNodeID.
+func (s *CostCenterCreate) GetStandardNodeID() uuid.UUID {
+	return s.StandardNodeID
 }
 
 // GetReason returns the value of Reason.
@@ -11313,6 +11540,11 @@ func (s *CostCenterCreate) SetValidFrom(val time.Time) {
 // SetValidTo sets the value of ValidTo.
 func (s *CostCenterCreate) SetValidTo(val OptDate) {
 	s.ValidTo = val
+}
+
+// SetStandardNodeID sets the value of StandardNodeID.
+func (s *CostCenterCreate) SetStandardNodeID(val uuid.UUID) {
+	s.StandardNodeID = val
 }
 
 // SetReason sets the value of Reason.
@@ -11487,8 +11719,9 @@ type CostCenterMove struct {
 	ValidFrom time.Time `json:"valid_from"`
 	// New profit center; null: none.
 	ProfitCenterID OptNilUUID `json:"profit_center_id"`
-	// Cost center category (SAP KOSAR), such as ADMIN or SALES; the configuration names categories and
-	// their lock defaults from T56c.
+	// Cost center category (SAP KOSAR), such as ADMIN or SALES: one of the configuration's
+	// `controlling.cost_center_categories` (T56c), which say whether revenue may carry the cost center and
+	// the locks a new one starts with.
 	Category OptString `json:"category"`
 	// Why; shown to the approver and recorded in the audit trail.
 	Reason string `json:"reason"`
@@ -11633,8 +11866,9 @@ type CostCenterPeriod struct {
 	ValidFrom time.Time `json:"valid_from"`
 	// Day after the last day (exclusive); absent: open-ended.
 	ValidTo OptDate `json:"valid_to"`
-	// Cost center category (SAP KOSAR), such as ADMIN or SALES; the configuration names categories and
-	// their lock defaults from T56c.
+	// Cost center category (SAP KOSAR), such as ADMIN or SALES: one of the configuration's
+	// `controlling.cost_center_categories` (T56c), which say whether revenue may carry the cost center and
+	// the locks a new one starts with.
 	Category string `json:"category"`
 	// Profit center, assigned to the cost center's legal entity; absent: lines take the company's default
 	// profit center.
@@ -14357,6 +14591,7 @@ func (*ForbiddenHeaders) acceptBankStatementLineProposalRes()  {}
 func (*ForbiddenHeaders) activateChangeRequestRes()            {}
 func (*ForbiddenHeaders) activateLegalEntityRes()              {}
 func (*ForbiddenHeaders) activateOrgUnitRes()                  {}
+func (*ForbiddenHeaders) addHierarchyNodeRes()                 {}
 func (*ForbiddenHeaders) applyCountryPackRes()                 {}
 func (*ForbiddenHeaders) approveApprovalRequestRes()           {}
 func (*ForbiddenHeaders) assignProfitCenterRes()               {}
@@ -14387,6 +14622,7 @@ func (*ForbiddenHeaders) createContractRes()                   {}
 func (*ForbiddenHeaders) createCostCenterRes()                 {}
 func (*ForbiddenHeaders) createDownPaymentRequestRes()         {}
 func (*ForbiddenHeaders) createExchangeRateRes()               {}
+func (*ForbiddenHeaders) createHierarchyRes()                  {}
 func (*ForbiddenHeaders) createLegalEntityRes()                {}
 func (*ForbiddenHeaders) createMigrationRunRes()               {}
 func (*ForbiddenHeaders) createOrgUnitRes()                    {}
@@ -14441,6 +14677,8 @@ func (*ForbiddenHeaders) getDownPaymentRequestRes()            {}
 func (*ForbiddenHeaders) getExchangeRateRes()                  {}
 func (*ForbiddenHeaders) getFiscalPeriodRes()                  {}
 func (*ForbiddenHeaders) getGoodsReceiptRes()                  {}
+func (*ForbiddenHeaders) getHierarchyNodeRes()                 {}
+func (*ForbiddenHeaders) getHierarchyRes()                     {}
 func (*ForbiddenHeaders) getJournalEntryRes()                  {}
 func (*ForbiddenHeaders) getLegalEntityRes()                   {}
 func (*ForbiddenHeaders) getMatchResultRes()                   {}
@@ -14491,6 +14729,7 @@ func (*ForbiddenHeaders) listCompanyAccessRes()                {}
 func (*ForbiddenHeaders) listConfigVersionsRes()               {}
 func (*ForbiddenHeaders) listConnectorsRes()                   {}
 func (*ForbiddenHeaders) listContractsRes()                    {}
+func (*ForbiddenHeaders) listCostCenterPathsRes()              {}
 func (*ForbiddenHeaders) listCostCentersRes()                  {}
 func (*ForbiddenHeaders) listCountryPacksRes()                 {}
 func (*ForbiddenHeaders) listDownPaymentRequestsRes()          {}
@@ -14498,6 +14737,7 @@ func (*ForbiddenHeaders) listExchangeRatesRes()                {}
 func (*ForbiddenHeaders) listFiscalPeriodsRes()                {}
 func (*ForbiddenHeaders) listGoodsReceiptsRes()                {}
 func (*ForbiddenHeaders) listGrIrBalancesRes()                 {}
+func (*ForbiddenHeaders) listHierarchiesRes()                  {}
 func (*ForbiddenHeaders) listHouseBanksRes()                   {}
 func (*ForbiddenHeaders) listJournalEntriesRes()               {}
 func (*ForbiddenHeaders) listLedgerGroupsRes()                 {}
@@ -14517,6 +14757,7 @@ func (*ForbiddenHeaders) listPaymentExclusionsRes()            {}
 func (*ForbiddenHeaders) listPaymentRunsRes()                  {}
 func (*ForbiddenHeaders) listPaymentsRes()                     {}
 func (*ForbiddenHeaders) listPrincipalsRes()                   {}
+func (*ForbiddenHeaders) listProfitCenterPathsRes()            {}
 func (*ForbiddenHeaders) listProfitCentersRes()                {}
 func (*ForbiddenHeaders) listPurchaseOrderChangesRes()         {}
 func (*ForbiddenHeaders) listPurchaseOrdersRes()               {}
@@ -14539,11 +14780,13 @@ func (*ForbiddenHeaders) matchBankStatementLineRes()           {}
 func (*ForbiddenHeaders) matchBankStatementRes()               {}
 func (*ForbiddenHeaders) matchSupplierInvoiceRes()             {}
 func (*ForbiddenHeaders) moveCostCenterRes()                   {}
+func (*ForbiddenHeaders) moveHierarchyNodeRes()                {}
 func (*ForbiddenHeaders) moveProfitCenterRes()                 {}
 func (*ForbiddenHeaders) openFiscalPeriodRes()                 {}
 func (*ForbiddenHeaders) parkJournalEntryRes()                 {}
 func (*ForbiddenHeaders) pauseWebhookSubscriptionRes()         {}
 func (*ForbiddenHeaders) pingWebhookSubscriptionRes()          {}
+func (*ForbiddenHeaders) placeInHierarchyRes()                 {}
 func (*ForbiddenHeaders) postBankStatementLineRes()            {}
 func (*ForbiddenHeaders) postGoodsReceiptRes()                 {}
 func (*ForbiddenHeaders) postJournalEntryRes()                 {}
@@ -14565,6 +14808,8 @@ func (*ForbiddenHeaders) releaseContractRes()                  {}
 func (*ForbiddenHeaders) releasePaymentRunRes()                {}
 func (*ForbiddenHeaders) releasePurchaseOrderRes()             {}
 func (*ForbiddenHeaders) releaseSupplierInvoiceRes()           {}
+func (*ForbiddenHeaders) removeHierarchyNodeRes()              {}
+func (*ForbiddenHeaders) renameHierarchyNodeRes()              {}
 func (*ForbiddenHeaders) renewContractRes()                    {}
 func (*ForbiddenHeaders) replayWebhookDeliveriesRes()          {}
 func (*ForbiddenHeaders) reportBankFileStatusRes()             {}
@@ -17722,6 +17967,856 @@ func (s *GrIrBalancePageHeaders) SetResponse(val GrIrBalancePage) {
 
 func (*GrIrBalancePageHeaders) listGrIrBalancesRes() {}
 
+// Merged schema.
+// Ref: #/components/schemas/Hierarchy
+type Hierarchy struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// Kind of center it holds. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Kind string `json:"kind"`
+	// Code, unique per kind. Immutable.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// The tenant's standard hierarchy of its kind: every active center sits in exactly one of its leaves.
+	IsStandard bool `json:"is_standard"`
+	// Root node, created with the hierarchy.
+	RootNodeID uuid.UUID `json:"root_node_id"`
+}
+
+// GetID returns the value of ID.
+func (s *Hierarchy) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *Hierarchy) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *Hierarchy) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *Hierarchy) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *Hierarchy) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *Hierarchy) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetKind returns the value of Kind.
+func (s *Hierarchy) GetKind() string {
+	return s.Kind
+}
+
+// GetCode returns the value of Code.
+func (s *Hierarchy) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *Hierarchy) GetName() string {
+	return s.Name
+}
+
+// GetIsStandard returns the value of IsStandard.
+func (s *Hierarchy) GetIsStandard() bool {
+	return s.IsStandard
+}
+
+// GetRootNodeID returns the value of RootNodeID.
+func (s *Hierarchy) GetRootNodeID() uuid.UUID {
+	return s.RootNodeID
+}
+
+// SetID sets the value of ID.
+func (s *Hierarchy) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *Hierarchy) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *Hierarchy) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *Hierarchy) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *Hierarchy) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *Hierarchy) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetKind sets the value of Kind.
+func (s *Hierarchy) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetCode sets the value of Code.
+func (s *Hierarchy) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *Hierarchy) SetName(val string) {
+	s.Name = val
+}
+
+// SetIsStandard sets the value of IsStandard.
+func (s *Hierarchy) SetIsStandard(val bool) {
+	s.IsStandard = val
+}
+
+// SetRootNodeID sets the value of RootNodeID.
+func (s *Hierarchy) SetRootNodeID(val uuid.UUID) {
+	s.RootNodeID = val
+}
+
+// A new hierarchy; its root node takes its code and name.
+// Ref: #/components/schemas/HierarchyCreate
+type HierarchyCreate struct {
+	// Kind of center it holds (422 `request.validation_failed` for another). Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	Kind string `json:"kind"`
+	// Code (up to 15 of 0-9, A-Z, _ and -), unique per kind. Immutable.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// The tenant's standard hierarchy of the kind; one per kind.
+	IsStandard OptBool `json:"is_standard"`
+}
+
+// GetKind returns the value of Kind.
+func (s *HierarchyCreate) GetKind() string {
+	return s.Kind
+}
+
+// GetCode returns the value of Code.
+func (s *HierarchyCreate) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *HierarchyCreate) GetName() string {
+	return s.Name
+}
+
+// GetIsStandard returns the value of IsStandard.
+func (s *HierarchyCreate) GetIsStandard() OptBool {
+	return s.IsStandard
+}
+
+// SetKind sets the value of Kind.
+func (s *HierarchyCreate) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetCode sets the value of Code.
+func (s *HierarchyCreate) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *HierarchyCreate) SetName(val string) {
+	s.Name = val
+}
+
+// SetIsStandard sets the value of IsStandard.
+func (s *HierarchyCreate) SetIsStandard(val OptBool) {
+	s.IsStandard = val
+}
+
+// HierarchyHeaders wraps Hierarchy with response headers.
+type HierarchyHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           Hierarchy
+}
+
+// GetETag returns the value of ETag.
+func (s *HierarchyHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *HierarchyHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *HierarchyHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *HierarchyHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *HierarchyHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *HierarchyHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *HierarchyHeaders) GetResponse() Hierarchy {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *HierarchyHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *HierarchyHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *HierarchyHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *HierarchyHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *HierarchyHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *HierarchyHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *HierarchyHeaders) SetResponse(val Hierarchy) {
+	s.Response = val
+}
+
+func (*HierarchyHeaders) createHierarchyRes() {}
+
+// A node of a hierarchy (SAP cost or profit center group) with the centers placed at it; only leaves
+// hold centers.
+// Ref: #/components/schemas/HierarchyNode
+type HierarchyNode struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Parent node; absent for the root.
+	ParentID OptUUID `json:"parent_id"`
+	// Code, unique in the hierarchy. Immutable.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// Order among its siblings.
+	Position int32 `json:"position"`
+	// Depth: 1 for the root, at most 12.
+	Level int32 `json:"level"`
+	// Cost or profit centers placed at the node (the hierarchy's kind).
+	CenterIds []uuid.UUID `json:"center_ids"`
+}
+
+// GetID returns the value of ID.
+func (s *HierarchyNode) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetParentID returns the value of ParentID.
+func (s *HierarchyNode) GetParentID() OptUUID {
+	return s.ParentID
+}
+
+// GetCode returns the value of Code.
+func (s *HierarchyNode) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *HierarchyNode) GetName() string {
+	return s.Name
+}
+
+// GetPosition returns the value of Position.
+func (s *HierarchyNode) GetPosition() int32 {
+	return s.Position
+}
+
+// GetLevel returns the value of Level.
+func (s *HierarchyNode) GetLevel() int32 {
+	return s.Level
+}
+
+// GetCenterIds returns the value of CenterIds.
+func (s *HierarchyNode) GetCenterIds() []uuid.UUID {
+	return s.CenterIds
+}
+
+// SetID sets the value of ID.
+func (s *HierarchyNode) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetParentID sets the value of ParentID.
+func (s *HierarchyNode) SetParentID(val OptUUID) {
+	s.ParentID = val
+}
+
+// SetCode sets the value of Code.
+func (s *HierarchyNode) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *HierarchyNode) SetName(val string) {
+	s.Name = val
+}
+
+// SetPosition sets the value of Position.
+func (s *HierarchyNode) SetPosition(val int32) {
+	s.Position = val
+}
+
+// SetLevel sets the value of Level.
+func (s *HierarchyNode) SetLevel(val int32) {
+	s.Level = val
+}
+
+// SetCenterIds sets the value of CenterIds.
+func (s *HierarchyNode) SetCenterIds(val []uuid.UUID) {
+	s.CenterIds = val
+}
+
+// A node to add below a node.
+// Ref: #/components/schemas/HierarchyNodeAdd
+type HierarchyNodeAdd struct {
+	// Code (up to 15 of 0-9, A-Z, _ and -), unique in the hierarchy. Immutable.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// Order among its siblings; absent: after them.
+	Position OptInt32 `json:"position"`
+	// Why; shown to the approver and recorded in the audit trail.
+	Reason string `json:"reason"`
+}
+
+// GetCode returns the value of Code.
+func (s *HierarchyNodeAdd) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *HierarchyNodeAdd) GetName() string {
+	return s.Name
+}
+
+// GetPosition returns the value of Position.
+func (s *HierarchyNodeAdd) GetPosition() OptInt32 {
+	return s.Position
+}
+
+// GetReason returns the value of Reason.
+func (s *HierarchyNodeAdd) GetReason() string {
+	return s.Reason
+}
+
+// SetCode sets the value of Code.
+func (s *HierarchyNodeAdd) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *HierarchyNodeAdd) SetName(val string) {
+	s.Name = val
+}
+
+// SetPosition sets the value of Position.
+func (s *HierarchyNodeAdd) SetPosition(val OptInt32) {
+	s.Position = val
+}
+
+// SetReason sets the value of Reason.
+func (s *HierarchyNodeAdd) SetReason(val string) {
+	s.Reason = val
+}
+
+// A node's new parent.
+// Ref: #/components/schemas/HierarchyNodeMove
+type HierarchyNodeMove struct {
+	// New parent node, in the same hierarchy.
+	ParentID uuid.UUID `json:"parent_id"`
+	// Order among its new siblings; absent: after them.
+	Position OptInt32 `json:"position"`
+	// Why; shown to the approver and recorded in the audit trail.
+	Reason string `json:"reason"`
+}
+
+// GetParentID returns the value of ParentID.
+func (s *HierarchyNodeMove) GetParentID() uuid.UUID {
+	return s.ParentID
+}
+
+// GetPosition returns the value of Position.
+func (s *HierarchyNodeMove) GetPosition() OptInt32 {
+	return s.Position
+}
+
+// GetReason returns the value of Reason.
+func (s *HierarchyNodeMove) GetReason() string {
+	return s.Reason
+}
+
+// SetParentID sets the value of ParentID.
+func (s *HierarchyNodeMove) SetParentID(val uuid.UUID) {
+	s.ParentID = val
+}
+
+// SetPosition sets the value of Position.
+func (s *HierarchyNodeMove) SetPosition(val OptInt32) {
+	s.Position = val
+}
+
+// SetReason sets the value of Reason.
+func (s *HierarchyNodeMove) SetReason(val string) {
+	s.Reason = val
+}
+
+// Why a node is removed.
+// Ref: #/components/schemas/HierarchyNodeRemove
+type HierarchyNodeRemove struct {
+	// Why; shown to the approver and recorded in the audit trail.
+	Reason string `json:"reason"`
+}
+
+// GetReason returns the value of Reason.
+func (s *HierarchyNodeRemove) GetReason() string {
+	return s.Reason
+}
+
+// SetReason sets the value of Reason.
+func (s *HierarchyNodeRemove) SetReason(val string) {
+	s.Reason = val
+}
+
+// A node's new name.
+// Ref: #/components/schemas/HierarchyNodeRename
+type HierarchyNodeRename struct {
+	// New name.
+	Name string `json:"name"`
+	// Why; shown to the approver and recorded in the audit trail.
+	Reason string `json:"reason"`
+}
+
+// GetName returns the value of Name.
+func (s *HierarchyNodeRename) GetName() string {
+	return s.Name
+}
+
+// GetReason returns the value of Reason.
+func (s *HierarchyNodeRename) GetReason() string {
+	return s.Reason
+}
+
+// SetName sets the value of Name.
+func (s *HierarchyNodeRename) SetName(val string) {
+	s.Name = val
+}
+
+// SetReason sets the value of Reason.
+func (s *HierarchyNodeRename) SetReason(val string) {
+	s.Reason = val
+}
+
+// One page of hierarchies.
+// Ref: #/components/schemas/HierarchyPage
+type HierarchyPage struct {
+	// The hierarchies on this page.
+	Items []Hierarchy `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *HierarchyPage) GetItems() []Hierarchy {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *HierarchyPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *HierarchyPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *HierarchyPage) SetItems(val []Hierarchy) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *HierarchyPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *HierarchyPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+// HierarchyPageHeaders wraps HierarchyPage with response headers.
+type HierarchyPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           HierarchyPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *HierarchyPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *HierarchyPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *HierarchyPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *HierarchyPageHeaders) GetResponse() HierarchyPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *HierarchyPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *HierarchyPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *HierarchyPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *HierarchyPageHeaders) SetResponse(val HierarchyPage) {
+	s.Response = val
+}
+
+func (*HierarchyPageHeaders) listHierarchiesRes() {}
+
+// Where a center goes in the hierarchy.
+// Ref: #/components/schemas/HierarchyPlace
+type HierarchyPlace struct {
+	// Cost or profit center, of the hierarchy's kind.
+	CenterID uuid.UUID `json:"center_id"`
+	// Leaf node to place it at; null: out of this alternative hierarchy.
+	NodeID NilUUID `json:"node_id"`
+	// Why; shown to the approver and recorded in the audit trail.
+	Reason string `json:"reason"`
+}
+
+// GetCenterID returns the value of CenterID.
+func (s *HierarchyPlace) GetCenterID() uuid.UUID {
+	return s.CenterID
+}
+
+// GetNodeID returns the value of NodeID.
+func (s *HierarchyPlace) GetNodeID() NilUUID {
+	return s.NodeID
+}
+
+// GetReason returns the value of Reason.
+func (s *HierarchyPlace) GetReason() string {
+	return s.Reason
+}
+
+// SetCenterID sets the value of CenterID.
+func (s *HierarchyPlace) SetCenterID(val uuid.UUID) {
+	s.CenterID = val
+}
+
+// SetNodeID sets the value of NodeID.
+func (s *HierarchyPlace) SetNodeID(val NilUUID) {
+	s.NodeID = val
+}
+
+// SetReason sets the value of Reason.
+func (s *HierarchyPlace) SetReason(val string) {
+	s.Reason = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/HierarchyTree
+type HierarchyTree struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// Kind of center it holds. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Kind string `json:"kind"`
+	// Code, unique per kind. Immutable.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// The tenant's standard hierarchy of its kind: every active center sits in exactly one of its leaves.
+	IsStandard bool `json:"is_standard"`
+	// Root node, created with the hierarchy.
+	RootNodeID uuid.UUID `json:"root_node_id"`
+	// The nodes, in tree order.
+	Nodes []HierarchyNode `json:"nodes"`
+}
+
+// GetID returns the value of ID.
+func (s *HierarchyTree) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *HierarchyTree) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *HierarchyTree) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *HierarchyTree) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *HierarchyTree) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *HierarchyTree) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetKind returns the value of Kind.
+func (s *HierarchyTree) GetKind() string {
+	return s.Kind
+}
+
+// GetCode returns the value of Code.
+func (s *HierarchyTree) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *HierarchyTree) GetName() string {
+	return s.Name
+}
+
+// GetIsStandard returns the value of IsStandard.
+func (s *HierarchyTree) GetIsStandard() bool {
+	return s.IsStandard
+}
+
+// GetRootNodeID returns the value of RootNodeID.
+func (s *HierarchyTree) GetRootNodeID() uuid.UUID {
+	return s.RootNodeID
+}
+
+// GetNodes returns the value of Nodes.
+func (s *HierarchyTree) GetNodes() []HierarchyNode {
+	return s.Nodes
+}
+
+// SetID sets the value of ID.
+func (s *HierarchyTree) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *HierarchyTree) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *HierarchyTree) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *HierarchyTree) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *HierarchyTree) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *HierarchyTree) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetKind sets the value of Kind.
+func (s *HierarchyTree) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetCode sets the value of Code.
+func (s *HierarchyTree) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *HierarchyTree) SetName(val string) {
+	s.Name = val
+}
+
+// SetIsStandard sets the value of IsStandard.
+func (s *HierarchyTree) SetIsStandard(val bool) {
+	s.IsStandard = val
+}
+
+// SetRootNodeID sets the value of RootNodeID.
+func (s *HierarchyTree) SetRootNodeID(val uuid.UUID) {
+	s.RootNodeID = val
+}
+
+// SetNodes sets the value of Nodes.
+func (s *HierarchyTree) SetNodes(val []HierarchyNode) {
+	s.Nodes = val
+}
+
+// HierarchyTreeHeaders wraps HierarchyTree with response headers.
+type HierarchyTreeHeaders struct {
+	ETag               OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           HierarchyTree
+}
+
+// GetETag returns the value of ETag.
+func (s *HierarchyTreeHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *HierarchyTreeHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *HierarchyTreeHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *HierarchyTreeHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *HierarchyTreeHeaders) GetResponse() HierarchyTree {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *HierarchyTreeHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *HierarchyTreeHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *HierarchyTreeHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *HierarchyTreeHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *HierarchyTreeHeaders) SetResponse(val HierarchyTree) {
+	s.Response = val
+}
+
+func (*HierarchyTreeHeaders) getHierarchyNodeRes() {}
+func (*HierarchyTreeHeaders) getHierarchyRes()     {}
+
 // A house bank of a company (SAP T012K), from the configuration (`companies[].house_bank(s)`,
 // ADR-0038).
 // Ref: #/components/schemas/HouseBank
@@ -20273,13 +21368,18 @@ func (s *LockCostCenterOKHeaders) SetResponse(val CenterChange) {
 	s.Response = val
 }
 
-func (*LockCostCenterOKHeaders) assignProfitCenterRes() {}
-func (*LockCostCenterOKHeaders) lockCostCenterRes()     {}
-func (*LockCostCenterOKHeaders) lockProfitCenterRes()   {}
-func (*LockCostCenterOKHeaders) moveCostCenterRes()     {}
-func (*LockCostCenterOKHeaders) moveProfitCenterRes()   {}
-func (*LockCostCenterOKHeaders) redateCostCenterRes()   {}
-func (*LockCostCenterOKHeaders) redateProfitCenterRes() {}
+func (*LockCostCenterOKHeaders) addHierarchyNodeRes()    {}
+func (*LockCostCenterOKHeaders) assignProfitCenterRes()  {}
+func (*LockCostCenterOKHeaders) lockCostCenterRes()      {}
+func (*LockCostCenterOKHeaders) lockProfitCenterRes()    {}
+func (*LockCostCenterOKHeaders) moveCostCenterRes()      {}
+func (*LockCostCenterOKHeaders) moveHierarchyNodeRes()   {}
+func (*LockCostCenterOKHeaders) moveProfitCenterRes()    {}
+func (*LockCostCenterOKHeaders) placeInHierarchyRes()    {}
+func (*LockCostCenterOKHeaders) redateCostCenterRes()    {}
+func (*LockCostCenterOKHeaders) redateProfitCenterRes()  {}
+func (*LockCostCenterOKHeaders) removeHierarchyNodeRes() {}
+func (*LockCostCenterOKHeaders) renameHierarchyNodeRes() {}
 
 // MatchBankStatementOKHeaders wraps BankStatement with response headers.
 type MatchBankStatementOKHeaders struct {
@@ -21450,6 +22550,7 @@ func (*NotFoundHeaders) acceptBankStatementLineProposalRes()  {}
 func (*NotFoundHeaders) activateChangeRequestRes()            {}
 func (*NotFoundHeaders) activateLegalEntityRes()              {}
 func (*NotFoundHeaders) activateOrgUnitRes()                  {}
+func (*NotFoundHeaders) addHierarchyNodeRes()                 {}
 func (*NotFoundHeaders) applyCountryPackRes()                 {}
 func (*NotFoundHeaders) approveApprovalRequestRes()           {}
 func (*NotFoundHeaders) assignProfitCenterRes()               {}
@@ -21504,6 +22605,8 @@ func (*NotFoundHeaders) getDownPaymentRequestRes()            {}
 func (*NotFoundHeaders) getExchangeRateRes()                  {}
 func (*NotFoundHeaders) getFiscalPeriodRes()                  {}
 func (*NotFoundHeaders) getGoodsReceiptRes()                  {}
+func (*NotFoundHeaders) getHierarchyNodeRes()                 {}
+func (*NotFoundHeaders) getHierarchyRes()                     {}
 func (*NotFoundHeaders) getJournalEntryRes()                  {}
 func (*NotFoundHeaders) getLegalEntityRes()                   {}
 func (*NotFoundHeaders) getMatchResultRes()                   {}
@@ -21538,9 +22641,11 @@ func (*NotFoundHeaders) holdSupplierInvoiceRes()              {}
 func (*NotFoundHeaders) listAgentToolCallsRes()               {}
 func (*NotFoundHeaders) listBankAccountsRes()                 {}
 func (*NotFoundHeaders) listBankStatementMatchesRes()         {}
+func (*NotFoundHeaders) listCostCenterPathsRes()              {}
 func (*NotFoundHeaders) listMatchResultsRes()                 {}
 func (*NotFoundHeaders) listPaymentExclusionsRes()            {}
 func (*NotFoundHeaders) listPaymentsRes()                     {}
+func (*NotFoundHeaders) listProfitCenterPathsRes()            {}
 func (*NotFoundHeaders) listPurchaseOrderChangesRes()         {}
 func (*NotFoundHeaders) listRolePermissionsRes()              {}
 func (*NotFoundHeaders) listWebhookDeliveriesRes()            {}
@@ -21551,10 +22656,12 @@ func (*NotFoundHeaders) matchBankStatementLineRes()           {}
 func (*NotFoundHeaders) matchBankStatementRes()               {}
 func (*NotFoundHeaders) matchSupplierInvoiceRes()             {}
 func (*NotFoundHeaders) moveCostCenterRes()                   {}
+func (*NotFoundHeaders) moveHierarchyNodeRes()                {}
 func (*NotFoundHeaders) moveProfitCenterRes()                 {}
 func (*NotFoundHeaders) openFiscalPeriodRes()                 {}
 func (*NotFoundHeaders) pauseWebhookSubscriptionRes()         {}
 func (*NotFoundHeaders) pingWebhookSubscriptionRes()          {}
+func (*NotFoundHeaders) placeInHierarchyRes()                 {}
 func (*NotFoundHeaders) postBankStatementLineRes()            {}
 func (*NotFoundHeaders) postParkedJournalEntryRes()           {}
 func (*NotFoundHeaders) postSupplierInvoiceRes()              {}
@@ -21571,6 +22678,8 @@ func (*NotFoundHeaders) releaseContractRes()                  {}
 func (*NotFoundHeaders) releasePaymentRunRes()                {}
 func (*NotFoundHeaders) releasePurchaseOrderRes()             {}
 func (*NotFoundHeaders) releaseSupplierInvoiceRes()           {}
+func (*NotFoundHeaders) removeHierarchyNodeRes()              {}
+func (*NotFoundHeaders) renameHierarchyNodeRes()              {}
 func (*NotFoundHeaders) renewContractRes()                    {}
 func (*NotFoundHeaders) replayWebhookDeliveriesRes()          {}
 func (*NotFoundHeaders) reportBankFileStatusRes()             {}
@@ -27025,6 +28134,7 @@ func (*PreconditionFailedHeaders) acceptBankStatementLineProposalRes()  {}
 func (*PreconditionFailedHeaders) activateChangeRequestRes()            {}
 func (*PreconditionFailedHeaders) activateLegalEntityRes()              {}
 func (*PreconditionFailedHeaders) activateOrgUnitRes()                  {}
+func (*PreconditionFailedHeaders) addHierarchyNodeRes()                 {}
 func (*PreconditionFailedHeaders) approveApprovalRequestRes()           {}
 func (*PreconditionFailedHeaders) assignProfitCenterRes()               {}
 func (*PreconditionFailedHeaders) blockBusinessPartnerRes()             {}
@@ -27062,10 +28172,12 @@ func (*PreconditionFailedHeaders) matchBankStatementLineRes()           {}
 func (*PreconditionFailedHeaders) matchBankStatementRes()               {}
 func (*PreconditionFailedHeaders) matchSupplierInvoiceRes()             {}
 func (*PreconditionFailedHeaders) moveCostCenterRes()                   {}
+func (*PreconditionFailedHeaders) moveHierarchyNodeRes()                {}
 func (*PreconditionFailedHeaders) moveProfitCenterRes()                 {}
 func (*PreconditionFailedHeaders) openFiscalPeriodRes()                 {}
 func (*PreconditionFailedHeaders) pauseWebhookSubscriptionRes()         {}
 func (*PreconditionFailedHeaders) pingWebhookSubscriptionRes()          {}
+func (*PreconditionFailedHeaders) placeInHierarchyRes()                 {}
 func (*PreconditionFailedHeaders) postBankStatementLineRes()            {}
 func (*PreconditionFailedHeaders) postParkedJournalEntryRes()           {}
 func (*PreconditionFailedHeaders) postSupplierInvoiceRes()              {}
@@ -27081,6 +28193,8 @@ func (*PreconditionFailedHeaders) releaseContractRes()                  {}
 func (*PreconditionFailedHeaders) releasePaymentRunRes()                {}
 func (*PreconditionFailedHeaders) releasePurchaseOrderRes()             {}
 func (*PreconditionFailedHeaders) releaseSupplierInvoiceRes()           {}
+func (*PreconditionFailedHeaders) removeHierarchyNodeRes()              {}
+func (*PreconditionFailedHeaders) renameHierarchyNodeRes()              {}
 func (*PreconditionFailedHeaders) renewContractRes()                    {}
 func (*PreconditionFailedHeaders) replayWebhookDeliveriesRes()          {}
 func (*PreconditionFailedHeaders) reportBankFileStatusRes()             {}
@@ -27172,6 +28286,7 @@ func (*PreconditionRequiredHeaders) acceptBankStatementLineProposalRes()  {}
 func (*PreconditionRequiredHeaders) activateChangeRequestRes()            {}
 func (*PreconditionRequiredHeaders) activateLegalEntityRes()              {}
 func (*PreconditionRequiredHeaders) activateOrgUnitRes()                  {}
+func (*PreconditionRequiredHeaders) addHierarchyNodeRes()                 {}
 func (*PreconditionRequiredHeaders) applyCountryPackRes()                 {}
 func (*PreconditionRequiredHeaders) approveApprovalRequestRes()           {}
 func (*PreconditionRequiredHeaders) assignProfitCenterRes()               {}
@@ -27201,6 +28316,7 @@ func (*PreconditionRequiredHeaders) createConnectorRes()                  {}
 func (*PreconditionRequiredHeaders) createContractRes()                   {}
 func (*PreconditionRequiredHeaders) createCostCenterRes()                 {}
 func (*PreconditionRequiredHeaders) createExchangeRateRes()               {}
+func (*PreconditionRequiredHeaders) createHierarchyRes()                  {}
 func (*PreconditionRequiredHeaders) createLegalEntityRes()                {}
 func (*PreconditionRequiredHeaders) createMigrationRunRes()               {}
 func (*PreconditionRequiredHeaders) createOrgUnitRes()                    {}
@@ -27239,11 +28355,13 @@ func (*PreconditionRequiredHeaders) matchBankStatementLineRes()           {}
 func (*PreconditionRequiredHeaders) matchBankStatementRes()               {}
 func (*PreconditionRequiredHeaders) matchSupplierInvoiceRes()             {}
 func (*PreconditionRequiredHeaders) moveCostCenterRes()                   {}
+func (*PreconditionRequiredHeaders) moveHierarchyNodeRes()                {}
 func (*PreconditionRequiredHeaders) moveProfitCenterRes()                 {}
 func (*PreconditionRequiredHeaders) openFiscalPeriodRes()                 {}
 func (*PreconditionRequiredHeaders) parkJournalEntryRes()                 {}
 func (*PreconditionRequiredHeaders) pauseWebhookSubscriptionRes()         {}
 func (*PreconditionRequiredHeaders) pingWebhookSubscriptionRes()          {}
+func (*PreconditionRequiredHeaders) placeInHierarchyRes()                 {}
 func (*PreconditionRequiredHeaders) postBankStatementLineRes()            {}
 func (*PreconditionRequiredHeaders) postGoodsReceiptRes()                 {}
 func (*PreconditionRequiredHeaders) postJournalEntryRes()                 {}
@@ -27265,6 +28383,8 @@ func (*PreconditionRequiredHeaders) releaseContractRes()                  {}
 func (*PreconditionRequiredHeaders) releasePaymentRunRes()                {}
 func (*PreconditionRequiredHeaders) releasePurchaseOrderRes()             {}
 func (*PreconditionRequiredHeaders) releaseSupplierInvoiceRes()           {}
+func (*PreconditionRequiredHeaders) removeHierarchyNodeRes()              {}
+func (*PreconditionRequiredHeaders) renameHierarchyNodeRes()              {}
 func (*PreconditionRequiredHeaders) renewContractRes()                    {}
 func (*PreconditionRequiredHeaders) replayWebhookDeliveriesRes()          {}
 func (*PreconditionRequiredHeaders) reportBankFileStatusRes()             {}
@@ -28154,6 +29274,10 @@ type ProfitCenterCreate struct {
 	ValidFrom time.Time `json:"valid_from"`
 	// End of validity (exclusive); absent: open-ended.
 	ValidTo OptDate `json:"valid_to"`
+	// Leaf node of the tenant's standard hierarchy of this kind where the center is placed when its
+	// creation is approved (ADR-0050 §3: every active center sits in exactly one leaf of it); a node
+	// without child nodes (422 `ledger.hierarchy_change_invalid`).
+	StandardNodeID uuid.UUID `json:"standard_node_id"`
 	// Why; shown to the approver and recorded in the audit trail.
 	Reason string `json:"reason"`
 }
@@ -28196,6 +29320,11 @@ func (s *ProfitCenterCreate) GetValidFrom() time.Time {
 // GetValidTo returns the value of ValidTo.
 func (s *ProfitCenterCreate) GetValidTo() OptDate {
 	return s.ValidTo
+}
+
+// GetStandardNodeID returns the value of StandardNodeID.
+func (s *ProfitCenterCreate) GetStandardNodeID() uuid.UUID {
+	return s.StandardNodeID
 }
 
 // GetReason returns the value of Reason.
@@ -28241,6 +29370,11 @@ func (s *ProfitCenterCreate) SetValidFrom(val time.Time) {
 // SetValidTo sets the value of ValidTo.
 func (s *ProfitCenterCreate) SetValidTo(val OptDate) {
 	s.ValidTo = val
+}
+
+// SetStandardNodeID sets the value of StandardNodeID.
+func (s *ProfitCenterCreate) SetStandardNodeID(val uuid.UUID) {
+	s.StandardNodeID = val
 }
 
 // SetReason sets the value of Reason.
@@ -34314,6 +35448,7 @@ func (*ServiceUnavailableHeaders) acceptBankStatementLineProposalRes()  {}
 func (*ServiceUnavailableHeaders) activateChangeRequestRes()            {}
 func (*ServiceUnavailableHeaders) activateLegalEntityRes()              {}
 func (*ServiceUnavailableHeaders) activateOrgUnitRes()                  {}
+func (*ServiceUnavailableHeaders) addHierarchyNodeRes()                 {}
 func (*ServiceUnavailableHeaders) applyCountryPackRes()                 {}
 func (*ServiceUnavailableHeaders) approveApprovalRequestRes()           {}
 func (*ServiceUnavailableHeaders) assignProfitCenterRes()               {}
@@ -34344,6 +35479,7 @@ func (*ServiceUnavailableHeaders) createContractRes()                   {}
 func (*ServiceUnavailableHeaders) createCostCenterRes()                 {}
 func (*ServiceUnavailableHeaders) createDownPaymentRequestRes()         {}
 func (*ServiceUnavailableHeaders) createExchangeRateRes()               {}
+func (*ServiceUnavailableHeaders) createHierarchyRes()                  {}
 func (*ServiceUnavailableHeaders) createLegalEntityRes()                {}
 func (*ServiceUnavailableHeaders) createMigrationRunRes()               {}
 func (*ServiceUnavailableHeaders) createOrgUnitRes()                    {}
@@ -34384,11 +35520,13 @@ func (*ServiceUnavailableHeaders) matchBankStatementLineRes()           {}
 func (*ServiceUnavailableHeaders) matchBankStatementRes()               {}
 func (*ServiceUnavailableHeaders) matchSupplierInvoiceRes()             {}
 func (*ServiceUnavailableHeaders) moveCostCenterRes()                   {}
+func (*ServiceUnavailableHeaders) moveHierarchyNodeRes()                {}
 func (*ServiceUnavailableHeaders) moveProfitCenterRes()                 {}
 func (*ServiceUnavailableHeaders) openFiscalPeriodRes()                 {}
 func (*ServiceUnavailableHeaders) parkJournalEntryRes()                 {}
 func (*ServiceUnavailableHeaders) pauseWebhookSubscriptionRes()         {}
 func (*ServiceUnavailableHeaders) pingWebhookSubscriptionRes()          {}
+func (*ServiceUnavailableHeaders) placeInHierarchyRes()                 {}
 func (*ServiceUnavailableHeaders) postBankStatementLineRes()            {}
 func (*ServiceUnavailableHeaders) postGoodsReceiptRes()                 {}
 func (*ServiceUnavailableHeaders) postJournalEntryRes()                 {}
@@ -34409,6 +35547,8 @@ func (*ServiceUnavailableHeaders) releaseContractRes()                  {}
 func (*ServiceUnavailableHeaders) releasePaymentRunRes()                {}
 func (*ServiceUnavailableHeaders) releasePurchaseOrderRes()             {}
 func (*ServiceUnavailableHeaders) releaseSupplierInvoiceRes()           {}
+func (*ServiceUnavailableHeaders) removeHierarchyNodeRes()              {}
+func (*ServiceUnavailableHeaders) renameHierarchyNodeRes()              {}
 func (*ServiceUnavailableHeaders) renewContractRes()                    {}
 func (*ServiceUnavailableHeaders) replayWebhookDeliveriesRes()          {}
 func (*ServiceUnavailableHeaders) reportBankFileStatusRes()             {}
@@ -36736,6 +37876,7 @@ func (*TooManyRequestsHeaders) acceptBankStatementLineProposalRes()  {}
 func (*TooManyRequestsHeaders) activateChangeRequestRes()            {}
 func (*TooManyRequestsHeaders) activateLegalEntityRes()              {}
 func (*TooManyRequestsHeaders) activateOrgUnitRes()                  {}
+func (*TooManyRequestsHeaders) addHierarchyNodeRes()                 {}
 func (*TooManyRequestsHeaders) applyCountryPackRes()                 {}
 func (*TooManyRequestsHeaders) approveApprovalRequestRes()           {}
 func (*TooManyRequestsHeaders) assignProfitCenterRes()               {}
@@ -36766,6 +37907,7 @@ func (*TooManyRequestsHeaders) createContractRes()                   {}
 func (*TooManyRequestsHeaders) createCostCenterRes()                 {}
 func (*TooManyRequestsHeaders) createDownPaymentRequestRes()         {}
 func (*TooManyRequestsHeaders) createExchangeRateRes()               {}
+func (*TooManyRequestsHeaders) createHierarchyRes()                  {}
 func (*TooManyRequestsHeaders) createLegalEntityRes()                {}
 func (*TooManyRequestsHeaders) createMigrationRunRes()               {}
 func (*TooManyRequestsHeaders) createOrgUnitRes()                    {}
@@ -36820,6 +37962,8 @@ func (*TooManyRequestsHeaders) getDownPaymentRequestRes()            {}
 func (*TooManyRequestsHeaders) getExchangeRateRes()                  {}
 func (*TooManyRequestsHeaders) getFiscalPeriodRes()                  {}
 func (*TooManyRequestsHeaders) getGoodsReceiptRes()                  {}
+func (*TooManyRequestsHeaders) getHierarchyNodeRes()                 {}
+func (*TooManyRequestsHeaders) getHierarchyRes()                     {}
 func (*TooManyRequestsHeaders) getJournalEntryRes()                  {}
 func (*TooManyRequestsHeaders) getLegalEntityRes()                   {}
 func (*TooManyRequestsHeaders) getMatchResultRes()                   {}
@@ -36870,6 +38014,7 @@ func (*TooManyRequestsHeaders) listCompanyAccessRes()                {}
 func (*TooManyRequestsHeaders) listConfigVersionsRes()               {}
 func (*TooManyRequestsHeaders) listConnectorsRes()                   {}
 func (*TooManyRequestsHeaders) listContractsRes()                    {}
+func (*TooManyRequestsHeaders) listCostCenterPathsRes()              {}
 func (*TooManyRequestsHeaders) listCostCentersRes()                  {}
 func (*TooManyRequestsHeaders) listCountryPacksRes()                 {}
 func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()          {}
@@ -36877,6 +38022,7 @@ func (*TooManyRequestsHeaders) listExchangeRatesRes()                {}
 func (*TooManyRequestsHeaders) listFiscalPeriodsRes()                {}
 func (*TooManyRequestsHeaders) listGoodsReceiptsRes()                {}
 func (*TooManyRequestsHeaders) listGrIrBalancesRes()                 {}
+func (*TooManyRequestsHeaders) listHierarchiesRes()                  {}
 func (*TooManyRequestsHeaders) listHouseBanksRes()                   {}
 func (*TooManyRequestsHeaders) listJournalEntriesRes()               {}
 func (*TooManyRequestsHeaders) listLedgerGroupsRes()                 {}
@@ -36896,6 +38042,7 @@ func (*TooManyRequestsHeaders) listPaymentExclusionsRes()            {}
 func (*TooManyRequestsHeaders) listPaymentRunsRes()                  {}
 func (*TooManyRequestsHeaders) listPaymentsRes()                     {}
 func (*TooManyRequestsHeaders) listPrincipalsRes()                   {}
+func (*TooManyRequestsHeaders) listProfitCenterPathsRes()            {}
 func (*TooManyRequestsHeaders) listProfitCentersRes()                {}
 func (*TooManyRequestsHeaders) listPurchaseOrderChangesRes()         {}
 func (*TooManyRequestsHeaders) listPurchaseOrdersRes()               {}
@@ -36918,11 +38065,13 @@ func (*TooManyRequestsHeaders) matchBankStatementLineRes()           {}
 func (*TooManyRequestsHeaders) matchBankStatementRes()               {}
 func (*TooManyRequestsHeaders) matchSupplierInvoiceRes()             {}
 func (*TooManyRequestsHeaders) moveCostCenterRes()                   {}
+func (*TooManyRequestsHeaders) moveHierarchyNodeRes()                {}
 func (*TooManyRequestsHeaders) moveProfitCenterRes()                 {}
 func (*TooManyRequestsHeaders) openFiscalPeriodRes()                 {}
 func (*TooManyRequestsHeaders) parkJournalEntryRes()                 {}
 func (*TooManyRequestsHeaders) pauseWebhookSubscriptionRes()         {}
 func (*TooManyRequestsHeaders) pingWebhookSubscriptionRes()          {}
+func (*TooManyRequestsHeaders) placeInHierarchyRes()                 {}
 func (*TooManyRequestsHeaders) postBankStatementLineRes()            {}
 func (*TooManyRequestsHeaders) postGoodsReceiptRes()                 {}
 func (*TooManyRequestsHeaders) postJournalEntryRes()                 {}
@@ -36944,6 +38093,8 @@ func (*TooManyRequestsHeaders) releaseContractRes()                  {}
 func (*TooManyRequestsHeaders) releasePaymentRunRes()                {}
 func (*TooManyRequestsHeaders) releasePurchaseOrderRes()             {}
 func (*TooManyRequestsHeaders) releaseSupplierInvoiceRes()           {}
+func (*TooManyRequestsHeaders) removeHierarchyNodeRes()              {}
+func (*TooManyRequestsHeaders) renameHierarchyNodeRes()              {}
 func (*TooManyRequestsHeaders) renewContractRes()                    {}
 func (*TooManyRequestsHeaders) replayWebhookDeliveriesRes()          {}
 func (*TooManyRequestsHeaders) reportBankFileStatusRes()             {}
@@ -37050,6 +38201,7 @@ func (*UnauthorizedHeaders) acceptBankStatementLineProposalRes()  {}
 func (*UnauthorizedHeaders) activateChangeRequestRes()            {}
 func (*UnauthorizedHeaders) activateLegalEntityRes()              {}
 func (*UnauthorizedHeaders) activateOrgUnitRes()                  {}
+func (*UnauthorizedHeaders) addHierarchyNodeRes()                 {}
 func (*UnauthorizedHeaders) applyCountryPackRes()                 {}
 func (*UnauthorizedHeaders) approveApprovalRequestRes()           {}
 func (*UnauthorizedHeaders) assignProfitCenterRes()               {}
@@ -37080,6 +38232,7 @@ func (*UnauthorizedHeaders) createContractRes()                   {}
 func (*UnauthorizedHeaders) createCostCenterRes()                 {}
 func (*UnauthorizedHeaders) createDownPaymentRequestRes()         {}
 func (*UnauthorizedHeaders) createExchangeRateRes()               {}
+func (*UnauthorizedHeaders) createHierarchyRes()                  {}
 func (*UnauthorizedHeaders) createLegalEntityRes()                {}
 func (*UnauthorizedHeaders) createMigrationRunRes()               {}
 func (*UnauthorizedHeaders) createOrgUnitRes()                    {}
@@ -37134,6 +38287,8 @@ func (*UnauthorizedHeaders) getDownPaymentRequestRes()            {}
 func (*UnauthorizedHeaders) getExchangeRateRes()                  {}
 func (*UnauthorizedHeaders) getFiscalPeriodRes()                  {}
 func (*UnauthorizedHeaders) getGoodsReceiptRes()                  {}
+func (*UnauthorizedHeaders) getHierarchyNodeRes()                 {}
+func (*UnauthorizedHeaders) getHierarchyRes()                     {}
 func (*UnauthorizedHeaders) getJournalEntryRes()                  {}
 func (*UnauthorizedHeaders) getLegalEntityRes()                   {}
 func (*UnauthorizedHeaders) getMatchResultRes()                   {}
@@ -37184,6 +38339,7 @@ func (*UnauthorizedHeaders) listCompanyAccessRes()                {}
 func (*UnauthorizedHeaders) listConfigVersionsRes()               {}
 func (*UnauthorizedHeaders) listConnectorsRes()                   {}
 func (*UnauthorizedHeaders) listContractsRes()                    {}
+func (*UnauthorizedHeaders) listCostCenterPathsRes()              {}
 func (*UnauthorizedHeaders) listCostCentersRes()                  {}
 func (*UnauthorizedHeaders) listCountryPacksRes()                 {}
 func (*UnauthorizedHeaders) listDownPaymentRequestsRes()          {}
@@ -37191,6 +38347,7 @@ func (*UnauthorizedHeaders) listExchangeRatesRes()                {}
 func (*UnauthorizedHeaders) listFiscalPeriodsRes()                {}
 func (*UnauthorizedHeaders) listGoodsReceiptsRes()                {}
 func (*UnauthorizedHeaders) listGrIrBalancesRes()                 {}
+func (*UnauthorizedHeaders) listHierarchiesRes()                  {}
 func (*UnauthorizedHeaders) listHouseBanksRes()                   {}
 func (*UnauthorizedHeaders) listJournalEntriesRes()               {}
 func (*UnauthorizedHeaders) listLedgerGroupsRes()                 {}
@@ -37210,6 +38367,7 @@ func (*UnauthorizedHeaders) listPaymentExclusionsRes()            {}
 func (*UnauthorizedHeaders) listPaymentRunsRes()                  {}
 func (*UnauthorizedHeaders) listPaymentsRes()                     {}
 func (*UnauthorizedHeaders) listPrincipalsRes()                   {}
+func (*UnauthorizedHeaders) listProfitCenterPathsRes()            {}
 func (*UnauthorizedHeaders) listProfitCentersRes()                {}
 func (*UnauthorizedHeaders) listPurchaseOrderChangesRes()         {}
 func (*UnauthorizedHeaders) listPurchaseOrdersRes()               {}
@@ -37232,11 +38390,13 @@ func (*UnauthorizedHeaders) matchBankStatementLineRes()           {}
 func (*UnauthorizedHeaders) matchBankStatementRes()               {}
 func (*UnauthorizedHeaders) matchSupplierInvoiceRes()             {}
 func (*UnauthorizedHeaders) moveCostCenterRes()                   {}
+func (*UnauthorizedHeaders) moveHierarchyNodeRes()                {}
 func (*UnauthorizedHeaders) moveProfitCenterRes()                 {}
 func (*UnauthorizedHeaders) openFiscalPeriodRes()                 {}
 func (*UnauthorizedHeaders) parkJournalEntryRes()                 {}
 func (*UnauthorizedHeaders) pauseWebhookSubscriptionRes()         {}
 func (*UnauthorizedHeaders) pingWebhookSubscriptionRes()          {}
+func (*UnauthorizedHeaders) placeInHierarchyRes()                 {}
 func (*UnauthorizedHeaders) postBankStatementLineRes()            {}
 func (*UnauthorizedHeaders) postGoodsReceiptRes()                 {}
 func (*UnauthorizedHeaders) postJournalEntryRes()                 {}
@@ -37258,6 +38418,8 @@ func (*UnauthorizedHeaders) releaseContractRes()                  {}
 func (*UnauthorizedHeaders) releasePaymentRunRes()                {}
 func (*UnauthorizedHeaders) releasePurchaseOrderRes()             {}
 func (*UnauthorizedHeaders) releaseSupplierInvoiceRes()           {}
+func (*UnauthorizedHeaders) removeHierarchyNodeRes()              {}
+func (*UnauthorizedHeaders) renameHierarchyNodeRes()              {}
 func (*UnauthorizedHeaders) renewContractRes()                    {}
 func (*UnauthorizedHeaders) replayWebhookDeliveriesRes()          {}
 func (*UnauthorizedHeaders) reportBankFileStatusRes()             {}
@@ -37353,6 +38515,7 @@ func (*UnprocessableHeaders) acceptBankStatementLineProposalRes()  {}
 func (*UnprocessableHeaders) activateChangeRequestRes()            {}
 func (*UnprocessableHeaders) activateLegalEntityRes()              {}
 func (*UnprocessableHeaders) activateOrgUnitRes()                  {}
+func (*UnprocessableHeaders) addHierarchyNodeRes()                 {}
 func (*UnprocessableHeaders) applyCountryPackRes()                 {}
 func (*UnprocessableHeaders) approveApprovalRequestRes()           {}
 func (*UnprocessableHeaders) assignProfitCenterRes()               {}
@@ -37383,6 +38546,7 @@ func (*UnprocessableHeaders) createContractRes()                   {}
 func (*UnprocessableHeaders) createCostCenterRes()                 {}
 func (*UnprocessableHeaders) createDownPaymentRequestRes()         {}
 func (*UnprocessableHeaders) createExchangeRateRes()               {}
+func (*UnprocessableHeaders) createHierarchyRes()                  {}
 func (*UnprocessableHeaders) createLegalEntityRes()                {}
 func (*UnprocessableHeaders) createMigrationRunRes()               {}
 func (*UnprocessableHeaders) createOrgUnitRes()                    {}
@@ -37423,11 +38587,13 @@ func (*UnprocessableHeaders) matchBankStatementLineRes()           {}
 func (*UnprocessableHeaders) matchBankStatementRes()               {}
 func (*UnprocessableHeaders) matchSupplierInvoiceRes()             {}
 func (*UnprocessableHeaders) moveCostCenterRes()                   {}
+func (*UnprocessableHeaders) moveHierarchyNodeRes()                {}
 func (*UnprocessableHeaders) moveProfitCenterRes()                 {}
 func (*UnprocessableHeaders) openFiscalPeriodRes()                 {}
 func (*UnprocessableHeaders) parkJournalEntryRes()                 {}
 func (*UnprocessableHeaders) pauseWebhookSubscriptionRes()         {}
 func (*UnprocessableHeaders) pingWebhookSubscriptionRes()          {}
+func (*UnprocessableHeaders) placeInHierarchyRes()                 {}
 func (*UnprocessableHeaders) postBankStatementLineRes()            {}
 func (*UnprocessableHeaders) postGoodsReceiptRes()                 {}
 func (*UnprocessableHeaders) postJournalEntryRes()                 {}
@@ -37449,6 +38615,8 @@ func (*UnprocessableHeaders) releaseContractRes()                  {}
 func (*UnprocessableHeaders) releasePaymentRunRes()                {}
 func (*UnprocessableHeaders) releasePurchaseOrderRes()             {}
 func (*UnprocessableHeaders) releaseSupplierInvoiceRes()           {}
+func (*UnprocessableHeaders) removeHierarchyNodeRes()              {}
+func (*UnprocessableHeaders) renameHierarchyNodeRes()              {}
 func (*UnprocessableHeaders) renewContractRes()                    {}
 func (*UnprocessableHeaders) replayWebhookDeliveriesRes()          {}
 func (*UnprocessableHeaders) reportBankFileStatusRes()             {}

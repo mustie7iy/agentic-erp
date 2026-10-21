@@ -45,6 +45,9 @@ type Config struct {
 	// Calendars are the companies' holidays (ADR-0048), one calendar per
 	// company: the days, besides weekends, on which it does no business.
 	Calendars []Calendar `yaml:"calendars,omitempty" json:"calendars,omitempty"`
+	// Controlling holds the tenant-wide rules about cost and profit
+	// centers (ADR-0050 §4); the centers themselves are master data.
+	Controlling Controlling `yaml:"controlling,omitempty" json:"controlling,omitzero"`
 }
 
 // Calendar is a company's holidays, each date once.
@@ -200,6 +203,19 @@ type Company struct {
 	// Ledgers are the codes of the ledgers the company keeps (SAP ledger
 	// assignment), the leading ledger 0L among them; none means 0L alone.
 	Ledgers []string `yaml:"ledgers,omitempty" json:"ledgers,omitempty"`
+	// CostCenterAccounting requires a cost center on every line of an
+	// account whose cost_element is primary_cost (ADR-0050 §4-5, decision
+	// P6), from the fiscal year it is turned on in; ProfitCenterAccounting
+	// requires a profit center on every P&L line (decision P2), falling
+	// back to DefaultProfitCenter. Each is turned on only while the
+	// company has no postings in the current fiscal year or later, and
+	// never off (ledger.Setup.Check).
+	CostCenterAccounting   bool   `yaml:"cost_center_accounting,omitempty" json:"cost_center_accounting,omitempty"`
+	ProfitCenterAccounting bool   `yaml:"profit_center_accounting,omitempty" json:"profit_center_accounting,omitempty"`
+	DefaultProfitCenter    string `yaml:"default_profit_center,omitempty" json:"default_profit_center,omitempty"`
+	// DefaultAssignments give the cost center a line on an account takes
+	// when none is entered or derived (SAP OKB9).
+	DefaultAssignments []DefaultAssignment `yaml:"default_assignments,omitempty" json:"default_assignments,omitempty"`
 }
 
 // FXValuation is the company's foreign-currency valuation (ADR-0042): the
@@ -315,6 +331,10 @@ type Account struct {
 	// (ADR-0047). It is turned on only for an account without postings and
 	// never turned off.
 	OpenItems bool `yaml:"open_items,omitempty" json:"open_items,omitempty"`
+	// CostElement says which cost object a line on the account needs
+	// (ADR-0050 §4); empty takes the default of the account's type
+	// (CostElementOrDefault).
+	CostElement CostElement `yaml:"cost_element,omitempty" json:"cost_element,omitempty"`
 }
 
 // AccountDetermination says which accounts automatic postings use (SAP T030).

@@ -539,6 +539,15 @@ erDiagram
   cost_center ||--o{ cost_center_period : "valid in"
   profit_center ||--o{ cost_center_period : "of"
   center_change ||--o{ cost_center_period : writes
+  hierarchy ||--|{ hierarchy_node : "tree of"
+  hierarchy_node ||--o{ hierarchy_node : parent
+  hierarchy_node ||--o{ hierarchy_member : holds
+  cost_center ||--o{ hierarchy_member : "placed as"
+  profit_center ||--o{ hierarchy_member : "placed as"
+  cost_center_category ||--o{ cost_center_period : "category of"
+  profit_center_company ||--o| company_controlling : "default of"
+  company_account ||--o| default_assignment : "defaults"
+  cost_center ||--o{ default_assignment : "default for"
   journal_entry { uuid id PK
     uuid legal_entity_id
     uuid ledger_id
@@ -936,6 +945,45 @@ always false, against `ledger.ledger`'s role key). The valuation accounts
 stay per legal entity: the ledgers keep their amounts apart on them. A run's
 ledger is one its legal entity keeps (`revaluation_run_ledger_kept`,
 migration 000138, checked on insert).
+
+Hierarchies of cost and profit centers (T56b, migration 000128) are trees
+not dated (decision P7). `hierarchy` has a kind, a code unique per kind
+(`hierarchy_code_once`) and at most one standard per kind
+(`hierarchy_one_standard`), all fixed (`check_hierarchy_fixed`).
+`hierarchy_node` has one root per hierarchy (`hierarchy_one_root`,
+never moved or removed: `hierarchy_node_root_kept`), a parent in the same
+hierarchy (`hierarchy_node_parent`) and a code unique among its nodes
+(`hierarchy_node_code_once`); `check_hierarchy_node` locks the hierarchy
+and refuses a cycle, more than 12 levels, a parent holding centers or
+removed, and removing a node with children or centers. `hierarchy_member`
+places a center of the hierarchy's kind (`hierarchy_member_kind`,
+`hierarchy_member_center`) once per hierarchy (`hierarchy_member_once`) at
+a leaf not removed (`check_hierarchy_member`); a move changes `node_id`.
+Nodes and places are not deleted but removed by the change that removes
+them (`removed_by_change_id`). Every active center is in the standard
+hierarchy of its kind at commit (`check_center_placed`, deferred).
+`center_change` gains `hierarchy_id` and the kinds `node_create`,
+`node_rename`, `node_move`, `node_remove` (no center) and `place` (a center
+and a hierarchy): `center_change_one_center`, `center_change_hierarchy`.
+
+The configuration's controlling rules (T56c, ADR-0050 §4, migration 000145)
+are kept by the ledger's setup. `gl_account.cost_element` is the account's
+cost element category: `none`, `primary_cost` only on an expense, `revenue`
+only on a revenue (`gl_account_cost_element`); accounts set up before took
+their type's default. `cost_center_category` (code as a period's category,
+name, `revenue_allowed`, the lock defaults of a new cost center,
+`is_active`) is the tenant's categories, deactivated rather than deleted;
+a cost center period's category is one of them
+(`cost_center_period_category`). `company_controlling` is per legal entity
+the fiscal year cost and profit center accounting apply from (NULL off;
+once set fixed: `company_controlling_stays_on`) and the default profit
+center, assigned to the legal entity
+(`company_controlling_default_profit_center`), required with profit center
+accounting (`company_controlling_needs_default`). `default_assignment` is
+the cost center lines on an account take when none is given (SAP OKB9),
+per legal entity and account set up there, a cost center of that legal
+entity (`default_assignment_cost_center_company`), deactivated when the
+configuration drops it.
 
 ## 3.8 Procurement (`procurement`)
 

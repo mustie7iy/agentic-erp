@@ -1505,20 +1505,20 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Hierarchies: standard and alternative per kind; one leaf per center in the standard (commit-time check), no cycles, depth at most 12; node moves as change requests; GET /v1/hierarchies/{kind}/{code} with members; schema tests",
-        "r": "T56b",
+        "s": "D",
+        "t": "Hierarchies (ledger): hierarchy (kind, code, at most one standard per kind), hierarchy_node (one root, parent in the same hierarchy, code unique, position), hierarchy_member (a center of the kind once per hierarchy, at a leaf); nothing deleted, removed nodes and places carry removed_by_change_id; triggers refuse cycles, a 13th level and centers off leaves under the hierarchy's row lock; every active center is in the standard hierarchy at commit (deferred trigger); every tree change (node create/rename/move/remove, place) is a center_change approved by the controller, planned at request and again at approval, x-autonomy: propose, alternative trees included (PO to confirm); new centers name a standard leaf (standard_node_id), existing ones were placed in STANDARD/UNASSIGNED; /v1/hierarchies (list, create, tree, subtree, :add, :rename, :move, :remove, :place), /v1/cost-centers/{id}/hierarchy-paths, /v1/profit-centers/{id}/hierarchy-paths; HierarchyChanged; schema tests per rule",
+        "r": "migration 000128 · internal/ledger hierarchies.go, hierarchychange.go, hierarchies_api.go · api/openapi.yaml · api/asyncapi.yaml · ADR-0050 · T56b",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Configuration rules: controlling.cost_center_categories (revenue_allowed, lock defaults of new cost centers; create/move refuse an inactive category), cost_element per account (defaults by type; DB check by type), default_assignments by account, cost_center_accounting and profit_center_accounting per company (on only before the year's first posting, from that fiscal year, never off), default_profit_center; tiers: category name 1, rules 3, switches 4; activation refuses an automatically posted primary_cost account without a default, and a default center not active, open-ended and unlocked from today (checked again at activation; a lock or redate leaving a default unusable is refused); packs carry cost_element (ca/2026.1 unchanged, for T62g); ledger.AssignmentSimulation lists per company and account the window's lines assigned differently or refused, disclosed by company access",
+        "r": "migration 000145 · internal/config controlling.go · internal/ledger controlling.go, assignsim.go, setup.go, costcenters.go · internal/countrypack validate.go · api/openapi.yaml · ADR-0050 §4 · T56c",
         "c": []
        },
        {
         "s": "T",
-        "t": "Configuration rules: controlling.cost_center_categories, cost_element per account (defaults by type), default_assignments, profit_center_accounting, default_profit_center; tiers as ADR-0050 §4; activation refuses an automatically posted account needing a cost object without a default; packs set cost_element; simulation lists lines that would be refused or reassigned",
-        "r": "T56c",
-        "c": []
-       },
-       {
-        "s": "T",
-        "t": "Assignment on the journal: the in-use refusals T56a leaves out (ledger.cost_center_period_in_use, ledger.cost_center_posted_after, ledger.segment_in_use); expand migration (cost_center_id, profit_center_id, segment_id; FKs NOT VALID then validated per partition, partial indexes concurrently); derivation and validation in every posting path incl. parked and Postings; commit-time check of ADR-0050 §5's table; reversals copy; T52 copies carry the same; journal API, list filters and event fields (additive); FOR SHARE on center periods with a race test against a lock. After T52's posting steps are in main",
+        "t": "Assignment on the journal: the in-use refusals T56a leaves out (ledger.cost_center_period_in_use, ledger.cost_center_posted_after, ledger.segment_in_use); expand migration (cost_center_id, profit_center_id, segment_id; FKs NOT VALID then validated per partition, partial indexes concurrently); derivation and validation in every posting path incl. parked and Postings; commit-time check of ADR-0050 §5's table; reversals copy; T52 copies carry the same; journal API, list filters and event fields (additive); FOR SHARE on center periods with a race test against a lock; from T56c: read gl_account.cost_element, company_controlling's from-years per posting fiscal year, active default_assignment rows and the category's revenue_allowed; keepsDefault* (ledger/controlling.go) take today from current_date while Setup uses Setup.Now: use one clock; automatic postings dated before today (revaluation at a past period end) may precede a default's validity; exclude lines with an entered cost center from AssignmentSimulation. After T52's posting steps are in main",
         "r": "T56d",
         "c": []
        },

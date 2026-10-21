@@ -3,6 +3,7 @@ package ledger_test
 import (
 	"context"
 	"fmt"
+	"maps"
 	"testing"
 
 	"github.com/google/uuid"
@@ -57,7 +58,9 @@ func TestCenterDatabaseFailures(t *testing.T) {
 	ccID := uuid.MustParse(cc["id"].(string))
 	h := endpoints()
 	change := uuid.MustParse(cc["pending_change_id"].(string))
-	for name, call := range centerCalls(h, c, seg, pc, ccID, change) {
+	calls := centerCalls(h, c, seg, pc, ccID, change)
+	maps.Copy(calls, hierarchyCalls(h, c, c.trees(t, pc), pc, ccID))
+	for name, call := range calls {
 		t.Run(name, func(t *testing.T) {
 			if err := call(context.Background()); err == nil {
 				t.Error("outside a unit of work: got no error, want one")
@@ -71,10 +74,10 @@ func centerCalls(h *ledger.Endpoints, c centers, seg, pc, cc, change uuid.UUID) 
 	day := date("2026-05-01")
 	newCC := func(code string) *gen.CostCenterCreate {
 		return &gen.CostCenterCreate{LegalEntityID: c.de, Code: code, Name: "N", Responsible: "R", Category: "ADMIN",
-			ProfitCenterID: gen.NewOptUUID(pc), ValidFrom: date("2026-01-01"), Reason: "r"}
+			ProfitCenterID: gen.NewOptUUID(pc), StandardNodeID: c.ccLeaf, ValidFrom: date("2026-01-01"), Reason: "r"}
 	}
 	newPC := func(code string) *gen.ProfitCenterCreate {
-		return &gen.ProfitCenterCreate{Code: code, Name: "N", Responsible: "R", SegmentID: gen.NewOptUUID(seg), LegalEntityIds: []uuid.UUID{c.de},
+		return &gen.ProfitCenterCreate{Code: code, Name: "N", Responsible: "R", SegmentID: gen.NewOptUUID(seg), LegalEntityIds: []uuid.UUID{c.de}, StandardNodeID: c.pcLeaf,
 			ValidFrom: date("2026-01-01"), Reason: "r"}
 	}
 	return map[string]func(ctx context.Context) error{
