@@ -3271,7 +3271,7 @@ func TestBankStatementSchema(t *testing.T) {
 
 // statementPostingSchema: a match's posting has its year and date, a
 // reason goes with a date, a posted match stays matched and a journal
-// entry posts one match (T49f, 000110).
+// entry posts one match (T49f, 000126).
 func statementPostingSchema(t *testing.T, f fixture, statement uuid.UUID) {
 	t.Helper()
 	matched := func(lineNo int, m uuid.UUID) func(tx pgx.Tx) error {

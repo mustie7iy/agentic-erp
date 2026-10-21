@@ -1444,7 +1444,7 @@ the transactions in `details`) and the lines' matches
 `matched`, `excluded` only by a person, `rejected` when a person's decision
 replaces it; its targets in `statement_match_target`, per candidate a
 payment, with the bank file of a batch booking, or a posting rule). A
-matched line is posted (T49f, 000110): its match records the posting date
+matched line is posted (T49f, 000126): its match records the posting date
 (the booking date, or one a person gives with `posting_reason`), the
 latest `bank_clearing` approval request (kept when rejected or withdrawn)
 and the journal entry (`statement_match_journal_entry`: one match per

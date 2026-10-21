@@ -264,7 +264,7 @@ Canadian bank may only offer BAI2.
   owner 2026-10-20). `BankStatementLineMatched` and
   `BankStatementLineExcluded` are published. Lines become `matched`,
   `proposed` or `excluded`; posting a match is T49f.
-- Posting (T49f, 000110): a `matched` line posts to the house bank's main
+- Posting (T49f, 000126): a `matched` line posts to the house bank's main
   bank account against what its match clears, through the ledger's
   `Postings.PostBank` (document type SA, source context payments, the
   match as source document): a match of payments debits the bank's
