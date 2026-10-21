@@ -1427,7 +1427,8 @@ erDiagram
     bigint opening_balance
     bigint closing_balance
     uuid previous_statement_id "the bank's statement before; null for its first"
-    text status "imported | gap | reconciled" }
+    text status "imported | gap | reconciled"
+    timestamptz reconciled_at "with reconciled_by, exactly when reconciled" }
   bank_statement_line { uuid statement_id PK
     int line_no PK
     bigint amount "signed: credit positive"
@@ -1453,7 +1454,8 @@ erDiagram
     smallint target_no PK
     uuid payment_id
     uuid bank_file_id "of a batch booking"
-    text posting_rule }
+    text posting_rule
+    boolean incoming "the incoming payments clearing account; one target" }
   bank_file { uuid id PK
     uuid payment_run_id "unique per run, house bank and method"
     uuid house_bank_id "null: the run's (T45c)"
@@ -1518,7 +1520,18 @@ follows; `rejected`: the line is unmatched again; `overridden`). The
 posting debits the bank's
 clearing account and clears each payment's line on it (an open-item
 managed account, `ledger.company_account`), or posts a posting rule's
-account, against the main bank account. A bank
+account, or (T49h, 000112) the incoming payments clearing account for an
+incoming payment a person matched there (`statement_match_target.incoming`;
+a target is one of a payment, a posting rule or it), against the main bank
+account. A statement becomes `reconciled` (T49h; checks added `NOT VALID`
+in 000112 and validated in 000113, the index in 000114) once every line of it and
+of the bank's statements before it is posted or excluded and its closing
+balance, less the lines excluded and those posted after its closing date,
+is the ledger's balance of the main bank account on that date; it records
+when and by whom (`bank_statement_reconciled`: both exactly when
+reconciled) and is never set back. `statement_match_line` indexes a line's
+matches, live and rejected, for the reconciliation report's latest
+proposal outcome. A bank
 file records its pain.001 message id (`bank_file.message_id`, 000123), which
 a batch booking carries. A
 statement whose opening balance is not the closing balance of the bank's

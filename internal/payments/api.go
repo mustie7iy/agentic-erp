@@ -11,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
@@ -295,7 +296,10 @@ func statementToAPI(s Statement, masked bool) gen.BankStatement {
 		FileSHA256: sha256Hex(s.FileSHA256), FilePosition: s.FilePosition, StatementRef: s.Ref, Sequence: s.Sequence, Account: s.Account,
 		OpeningBalance: apitypes.Money(s.Opening, s.Currency, s.Exponent), OpeningDate: s.OpeningDate,
 		ClosingBalance: apitypes.Money(s.Closing, s.Currency, s.Exponent), ClosingDate: s.ClosingDate, LineCount: s.LineCount,
-		PreviousStatementID: apitypes.OptUUID(s.PreviousID), Status: s.Status}
+		PreviousStatementID: apitypes.OptUUID(s.PreviousID), Status: s.Status, ReconciledBy: apitypes.OptUUID(s.ReconciledBy)}
+	if s.ReconciledAt != nil {
+		out.ReconciledAt.SetTo(*s.ReconciledAt)
+	}
 	if masked {
 		out.Account = "****" + fieldcrypt.Last4(s.Account)
 	}
@@ -431,6 +435,9 @@ func matchToAPI(m Match) gen.StatementMatch {
 		if t.PostingRule != nil {
 			out.Targets[i].PostingRule.SetTo(*t.PostingRule)
 		}
+		if t.Incoming {
+			out.Targets[i].Incoming.SetTo(true)
+		}
 	}
 	return out
 }
@@ -450,7 +457,8 @@ func (e *Endpoints) ListBankStatementMatches(ctx context.Context, params gen.Lis
 
 // MatchBankStatementLine implements POST /v1/bank-statements/{id}/lines/{line_no}:match.
 func (e *Endpoints) MatchBankStatementLine(ctx context.Context, req *gen.StatementLineMatchInput, params gen.MatchBankStatementLineParams) (gen.MatchBankStatementLineRes, error) {
-	m, err := e.MatchLine(ctx, params.ID, params.LineNo, etag.IfMatch(params.IfMatch), ManualMatch{PaymentIDs: req.PaymentIds, PostingRule: req.PostingRule.Value, Reason: req.Reason})
+	m, err := e.MatchLine(ctx, params.ID, params.LineNo, etag.IfMatch(params.IfMatch), ManualMatch{PaymentIDs: req.PaymentIds, PostingRule: req.PostingRule.Value,
+		Incoming: req.Incoming.Value, Reason: req.Reason})
 	if err != nil {
 		return nil, err
 	}
@@ -567,4 +575,79 @@ func (e *Endpoints) GetBankStatementRules(ctx context.Context, params gen.GetBan
 		out.MatchingRules = append(out.MatchingRules, m)
 	}
 	return &gen.BankStatementRulesHeaders{Response: out}, nil
+}
+
+// GetBankReconciliation implements GET /v1/house-banks/{id}/reconciliation:
+// one page of the house bank's reconciliation report (T49h).
+func (e *Endpoints) GetBankReconciliation(ctx context.Context, params gen.GetBankReconciliationParams) (gen.GetBankReconciliationRes, error) {
+	from, to := apitypes.Ptr[time.Time](params.ClosingDateFrom), apitypes.Ptr[time.Time](params.ClosingDateTo)
+	scope := fmt.Sprintf("getBankReconciliation|%s|%v|%v|%s", params.ID, from, to, params.LineStatus.Value)
+	ks, err := e.Pages.Keyset(statementSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
+	if err != nil {
+		return nil, err
+	}
+	r, err := e.BankReconciliation(ctx, params.ID, ReconciliationQuery{From: from, To: to, LineStatus: params.LineStatus.Value, Page: ks})
+	if err != nil {
+		return nil, err
+	}
+	amount := func(m money.Minor) gen.Money { return apitypes.Money(m, r.Currency, r.Exponent) }
+	out := gen.BankReconciliation{HouseBankID: r.HouseBankID, LegalEntityID: r.LegalEntityID, Currency: r.Currency,
+		ClosingDateFrom: optDate(r.From), ClosingDateTo: optDate(r.To), Items: make([]gen.BankReconciliationStatement, len(r.Statements)),
+		Summary: gen.BankReconciliationSummary{Statements: r.Summary.Statements, OpeningDate: optDate(r.Summary.OpeningDate), Lines: lineCounts(r.Summary.Counts)}}
+	if r.Summary.Opening != nil {
+		out.Summary.OpeningBalance.SetTo(amount(*r.Summary.Opening))
+	}
+	if r.Summary.Figures != nil {
+		out.Summary.Figures.SetTo(figuresToAPI(*r.Summary.Figures, amount))
+	}
+	for i, s := range r.Statements {
+		st := gen.BankReconciliationStatement{BankStatementID: s.Statement.ID, StatementRef: s.Statement.Ref, Sequence: s.Statement.Sequence,
+			Status: s.Statement.Status, OpeningDate: s.Statement.OpeningDate, OpeningBalance: amount(s.Statement.Opening),
+			Figures: figuresToAPI(s.Figures, amount), LineCounts: lineCounts(s.Counts), Lines: make([]gen.BankReconciliationLine, len(s.Lines))}
+		for j, l := range s.Lines {
+			st.Lines[j] = reconciledLineToAPI(l, amount)
+		}
+		out.Items[i] = st
+	}
+	if r.NextPageToken != "" {
+		out.NextPageToken.SetTo(r.NextPageToken)
+	}
+	return &gen.BankReconciliationHeaders{Response: out}, nil
+}
+
+func optDate(d *time.Time) gen.OptDate {
+	if d == nil {
+		return gen.OptDate{}
+	}
+	return gen.NewOptDate(*d)
+}
+
+func figuresToAPI(f Figures, amount func(money.Minor) gen.Money) gen.BankReconciliationFigures {
+	out := gen.BankReconciliationFigures{AsOf: f.AsOf, ClosingBalance: amount(f.Closing), Excluded: amount(f.Excluded), InTransit: amount(f.InTransit),
+		PostedLater: amount(f.PostedLater)}
+	if f.Ledger != nil {
+		out.LedgerBalance.SetTo(amount(*f.Ledger))
+		out.Unexplained.SetTo(amount(*f.Unexplained()))
+	}
+	return out
+}
+
+func lineCounts(c LineCounts) gen.BankReconciliationLineCounts {
+	return gen.BankReconciliationLineCounts{Unmatched: c["unmatched"], Proposed: c["proposed"], Matched: c[MatchMatched], Excluded: c[MatchExcluded],
+		PendingApproval: c["pending_approval"], Posted: c["posted"]}
+}
+
+func reconciledLineToAPI(l ReconciledLine, amount func(money.Minor) gen.Money) gen.BankReconciliationLine {
+	out := gen.BankReconciliationLine{LineNo: l.LineNo, BookingDate: l.BookingDate, Amount: amount(l.Amount), IsReversal: l.Reversal,
+		TransactionCode: l.TransactionCode, Status: l.Status, MatchID: apitypes.OptUUID(l.MatchID), MatchKind: apitypes.OptString(l.MatchKind),
+		MatchRule: apitypes.OptString(l.MatchRule), MatchStatus: apitypes.OptString(l.MatchStatus), PostingDate: optDate(l.PostingDate),
+		JournalEntryID: apitypes.OptUUID(l.JournalEntryID), ApprovalRequestID: apitypes.OptUUID(l.ApprovalRequestID),
+		ProposalOutcome: apitypes.OptString(l.ProposalOutcome)}
+	if l.Incoming {
+		out.Incoming.SetTo(true)
+	}
+	if l.JournalEntryYear != nil {
+		out.JournalEntryYear.SetTo(int32(*l.JournalEntryYear))
+	}
+	return out
 }

@@ -1,6 +1,8 @@
 # ADR-0047: Bank statements and reconciliation
 
-**Status:** accepted (T49, product owner 2026-10-20)
+**Status:** accepted (T49, product owner 2026-10-20); as built through
+T49h (2026-10-21): the Consequences below describe what was built, step
+by step, and the operator notes at the end how a bank is run.
 
 ## Context
 A payment run releases payments that credit the house bank's clearing
@@ -72,8 +74,11 @@ Canadian bank may only offer BAI2.
   payment's line; a batch booking clears the payments of the bank file
   whose `PmtInfId` or `MsgId` it carries; charges and interest post by
   their transaction code to the account of the company's
-  `bank_statements.posting_rules`; incoming payments post to the incoming
-  clearing account until accounts receivable (Phase 3) clears them. The
+  `bank_statements.posting_rules`, debits and credits alike (interest
+  received); incoming payments post to the incoming clearing account until
+  accounts receivable (Phase 3) clears them: a person matches such a credit
+  to it (T49h), and matching credits to customers' open items waits for
+  accounts receivable. The
   posting date is the booking date; in a locked or closed period the
   posting is refused with the period lock's error (T32), and a user may
   give a date in an open period instead, which is audited.
@@ -98,8 +103,14 @@ Canadian bank may only offer BAI2.
   a line `unmatched`, `proposed`, `matched`, `excluded`,
   `pending_approval`, `posted`; the
   reconciliation report lists lines and balances per bank. Imports, gaps,
-  matches and postings publish events through the outbox (ADR-0007) and
-  write audit records (ADR-0011).
+  matches, postings and reconciliations publish events through the outbox
+  (ADR-0007) and write audit records (ADR-0011).
+- **Reconciled.** A statement is reconciled when every line of it and of
+  the bank's statements before it is posted or excluded and its closing
+  balance agrees with the ledger's balance of the main bank account on its
+  closing date, once the lines excluded and those posted on a later date
+  are taken out (T49h). It is set once and never undone by the server; its
+  lines are then decided for good.
 
 ## Alternatives
 - **Post every line at import and correct later:** quicker, but a wrong
@@ -320,7 +331,7 @@ Canadian bank may only offer BAI2.
   approval's callback acts only while the line waits for that request, so
   a second call posts nothing. `BankStatementLinePosted` is published. The
   statement's `reconciled` status and incoming payments posted to the
-  incoming clearing account are T49h and later steps.
+  incoming clearing account came with T49h (below).
 - Proposals (T49g, 000127): the reconciliation agent (`internal/reconagent`,
   agent type `reconciliation`, `erp agent reconcile -statement ID`) takes
   the statement's lines that are `unmatched` or that a rule left open,
@@ -364,10 +375,12 @@ Canadian bank may only offer BAI2.
   `evals/reconciliation` (ADR-0039): charges under the bank's own code, a
   debit and its reversal excluded, instructions in the bank's text
   ignored, an incoming payment nothing explains left to a person. It has
-  no case of a proposal of payments yet: a paid run needs the proposal and
-  release workers, which the replay cell does not run; the API's own
-  tests cover such proposals, and a case is added with the live
-  certification run (T49h).
+  no case of a proposal of payments: a paid run needs the proposal and
+  release workers (the release a Temporal workflow) and a second person
+  to approve it, which the replay cell does not run; the API's own tests
+  cover such proposals. T49h recorded the case as part of the live
+  certification run of the reconciliation agent, on a cell that runs its
+  workers (tracker, under T49), rather than give the replay cell workers.
   Conservative choices for the product owner: the agent does not propose
   again for a line whose proposal a person rejected (the agent's rule,
   which the server does not enforce: another agent's session may); accepting needs no
@@ -375,7 +388,122 @@ Canadian bank may only offer BAI2.
   proposes nothing (the session must be the caller's); agents see
   statements' accounts masked; the agent proposes at most once per line
   and session and may propose nothing.
+- Incoming payments (T49h, 000112-000114): a person matches a credit that
+  reverses nothing to the house bank's incoming payments clearing account
+  (`:match` with `incoming: true`; 422 `payments.statement_match_target`
+  for a debit, a reversal, or a bank without `incoming_gl_account`); the
+  match's one target says so (`statement_match_target.incoming`, one of a
+  payment, a posting rule or it: `statement_match_target_one`). Its
+  posting debits the main bank account and credits the incoming account,
+  where it stays an open item until accounts receivable clears it (409
+  `payments.statement_incoming_gone` when the bank dropped the account
+  since the match). Posted, approved and reconciled as any match. The
+  rules still read debits only, and the agent proposes no incoming match:
+  credits that a posting rule takes (interest) are matched by the
+  `transaction_code` rule and posted as charges are; matching a credit to
+  a customer's open items, by rule or agent, waits for accounts
+  receivable (Phase 3).
+- Reconciliation (T49h, 000112-000114): on a statement's closing date the
+  bank's closing balance and the ledger's balance of the main bank account
+  (the leading ledger, in the legal entity's local currency, which is the
+  house bank's; `ledger.Accounts.Balances`) differ by the lines of the
+  bank's statements up to that date the ledger does not hold yet: those
+  `excluded`, those `in_transit` (unmatched, proposed, matched or waiting
+  for approval) and those `posted_later` (on a date a person gave after the
+  closing date, a locked period's lines; a date before the booking date is
+  refused, 422, so no line reaches the ledger before an earlier statement
+  closes). What they leave is
+  `unexplained`: an opening balance the ledger never received, or an entry
+  on the bank account no statement line made. A statement `imported` (never
+  one in `gap`) becomes `reconciled` once nothing is in transit or
+  unexplained on its closing date: checked under the bank's statement lock
+  whenever a line is excluded or posted (by a person, the rules' automatic
+  posting or an approval) and on every run of the rules
+  (`POST /v1/bank-statements/{id}:match`), which takes up what changed in
+  the ledger since (an opening entry posted later), for all the bank's
+  statements whose lines are decided. It records `reconciled_at` and
+  `reconciled_by` (`bank_statement_reconciled`; 000112 adds the checks
+  `NOT VALID`, 000113 validates them, 000114 builds `statement_match_line`
+  concurrently), is audited
+  (`payments.bank_statement.reconcile`) and publishes
+  `BankStatementReconciled` once: the update takes only a statement still
+  `imported`. It never reopens by itself (conservative, no rule asked
+  otherwise): its lines' decisions are refused (409
+  `payments.statement_reconciled`), a statement imported before it later
+  leaves it reconciled, and an entry reversed in the ledger afterwards
+  shows in the report, not in the status. The ledger is compared at the
+  end of the closing date, so of several statements closing on one day
+  only the day's last can reconcile (accepted until a pilot bank sends
+  intraday statements).
+  `GET /v1/house-banks/{id}/reconciliation` (`payments.statement.read`,
+  agents too: it names no account) reports, per statement closing in the
+  period (`closing_date_from`, `closing_date_to`), its balances, the
+  figures on its closing date, its lines' counts by status and its lines
+  (or those of `line_status`) with their live match (kind, rule, status,
+  incoming, posting date, entry, approval request) and the outcome of the
+  latest agent proposal a person decided; `summary` is the period's (its
+  first opening balance, the figures on its last closing date, its lines by
+  status; another `line_status` than a line's is 422). Paged by statement,
+  by closing date, as the statement list is. Each check reads the bank's
+  statements and lines from its first: fine for the pilot, bounded later
+  (from the earliest statement not reconciled; tracked).
+  A bank without a main bank account has no ledger balance and nothing
+  unexplained. Conservative choices for the product owner: excluded lines
+  and lines posted on a later date are reconciling items, so a statement
+  with an excluded line reconciles (the exclusion is a person's decision
+  that the booking clears nothing in the books); an agent's run of the
+  rules may reconcile a statement, as it is a fact of the books rather than
+  a decision; a gap is resolved only by importing the missing statement
+  (accepting a gap without it is a later step).
 - Steps: a ADR, configuration and the house bank's columns · b parsers ·
   c tables, upload, idempotency and continuity · d SFTP fetch · e rule
   matching · f posting, clearing, approval and period locks · g agent
-  proposals · h report and documentation.
+  proposals · h report, reconciled status, incoming payments and
+  documentation.
+
+## Operator notes
+
+- **Set a bank up for fetching statements.** Create a `bank_sftp`
+  connector (`POST /v1/connectors`, ADR-0038) with the bank's `host`,
+  `port`, `user`, pinned `host_key`, the outbound `directory`, and both
+  `statements_directory` (where the bank leaves statements) and
+  `statements_archive` (where they are moved after import), absolute and
+  different; the private key goes in `secret_ref`, never in settings.
+  Name the connector as the house bank's `connector`, and give the house
+  bank its `main_gl_account` (and `incoming_gl_account` for incoming
+  payments), with its clearing accounts open-item managed
+  (`chart_of_accounts[].open_items`, on an account without postings: an
+  account that already has postings is replaced by a new one, its balance
+  moved with a manual entry). Activate the configuration. The dispatcher
+  starts `FetchBankStatements` per active bank once per
+  `ERP_STATEMENT_FETCH_INTERVAL` (default 1h; 0 stops fetching). Before the
+  first statement, post the account's opening balance to the main bank
+  account on the day before the first statement opens, or the report shows
+  it as unexplained and nothing reconciles.
+- **Rules and approval tiers.** Set `companies[].bank_statements`:
+  `posting_rules` by the bank's transaction codes (charges, interest) to
+  an expense or income account, `matching_rules` in priority order, and
+  `approval_tiers` by amount in the company's currency. Without tiers every
+  posting waits for the `controller` role (fail closed); a tier without
+  steps posts at once, so give one only to amounts the company accepts
+  unreviewed (charges, small differences), e.g. `[{up_to: "50.00"},
+  {steps: [{role: controller, approvals: 1}]}]`. Whoever matched a line by
+  hand never approves its posting. Agents propose, never post.
+- **A gap.** A statement whose opening balance is not the previous
+  closing balance is `gap` (BankStatementGapFound), and the bank's lines
+  are not posted, automatically or by hand (409 `payments.statement_gap`),
+  until the missing statement is imported: ask the bank to deliver it again
+  (into `statements_directory`, or upload it with
+  `POST /v1/bank-statements`); it is placed between the two and the gap
+  closes (BankStatementGapClosed), and the next run of the rules
+  (`:match`) posts what waited. A statement the bank corrected under the
+  same id and sequence is refused (409 `payments.statement_conflict`) and
+  left in the directory for a person to take up with the bank.
+- **What needs a person.** `erp_bank_statement_files_refused` (a file
+  the import refused: `BankStatementFileRefused` names why) and
+  `erp_bank_statement_files_unarchived` (imported over an hour ago and not
+  moved: the archive directory is not writable). Daily, the reconciliation
+  report with `line_status=unmatched` (and `proposed`) lists the lines to
+  decide, `pending_approval` the postings waiting for approvers, and a
+  statement whose `unexplained` is not zero an entry missing from, or
+  wrong in, the main bank account.

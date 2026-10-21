@@ -290,6 +290,7 @@ channels:
       BankStatementLinePosted: {$ref: '#/components/messages/BankStatementLinePosted'}
       BankStatementLineProposed: {$ref: '#/components/messages/BankStatementLineProposed'}
       BankStatementLineProposalDecided: {$ref: '#/components/messages/BankStatementLineProposalDecided'}
+      BankStatementReconciled: {$ref: '#/components/messages/BankStatementReconciled'}
   workflow:
     address: 'erp.{cell}.workflow.{tenant}.{event}'
     title: Workflow events
@@ -476,6 +477,7 @@ operations:
       - $ref: '#/channels/payments/messages/BankStatementLinePosted'
       - $ref: '#/channels/payments/messages/BankStatementLineProposed'
       - $ref: '#/channels/payments/messages/BankStatementLineProposalDecided'
+      - $ref: '#/channels/payments/messages/BankStatementReconciled'
   publishWorkflowEvents:
     action: send
     title: Workflow publishes
@@ -1522,6 +1524,22 @@ components:
         - name: posted
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f9, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_line_posted.v1, subject: 0192a000-0000-7000-8000-000000000b40, time: '2026-10-20T11:10:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
           payload: {statement_match_id: 0192a000-0000-7000-8000-000000000b40, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, amount: {amount: '-100.00', currency: EUR}, posting_date: '2026-04-17', journal_entry_id: 0192a000-0000-7000-8000-000000000d01, journal_entry_year: 2026, document_number: '100000001', cleared_payments: 1, approval_request_id: 0192a000-0000-7000-8000-000000000901}
+    BankStatementReconciled:
+      name: BankStatementReconciled
+      title: Bank statement reconciled
+      summary: A statement's lines are all posted or excluded and the ledger agrees with its closing balance.
+      description: "Emitted once when a bank statement becomes `reconciled` (T49h, ADR-0047): every line of it and of the house bank's statements before it is posted or excluded, and its closing balance, less the lines excluded and those posted after its closing date, is the ledger's balance of the house bank's main bank account on that date. Made by the posting, exclusion, approval or run of the rules that left nothing unexplained; never undone by the server. Subject is the bank statement."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_statement_reconciled.v1}
+      payload: {$ref: '#/components/schemas/BankStatementReconciledV1'}
+      examples:
+        - name: reconciled
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e0000000010a, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_reconciled.v1, subject: 0192a000-0000-7000-8000-000000000b20, time: '2026-10-21T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
+          payload: {bank_statement_id: 0192a000-0000-7000-8000-000000000b20, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, closing_date: '2026-04-17', closing_balance: {amount: '929.50', currency: EUR}, ledger_balance: {amount: '989.50', currency: EUR}, excluded: {amount: '-60.00', currency: EUR}, posted_later: {amount: '0.00', currency: EUR}, line_count: 2, status: reconciled}
     BankStatementLineProposed:
       name: BankStatementLineProposed
       title: Bank statement line proposed by the agent
@@ -4127,6 +4145,20 @@ components:
         document_number: {"type": "string"}
         cleared_payments: {"type": "integer", "minimum": 0, "description": "How many payments' lines on the clearing account the posting cleared; 0 for a posting rule's line."}
         approval_request_id: {"$ref": "#/components/schemas/NullableUuid", "description": "The bank_clearing request that approved the posting; null when the tier had no steps."}
+    BankStatementReconciledV1:
+      type: object
+      required: ["bank_statement_id", "house_bank_id", "legal_entity_id", "closing_date", "closing_balance", "ledger_balance", "excluded", "posted_later", "line_count", "status"]
+      properties:
+        bank_statement_id: {"$ref": "#/components/schemas/Uuid"}
+        house_bank_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        closing_date: {"$ref": "#/components/schemas/Date"}
+        closing_balance: {"$ref": "#/components/schemas/SignedMoney", "description": "The statement's closing balance: credit positive."}
+        ledger_balance: {"$ref": "#/components/schemas/SignedMoney", "description": "The ledger's balance of the main bank account on the closing date, in the legal entity's local currency: debit positive."}
+        excluded: {"$ref": "#/components/schemas/SignedMoney", "description": "The lines excluded from the house bank's statements up to the closing date."}
+        posted_later: {"$ref": "#/components/schemas/SignedMoney", "description": "The lines of the house bank's statements up to the closing date posted after it."}
+        line_count: {"type": "integer", "minimum": 0, "description": "The statement's lines."}
+        status: {"type": "string", "description": "reconciled."}
     BankStatementLineProposedV1:
       type: object
       required: ["statement_match_id", "bank_statement_id", "line_no", "house_bank_id", "legal_entity_id", "kind", "rule", "status", "candidates", "session_id", "proposal"]

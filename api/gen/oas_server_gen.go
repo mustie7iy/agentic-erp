@@ -503,9 +503,11 @@ type Handler interface {
 	//
 	// A person excludes the line from reconciliation, with a reason: the bank's booking clears nothing the
 	// ledger holds. The line's live match becomes `rejected` and the new one `excluded` (kind `manual`),
-	// with no targets; the line is `excluded`. People only; a line on its way to the ledger keeps its
-	// match (409 `payments.statement_line_posting`). Audited, and published as BankStatementLineExcluded.
-	// The response's ETag is the statement's new one, the If-Match of the next decision on its lines.
+	// with no targets; the line is `excluded`; a statement whose last line to decide this was may become
+	// `reconciled` (T49h). People only; a line on its way to the ledger keeps its match (409
+	// `payments.statement_line_posting`), and a reconciled statement's lines are decided for good (409
+	// `payments.statement_reconciled`). Audited, and published as BankStatementLineExcluded. The
+	// response's ETag is the statement's new one, the If-Match of the next decision on its lines.
 	//
 	// POST /v1/bank-statements/{id}/lines/{line_no}:exclude
 	ExcludeBankStatementLine(ctx context.Context, req *ReasonInput, params ExcludeBankStatementLineParams) (ExcludeBankStatementLineRes, error)
@@ -578,6 +580,26 @@ type Handler interface {
 	//
 	// GET /v1/bank-files/{id}/content
 	GetBankFileContent(ctx context.Context, params GetBankFileContentParams) (GetBankFileContentRes, error)
+	// GetBankReconciliation implements getBankReconciliation operation.
+	//
+	// The reconciliation report of a house bank (ADR-0047, T49h) over its statements closing in the period
+	// (`closing_date_from`, `closing_date_to`; without them, all): per statement, its balances as the bank
+	// gave them, the ledger's balance of the house bank's main bank account (`main_gl_account`) on its
+	// closing date, and what explains the difference, from the lines of the bank's statements up to that
+	// date: those excluded, those not posted yet (`in_transit`: unmatched, proposed, matched or waiting
+	// for approval) and those posted after the date (`posted_later`, on another date a person gave); what
+	// is left is `unexplained` (an opening balance the ledger never received, or an entry on the bank
+	// account that no statement line made). Each statement lists its lines with their status, their live
+	// match (kind, rule, posting) and the outcome of the latest agent proposal a person decided,
+	// optionally only the lines of one status (`line_status`). `summary` is the period's, on its last
+	// closing date. A statement becomes `reconciled` once nothing is in transit or unexplained on its
+	// closing date. The ledger's balances are in the legal entity's local currency, which is a house
+	// bank's currency; a house bank without a main bank account has no ledger balance, nor anything
+	// unexplained. The report names no account numbers, so agents read it as people do. Paged by
+	// statement, by closing date. Sortable by: `closing_date`.
+	//
+	// GET /v1/house-banks/{id}/reconciliation
+	GetBankReconciliation(ctx context.Context, params GetBankReconciliationParams) (GetBankReconciliationRes, error)
 	// GetBankStatement implements getBankStatement operation.
 	//
 	// Returns one bank statement with its lines.
@@ -1308,13 +1330,16 @@ type Handler interface {
 	MatchBankStatement(ctx context.Context, params MatchBankStatementParams) (MatchBankStatementRes, error)
 	// MatchBankStatementLine implements matchBankStatementLine operation.
 	//
-	// A person matches the line to the payments it clears or to a posting rule of the company (charges,
-	// interest), with a reason, whatever the rules found: the line's live match becomes `rejected` and the
-	// new one `matched` (kind `manual`). Each payment must be posted, from the statement's house bank, in
-	// its currency and matched to no other line (422 `payments.statement_match_target`). People only; a
-	// line on its way to the ledger keeps its match (409 `payments.statement_line_posting`). Audited, and
-	// published as BankStatementLineMatched. The response's ETag is the statement's new one, the If-Match
-	// of the next decision on its lines.
+	// A person matches the line to the payments it clears, to a posting rule of the company (charges,
+	// interest), or, for an incoming payment, to the house bank's incoming payments clearing account
+	// (`incoming: true`, T49h), with a reason, whatever the rules found: the line's live match becomes
+	// `rejected` and the new one `matched` (kind `manual`). Each payment must be posted, from the
+	// statement's house bank, in its currency and matched to no other line, and an incoming payment a
+	// credit that reverses nothing, of a house bank with `incoming_gl_account` (422
+	// `payments.statement_match_target`). People only; a line on its way to the ledger keeps its match
+	// (409 `payments.statement_line_posting`), and a reconciled statement's lines are decided for good
+	// (409 `payments.statement_reconciled`). Audited, and published as BankStatementLineMatched. The
+	// response's ETag is the statement's new one, the If-Match of the next decision on its lines.
 	//
 	// POST /v1/bank-statements/{id}/lines/{line_no}:match
 	MatchBankStatementLine(ctx context.Context, req *StatementLineMatchInput, params MatchBankStatementLineParams) (MatchBankStatementLineRes, error)
@@ -1397,21 +1422,27 @@ type Handler interface {
 	// be open-item managed (422 `ledger.not_open_item_managed`), is offset at its original amounts and
 	// cleared with the posting, and the payments must pay the line's amount (409
 	// `payments.statement_amount_differs`); for a posting rule, the rule's account (409
-	// `payments.statement_posting_rule_gone` when the company no longer has the rule). A statement in
-	// another currency than the company's is converted at the posting date's rates, and the difference to
-	// the payments' amounts is a realized exchange difference (fx_gain/fx_loss). The posting is dated on
-	// the line's booking date, or on `posting_date` with a `reason` (both audited); a locked or closed
-	// period refuses it (409 `ledger.period_not_open`). The posting is routed by the line's amount in the
-	// company's currency through `companies[].bank_statements.approval_tiers` (`bank_clearing` approval
-	// requests): a tier without steps posts at once (`posted`); otherwise the line waits for the request
-	// (`pending_approval`), whose approval posts it, checked again, and whose rejection or withdrawal
-	// returns it to `matched`. A company without tiers has every posting approved by the `controller`
-	// role. Whoever matched the line by hand cannot approve its posting. A house bank without a main bank
-	// account never posts (409 `payments.statement_bank_not_posting`), nor one with a statement in `gap`
-	// (409 `payments.statement_gap`). A line not matched is 409 `payments.statement_line_not_matched`; one
-	// posted or waiting already is 409 `payments.statement_line_posting`. People only. Audited; the
-	// posting publishes BankStatementLinePosted, and the ledger JournalEntryPosted and ItemsCleared. The
-	// response's ETag is the statement's new one, the If-Match of the next decision on its lines.
+	// `payments.statement_posting_rule_gone` when the company no longer has the rule); for an incoming
+	// payment, the house bank's incoming payments clearing account, where the line stays an open item
+	// until accounts receivable clears it (409 `payments.statement_incoming_gone` when the bank no longer
+	// names one). A statement in another currency than the company's is converted at the posting date's
+	// rates, and the difference to the payments' amounts is a realized exchange difference
+	// (fx_gain/fx_loss). The posting is dated on the line's booking date, or on `posting_date` with a
+	// `reason` (both audited); a locked or closed period refuses it (409 `ledger.period_not_open`). The
+	// posting is routed by the line's amount in the company's currency through
+	// `companies[].bank_statements.approval_tiers` (`bank_clearing` approval requests): a tier without
+	// steps posts at once (`posted`); otherwise the line waits for the request (`pending_approval`), whose
+	// approval posts it, checked again, and whose rejection or withdrawal returns it to `matched`. A
+	// company without tiers has every posting approved by the `controller` role. Whoever matched the line
+	// by hand cannot approve its posting. A house bank without a main bank account never posts (409
+	// `payments.statement_bank_not_posting`), nor one with a statement in `gap` (409
+	// `payments.statement_gap`). A line not matched is 409 `payments.statement_line_not_matched`; one
+	// posted or waiting already is 409 `payments.statement_line_posting`. A `posting_date` before the
+	// booking date is refused (422): a later one takes the line out of a locked period, an earlier one
+	// would book it before the bank did. A statement whose last line to decide this was becomes
+	// `reconciled` once the ledger agrees (T49h). People only. Audited; the posting publishes
+	// BankStatementLinePosted, and the ledger JournalEntryPosted and ItemsCleared. The response's ETag is
+	// the statement's new one, the If-Match of the next decision on its lines.
 	//
 	// POST /v1/bank-statements/{id}/lines/{line_no}:post
 	PostBankStatementLine(ctx context.Context, req OptStatementLinePostInput, params PostBankStatementLineParams) (PostBankStatementLineRes, error)

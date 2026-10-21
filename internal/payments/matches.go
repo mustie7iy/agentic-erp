@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -39,25 +40,58 @@ func (e *Endpoints) MatchStatement(ctx context.Context, id uuid.UUID, ifMatch fu
 	return GetStatement(ctx, id)
 }
 
-// ManualMatch is a person's match of a line: the payments it clears, or
-// the posting rule that posts it, and why.
+// ManualMatch is a person's match of a line: the payments it clears, the
+// posting rule that posts it, or (Incoming) the incoming payments clearing
+// account it posts to, and why.
 type ManualMatch struct {
 	PaymentIDs  []uuid.UUID
 	PostingRule string
+	Incoming    bool
 	Reason      string
 }
 
 // MatchLine matches the line by hand, replacing its live match; an
 // agent's proposal it replaces is overridden.
 func (e *Endpoints) MatchLine(ctx context.Context, statement uuid.UUID, lineNo int32, ifMatch func(int32) error, in ManualMatch) (Match, error) {
-	if (len(in.PaymentIDs) == 0) == (in.PostingRule == "") {
-		return Match{}, problem.Unprocessable("request.validation_failed", "A match names the payments it clears or a posting rule, not both.",
-			problem.FieldError{Field: "payment_ids", Code: "invalid", Message: "payment_ids or posting_rule"})
+	if n := len(slices.DeleteFunc([]bool{len(in.PaymentIDs) > 0, in.PostingRule != "", in.Incoming}, func(b bool) bool { return !b })); n != 1 {
+		return Match{}, problem.Unprocessable("request.validation_failed", "A match names the payments it clears, a posting rule, or the incoming payments clearing account: one of them.",
+			problem.FieldError{Field: "payment_ids", Code: "invalid", Message: "payment_ids, posting_rule or incoming"})
 	}
 	return e.decideLine(ctx, statement, lineNo, ifMatch, OutcomeOverridden, func(ctx context.Context, d openLine) (newMatch, error) {
-		targets, err := e.manualTargets(ctx, d.tx, d.s, in)
+		var targets []MatchTarget
+		var err error
+		if in.Incoming {
+			targets, err = incomingTarget(ctx, d.tx, d.s, lineNo)
+		} else {
+			targets, err = e.manualTargets(ctx, d.tx, d.s, in)
+		}
 		return newMatch{kind: MatchManual, reason: in.Reason, status: MatchMatched, candidates: [][]MatchTarget{targets}}, err
 	})
+}
+
+// incomingTarget is a person's match of the line to the house bank's
+// incoming payments clearing account (ADR-0047): only a credit that
+// reverses nothing is an incoming payment, and only a bank that names the
+// account takes one. Accounts receivable (Phase 3) clears the customer's
+// items from there.
+func incomingTarget(ctx context.Context, tx pgx.Tx, s Statement, lineNo int32) ([]MatchTarget, error) {
+	var amount money.Minor
+	var reversal bool
+	var account *uuid.UUID
+	if err := tx.QueryRow(ctx, `SELECT l.amount, l.is_reversal, h.incoming_gl_account_id FROM payments.bank_statement_line l
+		JOIN payments.house_bank h ON h.tenant_id = l.tenant_id AND h.id = $3 WHERE l.statement_id = $1 AND l.line_no = $2`,
+		s.ID, lineNo, s.HouseBankID).Scan(&amount, &reversal, &account); err != nil {
+		return nil, fmt.Errorf("payments: line %d of statement %s as an incoming payment: %w", lineNo, s.ID, err)
+	}
+	field := problem.FieldError{Field: "incoming", Code: "invalid", Message: "an incoming payment of a house bank with incoming_gl_account"}
+	if amount <= 0 || reversal {
+		return nil, problem.Unprocessable("payments.statement_match_target", "Only an incoming payment, a credit that reverses nothing, "+
+			"posts to the incoming payments clearing account.", field)
+	}
+	if account == nil {
+		return nil, problem.Unprocessable("payments.statement_match_target", "The house bank has no incoming payments clearing account (incoming_gl_account).", field)
+	}
+	return []MatchTarget{{Candidate: 1, Incoming: true}}, nil
 }
 
 // ExcludeLine excludes the line from reconciliation, replacing its live
@@ -104,15 +138,23 @@ func lockLine(ctx context.Context, statement uuid.UUID, lineNo int32, ifMatch fu
 	return openLine{p: p, tx: tx, s: s, lineNo: lineNo, live: live}, nil
 }
 
-// lineState reads the line's status, locking it, and its live match.
+// lineState reads the line's status, locking it, and its live match. The
+// lines of a reconciled statement are decided for good (T49h): it never
+// reopens by itself, so none is decided again.
 func lineState(ctx context.Context, tx pgx.Tx, statement uuid.UUID, lineNo int32) (string, *Match, error) {
 	var status string
-	err := tx.QueryRow(ctx, `SELECT status FROM payments.bank_statement_line WHERE statement_id = $1 AND line_no = $2 FOR UPDATE`, statement, lineNo).Scan(&status)
+	var reconciled bool
+	err := tx.QueryRow(ctx, `SELECT l.status, s.status = 'reconciled' FROM payments.bank_statement_line l
+		JOIN payments.bank_statement s ON s.tenant_id = l.tenant_id AND s.id = l.statement_id
+		WHERE l.statement_id = $1 AND l.line_no = $2 FOR UPDATE OF l`, statement, lineNo).Scan(&status, &reconciled)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil, problem.NotFoundOf("bank statement line")
 	}
 	if err != nil {
 		return "", nil, fmt.Errorf("payments: line %d of statement %s: %w", lineNo, statement, err)
+	}
+	if reconciled {
+		return "", nil, problem.Conflict("payments.statement_reconciled", fmt.Sprintf("The statement is reconciled; line %d is decided for good.", lineNo))
 	}
 	rows, _ := tx.Query(ctx, matchSelect+` WHERE m.statement_id = $1 AND m.line_no = $2 AND m.status <> 'rejected'`, statement, lineNo)
 	live, err := pgx.CollectRows(rows, scanMatch)
@@ -144,6 +186,11 @@ func (e *Endpoints) decideLine(ctx context.Context, statement uuid.UUID, lineNo 
 	id, err := writeMatch(ctx, d.tx, d.p, d.s, lineNo, m)
 	if err != nil {
 		return Match{}, err
+	}
+	if m.status == MatchExcluded { // an exclusion may be the statement's last line to decide
+		if err := e.reconcile(ctx, d.tx, d.p, d.s); err != nil {
+			return Match{}, err
+		}
 	}
 	return d.answer(ctx, id)
 }

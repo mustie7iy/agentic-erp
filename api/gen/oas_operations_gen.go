@@ -77,6 +77,7 @@ const (
 	GetBankAccountOperation                   OperationName = "GetBankAccount"
 	GetBankFileOperation                      OperationName = "GetBankFile"
 	GetBankFileContentOperation               OperationName = "GetBankFileContent"
+	GetBankReconciliationOperation            OperationName = "GetBankReconciliation"
 	GetBankStatementOperation                 OperationName = "GetBankStatement"
 	GetBankStatementFileOperation             OperationName = "GetBankStatementFile"
 	GetBankStatementRulesOperation            OperationName = "GetBankStatementRules"

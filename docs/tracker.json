@@ -804,7 +804,7 @@
      {
       "s": "T",
       "t": "Incoming payment posting and clearing",
-      "r": "",
+      "r": "clears the open items T49h leaves on a house bank's incoming payments clearing account (ADR-0047)",
       "c": []
      },
      {
@@ -864,7 +864,7 @@
     "ph": 2,
     "c": [
      {
-      "s": "P",
+      "s": "D",
       "t": "Bank statement import (camt.053, MT940)",
       "r": "ADR-0047 · T49 (split T49a-T49h)",
       "c": [
@@ -911,9 +911,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Reconciliation report and documentation",
-        "r": "T49h",
+        "s": "D",
+        "t": "Reconciliation report per house bank and period (statements' balances against the ledger's main bank account on each closing date: excluded, in transit, posted later, unexplained; lines with their match and proposal outcome; paged, agents too); a statement reconciled once every line up to it is posted or excluded and the ledger agrees, set once, never reopened, its lines then decided for good; incoming payments matched by a person to the incoming payments clearing account and posted there; ADR-0047 as built, operator notes",
+        "r": "db/migrations/000112-000114 · bank_statement reconciled_at/reconciled_by · statement_match_target.incoming · GET /v1/house-banks/{id}/reconciliation · :match incoming · payments.statement_reconciled · payments.statement_incoming_gone · ledger.Accounts.Balances · BankStatementReconciled · T49h",
         "c": []
        },
        {
@@ -921,25 +921,43 @@
         "t": "ISO-8859-1 statement files, only if a pilot bank cannot send UTF-8 (coordinator 2026-10-20)",
         "r": "T49",
         "c": []
+       },
+       {
+        "s": "T",
+        "t": "Live certification run of the reconciliation agent with a case that proposes a payment run's payments (needs a cell running the proposal and release workers and a second approver; the replay cell does not)",
+        "r": "evals/reconciliation · ADR-0039 · T49",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A person accepts a gap without the missing statement (reason, audited), so the bank's lines post again",
+        "r": "ADR-0047 Continuity · T49",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Bound the reconciliation check to the bank's statements from the earliest one not reconciled, before production-sized statement history",
+        "r": "internal/payments/reconciliation.go · T49",
+        "c": []
        }
       ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Rule-based automatic matching",
-      "r": "T49",
+      "r": "T49e",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Reconciliation agent for unmatched lines",
-      "r": "T49",
+      "r": "T49g",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Clearing postings with approval",
-      "r": "T49",
+      "r": "T49f",
       "c": []
      }
     ]

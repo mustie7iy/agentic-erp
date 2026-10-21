@@ -3373,6 +3373,7 @@ func (*BadRequestHeaders) getApprovalRequestRes()               {}
 func (*BadRequestHeaders) getBankAccountRes()                   {}
 func (*BadRequestHeaders) getBankFileContentRes()               {}
 func (*BadRequestHeaders) getBankFileRes()                      {}
+func (*BadRequestHeaders) getBankReconciliationRes()            {}
 func (*BadRequestHeaders) getBankStatementFileRes()             {}
 func (*BadRequestHeaders) getBankStatementRes()                 {}
 func (*BadRequestHeaders) getBankStatementRulesRes()            {}
@@ -4739,6 +4740,699 @@ func (s *BankFilePageHeaders) SetResponse(val BankFilePage) {
 
 func (*BankFilePageHeaders) listBankFilesRes() {}
 
+// One page of a house bank's reconciliation report (ADR-0047, T49h): the period's figures, and its
+// statements on this page with their figures and lines. Amounts are signed: a credit to the account is
+// positive, as on the statements; a ledger balance is debit positive, so the two agree when equal.
+// Ref: #/components/schemas/BankReconciliation
+type BankReconciliation struct {
+	// The house bank.
+	HouseBankID uuid.UUID `json:"house_bank_id"`
+	// The house bank's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The house bank's currency (ISO 4217), its statements' and the ledger balances'.
+	Currency string `json:"currency"`
+	// The period's first day, when given.
+	ClosingDateFrom OptDate `json:"closing_date_from"`
+	// The period's last day, when given.
+	ClosingDateTo OptDate                   `json:"closing_date_to"`
+	Summary       BankReconciliationSummary `json:"summary"`
+	// The period's statements on this page, by closing date.
+	Items []BankReconciliationStatement `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetHouseBankID returns the value of HouseBankID.
+func (s *BankReconciliation) GetHouseBankID() uuid.UUID {
+	return s.HouseBankID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *BankReconciliation) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCurrency returns the value of Currency.
+func (s *BankReconciliation) GetCurrency() string {
+	return s.Currency
+}
+
+// GetClosingDateFrom returns the value of ClosingDateFrom.
+func (s *BankReconciliation) GetClosingDateFrom() OptDate {
+	return s.ClosingDateFrom
+}
+
+// GetClosingDateTo returns the value of ClosingDateTo.
+func (s *BankReconciliation) GetClosingDateTo() OptDate {
+	return s.ClosingDateTo
+}
+
+// GetSummary returns the value of Summary.
+func (s *BankReconciliation) GetSummary() BankReconciliationSummary {
+	return s.Summary
+}
+
+// GetItems returns the value of Items.
+func (s *BankReconciliation) GetItems() []BankReconciliationStatement {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *BankReconciliation) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetHouseBankID sets the value of HouseBankID.
+func (s *BankReconciliation) SetHouseBankID(val uuid.UUID) {
+	s.HouseBankID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *BankReconciliation) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *BankReconciliation) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetClosingDateFrom sets the value of ClosingDateFrom.
+func (s *BankReconciliation) SetClosingDateFrom(val OptDate) {
+	s.ClosingDateFrom = val
+}
+
+// SetClosingDateTo sets the value of ClosingDateTo.
+func (s *BankReconciliation) SetClosingDateTo(val OptDate) {
+	s.ClosingDateTo = val
+}
+
+// SetSummary sets the value of Summary.
+func (s *BankReconciliation) SetSummary(val BankReconciliationSummary) {
+	s.Summary = val
+}
+
+// SetItems sets the value of Items.
+func (s *BankReconciliation) SetItems(val []BankReconciliationStatement) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *BankReconciliation) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// A closing balance compared with the ledger on its date (`as_of`): the ledger's balance of the main
+// bank account, what the lines of the bank's statements up to that date explain of the difference
+// (`excluded`, `in_transit`, `posted_later`), and what is left (`unexplained` = closing balance −
+// ledger balance − excluded − in transit − posted later). Absent ledger balance: the house bank
+// has no main bank account.
+// Ref: #/components/schemas/BankReconciliationFigures
+type BankReconciliationFigures struct {
+	// The closing date compared on.
+	AsOf           time.Time `json:"as_of"`
+	ClosingBalance Money     `json:"closing_balance"`
+	LedgerBalance  OptMoney  `json:"ledger_balance"`
+	Excluded       Money     `json:"excluded"`
+	InTransit      Money     `json:"in_transit"`
+	PostedLater    Money     `json:"posted_later"`
+	Unexplained    OptMoney  `json:"unexplained"`
+}
+
+// GetAsOf returns the value of AsOf.
+func (s *BankReconciliationFigures) GetAsOf() time.Time {
+	return s.AsOf
+}
+
+// GetClosingBalance returns the value of ClosingBalance.
+func (s *BankReconciliationFigures) GetClosingBalance() Money {
+	return s.ClosingBalance
+}
+
+// GetLedgerBalance returns the value of LedgerBalance.
+func (s *BankReconciliationFigures) GetLedgerBalance() OptMoney {
+	return s.LedgerBalance
+}
+
+// GetExcluded returns the value of Excluded.
+func (s *BankReconciliationFigures) GetExcluded() Money {
+	return s.Excluded
+}
+
+// GetInTransit returns the value of InTransit.
+func (s *BankReconciliationFigures) GetInTransit() Money {
+	return s.InTransit
+}
+
+// GetPostedLater returns the value of PostedLater.
+func (s *BankReconciliationFigures) GetPostedLater() Money {
+	return s.PostedLater
+}
+
+// GetUnexplained returns the value of Unexplained.
+func (s *BankReconciliationFigures) GetUnexplained() OptMoney {
+	return s.Unexplained
+}
+
+// SetAsOf sets the value of AsOf.
+func (s *BankReconciliationFigures) SetAsOf(val time.Time) {
+	s.AsOf = val
+}
+
+// SetClosingBalance sets the value of ClosingBalance.
+func (s *BankReconciliationFigures) SetClosingBalance(val Money) {
+	s.ClosingBalance = val
+}
+
+// SetLedgerBalance sets the value of LedgerBalance.
+func (s *BankReconciliationFigures) SetLedgerBalance(val OptMoney) {
+	s.LedgerBalance = val
+}
+
+// SetExcluded sets the value of Excluded.
+func (s *BankReconciliationFigures) SetExcluded(val Money) {
+	s.Excluded = val
+}
+
+// SetInTransit sets the value of InTransit.
+func (s *BankReconciliationFigures) SetInTransit(val Money) {
+	s.InTransit = val
+}
+
+// SetPostedLater sets the value of PostedLater.
+func (s *BankReconciliationFigures) SetPostedLater(val Money) {
+	s.PostedLater = val
+}
+
+// SetUnexplained sets the value of Unexplained.
+func (s *BankReconciliationFigures) SetUnexplained(val OptMoney) {
+	s.Unexplained = val
+}
+
+// BankReconciliationHeaders wraps BankReconciliation with response headers.
+type BankReconciliationHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           BankReconciliation
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *BankReconciliationHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *BankReconciliationHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *BankReconciliationHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *BankReconciliationHeaders) GetResponse() BankReconciliation {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *BankReconciliationHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *BankReconciliationHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *BankReconciliationHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *BankReconciliationHeaders) SetResponse(val BankReconciliation) {
+	s.Response = val
+}
+
+func (*BankReconciliationHeaders) getBankReconciliationRes() {}
+
+// A line of a statement in the report, with its live match and the outcome of the latest agent
+// proposal a person decided.
+// Ref: #/components/schemas/BankReconciliationLine
+type BankReconciliationLine struct {
+	// The line's number in the statement.
+	LineNo int32 `json:"line_no"`
+	// The booking date.
+	BookingDate time.Time `json:"booking_date"`
+	Amount      Money     `json:"amount"`
+	// True when the bank reverses an earlier booking.
+	IsReversal bool `json:"is_reversal"`
+	// The bank's transaction code.
+	TransactionCode string `json:"transaction_code"`
+	// The line's status. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Status string `json:"status"`
+	// The live match; absent for an unmatched line.
+	MatchID OptUUID `json:"match_id"`
+	// Who made the live match. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	MatchKind OptString `json:"match_kind"`
+	// The matching rule of a rule's match. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	MatchRule OptString `json:"match_rule"`
+	// The live match's status. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	MatchStatus OptString `json:"match_status"`
+	// True when the match posts the line to the incoming payments clearing account; absent otherwise.
+	Incoming OptBool `json:"incoming"`
+	// The date the line posts on, or was asked to post on.
+	PostingDate OptDate `json:"posting_date"`
+	// The posting (ledger context), once posted.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The fiscal year of the posting.
+	JournalEntryYear OptInt32 `json:"journal_entry_year"`
+	// The latest `bank_clearing` approval request of the posting.
+	ApprovalRequestID OptUUID `json:"approval_request_id"`
+	// What a person did with the latest agent proposal for the line they decided: `accepted`, `rejected`
+	// or `overridden`. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	ProposalOutcome OptString `json:"proposal_outcome"`
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *BankReconciliationLine) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetBookingDate returns the value of BookingDate.
+func (s *BankReconciliationLine) GetBookingDate() time.Time {
+	return s.BookingDate
+}
+
+// GetAmount returns the value of Amount.
+func (s *BankReconciliationLine) GetAmount() Money {
+	return s.Amount
+}
+
+// GetIsReversal returns the value of IsReversal.
+func (s *BankReconciliationLine) GetIsReversal() bool {
+	return s.IsReversal
+}
+
+// GetTransactionCode returns the value of TransactionCode.
+func (s *BankReconciliationLine) GetTransactionCode() string {
+	return s.TransactionCode
+}
+
+// GetStatus returns the value of Status.
+func (s *BankReconciliationLine) GetStatus() string {
+	return s.Status
+}
+
+// GetMatchID returns the value of MatchID.
+func (s *BankReconciliationLine) GetMatchID() OptUUID {
+	return s.MatchID
+}
+
+// GetMatchKind returns the value of MatchKind.
+func (s *BankReconciliationLine) GetMatchKind() OptString {
+	return s.MatchKind
+}
+
+// GetMatchRule returns the value of MatchRule.
+func (s *BankReconciliationLine) GetMatchRule() OptString {
+	return s.MatchRule
+}
+
+// GetMatchStatus returns the value of MatchStatus.
+func (s *BankReconciliationLine) GetMatchStatus() OptString {
+	return s.MatchStatus
+}
+
+// GetIncoming returns the value of Incoming.
+func (s *BankReconciliationLine) GetIncoming() OptBool {
+	return s.Incoming
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *BankReconciliationLine) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *BankReconciliationLine) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *BankReconciliationLine) GetJournalEntryYear() OptInt32 {
+	return s.JournalEntryYear
+}
+
+// GetApprovalRequestID returns the value of ApprovalRequestID.
+func (s *BankReconciliationLine) GetApprovalRequestID() OptUUID {
+	return s.ApprovalRequestID
+}
+
+// GetProposalOutcome returns the value of ProposalOutcome.
+func (s *BankReconciliationLine) GetProposalOutcome() OptString {
+	return s.ProposalOutcome
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *BankReconciliationLine) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetBookingDate sets the value of BookingDate.
+func (s *BankReconciliationLine) SetBookingDate(val time.Time) {
+	s.BookingDate = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *BankReconciliationLine) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetIsReversal sets the value of IsReversal.
+func (s *BankReconciliationLine) SetIsReversal(val bool) {
+	s.IsReversal = val
+}
+
+// SetTransactionCode sets the value of TransactionCode.
+func (s *BankReconciliationLine) SetTransactionCode(val string) {
+	s.TransactionCode = val
+}
+
+// SetStatus sets the value of Status.
+func (s *BankReconciliationLine) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetMatchID sets the value of MatchID.
+func (s *BankReconciliationLine) SetMatchID(val OptUUID) {
+	s.MatchID = val
+}
+
+// SetMatchKind sets the value of MatchKind.
+func (s *BankReconciliationLine) SetMatchKind(val OptString) {
+	s.MatchKind = val
+}
+
+// SetMatchRule sets the value of MatchRule.
+func (s *BankReconciliationLine) SetMatchRule(val OptString) {
+	s.MatchRule = val
+}
+
+// SetMatchStatus sets the value of MatchStatus.
+func (s *BankReconciliationLine) SetMatchStatus(val OptString) {
+	s.MatchStatus = val
+}
+
+// SetIncoming sets the value of Incoming.
+func (s *BankReconciliationLine) SetIncoming(val OptBool) {
+	s.Incoming = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *BankReconciliationLine) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *BankReconciliationLine) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *BankReconciliationLine) SetJournalEntryYear(val OptInt32) {
+	s.JournalEntryYear = val
+}
+
+// SetApprovalRequestID sets the value of ApprovalRequestID.
+func (s *BankReconciliationLine) SetApprovalRequestID(val OptUUID) {
+	s.ApprovalRequestID = val
+}
+
+// SetProposalOutcome sets the value of ProposalOutcome.
+func (s *BankReconciliationLine) SetProposalOutcome(val OptString) {
+	s.ProposalOutcome = val
+}
+
+// How many lines are in each status.
+// Ref: #/components/schemas/BankReconciliationLineCounts
+type BankReconciliationLineCounts struct {
+	// Open: nothing matched them yet.
+	Unmatched int32 `json:"unmatched"`
+	// With candidates or an agent's proposal for a person.
+	Proposed int32 `json:"proposed"`
+	// Matched, not posted yet.
+	Matched int32 `json:"matched"`
+	// Excluded by a person.
+	Excluded int32 `json:"excluded"`
+	// Waiting for the approval of their posting.
+	PendingApproval int32 `json:"pending_approval"`
+	// Posted.
+	Posted int32 `json:"posted"`
+}
+
+// GetUnmatched returns the value of Unmatched.
+func (s *BankReconciliationLineCounts) GetUnmatched() int32 {
+	return s.Unmatched
+}
+
+// GetProposed returns the value of Proposed.
+func (s *BankReconciliationLineCounts) GetProposed() int32 {
+	return s.Proposed
+}
+
+// GetMatched returns the value of Matched.
+func (s *BankReconciliationLineCounts) GetMatched() int32 {
+	return s.Matched
+}
+
+// GetExcluded returns the value of Excluded.
+func (s *BankReconciliationLineCounts) GetExcluded() int32 {
+	return s.Excluded
+}
+
+// GetPendingApproval returns the value of PendingApproval.
+func (s *BankReconciliationLineCounts) GetPendingApproval() int32 {
+	return s.PendingApproval
+}
+
+// GetPosted returns the value of Posted.
+func (s *BankReconciliationLineCounts) GetPosted() int32 {
+	return s.Posted
+}
+
+// SetUnmatched sets the value of Unmatched.
+func (s *BankReconciliationLineCounts) SetUnmatched(val int32) {
+	s.Unmatched = val
+}
+
+// SetProposed sets the value of Proposed.
+func (s *BankReconciliationLineCounts) SetProposed(val int32) {
+	s.Proposed = val
+}
+
+// SetMatched sets the value of Matched.
+func (s *BankReconciliationLineCounts) SetMatched(val int32) {
+	s.Matched = val
+}
+
+// SetExcluded sets the value of Excluded.
+func (s *BankReconciliationLineCounts) SetExcluded(val int32) {
+	s.Excluded = val
+}
+
+// SetPendingApproval sets the value of PendingApproval.
+func (s *BankReconciliationLineCounts) SetPendingApproval(val int32) {
+	s.PendingApproval = val
+}
+
+// SetPosted sets the value of Posted.
+func (s *BankReconciliationLineCounts) SetPosted(val int32) {
+	s.Posted = val
+}
+
+// A statement of the report with its figures on its closing date and its lines.
+// Ref: #/components/schemas/BankReconciliationStatement
+type BankReconciliationStatement struct {
+	// The statement.
+	BankStatementID uuid.UUID `json:"bank_statement_id"`
+	// The bank's statement id.
+	StatementRef string `json:"statement_ref"`
+	// The statement's number in the account's series.
+	Sequence string `json:"sequence"`
+	// The statement's status. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Status string `json:"status"`
+	// Date of the opening balance.
+	OpeningDate    time.Time                    `json:"opening_date"`
+	OpeningBalance Money                        `json:"opening_balance"`
+	Figures        BankReconciliationFigures    `json:"figures"`
+	LineCounts     BankReconciliationLineCounts `json:"line_counts"`
+	// Its lines in the bank's order, those of `line_status` only when given.
+	Lines []BankReconciliationLine `json:"lines"`
+}
+
+// GetBankStatementID returns the value of BankStatementID.
+func (s *BankReconciliationStatement) GetBankStatementID() uuid.UUID {
+	return s.BankStatementID
+}
+
+// GetStatementRef returns the value of StatementRef.
+func (s *BankReconciliationStatement) GetStatementRef() string {
+	return s.StatementRef
+}
+
+// GetSequence returns the value of Sequence.
+func (s *BankReconciliationStatement) GetSequence() string {
+	return s.Sequence
+}
+
+// GetStatus returns the value of Status.
+func (s *BankReconciliationStatement) GetStatus() string {
+	return s.Status
+}
+
+// GetOpeningDate returns the value of OpeningDate.
+func (s *BankReconciliationStatement) GetOpeningDate() time.Time {
+	return s.OpeningDate
+}
+
+// GetOpeningBalance returns the value of OpeningBalance.
+func (s *BankReconciliationStatement) GetOpeningBalance() Money {
+	return s.OpeningBalance
+}
+
+// GetFigures returns the value of Figures.
+func (s *BankReconciliationStatement) GetFigures() BankReconciliationFigures {
+	return s.Figures
+}
+
+// GetLineCounts returns the value of LineCounts.
+func (s *BankReconciliationStatement) GetLineCounts() BankReconciliationLineCounts {
+	return s.LineCounts
+}
+
+// GetLines returns the value of Lines.
+func (s *BankReconciliationStatement) GetLines() []BankReconciliationLine {
+	return s.Lines
+}
+
+// SetBankStatementID sets the value of BankStatementID.
+func (s *BankReconciliationStatement) SetBankStatementID(val uuid.UUID) {
+	s.BankStatementID = val
+}
+
+// SetStatementRef sets the value of StatementRef.
+func (s *BankReconciliationStatement) SetStatementRef(val string) {
+	s.StatementRef = val
+}
+
+// SetSequence sets the value of Sequence.
+func (s *BankReconciliationStatement) SetSequence(val string) {
+	s.Sequence = val
+}
+
+// SetStatus sets the value of Status.
+func (s *BankReconciliationStatement) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetOpeningDate sets the value of OpeningDate.
+func (s *BankReconciliationStatement) SetOpeningDate(val time.Time) {
+	s.OpeningDate = val
+}
+
+// SetOpeningBalance sets the value of OpeningBalance.
+func (s *BankReconciliationStatement) SetOpeningBalance(val Money) {
+	s.OpeningBalance = val
+}
+
+// SetFigures sets the value of Figures.
+func (s *BankReconciliationStatement) SetFigures(val BankReconciliationFigures) {
+	s.Figures = val
+}
+
+// SetLineCounts sets the value of LineCounts.
+func (s *BankReconciliationStatement) SetLineCounts(val BankReconciliationLineCounts) {
+	s.LineCounts = val
+}
+
+// SetLines sets the value of Lines.
+func (s *BankReconciliationStatement) SetLines(val []BankReconciliationLine) {
+	s.Lines = val
+}
+
+// The period's figures: its statements, the first one's opening balance, the figures on the last
+// closing date, and the lines of its statements by status.
+// Ref: #/components/schemas/BankReconciliationSummary
+type BankReconciliationSummary struct {
+	// How many statements close in the period.
+	Statements     int32    `json:"statements"`
+	OpeningBalance OptMoney `json:"opening_balance"`
+	// The first statement's opening date; absent without statements.
+	OpeningDate OptDate                      `json:"opening_date"`
+	Figures     OptBankReconciliationFigures `json:"figures"`
+	Lines       BankReconciliationLineCounts `json:"lines"`
+}
+
+// GetStatements returns the value of Statements.
+func (s *BankReconciliationSummary) GetStatements() int32 {
+	return s.Statements
+}
+
+// GetOpeningBalance returns the value of OpeningBalance.
+func (s *BankReconciliationSummary) GetOpeningBalance() OptMoney {
+	return s.OpeningBalance
+}
+
+// GetOpeningDate returns the value of OpeningDate.
+func (s *BankReconciliationSummary) GetOpeningDate() OptDate {
+	return s.OpeningDate
+}
+
+// GetFigures returns the value of Figures.
+func (s *BankReconciliationSummary) GetFigures() OptBankReconciliationFigures {
+	return s.Figures
+}
+
+// GetLines returns the value of Lines.
+func (s *BankReconciliationSummary) GetLines() BankReconciliationLineCounts {
+	return s.Lines
+}
+
+// SetStatements sets the value of Statements.
+func (s *BankReconciliationSummary) SetStatements(val int32) {
+	s.Statements = val
+}
+
+// SetOpeningBalance sets the value of OpeningBalance.
+func (s *BankReconciliationSummary) SetOpeningBalance(val OptMoney) {
+	s.OpeningBalance = val
+}
+
+// SetOpeningDate sets the value of OpeningDate.
+func (s *BankReconciliationSummary) SetOpeningDate(val OptDate) {
+	s.OpeningDate = val
+}
+
+// SetFigures sets the value of Figures.
+func (s *BankReconciliationSummary) SetFigures(val OptBankReconciliationFigures) {
+	s.Figures = val
+}
+
+// SetLines sets the value of Lines.
+func (s *BankReconciliationSummary) SetLines(val BankReconciliationLineCounts) {
+	s.Lines = val
+}
+
 // Merged schema.
 // Ref: #/components/schemas/BankStatement
 type BankStatement struct {
@@ -4787,11 +5481,20 @@ type BankStatement struct {
 	// absent for the bank's first.
 	PreviousStatementID OptUUID `json:"previous_statement_id"`
 	// `imported`; `gap` when its opening balance is not the previous statement's closing balance
-	// (automatic posting stops for the bank); `reconciled`. Open enumeration: clients must accept and
-	// preserve values not listed here; values may be added within /v1.
+	// (automatic posting stops for the bank); `reconciled` once every line of it and of the bank's
+	// statements before it is posted or excluded and its closing balance, less the lines excluded and
+	// those posted after its closing date, is the ledger's balance of the main bank account on that date
+	// (T49h): set once, never undone by the server, and its lines are then decided for good. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
 	Status string `json:"status"`
 	// The booked entries, in the bank's order; absent in lists.
 	Lines []BankStatementLine `json:"lines"`
+	// When the statement became `reconciled`; absent before.
+	ReconciledAt OptDateTime `json:"reconciled_at"`
+	// Whose action reconciled it: the person, integration or agent whose posting, exclusion or run of the
+	// rules left nothing unexplained.
+	ReconciledBy OptUUID `json:"reconciled_by"`
 }
 
 // GetID returns the value of ID.
@@ -4909,6 +5612,16 @@ func (s *BankStatement) GetLines() []BankStatementLine {
 	return s.Lines
 }
 
+// GetReconciledAt returns the value of ReconciledAt.
+func (s *BankStatement) GetReconciledAt() OptDateTime {
+	return s.ReconciledAt
+}
+
+// GetReconciledBy returns the value of ReconciledBy.
+func (s *BankStatement) GetReconciledBy() OptUUID {
+	return s.ReconciledBy
+}
+
 // SetID sets the value of ID.
 func (s *BankStatement) SetID(val uuid.UUID) {
 	s.ID = val
@@ -5022,6 +5735,16 @@ func (s *BankStatement) SetStatus(val string) {
 // SetLines sets the value of Lines.
 func (s *BankStatement) SetLines(val []BankStatementLine) {
 	s.Lines = val
+}
+
+// SetReconciledAt sets the value of ReconciledAt.
+func (s *BankStatement) SetReconciledAt(val OptDateTime) {
+	s.ReconciledAt = val
+}
+
+// SetReconciledBy sets the value of ReconciledBy.
+func (s *BankStatement) SetReconciledBy(val OptUUID) {
+	s.ReconciledBy = val
 }
 
 // BankStatementHeaders wraps BankStatement with response headers.
@@ -13697,6 +14420,7 @@ func (*ForbiddenHeaders) getApprovalRequestRes()               {}
 func (*ForbiddenHeaders) getBankAccountRes()                   {}
 func (*ForbiddenHeaders) getBankFileContentRes()               {}
 func (*ForbiddenHeaders) getBankFileRes()                      {}
+func (*ForbiddenHeaders) getBankReconciliationRes()            {}
 func (*ForbiddenHeaders) getBankStatementFileRes()             {}
 func (*ForbiddenHeaders) getBankStatementRes()                 {}
 func (*ForbiddenHeaders) getBankStatementRulesRes()            {}
@@ -19793,6 +20517,7 @@ func (*NotFoundHeaders) getApprovalRequestRes()               {}
 func (*NotFoundHeaders) getBankAccountRes()                   {}
 func (*NotFoundHeaders) getBankFileContentRes()               {}
 func (*NotFoundHeaders) getBankFileRes()                      {}
+func (*NotFoundHeaders) getBankReconciliationRes()            {}
 func (*NotFoundHeaders) getBankStatementFileRes()             {}
 func (*NotFoundHeaders) getBankStatementRes()                 {}
 func (*NotFoundHeaders) getBankStatementRulesRes()            {}
@@ -21064,6 +21789,52 @@ func (o OptAnalyticsDerived) Get() (v AnalyticsDerived, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptAnalyticsDerived) Or(d AnalyticsDerived) AnalyticsDerived {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptBankReconciliationFigures returns new OptBankReconciliationFigures with value set to v.
+func NewOptBankReconciliationFigures(v BankReconciliationFigures) OptBankReconciliationFigures {
+	return OptBankReconciliationFigures{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptBankReconciliationFigures is optional BankReconciliationFigures.
+type OptBankReconciliationFigures struct {
+	Value BankReconciliationFigures
+	Set   bool
+}
+
+// IsSet returns true if OptBankReconciliationFigures was set.
+func (o OptBankReconciliationFigures) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptBankReconciliationFigures) Reset() {
+	var v BankReconciliationFigures
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptBankReconciliationFigures) SetTo(v BankReconciliationFigures) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptBankReconciliationFigures) Get() (v BankReconciliationFigures, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptBankReconciliationFigures) Or(d BankReconciliationFigures) BankReconciliationFigures {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -33051,13 +33822,18 @@ func (s *SodRulePageHeaders) SetResponse(val SodRulePage) {
 
 func (*SodRulePageHeaders) listSodRulesRes() {}
 
-// A person's match of a line: the payments it clears or a posting rule, not both, and why.
+// A person's match of a line: the payments it clears, a posting rule, or the house bank's incoming
+// payments clearing account (one of them), and why.
 // Ref: #/components/schemas/StatementLineMatchInput
 type StatementLineMatchInput struct {
 	// The payments the line clears.
 	PaymentIds []uuid.UUID `json:"payment_ids"`
 	// The transaction code of the company's posting rule that posts the line.
 	PostingRule OptString `json:"posting_rule"`
+	// True for an incoming payment (a credit that reverses nothing): it posts to the house bank's incoming
+	// payments clearing account (`incoming_gl_account`), where it stays an open item until accounts
+	// receivable clears it (ADR-0047).
+	Incoming OptBool `json:"incoming"`
 	// Why; recorded in the audit trail and on the resulting event.
 	Reason string `json:"reason"`
 }
@@ -33070,6 +33846,11 @@ func (s *StatementLineMatchInput) GetPaymentIds() []uuid.UUID {
 // GetPostingRule returns the value of PostingRule.
 func (s *StatementLineMatchInput) GetPostingRule() OptString {
 	return s.PostingRule
+}
+
+// GetIncoming returns the value of Incoming.
+func (s *StatementLineMatchInput) GetIncoming() OptBool {
+	return s.Incoming
 }
 
 // GetReason returns the value of Reason.
@@ -33087,6 +33868,11 @@ func (s *StatementLineMatchInput) SetPostingRule(val OptString) {
 	s.PostingRule = val
 }
 
+// SetIncoming sets the value of Incoming.
+func (s *StatementLineMatchInput) SetIncoming(val OptBool) {
+	s.Incoming = val
+}
+
 // SetReason sets the value of Reason.
 func (s *StatementLineMatchInput) SetReason(val string) {
 	s.Reason = val
@@ -33095,7 +33881,8 @@ func (s *StatementLineMatchInput) SetReason(val string) {
 // A person's posting of a matched line: on its booking date, or on another date with the reason.
 // Ref: #/components/schemas/StatementLinePostInput
 type StatementLinePostInput struct {
-	// The date to post on instead of the booking date, in an open period; with `reason`.
+	// The date to post on instead of the booking date, on or after it and in an open period; with
+	// `reason`.
 	PostingDate OptDate `json:"posting_date"`
 	// Why the posting is dated otherwise; recorded in the audit trail. Only with `posting_date`.
 	Reason OptString `json:"reason"`
@@ -33614,7 +34401,8 @@ func (s *StatementMatchListHeaders) SetResponse(val StatementMatchList) {
 
 func (*StatementMatchListHeaders) listBankStatementMatchesRes() {}
 
-// A payment, with the bank file of a batch booking, or a posting rule.
+// A payment, with the bank file of a batch booking, a posting rule, or the incoming payments clearing
+// account.
 // Ref: #/components/schemas/StatementMatchTarget
 type StatementMatchTarget struct {
 	// The candidate it belongs to.
@@ -33625,6 +34413,9 @@ type StatementMatchTarget struct {
 	BankFileID OptUUID `json:"bank_file_id"`
 	// The transaction code of the company's posting rule.
 	PostingRule OptString `json:"posting_rule"`
+	// True for an incoming payment, posted to the house bank's incoming payments clearing account; absent
+	// otherwise.
+	Incoming OptBool `json:"incoming"`
 }
 
 // GetCandidate returns the value of Candidate.
@@ -33647,6 +34438,11 @@ func (s *StatementMatchTarget) GetPostingRule() OptString {
 	return s.PostingRule
 }
 
+// GetIncoming returns the value of Incoming.
+func (s *StatementMatchTarget) GetIncoming() OptBool {
+	return s.Incoming
+}
+
 // SetCandidate sets the value of Candidate.
 func (s *StatementMatchTarget) SetCandidate(val int32) {
 	s.Candidate = val
@@ -33665,6 +34461,11 @@ func (s *StatementMatchTarget) SetBankFileID(val OptUUID) {
 // SetPostingRule sets the value of PostingRule.
 func (s *StatementMatchTarget) SetPostingRule(val OptString) {
 	s.PostingRule = val
+}
+
+// SetIncoming sets the value of Incoming.
+func (s *StatementMatchTarget) SetIncoming(val OptBool) {
+	s.Incoming = val
 }
 
 // Company-specific supplier data.
@@ -35006,6 +35807,7 @@ func (*TooManyRequestsHeaders) getApprovalRequestRes()               {}
 func (*TooManyRequestsHeaders) getBankAccountRes()                   {}
 func (*TooManyRequestsHeaders) getBankFileContentRes()               {}
 func (*TooManyRequestsHeaders) getBankFileRes()                      {}
+func (*TooManyRequestsHeaders) getBankReconciliationRes()            {}
 func (*TooManyRequestsHeaders) getBankStatementFileRes()             {}
 func (*TooManyRequestsHeaders) getBankStatementRes()                 {}
 func (*TooManyRequestsHeaders) getBankStatementRulesRes()            {}
@@ -35315,6 +36117,7 @@ func (*UnauthorizedHeaders) getApprovalRequestRes()               {}
 func (*UnauthorizedHeaders) getBankAccountRes()                   {}
 func (*UnauthorizedHeaders) getBankFileContentRes()               {}
 func (*UnauthorizedHeaders) getBankFileRes()                      {}
+func (*UnauthorizedHeaders) getBankReconciliationRes()            {}
 func (*UnauthorizedHeaders) getBankStatementFileRes()             {}
 func (*UnauthorizedHeaders) getBankStatementRes()                 {}
 func (*UnauthorizedHeaders) getBankStatementRulesRes()            {}
@@ -35605,6 +36408,7 @@ func (*UnprocessableHeaders) endRolePermissionRes()                {}
 func (*UnprocessableHeaders) endSodRuleRes()                       {}
 func (*UnprocessableHeaders) excludeBankStatementLineRes()         {}
 func (*UnprocessableHeaders) getAnalyticsModelRes()                {}
+func (*UnprocessableHeaders) getBankReconciliationRes()            {}
 func (*UnprocessableHeaders) grantRolePermissionRes()              {}
 func (*UnprocessableHeaders) holdSupplierInvoiceRes()              {}
 func (*UnprocessableHeaders) importBankStatementsRes()             {}
