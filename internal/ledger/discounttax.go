@@ -50,6 +50,7 @@ type taxedItem struct {
 // codeBase marks the one item per code whose base share is the code's
 // (its first component's first item).
 type itemShare struct {
+	item      int // the discounted item's index among the settlement's discounted items
 	src       sourceItem
 	tax, base money.Minor
 	codeBase  bool
@@ -126,12 +127,10 @@ func discountTax(ctx context.Context, tx pgx.Tx, items []item, discounts []money
 // (itemTaxShares) and adds up the shares per tax line and per code.
 func splitTax(items []taxedItem) (discountSplit, error) {
 	out := discountSplit{taxes: map[taxKey]money.Minor{}, bases: map[string]money.Minor{}}
-	for _, it := range items {
-		shares, err := itemTaxShares(it)
-		if err != nil {
-			return discountSplit{}, err
-		}
+	for n, it := range items {
+		shares := itemTaxShares(it, n)
 		for _, sh := range shares {
+			var err error
 			if out.taxes[sh.src.key], err = money.Sum(out.taxes[sh.src.key], sh.tax); err == nil {
 				out.tax, err = money.Sum(out.tax, sh.tax)
 			}
@@ -160,19 +159,19 @@ func splitTax(items []taxedItem) (discountSplit, error) {
 // direction (§13b and intra-EU pairs among them), or whose tax is at least
 // what it owes the supplier (its supplier lines offset others), is not
 // split: its discount is all net.
-func itemTaxShares(it taxedItem) ([]itemShare, error) {
+func itemTaxShares(it taxedItem, n int) []itemShare {
 	if it.paid == 0 || len(it.items) == 0 {
-		return nil, nil
+		return nil
 	}
 	items := slices.SortedFunc(slices.Values(it.items), compareSourceItems)
 	var weight money.Minor // the tax, in the sign it is paid in
 	exact := make([]*big.Rat, len(items))
 	for i, s := range items {
 		if s.tax != 0 && (s.tax > 0) != (it.paid > 0) {
-			return nil, nil
+			return nil
 		}
 		if weight += s.tax; weight.Abs() >= it.paid.Abs() { // each step below the gross: in range
-			return nil, nil // tax of at least what is owed: the supplier lines offset others, so the gross is not the base
+			return nil // tax of at least what is owed: the supplier lines offset others, so the gross is not the base
 		}
 		exact[i] = new(big.Rat).SetFrac(new(big.Int).Mul(big.NewInt(int64(it.discount)), big.NewInt(int64(s.tax))), big.NewInt(int64(it.paid)))
 	}
@@ -183,13 +182,13 @@ func itemTaxShares(it taxedItem) ([]itemShare, error) {
 	shares := make([]itemShare, len(items))
 	seen := map[[2]string]bool{}
 	for i, s := range items {
-		shares[i] = itemShare{src: s, tax: taxes[i]}
+		shares[i] = itemShare{item: n, src: s, tax: taxes[i]}
 		if k := [2]string{s.key.code, s.component}; !seen[k] {
 			seen[k] = true
 			shares[i].base, shares[i].codeBase = bases[s.key.code], s.component == firstComponent(items, s.key.code)
 		}
 	}
-	return shares, nil
+	return shares
 }
 
 // baseShares shares out the net of an item's discount, what its tax shares
@@ -223,10 +222,10 @@ func baseShares(it taxedItem, items []sourceItem, taxes []money.Minor) map[strin
 		weights[i] = new(big.Rat).SetInt64(int64(w))
 		total.Add(total, weights[i])
 	}
+	// Some weight is in the payment's direction: a base, or, all bases
+	// against it or none, the rest, which is then more than the gross less
+	// the tax, itself more than 0. The total is not 0.
 	out := map[string]money.Minor{}
-	if total.Sign() == 0 {
-		return out
-	}
 	exact := make([]*big.Rat, len(weights))
 	for i, w := range weights {
 		exact[i] = new(big.Rat).Quo(new(big.Rat).Mul(new(big.Rat).SetInt64(int64(net)), w), total)
@@ -242,37 +241,35 @@ func baseShares(it taxedItem, items []sourceItem, taxes []money.Minor) map[strin
 	return out
 }
 
-// discountPlan is a settlement's discount split and where its lines are:
-// the tax line of each account and code, the base line of each code.
+// discountPlan is a settlement's discount split.
 type discountPlan struct {
-	split    discountSplit
-	taxLine  map[taxKey]int
-	baseLine map[string]int
+	split discountSplit
 }
 
 // taxItems are the settlement's tax items (ADR-0049 §5): one per source
 // item with a share, at the source's code, component and rate and the
-// settlement's tax date, its amounts the shares in the lines' sign; the
-// local amounts are the converted lines' shared out by the transaction
-// amounts (money.Allocate), so items and lines agree in both currencies.
-// None without a discount split.
-func (p discountPlan) taxItems(lines []Line) []sourcedTaxItem {
+// settlement's tax date, its amounts the shares in the lines' sign. Their
+// local amounts are the shares converted at the settlement's rate, exactly,
+// then rounded once per line by largest remainder (money.Allocate): a
+// line's local amount is its transaction amount converted, rounded once,
+// so the items on it add up to it, and items whose shares cancel (an
+// invoice's and a credit memo's) to none. None without a discount split.
+func (p discountPlan) taxItems(bank settlementBank) []sourcedTaxItem {
 	if len(p.split.shares) == 0 {
 		return nil
 	}
-	taxLC := shareLC(lines, p.split.shares, p.taxLine, func(sh itemShare) (taxKey, money.Minor, bool) { return sh.src.key, sh.tax, true })
-	byCode := map[taxKey]int{} // the base lines, keyed by code alone
-	for c, i := range p.baseLine {
-		byCode[taxKey{code: c}] = i
-	}
-	codeLC := shareLC(lines, p.split.shares, byCode, func(sh itemShare) (taxKey, money.Minor, bool) {
-		return taxKey{code: sh.src.key.code}, sh.base, sh.codeBase
+	taxLC := shareLC(p.split.shares, bank, func(sh itemShare) (any, money.Minor) { return sh.src.key, sh.tax })
+	codeLC := shareLC(p.split.shares, bank, func(sh itemShare) (any, money.Minor) {
+		if !sh.codeBase {
+			return nil, 0
+		}
+		return sh.src.key.code, sh.base
 	})
-	// Every component of an entry's code has the code's base share.
+	// Every component of a discounted item's code has the code's base share.
 	baseLC := map[[2]any]money.Minor{}
 	for i, sh := range p.split.shares {
 		if sh.codeBase {
-			baseLC[[2]any{sh.src.entry, sh.src.key.code}] = codeLC[i]
+			baseLC[[2]any{sh.item, sh.src.key.code}] = codeLC[i]
 		}
 	}
 	var out []sourcedTaxItem
@@ -282,7 +279,7 @@ func (p discountPlan) taxItems(lines []Line) []sourcedTaxItem {
 		}
 		var blc money.Minor
 		if sh.base != 0 {
-			blc = baseLC[[2]any{sh.src.entry, sh.src.key.code}]
+			blc = baseLC[[2]any{sh.item, sh.src.key.code}]
 		}
 		out = append(out, sourcedTaxItem{year: sh.src.entry.year, entry: sh.src.entry.entry, itemNo: sh.src.no, baseTC: -sh.base, taxTC: -sh.tax,
 			baseLC: blc, taxLC: taxLC[i]})
@@ -290,34 +287,34 @@ func (p discountPlan) taxItems(lines []Line) []sourcedTaxItem {
 	return out
 }
 
-// shareLC shares out each line's local amount among the shares on it, by
-// their transaction amounts: of shares[i] that pick puts on the line of
-// its key (and marks counted), out[i] is its part.
-func shareLC(lines []Line, shares []itemShare, line map[taxKey]int, pick func(itemShare) (taxKey, money.Minor, bool)) []money.Minor {
+// shareLC converts the shares of each line, those pick gives one key, in
+// the lines' sign: each exactly at the settlement's rate, then the line's
+// total rounded once and shared out by largest remainder (money.Allocate).
+// A share pick gives no key (nil) gets none.
+func shareLC(shares []itemShare, bank settlementBank, pick func(itemShare) (any, money.Minor)) []money.Minor {
 	out := make([]money.Minor, len(shares))
-	on := map[int][]int{} // line: the shares on it
+	on := map[any][]int{} // line key: the shares on it
+	var keys []any
 	for i, sh := range shares {
-		if k, tc, counted := pick(sh); counted && tc != 0 {
-			if l, ok := line[k]; ok {
-				on[l] = append(on[l], i)
+		if k, tc := pick(sh); k != nil && tc != 0 {
+			if on[k] == nil {
+				keys = append(keys, k)
 			}
+			on[k] = append(on[k], i)
 		}
 	}
-	for l, idx := range on {
-		total := new(big.Int)
-		for _, i := range idx {
-			_, tc, _ := pick(shares[i])
-			total.Add(total, big.NewInt(int64(tc)))
+	for _, k := range keys {
+		exact := make([]*big.Rat, len(on[k]))
+		for j, i := range on[k] {
+			_, tc := pick(shares[i])
+			// A stored rate is positive (rateOfType), the one thing ExactAt checks.
+			x, _ := money.ExactAt(-tc, bank.rateLC.exact, bank.expTC)
+			exact[j] = x.Mul(x, new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(bank.expLC)), nil)))
 		}
-		exact := make([]*big.Rat, len(idx))
-		for j, i := range idx {
-			_, tc, _ := pick(shares[i])
-			exact[j] = new(big.Rat).SetFrac(new(big.Int).Mul(big.NewInt(int64(lines[l].LC)), big.NewInt(int64(tc))), total)
-		}
-		// Parts of a converted line's amount, each at most it: the
-		// allocation cannot fail.
+		// The rounded total is the line's converted amount, which paymentLines
+		// converted in range: the allocation cannot fail.
 		parts, _ := money.Allocate(exact)
-		for j, i := range idx {
+		for j, i := range on[k] {
 			out[i] = parts[j]
 		}
 	}

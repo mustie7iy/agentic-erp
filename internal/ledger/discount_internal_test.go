@@ -3,6 +3,7 @@ package ledger
 import (
 	"fmt"
 	"math"
+	"math/big"
 	"testing"
 
 	"github.com/google/uuid"
@@ -106,10 +107,57 @@ func TestItemTaxShares(t *testing.T) {
 			" V1/tax:10/0/true"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			shares, err := itemTaxShares(c.it)
-			if got := render(shares); err != nil || got != c.want {
-				t.Errorf("shares: got %q %v, want %q", got, err, c.want)
+			if got := render(itemTaxShares(c.it, 0)); got != c.want {
+				t.Errorf("shares: got %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+// TestDiscountTaxItems: a settlement's items convert their shares at its
+// rate, each line rounded once: an invoice's and a credit memo's shares of
+// one code cancel to no line and items that add up to none; two discounted
+// lines of one entry each keep their own base in local currency.
+func TestDiscountTaxItems(t *testing.T) {
+	v1 := taxKey{account: uuid.UUID{1}, code: "V1"}
+	invoice := entryKey{entry: uuid.UUID{9}}
+	credit := entryKey{entry: uuid.UUID{8}}
+	bank := settlementBank{rateLC: exchange{exact: big.NewRat(2, 1)}, expTC: 2, expLC: 2}
+	render := func(items []sourcedTaxItem) string {
+		out := ""
+		for _, i := range items {
+			out += fmt.Sprintf(" %d/%d %d/%d", i.baseTC, i.taxTC, i.baseLC, i.taxLC)
+		}
+		return out
+	}
+	for name, c := range map[string]struct {
+		items []taxedItem
+		want  string
+		bases money.Minor
+	}{
+		"an invoice and a credit memo": {[]taxedItem{
+			{discount: 2, paid: 238, items: []sourceItem{{entry: invoice, no: 1, component: "tax", key: v1, base: 200, tax: 38}}},
+			{discount: -2, paid: -119, items: []sourceItem{{entry: credit, no: 1, component: "tax", key: v1, base: -100, tax: -19}}},
+		}, " -2/0 -4/0 2/0 4/0", 0},
+		"two lines of one entry": {[]taxedItem{
+			{discount: 200, paid: 11900, items: []sourceItem{{entry: invoice, no: 1, component: "tax", key: v1, base: 10000, tax: 1900}}},
+			{discount: 300, paid: 11900, items: []sourceItem{{entry: invoice, no: 1, component: "tax", key: v1, base: 10000, tax: 1900}}},
+		}, " -168/-32 -336/-64 -252/-48 -504/-96", 420},
+	} {
+		t.Run(name, func(t *testing.T) {
+			split, err := splitTax(c.items)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := render(discountPlan{split: split}.taxItems(bank)); got != c.want {
+				t.Errorf("items: got %q, want %q", got, c.want)
+			}
+			if split.bases["V1"] != c.bases {
+				t.Errorf("V1's base: got %d, want %d", split.bases["V1"], c.bases)
+			}
+		})
+	}
+	if got := (discountPlan{}).taxItems(bank); got != nil {
+		t.Errorf("no split: got %v, want no items", got)
 	}
 }

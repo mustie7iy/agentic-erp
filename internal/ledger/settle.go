@@ -292,7 +292,7 @@ func (e *Endpoints) paymentLines(ctx context.Context, tx pgx.Tx, in Settlement, 
 			return nil, settlementBank{}, nil, errTotalTooLarge("items")
 		}
 	}
-	taxItems := plan.taxItems(more)
+	taxItems := plan.taxItems(bank)
 	fx, err := exchangeDifferenceLines(ctx, le.ID, total.lc, total.gc, paid, in.HeaderText)
 	return append(append(lines, more...), fx...), bank, taxItems, err
 }
@@ -342,7 +342,7 @@ func discountLines(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, items 
 	if err != nil {
 		return nil, discountPlan{}, err
 	}
-	plan := discountPlan{split: split, taxLine: map[taxKey]int{}, baseLine: map[string]int{}}
+	plan := discountPlan{split: split}
 	// Tax and bases are shares of the discount, of its sign and adding up
 	// to at most it (itemTaxShares), so the untaxed net is of the
 	// discount's sign or 0: no line then.
@@ -350,18 +350,16 @@ func discountLines(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, items 
 	if net := discount - split.tax - split.base; net != 0 {
 		lines = append(lines, Line{AccountID: account, TC: -net, Text: in.HeaderText})
 	}
+	// Shares of an invoice and a credit memo can cancel: no line then.
 	for _, c := range slices.Sorted(maps.Keys(split.bases)) {
-		code := c
-		plan.baseLine[c] = len(lines)
-		lines = append(lines, Line{AccountID: account, TC: -split.bases[c], TaxCode: &code, Text: in.HeaderText})
+		if code := c; split.bases[c] != 0 {
+			lines = append(lines, Line{AccountID: account, TC: -split.bases[c], TaxCode: &code, Text: in.HeaderText})
+		}
 	}
 	for _, k := range slices.SortedFunc(maps.Keys(split.taxes), compareTaxKeys) {
-		if split.taxes[k] == 0 {
-			continue
+		if code := k.code; split.taxes[k] != 0 {
+			lines = append(lines, Line{AccountID: k.account, TC: -split.taxes[k], TaxCode: &code, Text: in.HeaderText})
 		}
-		code := k.code
-		plan.taxLine[k] = len(lines)
-		lines = append(lines, Line{AccountID: k.account, TC: -split.taxes[k], TaxCode: &code, Text: in.HeaderText})
 	}
 	return lines, plan, nil
 }

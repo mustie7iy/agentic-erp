@@ -23,10 +23,23 @@ func (s taxScene) taxLine(tx pgx.Tx, je uuid.UUID, n int, account uuid.UUID, amo
 		s.tenant, je, n, s.entity, s.ledger, account, amount, amount*9/10, code)
 }
 
+// header inserts an entry's header dated 2026-03-10, with that tax date
+// as the ledger writes it, or with none as the release before T61c did.
+func (s taxScene) header(tx pgx.Tx, taxDate bool) (uuid.UUID, error) {
+	je := id()
+	return je, exec(tx, `INSERT INTO ledger.journal_entry (tenant_id, fiscal_year, id, legal_entity_id, ledger_id, fiscal_period, document_type,
+		document_number, document_date, posting_date, tax_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc, source_context, posted_by)
+		VALUES ($1,2026,$2,$3,$4,3,'SA',$5,'2026-03-10','2026-03-10',CASE WHEN $6 THEN '2026-03-10'::date END,'USD','USD','EUR',1,0.9,'ledger',$7)`,
+		s.tenant, je, s.entity, s.ledger, je.String()[24:], taxDate, s.actor)
+}
+
 // taxedEntry is an entry of 105.00 on I5: 100.00 expense, 5.00 GST on the
 // tax account, the bank; items written unless items is false.
 func (s taxScene) taxedEntry(tx pgx.Tx, items bool) (uuid.UUID, error) {
-	je, err := s.entry(tx, 3, "2026-03-10", line{account: s.bank, amount: -10500})
+	je, err := s.header(tx, true)
+	if err == nil {
+		err = s.taxLine(tx, je, 1, s.bank, -10500, "")
+	}
 	if err == nil {
 		err = s.taxLine(tx, je, 2, s.expense, 10000, "I5")
 	}
@@ -64,7 +77,10 @@ func TestTaxItemRules(t *testing.T) {
 	}{
 		{"tax lines without items", func(tx pgx.Tx) error { _, err := s.taxedEntry(tx, false); return err }, "tax_item_missing"},
 		{"items that differ from the lines", func(tx pgx.Tx) error {
-			je, err := s.entry(tx, 3, "2026-03-10", line{account: s.bank, amount: -10500})
+			je, err := s.header(tx, true)
+			if err == nil {
+				err = s.taxLine(tx, je, 1, s.bank, -10500, "")
+			}
 			if err == nil {
 				err = s.taxLine(tx, je, 2, s.expense, 10000, "I5")
 			}
@@ -123,9 +139,102 @@ func TestTaxItemRules(t *testing.T) {
 				VALUES ($1, 2026, $2, 2, $3, 'I5', 'gst', 'input', 'standard', 'input', NULL, '2026-03-10', $4, 5, 100, 0, 10, 11, 0, 10, 10)`,
 				s.tenant, je, s.entity, s.gst2026)
 		}, "tax_item_recoverable"},
+		{"two components on one account", func(tx pgx.Tx) error {
+			// The database is the backstop: the ledger refuses such a code
+			// (ledger.tax_code_components), each component taking the
+			// account's whole tax.
+			for _, st := range []stmt{
+				step(`INSERT INTO ledger.tax_code_definition (tenant_id, legal_entity_id, code, description, direction, kind, created_by, updated_by)
+					VALUES ($1, $2, 'H2', 'GST + QST', 'input', 'standard', $3, $3)`, s.tenant, s.entity, s.actor),
+				step(`INSERT INTO ledger.tax_component (tenant_id, legal_entity_id, code, component, account_key, recoverable_pct, account_id, created_by, updated_by)
+					VALUES ($1, $2, 'H2', 'gst', 'input', 100, $3, $4, $4), ($1, $2, 'H2', 'qst', 'input', 100, $3, $4, $4)`, s.tenant, s.entity, s.tax, s.actor),
+				step(`INSERT INTO ledger.tax_rate (tenant_id, id, legal_entity_id, code, component, valid_from, rate_pct, created_by)
+					VALUES ($1, gen_random_uuid(), $2, 'H2', 'gst', '2026-01-01', 5, $3), ($1, gen_random_uuid(), $2, 'H2', 'qst', '2026-01-01', 10, $3)`,
+					s.tenant, s.entity, s.actor),
+			} {
+				if err := exec(tx, st.sql, st.args...); err != nil {
+					return err
+				}
+			}
+			je, err := s.header(tx, true)
+			if err == nil {
+				err = s.taxLine(tx, je, 1, s.bank, -11500, "")
+			}
+			if err == nil {
+				err = s.taxLine(tx, je, 2, s.expense, 10000, "H2")
+			}
+			if err == nil {
+				err = s.taxLine(tx, je, 3, s.tax, 1500, "H2")
+			}
+			if err == nil {
+				err = exec(tx, `SELECT ledger.write_tax_items($1, 2026::smallint, $2, '2026-03-10'::date, false)`, s.tenant, je)
+			}
+			return err
+		}, "tax_item_lines"},
+		{"items that differ in local currency", func(tx pgx.Tx) error {
+			je, err := s.taxedEntry(tx, false)
+			if err == nil {
+				err = exec(tx, `INSERT INTO ledger.tax_item (tenant_id, fiscal_year, journal_entry_id, item_no, legal_entity_id, code, component, direction,
+					kind, account_key, account_id, tax_date, tax_rate_id, rate_pct, recoverable_pct, base_tc, tax_tc, recoverable_tc, base_lc, tax_lc, recoverable_lc)
+					VALUES ($1, 2026, $2, 1, $3, 'I5', 'gst', 'input', 'standard', 'input', $4, '2026-03-10', $5, 5, 100, 10000, 500, 500, 10000, 499, 499)`,
+					s.tenant, je, s.entity, s.tax, s.gst2026)
+			}
+			return err
+		}, "tax_item_lines"},
 	} {
 		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, s.tenant, c.write), c.fails) })
 	}
+	t.Run("an entry of the release before, without items", func(t *testing.T) {
+		mustApp(t, s.tenant, func(tx pgx.Tx) error {
+			je, err := s.header(tx, false)
+			if err == nil {
+				err = s.taxLine(tx, je, 1, s.bank, -10500, "")
+			}
+			if err == nil {
+				err = s.taxLine(tx, je, 2, s.expense, 10000, "I5")
+			}
+			if err == nil {
+				err = s.taxLine(tx, je, 3, s.tax, 500, "I5")
+			}
+			return err
+		})
+	})
+	t.Run("a code posting to no account, without items", func(t *testing.T) {
+		mustApp(t, s.tenant, func(tx pgx.Tx) error {
+			for _, st := range []stmt{
+				step(`INSERT INTO ledger.tax_code_definition (tenant_id, legal_entity_id, code, description, direction, kind, created_by, updated_by)
+					VALUES ($1, $2, 'P7', 'BC PST', 'input', 'standard', $3, $3)`, s.tenant, s.entity, s.actor),
+				step(`INSERT INTO ledger.tax_component (tenant_id, legal_entity_id, code, component, account_key, recoverable_pct, created_by, updated_by)
+					VALUES ($1, $2, 'P7', 'pst_bc', 'non_deductible', 0, $3, $3)`, s.tenant, s.entity, s.actor),
+				step(`INSERT INTO ledger.tax_rate (tenant_id, id, legal_entity_id, code, component, valid_from, rate_pct, created_by)
+					VALUES ($1, gen_random_uuid(), $2, 'P7', 'pst_bc', '2026-01-01', 7, $3)`, s.tenant, s.entity, s.actor),
+			} {
+				if err := exec(tx, st.sql, st.args...); err != nil {
+					return err
+				}
+			}
+			je, err := s.header(tx, true)
+			if err == nil {
+				err = s.taxLine(tx, je, 1, s.bank, -10700, "")
+			}
+			if err == nil {
+				err = s.taxLine(tx, je, 2, s.expense, 10700, "P7")
+			}
+			if err == nil {
+				err = exec(tx, `SELECT ledger.write_tax_items($1, 2026::smallint, $2, '2026-03-10'::date, false)`, s.tenant, je)
+			}
+			return err
+		})
+	})
+	t.Run("an item of an entry committed before", func(t *testing.T) {
+		failsOn(t, asApp(t, s.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO ledger.tax_item (tenant_id, fiscal_year, journal_entry_id, item_no, legal_entity_id, code, component, direction,
+				kind, account_key, account_id, tax_date, tax_rate_id, rate_pct, recoverable_pct, base_tc, tax_tc, recoverable_tc, base_lc, tax_lc, recoverable_lc)
+				VALUES ($1, 2026, $2, 9, $3, 'I5', 'gst', 'input', 'standard', 'input', $4, '2026-03-10', $5, 5, 100, 0, 1, 1, 0, 1, 1)`,
+				s.tenant, entry, s.entity, s.tax, s.gst2026)
+		}), "tax_item_lines")
+	})
+
 	report := func(set string) func(tx pgx.Tx) error {
 		return func(tx pgx.Tx) error {
 			return exec(tx, "UPDATE ledger.tax_item SET "+set+" WHERE journal_entry_id = $1", entry)
@@ -137,18 +246,22 @@ func TestTaxItemRules(t *testing.T) {
 		failsOn(t, asApp(t, s.tenant, report("reported_in = gen_random_uuid()")), "tax_item_fixed")
 	})
 	t.Run("otherwise fixed", func(t *testing.T) {
-		for _, change := range []func(tx pgx.Tx) error{report("tax_tc = 0"),
-			func(tx pgx.Tx) error {
-				return exec(tx, "DELETE FROM ledger.tax_item WHERE journal_entry_id = $1", entry)
-			}} {
+		del := "DELETE FROM ledger.tax_item WHERE journal_entry_id = $1"
+		for _, change := range []func(tx pgx.Tx) error{report("tax_tc = 0"), func(tx pgx.Tx) error { return exec(tx, del, entry) }} {
 			failsWith(t, asApp(t, s.tenant, change), "permission denied")
+		}
+		// Past the grants, as the owner, the trigger holds.
+		for _, sql := range []string{"UPDATE ledger.tax_item SET tax_tc = 0 WHERE journal_entry_id = $1", del} {
+			_, err := testDB.Exec(context.Background(), sql, entry)
+			failsOn(t, err, "tax_item_fixed")
 		}
 	})
 }
 
 // TestTaxItemsBackfilled: 000140 writes the items of the entries posted
 // before, from their lines at their posting date: a tax line on a
-// component's former account is its tax, the code's other lines its base,
+// component's former account is its tax as one on its current account is,
+// the code's other lines its base, once per component,
 // and an entry without codes has none; the rate check reads them.
 func TestTaxItemsBackfilled(t *testing.T) {
 	conn := emptyDatabase(t)
@@ -172,13 +285,13 @@ func TestTaxItemsBackfilled(t *testing.T) {
 				return err
 			}
 		}
-		if taxed, err = f.entry(tx, 2, "2026-02-10", line{account: f.bank, amount: -119}); err != nil {
+		if taxed, err = f.entry(tx, 2, "2026-02-10", line{account: f.bank, amount: -130}); err != nil {
 			return err
 		}
 		for i, l := range []struct {
 			account uuid.UUID
 			amount  int64
-		}{{f.expense, 100}, {f.tax, 19}} {
+		}{{f.expense, 100}, {f.tax, 20}, {f.bank, 10}} {
 			if err := exec(tx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id, fiscal_period,
 				posting_date, account_id, amount_tc, amount_lc, amount_gc, tax_code) VALUES ($1,2026,$2,$3,$4,$5,2,'2026-02-10',$6,$7,$7,$8,'V1')`,
 				f.tenant, taxed, i+2, f.entity, f.ledger, l.account, l.amount, l.amount*9/10); err != nil {
@@ -197,13 +310,16 @@ func TestTaxItemsBackfilled(t *testing.T) {
 	}
 	var got string
 	var n int
-	if err := conn.QueryRow(context.Background(), `SELECT string_agg(code || '/' || component || ' ' || tax_date || ' ' || base_tc || ' ' || tax_tc || ' '
-			|| recoverable_tc || ' ' || (account_id = $2)::text || ' ' || (tax_rate_id = $3)::text, '; '),
+	if err := conn.QueryRow(context.Background(), `SELECT string_agg(code || '/' || component || ' ' || tax_date || ' ' || tax_tc || ' '
+			|| recoverable_tc || ' ' || (account_id = $2)::text || ' ' || (tax_rate_id = $3)::text, '; ' ORDER BY tax_tc DESC)
+			|| ', base ' || sum(base_tc) || ' on ' || count(*) FILTER (WHERE base_tc <> 0),
 			(SELECT count(*) FROM ledger.tax_item WHERE journal_entry_id = $4)
 		FROM ledger.tax_item WHERE journal_entry_id = $1`, taxed, f.tax, rate, plain).Scan(&got, &n); err != nil {
 		t.Fatal(err)
 	}
-	if want := "V1/tax 2026-02-10 100 19 19 true true"; got != want {
+	// The tax on the current account (100000) is the component's too; the
+	// base is on one item only.
+	if want := "V1/tax 2026-02-10 20 20 true true; V1/tax 2026-02-10 10 10 false true, base 100 on 1"; got != want {
 		t.Errorf("items of the taxed entry: got %s, want %s", got, want)
 	}
 	if n != 0 {

@@ -114,8 +114,8 @@ func (TaxItems) Dated(ctx context.Context, legalEntityID uuid.UUID, from, until 
 // sourcedTaxItem is an item written from an item of another entry: its
 // code, component, rate and the rest as there, with amounts of its own
 // (a reversal's negated, a cash discount's share). A nil recoverable part
-// is the source's share of the tax, rounded half away from zero; a nil tax
-// date the entry's.
+// is the source's share of the tax, rounded half away from zero; its tax
+// date is the source's when keepSourceDate, else the entry's.
 type sourcedTaxItem struct {
 	year           int16
 	entry          uuid.UUID

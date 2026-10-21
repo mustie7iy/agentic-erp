@@ -132,7 +132,8 @@ WHERE EXISTS (SELECT FROM ledger.journal_line l WHERE l.tenant_id = e.tenant_id 
 RESET row_security;
 
 -- An entry's tax lines and its items agree when it commits: each tax code
--- its lines carry has an item, the items are of its legal entity, and per
+-- its lines carry that posts to an account has an item, the items are of
+-- its legal entity, and per
 -- account and code the lines on an item's account or on a component's
 -- account add up to the items' tax, in transaction and local currency.
 -- Checked when the entry or an item is written, deferred like the balance.
@@ -144,9 +145,13 @@ DECLARE
   v_account uuid;
 BEGIN
   SELECT j.legal_entity_id INTO v_le FROM ledger.journal_entry j WHERE j.tenant_id = t AND j.fiscal_year = y AND j.id = e;
+  -- A code whose components post to no account (all non-deductible) has
+  -- no tax line and no item until T61d.
   SELECT l.tax_code INTO v_code FROM ledger.journal_line l WHERE l.tenant_id = t AND l.fiscal_year = y AND l.journal_entry_id = e
     AND l.tax_code IS NOT NULL AND NOT EXISTS (SELECT FROM ledger.tax_item i WHERE i.tenant_id = t AND i.fiscal_year = y
-      AND i.journal_entry_id = e AND i.code = l.tax_code) LIMIT 1;
+      AND i.journal_entry_id = e AND i.code = l.tax_code)
+    AND EXISTS (SELECT FROM ledger.tax_component c WHERE c.tenant_id = t AND c.legal_entity_id = v_le AND c.code = l.tax_code AND c.account_id IS NOT NULL)
+    LIMIT 1;
   IF FOUND THEN
     RAISE EXCEPTION 'journal entry % carries tax code % without its tax item', e, v_code USING ERRCODE = 'check_violation', CONSTRAINT = 'tax_item_missing';
   END IF;
@@ -180,7 +185,12 @@ BEGIN
   -- The argument names the table: a partition's trigger names the
   -- partition, not ledger.journal_entry.
   IF TG_ARGV[0] = 'entry' THEN
-    PERFORM ledger.check_tax_items(NEW.tenant_id, NEW.fiscal_year, NEW.id);
+    -- An entry without a tax date was posted by an instance of the previous
+    -- release during the rolling upgrade, which writes no items: it is not
+    -- held to them, and a later release writes them (06 §6.4).
+    IF NEW.tax_date IS NOT NULL THEN
+      PERFORM ledger.check_tax_items(NEW.tenant_id, NEW.fiscal_year, NEW.id);
+    END IF;
   ELSE
     PERFORM ledger.check_tax_items(NEW.tenant_id, NEW.fiscal_year, NEW.journal_entry_id);
   END IF;

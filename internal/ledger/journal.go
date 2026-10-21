@@ -546,7 +546,10 @@ func requirePostable(i int, field string, a account, ok bool) error {
 }
 
 // checkTaxCodes requires every tax code to be valid in the legal entity on
-// the tax date: to have a rate in force then. It takes the codes' lock
+// the tax date: to have a rate in force then; and its components with a
+// rate then to post to accounts of their own, since a tax line names its
+// account and code, not its component (422 ledger.tax_code_components;
+// T61d calculates each component's tax). It takes the codes' lock
 // first (lockTaxCodes), so it reads the rates as a setup that held them
 // left them, and none changes until the posting commits.
 func checkTaxCodes(ctx context.Context, tx pgx.Tx, le uuid.UUID, date time.Time, lines []Line) error {
@@ -563,16 +566,28 @@ func checkTaxCodes(ctx context.Context, tx pgx.Tx, le uuid.UUID, date time.Time,
 	if err := lockTaxCodes(ctx, tx, le, taxes); err != nil {
 		return err
 	}
-	rows, _ := tx.Query(ctx, `SELECT code FROM ledger.tax_rate WHERE legal_entity_id = $2 AND code = ANY($1) AND withdrawn_at IS NULL
-		AND valid_from <= $3 AND (valid_to IS NULL OR valid_to > $3)`, codes, le, date)
-	valid, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
+	rows, _ := tx.Query(ctx, `SELECT r.code, count(c.account_id) > count(DISTINCT c.account_id) FROM ledger.tax_rate r
+		JOIN ledger.tax_component c ON c.tenant_id = r.tenant_id AND c.legal_entity_id = r.legal_entity_id AND c.code = r.code AND c.component = r.component
+		WHERE r.legal_entity_id = $2 AND r.code = ANY($1) AND r.withdrawn_at IS NULL AND r.valid_from <= $3 AND (r.valid_to IS NULL OR r.valid_to > $3)
+		GROUP BY 1`, codes, le, date)
+	valid := map[string]bool{} // code: whether two of its components post to one account
+	var code string
+	var shared bool
+	if _, err := pgx.ForEachRow(rows, []any{&code, &shared}, func() error { valid[code] = shared; return nil }); err != nil {
 		return fmt.Errorf("ledger: check tax codes in %s: %w", le, err)
 	}
 	slices.Sort(codes)
-	if i := slices.IndexFunc(codes, func(c string) bool { return !slices.Contains(valid, c) }); i >= 0 {
-		return problem.Unprocessable("ledger.unknown_tax_code", "Tax code "+codes[i]+" is not valid in this legal entity on the tax date.",
-			problem.FieldError{Field: "lines.tax_code", Code: "unknown", Message: "a tax code of the legal entity"})
+	for _, c := range codes {
+		shared, ok := valid[c]
+		switch {
+		case !ok:
+			return problem.Unprocessable("ledger.unknown_tax_code", "Tax code "+c+" is not valid in this legal entity on the tax date.",
+				problem.FieldError{Field: "lines.tax_code", Code: "unknown", Message: "a tax code of the legal entity"})
+		case shared:
+			return problem.Unprocessable("ledger.tax_code_components", "Tax code "+c+" has two components on one account, whose tax the ledger "+
+				"cannot tell apart until it calculates it (T61d).", problem.FieldError{Field: "lines.tax_code", Code: "components",
+				Message: "a code whose components post to accounts of their own"})
+		}
 	}
 	return nil
 }
@@ -966,6 +981,9 @@ func (e *Endpoints) postReversal(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 	items, err := negatedTaxItems(ctx, tx, []int16{orig.FiscalYear}, []uuid.UUID{orig.ID}, true)
 	if err != nil {
 		return Entry{}, err
+	}
+	if len(items) == 0 {
+		items = nil // an original without items (its codes post to no account): the reversal's lines give its own
 	}
 	rev, err := e.post(ctx, tx, p, draft{entity: le, ledgerID: orig.LedgerID, documentType: orig.DocumentType, documentDate: orig.DocumentDate,
 		postingDate: date, taxDate: orig.taxDay(), sourcedItems: items, currencyTC: orig.CurrencyTC, currencyLC: orig.CurrencyLC, currencyGC: orig.CurrencyGC, rateTCLC: orig.RateTCLC,

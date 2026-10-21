@@ -765,7 +765,9 @@ it, set once (`tax_item_fixed`; nothing else changes and nothing is
 deleted). Output tax recovers nothing, input tax at most itself
 (`tax_item_recoverable`). When the entry commits, its tax lines and items
 agree (`tax_item_missing`, `tax_item_entity`, `tax_item_lines`, deferred
-like the balance). `journal_entry.tax_date` and `parked_entry.tax_date` are
+like the balance; not for an entry without a tax date, which an instance of
+the release before writes during the rollout, nor for a code that posts to
+no account). `journal_entry.tax_date` and `parked_entry.tax_date` are
 the entry's tax date, none on entries posted before, whose items carry their
 posting date. Indexed by legal entity, code and tax date, what a return and
 the rate check read.

@@ -9,8 +9,10 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -91,6 +93,25 @@ func TestTaxItems(t *testing.T) {
 		if got, want := taxItemsOf(t, e, uuid.MustParse(apitest.String(t, rev, "id"))), "V0/tax 2026-03-01 -5000 0 0 (-5000 0 0) at 0; V1/tax 2026-03-01 -10000 -1900 -1900 (-10000 -1900 -1900) at 19"; got != want {
 			t.Errorf("reversal's items:\ngot  %s\nwant %s", got, want)
 		}
+	})
+	t.Run("codes the ledger cannot itemize", func(t *testing.T) {
+		rates := []config.TaxRate{{RatePercent: "7", ValidFrom: "2026-01-01"}}
+		fixture.TaxCodes(t, e.ten, document(t),
+			config.TaxCode{Code: "P7", Description: "BC PST", Components: []config.TaxComponent{
+				{Key: "pst_bc", AccountKey: config.KeyNonDeductible, Rates: rates}}},
+			config.TaxCode{Code: "H2", Description: "GST + QST", Components: []config.TaxComponent{
+				{Key: "gst", AccountKey: config.KeyInput, Account: "140000", Rates: rates}, {Key: "qst", AccountKey: config.KeyInput, Account: "140000", Rates: rates}}})
+		body := func(code string) string {
+			return strings.ReplaceAll(strings.ReplaceAll(taxedEntry(t, e, "2026-03-12", ""), `"V1"`, `"`+code+`"`), `"V0"`, `"`+code+`"`)
+		}
+		e.in(t).Problem(422, "ledger.tax_code_components", "POST", "/v1/journal-entries", body("H2"), "")
+		// A code posting to no account has no item until T61d; its entry
+		// and its reversal post.
+		je, tag := e.in(t).Must(201, "POST", "/v1/journal-entries", body("P7"), "")
+		if got := taxItemsOf(t, e, uuid.MustParse(apitest.String(t, je, "id"))); got != "" {
+			t.Errorf("items: got %s, want none", got)
+		}
+		e.in(t).Must(200, "POST", "/v1/journal-entries/"+apitest.String(t, je, "id")+":reverse", "", tag)
 	})
 	t.Run("by tax date", func(t *testing.T) {
 		var items []ledger.TaxItem

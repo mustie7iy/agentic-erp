@@ -416,10 +416,27 @@ commit-time check, like the balance trigger).
   rates (`ledger.tax_code_posted`) reads items by tax date, and `ledger.tax_code`
   and the index of lines by tax code are dropped (000141). `ledger.TaxItems`
   is the port: `Of` an entry, `Dated` by legal entity and tax date range.
-  **Not yet:** a non-deductible component has no item (it has no line of
-  its own; T61d posts it); the partner's tax id fingerprint is added with
-  the returns that read it (T61g); local amounts are the lines', converted
-  at the posting date's average rate as every posting is, not yet at the
+  A tax line names its account and code, not its component, so the ledger
+  refuses a code two of whose components with a rate on the tax date post
+  to one account (422 `ledger.tax_code_components`; the database's
+  `tax_item_lines` is the backstop), and a code that posts to no account
+  (non-deductible only) has no item and is not required to have one. A
+  reversal of an entry without items (such a code) takes its items from its
+  own lines. **Rolling upgrade (06 §6.4):** an instance of the previous
+  release writes neither tax dates nor items; the commit-time check skips
+  an entry without a tax date, the rate check does not see such postings
+  (T61a's constraint holds: tax code changes wait until the rollout is
+  complete), and the next release writes their items (tracker, T61c
+  follow-up). The migration of the entries posted before writes their items
+  in the migration, one statement, not as a batched operation: pre-pilot
+  volumes (decision recorded for the coordinator). A reversal posted before
+  T61c has items from its own lines at its posting date and rate, not the
+  original's negated. **Not yet:** a non-deductible component has no item
+  (it has no line of its own; T61d posts it); the partner's tax id
+  fingerprint is added with the returns that read it (T61g); a manual
+  entry's tax date is not yet held to the open return periods (P6; with the
+  return periods, T61g/T61i); local amounts are the lines', converted at the
+  posting date's average rate as every posting is, not yet at the
   authority's rate type on the tax date (§8: T61d's calculation converts at
   it).
 
