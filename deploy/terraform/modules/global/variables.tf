@@ -53,6 +53,12 @@ variable "router_port" {
   default     = 8081
 }
 
+variable "web_port" {
+  description = "The web workspace's listening port (ERP_WEB_ADDR, ADR-0052)."
+  type        = number
+  default     = 8082
+}
+
 variable "directory_instance_class" {
   description = "The directory database's instance class: small, read mostly and cached at the router."
   type        = string

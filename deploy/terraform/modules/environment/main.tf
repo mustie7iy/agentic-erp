@@ -212,13 +212,16 @@ output "cell" {
 }
 
 output "global" {
-  description = "The directory and the router's load balancer (the erp-global chart's values)."
+  description = "The directory and the router's and the web workspace's load balancers (the erp-global chart's values)."
   value = {
     directory_endpoint          = module.global.directory_endpoint
     directory_master_secret_arn = module.global.directory_master_secret_arn
     router_dns_name             = module.global.router_dns_name
     router_target_group_arn     = module.global.router_target_group_arn
     router_proxy_sources        = module.global.router_proxy_sources
+    web_dns_name                = module.global.web_dns_name
+    web_target_group_arn        = module.global.web_target_group_arn
+    web_proxy_sources           = module.global.web_proxy_sources
   }
 }
 

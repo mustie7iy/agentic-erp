@@ -1,0 +1,252 @@
+# The web workspace (ADR-0052 §6) behind its own load balancer, which
+# passes TLS through: erp-web terminates the public TLS on its own hostname
+# with the operators' certificate, takes the client's address from the
+# balancer's PROXY v2 header (its subnets alone) and calls the public API
+# through the router's public listener, at the router's Service, verifying
+# the API's public name. It holds no SPIFFE identity a cell would accept
+# and no token of its own: every API call carries the signed-in person's
+# token (sign-in arrives with T73b). Its admin listener (plain HTTP) serves
+# liveness, metrics and the build's version to the kubelet alone.
+{{- $hostname := required "web.hostname is required: the workspace's own hostname, app.<domain>" .Values.web.hostname }}
+{{- if not (regexMatch "^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$" $hostname) }}
+{{- fail (printf "web.hostname must be a DNS name such as app.example.com, not %q" $hostname) }}
+{{- end }}
+{{- $api := required "web.apiUrl is required: the public API's address, https://api.<domain>" .Values.web.apiUrl }}
+{{- if not (regexMatch "^https://([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}/?$" $api) }}
+{{- fail (printf "web.apiUrl must be https://<the API's hostname>, not %q" $api) }}
+{{- end }}
+{{- $proxyFrom := required "web.proxyFrom is required: global.web_proxy_sources" .Values.web.proxyFrom }}
+{{- if not $proxyFrom }}
+{{- fail "web.proxyFrom is required: global.web_proxy_sources, the web load balancer's subnets" }}
+{{- end }}
+{{- range $proxyFrom }}
+{{- if not (regexMatch "^[0-9]{1,3}(\\.[0-9]{1,3}){3}/[0-9]{1,2}$" .) }}
+{{- fail (printf "web.proxyFrom must list the web load balancer's subnets as IPv4 CIDRs, not %q" .) }}
+{{- end }}
+{{- end }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: erp-web
+  labels:
+    {{- include "erp-global.labels" (dict "root" . "component" "erp-web") | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: erp-web
+  labels:
+    {{- include "erp-global.labels" (dict "root" . "component" "erp-web") | nindent 4 }}
+spec:
+  replicas: {{ .Values.web.replicas }}
+  revisionHistoryLimit: 5
+  strategy:
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels:
+      {{- include "erp-global.webSelector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "erp-global.labels" (dict "root" . "component" "erp-web") | nindent 8 }}
+    spec:
+      serviceAccountName: erp-web
+      # No Service variables in the environment: erp-web reads ERP_*
+      # settings, and ERP_WEB_* would be among them.
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      # Ready once the load balancer finds the pod healthy, so a rollout
+      # never leaves the target group short.
+      readinessGates:
+        - conditionType: target-health.elbv2.k8s.aws/erp-web
+      # As the router: serving on while the balancer deregisters (40 s),
+      # then draining (ERP_SHUTDOWN_TIMEOUT, 20 s).
+      terminationGracePeriodSeconds: 75
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "erp-global.webSelector" . | nindent 14 }}
+      containers:
+        - name: web
+          image: {{ include "erp-global.image" (dict "root" . "name" "web") }}
+          ports:
+            - {name: public, containerPort: 8082}
+            - {name: admin, containerPort: 9092}
+          env:
+            - {name: ERP_ENV, value: production}
+            - {name: ERP_WEB_ADDR, value: ":8082"}
+            - {name: ERP_WEB_ADMIN_ADDR, value: ":9092"}
+            - {name: ERP_WEB_PUBLIC_URL, value: {{ printf "https://%s" $hostname | quote }}}
+            - {name: ERP_WEB_API_URL, value: {{ $api | quote }}}
+            # The router's public listener, reached in the cluster rather
+            # than through the internet and its load balancer.
+            - {name: ERP_WEB_API_DIAL, value: {{ printf "erp-router.%s.svc.cluster.local:8081" .Release.Namespace | quote }}}
+            - {name: ERP_WEB_PROXY_FROM, value: {{ join "," $proxyFrom | quote }}}
+            - {name: ERP_LOG_LEVEL, value: {{ .Values.web.logLevel | quote }}}
+            - {name: ERP_SHUTDOWN_TIMEOUT, value: "20s"}
+            - {name: ERP_WEB_PUBLIC_CERT, value: file:/etc/erp/public/tls.crt}
+            - {name: ERP_WEB_PUBLIC_KEY, value: file:/etc/erp/public/tls.key}
+            {{- range $name, $value := .Values.web.extraEnv }}
+            - {name: {{ $name }}, value: {{ $value | quote }}}
+            {{- end }}
+          lifecycle:
+            preStop:
+              sleep: {seconds: 40}
+          readinessProbe:
+            httpGet: {path: /livez, port: admin}
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /livez, port: admin}
+            periodSeconds: 10
+            failureThreshold: 6
+          startupProbe:
+            httpGet: {path: /livez, port: admin}
+            periodSeconds: 2
+            failureThreshold: 60
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            {{- toYaml .Values.web.resources | nindent 12 }}
+          volumeMounts:
+            - {name: public, mountPath: /etc/erp/public, readOnly: true}
+      volumes:
+        - name: public
+          secret:
+            secretName: erp-web-public-tls
+---
+# The TargetGroupBinding's Service: the controller registers its
+# endpoints' addresses; the cluster's own clients do not use it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: erp-web
+  labels:
+    {{- include "erp-global.labels" (dict "root" . "component" "erp-web") | nindent 4 }}
+spec:
+  selector:
+    {{- include "erp-global.webSelector" . | nindent 4 }}
+  ports:
+    - {name: public, port: 8082, targetPort: public}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: erp-web
+  labels:
+    {{- include "erp-global.labels" (dict "root" . "component" "erp-web") | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "erp-global.webSelector" . | nindent 6 }}
+---
+# erp-web's pods in the web load balancer's target group (modules/global
+# web.tf), by IP. Terraform owns the security group rules.
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: erp-web
+  labels:
+    {{- include "erp-global.labels" (dict "root" . "component" "erp-web") | nindent 4 }}
+spec:
+  serviceRef:
+    name: erp-web
+    port: public
+  targetGroupARN: {{ required "web.targetGroupArn is required: global.web_target_group_arn" .Values.web.targetGroupArn | quote }}
+  targetType: ip
+---
+# The workspace's public certificate, the operators' (a public CA's for
+# its hostname, renewed by them in Secrets Manager); erp-web reads it again
+# while it runs.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: erp-web-public-tls
+  labels:
+    {{- include "erp-global.labels" (dict "root" . "component" "erp-web") | nindent 4 }}
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: {{ .Values.secrets.store }}
+  target:
+    name: erp-web-public-tls
+    creationPolicy: Owner
+    template:
+      type: kubernetes.io/tls
+  data:
+    - secretKey: tls.crt
+      remoteRef:
+        key: {{ printf "%s/web-public-certificate" .Values.secrets.prefix }}
+    - secretKey: tls.key
+      remoteRef:
+        key: {{ printf "%s/web-public-key" .Values.secrets.prefix }}
+---
+# erp-web's traffic (ADR-0052 §11), on top of the namespace's default deny
+# (DNS only): the public listener takes connections from the web load
+# balancer's subnets alone; the admin listener none (kubelet's probes are
+# not subject to policies); erp-web reaches the router's public listener
+# and nothing else. T73b adds the directory database (its sessions) and
+# the tenants' identity providers on 443.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: erp-web
+  labels:
+    {{- include "erp-global.labels" (dict "root" . "component" "erp-web") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "erp-global.webSelector" . | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        {{- range $proxyFrom }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: 8082}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "erp-global.selector" . | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 8081}
+---
+# The router's public listener also takes erp-web's connections, which
+# carry no PROXY header (they come from no load balancer subnet).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: erp-router-from-web
+  labels:
+    {{- include "erp-global.labels" (dict "root" . "component" "erp-router") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "erp-global.selector" . | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "erp-global.webSelector" . | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 8081}

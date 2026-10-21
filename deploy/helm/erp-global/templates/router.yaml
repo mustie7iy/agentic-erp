@@ -97,7 +97,7 @@ spec:
               {{- include "erp-global.selector" . | nindent 14 }}
       containers:
         - name: router
-          image: {{ include "erp-global.image" . }}
+          image: {{ include "erp-global.image" (dict "root" . "name" "router") }}
           ports:
             - {name: public, containerPort: 8081}
             - {name: admin, containerPort: 9091}

@@ -26,7 +26,7 @@ fake() { printf '#!/usr/bin/env bash\nset -euo pipefail\necho "%s $*" >>"$CALLS"
 # ko: each binary's index and per-platform images, with ko's SBOM names.
 fake ko 'refs="" sboms="" platforms="linux/amd64,linux/arm64"
 for a in "$@"; do case "$a" in --image-refs=*) refs="${a#*=}" ;; --sbom-dir=*) sboms="${a#*=}" ;; --platform=*) platforms="${a#*=}" ;; esac; done
-for b in erp-server erp-router erp; do
+for b in erp-server erp-router erp-web erp; do
   d="sha256:$(printf "%s" "$b" | shasum -a 256 | cut -c1-64)"
   echo "$KO_DOCKER_REPO/$b@$d" >>"$refs"; printf "{\"packages\": [{\"name\": \"%s\"}]}" "$d" >"$sboms/$b-index.spdx.json"
   IFS=, read -r -a ps <<<"$platforms"
@@ -82,7 +82,7 @@ grep "^docker buildx build" "$CALLS" | grep -v -- "--platform linux/[a-z0-9]* --
 analytics=()
 while IFS= read -r ref; do analytics+=("$ref"); done < <(grep "/erp-analytics@" "$work/out/images.txt")
 [ "${#analytics[@]}" -eq 3 ] || fail listed "${#analytics[@]} erp-analytics references, want the index and two images"
-[ "$(head -9 "$work/out/images.txt" | grep -c "/erp-analytics@")" -eq 0 ] || fail order "erp-analytics before ko's images"
+[ "$(head -12 "$work/out/images.txt" | grep -c "/erp-analytics@")" -eq 0 ] || fail order "erp-analytics before ko's images"
 first() { python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["packages"][0]["name"])' "$1"; }
 [ "$(first "$work/out/sbom/erp-analytics-index.spdx.json")" = "${analytics[0]##*@}" ] || fail index-sbom "the index's SBOM does not name it first"
 for p in amd64 arm64; do
