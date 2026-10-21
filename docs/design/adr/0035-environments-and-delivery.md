@@ -678,3 +678,21 @@ which the state bucket refuses.
   release and delivery roles, ECR, the root CA, the encryption policy),
   T40b (cell and global Terraform), T40c (Helm, migrations Job, Kyverno,
   cert-manager), T40d (Argo CD, promotions, the rollback drill).
+
+## Amendment (2026-10-21, T73a, ADR-0052)
+
+The global tier gains the web workspace: in Terraform's global module a
+second internet-facing Network Load Balancer (`web.tf`: TCP 443 to
+`erp-web`'s pods on 8082, ip targets, PROXY v2, the same `client_cidrs`
+as the router's), its target group and DNS name as outputs
+(`global.web_target_group_arn`, `web_dns_name`, `web_proxy_sources`), and
+two more empty secrets, `erp/global/web-public-certificate` and
+`web-public-key`, loaded by operators from a public CA (no ACME); in the
+`erp-global` chart the `erp-web` Deployment (three replicas, restricted,
+no service account token, ready only once its balancer finds it healthy),
+its Service, disruption budget, TargetGroupBinding, ExternalSecret and a
+default-deny network policy admitting its balancer's subnets in and the
+router's public listener out, under `helm-checks.sh` and the admission
+checks. `release.json` names `images.web`. The directory database's
+session login and the identity providers' egress arrive with sign-in
+(T73b).

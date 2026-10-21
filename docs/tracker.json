@@ -4420,9 +4420,9 @@
       "r": "ADR-0052 · T73 (split T73a-T73m)",
       "c": [
        {
-        "s": "T",
-        "t": "Skeleton: cmd/erp-web and internal/web with templ (make generate, CI diff check), vendored htmx pinned by hash with allowEval and allowScriptTags off, layout, navigation shell and base CSS (logical properties only), message catalog with English and two pseudo-locales (long text, RTL), security headers and CSP with nonces, health and /version, TestImportRules entries, ko image and release, the erp-global chart's Deployment and network policy under helm-checks.sh, chromedp and axe harness in CI; ADR-0022/0032/0035 amended",
-        "r": "T73a",
+        "s": "D",
+        "t": "Skeleton: cmd/erp-web and internal/web with templ (make generate, CI diff check), vendored htmx pinned by hash with allowEval and allowScriptTags off, layout, navigation shell and base CSS (logical properties only), message catalog with English, French (Canada) and two pseudo-locales (long text, RTL), security headers and CSP with nonces, health and /version, TestImportRules entries, ko image and release, the erp-global chart's Deployment and network policy under helm-checks.sh with the web load balancer in Terraform, chromedp and axe harness in CI; ADR-0022/0032/0035 amended",
+        "r": "cmd/erp-web · internal/web · TestPagesInTheBrowser · TestPseudoLocales · TestComponentsRender · TestWebLinksNoBackend · modules/global web.tf · ADR-0052 · T73a",
         "c": []
        },
        {

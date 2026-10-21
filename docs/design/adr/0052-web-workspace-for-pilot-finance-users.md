@@ -879,6 +879,79 @@ Information needed from the pilot (not decisions):
 - **Time zones and working days** (Canada's zones, the UAE's
   Monday-to-Friday week), for dates shown and the inbox's deadlines.
 
+## Built in T73a (2026-10-21)
+What the skeleton settled that the decision above left open:
+- **Packages.** `cmd/erp-web`; `internal/web` (configuration, server,
+  security headers, static files, the API client), `internal/web/ui`
+  (templ components and pages), `internal/web/i18n` (the catalog) and
+  `internal/web/e2e` (the browser suite, tests only). `TestImportRules`
+  holds `internal/web` and `cmd/erp-web` to their own packages, `money`
+  and the platform packages of §7 (plus `buildinfo`, `config` and
+  `proxyproto`); `TestWebLinksNoBackend` holds the binary's whole
+  dependency graph to no context and none of `uow`, `outbox`, `audit`,
+  `fieldcrypt` or `workflow`.
+- **templ and coverage.** `make generate` runs `templ generate` (templ
+  pinned as a `go.mod` tool, v0.3.1070); CI and `ci-local` fail on a
+  difference or an uncommitted generated file. The generated code counts
+  in the 100% gate, which shaped how templates are written (the `ui`
+  package's doc): text only through `T` (a catalog message) and `Value`,
+  dynamic attributes only through attribute spreads, content passed as
+  component parameters rather than children blocks. templ's inline
+  expressions and children closures carry branches no input reaches; with
+  these rules a test renders every component into a writer that refuses
+  its first, second, … write, which runs every error path.
+- **htmx configuration.** Besides `allowEval: false`,
+  `allowScriptTags: false` and `selfRequestsOnly: true`:
+  `includeIndicatorStyles: false` (htmx would otherwise insert an inline
+  style the CSP refuses) and `historyCacheSize: 0` with
+  `refreshOnHistoryMiss: true`, because htmx keeps history snapshots of
+  pages in `localStorage`, where a page of business data would outlive the
+  session; going back reloads from the server instead.
+- **Headers.** As §8, plus `X-Frame-Options: DENY` (older browsers' form
+  of `frame-ancestors 'none'`) and `Cross-Origin-Resource-Policy:
+  same-origin`. HSTS is two years with subdomains. Nonces are 128 random
+  bits per response (`crypto/rand.Text`). Pages are `Cache-Control:
+  no-store`; static files are content-hashed and cached for a year.
+- **Pseudo-locales** `en-XA` (accented, a third longer, bracketed) and
+  `ar-XB` (right-to-left override, `dir="rtl"`) are made from the English
+  catalog, offered outside production only, and chosen only by their
+  exact tag as the first `Accept-Language`, never matched from a real
+  Arabic request. A test renders every page in both and fails on any text
+  or `aria-label`/`title`/`alt`/`placeholder` not from the catalog, except
+  elements marked `translate="no"` (codes, versions). The French (Canada)
+  catalog is a first translation for T73l's native review.
+- **Reaching the API.** `ERP_WEB_API_URL` is the API's public address
+  (`https://api.<domain>`), which TLS verifies; in the cluster erp-web
+  connects to the router's Service (`ERP_WEB_API_DIAL`) rather than
+  through the internet, a NAT gateway and the router's balancer (whose
+  `client_cidrs` would have to admit the NAT's address). The typed client
+  sends nothing without the person's token (`ErrNoSession`); T73a calls no
+  operation from a page, and a test calls `listLegalEntities` through it
+  against the in-process API.
+- **Listeners.** The public listener serves TLS with the operators'
+  certificate (required in production) and reads the PROXY v2 header from
+  the balancer's subnets (`ERP_WEB_PROXY_FROM`, parsed by the shared
+  `proxyproto.ParseFrom`). The admin listener is plain HTTP for the
+  kubelet alone (liveness, metrics, `/version`): erp-web has no SPIFFE
+  identity to serve it with, and the network policy admits no pod to it.
+- **Network policy, T73a's part.** In: the web balancer's subnets on 8082.
+  Out: the router's public listener (8081) and DNS. T73b adds the
+  directory database (sessions) and the identity providers on 443.
+- **End-to-end harness.** `internal/web/e2e` drives the machine's Chrome
+  (`ERP_E2E_BROWSER`, else the usual locations) with chromedp against a
+  real `erp-web` in front of the in-process API and PostgreSQL: every page
+  in English, French, `en-XA` and `ar-XB` at 1280 and 390 px, with no
+  browser error (a CSP violation is one), htmx loaded with its
+  configuration, the locale's language and direction, no sideways
+  scrolling, the skip link as the first tab stop, and axe-core 4.14.0
+  (WCAG 2.0-2.2 A and AA tags) at zero violations; and a planted script
+  without the nonce refused by the browser. It is skipped without a
+  browser or in `-short` runs, and fails instead where
+  `ERP_E2E_REQUIRE_BROWSER` is set (CI's race run on `main`, and
+  `ci-local`). It found two real faults on the way, both fixed: the
+  header's product link below the 24 px target size (WCAG 2.5.8), and the
+  focused skip link overlapping it.
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF
@@ -917,6 +990,39 @@ Information needed from the pilot (not decisions):
   adding s. 52.1:
   https://www.publicationsduquebec.gouv.qc.ca/fileadmin/gazette/pdf_encrypte/lois_reglements/1997A/101438.pdf
 
+**Verified in T73a (2026-10-21)**, from the projects' own files:
+- **chromedp**: MIT (`LICENSE` of github.com/chromedp/chromedp v0.21.0,
+  "Copyright (c) 2016-2026 Kenneth Shaw"), and its protocol package
+  github.com/chromedp/cdproto v0.157.8 MIT as well. Test-only: neither is
+  linked into a binary (`go list -deps ./cmd/...` names neither).
+- **axe-core**: MPL-2.0 (`LICENSE` of the npm package axe-core 4.14.0,
+  "Mozilla Public License, version 2.0"); the code it bundles is MIT
+  (colorjs.io, core-js-pure, css-selector-parser, doT.js, emoji-regex and
+  others) and ISC (es5-ext and its family), per its
+  `LICENSE-3RD-PARTY.txt`. MPL-2.0 is file-level copyleft: the file is
+  vendored unmodified in `internal/web/e2e/testdata` with both licence
+  files beside it, and runs in the test browser only, never served. The
+  tarball's SHA-512 matched the npm registry's signed `integrity`.
+- **htmx** 2.0.11 (npm `latest`; 4.0 is a separate `next` line with other
+  configuration names): Zero-Clause BSD (`LICENSE` of the npm package),
+  tarball SHA-512 matched the registry's `integrity`; vendored with its
+  licence in `internal/web/static/vendor`.
+- **templ** v0.3.1070: MIT (`LICENSE`, "Copyright (c) 2021 Adrian
+  Hesketh").
+- **GOV.UK Design System**: the code (GOV.UK Frontend 6.6.0) is MIT
+  (`LICENSE.txt` in github.com/alphagov/govuk-frontend, "Copyright (C)
+  2017 Crown Copyright (Government Digital Service)"; the npm package's
+  `license` field says MIT and its README "the codebase is released under
+  the MIT License"); the documentation is Crown copyright under the Open
+  Government Licence v3.0. Its typeface guidance says a service outside
+  service.gov.uk must not use the GDS Transport font, so the workspace
+  uses the system font stack, and no crown or GOV.UK branding. T73a copies
+  no GOV.UK code: it follows its patterns (skip link, header and service
+  navigation, notification banner, summary list, tag, button, footer).
+- **Bootstrap 5 RTL**: confirmed, though irrelevant since P7 chose (a):
+  the npm package bootstrap 5.3.8 (MIT) ships `dist/css/bootstrap.rtl.css`
+  and `.rtl.min.css` (16 RTL files in all).
+
 **From memory, to verify.** Each is an open item. The step named
 verifies it and records the source here, or corrects the text:
 - (T73d-T73k, with the pilot) the SAP Fiori app names in "What SAP gives these users";
@@ -925,12 +1031,6 @@ verifies it and records the source here, or corrects the text:
 - (T73l, with the pilot) English as the usual working language of UAE
   finance teams;
 - (T73m) AODA and the Accessible Canada Act referencing WCAG 2.0/2.1 AA;
-- (T73a) Bootstrap 5 shipping an RTL build (only relevant to the option
-  not taken in P7);
-- (T73a) the GOV.UK Design System's licence (MIT for its code, as I
-  recall);
 - (T73b) Entra ID tokens exceeding a cookie's size with group claims;
-- (T73a) chromedp and axe-core's licences (MIT and MPL-2.0 as I recall),
-  to confirm before T73a adds them;
 - (T73l) the Charter of the French Language's consolidated text (ss. 41
   and 52.1), and whether the Canadian company is in scope.

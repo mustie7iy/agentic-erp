@@ -70,3 +70,18 @@ before any cell is reached.
   production, and the router (and the global plane in it) reaches them
   over mutual TLS as `spiffe://<domain>/global/erp-router`, the one
   identity a cell's API and `/control` serve.
+
+## Amendment (2026-10-21, T73a, ADR-0052)
+
+The router is no longer the global tier's only public entry point: the
+web workspace `erp-web` runs beside it in the `erp-global` chart, behind a
+second Network Load Balancer on its own hostname (`app.<domain>`), so a
+browser never meets the router's request for a client certificate. It is
+a client of the router like any other: it calls the public API through
+the router's public listener, reached in the cluster at the router's
+Service (`ERP_WEB_API_DIAL`, verifying the API's public name), with the
+signed-in person's token, and holds no SPIFFE identity a cell would
+accept. The router's network policy gains one rule admitting `erp-web`'s
+pods on its public port (`erp-router-from-web`); those connections carry
+no PROXY header, coming from no balancer subnet. Cells still accept the
+router alone.
