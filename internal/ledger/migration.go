@@ -73,7 +73,7 @@ func (p Postings) Clear(ctx context.Context, legalEntity uuid.UUID, date time.Ti
 	if err != nil {
 		return uuid.Nil, err
 	}
-	id, err := recordClearing(ctx, tx, actor, clearingDoc{le: legalEntity, date: date, by: by}, items, payload)
+	id, err := recordClearing(ctx, tx, actor, clearingDoc{le: legalEntity, date: date, by: by}, items, make([]int, len(items)), payload)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -82,17 +82,23 @@ func (p Postings) Clear(ctx context.Context, legalEntity uuid.UUID, date time.Ti
 }
 
 // clearingPeriod requires the clearing entry to be one of the legal
-// entity's and the clearing date to fall in an open period of the legal
-// entity and the entry's ledger, and holds the period's status row FOR
+// entity's, the first entry of its posting group (the one a clearing is
+// shown by; its copies are cleared with it, clearCopies) and in the
+// leading ledger, where the open items are (ADR-0045), and the clearing
+// date to fall in an open period of the legal entity in the entry's ledger
+// and in each ledger of its copies, and holds each period's status row FOR
 // SHARE until the transaction ends, as postingPeriod does for a posting: a
 // close or lock waits for the clearing. A migrated clearing posts no entry,
 // so nothing else checks its entry or date; ledger.clearing's trigger
-// (000049) is the backstop. The lock comes after the entry buckets
+// (000049) is the backstop. The locks come after the entry buckets
 // loadItems takes, the order postingPeriod keeps.
 func clearingPeriod(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, by ItemRef, date time.Time) error {
-	var entity, book uuid.UUID
-	err := tx.QueryRow(ctx, `SELECT legal_entity_id, ledger_id FROM ledger.journal_entry WHERE fiscal_year = $1 AND id = $2`,
-		by.FiscalYear, by.EntryID).Scan(&entity, &book)
+	var entity uuid.UUID
+	var group *uuid.UUID
+	var leading bool
+	err := tx.QueryRow(ctx, `SELECT e.legal_entity_id, e.posting_group_id, g.is_leading FROM ledger.journal_entry e
+		JOIN ledger.ledger g ON g.tenant_id = e.tenant_id AND g.id = e.ledger_id WHERE e.fiscal_year = $1 AND e.id = $2`,
+		by.FiscalYear, by.EntryID).Scan(&entity, &group, &leading)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return problem.Unprocessable("ledger.invalid_clearing_entry", fmt.Sprintf("Entry %d/%s does not exist.", by.FiscalYear, by.EntryID))
@@ -100,22 +106,57 @@ func clearingPeriod(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, by It
 		return fmt.Errorf("ledger: clearing entry %s: %w", by.EntryID, err)
 	case entity != legalEntity:
 		return problem.Unprocessable("ledger.invalid_clearing_entry", "Entry "+by.EntryID.String()+" belongs to another legal entity.")
+	case group != nil && *group != by.EntryID:
+		return problem.Unprocessable("ledger.invalid_clearing_entry", "Entry "+by.EntryID.String()+" is a copy in another ledger; clear by entry "+
+			group.String()+", which clears its copies too.")
+	case !leading:
+		return problem.Unprocessable("ledger.invalid_clearing_entry", "Entry "+by.EntryID.String()+" is not in the leading ledger, "+
+			"whose entries clear open items; clear by an entry posted to the leading ledger.")
 	}
-	var year, number int16
-	var status string
+	return clearingPeriods(ctx, tx, entity, by, date)
+}
+
+// clearingPeriods checks the clearing date's period open in the ledger of
+// the clearing entry by and of each of its copies, the entry's first.
+func clearingPeriods(ctx context.Context, tx pgx.Tx, entity uuid.UUID, by ItemRef, date time.Time) error {
 	day := date.Format(time.DateOnly)
-	err = tx.QueryRow(ctx, `SELECT ps.fiscal_year, ps.period, ps.status FROM ledger.period_status ps
-		JOIN ledger.fiscal_period fp ON fp.tenant_id = ps.tenant_id AND fp.calendar_id = ps.calendar_id
-			AND fp.fiscal_year = ps.fiscal_year AND fp.period = ps.period
-		WHERE ps.legal_entity_id = $1 AND ps.ledger_id = $2 AND NOT fp.is_special AND $3 BETWEEN fp.start_date AND fp.end_date
-		FOR SHARE OF ps`, entity, book, date).Scan(&year, &number, &status)
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-		return noFiscalPeriod("clearing_date", "No fiscal period of the legal entity and the clearing entry's ledger covers "+day+".")
-	case err != nil:
-		return fmt.Errorf("ledger: clearing period of %s on %s: %w", legalEntity, day, err)
+	// FOR SHARE in a lateral subquery: it cannot lock the nullable side of an outer join.
+	rows, _ := tx.Query(ctx, `SELECT g.code, g.is_leading, s.fiscal_year, s.period, s.status FROM ledger.journal_entry c
+		JOIN ledger.ledger g ON g.id = c.ledger_id
+		LEFT JOIN LATERAL (SELECT ps.fiscal_year, ps.period, ps.status FROM ledger.period_status ps
+			JOIN ledger.fiscal_period fp ON fp.tenant_id = ps.tenant_id AND fp.calendar_id = ps.calendar_id
+				AND fp.fiscal_year = ps.fiscal_year AND fp.period = ps.period
+			WHERE ps.legal_entity_id = $1 AND ps.ledger_id = c.ledger_id AND NOT fp.is_special AND $2 BETWEEN fp.start_date AND fp.end_date
+			FOR SHARE OF ps) s ON true
+		WHERE c.fiscal_year = $3 AND (c.id = $4 OR c.posting_group_id = $4)
+		ORDER BY c.id <> $4, g.code`, entity, date, by.FiscalYear, by.EntryID)
+	type period struct {
+		code         string
+		leading      bool
+		year, number *int16
+		status       *string
 	}
-	return mustBeOpen(year, number, status, "clearings dated "+day)
+	var periods []period
+	var p period
+	if _, err := pgx.ForEachRow(rows, []any{&p.code, &p.leading, &p.year, &p.number, &p.status}, func() error {
+		periods = append(periods, p)
+		return nil
+	}); err != nil {
+		return fmt.Errorf("ledger: clearing period of %s on %s: %w", entity, day, err)
+	}
+	for _, p := range periods {
+		if p.status == nil {
+			return noFiscalPeriod("clearing_date", "No fiscal period of the legal entity in the clearing entry's ledger "+p.code+" covers "+day+".")
+		}
+		what := "clearings dated " + day
+		if !p.leading {
+			what += " in ledger " + p.code
+		}
+		if err := mustBeOpen(*p.year, *p.number, *p.status, what); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // migratedItems checks the items a migrated clearing settles (open items of

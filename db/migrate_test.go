@@ -3,6 +3,7 @@ package db
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -286,4 +287,129 @@ func TestMigrateReturnsWhenTheUnlockGetsNoAnswer(t *testing.T) {
 	if !conn.IsClosed() {
 		t.Error("got the connection open after the unlock gave up, want it closed so its session's lock ends")
 	}
+}
+
+// partitioned creates a table partitioned in two, t_a and t_b, with one row
+// in each.
+func partitioned(t *testing.T, conn *pgx.Conn) {
+	t.Helper()
+	mustExec(t, conn, `CREATE TABLE t (k int, v int) PARTITION BY RANGE (k);
+		CREATE TABLE t_a PARTITION OF t FOR VALUES FROM (0) TO (10);
+		CREATE TABLE t_b PARTITION OF t FOR VALUES FROM (10) TO (20);
+		INSERT INTO t VALUES (1, 1), (11, 1)`)
+}
+
+// indexValid reports whether the index exists and is valid.
+func indexValid(t *testing.T, conn *pgx.Conn, name string) bool {
+	t.Helper()
+	var valid bool
+	err := conn.QueryRow(context.Background(), `SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass($1)`, name).Scan(&valid)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("read index %s: %v", name, err)
+	}
+	return valid
+}
+
+// TestMigratePartitionedIndex: a PartitionedIndex migration builds the
+// index per partition and attaches it, so the parent's is valid and
+// enforced; a build that failed is picked up by the next run.
+func TestMigratePartitionedIndex(t *testing.T) {
+	conn := emptyDatabase(t)
+	ctx := context.Background()
+	partitioned(t, conn)
+	mustExec(t, conn, "INSERT INTO t VALUES (12, 2), (12, 2)") // t_b cannot take the unique index yet
+	m := Migration{Name: "000001_t_v", Up: PartitionedIndex + "\n-- Why the index.\nCREATE INDEX t_v ON public.t (v, k) WHERE v > 0;\n"}
+	unique := Migration{Name: "000002_t_only_v", Up: PartitionedIndex + "\nCREATE UNIQUE INDEX t_only_v ON public.t (v, k)"}
+	if _, err := migrate(ctx, conn, []Migration{m, unique}); err == nil || !strings.Contains(err.Error(), "000002_t_only_v") {
+		t.Fatalf("duplicate in t_b: got %v, want 000002_t_only_v to fail", err)
+	}
+	if v, _ := CurrentVersion(ctx, conn); v != 1 {
+		t.Fatalf("version after the failed build: got %d, want 1", v)
+	}
+	for name, want := range map[string]bool{"t_v": true, "t_only_v_a": true, "t_only_v_b": false, "t_only_v": false} {
+		if got := indexValid(t, conn, name); got != want {
+			t.Errorf("%s valid: got %v, want %v", name, got, want)
+		}
+	}
+	mustExec(t, conn, "DELETE FROM t WHERE k = 12; INSERT INTO t VALUES (12, 2)")
+	if _, err := migrate(ctx, conn, []Migration{m, unique}); err != nil {
+		t.Fatalf("run again: %v", err)
+	}
+	if !indexValid(t, conn, "t_only_v") {
+		t.Error("t_only_v after the second run: got invalid, want valid")
+	}
+	if _, err := conn.Exec(ctx, "INSERT INTO t VALUES (12, 2)"); err == nil || !strings.Contains(err.Error(), "t_only_v_b") {
+		t.Errorf("duplicate after the build: got %v, want it refused by t_only_v_b", err)
+	}
+	mustExec(t, conn, "CREATE TABLE t_c PARTITION OF t FOR VALUES FROM (20) TO (30); INSERT INTO t VALUES (21, 2)")
+	if _, err := conn.Exec(ctx, "INSERT INTO t VALUES (21, 2)"); err == nil {
+		t.Error("duplicate in a later partition: got it accepted, want it refused by the inherited index")
+	}
+}
+
+func TestMigratePartitionedIndexRefusals(t *testing.T) {
+	conn := emptyDatabase(t)
+	ctx := context.Background()
+	partitioned(t, conn)
+	mustExec(t, conn, "CREATE TABLE z_a (id int)")
+	indexLockTimeout = "100ms"
+	t.Cleanup(func() { indexLockTimeout = "10s" })
+	for name, c := range map[string]struct{ up, want string }{
+		"two statements": {"CREATE INDEX a ON public.t (k); CREATE INDEX b ON public.t (v)", "want one CREATE"},
+		"unqualified":    {"CREATE INDEX a ON t (k)", "want one CREATE"},
+		"no table":       {"CREATE INDEX a ON public.missing (k)", "missing"},
+		"not an index":   {"CREATE INDEX t_b ON public.t (k)", "t_b"},
+		"name taken":     {"CREATE INDEX z ON public.t (k)", "z_a"}, // a table where the partition's index goes
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := migrate(ctx, conn, []Migration{{Name: "000001_x", Up: PartitionedIndex + "\n" + c.up}}); err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("got %v, want an error with %q", err, c.want)
+			}
+		})
+	}
+	t.Run("lock timeout", func(t *testing.T) {
+		other, err := pgx.Connect(ctx, conn.Config().ConnString())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = other.Close(ctx) }() // ends the transaction holding the lock
+		mustExec(t, other, "BEGIN; INSERT INTO t VALUES (2, 2)")
+		_, err = migrate(ctx, conn, []Migration{{Name: "000001_x", Up: PartitionedIndex + "\nCREATE INDEX x ON public.t (k)"}})
+		if err == nil || !strings.Contains(err.Error(), "lock timeout") {
+			t.Errorf("got %v, want the lock timeout", err)
+		}
+	})
+	t.Run("partitions not read", func(t *testing.T) {
+		cfg, err := pgx.ParseConfig(conn.Config().ConnString())
+		if err != nil {
+			t.Fatalf("parse config: %v", err)
+		}
+		dial := cfg.DialFunc
+		cfg.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			c, err := dial(ctx, network, addr)
+			return brokenOn{c, "pg_inherits"}, err
+		}
+		broken, err := pgx.ConnectConfig(ctx, cfg)
+		if err != nil {
+			t.Fatalf("connect: %v", err)
+		}
+		defer func() { _ = broken.Close(ctx) }() // closed by the failed write already
+		if _, err := migrate(ctx, broken, []Migration{{Name: "000001_x", Up: PartitionedIndex + "\nCREATE INDEX y ON public.t (k)"}}); err == nil ||
+			!strings.Contains(err.Error(), "partitions of public.t") {
+			t.Errorf("got %v, want the partitions' read to fail", err)
+		}
+	})
+}
+
+// brokenOn is a connection whose writes fail once they carry marker.
+type brokenOn struct {
+	net.Conn
+	marker string
+}
+
+func (c brokenOn) Write(b []byte) (int, error) {
+	if bytes.Contains(b, []byte(c.marker)) {
+		return 0, net.ErrClosed
+	}
+	return c.Conn.Write(b)
 }

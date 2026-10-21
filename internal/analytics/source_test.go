@@ -45,6 +45,8 @@ func validPages() map[string][]string {
 		"/v1/business-partners": {`{"items": [{"id": "p1", "number": "BP1", "name": "Acme"}], "next_page_token": "1"}`, items(map[string]any{"id": "p2", "number": "BP2", "name": "Beta"})},
 		"/v1/accounts": {items(map[string]any{"id": "a1", "number": "211000", "name": "AP", "account_type": "liability", "reconciliation_kind": "supplier"},
 			map[string]any{"id": "a2", "number": "520000", "name": "Office", "account_type": "expense", "reconciliation_kind": "none"})},
+		"/v1/ledgers": {items(map[string]any{"id": "0l", "is_leading": true, "legal_entity_ids": []any{"le"}},
+			map[string]any{"id": "2l", "is_leading": false, "legal_entity_ids": []any{}})},
 		"/v1/open-items": {items(map[string]any{"journal_entry_id": "j1", "line_no": 2})},
 		"/v1/journal-entries": {items(map[string]any{"id": "j1", "document_type": "KR", "posting_date": "2026-03-02", "lines": []any{
 			map[string]any{"line_no": 1, "account_id": "a2", "amount_lc": map[string]any{"amount": "10.00", "currency": "USD"}},
@@ -110,6 +112,39 @@ func TestSourceReadsEveryPage(t *testing.T) {
 	}
 }
 
+// TestSourceReadsParallelLedgers: the journal list reads one ledger, the
+// leading one by default, so a legal entity keeping a parallel ledger has
+// it read too, by its id (ADR-0045).
+func TestSourceReadsParallelLedgers(t *testing.T) {
+	m, _ := DefaultModel()
+	pages := validPages()
+	pages["/v1/ledgers"] = []string{items(map[string]any{"id": "0l", "is_leading": true, "legal_entity_ids": []any{"le"}},
+		map[string]any{"id": "2l", "is_leading": false, "legal_entity_ids": []any{"le"}})}
+	var asked []string
+	api := fakeAPI(t, pages)
+	api.HTTP = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/v1/journal-entries" {
+			asked = append(asked, r.URL.Query().Get("ledger_id"))
+		}
+		return http.DefaultTransport.RoundTrip(r)
+	})}
+	f, err := Source{API: api}.Facts(context.Background(), m, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(asked, ","); got != ",2l" {
+		t.Errorf("journal lists: got ledgers %q, want the default and 2l", got)
+	}
+	if got := len(f.Tables["gl_lines"]); got != 4 {
+		t.Errorf("gl lines: got %d, want both ledgers' 2", got)
+	}
+}
+
+// roundTrip is an http.RoundTripper of a function.
+type roundTrip func(*http.Request) (*http.Response, error)
+
+func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
 // An amount whose digits disagree with an earlier one in its currency is
 // refused: rendering with either exponent could be wrong.
 func TestSourceRefusesInconsistentDigits(t *testing.T) {
@@ -145,7 +180,7 @@ func TestSourceReadsSixDecimalQuantities(t *testing.T) {
 
 func TestSourceErrors(t *testing.T) {
 	m, _ := DefaultModel()
-	for _, path := range []string{"/v1/legal-entities", "/v1/business-partners", "/v1/accounts", "/v1/open-items", "/v1/journal-entries",
+	for _, path := range []string{"/v1/legal-entities", "/v1/business-partners", "/v1/ledgers", "/v1/accounts", "/v1/open-items", "/v1/journal-entries",
 		"/v1/purchase-orders", "/v1/supplier-invoices"} {
 		t.Run("without "+path, func(t *testing.T) {
 			pages := validPages()

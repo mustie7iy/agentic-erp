@@ -3589,6 +3589,90 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/ledgers:
+    get:
+      operationId: listLedgers
+      tags:
+        - ledger
+      summary: List ledgers
+      description: "The leading ledger 0L and the parallel ledgers kept under other accounting principles, with the legal entities that keep each (ADR-0045). Ledgers come from the configuration (`ledgers`, `companies[].ledgers`) and change only through its approval loop. Sortable by: `code`."
+      x-permission: ledger.account.read
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: false
+          description: Only the ledgers this legal entity keeps.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of ledger results.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LedgerPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/ledger-groups:
+    get:
+      operationId: listLedgerGroups
+      tags:
+        - ledger
+      summary: List ledger groups
+      description: "Ledger groups name the ledgers a posting goes to together; the representative ledger decides the posting period (ADR-0045). Groups come from the configuration (`ledger_groups`) and change only through its approval loop. Sortable by: `code`."
+      x-permission: ledger.account.read
+      parameters:
+        - name: ledger_id
+          in: query
+          required: false
+          description: Only the groups with this ledger.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of ledger group results.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LedgerGroupPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/cost-centers:
     get:
       operationId: listCostCenters
@@ -4995,7 +5079,7 @@ paths:
       tags:
         - ledger
       summary: List journal entries
-      description: "Posted journal entries. Sortable by: `posting_date`, `document_number`."
+      description: "Posted journal entries of one ledger, the leading ledger unless `ledger_id` names another: a posting's copies in the parallel ledgers (ADR-0045) show only when their ledger is asked for. Sortable by: `posting_date`, `document_number`."
       x-permission: ledger.entry.read
       parameters:
         - $ref: "#/components/parameters/LegalEntityId"
@@ -5022,6 +5106,13 @@ paths:
           in: query
           required: false
           description: Only entries for this source document.
+          schema:
+            type: string
+            format: uuid
+        - name: ledger_id
+          in: query
+          required: false
+          description: "Only entries of this ledger (`GET /v1/ledgers`); defaults to the leading ledger."
           schema:
             type: string
             format: uuid
@@ -5056,7 +5147,7 @@ paths:
       tags:
         - ledger
       summary: Post a journal entry
-      description: "Posts a manual journal entry at once: the request is validated (balance in every currency, open period, postable accounts, partner on reconciliation lines) and either fully posted or rejected. Journal entries are insert-only; an entry that should wait, for a person to post it or for approval, is parked (`parked-journal-entries`). An entry whose debits, converted exactly into the legal entity's currency at the average rate of its posting date, exceed the company's `manual_entry_approval_limit` is 409 `ledger.approval_required` (after the period is found open: a closed one is 409 `ledger.period_not_open` first): park it and post it with `:post`, which asks someone else's approval (T35). A line on the legal entity's GR/IR account (account determination `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. Human-only: agents propose entries by parking them."
+      description: "Posts a manual journal entry at once: the request is validated (balance in every currency, open period, postable accounts, partner on reconciliation lines) and either fully posted or rejected. Journal entries are insert-only; an entry that should wait, for a person to post it or for approval, is parked (`parked-journal-entries`). An entry whose debits, converted exactly into the legal entity's currency at the average rate of its posting date, exceed the company's `manual_entry_approval_limit` is 409 `ledger.approval_required` (after the period is found open: a closed one is 409 `ledger.period_not_open` first): park it and post it with `:post`, which asks someone else's approval (T35). A line on the legal entity's GR/IR account (account determination `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. It posts to every ledger its company keeps as linked entries of one posting group sharing the document number (`posting_group_id`), each period checked open in its ledger, and returns the leading ledger's; `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to those ledgers only (ADR-0045). Human-only: agents propose entries by parking them."
       x-permission: ledger.entry.post
       x-agent: false
       parameters:
@@ -5217,7 +5308,7 @@ paths:
       tags:
         - ledger
       summary: Reverse a journal entry
-      description: "Posts a reversal entry with every amount negated and links both entries. Open-item lines of the original are cleared against the reversal's lines in the same transaction (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal entry. Human-only."
+      description: "Reverses every entry of the posting group (one reversal entry per ledger, the first returned); a copy in a parallel ledger is reversed only through its group's first entry (409 `ledger.entry_is_copy`). Posts a reversal entry with every amount negated and links both entries. Open-item lines of the original are cleared against the reversal's lines in the same transaction (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal entry. Human-only."
       x-permission: ledger.entry.post
       x-agent: false
       parameters:
@@ -5745,7 +5836,7 @@ paths:
       tags:
         - ledger
       summary: Post a foreign-currency revaluation run
-      description: "Values what `previewRevaluation` values and, in one transaction, posts the differences (ADR-0042, T48c): a valuation entry (document type SA, in local currency, source the run) dated the key date and its reset, a separate entry of the negated lines dated the next day, the first of the next period, so the items stay open at their booked amounts. Each item's local and group differences go to the account itself for a flagged account and to its adjustment account for a reconciliation account, against the unrealised gain or loss account by the item's direction. Both periods must be open (409 `ledger.period_not_open`). A run whose items have no difference is recorded without entries. The run and its items are recorded, audited and published (`RevaluationRunPosted`, besides each entry's `JournalEntryPosted`). One run per legal entity, ledger and key date is posted: a second is 409 `ledger.revaluation_exists`, whose `detail` names the posted run and whose `Location` header links it; cancelling that run (`cancelRevaluationRun`) frees the key date. Concurrent clearings and reversals of the tenant wait for the run. Human-only."
+      description: "Values what `previewRevaluation` values and, in one transaction, posts the differences (ADR-0042, T48c): a valuation entry (document type SA, in local currency, source the run) dated the key date and its reset, a separate entry of the negated lines dated the next day, the first of the next period, so the items stay open at their booked amounts. Both entries post in the run's ledger alone (T52f, ADR-0045): a run of the leading ledger leaves the parallel ledgers untouched, and each parallel ledger is revalued by a run of its own. Each item's local and group differences go to the account itself for a flagged account and to its adjustment account for a reconciliation account, against the unrealised gain or loss account by the item's direction. Both periods must be open in the run's ledger (409 `ledger.period_not_open`). A run whose items have no difference is recorded without entries. The run and its items are recorded, audited and published (`RevaluationRunPosted`, besides each entry's `JournalEntryPosted`). One run per legal entity, ledger and key date is posted: a second is 409 `ledger.revaluation_exists`, whose `detail` names the posted run and whose `Location` header links it; cancelling that run (`cancelRevaluationRun`) frees the key date. Concurrent clearings and reversals of the tenant wait for the run. Human-only."
       x-permission: ledger.entry.post
       x-agent: false
       parameters:
@@ -5841,7 +5932,7 @@ paths:
       tags:
         - ledger
       summary: Cancel a revaluation run
-      description: "Cancels a posted revaluation run (ADR-0042, T48d): reverses its valuation entry and its reset entry through the ledger's reversal path, each on its own posting date (`JournalEntryReversed` for each), and marks the run `cancelled`, which frees its key date for another run. This is the only way a run's entries are reversed (`journal-entries/{id}:reverse` refuses them with 409 `ledger.entry_owned_elsewhere`). Both entries' periods must be open (409 `ledger.period_not_open`, also when one is closed or locked, T32); a cancelled run is 409 `ledger.revaluation_not_posted`. A run without entries is cancelled without reversals. Audited and published (`RevaluationRunCancelled`). The If-Match is the run's ETag. Human-only."
+      description: "Cancels a posted revaluation run (ADR-0042, T48d): reverses its valuation entry and its reset entry through the ledger's reversal path, each on its own posting date and in the run's ledger alone (`JournalEntryReversed` for each), and marks the run `cancelled`, which frees its key date for another run. This is the only way a run's entries are reversed (`journal-entries/{id}:reverse` refuses them with 409 `ledger.entry_owned_elsewhere`). Both entries' periods must be open (409 `ledger.period_not_open`, also when one is closed or locked, T32); a cancelled run is 409 `ledger.revaluation_not_posted`. A run without entries is cancelled without reversals. Audited and published (`RevaluationRunCancelled`). The If-Match is the run's ETag. Human-only."
       x-permission: ledger.entry.post
       x-agent: false
       parameters:
@@ -5899,7 +5990,7 @@ paths:
       tags:
         - ledger
       summary: Preview a foreign-currency revaluation
-      description: "Values, without posting, what a revaluation run of a legal entity and ledger at a key date would value (ADR-0042, T48): the open items on supplier and customer reconciliation accounts on the key date (posted on or before it and not cleared by a clearing dated on or before it) and, per currency, the balance of each G/L account flagged `revalue_foreign_currency`, in every currency other than local currency. Down payments (special G/L items) and the GR/IR account are not revalued. A flagged account's balance that is zero in its currency but not in local or group currency is valued too, at zero and without a rate (none is looked up or checked for it): that residual is what revaluation corrects. Each item is valued in local and, on its own, in group currency at the legal entity's valuation rate type valid on the key date, each rounded once: `valued_lc` = amount × rate and `valued_gc` = amount × rate_gc (SAP's parallel-currency valuation, not the local difference translated); the differences to the booked amounts are an unrealised gain when positive and a loss when negative, by the local difference's sign, or the group one's when local does not differ. The key date is the last day of a posting period of the ledger (422 `ledger.key_date_not_period_end`); a rate into local or group currency valid from before that period is stale (422 `ledger.rate_stale`) and a missing one is refused (422 `ledger.no_exchange_rate`); an account with items in scope and no active valuation accounts fails the preview (422 `ledger.revaluation_account_missing`, naming the account). Reads only; every agent autonomy level may call it."
+      description: "Values, without posting, what a revaluation run of a legal entity and ledger at a key date would value (ADR-0042, T48; per ledger, T52f): read from that ledger's lines, the open items on supplier and customer reconciliation accounts on the key date (posted on or before it and not cleared by a clearing dated on or before it) and, per currency, the balance of each G/L account flagged `revalue_foreign_currency`, in every currency other than local currency. Down payments (special G/L items) and the GR/IR account are not revalued. A flagged account's balance that is zero in its currency but not in local or group currency is valued too, at zero and without a rate (none is looked up or checked for it): that residual is what revaluation corrects. Each item is valued in local and, on its own, in group currency at the ledger's valuation rate type valid on the key date (the legal entity's, or the ledger's own where `companies[].fx_valuation.ledgers` gives one, T52f), each rounded once: `valued_lc` = amount × rate and `valued_gc` = amount × rate_gc (SAP's parallel-currency valuation, not the local difference translated); the differences to the booked amounts are an unrealised gain when positive and a loss when negative, by the local difference's sign, or the group one's when local does not differ. The key date is the last day of a posting period of the ledger (422 `ledger.key_date_not_period_end`); a rate into local or group currency valid from before that period is stale (422 `ledger.rate_stale`) and a missing one is refused (422 `ledger.no_exchange_rate`); an account with items in scope and no active valuation accounts fails the preview (422 `ledger.revaluation_account_missing`, naming the account). Reads only; every agent autonomy level may call it."
       x-permission: ledger.entry.read
       x-autonomy: read
       parameters:
@@ -6078,6 +6169,173 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BalancePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/ledger-reconciliation:
+    get:
+      operationId: listLedgerReconciliation
+      tags:
+        - ledger
+      summary: Reconcile two ledgers
+      description: "Compares two ledgers a legal entity keeps (ADR-0045): per account and transaction currency, the balances in the ledger and in the compared ledger and their difference in transaction, local and group currency; only accounts that differ are listed. The figures are the balances' (`GET /v1/balances`): exact at the moment of the read, of one period or, without `fiscal_period`, of the year. `trial_balances`, on the first page, checks each of the two ledgers: its debits and credits net to zero. The entries behind a difference are listed by `GET /v1/ledger-reconciliation/entries`. A legal entity the caller cannot act in, or a ledger it does not keep, has no differences and no trial balances. Sortable by: `account_id`."
+      x-permission: ledger.entry.read
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: ledger_id
+          in: query
+          required: false
+          description: "The ledger reconciled; defaults to the leading ledger."
+          schema:
+            type: string
+            format: uuid
+        - name: compare_ledger_id
+          in: query
+          required: true
+          description: The ledger it is compared with (required).
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: Fiscal year (required).
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: fiscal_period
+          in: query
+          required: false
+          description: Only this period.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: account_id
+          in: query
+          required: false
+          description: Only this account.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of ledger differences.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LedgerReconciliationPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/ledger-reconciliation/entries:
+    get:
+      operationId: listLedgerReconciliationEntries
+      tags:
+        - ledger
+      summary: List the entries behind a ledger difference
+      description: "The journal lines on one account, of the ledger and the compared ledger, whose entry has no copy in the other ledger (ADR-0045): the ledger-specific postings, and entries posted before the ledger was assigned, that make up the difference `GET /v1/ledger-reconciliation` shows. The parameters are its own, with `account_id` required. Sortable by: `posting_date`."
+      x-permission: ledger.entry.read
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: ledger_id
+          in: query
+          required: false
+          description: "The ledger reconciled; defaults to the leading ledger."
+          schema:
+            type: string
+            format: uuid
+        - name: compare_ledger_id
+          in: query
+          required: true
+          description: The ledger it is compared with (required).
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: Fiscal year (required).
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: fiscal_period
+          in: query
+          required: false
+          description: Only this period.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: account_id
+          in: query
+          required: true
+          description: Account (required).
+          schema:
+            type: string
+            format: uuid
+        - name: currency
+          in: query
+          required: false
+          description: Only entries in this transaction currency.
+          schema:
+            type: string
+            pattern: "^[A-Z]{3}$"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of ledger-specific journal lines.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LedgerReconciliationEntryPage"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -18508,6 +18766,224 @@ components:
               version: 1
               updated_at: "2026-10-09T14:03:11Z"
               updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
+    Ledger:
+      type: object
+      description: "A ledger of the tenant (SAP FINSC_LEDGER): the leading ledger 0L or a parallel ledger."
+      required:
+        - id
+        - code
+        - name
+        - accounting_principle
+        - is_leading
+        - legal_entity_ids
+        - version
+        - created_at
+        - created_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier (UUIDv7).
+          readOnly: true
+        code:
+          type: string
+          description: "Ledger code: 0L for the leading ledger, two upper-case letters or digits for the others."
+          pattern: "^[0-9A-Z]{2}$"
+          readOnly: true
+        name:
+          type: string
+          description: Name.
+          maxLength: 200
+          readOnly: true
+        accounting_principle:
+          type: string
+          description: "Accounting principle the ledger is kept under (IFRS, US_GAAP, HGB); fixed once activated."
+          pattern: "^[A-Z0-9_]{2,20}$"
+          readOnly: true
+        is_leading:
+          type: boolean
+          description: "Whether this is the leading ledger 0L, which every company keeps and reports default to."
+          readOnly: true
+        legal_entity_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: "The legal entities that keep the ledger, of those the caller may see."
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          description: "Optimistic-lock version; equals the ETag."
+          minimum: 1
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: Creation time.
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: Principal that activated the configuration creating it.
+          readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+          code: "0L"
+          name: Leading ledger
+          accounting_principle: IFRS
+          is_leading: true
+          legal_entity_ids:
+            - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+          version: 1
+          created_at: "2026-10-09T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
+    LedgerPage:
+      type: object
+      description: One page of ledgers.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Ledger"
+          description: The ledgers on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+      examples:
+        - items:
+            - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+              code: "0L"
+              name: Leading ledger
+              accounting_principle: IFRS
+              is_leading: true
+              legal_entity_ids:
+                - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+              version: 1
+              created_at: "2026-10-09T14:03:11Z"
+              created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
+    LedgerGroup:
+      type: object
+      description: "A ledger group (SAP FAGL ledger group): ledgers a posting goes to together, the representative deciding its posting period."
+      required:
+        - id
+        - code
+        - name
+        - representative_ledger_id
+        - ledger_ids
+        - version
+        - created_at
+        - created_by
+        - updated_at
+        - updated_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier (UUIDv7).
+          readOnly: true
+        code:
+          type: string
+          description: "Group code, 1-4 upper-case letters or digits, different from every ledger's."
+          pattern: "^[0-9A-Z]{1,4}$"
+          readOnly: true
+        name:
+          type: string
+          description: Name.
+          maxLength: 200
+          readOnly: true
+        representative_ledger_id:
+          type: string
+          format: uuid
+          description: "The member whose periods decide the group's postings; the leading ledger when it is a member. Fixed once activated."
+          readOnly: true
+        ledger_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: "The group's ledgers; a ledger never leaves a group once activated."
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          description: "Optimistic-lock version; equals the ETag."
+          minimum: 1
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: Creation time.
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: Principal that activated the configuration creating it.
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: Time of the last change.
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          description: Principal that activated the configuration changing it last.
+          readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d90"
+          code: ALL
+          name: Every ledger
+          representative_ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+          ledger_ids:
+            - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+            - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
+          version: 1
+          created_at: "2026-10-09T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
+          updated_at: "2026-10-09T14:03:11Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
+    LedgerGroupPage:
+      type: object
+      description: One page of ledger groups.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/LedgerGroup"
+          description: The ledger groups on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+      examples:
+        - items:
+            - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d90"
+              code: ALL
+              name: Every ledger
+              representative_ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+              ledger_ids:
+                - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+              version: 1
+              created_at: "2026-10-09T14:03:11Z"
+              created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
+              updated_at: "2026-10-09T14:03:11Z"
+              updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d7f"
     JournalLine:
       type: object
       description: One posted line.
@@ -18651,7 +19127,7 @@ components:
           readOnly: true
         document_number:
           type: string
-          description: Document number, unique per legal entity, document type and fiscal year.
+          description: "Document number, unique per legal entity, ledger, document type and fiscal year; the entries of a posting group share it."
           readOnly: true
         document_date:
           type: string
@@ -18718,6 +19194,16 @@ components:
           type: string
           format: uuid
           description: Entry this one reverses.
+          readOnly: true
+        posting_group_id:
+          type: string
+          format: uuid
+          description: "The first entry of the posting group this entry belongs to (the entry itself on the first): a posting is written to every ledger its company keeps, or to the ledger or ledger group it names, as linked entries sharing one document number (ADR-0045). Absent on entries posted before posting groups."
+          readOnly: true
+        ledger_group_id:
+          type: string
+          format: uuid
+          description: The ledger group the posting named, if any.
           readOnly: true
         reversed_by_id:
           type: string
@@ -18834,7 +19320,11 @@ components:
         ledger_id:
           type: string
           format: uuid
-          description: "Ledger; defaults to the leading ledger."
+          description: "The one ledger the entry posts to (a ledger-specific posting), one its company keeps (422 `ledger.ledger_not_kept`); a ledger-specific posting has no line on a supplier or customer reconciliation account (422 `ledger.ledger_specific_reconciliation`). Without `ledger_id` and `ledger_group` the entry posts to every ledger its company keeps, as linked entries sharing one document number; the leading ledger's entry is the one returned."
+        ledger_group:
+          type: string
+          description: "Code of the ledger group the entry posts to (`GET /v1/ledger-groups`): one entry per member its company keeps, the representative's returned (or, the representative not kept, the first member left by code); a group of no ledger the company keeps is 422 `ledger.ledger_not_kept`, and one with a line on a supplier or customer reconciliation account is 422 `ledger.ledger_specific_reconciliation`. Not with `ledger_id` (422 `ledger.ledger_or_group`); an unknown code is 422 `ledger.unknown_ledger_group`."
+          pattern: "^[0-9A-Z]{1,4}$"
         document_type:
           type: string
           description: Document type.
@@ -19030,7 +19520,15 @@ components:
             ledger_id:
               type: string
               format: uuid
-              description: Ledger.
+              description: "The ledger named (`ledger_specific`), the ledger group's representative, or the leading ledger when it posts to every ledger its company keeps."
+              readOnly: true
+            ledger_specific:
+              type: boolean
+              description: It posts to `ledger_id` alone.
+              readOnly: true
+            ledger_group:
+              type: string
+              description: Code of the ledger group it posts to, if any.
               readOnly: true
             document_type:
               type: string
@@ -19586,7 +20084,7 @@ components:
         ledger_id:
           type: string
           format: uuid
-          description: Ledger (default the leading ledger).
+          description: "Ledger valued and posted to (default the leading ledger), one the legal entity keeps (422 `ledger.ledger_not_kept`)."
         key_date:
           type: string
           format: date
@@ -19996,6 +20494,303 @@ components:
                 amount: "1080.00"
                 currency: EUR
               updated_at: "2026-10-09T14:03:11Z"
+    LedgerDifference:
+      type: object
+      description: "One account and transaction currency whose balance differs between two ledgers; amounts are signed, debit positive."
+      required:
+        - account_id
+        - currency
+        - balance
+        - compare_balance
+        - difference
+        - difference_lc
+        - difference_gc
+      properties:
+        account_id:
+          type: string
+          format: uuid
+          description: G/L account.
+          readOnly: true
+        currency:
+          type: string
+          description: Transaction currency.
+          pattern: "^[A-Z]{3}$"
+          readOnly: true
+        balance:
+          $ref: "#/components/schemas/Money"
+          description: Balance in the ledger, in transaction currency.
+          readOnly: true
+        compare_balance:
+          $ref: "#/components/schemas/Money"
+          description: Balance in the compared ledger, in transaction currency.
+          readOnly: true
+        difference:
+          $ref: "#/components/schemas/Money"
+          description: "`balance` less `compare_balance`."
+          readOnly: true
+        difference_lc:
+          $ref: "#/components/schemas/Money"
+          description: The difference in local currency.
+          readOnly: true
+        difference_gc:
+          $ref: "#/components/schemas/Money"
+          description: The difference in group currency.
+          readOnly: true
+      examples:
+        - account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+          currency: EUR
+          balance:
+            amount: "1200.00"
+            currency: EUR
+          compare_balance:
+            amount: "1000.00"
+            currency: EUR
+          difference:
+            amount: "200.00"
+            currency: EUR
+          difference_lc:
+            amount: "200.00"
+            currency: EUR
+          difference_gc:
+            amount: "200.00"
+            currency: EUR
+    LedgerTrialBalance:
+      type: object
+      description: "One ledger's trial balance check: its debits and credits in local and group currency, which net to zero."
+      required:
+        - ledger_id
+        - debit_lc
+        - credit_lc
+        - debit_gc
+        - credit_gc
+        - balanced
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: Ledger.
+          readOnly: true
+        debit_lc:
+          $ref: "#/components/schemas/Money"
+          description: Debit total in local currency.
+          readOnly: true
+        credit_lc:
+          $ref: "#/components/schemas/Money"
+          description: Credit total in local currency (positive).
+          readOnly: true
+        debit_gc:
+          $ref: "#/components/schemas/Money"
+          description: Debit total in group currency.
+          readOnly: true
+        credit_gc:
+          $ref: "#/components/schemas/Money"
+          description: Credit total in group currency (positive).
+          readOnly: true
+        balanced:
+          type: boolean
+          description: "Whether debits equal credits in local and in group currency."
+          readOnly: true
+      examples:
+        - ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+          debit_lc:
+            amount: "5000.00"
+            currency: EUR
+          credit_lc:
+            amount: "5000.00"
+            currency: EUR
+          debit_gc:
+            amount: "5000.00"
+            currency: EUR
+          credit_gc:
+            amount: "5000.00"
+            currency: EUR
+          balanced: true
+    LedgerReconciliationPage:
+      type: object
+      description: "One page of the differences between two ledgers, with each ledger's trial balance check."
+      required:
+        - ledger_id
+        - compare_ledger_id
+        - trial_balances
+        - items
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: The ledger reconciled.
+          readOnly: true
+        compare_ledger_id:
+          type: string
+          format: uuid
+          description: The ledger it is compared with.
+          readOnly: true
+        trial_balances:
+          type: array
+          items:
+            $ref: "#/components/schemas/LedgerTrialBalance"
+          description: "The ledger's trial balance check, then the compared ledger's, on the first page; empty on the next pages and when the legal entity is not visible or does not keep both ledgers."
+          maxItems: 2
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/LedgerDifference"
+          description: The differences on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+          compare_ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
+          trial_balances:
+            - ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+              debit_lc:
+                amount: "5000.00"
+                currency: EUR
+              credit_lc:
+                amount: "5000.00"
+                currency: EUR
+              debit_gc:
+                amount: "5000.00"
+                currency: EUR
+              credit_gc:
+                amount: "5000.00"
+                currency: EUR
+              balanced: true
+          items:
+            - account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+              currency: EUR
+              balance:
+                amount: "1200.00"
+                currency: EUR
+              compare_balance:
+                amount: "1000.00"
+                currency: EUR
+              difference:
+                amount: "200.00"
+                currency: EUR
+              difference_lc:
+                amount: "200.00"
+                currency: EUR
+              difference_gc:
+                amount: "200.00"
+                currency: EUR
+    LedgerReconciliationEntry:
+      type: object
+      description: "A journal line of an entry posted in one of two ledgers and not in the other; amounts are signed, debit positive."
+      required:
+        - ledger_id
+        - journal_entry_id
+        - fiscal_year
+        - line_no
+        - document_number
+        - posting_date
+        - fiscal_period
+        - amount
+        - amount_lc
+        - amount_gc
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: The ledger the entry was posted in.
+          readOnly: true
+        journal_entry_id:
+          type: string
+          format: uuid
+          description: Journal entry.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year of the entry.
+          minimum: 1900
+          maximum: 2999
+          readOnly: true
+        line_no:
+          type: integer
+          format: int32
+          description: Line number.
+          minimum: 1
+          readOnly: true
+        document_number:
+          type: string
+          description: Document number.
+          readOnly: true
+        posting_date:
+          type: string
+          format: date
+          description: Posting date.
+          readOnly: true
+        fiscal_period:
+          type: integer
+          format: int32
+          description: Posting period.
+          minimum: 1
+          maximum: 16
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: Amount in transaction currency.
+          readOnly: true
+        amount_lc:
+          $ref: "#/components/schemas/Money"
+          description: Amount in local currency.
+          readOnly: true
+        amount_gc:
+          $ref: "#/components/schemas/Money"
+          description: Amount in group currency.
+          readOnly: true
+      examples:
+        - ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+          journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d09"
+          fiscal_year: 2026
+          line_no: 1
+          document_number: "1000000042"
+          posting_date: "2026-10-09"
+          fiscal_period: 10
+          amount:
+            amount: "200.00"
+            currency: EUR
+          amount_lc:
+            amount: "200.00"
+            currency: EUR
+          amount_gc:
+            amount: "200.00"
+            currency: EUR
+    LedgerReconciliationEntryPage:
+      type: object
+      description: One page of ledger-specific journal lines.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/LedgerReconciliationEntry"
+          description: The lines on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items:
+            - ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+              journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d09"
+              fiscal_year: 2026
+              line_no: 1
+              document_number: "1000000042"
+              posting_date: "2026-10-09"
+              fiscal_period: 10
+              amount:
+                amount: "200.00"
+                currency: EUR
+              amount_lc:
+                amount: "200.00"
+                currency: EUR
+              amount_gc:
+                amount: "200.00"
+                currency: EUR
     ExchangeRate:
       type: object
       description: "An exchange rate. Insert-only; (rate_type, from_currency, to_currency, valid_from) is unique, and a correction is a new rate."

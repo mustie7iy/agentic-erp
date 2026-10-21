@@ -38,7 +38,7 @@ func (p parity) metricChange(t *testing.T) {
 	p.Tenant.AllCompanies(t, p.Tenant.Agent)
 	agent, human := p.As(p.Tenant.Agent).In(t), p.In(t)
 	m := model(t)
-	doc := fixture.Document(t)
+	doc := parityDoc(t) // as activated: its ledgers are kept
 	doc.Analytics = &m.Analytics
 	for i := range doc.Analytics.Metrics {
 		if doc.Analytics.Metrics[i].Name == "expenses" {

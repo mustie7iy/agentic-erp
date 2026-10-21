@@ -104,6 +104,7 @@ const openItemSelect = `SELECT * FROM (SELECT l.fiscal_year, l.journal_entry_id,
 	LEFT JOIN ledger.open_item_terms t ON t.tenant_id = l.tenant_id AND t.fiscal_year = l.fiscal_year AND t.journal_entry_id = l.journal_entry_id
 		AND t.line_no = l.line_no
 	JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id AND a.reconciliation_kind IN ('supplier', 'customer')
+	JOIN ledger.ledger g ON g.tenant_id = l.tenant_id AND g.id = l.ledger_id AND g.is_leading -- open items are the leading ledger's (ADR-0045)
 	JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
 	JOIN ref.currency ctc ON ctc.code = e.currency_tc
 	JOIN ref.currency clc ON clc.code = e.currency_lc
@@ -132,33 +133,40 @@ type Balance struct {
 	UpdatedAt         time.Time
 }
 
-// balanceSelect adds the lines of entries the projector has not reached yet
+// balanceRows adds the lines of entries the projector has not reached yet
 // to the projected balances, so the figures are exact at the moment of the
 // read; projected rows are unique per key, so only the pending lines are
-// aggregated. $1 legal entity, $2 ledger, $3 fiscal year, $4 period and $5
-// account (both optional).
-const balanceSelect = `SELECT * FROM (SELECT md5(account_id::text || '/' || fiscal_period || '/' || currency_tc)::uuid AS id,
-		account_id, fiscal_period, currency_tc, c.exponent,
-		coalesce(pb.debit_tc, 0) + coalesce(d.debit_tc, 0), coalesce(pb.credit_tc, 0) + coalesce(d.credit_tc, 0),
-		coalesce(pb.debit_lc, 0) + coalesce(d.debit_lc, 0), coalesce(pb.credit_lc, 0) + coalesce(d.credit_lc, 0),
-		coalesce(pb.debit_gc, 0) + coalesce(d.debit_gc, 0), coalesce(pb.credit_gc, 0) + coalesce(d.credit_gc, 0),
-		greatest(pb.updated_at, d.updated_at)
+// aggregated. It gives one row per ledger, account, period and currency of
+// $1 legal entity, $2 ledgers, $3 fiscal year, $4 period and $5 account
+// (both optional). The trial balance reads one ledger, the ledger
+// reconciliation two (T52e).
+const balanceRows = `SELECT ledger_id, account_id, fiscal_period, currency_tc,
+		coalesce(pb.debit_tc, 0) + coalesce(d.debit_tc, 0) AS debit_tc, coalesce(pb.credit_tc, 0) + coalesce(d.credit_tc, 0) AS credit_tc,
+		coalesce(pb.debit_lc, 0) + coalesce(d.debit_lc, 0) AS debit_lc, coalesce(pb.credit_lc, 0) + coalesce(d.credit_lc, 0) AS credit_lc,
+		coalesce(pb.debit_gc, 0) + coalesce(d.debit_gc, 0) AS debit_gc, coalesce(pb.credit_gc, 0) + coalesce(d.credit_gc, 0) AS credit_gc,
+		greatest(pb.updated_at, d.updated_at) AS updated_at
 	FROM (
-		SELECT account_id, fiscal_period, currency_tc, debit_tc, credit_tc, debit_lc, credit_lc, debit_gc, credit_gc, updated_at
+		SELECT ledger_id, account_id, fiscal_period, currency_tc, debit_tc, credit_tc, debit_lc, credit_lc, debit_gc, credit_gc, updated_at
 		FROM ledger.period_balance
-		WHERE legal_entity_id = $1 AND ledger_id = $2 AND fiscal_year = $3 AND ($4::smallint IS NULL OR fiscal_period = $4)
+		WHERE legal_entity_id = $1 AND ledger_id = ANY($2::uuid[]) AND fiscal_year = $3 AND ($4::smallint IS NULL OR fiscal_period = $4)
 			AND ($5::uuid IS NULL OR account_id = $5)
 	) pb FULL JOIN (
-		SELECT l.account_id, l.fiscal_period, e.currency_tc, sum(greatest(l.amount_tc, 0))::bigint AS debit_tc, sum(greatest(-l.amount_tc, 0))::bigint AS credit_tc,
+		SELECT e.ledger_id, l.account_id, l.fiscal_period, e.currency_tc, sum(greatest(l.amount_tc, 0))::bigint AS debit_tc, sum(greatest(-l.amount_tc, 0))::bigint AS credit_tc,
 			sum(greatest(l.amount_lc, 0))::bigint AS debit_lc, sum(greatest(-l.amount_lc, 0))::bigint AS credit_lc,
 			sum(greatest(l.amount_gc, 0))::bigint AS debit_gc, sum(greatest(-l.amount_gc, 0))::bigint AS credit_gc, max(e.posted_at) AS updated_at
 		FROM ledger.balance_projection q
 		JOIN ledger.journal_entry e ON e.tenant_id = q.tenant_id AND e.fiscal_year = q.fiscal_year AND e.id = q.journal_entry_id
 		JOIN ledger.journal_line l ON l.tenant_id = q.tenant_id AND l.fiscal_year = q.fiscal_year AND l.journal_entry_id = q.journal_entry_id
-		WHERE q.projected_at IS NULL AND q.fiscal_year = $3 AND e.legal_entity_id = $1 AND e.ledger_id = $2
+		WHERE q.projected_at IS NULL AND q.fiscal_year = $3 AND e.legal_entity_id = $1 AND e.ledger_id = ANY($2::uuid[])
 			AND ($4::smallint IS NULL OR l.fiscal_period = $4) AND ($5::uuid IS NULL OR l.account_id = $5)
-		GROUP BY 1, 2, 3
-	) d USING (account_id, fiscal_period, currency_tc)
+		GROUP BY 1, 2, 3, 4
+	) d USING (ledger_id, account_id, fiscal_period, currency_tc)`
+
+// balanceSelect is the trial balance of one ledger ($2 holding it alone)
+// over balanceRows.
+const balanceSelect = `SELECT * FROM (SELECT md5(account_id::text || '/' || fiscal_period || '/' || currency_tc)::uuid AS id,
+		account_id, fiscal_period, currency_tc, c.exponent, debit_tc, credit_tc, debit_lc, credit_lc, debit_gc, credit_gc, updated_at
+	FROM (` + balanceRows + `) b
 	JOIN ref.currency c ON c.code = currency_tc) t`
 
 func scanBalance(row pgx.Row) (Balance, error) {

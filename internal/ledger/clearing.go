@@ -49,12 +49,19 @@ type Clearing struct {
 }
 
 // The clearing entry's own lines are cleared with the items but are not
-// items the caller asked to clear, so they are left out.
+// items the caller asked to clear, so they are left out. A clearing by a
+// copy in another ledger is part of the clearing by its posting group's
+// first entry (clearCopies) and is not shown by itself.
 const clearingSelect = `SELECT c.id, c.legal_entity_id, c.clearing_date, c.clearing_entry_year, c.clearing_entry_id, c.created_at, c.created_by,
 		(SELECT json_agg(json_build_object('fiscal_year', i.fiscal_year, 'journal_entry_id', i.journal_entry_id, 'line_no', i.line_no)
 			ORDER BY i.fiscal_year, i.journal_entry_id, i.line_no)
 		 FROM ledger.clearing_item i WHERE i.tenant_id = c.tenant_id AND i.clearing_id = c.id AND i.journal_entry_id <> c.clearing_entry_id)
 	FROM ledger.clearing c`
+
+// shownClearing is the SQL condition that the clearing c is not a copy's
+// (see clearingSelect); every read of clearings appends it.
+const shownClearing = `NOT EXISTS (SELECT FROM ledger.journal_entry ce WHERE ce.tenant_id = c.tenant_id AND ce.fiscal_year = c.clearing_entry_year
+		AND ce.id = c.clearing_entry_id AND ce.posting_group_id <> ce.id)`
 
 func scanClearing(row pgx.Row) (Clearing, error) {
 	var c Clearing
@@ -67,7 +74,7 @@ func getClearing(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Clearing, error)
 	if err != nil {
 		return Clearing{}, err
 	}
-	c, err := scanClearing(tx.QueryRow(ctx, clearingSelect+` WHERE c.id = $1`, id))
+	c, err := scanClearing(tx.QueryRow(ctx, clearingSelect+` WHERE c.id = $1 AND `+shownClearing, id))
 	if err = authz.Visible(err, access, c.LegalEntityID, problem.NotFoundOf("clearing"), "ledger: read clearing %s", id); err != nil {
 		return Clearing{}, err
 	}
@@ -102,7 +109,8 @@ type item struct {
 // to zero per partner in every currency. The clearing entry (document type
 // AB, on the clearing date) offsets each item on its account, so each
 // reconciliation account keeps the balance of its open items; its lines are
-// cleared together with the items.
+// cleared together with the items. It posts to the ledgers every item was
+// posted in (itemLedgers) and clears the items' copies there too.
 func (e *Endpoints) createClearing(ctx context.Context, legalEntity uuid.UUID, date time.Time, refs []ItemRef) (Clearing, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -127,8 +135,12 @@ func (e *Endpoints) createClearing(ctx context.Context, legalEntity uuid.UUID, d
 	if err := e.checkAccounts(ctx, tx, le.ID, lines, false); err != nil {
 		return Clearing{}, err
 	}
+	ledgers, err := itemLedgers(ctx, tx, items)
+	if err != nil {
+		return Clearing{}, err
+	}
 	first := items[0]
-	entry, err := e.post(ctx, tx, p, draft{entity: le, ledgerID: first.ledger, documentType: ClearingDocumentType, documentDate: date, postingDate: date,
+	entry, err := e.post(ctx, tx, p, draft{entity: le, ledgers: ledgers, documentType: ClearingDocumentType, documentDate: date, postingDate: date,
 		currencyTC: first.currency, currencyLC: first.currencyLC, currencyGC: first.currencyGC, rateTCLC: first.rateTCLC,
 		rateLCGC: first.rateLCGC, headerText: &text, sourceContext: "ledger", lines: lines})
 	if err != nil {
@@ -280,7 +292,8 @@ const reversedLine = `EXISTS (SELECT FROM ledger.reversal r WHERE r.tenant_id = 
 					OR (r.reversal_year = l.fiscal_year AND r.reversal_entry_id = l.journal_entry_id)))`
 
 // loadItems reads the journal lines to clear, in the order of refs; lines
-// that do not exist come back with found false, and lines of a reversed
+// that do not exist, or are a parallel ledger's (open items are the
+// leading ledger's, ADR-0045), come back with found false, and lines of a reversed
 // entry or of a reversal with reversed true.
 func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
 	years, entries, nos := columns(refs)
@@ -297,6 +310,7 @@ func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
 			ir.owner_id, coalesce(ir.owner_context, ''), coalesce(ir.owner_reference, ''), l.special_gl
 		FROM unnest($1::smallint[], $2::uuid[], $3::int[]) WITH ORDINALITY AS x(y, je, n, ord)
 		LEFT JOIN ledger.journal_line l ON l.fiscal_year = x.y AND l.journal_entry_id = x.je AND l.line_no = x.n
+			AND EXISTS (SELECT FROM ledger.ledger g WHERE g.tenant_id = l.tenant_id AND g.id = l.ledger_id AND g.is_leading)
 		LEFT JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
 		LEFT JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id
 		LEFT JOIN ledger.clearing_item ci ON ci.tenant_id = l.tenant_id AND ci.fiscal_year = l.fiscal_year

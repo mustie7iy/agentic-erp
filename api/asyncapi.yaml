@@ -738,7 +738,9 @@ components:
       description: |
         Emitted when a journal entry and its lines are inserted (manual
         posting, or posting on behalf of payables, payments, procurement or
-        integration; reversal entries too, with `reversal_of_id` set). The
+        integration; reversal entries too, with `reversal_of_id` set), once
+        per ledger the posting goes to: each entry of a posting group, with
+        its `ledger_id` and `posting_group_id` (ADR-0045). The
         lines are included because the period-balance and analytics
         projectors need them; amounts are signed (debit positive, credit
         negative) and the entry balances to zero in every currency. Subject
@@ -2933,6 +2935,10 @@ components:
         source_document_id: {$ref: '#/components/schemas/NullableUuid'}
         reversal_of_id: {$ref: '#/components/schemas/NullableUuid', description: Set on reversal entries.}
         reversal_of_year: {type: [integer, 'null']}
+        posting_group_id:
+          $ref: '#/components/schemas/NullableUuid'
+          description: "The first entry of the posting's group (the entry itself on the first); a posting is written to each ledger its company keeps, or to the ledgers it names, as entries of one group sharing the document number (ADR-0045). Null on entries posted before."
+        ledger_group_id: {$ref: '#/components/schemas/NullableUuid', description: 'The ledger group the posting named, if any.'}
         lines:
           type: array
           minItems: 2

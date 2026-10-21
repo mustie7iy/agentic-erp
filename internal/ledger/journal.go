@@ -73,12 +73,17 @@ type Entry struct {
 	ReversalOfID     *uuid.UUID
 	ReversalOfYear   *int16
 	ReversedByID     *uuid.UUID
-	PostedAt         time.Time
-	PostedBy         uuid.UUID
-	ExpTC            int
-	ExpLC            int
-	ExpGC            int
-	Lines            []Line
+	// PostingGroupID is the posting group's first entry (the entry itself
+	// on the first); LedgerGroupID the ledger group posted to (ADR-0045).
+	// Both nil on entries posted before T52b.
+	PostingGroupID *uuid.UUID
+	LedgerGroupID  *uuid.UUID
+	PostedAt       time.Time
+	PostedBy       uuid.UUID
+	ExpTC          int
+	ExpLC          int
+	ExpGC          int
+	Lines          []Line
 }
 
 // Line is one journal line.
@@ -106,7 +111,7 @@ const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id,
 		(SELECT g.is_leading FROM ledger.ledger g WHERE g.tenant_id = e.tenant_id AND g.id = e.ledger_id), e.fiscal_year, e.fiscal_period, e.document_type, e.document_number,
 		e.document_date, e.posting_date, e.currency_tc, e.currency_lc, e.currency_gc, e.rate_tc_lc::text, e.rate_lc_gc::text,
 		e.reference, e.header_text, e.source_context, e.source_document_id, e.reversal_of_id, e.reversal_of_year, r.reversal_entry_id,
-		e.posted_at, e.posted_by, ctc.exponent, clc.exponent, cgc.exponent,
+		e.posting_group_id, e.ledger_group_id, e.posted_at, e.posted_by, ctc.exponent, clc.exponent, cgc.exponent,
 		(SELECT json_agg(json_build_object('line_no', l.line_no, 'account_id', l.account_id, 'tc', l.amount_tc, 'lc', l.amount_lc,
 			'gc', l.amount_gc, 'partner_id', l.partner_id, 'tax_code', l.tax_code, 'quantity', trim_scale(l.quantity)::text,
 			'unit', l.uom_code, 'text', l.line_text, 'purchase_order_id', l.purchase_order_id, 'po_item_no', l.po_item_no,
@@ -123,7 +128,7 @@ func scanEntry(row pgx.Row) (Entry, error) {
 	err := errs.Wrapf(row.Scan(&e.ID, &e.LegalEntityID, &e.LedgerID, &e.Leading, &e.FiscalYear, &e.FiscalPeriod, &e.DocumentType, &e.DocumentNumber,
 		&e.DocumentDate, &e.PostingDate, &e.CurrencyTC, &e.CurrencyLC, &e.CurrencyGC, &e.RateTCLC, &e.RateLCGC,
 		&e.Reference, &e.HeaderText, &e.SourceContext, &e.SourceDocumentID, &e.ReversalOfID, &e.ReversalOfYear, &e.ReversedByID,
-		&e.PostedAt, &e.PostedBy, &e.ExpTC, &e.ExpLC, &e.ExpGC, &e.Lines), "scan journal entry")
+		&e.PostingGroupID, &e.LedgerGroupID, &e.PostedAt, &e.PostedBy, &e.ExpTC, &e.ExpLC, &e.ExpGC, &e.Lines), "scan journal entry")
 	return e, err
 }
 
@@ -151,8 +156,11 @@ func GetEntry(ctx context.Context, id uuid.UUID) (Entry, error) {
 
 // draft is an entry to post, with amounts in all three currencies.
 type draft struct {
-	entity           tenancy.Entity
-	ledgerID         uuid.UUID
+	entity tenancy.Entity
+	// ledgers are the ledgers posted to, the representative first; nil:
+	// every ledger the company keeps. ledgerGroup is the group named.
+	ledgers          []uuid.UUID
+	ledgerGroup      *uuid.UUID
 	documentType     string
 	documentDate     time.Time
 	postingDate      time.Time
@@ -166,37 +174,67 @@ type draft struct {
 	sourceContext    string
 	sourceDocumentID *uuid.UUID
 	reversalOf       *Entry
-	lines            []Line
+	// reversedCopies are the copies of reversalOf by ledger, each reversed
+	// by the reversal's copy in that ledger.
+	reversedCopies map[uuid.UUID]uuid.UUID
+	lines          []Line
 }
 
-// postingPeriod finds the open posting period of the posting date and
-// holds its status row FOR SHARE until the transaction ends. A close locks
+// target is a ledger a posting goes to, with the status of its period.
+type target struct {
+	ledger  uuid.UUID
+	code    string
+	leading bool
+	status  *string
+}
+
+// postingPeriod finds the open posting period of the posting date in each
+// ledger posted to: ledgers, the representative first, or every ledger the
+// company keeps, the leading one first, when nil (ADR-0045). It holds each
+// period's status row FOR SHARE until the transaction ends. A close locks
 // the row FOR UPDATE (changePeriod), so a posting waits for a close under
 // way and then reads the committed status, and a close waits for the
 // postings under way: no entry lands in a period whose close committed
 // first. The lock comes after the entry buckets and before the number range
 // (03-data-model, entry locks); a close takes nothing else, so no cycle.
-func postingPeriod(ctx context.Context, tx pgx.Tx, e tenancy.Entity, ledgerID uuid.UUID, date time.Time) (int16, int16, error) {
+func postingPeriod(ctx context.Context, tx pgx.Tx, e tenancy.Entity, ledgers []uuid.UUID, date time.Time) (int16, int16, []target, error) {
 	var year, number int16
-	var status string
 	day := date.Format(time.DateOnly)
 	err := tx.QueryRow(ctx, `SELECT fiscal_year, period FROM ledger.fiscal_period
 		WHERE calendar_id = $1 AND NOT is_special AND $2 BETWEEN start_date AND end_date`,
 		e.FiscalCalendarID, date).Scan(&year, &number)
+	var targets []target
 	if err == nil {
-		// A query of its own: FOR SHARE cannot lock the nullable side of an outer join.
-		err = tx.QueryRow(ctx, `SELECT status FROM ledger.period_status
-			WHERE legal_entity_id = $1 AND ledger_id = $2 AND fiscal_year = $3 AND period = $4 FOR SHARE`,
-			e.ID, ledgerID, year, number).Scan(&status)
+		// FOR SHARE in a lateral subquery: it cannot lock the nullable side of an outer join.
+		rows, _ := tx.Query(ctx, `SELECT l.id, l.code, l.is_leading, s.status FROM ledger.ledger l
+			LEFT JOIN LATERAL (SELECT ps.status FROM ledger.period_status ps
+				WHERE ps.legal_entity_id = $1 AND ps.ledger_id = l.id AND ps.fiscal_year = $2 AND ps.period = $3 FOR SHARE) s ON true
+			WHERE CASE WHEN $4::uuid[] IS NULL THEN ledger.company_keeps($1, l.id) ELSE l.id = ANY($4) END
+			ORDER BY array_position($4, l.id), NOT l.is_leading, l.code`, e.ID, year, number, ledgers)
+		var t target
+		_, err = pgx.ForEachRow(rows, []any{&t.ledger, &t.code, &t.leading, &t.status}, func() error { targets = append(targets, t); return nil })
+	}
+	missing := errors.Is(err, pgx.ErrNoRows) || len(targets) == 0
+	for _, t := range targets {
+		missing = missing || t.status == nil
 	}
 	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-		return 0, 0, noFiscalPeriod("posting_date", "No fiscal period of the legal entity covers "+day+
+	case err != nil && !errors.Is(err, pgx.ErrNoRows):
+		return 0, 0, nil, fmt.Errorf("ledger: posting period of %s on %s: %w", e.ID, day, err)
+	case missing:
+		return 0, 0, nil, noFiscalPeriod("posting_date", "No fiscal period of the legal entity covers "+day+
 			"; a fiscal year is set up by a number range for it in the configuration.")
-	case err != nil:
-		return 0, 0, fmt.Errorf("ledger: posting period of %s on %s: %w", e.ID, day, err)
 	}
-	return year, number, mustBeOpen(year, number, status, "postings dated "+day)
+	for _, t := range targets {
+		what := "postings dated " + day
+		if !t.leading {
+			what += " in ledger " + t.code
+		}
+		if err := mustBeOpen(year, number, *t.status, what); err != nil {
+			return 0, 0, nil, err
+		}
+	}
+	return year, number, targets, nil
 }
 
 // noFiscalPeriod refuses a document dated outside every fiscal period;
@@ -215,45 +253,102 @@ func mustBeOpen(year, number int16, status, what string) error {
 	return problem.Conflict("ledger.period_not_open", fmt.Sprintf("Period %d/%d is %s; %s need it open.", year, number, status, what))
 }
 
-// post inserts a balanced entry with its lines, publishes JournalEntryPosted
-// and queues the entry for the balance projector.
+// post inserts a balanced entry with its lines in each ledger the draft
+// goes to, as linked entries of one posting group under one document
+// number (ADR-0045), publishes JournalEntryPosted for each and queues each
+// for the balance projector. It returns the first entry, the
+// representative ledger's: the leading ledger's when the draft names no
+// ledgers, the one open items and clearings refer to.
 func (e *Endpoints) post(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d draft) (Entry, error) {
-	year, number, err := postingPeriod(ctx, tx, d.entity, d.ledgerID, d.postingDate)
+	entries, err := e.postAll(ctx, tx, p, d)
 	if err != nil {
 		return Entry{}, err
+	}
+	return entries[0], nil
+}
+
+// postAll posts the draft as post does and returns every entry of the
+// posting group, the first first.
+func (e *Endpoints) postAll(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d draft) ([]Entry, error) {
+	year, number, targets, err := postingPeriod(ctx, tx, d.entity, d.ledgers, d.postingDate)
+	if err != nil {
+		return nil, err
 	}
 	docNumber, err := e.Numbers.Next(ctx, d.entity.ID, "journal_"+strings.ToLower(d.documentType), year)
 	if err != nil {
-		return Entry{}, err
+		return nil, err
 	}
-	id := uuid.Must(uuid.NewV7())
+	group := uuid.Must(uuid.NewV7())
+	cols := lineColumnsOf(d.lines)
+	// Every copy carries the same lines: their tax codes are held once for
+	// the posting group (T61a).
+	if err := lockTaxCodes(ctx, tx, d.entity.ID, cols.taxes); err != nil {
+		return nil, err
+	}
+	entries := make([]Entry, len(targets))
+	for i, t := range targets {
+		id := group
+		if i > 0 {
+			id = uuid.Must(uuid.NewV7())
+		}
+		if entries[i], err = insertEntry(ctx, tx, p, d, cols, header{id: id, group: group, ledger: t.ledger, year: year, period: number, number: docNumber}); err != nil {
+			return nil, err
+		}
+	}
+	return entries, nil
+}
+
+// header is what one entry of a posting group is posted with.
+type header struct {
+	id, group, ledger uuid.UUID
+	year, period      int16
+	number            string
+}
+
+// lineColumns are a draft's lines as the columns insertEntry inserts.
+type lineColumns struct {
+	nos                                       []int32
+	items                                     []*int32
+	accounts                                  []uuid.UUID
+	partners, orders                          []*uuid.UUID
+	tcs, lcs, gcs                             []money.Minor
+	taxes, quantities, units, texts, specials []*string
+}
+
+func lineColumnsOf(lines []Line) lineColumns {
+	n := len(lines)
+	c := lineColumns{nos: make([]int32, n), items: make([]*int32, n), accounts: make([]uuid.UUID, n), partners: make([]*uuid.UUID, n),
+		orders: make([]*uuid.UUID, n), tcs: make([]money.Minor, n), lcs: make([]money.Minor, n), gcs: make([]money.Minor, n),
+		taxes: make([]*string, n), quantities: make([]*string, n), units: make([]*string, n), texts: make([]*string, n), specials: make([]*string, n)}
+	for i, l := range lines {
+		c.nos[i], c.accounts[i], c.partners[i] = int32(i+1), l.AccountID, l.PartnerID
+		c.tcs[i], c.lcs[i], c.gcs[i] = l.TC, l.LC, l.GC
+		c.taxes[i], c.quantities[i], c.units[i], c.texts[i] = l.TaxCode, l.Quantity, l.Unit, l.Text
+		c.orders[i], c.items[i], c.specials[i] = l.PurchaseOrderID, l.POItemNo, l.SpecialGL
+	}
+	return c
+}
+
+// insertEntry inserts one entry of a posting group with its lines, reads
+// it back, publishes JournalEntryPosted and queues it for the projector.
+func insertEntry(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d draft, c lineColumns, h header) (Entry, error) {
 	var reversalOf *uuid.UUID
 	var reversalYear *int16
 	if d.reversalOf != nil {
-		reversalOf, reversalYear = &d.reversalOf.ID, &d.reversalOf.FiscalYear
+		of := d.reversalOf.ID
+		if copied, ok := d.reversedCopies[h.ledger]; ok {
+			of = copied
+		}
+		reversalOf, reversalYear = &of, &d.reversalOf.FiscalYear
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.journal_entry (tenant_id, fiscal_year, id, legal_entity_id, ledger_id, fiscal_period,
 			document_type, document_number, document_date, posting_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc,
-			reference, header_text, source_context, source_document_id, reversal_of_id, reversal_of_year, posted_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::numeric, $15::numeric, $16, $17, $18, $19, $20, $21, $22)`,
-		p.TenantID, year, id, d.entity.ID, d.ledgerID, number, d.documentType, docNumber, d.documentDate, d.postingDate,
+			reference, header_text, source_context, source_document_id, reversal_of_id, reversal_of_year, posted_by, posting_group_id, ledger_group_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::numeric, $15::numeric, $16, $17, $18, $19, $20, $21, $22, $23, $24)`,
+		p.TenantID, h.year, h.id, d.entity.ID, h.ledger, h.period, d.documentType, h.number, d.documentDate, d.postingDate,
 		d.currencyTC, d.currencyLC, d.currencyGC, d.rateTCLC, d.rateLCGC, d.reference, d.headerText, d.sourceContext, d.sourceDocumentID,
-		reversalOf, reversalYear, p.ID); err != nil {
-		return Entry{}, fmt.Errorf("ledger: post entry %s: %w", id, err)
-	}
-	n := len(d.lines)
-	nos, accounts, partners := make([]int32, n), make([]uuid.UUID, n), make([]*uuid.UUID, n)
-	tcs, lcs, gcs := make([]money.Minor, n), make([]money.Minor, n), make([]money.Minor, n)
-	taxes, quantities, units, texts := make([]*string, n), make([]*string, n), make([]*string, n), make([]*string, n)
-	orders, items, specials := make([]*uuid.UUID, n), make([]*int32, n), make([]*string, n)
-	for i, l := range d.lines {
-		nos[i], accounts[i], partners[i] = int32(i+1), l.AccountID, l.PartnerID
-		tcs[i], lcs[i], gcs[i] = l.TC, l.LC, l.GC
-		taxes[i], quantities[i], units[i], texts[i] = l.TaxCode, l.Quantity, l.Unit, l.Text
-		orders[i], items[i], specials[i] = l.PurchaseOrderID, l.POItemNo, l.SpecialGL
-	}
-	if err := lockTaxCodes(ctx, tx, d.entity.ID, taxes); err != nil {
-		return Entry{}, err
+		reversalOf, reversalYear, p.ID, h.group, d.ledgerGroup); err != nil {
+		return Entry{}, fmt.Errorf("ledger: post entry %s: %w", h.id, err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id,
 			fiscal_period, posting_date, account_id, amount_tc, amount_lc, amount_gc, partner_id, tax_code, quantity, uom_code, line_text,
@@ -261,24 +356,24 @@ func (e *Endpoints) post(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d d
 		SELECT $1, $2, $3, n, $4, $5, $6, $7, a, tc, lc, gc, pa, tx, q::numeric, u, t, o, i, s
 		FROM unnest($8::int[], $9::uuid[], $10::bigint[], $11::bigint[], $12::bigint[], $13::uuid[], $14::text[], $15::text[], $16::text[], $17::text[],
 			$18::uuid[], $19::int[], $20::text[]) AS x(n, a, tc, lc, gc, pa, tx, q, u, t, o, i, s)`,
-		p.TenantID, year, id, d.entity.ID, d.ledgerID, number, d.postingDate, nos, accounts, tcs, lcs, gcs, partners,
-		taxes, quantities, units, texts, orders, items, specials); err != nil {
-		return Entry{}, fmt.Errorf("ledger: post entry %s: lines: %w", id, err)
+		p.TenantID, h.year, h.id, d.entity.ID, h.ledger, h.period, d.postingDate, c.nos, c.accounts, c.tcs, c.lcs, c.gcs, c.partners,
+		c.taxes, c.quantities, c.units, c.texts, c.orders, c.items, c.specials); err != nil {
+		return Entry{}, fmt.Errorf("ledger: post entry %s: lines: %w", h.id, err)
 	}
 	// Read back without the caller's company filter: the caller was let post
 	// in the legal entity, or an approval it decides authorises the posting
 	// (T35e).
-	posted, err := scanEntry(tx.QueryRow(ctx, entrySelect+` WHERE e.id = $1`, id))
+	posted, err := scanEntry(tx.QueryRow(ctx, entrySelect+` WHERE e.id = $1`, h.id))
 	if err != nil {
-		return Entry{}, fmt.Errorf("ledger: read posted entry %s: %w", id, err)
+		return Entry{}, fmt.Errorf("ledger: read posted entry %s: %w", h.id, err)
 	}
 	event, err := outbox.Add(ctx, postedEvent(posted))
 	if err != nil {
 		return Entry{}, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.balance_projection (tenant_id, event_id, fiscal_year, journal_entry_id) VALUES ($1, $2, $3, $4)`,
-		p.TenantID, event, year, id); err != nil {
-		return Entry{}, fmt.Errorf("ledger: post entry %s: queue projection: %w", id, err)
+		p.TenantID, event, h.year, h.id); err != nil {
+		return Entry{}, fmt.Errorf("ledger: post entry %s: queue projection: %w", h.id, err)
 	}
 	return posted, nil
 }
@@ -307,7 +402,7 @@ func postedEvent(e Entry) outbox.Event {
 			"document_date": e.DocumentDate.Format(time.DateOnly), "posting_date": e.PostingDate.Format(time.DateOnly),
 			"currency_tc": e.CurrencyTC, "currency_lc": e.CurrencyLC, "currency_gc": e.CurrencyGC, "reference": e.Reference,
 			"source_context": e.SourceContext, "source_document_id": e.SourceDocumentID, "reversal_of_id": e.ReversalOfID,
-			"reversal_of_year": e.ReversalOfYear, "lines": lines,
+			"reversal_of_year": e.ReversalOfYear, "posting_group_id": e.PostingGroupID, "ledger_group_id": e.LedgerGroupID, "lines": lines,
 		}}
 }
 
@@ -326,14 +421,17 @@ type NewLine struct {
 // NewEntry is a manual journal entry to post.
 type NewEntry struct {
 	LegalEntityID uuid.UUID
-	LedgerID      *uuid.UUID
-	DocumentType  string
-	DocumentDate  time.Time
-	PostingDate   time.Time
-	Currency      string
-	Reference     *string
-	HeaderText    *string
-	Lines         []NewLine
+	// LedgerID names the one ledger the entry posts to, LedgerGroup (a
+	// code) a ledger group; neither: every ledger the company keeps.
+	LedgerID     *uuid.UUID
+	LedgerGroup  *string
+	DocumentType string
+	DocumentDate time.Time
+	PostingDate  time.Time
+	Currency     string
+	Reference    *string
+	HeaderText   *string
+	Lines        []NewLine
 	// The context and document a posting is made for; manual entries are
 	// the ledger's own (source "ledger", no document).
 	SourceContext    string
@@ -403,9 +501,15 @@ type account struct {
 // entity, and partners exactly on reconciliation accounts. withPartners
 // asks the partner context whether each partner may be posted to.
 func (e *Endpoints) checkAccounts(ctx context.Context, tx pgx.Tx, le uuid.UUID, lines []Line, withPartners bool) error {
+	_, err := e.checkedAccounts(ctx, tx, le, lines, withPartners)
+	return err
+}
+
+// checkedAccounts is checkAccounts returning the accounts it checked.
+func (e *Endpoints) checkedAccounts(ctx context.Context, tx pgx.Tx, le uuid.UUID, lines []Line, withPartners bool) (map[uuid.UUID]account, error) {
 	accounts, err := lineAccounts(ctx, tx, le, lines)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	type partnerKey struct {
 		partner uuid.UUID
@@ -416,18 +520,18 @@ func (e *Endpoints) checkAccounts(ctx context.Context, tx pgx.Tx, le uuid.UUID, 
 		field := fmt.Sprintf("lines[%d]", i)
 		a, ok := accounts[l.AccountID]
 		if err := requirePostable(i, field, a, ok); err != nil {
-			return err
+			return nil, err
 		}
 		if err := requireSpecialGL(i, field, l, a); err != nil {
-			return err
+			return nil, err
 		}
 		recon := a.kind == "supplier" || a.kind == "customer"
 		switch {
 		case recon && l.PartnerID == nil:
-			return problem.Unprocessable("ledger.partner_required", "Line "+fmt.Sprint(i+1)+" posts to a "+a.kind+" reconciliation account and needs a partner.",
+			return nil, problem.Unprocessable("ledger.partner_required", "Line "+fmt.Sprint(i+1)+" posts to a "+a.kind+" reconciliation account and needs a partner.",
 				problem.FieldError{Field: field + ".partner_id", Code: "required", Message: "the " + a.kind + " of the line"})
 		case !recon && l.PartnerID != nil:
-			return problem.Unprocessable("ledger.partner_not_allowed", "Line "+fmt.Sprint(i+1)+": partners are posted only on reconciliation accounts.",
+			return nil, problem.Unprocessable("ledger.partner_not_allowed", "Line "+fmt.Sprint(i+1)+": partners are posted only on reconciliation accounts.",
 				problem.FieldError{Field: field + ".partner_id", Code: "not_allowed", Message: "only on supplier or customer reconciliation accounts"})
 		case !recon || !withPartners || checked[partnerKey{*l.PartnerID, a.kind}]:
 			continue
@@ -435,14 +539,14 @@ func (e *Endpoints) checkAccounts(ctx context.Context, tx pgx.Tx, le uuid.UUID, 
 		checked[partnerKey{*l.PartnerID, a.kind}] = true
 		why, err := e.Partners.PostingBlock(ctx, *l.PartnerID, le, a.kind)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if why != "" {
-			return problem.Unprocessable("ledger.partner_not_postable", "Line "+fmt.Sprint(i+1)+": "+why+".",
+			return nil, problem.Unprocessable("ledger.partner_not_postable", "Line "+fmt.Sprint(i+1)+": "+why+".",
 				problem.FieldError{Field: field + ".partner_id", Code: "not_postable", Message: why})
 		}
 	}
-	return nil
+	return accounts, nil
 }
 
 // lineAccounts reads the accounts the lines post to, with their settings
@@ -684,7 +788,7 @@ func convertErr(err error) error {
 // when it is posted.
 type prepared struct {
 	le     tenancy.Entity
-	ledger uuid.UUID
+	choice ledgerChoice
 	group  string
 	exps   currency.Exponents
 	expTC  int
@@ -703,7 +807,7 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, in NewEntry) (prepar
 
 // prepareFor checks a manual entry of the legal entity le.
 func (e *Endpoints) prepareFor(ctx context.Context, tx pgx.Tx, le tenancy.Entity, in NewEntry) (prepared, error) {
-	ledger, err := ledgerID(ctx, tx, in.LedgerID)
+	choice, err := chooseLedgers(ctx, tx, le.ID, in)
 	if err != nil {
 		return prepared{}, err
 	}
@@ -724,13 +828,17 @@ func (e *Endpoints) prepareFor(ctx context.Context, tx pgx.Tx, le tenancy.Entity
 	if err != nil {
 		return prepared{}, err
 	}
-	if err := e.checkAccounts(ctx, tx, le.ID, lines, true); err != nil {
+	accounts, err := e.checkedAccounts(ctx, tx, le.ID, lines, true)
+	if err != nil {
+		return prepared{}, err
+	}
+	if err := commonOnReconciliation(choice, lines, accounts); err != nil {
 		return prepared{}, err
 	}
 	if err := checkTaxCodes(ctx, tx, le.ID, in.PostingDate, lines); err != nil {
 		return prepared{}, err
 	}
-	return prepared{le: le, ledger: ledger, group: group, exps: exps, expTC: expTC, lines: lines}, nil
+	return prepared{le: le, choice: choice, group: group, exps: exps, expTC: expTC, lines: lines}, nil
 }
 
 // postJournalEntry validates and posts an entry another context posts
@@ -776,7 +884,7 @@ func (e *Endpoints) postPrepared(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 			return Entry{}, err
 		}
 	}
-	posted, err := e.post(ctx, tx, p, draft{entity: v.le, ledgerID: v.ledger, documentType: in.DocumentType, documentDate: in.DocumentDate,
+	posted, err := e.post(ctx, tx, p, draft{entity: v.le, ledgers: v.choice.ledgers, ledgerGroup: v.choice.group, documentType: in.DocumentType, documentDate: in.DocumentDate,
 		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: v.le.LocalCurrency, currencyGC: v.group, rateTCLC: rateLC.shown,
 		rateLCGC: rateGC.shown, reference: in.Reference, headerText: in.HeaderText, sourceContext: cmp.Or(in.SourceContext, "ledger"),
 		sourceDocumentID: in.SourceDocumentID, lines: v.lines})
@@ -898,8 +1006,13 @@ func reversibleEntry(ctx context.Context, tx pgx.Tx, id uuid.UUID, ifMatch func(
 
 // postReversal posts the reversing entry of orig, on postingDate or the
 // original posting date, with headerText or "Reversal of" the original's
-// number.
+// number, in every ledger of orig's posting group: each copy is reversed
+// by the reversal's copy in its ledger.
 func (e *Endpoints) postReversal(ctx context.Context, tx pgx.Tx, p reqctx.Principal, orig Entry, postingDate *time.Time, headerText *string) (Entry, error) {
+	ledgers, copies, err := groupCopies(ctx, tx, orig)
+	if err != nil {
+		return Entry{}, err
+	}
 	le, err := e.legalEntity(ctx, orig.LegalEntityID, "legal_entity_id")
 	if err != nil {
 		return Entry{}, err
@@ -919,14 +1032,35 @@ func (e *Endpoints) postReversal(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 		text := "Reversal of " + orig.DocumentNumber
 		headerText = &text
 	}
-	rev, err := e.post(ctx, tx, p, draft{entity: le, ledgerID: orig.LedgerID, documentType: orig.DocumentType, documentDate: orig.DocumentDate,
+	revs, err := e.postAll(ctx, tx, p, draft{entity: le, ledgers: ledgers, ledgerGroup: orig.LedgerGroupID, documentType: orig.DocumentType, documentDate: orig.DocumentDate,
 		postingDate: date, currencyTC: orig.CurrencyTC, currencyLC: orig.CurrencyLC, currencyGC: orig.CurrencyGC, rateTCLC: orig.RateTCLC,
 		rateLCGC: orig.RateLCGC, reference: orig.Reference, headerText: headerText, sourceContext: orig.SourceContext,
-		sourceDocumentID: orig.SourceDocumentID, reversalOf: &orig, lines: lines})
+		sourceDocumentID: orig.SourceDocumentID, reversalOf: &orig, reversedCopies: copies, lines: lines})
 	if err != nil {
 		return Entry{}, err
 	}
-	return rev, project(ctx, tx, rev)
+	if err := recordCopyReversals(ctx, tx, p, orig, copies, revs[1:]); err != nil {
+		return Entry{}, err
+	}
+	return revs[0], project(ctx, tx, revs[0])
+}
+
+// recordCopyReversals links each copy of orig to the reversal's copy in
+// its ledger (ledger.reversal), as recordReversal links the first entries:
+// a copy shows its reversal and its lines count as reversed.
+func recordCopyReversals(ctx context.Context, tx pgx.Tx, p reqctx.Principal, orig Entry, copies map[uuid.UUID]uuid.UUID, revs []Entry) error {
+	if len(revs) == 0 {
+		return nil
+	}
+	originals, reversals := make([]uuid.UUID, len(revs)), make([]uuid.UUID, len(revs))
+	for i, r := range revs {
+		originals[i], reversals[i] = copies[r.LedgerID], r.ID
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO ledger.reversal (tenant_id, original_year, original_entry_id, reversal_year, reversal_entry_id)
+		SELECT $1, $2, o, $3, r FROM unnest($4::uuid[], $5::uuid[]) AS x(o, r)`, p.TenantID, orig.FiscalYear, revs[0].FiscalYear, originals, reversals); err != nil {
+		return fmt.Errorf("ledger: reverse the copies of entry %s: %w", orig.ID, err)
+	}
+	return nil
 }
 
 // recordReversal links the reversal to its original, publishes

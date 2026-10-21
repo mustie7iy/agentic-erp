@@ -192,13 +192,13 @@ type Invoker interface {
 	// CancelRevaluationRun invokes cancelRevaluationRun operation.
 	//
 	// Cancels a posted revaluation run (ADR-0042, T48d): reverses its valuation entry and its reset entry
-	// through the ledger's reversal path, each on its own posting date (`JournalEntryReversed` for each),
-	// and marks the run `cancelled`, which frees its key date for another run. This is the only way a
-	// run's entries are reversed (`journal-entries/{id}:reverse` refuses them with 409
-	// `ledger.entry_owned_elsewhere`). Both entries' periods must be open (409 `ledger.period_not_open`,
-	// also when one is closed or locked, T32); a cancelled run is 409 `ledger.revaluation_not_posted`. A
-	// run without entries is cancelled without reversals. Audited and published
-	// (`RevaluationRunCancelled`). The If-Match is the run's ETag. Human-only.
+	// through the ledger's reversal path, each on its own posting date and in the run's ledger alone
+	// (`JournalEntryReversed` for each), and marks the run `cancelled`, which frees its key date for
+	// another run. This is the only way a run's entries are reversed (`journal-entries/{id}:reverse`
+	// refuses them with 409 `ledger.entry_owned_elsewhere`). Both entries' periods must be open (409
+	// `ledger.period_not_open`, also when one is closed or locked, T32); a cancelled run is 409
+	// `ledger.revaluation_not_posted`. A run without entries is cancelled without reversals. Audited and
+	// published (`RevaluationRunCancelled`). The If-Match is the run's ETag. Human-only.
 	//
 	// POST /v1/revaluation-runs/{id}:cancel
 	CancelRevaluationRun(ctx context.Context, request *ReasonInput, params CancelRevaluationRunParams) (CancelRevaluationRunRes, error)
@@ -1112,10 +1112,50 @@ type Invoker interface {
 	ListHouseBanks(ctx context.Context, params ListHouseBanksParams) (ListHouseBanksRes, error)
 	// ListJournalEntries invokes listJournalEntries operation.
 	//
-	// Posted journal entries. Sortable by: `posting_date`, `document_number`.
+	// Posted journal entries of one ledger, the leading ledger unless `ledger_id` names another: a
+	// posting's copies in the parallel ledgers (ADR-0045) show only when their ledger is asked for.
+	// Sortable by: `posting_date`, `document_number`.
 	//
 	// GET /v1/journal-entries
 	ListJournalEntries(ctx context.Context, params ListJournalEntriesParams) (ListJournalEntriesRes, error)
+	// ListLedgerGroups invokes listLedgerGroups operation.
+	//
+	// Ledger groups name the ledgers a posting goes to together; the representative ledger decides the
+	// posting period (ADR-0045). Groups come from the configuration (`ledger_groups`) and change only
+	// through its approval loop. Sortable by: `code`.
+	//
+	// GET /v1/ledger-groups
+	ListLedgerGroups(ctx context.Context, params ListLedgerGroupsParams) (ListLedgerGroupsRes, error)
+	// ListLedgerReconciliation invokes listLedgerReconciliation operation.
+	//
+	// Compares two ledgers a legal entity keeps (ADR-0045): per account and transaction currency, the
+	// balances in the ledger and in the compared ledger and their difference in transaction, local and
+	// group currency; only accounts that differ are listed. The figures are the balances'
+	// (`GET /v1/balances`): exact at the moment of the read, of one period or, without `fiscal_period`, of
+	// the year. `trial_balances`, on the first page, checks each of the two ledgers: its debits and
+	// credits net to zero. The entries behind a difference are listed by
+	// `GET /v1/ledger-reconciliation/entries`. A legal entity the caller cannot act in, or a ledger it
+	// does not keep, has no differences and no trial balances. Sortable by: `account_id`.
+	//
+	// GET /v1/ledger-reconciliation
+	ListLedgerReconciliation(ctx context.Context, params ListLedgerReconciliationParams) (ListLedgerReconciliationRes, error)
+	// ListLedgerReconciliationEntries invokes listLedgerReconciliationEntries operation.
+	//
+	// The journal lines on one account, of the ledger and the compared ledger, whose entry has no copy in
+	// the other ledger (ADR-0045): the ledger-specific postings, and entries posted before the ledger was
+	// assigned, that make up the difference `GET /v1/ledger-reconciliation` shows. The parameters are its
+	// own, with `account_id` required. Sortable by: `posting_date`.
+	//
+	// GET /v1/ledger-reconciliation/entries
+	ListLedgerReconciliationEntries(ctx context.Context, params ListLedgerReconciliationEntriesParams) (ListLedgerReconciliationEntriesRes, error)
+	// ListLedgers invokes listLedgers operation.
+	//
+	// The leading ledger 0L and the parallel ledgers kept under other accounting principles, with the
+	// legal entities that keep each (ADR-0045). Ledgers come from the configuration (`ledgers`,
+	// `companies[].ledgers`) and change only through its approval loop. Sortable by: `code`.
+	//
+	// GET /v1/ledgers
+	ListLedgers(ctx context.Context, params ListLedgersParams) (ListLedgersRes, error)
 	// ListLegalEntities invokes listLegalEntities operation.
 	//
 	// Legal entities the caller has access to. Sortable by: `code`, `name`.
@@ -1487,8 +1527,11 @@ type Invoker interface {
 	// `manual_entry_approval_limit` is 409 `ledger.approval_required` (after the period is found open: a
 	// closed one is 409 `ledger.period_not_open` first): park it and post it with `:post`, which asks
 	// someone else's approval (T35). A line on the legal entity's GR/IR account (account determination
-	// `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. Human-only:
-	// agents propose entries by parking them.
+	// `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. It posts to
+	// every ledger its company keeps as linked entries of one posting group sharing the document number
+	// (`posting_group_id`), each period checked open in its ledger, and returns the leading ledger's;
+	// `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to those ledgers
+	// only (ADR-0045). Human-only: agents propose entries by parking them.
 	//
 	// POST /v1/journal-entries
 	PostJournalEntry(ctx context.Context, request *JournalEntryCreate, params PostJournalEntryParams) (PostJournalEntryRes, error)
@@ -1513,15 +1556,17 @@ type Invoker interface {
 	// Values what `previewRevaluation` values and, in one transaction, posts the differences (ADR-0042,
 	// T48c): a valuation entry (document type SA, in local currency, source the run) dated the key date
 	// and its reset, a separate entry of the negated lines dated the next day, the first of the next
-	// period, so the items stay open at their booked amounts. Each item's local and group differences go
-	// to the account itself for a flagged account and to its adjustment account for a reconciliation
-	// account, against the unrealised gain or loss account by the item's direction. Both periods must be
-	// open (409 `ledger.period_not_open`). A run whose items have no difference is recorded without
-	// entries. The run and its items are recorded, audited and published (`RevaluationRunPosted`, besides
-	// each entry's `JournalEntryPosted`). One run per legal entity, ledger and key date is posted: a
-	// second is 409 `ledger.revaluation_exists`, whose `detail` names the posted run and whose `Location`
-	// header links it; cancelling that run (`cancelRevaluationRun`) frees the key date. Concurrent
-	// clearings and reversals of the tenant wait for the run. Human-only.
+	// period, so the items stay open at their booked amounts. Both entries post in the run's ledger alone
+	// (T52f, ADR-0045): a run of the leading ledger leaves the parallel ledgers untouched, and each
+	// parallel ledger is revalued by a run of its own. Each item's local and group differences go to the
+	// account itself for a flagged account and to its adjustment account for a reconciliation account,
+	// against the unrealised gain or loss account by the item's direction. Both periods must be open in
+	// the run's ledger (409 `ledger.period_not_open`). A run whose items have no difference is recorded
+	// without entries. The run and its items are recorded, audited and published (`RevaluationRunPosted`,
+	// besides each entry's `JournalEntryPosted`). One run per legal entity, ledger and key date is posted:
+	// a second is 409 `ledger.revaluation_exists`, whose `detail` names the posted run and whose
+	// `Location` header links it; cancelling that run (`cancelRevaluationRun`) frees the key date.
+	// Concurrent clearings and reversals of the tenant wait for the run. Human-only.
 	//
 	// POST /v1/revaluation-runs
 	PostRevaluationRun(ctx context.Context, request *RevaluationPreviewRequest, params PostRevaluationRunParams) (PostRevaluationRunRes, error)
@@ -1538,22 +1583,24 @@ type Invoker interface {
 	// PreviewRevaluation invokes previewRevaluation operation.
 	//
 	// Values, without posting, what a revaluation run of a legal entity and ledger at a key date would
-	// value (ADR-0042, T48): the open items on supplier and customer reconciliation accounts on the key
-	// date (posted on or before it and not cleared by a clearing dated on or before it) and, per currency,
-	// the balance of each G/L account flagged `revalue_foreign_currency`, in every currency other than
-	// local currency. Down payments (special G/L items) and the GR/IR account are not revalued. A flagged
-	// account's balance that is zero in its currency but not in local or group currency is valued too, at
-	// zero and without a rate (none is looked up or checked for it): that residual is what revaluation
-	// corrects. Each item is valued in local and, on its own, in group currency at the legal entity's
-	// valuation rate type valid on the key date, each rounded once: `valued_lc` = amount × rate and
-	// `valued_gc` = amount × rate_gc (SAP's parallel-currency valuation, not the local difference
-	// translated); the differences to the booked amounts are an unrealised gain when positive and a loss
-	// when negative, by the local difference's sign, or the group one's when local does not differ. The
-	// key date is the last day of a posting period of the ledger (422 `ledger.key_date_not_period_end`); a
-	// rate into local or group currency valid from before that period is stale (422 `ledger.rate_stale`)
-	// and a missing one is refused (422 `ledger.no_exchange_rate`); an account with items in scope and no
-	// active valuation accounts fails the preview (422 `ledger.revaluation_account_missing`, naming the
-	// account). Reads only; every agent autonomy level may call it.
+	// value (ADR-0042, T48; per ledger, T52f): read from that ledger's lines, the open items on supplier
+	// and customer reconciliation accounts on the key date (posted on or before it and not cleared by a
+	// clearing dated on or before it) and, per currency, the balance of each G/L account flagged
+	// `revalue_foreign_currency`, in every currency other than local currency. Down payments (special G/L
+	// items) and the GR/IR account are not revalued. A flagged account's balance that is zero in its
+	// currency but not in local or group currency is valued too, at zero and without a rate (none is
+	// looked up or checked for it): that residual is what revaluation corrects. Each item is valued in
+	// local and, on its own, in group currency at the ledger's valuation rate type valid on the key date
+	// (the legal entity's, or the ledger's own where `companies[].fx_valuation.ledgers` gives one, T52f),
+	// each rounded once: `valued_lc` = amount × rate and `valued_gc` = amount × rate_gc (SAP's
+	// parallel-currency valuation, not the local difference translated); the differences to the booked
+	// amounts are an unrealised gain when positive and a loss when negative, by the local difference's
+	// sign, or the group one's when local does not differ. The key date is the last day of a posting
+	// period of the ledger (422 `ledger.key_date_not_period_end`); a rate into local or group currency
+	// valid from before that period is stale (422 `ledger.rate_stale`) and a missing one is refused (422
+	// `ledger.no_exchange_rate`); an account with items in scope and no active valuation accounts fails
+	// the preview (422 `ledger.revaluation_account_missing`, naming the account). Reads only; every agent
+	// autonomy level may call it.
 	//
 	// POST /v1/revaluation-runs/preview
 	PreviewRevaluation(ctx context.Context, request *RevaluationPreviewRequest, params PreviewRevaluationParams) (PreviewRevaluationRes, error)
@@ -1782,16 +1829,19 @@ type Invoker interface {
 	ReverseGoodsReceipt(ctx context.Context, request OptGoodsReceiptReverse, params ReverseGoodsReceiptParams) (ReverseGoodsReceiptRes, error)
 	// ReverseJournalEntry invokes reverseJournalEntry operation.
 	//
-	// Posts a reversal entry with every amount negated and links both entries. Open-item lines of the
-	// original are cleared against the reversal's lines in the same transaction (the reversal entry is the
-	// clearing document), so the pair leaves the open items. An entry can be reversed at most once (409).
-	// Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and
-	// payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409
-	// `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a
-	// goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt
-	// is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any
-	// other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet.
-	// Returns the new reversal entry. Human-only.
+	// Reverses every entry of the posting group (one reversal entry per ledger, the first returned); a
+	// copy in a parallel ledger is reversed only through its group's first entry (409
+	// `ledger.entry_is_copy`). Posts a reversal entry with every amount negated and links both entries.
+	// Open-item lines of the original are cleared against the reversal's lines in the same transaction
+	// (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be
+	// reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run
+	// loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's
+	// entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with
+	// `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409
+	// `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with
+	// `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any other context are
+	// 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new
+	// reversal entry. Human-only.
 	//
 	// POST /v1/journal-entries/{id}:reverse
 	ReverseJournalEntry(ctx context.Context, request OptJournalEntryReverse, params ReverseJournalEntryParams) (ReverseJournalEntryRes, error)
@@ -5200,13 +5250,13 @@ func (c *Client) sendCancelRequisition(ctx context.Context, params CancelRequisi
 // CancelRevaluationRun invokes cancelRevaluationRun operation.
 //
 // Cancels a posted revaluation run (ADR-0042, T48d): reverses its valuation entry and its reset entry
-// through the ledger's reversal path, each on its own posting date (`JournalEntryReversed` for each),
-// and marks the run `cancelled`, which frees its key date for another run. This is the only way a
-// run's entries are reversed (`journal-entries/{id}:reverse` refuses them with 409
-// `ledger.entry_owned_elsewhere`). Both entries' periods must be open (409 `ledger.period_not_open`,
-// also when one is closed or locked, T32); a cancelled run is 409 `ledger.revaluation_not_posted`. A
-// run without entries is cancelled without reversals. Audited and published
-// (`RevaluationRunCancelled`). The If-Match is the run's ETag. Human-only.
+// through the ledger's reversal path, each on its own posting date and in the run's ledger alone
+// (`JournalEntryReversed` for each), and marks the run `cancelled`, which frees its key date for
+// another run. This is the only way a run's entries are reversed (`journal-entries/{id}:reverse`
+// refuses them with 409 `ledger.entry_owned_elsewhere`). Both entries' periods must be open (409
+// `ledger.period_not_open`, also when one is closed or locked, T32); a cancelled run is 409
+// `ledger.revaluation_not_posted`. A run without entries is cancelled without reversals. Audited and
+// published (`RevaluationRunCancelled`). The If-Match is the run's ETag. Human-only.
 //
 // POST /v1/revaluation-runs/{id}:cancel
 func (c *Client) CancelRevaluationRun(ctx context.Context, request *ReasonInput, params CancelRevaluationRunParams) (CancelRevaluationRunRes, error) {
@@ -25213,7 +25263,9 @@ func (c *Client) sendListHouseBanks(ctx context.Context, params ListHouseBanksPa
 
 // ListJournalEntries invokes listJournalEntries operation.
 //
-// Posted journal entries. Sortable by: `posting_date`, `document_number`.
+// Posted journal entries of one ledger, the leading ledger unless `ledger_id` names another: a
+// posting's copies in the parallel ledgers (ADR-0045) show only when their ledger is asked for.
+// Sortable by: `posting_date`, `document_number`.
 //
 // GET /v1/journal-entries
 func (c *Client) ListJournalEntries(ctx context.Context, params ListJournalEntriesParams) (ListJournalEntriesRes, error) {
@@ -25384,6 +25436,23 @@ func (c *Client) sendListJournalEntries(ctx context.Context, params ListJournalE
 		}
 	}
 	{
+		// Encode "ledger_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "ledger_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LedgerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
 		// Encode "page_size" parameter.
 		cfg := uri.QueryParameterEncodingConfig{
 			Name:    "page_size",
@@ -25508,6 +25577,960 @@ func (c *Client) sendListJournalEntries(ctx context.Context, params ListJournalE
 
 	stage = "DecodeResponse"
 	result, err := decodeListJournalEntriesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListLedgerGroups invokes listLedgerGroups operation.
+//
+// Ledger groups name the ledgers a posting goes to together; the representative ledger decides the
+// posting period (ADR-0045). Groups come from the configuration (`ledger_groups`) and change only
+// through its approval loop. Sortable by: `code`.
+//
+// GET /v1/ledger-groups
+func (c *Client) ListLedgerGroups(ctx context.Context, params ListLedgerGroupsParams) (ListLedgerGroupsRes, error) {
+	res, err := c.sendListLedgerGroups(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListLedgerGroups(ctx context.Context, params ListLedgerGroupsParams) (res ListLedgerGroupsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listLedgerGroups"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/ledger-groups"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListLedgerGroupsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/ledger-groups"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "ledger_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "ledger_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LedgerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Include.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListLedgerGroupsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListLedgerGroupsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListLedgerReconciliation invokes listLedgerReconciliation operation.
+//
+// Compares two ledgers a legal entity keeps (ADR-0045): per account and transaction currency, the
+// balances in the ledger and in the compared ledger and their difference in transaction, local and
+// group currency; only accounts that differ are listed. The figures are the balances'
+// (`GET /v1/balances`): exact at the moment of the read, of one period or, without `fiscal_period`, of
+// the year. `trial_balances`, on the first page, checks each of the two ledgers: its debits and
+// credits net to zero. The entries behind a difference are listed by
+// `GET /v1/ledger-reconciliation/entries`. A legal entity the caller cannot act in, or a ledger it
+// does not keep, has no differences and no trial balances. Sortable by: `account_id`.
+//
+// GET /v1/ledger-reconciliation
+func (c *Client) ListLedgerReconciliation(ctx context.Context, params ListLedgerReconciliationParams) (ListLedgerReconciliationRes, error) {
+	res, err := c.sendListLedgerReconciliation(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListLedgerReconciliation(ctx context.Context, params ListLedgerReconciliationParams) (res ListLedgerReconciliationRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listLedgerReconciliation"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/ledger-reconciliation"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListLedgerReconciliationOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/ledger-reconciliation"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "ledger_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "ledger_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LedgerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "compare_ledger_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "compare_ledger_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.CompareLedgerID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.Int32ToString(params.FiscalYear))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriod.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "account_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "account_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.AccountID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListLedgerReconciliationOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListLedgerReconciliationResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListLedgerReconciliationEntries invokes listLedgerReconciliationEntries operation.
+//
+// The journal lines on one account, of the ledger and the compared ledger, whose entry has no copy in
+// the other ledger (ADR-0045): the ledger-specific postings, and entries posted before the ledger was
+// assigned, that make up the difference `GET /v1/ledger-reconciliation` shows. The parameters are its
+// own, with `account_id` required. Sortable by: `posting_date`.
+//
+// GET /v1/ledger-reconciliation/entries
+func (c *Client) ListLedgerReconciliationEntries(ctx context.Context, params ListLedgerReconciliationEntriesParams) (ListLedgerReconciliationEntriesRes, error) {
+	res, err := c.sendListLedgerReconciliationEntries(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListLedgerReconciliationEntries(ctx context.Context, params ListLedgerReconciliationEntriesParams) (res ListLedgerReconciliationEntriesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listLedgerReconciliationEntries"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/ledger-reconciliation/entries"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListLedgerReconciliationEntriesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/ledger-reconciliation/entries"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "ledger_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "ledger_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LedgerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "compare_ledger_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "compare_ledger_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.CompareLedgerID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.Int32ToString(params.FiscalYear))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriod.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "account_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "account_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.AccountID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "currency" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "currency",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Currency.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListLedgerReconciliationEntriesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListLedgerReconciliationEntriesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListLedgers invokes listLedgers operation.
+//
+// The leading ledger 0L and the parallel ledgers kept under other accounting principles, with the
+// legal entities that keep each (ADR-0045). Ledgers come from the configuration (`ledgers`,
+// `companies[].ledgers`) and change only through its approval loop. Sortable by: `code`.
+//
+// GET /v1/ledgers
+func (c *Client) ListLedgers(ctx context.Context, params ListLedgersParams) (ListLedgersRes, error) {
+	res, err := c.sendListLedgers(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListLedgers(ctx context.Context, params ListLedgersParams) (res ListLedgersRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listLedgers"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/ledgers"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListLedgersOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/ledgers"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Include.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListLedgersOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListLedgersResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -34124,8 +35147,11 @@ func (c *Client) sendPostGoodsReceipt(ctx context.Context, request *GoodsReceipt
 // `manual_entry_approval_limit` is 409 `ledger.approval_required` (after the period is found open: a
 // closed one is 409 `ledger.period_not_open` first): park it and post it with `:post`, which asks
 // someone else's approval (T35). A line on the legal entity's GR/IR account (account determination
-// `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. Human-only:
-// agents propose entries by parking them.
+// `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. It posts to
+// every ledger its company keeps as linked entries of one posting group sharing the document number
+// (`posting_group_id`), each period checked open in its ledger, and returns the leading ledger's;
+// `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to those ledgers
+// only (ADR-0045). Human-only: agents propose entries by parking them.
 //
 // POST /v1/journal-entries
 func (c *Client) PostJournalEntry(ctx context.Context, request *JournalEntryCreate, params PostJournalEntryParams) (PostJournalEntryRes, error) {
@@ -34425,15 +35451,17 @@ func (c *Client) sendPostParkedJournalEntry(ctx context.Context, params PostPark
 // Values what `previewRevaluation` values and, in one transaction, posts the differences (ADR-0042,
 // T48c): a valuation entry (document type SA, in local currency, source the run) dated the key date
 // and its reset, a separate entry of the negated lines dated the next day, the first of the next
-// period, so the items stay open at their booked amounts. Each item's local and group differences go
-// to the account itself for a flagged account and to its adjustment account for a reconciliation
-// account, against the unrealised gain or loss account by the item's direction. Both periods must be
-// open (409 `ledger.period_not_open`). A run whose items have no difference is recorded without
-// entries. The run and its items are recorded, audited and published (`RevaluationRunPosted`, besides
-// each entry's `JournalEntryPosted`). One run per legal entity, ledger and key date is posted: a
-// second is 409 `ledger.revaluation_exists`, whose `detail` names the posted run and whose `Location`
-// header links it; cancelling that run (`cancelRevaluationRun`) frees the key date. Concurrent
-// clearings and reversals of the tenant wait for the run. Human-only.
+// period, so the items stay open at their booked amounts. Both entries post in the run's ledger alone
+// (T52f, ADR-0045): a run of the leading ledger leaves the parallel ledgers untouched, and each
+// parallel ledger is revalued by a run of its own. Each item's local and group differences go to the
+// account itself for a flagged account and to its adjustment account for a reconciliation account,
+// against the unrealised gain or loss account by the item's direction. Both periods must be open in
+// the run's ledger (409 `ledger.period_not_open`). A run whose items have no difference is recorded
+// without entries. The run and its items are recorded, audited and published (`RevaluationRunPosted`,
+// besides each entry's `JournalEntryPosted`). One run per legal entity, ledger and key date is posted:
+// a second is 409 `ledger.revaluation_exists`, whose `detail` names the posted run and whose
+// `Location` header links it; cancelling that run (`cancelRevaluationRun`) frees the key date.
+// Concurrent clearings and reversals of the tenant wait for the run. Human-only.
 //
 // POST /v1/revaluation-runs
 func (c *Client) PostRevaluationRun(ctx context.Context, request *RevaluationPreviewRequest, params PostRevaluationRunParams) (PostRevaluationRunRes, error) {
@@ -34728,22 +35756,24 @@ func (c *Client) sendPostSupplierInvoice(ctx context.Context, request OptSupplie
 // PreviewRevaluation invokes previewRevaluation operation.
 //
 // Values, without posting, what a revaluation run of a legal entity and ledger at a key date would
-// value (ADR-0042, T48): the open items on supplier and customer reconciliation accounts on the key
-// date (posted on or before it and not cleared by a clearing dated on or before it) and, per currency,
-// the balance of each G/L account flagged `revalue_foreign_currency`, in every currency other than
-// local currency. Down payments (special G/L items) and the GR/IR account are not revalued. A flagged
-// account's balance that is zero in its currency but not in local or group currency is valued too, at
-// zero and without a rate (none is looked up or checked for it): that residual is what revaluation
-// corrects. Each item is valued in local and, on its own, in group currency at the legal entity's
-// valuation rate type valid on the key date, each rounded once: `valued_lc` = amount × rate and
-// `valued_gc` = amount × rate_gc (SAP's parallel-currency valuation, not the local difference
-// translated); the differences to the booked amounts are an unrealised gain when positive and a loss
-// when negative, by the local difference's sign, or the group one's when local does not differ. The
-// key date is the last day of a posting period of the ledger (422 `ledger.key_date_not_period_end`); a
-// rate into local or group currency valid from before that period is stale (422 `ledger.rate_stale`)
-// and a missing one is refused (422 `ledger.no_exchange_rate`); an account with items in scope and no
-// active valuation accounts fails the preview (422 `ledger.revaluation_account_missing`, naming the
-// account). Reads only; every agent autonomy level may call it.
+// value (ADR-0042, T48; per ledger, T52f): read from that ledger's lines, the open items on supplier
+// and customer reconciliation accounts on the key date (posted on or before it and not cleared by a
+// clearing dated on or before it) and, per currency, the balance of each G/L account flagged
+// `revalue_foreign_currency`, in every currency other than local currency. Down payments (special G/L
+// items) and the GR/IR account are not revalued. A flagged account's balance that is zero in its
+// currency but not in local or group currency is valued too, at zero and without a rate (none is
+// looked up or checked for it): that residual is what revaluation corrects. Each item is valued in
+// local and, on its own, in group currency at the ledger's valuation rate type valid on the key date
+// (the legal entity's, or the ledger's own where `companies[].fx_valuation.ledgers` gives one, T52f),
+// each rounded once: `valued_lc` = amount × rate and `valued_gc` = amount × rate_gc (SAP's
+// parallel-currency valuation, not the local difference translated); the differences to the booked
+// amounts are an unrealised gain when positive and a loss when negative, by the local difference's
+// sign, or the group one's when local does not differ. The key date is the last day of a posting
+// period of the ledger (422 `ledger.key_date_not_period_end`); a rate into local or group currency
+// valid from before that period is stale (422 `ledger.rate_stale`) and a missing one is refused (422
+// `ledger.no_exchange_rate`); an account with items in scope and no active valuation accounts fails
+// the preview (422 `ledger.revaluation_account_missing`, naming the account). Reads only; every agent
+// autonomy level may call it.
 //
 // POST /v1/revaluation-runs/preview
 func (c *Client) PreviewRevaluation(ctx context.Context, request *RevaluationPreviewRequest, params PreviewRevaluationParams) (PreviewRevaluationRes, error) {
@@ -38339,16 +39369,19 @@ func (c *Client) sendReverseGoodsReceipt(ctx context.Context, request OptGoodsRe
 
 // ReverseJournalEntry invokes reverseJournalEntry operation.
 //
-// Posts a reversal entry with every amount negated and links both entries. Open-item lines of the
-// original are cleared against the reversal's lines in the same transaction (the reversal entry is the
-// clearing document), so the pair leaves the open items. An entry can be reversed at most once (409).
-// Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and
-// payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409
-// `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a
-// goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt
-// is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any
-// other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet.
-// Returns the new reversal entry. Human-only.
+// Reverses every entry of the posting group (one reversal entry per ledger, the first returned); a
+// copy in a parallel ledger is reversed only through its group's first entry (409
+// `ledger.entry_is_copy`). Posts a reversal entry with every amount negated and links both entries.
+// Open-item lines of the original are cleared against the reversal's lines in the same transaction
+// (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be
+// reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run
+// loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's
+// entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with
+// `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409
+// `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with
+// `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any other context are
+// 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new
+// reversal entry. Human-only.
 //
 // POST /v1/journal-entries/{id}:reverse
 func (c *Client) ReverseJournalEntry(ctx context.Context, request OptJournalEntryReverse, params ReverseJournalEntryParams) (ReverseJournalEntryRes, error) {

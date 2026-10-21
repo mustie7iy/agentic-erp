@@ -203,7 +203,7 @@ func (e *Endpoints) postableEntity(ctx context.Context, id uuid.UUID) (tenancy.E
 func (e *Endpoints) withinLimit(ctx context.Context, tx pgx.Tx, v prepared, in NewEntry) error {
 	// A period that is not open refuses the posting first: an approval could
 	// not post it either. post reads the period again, FOR SHARE as here.
-	if _, _, err := postingPeriod(ctx, tx, v.le, v.ledger, in.PostingDate); err != nil {
+	if _, _, _, err := postingPeriod(ctx, tx, v.le, v.choice.ledgers, in.PostingDate); err != nil {
 		return err
 	}
 	debits, err := debitTotal(v.lines)
