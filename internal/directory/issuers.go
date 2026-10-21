@@ -1,9 +1,11 @@
 package directory
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -189,6 +191,13 @@ func (p *Postgres) SyncIssuers(ctx context.Context, cell string, issuers []Issue
 	taken := 0
 	err := p.inTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
 		names, audiences := make([]string, len(issuers)), make([]string, len(issuers))
+		// In one order across cells (login code, then issuer and audience),
+		// so two rounds sharing codes take their locks alike and never
+		// deadlock.
+		issuers = slices.Clone(issuers)
+		slices.SortFunc(issuers, func(a, b Issuer) int {
+			return cmp.Or(cmp.Compare(loginCodeOf(a), loginCodeOf(b)), cmp.Compare(a.Issuer, b.Issuer), cmp.Compare(a.Audience, b.Audience))
+		})
 		for i, is := range issuers {
 			ok, err := claimIn(ctx, tx, is)
 			if err == nil && ok {
@@ -341,4 +350,12 @@ func (r IssuerRegistry) Resolve(ctx context.Context, issuer string, audiences []
 	}
 	c := claims[0]
 	return authn.Registration{ProviderID: c.ProviderID, TenantID: c.TenantID, Issuer: c.Issuer, Audience: c.Audience}, nil
+}
+
+// loginCodeOf is the claim's web client's login code, "" without one.
+func loginCodeOf(is Issuer) string {
+	if is.Web == nil {
+		return ""
+	}
+	return is.Web.LoginCode
 }

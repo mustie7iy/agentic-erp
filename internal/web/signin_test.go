@@ -281,7 +281,7 @@ func TestSafeReturn(t *testing.T) {
 		"/": "/", "/health?x=1": "/health?x=1", "": "/", "//evil.example.com/x": "/", "https://evil.example.com/": "/",
 		"/\\evil.example.com": "/", "javascript:alert(1)": "/", "health": "/", "/x\r\nSet-Cookie: a=b": "/", "%zz": "/",
 		"/" + strings.Repeat("a", 1024): "/", "/login/evil": "/", "/login": "/", "/callback?code=x": "/", "/logout": "/", "/signed-out": "/",
-		"/loginx": "/loginx",
+		"/loginx": "/loginx", "/./login/x": "/", "/a/../login/x": "/", "/%2e/login/x": "/", "/a/./b": "/", "/health/": "/health/",
 	} {
 		if got := safeReturn(in); got != want {
 			t.Errorf("safeReturn(%q): got %q, want %q", in, got, want)

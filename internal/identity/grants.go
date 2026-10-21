@@ -1,10 +1,10 @@
 package identity
 
 import (
-	"slices"
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"

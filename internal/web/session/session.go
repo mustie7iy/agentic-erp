@@ -159,10 +159,10 @@ func (st *Store) Create(ctx context.Context, s Session) (Session, error) {
 
 const columns = `tenant_id, issuer, subject, login_code, created_at, last_seen_at, expires_at, version, sealed`
 
-func (st *Store) scan(row pgx.Row, id string) (Session, error) {
+func (st *Store) scan(row pgx.Row, id string, more ...any) (Session, error) {
 	s := Session{ID: id}
 	var sealed []byte
-	if err := row.Scan(&s.TenantID, &s.Issuer, &s.Subject, &s.LoginCode, &s.Created, &s.LastSeen, &s.Expires, &s.Version, &sealed); err != nil {
+	if err := row.Scan(append([]any{&s.TenantID, &s.Issuer, &s.Subject, &s.LoginCode, &s.Created, &s.LastSeen, &s.Expires, &s.Version, &sealed}, more...)...); err != nil {
 		return s, err //nolint:wrapcheck // callers wrap
 	}
 	var err error
@@ -234,17 +234,22 @@ func (st *Store) Renew(ctx context.Context, s Session, fresh func(Secrets) bool,
 	giveUp := time.NewTimer(2 * or(st.RenewFor, RenewClaim))
 	defer giveUp.Stop()
 	for {
-		cur, claimed, err := st.claimRenewal(ctx, s.ID)
+		cur, claim, err := st.claimRenewal(ctx, s.ID)
 		switch {
 		case err != nil:
 			return Session{}, err
 		case fresh(cur.Secrets):
-			if claimed {
-				return cur, st.release(ctx, s.ID)
+			if claim != nil {
+				return cur, st.release(ctx, s.ID, *claim)
 			}
 			return cur, nil
-		case claimed:
-			return st.renewClaimed(ctx, cur, renew)
+		case claim != nil:
+			renewed, err := st.renewClaimed(ctx, cur, *claim, renew)
+			if !errors.Is(err, ErrChanged) {
+				return renewed, err
+			}
+			// Another request renewed it after this one's claim lapsed:
+			// its secrets are the session's now.
 		}
 		select {
 		case <-ctx.Done():
@@ -257,16 +262,23 @@ func (st *Store) Renew(ctx context.Context, s Session, fresh func(Secrets) bool,
 }
 
 // claimRenewal reads the session and claims its renewal unless another
-// request holds an unexpired claim; claimed reports which.
-func (st *Store) claimRenewal(ctx context.Context, id string) (Session, bool, error) {
-	now, hash := st.now(), Hash(id)
+// request holds an unexpired claim. claim is this request's claim (its
+// expiry, by the database's one clock, which owns it), nil when another
+// holds one.
+func (st *Store) claimRenewal(ctx context.Context, id string) (Session, *time.Time, error) {
+	hash := Hash(id)
 	var s Session
-	claimed := false
+	var claim *time.Time
 	err := st.inTx(ctx, false, func(ctx context.Context, tx pgx.Tx) error {
+		var until time.Time
 		var err error
-		s, err = st.scan(tx.QueryRow(ctx, `UPDATE web.session SET renewing_until = $2
-			WHERE id_hash = $1 AND (renewing_until IS NULL OR renewing_until <= $3) RETURNING `+columns, hash, now.Add(or(st.RenewFor, RenewClaim)), now), id)
-		if claimed = err == nil; !errors.Is(err, pgx.ErrNoRows) {
+		s, err = st.scan(tx.QueryRow(ctx, `UPDATE web.session SET renewing_until = clock_timestamp() + make_interval(secs => $2)
+			WHERE id_hash = $1 AND (renewing_until IS NULL OR renewing_until <= clock_timestamp()) RETURNING `+columns+`, renewing_until`,
+			hash, or(st.RenewFor, RenewClaim).Seconds()), id, &until)
+		if err == nil {
+			claim = &until
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
 		s, err = st.scan(tx.QueryRow(ctx, `SELECT `+columns+` FROM web.session WHERE id_hash = $1`, hash), id)
@@ -276,41 +288,57 @@ func (st *Store) claimRenewal(ctx context.Context, id string) (Session, bool, er
 		return err
 	})
 	if err != nil {
-		return Session{}, false, fmt.Errorf("session: renew: %w", err)
+		return Session{}, nil, fmt.Errorf("session: renew: %w", err)
 	}
-	return s, claimed, nil
+	return s, claim, nil
 }
 
 // renewClaimed renews a session whose renewal this request claimed, and
-// writes the result back unless the session changed meanwhile.
-func (st *Store) renewClaimed(ctx context.Context, s Session, renew func(context.Context, Secrets) (Secrets, error)) (Session, error) {
+// writes the result back while the claim is still this request's and the
+// session unchanged (ErrChanged otherwise). The provider's answer and its
+// write outlive the request (a client gone does not lose a rotated
+// refresh token); a renewal that failed gives the claim up.
+func (st *Store) renewClaimed(ctx context.Context, s Session, claim time.Time, renew func(context.Context, Secrets) (Secrets, error)) (Session, error) {
+	ctx = context.WithoutCancel(ctx)
 	sec, err := renew(ctx, s.Secrets)
-	if err != nil {
-		if rerr := st.release(context.WithoutCancel(ctx), s.ID); rerr != nil {
+	if err == nil {
+		err = st.writeRenewed(ctx, s, claim, sec)
+	}
+	switch {
+	case errors.Is(err, ErrChanged):
+		return Session{}, err
+	case err != nil:
+		if rerr := st.release(ctx, s.ID, claim); rerr != nil {
 			return Session{}, errors.Join(err, rerr)
 		}
-		return Session{}, fmt.Errorf("session: renew: %w", err)
-	}
-	hash := Hash(s.ID)
-	err = st.inTx(ctx, false, func(ctx context.Context, tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `UPDATE web.session SET sealed = $3, version = version + 1, renewing_until = NULL WHERE id_hash = $1 AND version = $2`,
-			hash, s.Version, st.seal(hash, sec))
-		if err == nil && tag.RowsAffected() == 0 {
-			return ErrChanged
-		}
-		return err //nolint:wrapcheck // wrapped below
-	})
-	if err != nil {
 		return Session{}, fmt.Errorf("session: renew: %w", err)
 	}
 	s.Secrets, s.Version = sec, s.Version+1
 	return s, nil
 }
 
-// release gives a renewal's claim up.
-func (st *Store) release(ctx context.Context, id string) error {
+// writeRenewed stores renewed secrets under the request's claim.
+func (st *Store) writeRenewed(ctx context.Context, s Session, claim time.Time, sec Secrets) error {
+	ctx, cancel := context.WithTimeout(ctx, writeTimeout)
+	defer cancel()
+	hash := Hash(s.ID)
+	return st.inTx(ctx, false, func(ctx context.Context, tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `UPDATE web.session SET sealed = $3, version = version + 1, renewing_until = NULL
+			WHERE id_hash = $1 AND version = $2 AND renewing_until = $4`, hash, s.Version, st.seal(hash, sec), claim)
+		if err == nil && tag.RowsAffected() == 0 {
+			return ErrChanged
+		}
+		return err //nolint:wrapcheck // wrapped by the caller
+	})
+}
+
+// writeTimeout bounds writing a renewal back once the provider answered.
+const writeTimeout = 5 * time.Second
+
+// release gives this request's renewal claim up, and no newer one.
+func (st *Store) release(ctx context.Context, id string, claim time.Time) error {
 	err := st.inTx(ctx, false, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `UPDATE web.session SET renewing_until = NULL WHERE id_hash = $1`, Hash(id))
+		_, err := tx.Exec(ctx, `UPDATE web.session SET renewing_until = NULL WHERE id_hash = $1 AND renewing_until = $2`, Hash(id), claim)
 		return err //nolint:wrapcheck // wrapped below
 	})
 	if err != nil {

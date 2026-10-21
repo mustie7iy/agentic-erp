@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -75,7 +76,7 @@ func cookie(name, value string, maxAge time.Duration, sameSite http.SameSite) *h
 func safeReturn(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil || raw == "" || len(raw) > maxReturn || u.Scheme != "" || u.Host != "" || u.User != nil || !strings.HasPrefix(u.Path, "/") ||
-		strings.HasPrefix(raw, "//") || strings.ContainsAny(raw, "\\\r\n\t") || signInStep(u.Path) {
+		strings.HasPrefix(raw, "//") || strings.ContainsAny(raw, "\\\r\n\t") || !clean(u.Path) || signInStep(u.Path) {
 		return "/"
 	}
 	return u.RequestURI()
@@ -84,6 +85,13 @@ func safeReturn(raw string) string {
 // maxReturn bounds a return path, so the sealed sign-in stays well within
 // a cookie's 4096 bytes.
 const maxReturn = 1024
+
+// clean reports a path without dot segments (url.Parse decodes %2e): the
+// browser resolves them before it navigates, so /./login/x is /login/x.
+func clean(p string) bool {
+	c := path.Clean(p)
+	return c == p || c+"/" == p
+}
 
 // signInStep reports a path of the sign-in itself, never a page to come
 // back to: a return to /login/<code> would send the person on to another
@@ -270,13 +278,17 @@ func (s *Server) answer(w http.ResponseWriter, r *http.Request) (signIn, session
 		s.failed(w, r, http.StatusBadRequest, "provider: "+q.Get("error"), nil)
 	default:
 		client, err := s.clientOf(r.Context(), t.Code, t.Issuer, t.TenantID)
+		issued := false
+		if err == nil {
+			issued, err = s.issuedBy(r.Context(), q, client)
+		}
 		switch {
 		case errors.Is(err, session.ErrUnknownCode):
 			s.failed(w, r, http.StatusBadRequest, "login code gone", err)
 		case err != nil:
 			s.Log.ErrorContext(r.Context(), "web: a sign-in could not complete", "error", err)
 			s.unavailable(w, r)
-		case !s.issuedBy(r.Context(), q, client):
+		case !issued:
 			s.failed(w, r, http.StatusBadRequest, "iss", nil)
 		default:
 			return t, client, true
@@ -288,12 +300,12 @@ func (s *Server) answer(w http.ResponseWriter, r *http.Request) (signIn, session
 // issuedBy checks RFC 9207's iss of an authorization response: where sent
 // it must be the client's issuer, and a provider that says it sends it
 // must have.
-func (s *Server) issuedBy(ctx context.Context, q url.Values, client session.Client) bool {
+func (s *Server) issuedBy(ctx context.Context, q url.Values, client session.Client) (bool, error) {
 	if q.Has("iss") {
-		return q.Get("iss") == client.Issuer
+		return q.Get("iss") == client.Issuer, nil
 	}
 	e, err := s.OIDC.Providers.Endpoints(ctx, client.Issuer)
-	return err == nil && !e.IssParameter
+	return err == nil && !e.IssParameter, err
 }
 
 // clientOf finds the web client of a sign-in or session by its login

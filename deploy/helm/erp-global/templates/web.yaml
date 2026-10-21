@@ -312,12 +312,13 @@ spec:
         - ipBlock: {cidr: {{ $vpc | quote }}}
       ports:
         - {protocol: TCP, port: 5432}
-    # The providers are outside the VPC (in production erp-web refuses
-    # private addresses anyway, authn.Providers): nothing inside it on 443.
+    # The providers are on the internet (in production erp-web refuses
+    # other addresses anyway, authn.Providers): nothing in the VPC or any
+    # private, shared or link-local range on 443.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
-            except: [{{ $vpc | quote }}]
+            except: [{{ $vpc | quote }}, "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16"]
       ports:
         - {protocol: TCP, port: 443}
 ---

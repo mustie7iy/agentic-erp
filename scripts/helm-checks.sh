@@ -528,7 +528,7 @@ if sources != want:
 egress = [([p.get("podSelector", {}).get("matchLabels", {}).get("app.kubernetes.io/name") or p.get("ipBlock", {}).get("cidr") for p in rule.get("to", [])],
            [x["port"] for x in rule["ports"]]) for rule in policy["spec"]["egress"]]
 outside = [p.get("ipBlock", {}).get("except") for p in policy["spec"]["egress"][2].get("to", [])]
-if egress != [(["erp-router"], [8081]), (["10.16.0.0/16"], [5432]), (["0.0.0.0/0"], [443])] or outside != [["10.16.0.0/16"]]:
+if egress != [(["erp-router"], [8081]), (["10.16.0.0/16"], [5432]), (["0.0.0.0/0"], [443])] or outside != [["10.16.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16"]]:
     sys.exit("helm-checks: erp-web reaches %r, want the router's public listener, the directory in the VPC and the identity providers alone" % egress)
 into = next(d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == "erp-router-from-web")
 if [p["podSelector"]["matchLabels"]["app.kubernetes.io/name"] for rule in into["spec"]["ingress"] for p in rule["from"]] != ["erp-web"]:

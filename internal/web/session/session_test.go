@@ -3,6 +3,7 @@ package session_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -287,17 +288,38 @@ func TestRenewOnce(t *testing.T) {
 			t.Errorf("after: got %q, want at-2 kept", again.AccessToken)
 		}
 	})
-	t.Run("changed meanwhile", func(t *testing.T) {
-		_, err := st.Renew(ctx, s, func(session.Secrets) bool { return false }, func(_ context.Context, sec session.Secrets) (session.Secrets, error) {
-			if _, err := st.Create(ctx, person()); err != nil { // another write of the store, then this session's
-				t.Fatal(err)
-			}
-			execDir(t, dir, `UPDATE web.session SET version = version + 1 WHERE id_hash = $1`, session.Hash(s.ID))
+	t.Run("renewed by another meanwhile", func(t *testing.T) {
+		// This request's claim lapses and another renews: its write is
+		// refused (ErrChanged), and it takes the other's secrets.
+		byAnother, _ := json.Marshal(session.Secrets{AccessToken: "by-another"})
+		got, err := st.Renew(ctx, s, func(sec session.Secrets) bool { return sec.AccessToken == "by-another" }, func(_ context.Context, sec session.Secrets) (session.Secrets, error) {
+			execDir(t, dir, `UPDATE web.session SET sealed = $2, version = version + 1, renewing_until = NULL WHERE id_hash = $1`,
+				session.Hash(s.ID), st.Sealer.Seal(session.Hash(s.ID), byAnother))
 			return sec, nil
 		})
-		if !errors.Is(err, session.ErrChanged) {
-			t.Errorf("got %v, want ErrChanged", err)
+		if err != nil || got.AccessToken != "by-another" {
+			t.Errorf("got %q, %v, want the other's secrets", got.AccessToken, err)
 		}
+	})
+	t.Run("a lapsed claim's release frees no newer one", func(t *testing.T) {
+		refused := errors.New("refused")
+		_, err := st.Renew(ctx, s, func(session.Secrets) bool { return false }, func(context.Context, session.Secrets) (session.Secrets, error) {
+			execDir(t, dir, `UPDATE web.session SET renewing_until = now() + interval '1 hour' WHERE id_hash = $1`, session.Hash(s.ID)) // another's claim
+			return session.Secrets{}, refused
+		})
+		if !errors.Is(err, refused) {
+			t.Fatalf("got %v, want the refusal", err)
+		}
+		var held bool
+		if err := dir.Pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
+			return tx.QueryRow(ctx, `SELECT renewing_until IS NOT NULL FROM web.session WHERE id_hash = $1`, session.Hash(s.ID)).Scan(&held)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if !held {
+			t.Error("the other request's claim was given up")
+		}
+		execDir(t, dir, `UPDATE web.session SET renewing_until = NULL WHERE id_hash = $1`, session.Hash(s.ID))
 	})
 	t.Run("another request holds the claim", func(t *testing.T) {
 		held, err := st.Create(ctx, person())

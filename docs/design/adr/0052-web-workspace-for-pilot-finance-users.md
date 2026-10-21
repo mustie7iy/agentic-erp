@@ -1003,10 +1003,14 @@ What sign-in settled that §§5-6 left open, and where it departs from them:
   the refresh token once for all concurrent requests on any replica, so a
   rotating refresh token is spent once (`TestRefresh`: eight at once, one
   refresh). The first request claims the renewal on the session's row
-  (`renewing_until`, 30 s) and calls the provider holding no transaction
-  or connection, so a slow provider, one tenant's, stalls no one else; it
-  writes the result back guarded on the session's version; the others look
-  again every 100 ms and take it. A refusal ends the session, as does a
+  (`renewing_until`, 30 s by the database's clock, the claim's owner
+  token) and calls the provider holding no transaction or connection, so
+  a slow provider, one tenant's, stalls no one else; the call and the
+  write outlive the request, so a client gone loses no rotated refresh
+  token; it writes the result back guarded on the version and its own
+  claim, and gives up only its own claim; the others look again every
+  100 ms and take it, as does a holder whose claim lapsed and whose write
+  was refused. A refusal ends the session, as does a
   refreshed ID token that is not the provider's for the client and the
   person; a session without a refresh token ends with its access token.
   The store's pool is ten connections per replica.
@@ -1029,7 +1033,8 @@ What sign-in settled that §§5-6 left open, and where it departs from them:
   and checks nonce, `azp` (several audiences), `auth_time` (when `max_age`
   was asked, two minutes' skew) and, for a step-up, that the `acr` is one
   asked; a new session replaces any the browser had. The return path is
-  a path of at most 1 KB, never a URL nor a step of the sign-in itself.
+  a path of at most 1 KB without dot segments, never a URL nor a step of
+  the sign-in itself.
 - **`form-action 'self'` and redirects (found by the browser suite).**
   The CSP's `form-action` governs a form submission's redirects too, so
   `POST /login` and `POST /logout` cannot redirect on to the provider's
@@ -1085,7 +1090,8 @@ What sign-in settled that §§5-6 left open, and where it departs from them:
   a failed sign-in. Recording it in the API's audit trail is decision D2.
 - **Deployment.** The chart gives erp-web the directory URL
   (`sslmode=verify-full`, the RDS bundle), the password, the session key
-  and the credentials, and egress to the VPC's 5432 and 443 outside the VPC
+  and the credentials, and egress to the VPC's 5432 and 443 outside the
+  VPC and the private, shared and link-local ranges
   (`helm-checks.sh` holds it to that). Terraform creates
   `erp/global/web-session-key` and `web-clients` empty, and refuses
   private subnets (the nodes' and pods') that overlap the balancers', since
