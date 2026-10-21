@@ -849,7 +849,7 @@ entries through the ledger's reversal path (`ledger.reversal`) and sets
 `cancelled`, under the entries' bucket locks and the run read `FOR UPDATE`;
 the key date is then free for another posted run.
 
-Revaluation per ledger (T52d, ADR-0045, migration 000132). A run values its
+Revaluation per ledger (T52f, ADR-0045, migration 000132). A run values its
 ledger's own lines (a parallel ledger's copies of the open items, which
 T52c clears with the leading ledger's, and its ledger-specific postings)
 and posts and reverses its entries in that ledger alone; the posted-run
@@ -860,7 +860,9 @@ deactivated when removed; a ledger without an active one values at the
 legal entity's `fx_valuation`. Its foreign keys hold it to a ledger the
 legal entity keeps (`company_ledger`) and not the leading one (`is_leading`,
 always false, against `ledger.ledger`'s role key). The valuation accounts
-stay per legal entity: the ledgers keep their amounts apart on them.
+stay per legal entity: the ledgers keep their amounts apart on them. A run's
+ledger is one its legal entity keeps (`revaluation_run_ledger_kept`,
+migration 000133, checked on insert).
 
 ## 3.8 Procurement (`procurement`)
 

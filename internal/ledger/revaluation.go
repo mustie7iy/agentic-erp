@@ -24,7 +24,7 @@ import (
 // and ledger at a key date values (ADR-0042): the open items of supplier
 // and customer reconciliation accounts and the balances per currency of
 // flagged accounts, each at the key date's rate of the ledger's valuation
-// rate type: its own (T52d) or the legal entity's.
+// rate type: its own (T52f) or the legal entity's.
 type Revaluation struct {
 	LegalEntityID, LedgerID  uuid.UUID
 	KeyDate                  time.Time
@@ -143,7 +143,7 @@ const revaluationScope = `WITH scope AS MATERIALIZED (
 // valueRevaluation values what a run of the legal entity and ledger at the
 // key date would value, without writing anything: the ledger's own lines,
 // so a parallel ledger values its copies of the items and its own
-// postings (T52d). The key date is the last day of a posting period of the
+// postings (T52f). The key date is the last day of a posting period of the
 // ledger; every currency is valued into local and into group currency at
 // the latest rate of the ledger's rate type (its active
 // fx_valuation_ledger, else the legal entity's) valid on it, one valid from
@@ -153,7 +153,7 @@ func valueRevaluation(ctx context.Context, tx pgx.Tx, le tenancy.Entity, ledgerI
 	r := Revaluation{LegalEntityID: le.ID, LedgerID: ledgerID, KeyDate: keyDate, CurrencyLC: le.LocalCurrency, CurrencyGC: group}
 	var start time.Time
 	// The ledger's own rate type, its valuation area's, else the legal
-	// entity's (T52d, ADR-0045).
+	// entity's (T52f, ADR-0045).
 	err := tx.QueryRow(ctx, `SELECT f.fiscal_year, f.period, f.start_date,
 			coalesce((SELECT rate_type FROM ledger.fx_valuation_ledger WHERE legal_entity_id = $1 AND ledger_id = $2 AND is_active),
 				(SELECT rate_type FROM ledger.fx_valuation WHERE legal_entity_id = $1), 'average')

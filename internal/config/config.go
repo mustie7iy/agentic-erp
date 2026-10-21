@@ -163,7 +163,7 @@ type Company struct {
 // one rate type it values at, average when none is given, and where the
 // valuation of each revalued account posts. Ledgers are the parallel
 // ledgers that value at a rate type of their own, their valuation area's
-// (T52d, ADR-0045); the leading ledger and any other values at RateType,
+// (T52f, ADR-0045); the leading ledger and any other values at RateType,
 // and every ledger posts to the same valuation accounts.
 type FXValuation struct {
 	RateType string               `yaml:"rate_type,omitempty" json:"rate_type,omitempty"`

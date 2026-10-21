@@ -1,4 +1,4 @@
--- Foreign-currency revaluation per ledger (T52d, ADR-0045, ADR-0042): a
+-- Foreign-currency revaluation per ledger (T52f, ADR-0045, ADR-0042): a
 -- parallel ledger may value at a rate type of its own, its valuation area's
 -- (SAP FAGL_FCV valuation areas per accounting principle); without one it
 -- values at its legal entity's (ledger.fx_valuation), as the leading ledger

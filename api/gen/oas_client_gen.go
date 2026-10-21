@@ -1298,7 +1298,7 @@ type Invoker interface {
 	// T48c): a valuation entry (document type SA, in local currency, source the run) dated the key date
 	// and its reset, a separate entry of the negated lines dated the next day, the first of the next
 	// period, so the items stay open at their booked amounts. Both entries post in the run's ledger alone
-	// (T52d, ADR-0045): a run of the leading ledger leaves the parallel ledgers untouched, and each
+	// (T52f, ADR-0045): a run of the leading ledger leaves the parallel ledgers untouched, and each
 	// parallel ledger is revalued by a run of its own. Each item's local and group differences go to the
 	// account itself for a flagged account and to its adjustment account for a reconciliation account,
 	// against the unrealised gain or loss account by the item's direction. Both periods must be open in
@@ -1324,7 +1324,7 @@ type Invoker interface {
 	// PreviewRevaluation invokes previewRevaluation operation.
 	//
 	// Values, without posting, what a revaluation run of a legal entity and ledger at a key date would
-	// value (ADR-0042, T48; per ledger, T52d): read from that ledger's lines, the open items on supplier
+	// value (ADR-0042, T48; per ledger, T52f): read from that ledger's lines, the open items on supplier
 	// and customer reconciliation accounts on the key date (posted on or before it and not cleared by a
 	// clearing dated on or before it) and, per currency, the balance of each G/L account flagged
 	// `revalue_foreign_currency`, in every currency other than local currency. Down payments (special G/L
@@ -1332,7 +1332,7 @@ type Invoker interface {
 	// currency but not in local or group currency is valued too, at zero and without a rate (none is
 	// looked up or checked for it): that residual is what revaluation corrects. Each item is valued in
 	// local and, on its own, in group currency at the ledger's valuation rate type valid on the key date
-	// (the legal entity's, or the ledger's own where `companies[].fx_valuation.ledgers` gives one, T52d),
+	// (the legal entity's, or the ledger's own where `companies[].fx_valuation.ledgers` gives one, T52f),
 	// each rounded once: `valued_lc` = amount × rate and `valued_gc` = amount × rate_gc (SAP's
 	// parallel-currency valuation, not the local difference translated); the differences to the booked
 	// amounts are an unrealised gain when positive and a loss when negative, by the local difference's
@@ -31143,7 +31143,7 @@ func (c *Client) sendPostParkedJournalEntry(ctx context.Context, params PostPark
 // T48c): a valuation entry (document type SA, in local currency, source the run) dated the key date
 // and its reset, a separate entry of the negated lines dated the next day, the first of the next
 // period, so the items stay open at their booked amounts. Both entries post in the run's ledger alone
-// (T52d, ADR-0045): a run of the leading ledger leaves the parallel ledgers untouched, and each
+// (T52f, ADR-0045): a run of the leading ledger leaves the parallel ledgers untouched, and each
 // parallel ledger is revalued by a run of its own. Each item's local and group differences go to the
 // account itself for a flagged account and to its adjustment account for a reconciliation account,
 // against the unrealised gain or loss account by the item's direction. Both periods must be open in
@@ -31447,7 +31447,7 @@ func (c *Client) sendPostSupplierInvoice(ctx context.Context, request OptSupplie
 // PreviewRevaluation invokes previewRevaluation operation.
 //
 // Values, without posting, what a revaluation run of a legal entity and ledger at a key date would
-// value (ADR-0042, T48; per ledger, T52d): read from that ledger's lines, the open items on supplier
+// value (ADR-0042, T48; per ledger, T52f): read from that ledger's lines, the open items on supplier
 // and customer reconciliation accounts on the key date (posted on or before it and not cleared by a
 // clearing dated on or before it) and, per currency, the balance of each G/L account flagged
 // `revalue_foreign_currency`, in every currency other than local currency. Down payments (special G/L
@@ -31455,7 +31455,7 @@ func (c *Client) sendPostSupplierInvoice(ctx context.Context, request OptSupplie
 // currency but not in local or group currency is valued too, at zero and without a rate (none is
 // looked up or checked for it): that residual is what revaluation corrects. Each item is valued in
 // local and, on its own, in group currency at the ledger's valuation rate type valid on the key date
-// (the legal entity's, or the ledger's own where `companies[].fx_valuation.ledgers` gives one, T52d),
+// (the legal entity's, or the ledger's own where `companies[].fx_valuation.ledgers` gives one, T52f),
 // each rounded once: `valued_lc` = amount × rate and `valued_gc` = amount × rate_gc (SAP's
 // parallel-currency valuation, not the local difference translated); the differences to the booked
 // amounts are an unrealised gain when positive and a loss when negative, by the local difference's

@@ -26,7 +26,7 @@ func withFXValuation(t *testing.T) *Config {
 }
 
 // withLedgerValuation is withFXValuation with the local-GAAP ledger 2L
-// kept by company 1000 and valued at its own rate type (T52d).
+// kept by company 1000 and valued at its own rate type (T52f).
 func withLedgerValuation(t *testing.T) *Config {
 	t.Helper()
 	c := withFXValuation(t)

@@ -10,7 +10,7 @@ import (
 var rateTypes = []string{"average", "bank_buying", "bank_selling", "planning"}
 
 // fxValuation checks the company's foreign-currency valuation (ADR-0042):
-// a known rate type, and one per parallel ledger that has its own (T52d);
+// a known rate type, and one per parallel ledger that has its own (T52f);
 // flagged accounts that are assets or liabilities (equity is non-monetary,
 // IAS 21.16), reconcile no supplier and are not the GR/IR account, each
 // with a valuation; and one valuation per account, of a vendor

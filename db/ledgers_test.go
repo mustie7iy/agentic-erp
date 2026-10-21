@@ -102,7 +102,7 @@ func TestParallelLedgerRules(t *testing.T) {
 	}
 }
 
-// A parallel ledger's own rate type (T52d, migration 000132): of a ledger
+// A parallel ledger's own rate type (T52f, migration 000132): of a ledger
 // its legal entity keeps, never the leading one, at a known rate type.
 func TestFXValuationLedgerRules(t *testing.T) {
 	need(t)

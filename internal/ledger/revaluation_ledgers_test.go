@@ -18,7 +18,7 @@ import (
 )
 
 // ledgerRevaluation is setupParallel with revaluationSetup's valuation in
-// both ledgers, 2L valued at bank_buying rates of its own (T52d,
+// both ledgers, 2L valued at bank_buying rates of its own (T52f,
 // ADR-0045). Company 2000 has a USD supplier invoice of 100.00 booked at
 // 0.8 in both ledgers, a second one of 30.00 cleared on 2026-03-20 (in
 // every ledger, T52c), and in 2L alone a USD receipt of 50.00 on the
@@ -73,7 +73,7 @@ func valuedItems(t *testing.T, p parallelEnv, got map[string]any) string {
 // its rate type, the ledger's own or the legal entity's, and posts and
 // reverses in that ledger alone; one run is posted per key date and
 // ledger, a request replayed answers the same run, and only a ledger the
-// company keeps is valued (T52d, ADR-0045).
+// company keeps is valued (T52f, ADR-0045).
 func TestRevaluationPerLedger(t *testing.T) {
 	p, invoice := ledgerRevaluation(t)
 	path := "/v1/revaluation-runs"
@@ -174,7 +174,7 @@ func TestRevaluationPerLedger(t *testing.T) {
 
 // TestRevaluationPerLedgerPeriods: each ledger's run needs its own
 // ledger's periods open, so 2L closed for April refuses 2L's run and
-// leaves 0L's to post (T32, T52d).
+// leaves 0L's to post (T32, T52f).
 func TestRevaluationPerLedgerPeriods(t *testing.T) {
 	p, _ := ledgerRevaluation(t)
 	pgtest.Exec(t, `UPDATE ledger.period_status SET status = 'closed', version = version + 1

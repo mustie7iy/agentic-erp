@@ -76,7 +76,7 @@ func TestFXValuationSetup(t *testing.T) {
 }
 
 // TestFXValuationLedgerSetup: the setup keeps the rate types of the
-// parallel ledgers that value at their own (T52d, ADR-0045), changes them
+// parallel ledgers that value at their own (T52f, ADR-0045), changes them
 // with the document and deactivates what it no longer names; and each of
 // its statements fails in turn.
 func TestFXValuationLedgerSetup(t *testing.T) {

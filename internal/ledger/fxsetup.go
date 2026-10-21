@@ -63,7 +63,7 @@ func fxValuation(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, chart u
 }
 
 // fxValuationLedgers makes the rate types the company's parallel ledgers
-// value at of their own the document's (T52d, ADR-0045): one the document
+// value at of their own the document's (T52f, ADR-0045): one the document
 // no longer names is deactivated, and its ledger values at the legal
 // entity's again.
 func fxValuationLedgers(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le uuid.UUID, co config.Company) error {
