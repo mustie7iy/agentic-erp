@@ -217,7 +217,7 @@ func changed(v Invoice, ch Change) Input {
 	if ch.PostingDate != nil {
 		in.PostingDate = *ch.PostingDate
 	}
-	in.taxDateKept = ch.TaxDate == nil
+	in.change, in.storedTaxDate = true, v.TaxDate
 	if ch.TaxDate != nil {
 		in.TaxDate = *ch.TaxDate
 	}

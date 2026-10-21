@@ -327,9 +327,10 @@ type Input struct {
 	InvoiceDate       time.Time
 	PostingDate       *time.Time
 	// TaxDate is set by a person only (decision P6): an agent's is refused,
-	// but for one a change keeps (taxDateKept).
+	// but for one a change keeps (taxDateSet).
 	TaxDate         *time.Time
-	taxDateKept     bool
+	change          bool       // the input is a parked invoice's with a change applied
+	storedTaxDate   *time.Time // a change's invoice's tax date
 	Gross, Tax      Amount
 	PurchaseOrderID *uuid.UUID
 	Items           []ItemInput

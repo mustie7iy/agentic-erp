@@ -660,11 +660,12 @@ func requirePostable(i int, field string, a account, ok bool) error {
 // checkTaxCodes requires every tax code to be valid in the legal entity on
 // the tax date: to have a rate in force then; and its components with a
 // rate then to post to accounts of their own, since a tax line names its
-// account and code, not its component (422 ledger.tax_code_components;
-// T61d calculates each component's tax). It takes the codes' lock
+// account and code, not its component (422 ledger.tax_code_components),
+// unless the posting gives its tax items (given: a document that
+// calculated each component's tax, T61d). It takes the codes' lock
 // first (lockTaxCodes), so it reads the rates as a setup that held them
 // left them, and none changes until the posting commits.
-func checkTaxCodes(ctx context.Context, tx pgx.Tx, le uuid.UUID, date time.Time, lines []Line) error {
+func checkTaxCodes(ctx context.Context, tx pgx.Tx, le uuid.UUID, date time.Time, lines []Line, given bool) error {
 	var codes []string
 	var taxes []*string
 	for _, l := range lines {
@@ -695,9 +696,9 @@ func checkTaxCodes(ctx context.Context, tx pgx.Tx, le uuid.UUID, date time.Time,
 		case !ok:
 			return problem.Unprocessable("ledger.unknown_tax_code", "Tax code "+c+" is not valid in this legal entity on the tax date.",
 				problem.FieldError{Field: "lines.tax_code", Code: "unknown", Message: "a tax code of the legal entity"})
-		case shared:
+		case shared && !given:
 			return problem.Unprocessable("ledger.tax_code_components", "Tax code "+c+" has two components on one account, whose tax the ledger "+
-				"cannot tell apart until it calculates it (T61d).", problem.FieldError{Field: "lines.tax_code", Code: "components",
+				"cannot tell apart from the lines; a document posting it calculates the tax.", problem.FieldError{Field: "lines.tax_code", Code: "components",
 				Message: "a code whose components post to accounts of their own"})
 		}
 	}
@@ -900,7 +901,7 @@ func (e *Endpoints) prepareFor(ctx context.Context, tx pgx.Tx, le tenancy.Entity
 	if err := commonOnReconciliation(choice, lines, accounts); err != nil {
 		return prepared{}, err
 	}
-	if err := checkTaxCodes(ctx, tx, le.ID, in.taxDay(), lines); err != nil {
+	if err := checkTaxCodes(ctx, tx, le.ID, in.taxDay(), lines, in.taxItems != nil); err != nil {
 		return prepared{}, err
 	}
 	return prepared{le: le, choice: choice, group: group, exps: exps, expTC: expTC, lines: lines}, nil

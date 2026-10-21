@@ -78,7 +78,8 @@ CREATE TRIGGER tax_item_fixed BEFORE UPDATE OR DELETE ON ledger.tax_item FOR EAC
 -- part not recovered goes on the expense, as a context that calculates the
 -- tax posts it, T61d).
 -- A non-deductible component has no tax line of its own and is not
--- written (T61d). former: a component's former accounts are its tax lines'
+-- written here; a context that calculates the tax gives its item (T61d).
+-- former: a component's former accounts are its tax lines'
 -- too (the migration of entries posted before, T61a); the application
 -- posts on the current ones. Returns the number of items written.
 CREATE FUNCTION ledger.write_tax_items(t uuid, y smallint, e uuid, day date, former boolean) RETURNS integer
@@ -165,7 +166,7 @@ BEGIN
     RETURN;
   END IF;
   -- A code whose components post to no account (all non-deductible) has
-  -- no tax line and no item until T61d.
+  -- no tax line, and an item only where the posting gives it (T61d).
   SELECT l.tax_code INTO v_code FROM ledger.journal_line l WHERE l.tenant_id = t AND l.fiscal_year = y AND l.journal_entry_id = e
     AND l.tax_code IS NOT NULL AND NOT EXISTS (SELECT FROM ledger.tax_item i WHERE i.tenant_id = t AND i.fiscal_year = y
       AND i.journal_entry_id = e AND i.code = l.tax_code)

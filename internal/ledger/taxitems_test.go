@@ -193,6 +193,26 @@ func TestTaxItemsOfPostingPaths(t *testing.T) {
 	}
 }
 
+// TestGivenTaxItemUnknown: a posting giving an item of a component
+// without a rate on the tax date is refused, not posted without it.
+func TestGivenTaxItemUnknown(t *testing.T) {
+	e := setup(t)
+	v1 := "V1"
+	err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+		_, err := postings().Post(ctx, ledger.Posting{LegalEntityID: e.de, DocumentType: "SA", DocumentDate: date("2026-03-01"),
+			PostingDate: date("2026-03-01"), Currency: "EUR", SourceContext: "payables", SourceDocumentID: uuid.New(), Lines: []ledger.PostingLine{
+				{AccountID: settleAccount(t, e, "2000", "520000"), Amount: 100, TaxCode: &v1},
+				{AccountID: settleAccount(t, e, "2000", "140000"), Amount: 19, TaxCode: &v1},
+				{AccountID: settleAccount(t, e, "2000", "100000"), Amount: -119}},
+			TaxItems: []ledger.PostingTaxItem{{Code: "V1", Component: "tax", Base: 100, Tax: 19, Recoverable: 19, BaseLC: 100, TaxLC: 19, RecoverableLC: 19},
+				{Code: "V1", Component: "missing", Base: 100}}})
+		return err
+	})
+	if err == nil || !strings.Contains(err.Error(), "1 of 2 tax items") {
+		t.Errorf("got %v, want the items refused", err)
+	}
+}
+
 // TestTaxItemsOfDiscountedBases: a discount on an entry whose expense
 // carries its code shares out the net to the code's base on the cash
 // discount account, so the settlement's items report base and tax; in a

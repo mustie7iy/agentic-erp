@@ -340,7 +340,7 @@ func grirOnly(o *procurement.Order) *procurement.Order {
 // GR/IR item per item on an order item of an order valued through GR/IR
 // (order not nil), each with the tax it bears (a non-deductible
 // component's, a part not recovered); the tax lines, one per code and
-// component account (calculateTax), or, without coded items, the stated
+// component with an account (calculateTax), or, without coded items, the stated
 // tax on the input tax account; Cr the supplier's reconciliation account.
 func (e *Endpoints) invoiceLines(ctx context.Context, v Invoice, sup partner.Supplier, order *procurement.Order, t invoiceTax) ([]ledger.PostingLine,
 	[]ledger.GRIRItem, error) {

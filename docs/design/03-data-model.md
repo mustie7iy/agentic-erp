@@ -1229,6 +1229,10 @@ the date its codes' rates apply on and its tax is reported in, set by a
 person only; none: the invoice date, or for a correction naming an invoice
 that invoice's. Its tax is calculated per item code when it posts, held to
 the stated tax within `invoice_tolerance.tax_units_per_code` (ADR-0049 §6).
+The column is nullable and the previous release names its columns, so the
+migration runs ahead of the code; invoices are not posted during the
+rollout, as the previous release posts them with the first item's code at
+the invoice date.
 
 A supplier invoice is of a `kind` (migration 000059, T34a), as SAP's MIRO
 transactions are: `invoice`, `credit_memo`, `subsequent_debit` or

@@ -114,7 +114,8 @@ func TestInvoiceOrder(t *testing.T) {
 }
 
 // TestTaxDateHumanOnly: an agent may not set a tax date (decision P6); a
-// change that keeps a person's is not the agent's.
+// change that keeps a person's is not the agent's, one that sets, changes
+// or clears it is.
 func TestTaxDateHumanOnly(t *testing.T) {
 	agent := reqctx.WithPrincipal(context.Background(), reqctx.Principal{Kind: reqctx.KindAgent})
 	day := time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC)
@@ -122,7 +123,20 @@ func TestTaxDateHumanOnly(t *testing.T) {
 	if got := problem.From(err); got == nil || got.Code != "payables.tax_date_human_only" {
 		t.Errorf("an agent's tax date: got %v, want payables.tax_date_human_only", err)
 	}
-	if got, err := (&Endpoints{}).validTaxDate(agent, nil, Input{TaxDate: &day, taxDateKept: true}); err != nil || !got.Equal(day) {
+	if got, err := (&Endpoints{}).validTaxDate(agent, nil, Input{TaxDate: &day, change: true, storedTaxDate: &day}); err != nil || !got.Equal(day) {
 		t.Errorf("a kept tax date: got %v %v, want %s", got, err, day)
+	}
+	other := day.AddDate(0, 0, 1)
+	for name, in := range map[string]Input{
+		"changed": {TaxDate: &other, change: true, storedTaxDate: &day},
+		"cleared": {change: true, storedTaxDate: &day},
+		"set":     {TaxDate: &day, change: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := (&Endpoints{}).validTaxDate(agent, nil, in)
+			if got := problem.From(err); got == nil || got.Code != "payables.tax_date_human_only" {
+				t.Errorf("an agent's change of the tax date: got %v, want payables.tax_date_human_only", err)
+			}
+		})
 	}
 }

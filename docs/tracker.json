@@ -1257,7 +1257,7 @@
        },
        {
         "s": "D",
-        "t": "Input tax on supplier invoices: tax per item code at the tax date, one tax line per code and component account, non-deductible tax on the item's line, the supplier's tax within the company's tolerance else 422 payables.tax_mismatch (P5), credit memos at the invoice's tax date, capture proposes codes and flags mismatches",
+        "t": "Input tax on supplier invoices: tax per item code at the tax date, one tax line per code and component, non-deductible tax on the item's line, the supplier's tax within the company's tolerance else 422 payables.tax_mismatch (P5), credit memos at the invoice's tax date, capture proposes codes and flags mismatches",
         "r": "db/migrations/000141 · supplier_invoice.tax_date · payables.calculateTax · invoice_tolerance.tax_units_per_code · ledger.PostingTaxItem · PostingLine.LC · capture.Line.TaxRate · ADR-0049 · T61d",
         "c": []
        },

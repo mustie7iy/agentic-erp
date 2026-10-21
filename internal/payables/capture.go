@@ -287,9 +287,10 @@ func capturedItems(lines []capture.Line, order procurement.Order, p *printed) ([
 			no = order.Items[i].ItemNo // same number of lines: match by position
 		}
 		unit := ""
+		var code *string // the order item's, which capturedTax may replace
 		for _, oi := range order.Items {
 			if oi.ItemNo == no {
-				unit = oi.Unit
+				unit, code = oi.Unit, oi.TaxCode
 			}
 		}
 		if unit == "" {
@@ -300,7 +301,7 @@ func capturedItems(lines []capture.Line, order procurement.Order, p *printed) ([
 			return nil, err
 		}
 		description := l.Description
-		items = append(items, ItemInput{POItemNo: &no, Description: &description, Quantity: p.quantity(l.Quantity), Unit: unit, Amount: a})
+		items = append(items, ItemInput{POItemNo: &no, Description: &description, Quantity: p.quantity(l.Quantity), Unit: unit, Amount: a, TaxCode: code})
 	}
 	return items, nil
 }

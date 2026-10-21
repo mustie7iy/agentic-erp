@@ -14,7 +14,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
-	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tax"
 )
 
@@ -27,10 +26,6 @@ import (
 // reason to hold it (payables.tax_mismatch's figures). It posts nothing:
 // the invoice is entered parked or held as ever (ADR-0036).
 func (e *Endpoints) capturedTax(ctx context.Context, tx pgx.Tx, in *Input, ext *capture.Extraction) ([]string, string, error) {
-	order, _, err := e.Orders.Order(ctx, *in.PurchaseOrderID) // capturedInput read it
-	if err != nil {
-		return nil, "", err
-	}
 	taxDate, err := taxDateOf(ctx, tx, nil, in.InvoiceDate, in.ReferenceInvoiceID)
 	if err != nil {
 		return nil, "", err
@@ -47,17 +42,16 @@ func (e *Endpoints) capturedTax(ctx context.Context, tx pgx.Tx, in *Input, ext *
 		ReferenceInvoiceID: in.ReferenceInvoiceID}
 	var warnings, held []string
 	for i, it := range in.Items {
-		code := orderItemCode(order.Items, *it.POItemNo)
 		if printed := ext.Lines[i].TaxRate; printed != "" {
-			proposed, warning, reason := proposeCode(codes, code, printed, i+1)
+			proposed, warning, reason := proposeCode(codes, it.TaxCode, printed, i+1)
 			if proposed != nil {
-				code, in.Items[i].TaxCode = proposed, proposed
+				in.Items[i].TaxCode = proposed
 			}
 			warnings, held = appendNonEmpty(warnings, warning), appendNonEmpty(held, reason)
 		}
 		// Captured amounts were read with the currency's digits (printed).
 		amount, _ := money.ParseDecimal(it.Amount.Value, exp)
-		v.Items = append(v.Items, Item{Amount: amount, TaxCode: code})
+		v.Items = append(v.Items, Item{Amount: amount, TaxCode: in.Items[i].TaxCode})
 	}
 	v.Tax, _ = money.ParseDecimal(in.Tax.Value, exp) // as the items'
 	if _, err := e.calculateTax(ctx, v, taxDate); err != nil {
@@ -68,17 +62,6 @@ func (e *Endpoints) capturedTax(ctx context.Context, tx pgx.Tx, in *Input, ext *
 		held = append(held, p.Detail)
 	}
 	return warnings, strings.Join(held, " "), nil
-}
-
-// orderItemCode is the tax code of an order item, which an invoice item on
-// it inherits.
-func orderItemCode(items []procurement.OrderItem, no int32) *string {
-	for _, oi := range items {
-		if oi.ItemNo == no {
-			return oi.TaxCode
-		}
-	}
-	return nil
 }
 
 // proposeCode is the code a line printing a tax rate gets: none when its

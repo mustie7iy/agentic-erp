@@ -220,7 +220,7 @@ func writeGivenItems(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, year int1
 		codes[i], components[i] = t.Code, t.Component
 		base[i], tax[i], rec[i], baseLC[i], taxLC[i], recLC[i] = t.Base, t.Tax, t.Recoverable, t.BaseLC, t.TaxLC, t.RecoverableLC
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO ledger.tax_item (tenant_id, fiscal_year, journal_entry_id, item_no, legal_entity_id, code, component,
+	tag, err := tx.Exec(ctx, `INSERT INTO ledger.tax_item (tenant_id, fiscal_year, journal_entry_id, item_no, legal_entity_id, code, component,
 			jurisdiction, direction, kind, account_key, account_id, tax_date, tax_rate_id, rate_pct, recoverable_pct, base_tc, tax_tc, recoverable_tc,
 			base_lc, tax_lc, recoverable_lc)
 		SELECT $1, $2, $3, x.n, c.legal_entity_id, c.code, c.component, c.jurisdiction, d.direction, d.kind, c.account_key, c.account_id, $5, r.id,
@@ -231,8 +231,15 @@ func writeGivenItems(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, year int1
 		JOIN ledger.tax_code_definition d ON d.tenant_id = c.tenant_id AND d.legal_entity_id = c.legal_entity_id AND d.code = c.code
 		JOIN ledger.tax_rate r ON r.tenant_id = c.tenant_id AND r.legal_entity_id = c.legal_entity_id AND r.code = c.code AND r.component = c.component
 			AND r.withdrawn_at IS NULL AND r.valid_from <= $5 AND (r.valid_to IS NULL OR r.valid_to > $5)`,
-		tenant, year, id, d.entity.ID, d.taxDay(), codes, components, base, tax, rec, baseLC, taxLC, recLC); err != nil {
+		tenant, year, id, d.entity.ID, d.taxDay(), codes, components, base, tax, rec, baseLC, taxLC, recLC)
+	if err != nil {
 		return fmt.Errorf("ledger: post entry %s: tax items: %w", id, err)
+	}
+	// An item the joins drop (a component without a rate on the tax date)
+	// the commit-time check would not see when it has no account.
+	if tag.RowsAffected() != int64(n) {
+		return fmt.Errorf("ledger: post entry %s: %d of %d tax items name a component with a rate on %s", id, tag.RowsAffected(), n,
+			d.taxDay().Format(time.DateOnly))
 	}
 	return nil
 }
