@@ -28,6 +28,18 @@ type Handler interface {
 	//
 	// POST /v1/org-units/{id}:activate
 	ActivateOrgUnit(ctx context.Context, params ActivateOrgUnitParams) (ActivateOrgUnitRes, error)
+	// ApplyCountryPack implements applyCountryPack operation.
+	//
+	// Merges a country pack version into the active configuration for one company (ADR-0048: three-way,
+	// from the version the company adopted) and creates the result as a change request in status `draft`,
+	// based on the active version, with the merge's notes for the reviewers. Nothing is activated: the
+	// change request is submitted, simulated, approved and activated like any other. In production a pack
+	// no tax specialist has signed off is refused (409 `config.pack_not_signed_off`); elsewhere it is
+	// applied with a note, so packs can be tried before sign-off. The company's legal entity must be
+	// active (422 `config.legal_entity_not_active`).
+	//
+	// POST /v1/country-pack-applications
+	ApplyCountryPack(ctx context.Context, req *CountryPackApplication, params ApplyCountryPackParams) (ApplyCountryPackRes, error)
 	// ApproveApprovalRequest implements approveApprovalRequest operation.
 	//
 	// Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`);
@@ -897,6 +909,14 @@ type Handler interface {
 	//
 	// GET /v1/contracts
 	ListContracts(ctx context.Context, params ListContractsParams) (ListContractsRes, error)
+	// ListCountryPacks implements listCountryPacks operation.
+	//
+	// The released country packs in the image (ADR-0048): each country's versions with the hash they were
+	// released with, the tax specialist's sign-off and the legal sources they rest on. The same for every
+	// tenant. Ordered by country, then version.
+	//
+	// GET /v1/country-packs
+	ListCountryPacks(ctx context.Context, params ListCountryPacksParams) (ListCountryPacksRes, error)
 	// ListDownPaymentRequests implements listDownPaymentRequests operation.
 	//
 	// Down payment requests (SAP F-47, ADR-0037). Sortable by: `due_date`.

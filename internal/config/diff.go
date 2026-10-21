@@ -99,6 +99,10 @@ var tierRules = []struct {
 	// settings applying it changes carry their own tiers. It decides what
 	// the next upgrade merges from, so it is not cosmetic (ADR-0048).
 	{rx(`^packs`), TierOperational},
+	// Holidays post nothing; they move what falls due on business days
+	// (due dates, payment runs), as payment terms' days do (ADR-0048).
+	{rx(`^calendars\[\*\]\.holidays\[\*\]\.name$`), TierCosmetic},
+	{rx(`^calendars`), TierOperational},
 }
 
 func rx(s string) *regexp.Regexp { return regexp.MustCompile(s) }
@@ -116,7 +120,8 @@ func classify(path string) Tier {
 }
 
 // listKeys names the identity field of each list, so items are compared by
-// identity instead of position.
+// identity instead of position. A list is found by its field name alone, so
+// two lists of one name anywhere in the document share their key.
 var listKeys = map[string]string{
 	"companies": "code", "chart_of_accounts": "number", "tax_codes": "code", "withholding_tax_codes": "code",
 	// A tax code's components and each component's dated rates (T61a).
@@ -131,7 +136,9 @@ var listKeys = map[string]string{
 	// The analytics section's; a metric's own dimensions are names, listed
 	// by position.
 	"metrics": "name", "dimensions": "name",
-	"packs": "company",
+	"packs":     "company",
+	"calendars": "company",
+	"holidays":  "date",
 }
 
 // Diff lists every setting that differs from old to new, with its tier.

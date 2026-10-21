@@ -91,6 +91,16 @@ func TestLoadAll(t *testing.T) {
 	if p := lib.Latest("CA"); p != nil {
 		t.Errorf("Latest(CA): got %+v, want nil", p)
 	}
+	var dirs []string
+	for _, p := range lib.All() {
+		dirs = append(dirs, p.Dir())
+		if want, _ := Hash(m, p.Dir()); lib.Hash(p) != want {
+			t.Errorf("Hash(%s): got %q, want %q", p.Dir(), lib.Hash(p), want)
+		}
+	}
+	if want := []string{"zz/2026.1", "zz/2026.2"}; !slices.Equal(dirs, want) {
+		t.Errorf("All: got %v, want %v", dirs, want)
+	}
 	if len(lib.Warnings) != 0 {
 		t.Errorf("warnings: got %v, want none", lib.Warnings)
 	}
@@ -105,7 +115,7 @@ func TestLoadAllWarnsWithoutSignOff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadAll: %v", err)
 	}
-	if len(lib.Warnings) != 1 || lib.Warnings[0].Path != "pack.yaml: sign_off" {
+	if len(lib.Warnings) != 1 || lib.Warnings[0].Path != "zz/2026.1/pack.yaml: sign_off" {
 		t.Errorf("warnings: got %v, want the missing sign-off", lib.Warnings)
 	}
 	if lib.Get("ZZ", "2026.1").SignedOff() {
@@ -205,5 +215,28 @@ func TestLoadReadFailure(t *testing.T) {
 	}
 	if _, _, err := Load(m, "zz/none"); err == nil {
 		t.Error("Load of a missing directory: got nil, want an error")
+	}
+}
+
+// Packs are ordered by country first, then by version as numbers.
+func TestOrder(t *testing.T) {
+	pack := func(country, version string) *Pack {
+		return &Pack{Manifest: Manifest{Country: country, Version: version}}
+	}
+	tests := []struct {
+		name string
+		a, b *Pack
+		want int
+	}{
+		{"country first", pack("CA", "2027.1"), pack("ZZ", "2026.1"), -1},
+		{"version as numbers", pack("ZZ", "2026.10"), pack("ZZ", "2026.9"), 1},
+		{"same", pack("ZZ", "2026.1"), pack("ZZ", "2026.1"), 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Order(tt.a, tt.b); got != tt.want {
+				t.Errorf("Order: got %d, want %d", got, tt.want)
+			}
+		})
 	}
 }

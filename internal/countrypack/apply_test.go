@@ -113,13 +113,17 @@ func TestFirstAdoption(t *testing.T) {
 	if keys := []string{got.PaymentTerms[0].Key, got.PaymentTerms[1].Key}; len(got.PaymentTerms) != 2 || keys[1] != "NET30" {
 		t.Errorf("payment terms: got %+v, want NT14 and NET30", got.PaymentTerms)
 	}
+	if want := []config.Calendar{{Company: "C1", Holidays: []config.Holiday{{Date: "2026-01-01", Name: "New Year's Day"},
+		{Date: "2026-12-25", Name: "Christmas Day"}}}}; !reflect.DeepEqual(got.Calendars, want) {
+		t.Errorf("calendars: got %+v, want %+v", got.Calendars, want)
+	}
 	if a := got.Pack("C1"); a == nil || *a != (config.PackAdoption{Company: "C1", Country: "ZZ", Version: "2026.1", AppliedOn: "2026-10-20"}) {
 		t.Errorf("provenance: got %+v, want ZZ 2026.1 applied on 2026-10-20", a)
 	}
 	if !hasNote(notes, "packs[C1]", "first adoption") {
 		t.Errorf("notes: got %v, want the adoption", notes)
 	}
-	if len(cur.Companies[0].ChartOfAccounts) != 0 || cur.Packs != nil || len(cur.PaymentTerms) != 1 {
+	if len(cur.Companies[0].ChartOfAccounts) != 0 || cur.Packs != nil || cur.Calendars != nil || len(cur.PaymentTerms) != 1 {
 		t.Errorf("the current document changed: %+v", cur)
 	}
 }
@@ -190,22 +194,26 @@ func TestApplyRefuses(t *testing.T) {
 		return c
 	}
 	tests := []struct {
-		name    string
-		doc     *config.Config
-		company string
-		want    string
+		name          string
+		doc           *config.Config
+		company       string
+		want          string
+		notApplicable bool // the error is ErrNotApplicable
 	}{
-		{"unknown company", testDoc(), "C9", "not in the document"},
-		{"company of another country", testDoc(), "C2", `is in "DE"`},
-		{"another country's pack adopted", adopted(config.PackAdoption{Company: "C1", Country: "CA", Version: "2026.1", AppliedOn: "2026-01-01"}), "C1", "adopted the CA pack"},
-		{"downgrade", adopted(config.PackAdoption{Company: "C1", Country: "ZZ", Version: "2026.3", AppliedOn: "2026-01-01"}), "C1", ErrDowngrade.Error()},
-		{"adopted version not in the image", adopted(config.PackAdoption{Company: "C1", Country: "ZZ", Version: "2025.1", AppliedOn: "2026-01-01"}), "C1", "not in the image"},
+		{"unknown company", testDoc(), "C9", "not in the document", true},
+		{"company of another country", testDoc(), "C2", `is in "DE"`, true},
+		{"another country's pack adopted", adopted(config.PackAdoption{Company: "C1", Country: "CA", Version: "2026.1", AppliedOn: "2026-01-01"}), "C1", "adopted the CA pack", true},
+		{"downgrade", adopted(config.PackAdoption{Company: "C1", Country: "ZZ", Version: "2026.3", AppliedOn: "2026-01-01"}), "C1", ErrDowngrade.Error(), false},
+		{"adopted version not in the image", adopted(config.PackAdoption{Company: "C1", Country: "ZZ", Version: "2025.1", AppliedOn: "2026-01-01"}), "C1", "not in the image", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, _, err := Apply(tt.doc, lib.Get("ZZ", "2026.2"), lib, Options{Company: tt.company, On: day("2026-10-20"), FiscalYear: 2026})
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("Apply: got %v, want an error containing %q", err, tt.want)
+			}
+			if got := errors.Is(err, ErrNotApplicable); got != tt.notApplicable {
+				t.Errorf("errors.Is(err, ErrNotApplicable): got %v, want %v", got, tt.notApplicable)
 			}
 		})
 	}
@@ -215,6 +223,56 @@ func TestApplyRefuses(t *testing.T) {
 	_, _, err := Apply(adopted(config.PackAdoption{Company: "C1", Country: "ZZ", Version: "2026.3", AppliedOn: "2026-01-01"}), lib.Get("ZZ", "2026.2"), lib, Options{Company: "C1", On: day("2026-10-20"), FiscalYear: 2026})
 	if !errors.Is(err, ErrDowngrade) {
 		t.Errorf("downgrade: got %v, want ErrDowngrade", err)
+	}
+}
+
+// An upgrade merges the holidays by date into the company's calendar, in
+// date order: the pack's new ones taken, the document's own kept, and what
+// the pack dropped or both renamed kept with a note. The current
+// document's calendar is not changed.
+func TestUpgradeCalendar(t *testing.T) {
+	lib := testLibrary(t)
+	doc, _, err := Apply(testDoc(), lib.Get("ZZ", "2026.1"), lib, Options{Company: "C1", On: day("2026-10-20"), FiscalYear: 2026})
+	if err != nil {
+		t.Fatalf("Apply 2026.1: %v", err)
+	}
+	cal := doc.Calendar("C1")
+	cal.Holidays[1].Name = "Xmas"                                                                  // the pack renames it too
+	cal.Holidays = append(cal.Holidays, config.Holiday{Date: "2026-06-15", Name: "Founders' Day"}) // the company's own
+	before := slices.Clone(cal.Holidays)
+	got, notes, err := Apply(doc, lib.Get("ZZ", "2026.2"), lib, Options{Company: "C1", On: day("2027-02-01"), FiscalYear: 2027})
+	if err != nil {
+		t.Fatalf("Apply 2026.2: %v", err)
+	}
+	want := []config.Holiday{{Date: "2026-01-01", Name: "New Year's Day"}, {Date: "2026-06-15", Name: "Founders' Day"},
+		{Date: "2026-12-25", Name: "Xmas"}, {Date: "2027-01-01", Name: "New Year's Day"}}
+	if h := got.Calendar("C1").Holidays; !slices.Equal(h, want) {
+		t.Errorf("holidays: got %+v, want %+v", h, want)
+	}
+	for path, text := range map[string]string{
+		"calendars[C1].holidays[2026-01-01]": "no longer has",
+		"calendars[C1].holidays[2026-12-25]": "conflict",
+	} {
+		if !hasNote(notes, path, text) {
+			t.Errorf("notes: got %v, want one on %s containing %q", notes, path, text)
+		}
+	}
+	if !slices.Equal(doc.Calendar("C1").Holidays, before) {
+		t.Errorf("the current document's calendar changed: got %+v, want %+v", doc.Calendar("C1").Holidays, before)
+	}
+}
+
+// A pack without holidays gives a company without a calendar none.
+func TestApplyWithoutHolidays(t *testing.T) {
+	lib := testLibrary(t)
+	p := *lib.Get("ZZ", "2026.1")
+	p.Calendar = Calendar{}
+	got, _, err := Apply(testDoc(), &p, lib, Options{Company: "C1", On: day("2026-10-20"), FiscalYear: 2026})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if got.Calendars != nil {
+		t.Errorf("calendars: got %+v, want none", got.Calendars)
 	}
 }
 

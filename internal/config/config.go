@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -37,6 +38,48 @@ type Config struct {
 	// Packs records, per company, the country pack it adopted (ADR-0048):
 	// the base the next upgrade of the pack merges from.
 	Packs []PackAdoption `yaml:"packs,omitempty" json:"packs,omitempty"`
+	// Calendars are the companies' holidays (ADR-0048), one calendar per
+	// company: the days, besides weekends, on which it does no business.
+	Calendars []Calendar `yaml:"calendars,omitempty" json:"calendars,omitempty"`
+}
+
+// Calendar is a company's holidays, each date once.
+type Calendar struct {
+	Company  string    `yaml:"company" json:"company"`
+	Holidays []Holiday `yaml:"holidays" json:"holidays"`
+}
+
+// Holiday is a day the company does no business, on Date (YYYY-MM-DD).
+type Holiday struct {
+	Date string `yaml:"date" json:"date"`
+	Name string `yaml:"name" json:"name"`
+}
+
+// Calendar is the company's calendar, or nil.
+func (c *Config) Calendar(company string) *Calendar {
+	for i := range c.Calendars {
+		if c.Calendars[i].Company == company {
+			return &c.Calendars[i]
+		}
+	}
+	return nil
+}
+
+// Holiday is the company's holiday on the date, if it has one: the read
+// other contexts use to tell whether the company does business that day.
+// The date is d's calendar date in d's own location, so callers pass the
+// company's business date, not an instant in UTC. It returns a copy, so a
+// reader cannot change the active document.
+func (c *Config) Holiday(company string, d time.Time) (Holiday, bool) {
+	if cal := c.Calendar(company); cal != nil {
+		date := d.Format(time.DateOnly)
+		for _, h := range cal.Holidays {
+			if h.Date == date {
+				return h, true
+			}
+		}
+	}
+	return Holiday{}, false
 }
 
 // PackAdoption is the country pack version a company adopted and the date

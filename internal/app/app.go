@@ -8,6 +8,8 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -26,6 +28,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/audit"
 	"github.com/mustie7iy/agentic-erp/internal/capture"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
+	"github.com/mustie7iy/agentic-erp/internal/countrypack"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
@@ -46,6 +49,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
+	"github.com/mustie7iy/agentic-erp/packs"
 )
 
 // unimplemented sits one level deeper than the contexts' endpoints, so an
@@ -132,6 +136,12 @@ type Config struct {
 	// certification, on a cell that runs live evaluations (ERP_EVAL_CELL,
 	// ADR-0039): a type's first run needs agents at its suite's levels.
 	EvalCell bool
+	// RefuseUnsignedPacks refuses applying a country pack no tax specialist
+	// has signed off (production, ADR-0048); elsewhere packs can be tried.
+	RefuseUnsignedPacks bool
+	// Packs are the country packs the API lists and applies (ADR-0048);
+	// nil: those embedded in the image (packs.FS). Tests release their own.
+	Packs fs.FS
 }
 
 // certifications bounds agents' autonomy by their type's certification
@@ -142,6 +152,10 @@ func certifications(cfg Config) agents.Certifications {
 
 // New builds the public API handler.
 func New(cfg Config) (http.Handler, error) {
+	library, err := countryPacks(cfg)
+	if err != nil {
+		return nil, err
+	}
 	upload := uploads(cfg)
 	loopback := &httpapi.Loopback{}
 	// The seed of every tenant's semantic model until a change request
@@ -153,7 +167,8 @@ func New(cfg Config) (http.Handler, error) {
 		operationsAPI: &operations.Endpoints{Pages: cfg.Pages, Workflows: cfg.Workflows, Log: cfg.Log},
 		tenancyAPI:    &tenancy.Endpoints{Pages: cfg.Pages},
 		identityAPI:   &identity.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Certifications: certifications(cfg)},
-		configAPI:     &configuration.Endpoints{Pages: cfg.Pages, Dependencies: Configuration(cfg)},
+		configAPI: &configuration.Endpoints{Pages: cfg.Pages, Packs: library, RefuseUnsignedPacks: cfg.RefuseUnsignedPacks,
+			Dependencies: Configuration(cfg)},
 		partnerAPI: &partner.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys, Schemas: configuration.Settings{}, Rules: configuration.Settings{},
 			PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, Approvals: opener()},
 		ledgerAPI: &ledger.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{},
@@ -211,6 +226,24 @@ type companyCodes struct{}
 func (companyCodes) CompanyCode(ctx context.Context, id uuid.UUID) (string, bool, error) {
 	le, ok, err := tenancy.Directory{}.Entity(ctx, id)
 	return le.Code, ok, err
+}
+
+// countryPacks loads the country packs: a pack that is invalid, or not as
+// released, stops the server from starting; a pack without its tax
+// specialist's sign-off is logged, since the pilot needs it.
+func countryPacks(cfg Config) (*countrypack.Library, error) {
+	fsys := cfg.Packs
+	if fsys == nil {
+		fsys = packs.FS
+	}
+	lib, err := countrypack.LoadAll(fsys)
+	if err != nil {
+		return nil, fmt.Errorf("app: country packs: %w", err)
+	}
+	for _, w := range lib.Warnings {
+		cfg.Log.Warn("country pack", "path", w.Path, "finding", w.Message)
+	}
+	return lib, nil
 }
 
 // Configuration is the configuration context's dependencies as the API

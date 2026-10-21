@@ -302,7 +302,8 @@ erDiagram
     int base_version
     smallint tier "1-4"
     text status "draft | validating | invalid | awaiting_evidence | pending_approval | approved | active | rejected | withdrawn"
-    uuid workflow_request_id }
+    uuid workflow_request_id
+    jsonb notes "for reviewers of a generated proposal" }
   change_item { uuid change_request_id PK
     int item_no PK
     text path
@@ -336,7 +337,17 @@ request, merged three-way from the version the company adopted. The
 document's `packs` section records, per company, the country, the pack
 version and the date it was applied on (`packs[company]`, an operational-
 tier change); validation requires a company of that country, one adoption
-per company, a `YYYY.N` version and a date.
+per company, a `YYYY.N` version and a date. The `calendars` section holds
+each company's holidays (`calendars[company].holidays[date]`, T62c): one
+calendar per company of the document, each holiday a `YYYY-MM-DD` date
+once, with a name; applying a pack merges its holidays by date. A change
+is operational, a holiday's name cosmetic. No context owns a table for it:
+readers use the active document (`config.Config.Holiday`).
+`POST /v1/country-pack-applications` (T62d) stores the draft as a change
+request in status `draft` on the active version, with the merge's notes in
+`change_request.notes` (an array of path and message, `[]` for requests
+proposed by hand), recorded when it is created; the request then goes the
+usual way, and nothing is activated by applying.
 
 A change request's simulation replays the invoices of every company, so
 that its verdict covers the whole change, but each reader is shown the

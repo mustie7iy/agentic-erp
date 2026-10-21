@@ -49,6 +49,18 @@ type Invoker interface {
 	//
 	// POST /v1/org-units/{id}:activate
 	ActivateOrgUnit(ctx context.Context, params ActivateOrgUnitParams) (ActivateOrgUnitRes, error)
+	// ApplyCountryPack invokes applyCountryPack operation.
+	//
+	// Merges a country pack version into the active configuration for one company (ADR-0048: three-way,
+	// from the version the company adopted) and creates the result as a change request in status `draft`,
+	// based on the active version, with the merge's notes for the reviewers. Nothing is activated: the
+	// change request is submitted, simulated, approved and activated like any other. In production a pack
+	// no tax specialist has signed off is refused (409 `config.pack_not_signed_off`); elsewhere it is
+	// applied with a note, so packs can be tried before sign-off. The company's legal entity must be
+	// active (422 `config.legal_entity_not_active`).
+	//
+	// POST /v1/country-pack-applications
+	ApplyCountryPack(ctx context.Context, request *CountryPackApplication, params ApplyCountryPackParams) (ApplyCountryPackRes, error)
 	// ApproveApprovalRequest invokes approveApprovalRequest operation.
 	//
 	// Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`);
@@ -918,6 +930,14 @@ type Invoker interface {
 	//
 	// GET /v1/contracts
 	ListContracts(ctx context.Context, params ListContractsParams) (ListContractsRes, error)
+	// ListCountryPacks invokes listCountryPacks operation.
+	//
+	// The released country packs in the image (ADR-0048): each country's versions with the hash they were
+	// released with, the tax specialist's sign-off and the legal sources they rest on. The same for every
+	// tenant. Ordered by country, then version.
+	//
+	// GET /v1/country-packs
+	ListCountryPacks(ctx context.Context, params ListCountryPacksParams) (ListCountryPacksRes, error)
 	// ListDownPaymentRequests invokes listDownPaymentRequests operation.
 	//
 	// Down payment requests (SAP F-47, ADR-0037). Sortable by: `due_date`.
@@ -2257,6 +2277,142 @@ func (c *Client) sendActivateOrgUnit(ctx context.Context, params ActivateOrgUnit
 
 	stage = "DecodeResponse"
 	result, err := decodeActivateOrgUnitResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ApplyCountryPack invokes applyCountryPack operation.
+//
+// Merges a country pack version into the active configuration for one company (ADR-0048: three-way,
+// from the version the company adopted) and creates the result as a change request in status `draft`,
+// based on the active version, with the merge's notes for the reviewers. Nothing is activated: the
+// change request is submitted, simulated, approved and activated like any other. In production a pack
+// no tax specialist has signed off is refused (409 `config.pack_not_signed_off`); elsewhere it is
+// applied with a note, so packs can be tried before sign-off. The company's legal entity must be
+// active (422 `config.legal_entity_not_active`).
+//
+// POST /v1/country-pack-applications
+func (c *Client) ApplyCountryPack(ctx context.Context, request *CountryPackApplication, params ApplyCountryPackParams) (ApplyCountryPackRes, error) {
+	res, err := c.sendApplyCountryPack(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendApplyCountryPack(ctx context.Context, request *CountryPackApplication, params ApplyCountryPackParams) (res ApplyCountryPackRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("applyCountryPack"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/country-pack-applications"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ApplyCountryPackOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/country-pack-applications"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeApplyCountryPackRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ApplyCountryPackOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeApplyCountryPackResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -20962,6 +21118,176 @@ func (c *Client) sendListContracts(ctx context.Context, params ListContractsPara
 
 	stage = "DecodeResponse"
 	result, err := decodeListContractsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListCountryPacks invokes listCountryPacks operation.
+//
+// The released country packs in the image (ADR-0048): each country's versions with the hash they were
+// released with, the tax specialist's sign-off and the legal sources they rest on. The same for every
+// tenant. Ordered by country, then version.
+//
+// GET /v1/country-packs
+func (c *Client) ListCountryPacks(ctx context.Context, params ListCountryPacksParams) (ListCountryPacksRes, error) {
+	res, err := c.sendListCountryPacks(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListCountryPacks(ctx context.Context, params ListCountryPacksParams) (res ListCountryPacksRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCountryPacks"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/country-packs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListCountryPacksOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/country-packs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "country" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "country",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Country.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListCountryPacksOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListCountryPacksResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

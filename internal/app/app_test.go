@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"go.opentelemetry.io/otel/metric/noop"
@@ -97,5 +98,13 @@ func TestNewWithoutModel(t *testing.T) {
 	t.Cleanup(func() { governedModel = analytics.DefaultModel })
 	if _, err := New(Config{}); err == nil || err.Error() != "model unreadable" {
 		t.Errorf("got %v, want the model's error", err)
+	}
+}
+
+// The server does not start on country packs that are not as released.
+func TestCountryPacksRefused(t *testing.T) {
+	_, err := New(Config{Packs: fstest.MapFS{}}) // no hash list
+	if err == nil || !strings.Contains(err.Error(), "app: country packs") {
+		t.Errorf("New: got %v, want the country packs refused", err)
 	}
 }
