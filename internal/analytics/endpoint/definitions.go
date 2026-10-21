@@ -285,7 +285,7 @@ type simulated struct {
 }
 
 // Disclose implements configuration.Disclosure.
-func (d Disclosure) Disclose(ctx context.Context, e configuration.Evidence) (configuration.Evidence, error) {
+func (d Disclosure) Disclose(ctx context.Context, e configuration.Evidence, access authz.Access) (configuration.Evidence, error) {
 	if e.Kind != "simulation" {
 		return e, nil
 	}
@@ -300,7 +300,7 @@ func (d Disclosure) Disclose(ctx context.Context, e configuration.Evidence) (con
 	if err := json.Unmarshal(e.Detail, &sim); err != nil {
 		return configuration.Evidence{}, fmt.Errorf("analytics: simulated values: %w", err)
 	}
-	p, err := d.Endpoints.principal(ctx, nil)
+	p, err := d.Endpoints.principalOf(ctx, access, nil)
 	if err != nil {
 		return configuration.Evidence{}, err
 	}

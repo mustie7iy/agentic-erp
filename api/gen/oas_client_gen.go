@@ -49,6 +49,18 @@ type Invoker interface {
 	//
 	// POST /v1/org-units/{id}:activate
 	ActivateOrgUnit(ctx context.Context, params ActivateOrgUnitParams) (ActivateOrgUnitRes, error)
+	// ApplyCountryPack invokes applyCountryPack operation.
+	//
+	// Merges a country pack version into the active configuration for one company (ADR-0048: three-way,
+	// from the version the company adopted) and creates the result as a change request in status `draft`,
+	// based on the active version, with the merge's notes for the reviewers. Nothing is activated: the
+	// change request is submitted, simulated, approved and activated like any other. In production a pack
+	// no tax specialist has signed off is refused (409 `config.pack_not_signed_off`); elsewhere it is
+	// applied with a note, so packs can be tried before sign-off. The company's legal entity must be
+	// active (422 `config.legal_entity_not_active`).
+	//
+	// POST /v1/country-pack-applications
+	ApplyCountryPack(ctx context.Context, request *CountryPackApplication, params ApplyCountryPackParams) (ApplyCountryPackRes, error)
 	// ApproveApprovalRequest invokes approveApprovalRequest operation.
 	//
 	// Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`);
@@ -57,9 +69,11 @@ type Invoker interface {
 	// object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The
 	// request is `approved` when the last step is complete, and the object moves on (a requisition becomes
 	// `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry
-	// is posted). A manual entry is checked again as it is posted: when that refuses it (409
-	// `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name the
-	// parked entry's), the approval is refused and the request stays pending.
+	// is posted, a bank statement line is posted). A manual entry is checked again as it is posted: when
+	// that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
+	// fields name the parked entry's), the approval is refused and the request stays pending; so is a bank
+	// statement line's posting (`bank_clearing`), and whoever matched the line by hand cannot approve its
+	// posting (403 `workflow.segregation_of_duties`).
 	//
 	// POST /v1/approval-requests/{id}:approve
 	ApproveApprovalRequest(ctx context.Context, request OptDecisionInput, params ApproveApprovalRequestParams) (ApproveApprovalRequestRes, error)
@@ -333,8 +347,9 @@ type Invoker interface {
 	// the active configuration version: a stratified sample (every decision, every match issue kind,
 	// invoices near the auto-post limit, then more) with the decision each case got. The simulation of a
 	// change request then replays the latest suite of its base version and records `regression` evidence:
-	// a case outside the companies the change touches that is decided differently fails it. 422
-	// `config.no_cases` when the window has no invoices to capture.
+	// a case outside the companies the change touches that is decided differently fails it. The capture
+	// samples the invoices of every company; the suite returned shows the cases of the companies the
+	// caller may access alone. 422 `config.no_cases` when the window has no invoices to capture.
 	//
 	// POST /v1/regression-suites
 	CreateRegressionSuite(ctx context.Context, request *RegressionSuiteCreate, params CreateRegressionSuiteParams) (CreateRegressionSuiteRes, error)
@@ -697,7 +712,8 @@ type Invoker interface {
 	GetRecommendation(ctx context.Context, params GetRecommendationParams) (GetRecommendationRes, error)
 	// GetRegressionSuite invokes getRegressionSuite operation.
 	//
-	// Returns one regression suite with its cases.
+	// Returns one regression suite with the cases of the companies the reader may access alone
+	// (`RegressionSuite`).
 	//
 	// GET /v1/regression-suites/{id}
 	GetRegressionSuite(ctx context.Context, params GetRegressionSuiteParams) (GetRegressionSuiteRes, error)
@@ -802,7 +818,8 @@ type Invoker interface {
 	// statement already imported (the same statement id, account and sequence) is refused with 409
 	// `payments.statement_conflict`. A statement whose opening balance is not the closing balance of the
 	// house bank's statement before it is imported in status `gap`, and automatic posting stops for the
-	// bank; a statement imported between two others becomes the next one's previous statement, whose
+	// bank; the lines the rules match on import are posted as `POST /v1/bank-statements/{id}:match` posts
+	// them; a statement imported between two others becomes the next one's previous statement, whose
 	// status follows the comparison again. A file that cannot be read is refused with 422
 	// `payments.statement_unreadable`, naming the line where what is wrong starts. Imports are made by
 	// people and integrations; agents read statements, and an agent's import is refused with 403
@@ -918,6 +935,14 @@ type Invoker interface {
 	//
 	// GET /v1/contracts
 	ListContracts(ctx context.Context, params ListContractsParams) (ListContractsRes, error)
+	// ListCountryPacks invokes listCountryPacks operation.
+	//
+	// The released country packs in the image (ADR-0048): each country's versions with the hash they were
+	// released with, the tax specialist's sign-off and the legal sources they rest on. The same for every
+	// tenant. Ordered by country, then version.
+	//
+	// GET /v1/country-packs
+	ListCountryPacks(ctx context.Context, params ListCountryPacksParams) (ListCountryPacksRes, error)
 	// ListDownPaymentRequests invokes listDownPaymentRequests operation.
 	//
 	// Down payment requests (SAP F-47, ADR-0037). Sortable by: `due_date`.
@@ -1061,7 +1086,8 @@ type Invoker interface {
 	ListRecommendations(ctx context.Context, params ListRecommendationsParams) (ListRecommendationsRes, error)
 	// ListRegressionSuites invokes listRegressionSuites operation.
 	//
-	// Regression suites captured for this tenant, newest first. Sortable by: `captured_at`.
+	// Regression suites captured for this tenant, newest first, each with the cases of the companies the
+	// reader may access alone (`RegressionSuite`). Sortable by: `captured_at`.
 	//
 	// GET /v1/regression-suites
 	ListRegressionSuites(ctx context.Context, params ListRegressionSuitesParams) (ListRegressionSuitesRes, error)
@@ -1142,9 +1168,15 @@ type Invoker interface {
 	// compared with what the rules find now: the same candidates leave it as it is, others reject its open
 	// match and record the new one (or make it unmatched again). Lines matched or excluded, and an agent's
 	// proposals, are never touched, so running it twice changes nothing the second time. Agents may call
-	// it: it only applies the rules, and what they cannot decide stays open for a person. If-Match is the
-	// statement's ETag; a run that matches or leaves open a line, and a person's match or exclusion, move
-	// it on. Returns the statement with its lines; `GET /v1/bank-statements/{id}/matches` has the matches.
+	// it: it only applies the rules, and what they cannot decide stays open for a person. The lines the
+	// rules matched are then posted as `POST .../lines/{line_no}:post` posts them, by the caller, unless
+	// the caller is an agent (agents never post) or lacks `payments.statement.post`, or the house bank has
+	// a statement in `gap`: each is posted (`posted`) or waits for the approval of its posting
+	// (`pending_approval`); one the ledger refuses (a locked period, no exchange rate) stays `matched` for
+	// a person, and the refusal is audited. A line whose posting was rejected or withdrawn is not
+	// submitted again by a run. If-Match is the statement's ETag; a run that matches, leaves open or posts
+	// a line, and a person's match, exclusion or posting, move it on. Returns the statement with its
+	// lines; `GET /v1/bank-statements/{id}/matches` has the matches.
 	//
 	// POST /v1/bank-statements/{id}:match
 	MatchBankStatement(ctx context.Context, params MatchBankStatementParams) (MatchBankStatementRes, error)
@@ -1208,6 +1240,31 @@ type Invoker interface {
 	//
 	// POST /v1/webhook-subscriptions/{id}:ping
 	PingWebhookSubscription(ctx context.Context, params PingWebhookSubscriptionParams) (PingWebhookSubscriptionRes, error)
+	// PostBankStatementLine invokes postBankStatementLine operation.
+	//
+	// Posts a `matched` line (ADR-0047) to the house bank's main bank account (`main_gl_account`) against
+	// what its match clears: for payments, each payment's line on the bank's clearing account, which must
+	// be open-item managed (422 `ledger.not_open_item_managed`), is offset at its original amounts and
+	// cleared with the posting, and the payments must pay the line's amount (409
+	// `payments.statement_amount_differs`); for a posting rule, the rule's account (409
+	// `payments.statement_posting_rule_gone` when the company no longer has the rule). A statement in
+	// another currency than the company's is converted at the posting date's rates, and the difference to
+	// the payments' amounts is a realized exchange difference (fx_gain/fx_loss). The posting is dated on
+	// the line's booking date, or on `posting_date` with a `reason` (both audited); a locked or closed
+	// period refuses it (409 `ledger.period_not_open`). The posting is routed by the line's amount in the
+	// company's currency through `companies[].bank_statements.approval_tiers` (`bank_clearing` approval
+	// requests): a tier without steps posts at once (`posted`); otherwise the line waits for the request
+	// (`pending_approval`), whose approval posts it, checked again, and whose rejection or withdrawal
+	// returns it to `matched`. A company without tiers has every posting approved by the `controller`
+	// role. Whoever matched the line by hand cannot approve its posting. A house bank without a main bank
+	// account never posts (409 `payments.statement_bank_not_posting`), nor one with a statement in `gap`
+	// (409 `payments.statement_gap`). A line not matched is 409 `payments.statement_line_not_matched`; one
+	// posted or waiting already is 409 `payments.statement_line_posting`. People only. Audited; the
+	// posting publishes BankStatementLinePosted, and the ledger JournalEntryPosted and ItemsCleared. The
+	// response's ETag is the statement's new one, the If-Match of the next decision on its lines.
+	//
+	// POST /v1/bank-statements/{id}/lines/{line_no}:post
+	PostBankStatementLine(ctx context.Context, request OptStatementLinePostInput, params PostBankStatementLineParams) (PostBankStatementLineRes, error)
 	// PostGoodsReceipt invokes postGoodsReceipt operation.
 	//
 	// Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122,
@@ -2264,6 +2321,142 @@ func (c *Client) sendActivateOrgUnit(ctx context.Context, params ActivateOrgUnit
 	return result, nil
 }
 
+// ApplyCountryPack invokes applyCountryPack operation.
+//
+// Merges a country pack version into the active configuration for one company (ADR-0048: three-way,
+// from the version the company adopted) and creates the result as a change request in status `draft`,
+// based on the active version, with the merge's notes for the reviewers. Nothing is activated: the
+// change request is submitted, simulated, approved and activated like any other. In production a pack
+// no tax specialist has signed off is refused (409 `config.pack_not_signed_off`); elsewhere it is
+// applied with a note, so packs can be tried before sign-off. The company's legal entity must be
+// active (422 `config.legal_entity_not_active`).
+//
+// POST /v1/country-pack-applications
+func (c *Client) ApplyCountryPack(ctx context.Context, request *CountryPackApplication, params ApplyCountryPackParams) (ApplyCountryPackRes, error) {
+	res, err := c.sendApplyCountryPack(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendApplyCountryPack(ctx context.Context, request *CountryPackApplication, params ApplyCountryPackParams) (res ApplyCountryPackRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("applyCountryPack"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/country-pack-applications"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ApplyCountryPackOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/country-pack-applications"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeApplyCountryPackRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ApplyCountryPackOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeApplyCountryPackResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ApproveApprovalRequest invokes approveApprovalRequest operation.
 //
 // Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`);
@@ -2272,9 +2465,11 @@ func (c *Client) sendActivateOrgUnit(ctx context.Context, params ActivateOrgUnit
 // object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The
 // request is `approved` when the last step is complete, and the object moves on (a requisition becomes
 // `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry
-// is posted). A manual entry is checked again as it is posted: when that refuses it (409
-// `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name the
-// parked entry's), the approval is refused and the request stays pending.
+// is posted, a bank statement line is posted). A manual entry is checked again as it is posted: when
+// that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
+// fields name the parked entry's), the approval is refused and the request stays pending; so is a bank
+// statement line's posting (`bank_clearing`), and whoever matched the line by hand cannot approve its
+// posting (403 `workflow.segregation_of_duties`).
 //
 // POST /v1/approval-requests/{id}:approve
 func (c *Client) ApproveApprovalRequest(ctx context.Context, request OptDecisionInput, params ApproveApprovalRequestParams) (ApproveApprovalRequestRes, error) {
@@ -7445,8 +7640,9 @@ func (c *Client) sendCreateRecommendation(ctx context.Context, request *Recommen
 // the active configuration version: a stratified sample (every decision, every match issue kind,
 // invoices near the auto-post limit, then more) with the decision each case got. The simulation of a
 // change request then replays the latest suite of its base version and records `regression` evidence:
-// a case outside the companies the change touches that is decided differently fails it. 422
-// `config.no_cases` when the window has no invoices to capture.
+// a case outside the companies the change touches that is decided differently fails it. The capture
+// samples the invoices of every company; the suite returned shows the cases of the companies the
+// caller may access alone. 422 `config.no_cases` when the window has no invoices to capture.
 //
 // POST /v1/regression-suites
 func (c *Client) CreateRegressionSuite(ctx context.Context, request *RegressionSuiteCreate, params CreateRegressionSuiteParams) (CreateRegressionSuiteRes, error) {
@@ -14931,7 +15127,8 @@ func (c *Client) sendGetRecommendation(ctx context.Context, params GetRecommenda
 
 // GetRegressionSuite invokes getRegressionSuite operation.
 //
-// Returns one regression suite with its cases.
+// Returns one regression suite with the cases of the companies the reader may access alone
+// (`RegressionSuite`).
 //
 // GET /v1/regression-suites/{id}
 func (c *Client) GetRegressionSuite(ctx context.Context, params GetRegressionSuiteParams) (GetRegressionSuiteRes, error) {
@@ -17074,7 +17271,8 @@ func (c *Client) sendHoldSupplierInvoice(ctx context.Context, request *ReasonInp
 // statement already imported (the same statement id, account and sequence) is refused with 409
 // `payments.statement_conflict`. A statement whose opening balance is not the closing balance of the
 // house bank's statement before it is imported in status `gap`, and automatic posting stops for the
-// bank; a statement imported between two others becomes the next one's previous statement, whose
+// bank; the lines the rules match on import are posted as `POST /v1/bank-statements/{id}:match` posts
+// them; a statement imported between two others becomes the next one's previous statement, whose
 // status follows the comparison again. A file that cannot be read is refused with 422
 // `payments.statement_unreadable`, naming the line where what is wrong starts. Imports are made by
 // people and integrations; agents read statements, and an agent's import is refused with 403
@@ -20962,6 +21160,176 @@ func (c *Client) sendListContracts(ctx context.Context, params ListContractsPara
 
 	stage = "DecodeResponse"
 	result, err := decodeListContractsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListCountryPacks invokes listCountryPacks operation.
+//
+// The released country packs in the image (ADR-0048): each country's versions with the hash they were
+// released with, the tax specialist's sign-off and the legal sources they rest on. The same for every
+// tenant. Ordered by country, then version.
+//
+// GET /v1/country-packs
+func (c *Client) ListCountryPacks(ctx context.Context, params ListCountryPacksParams) (ListCountryPacksRes, error) {
+	res, err := c.sendListCountryPacks(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListCountryPacks(ctx context.Context, params ListCountryPacksParams) (res ListCountryPacksRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCountryPacks"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/country-packs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListCountryPacksOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/country-packs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "country" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "country",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Country.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListCountryPacksOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListCountryPacksResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -26118,7 +26486,8 @@ func (c *Client) sendListRecommendations(ctx context.Context, params ListRecomme
 
 // ListRegressionSuites invokes listRegressionSuites operation.
 //
-// Regression suites captured for this tenant, newest first. Sortable by: `captured_at`.
+// Regression suites captured for this tenant, newest first, each with the cases of the companies the
+// reader may access alone (`RegressionSuite`). Sortable by: `captured_at`.
 //
 // GET /v1/regression-suites
 func (c *Client) ListRegressionSuites(ctx context.Context, params ListRegressionSuitesParams) (ListRegressionSuitesRes, error) {
@@ -28553,9 +28922,15 @@ func (c *Client) sendLockFiscalPeriod(ctx context.Context, params LockFiscalPeri
 // compared with what the rules find now: the same candidates leave it as it is, others reject its open
 // match and record the new one (or make it unmatched again). Lines matched or excluded, and an agent's
 // proposals, are never touched, so running it twice changes nothing the second time. Agents may call
-// it: it only applies the rules, and what they cannot decide stays open for a person. If-Match is the
-// statement's ETag; a run that matches or leaves open a line, and a person's match or exclusion, move
-// it on. Returns the statement with its lines; `GET /v1/bank-statements/{id}/matches` has the matches.
+// it: it only applies the rules, and what they cannot decide stays open for a person. The lines the
+// rules matched are then posted as `POST .../lines/{line_no}:post` posts them, by the caller, unless
+// the caller is an agent (agents never post) or lacks `payments.statement.post`, or the house bank has
+// a statement in `gap`: each is posted (`posted`) or waits for the approval of its posting
+// (`pending_approval`); one the ledger refuses (a locked period, no exchange rate) stays `matched` for
+// a person, and the refusal is audited. A line whose posting was rejected or withdrawn is not
+// submitted again by a run. If-Match is the statement's ETag; a run that matches, leaves open or posts
+// a line, and a person's match, exclusion or posting, move it on. Returns the statement with its
+// lines; `GET /v1/bank-statements/{id}/matches` has the matches.
 //
 // POST /v1/bank-statements/{id}:match
 func (c *Client) MatchBankStatement(ctx context.Context, params MatchBankStatementParams) (MatchBankStatementRes, error) {
@@ -29664,6 +30039,204 @@ func (c *Client) sendPingWebhookSubscription(ctx context.Context, params PingWeb
 
 	stage = "DecodeResponse"
 	result, err := decodePingWebhookSubscriptionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// PostBankStatementLine invokes postBankStatementLine operation.
+//
+// Posts a `matched` line (ADR-0047) to the house bank's main bank account (`main_gl_account`) against
+// what its match clears: for payments, each payment's line on the bank's clearing account, which must
+// be open-item managed (422 `ledger.not_open_item_managed`), is offset at its original amounts and
+// cleared with the posting, and the payments must pay the line's amount (409
+// `payments.statement_amount_differs`); for a posting rule, the rule's account (409
+// `payments.statement_posting_rule_gone` when the company no longer has the rule). A statement in
+// another currency than the company's is converted at the posting date's rates, and the difference to
+// the payments' amounts is a realized exchange difference (fx_gain/fx_loss). The posting is dated on
+// the line's booking date, or on `posting_date` with a `reason` (both audited); a locked or closed
+// period refuses it (409 `ledger.period_not_open`). The posting is routed by the line's amount in the
+// company's currency through `companies[].bank_statements.approval_tiers` (`bank_clearing` approval
+// requests): a tier without steps posts at once (`posted`); otherwise the line waits for the request
+// (`pending_approval`), whose approval posts it, checked again, and whose rejection or withdrawal
+// returns it to `matched`. A company without tiers has every posting approved by the `controller`
+// role. Whoever matched the line by hand cannot approve its posting. A house bank without a main bank
+// account never posts (409 `payments.statement_bank_not_posting`), nor one with a statement in `gap`
+// (409 `payments.statement_gap`). A line not matched is 409 `payments.statement_line_not_matched`; one
+// posted or waiting already is 409 `payments.statement_line_posting`. People only. Audited; the
+// posting publishes BankStatementLinePosted, and the ledger JournalEntryPosted and ItemsCleared. The
+// response's ETag is the statement's new one, the If-Match of the next decision on its lines.
+//
+// POST /v1/bank-statements/{id}/lines/{line_no}:post
+func (c *Client) PostBankStatementLine(ctx context.Context, request OptStatementLinePostInput, params PostBankStatementLineParams) (PostBankStatementLineRes, error) {
+	res, err := c.sendPostBankStatementLine(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendPostBankStatementLine(ctx context.Context, request OptStatementLinePostInput, params PostBankStatementLineParams) (res PostBankStatementLineRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("postBankStatementLine"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/bank-statements/{id}/lines/{line_no}:post"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, PostBankStatementLineOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/bank-statements/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/lines/"
+	{
+		// Encode "line_no" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "line_no",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.Int32ToString(params.LineNo))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":post"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodePostBankStatementLineRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, PostBankStatementLineOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodePostBankStatementLineResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

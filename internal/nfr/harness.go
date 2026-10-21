@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -77,6 +78,11 @@ type Stack struct {
 	tokens  sync.Map // subject → token
 	issued  sync.Map // subject → time the token was issued
 
+	// conns are the server's connections reading or serving a request
+	// (busy), by the state the server last reported (track).
+	connMu sync.Mutex
+	conns  map[net.Conn]http.ConnState
+
 	mu     sync.Mutex
 	posted []Posted
 	admin  *pgx.Conn // one superuser connection for the checks
@@ -117,6 +123,7 @@ func Start(tb testing.TB, o Options) *Stack {
 		s.NATS = newRestartable(tb)
 	}
 	s.Server = httptest.NewUnstartedServer(s.Env.API.Handler)
+	s.Server.Config.ConnState = s.track
 	s.Server.Config.ReadHeaderTimeout, s.Server.Config.IdleTimeout = 10*time.Second, 120*time.Second
 	s.Server.Start()
 	s.Client = &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{MaxIdleConns: 4 * o.Users, MaxIdleConnsPerHost: 4 * o.Users}}
@@ -330,17 +337,61 @@ func (s *Stack) Backlogs() (projection, outbox int) {
 	return projection, outbox
 }
 
-// Drain waits until the workers have caught up: the projection backlog is
-// empty, and the outbox backlog too when the relay runs.
+// track records the state the server reports for each connection. When a
+// load ends, its context cancels the requests in flight and the users
+// return, but the server goes on with each until it notices: a post whose
+// COMMIT was already sent still commits, after the load has stopped, and a
+// request whose bytes arrived may still be dispatched. Drain waits for
+// those, or the checks that follow see an entry the workers never had a
+// chance to reach (its lines in the journal, not yet in the balances).
+// Connections, not handlers, are counted, so a new connection's request is
+// waited for from its first byte, before it is dispatched; on a reused
+// keep-alive connection the server reports it active only once its headers
+// are read, which leaves that parse uncounted.
+func (s *Stack) track(c net.Conn, st http.ConnState) {
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+	if s.conns == nil {
+		s.conns = map[net.Conn]http.ConnState{}
+	}
+	switch st {
+	case http.StateClosed, http.StateHijacked:
+		delete(s.conns, c)
+	default:
+		s.conns[c] = st
+	}
+}
+
+// busy is how many of the server's connections are reading or serving a
+// request: new (accepted, nothing read yet) or active. A connection a
+// client dialed and never used stays new until ReadHeaderTimeout closes
+// it, which can hold Drain that long after a load.
+func (s *Stack) busy() int {
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+	n := 0
+	for _, st := range s.conns {
+		if st == http.StateNew || st == http.StateActive {
+			n++
+		}
+	}
+	return n
+}
+
+// Drain waits until the server has finished every request (track) and the
+// workers have caught up: the projection backlog is empty, and the outbox
+// backlog too when the relay runs. The connections are counted first, so a
+// backlog read after it includes whatever their requests committed.
 func (s *Stack) Drain(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
+		inflight := s.busy()
 		p, o := s.Backlogs()
-		if (p == 0 || s.Projector == nil) && (o == 0 || s.Relay == nil) {
+		if inflight == 0 && (p == 0 || s.Projector == nil) && (o == 0 || s.Relay == nil) {
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("backlogs after %v: %d entries unprojected, %d events unpublished", timeout, p, o)
+			return fmt.Errorf("backlogs after %v: connections busy: %d, %d entries unprojected, %d events unpublished", timeout, inflight, p, o)
 		}
 		if p > 0 && s.Projector != nil {
 			// An entry that committed after the projector's last round (a request

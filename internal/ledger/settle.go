@@ -265,7 +265,7 @@ func (e *Endpoints) paymentLines(ctx context.Context, tx pgx.Tx, in Settlement, 
 	if err != nil {
 		return nil, settlementBank{}, err
 	}
-	bank, err := e.bankAmounts(ctx, tx, in, le, bankTC)
+	bank, err := e.bankAmounts(ctx, tx, in.Currency, in.PostingDate, le, bankTC)
 	if err != nil {
 		return nil, settlementBank{}, err
 	}
@@ -352,20 +352,20 @@ func discountLines(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, items 
 
 // bankAmounts converts the settled transaction amount to local currency,
 // and that to group currency, at the average rates of the posting date.
-func (e *Endpoints) bankAmounts(ctx context.Context, tx pgx.Tx, in Settlement, le tenancy.Entity, tc money.Minor) (settlementBank, error) {
+func (e *Endpoints) bankAmounts(ctx context.Context, tx pgx.Tx, currency string, date time.Time, le tenancy.Entity, tc money.Minor) (settlementBank, error) {
 	var b settlementBank
 	var err error
 	if b.group, err = e.LegalEntities.GroupCurrency(ctx); err != nil {
 		return settlementBank{}, err
 	}
-	exps, err := exponents(ctx, tx, in.Currency, le.LocalCurrency, b.group)
+	exps, err := exponents(ctx, tx, currency, le.LocalCurrency, b.group)
 	if err != nil {
 		return settlementBank{}, err
 	}
-	if b.rateLC, b.rateGC, err = postingRates(ctx, tx, in.Currency, le.LocalCurrency, b.group, in.PostingDate); err != nil {
+	if b.rateLC, b.rateGC, err = postingRates(ctx, tx, currency, le.LocalCurrency, b.group, date); err != nil {
 		return settlementBank{}, err
 	}
-	b.expTC, b.expLC, b.expGC = exps[in.Currency], exps[le.LocalCurrency], exps[b.group]
+	b.expTC, b.expLC, b.expGC = exps[currency], exps[le.LocalCurrency], exps[b.group]
 	if b.lc, b.gc, err = b.convert(tc); err != nil {
 		return settlementBank{}, err
 	}
@@ -433,16 +433,25 @@ func leadingLines(n int) []int32 {
 // items must be open items on reconciliation accounts of the legal entity,
 // in one ledger and in the settlement's currency.
 func settledItemLines(items []item, in Settlement, legalEntity uuid.UUID) (lines []Line, tc, lc, gc money.Minor, err error) {
+	return offsetItems(items, in.Currency, in.HeaderText, func(i int, it item) error { return checkItem(i, it, &legalEntity, in.ReservedFor) })
+}
+
+// offsetItems offsets each item on its account at its original amounts,
+// once check passes it, and returns the lines with the items' totals per
+// currency: the items share the first's ledger and the currency. A
+// settlement offsets supplier items so, and a bank statement line its
+// payments' lines on the bank's clearing account (PostBank).
+func offsetItems(items []item, currency string, text *string, check func(int, item) error) (lines []Line, tc, lc, gc money.Minor, err error) {
 	lines = make([]Line, 0, len(items)+3)
 	tcs, lcs, gcs := make([]money.Minor, len(items)), make([]money.Minor, len(items)), make([]money.Minor, len(items))
 	for i, it := range items {
-		if err := checkItem(i, it, &legalEntity, in.ReservedFor); err != nil {
+		if err := check(i, it); err != nil {
 			return nil, 0, 0, 0, err
 		}
-		if it.currency != in.Currency || it.ledger != items[0].ledger {
-			return nil, 0, 0, 0, problem.Unprocessable("ledger.mixed_items", "The items of one settlement share their ledger and transaction currency "+in.Currency+".")
+		if it.currency != currency || it.ledger != items[0].ledger {
+			return nil, 0, 0, 0, problem.Unprocessable("ledger.mixed_items", "The items of one settlement share their ledger and transaction currency "+currency+".")
 		}
-		lines = append(lines, Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, Text: in.HeaderText})
+		lines = append(lines, Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, Text: text})
 		tcs[i], lcs[i], gcs[i] = it.tc, it.lc, it.gc
 	}
 	if tc, err = money.Sum(tcs...); err == nil {

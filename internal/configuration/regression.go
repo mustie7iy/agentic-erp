@@ -136,8 +136,11 @@ func CaptureRegressionSuite(ctx context.Context, deps Dependencies, in NewRegres
 	if err != nil {
 		return RegressionSuite{}, err
 	}
+	// The audit entry counts no cases: they are of every company, and the
+	// audit trail reaches readers of fewer (the suite shows each reader the
+	// cases of their own, suiteShown).
 	return s, audit.Add(ctx, audit.Entry{Action: "config.regression_suite.capture", ObjectType: "config.regression_suite", ObjectID: id, Outcome: "succeeded",
-		Detail: map[string]any{"number": s.Number, "config_version": number, "cases": len(cases), "window_days": in.WindowDays}})
+		Detail: map[string]any{"number": s.Number, "config_version": number, "window_days": in.WindowDays}})
 }
 
 // strataOf lists why cases were selected, in order of first use.
@@ -176,7 +179,8 @@ func getSuite(ctx context.Context, tx pgx.Tx, id uuid.UUID) (RegressionSuite, er
 	return s, nil
 }
 
-// GetRegressionSuite returns a suite with its cases.
+// GetRegressionSuite returns a suite with all its cases; the API shows each
+// reader the cases of their own companies alone (suiteShown).
 func GetRegressionSuite(ctx context.Context, id uuid.UUID) (RegressionSuite, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -216,7 +220,9 @@ func touched(c ChangeRequest) map[string]bool {
 // suite of its base version replayed under the proposal. It passes when the
 // suite still matches the base version and no case outside the companies
 // the change touches is decided differently; differences inside them are
-// the change at work, listed for the approvers.
+// the change at work, listed for the approvers. The cases are recorded by
+// company and the summary with no count (regressionRecord), so that each
+// reader is shown those of their own companies alone (regressionShown).
 func regression(ctx context.Context, tx pgx.Tx, deps Dependencies, c ChangeRequest, base, proposed *config.Config) (Simulation, error) {
 	suite, ok, err := latestSuite(ctx, tx, c.BaseVersion)
 	if err != nil {
@@ -226,35 +232,34 @@ func regression(ctx context.Context, tx pgx.Tx, deps Dependencies, c ChangeReque
 		return Simulation{Passed: false, Summary: fmt.Sprintf("No regression suite captured on version %d; capture one (createRegressionSuite) and simulate again.", c.BaseVersion),
 			Detail: map[string]any{"config_version": c.BaseVersion}}, nil
 	}
-	detail := map[string]any{"suite_id": suite.ID, "number": suite.Number, "cases": suite.CaseCount, "touched_companies": keys(touched(c))}
+	rec := newRegressionRecord(suite, c.BaseVersion)
+	inScope := touched(c)
 	stale, err := deps.Regressor.Replay(ctx, base, suite.Cases)
 	if err != nil {
 		return Simulation{}, err
 	}
 	if len(stale) > 0 {
-		detail["stale"] = stale
-		return Simulation{Passed: false, Summary: fmt.Sprintf("Suite %s no longer matches version %d (%d of %d cases decided differently today); capture a new suite.",
-			suite.Number, c.BaseVersion, len(stale), suite.CaseCount), Detail: detail}, nil
+		rec.StaleSuite = true
+		for _, f := range stale {
+			r := rec.company(f.Case)
+			r.Stale = append(r.Stale, f)
+		}
+		return rec.result(false, keys(inScope)), nil
 	}
 	failures, err := deps.Regressor.Replay(ctx, proposed, suite.Cases)
 	if err != nil {
 		return Simulation{}, err
 	}
-	inScope := touched(c)
-	expected, unexpected := []RegressionFailure{}, []RegressionFailure{}
+	passed := true
 	for _, f := range failures {
+		r := rec.company(f.Case)
 		if inScope[f.Case.Company] {
-			expected = append(expected, f)
+			r.Changed = append(r.Changed, f)
 		} else {
-			unexpected = append(unexpected, f)
+			r.Regressions, passed = append(r.Regressions, f), false
 		}
 	}
-	detail["changed"], detail["regressions"] = expected, unexpected
-	summary := fmt.Sprintf("Suite %s: %d of %d cases decided differently under the proposal", suite.Number, len(failures), suite.CaseCount)
-	if len(unexpected) > 0 {
-		summary += fmt.Sprintf("; %d of them outside the companies the change touches", len(unexpected))
-	}
-	return Simulation{Passed: len(unexpected) == 0, Summary: summary, Detail: detail}, nil
+	return rec.result(passed, keys(inScope)), nil
 }
 
 func keys(m map[string]bool) []string {

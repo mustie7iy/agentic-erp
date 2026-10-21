@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -175,7 +176,7 @@ func TestDownPaymentItems(t *testing.T) {
 // tax code not valid on the posting date, is refused.
 func TestPayDownPayment(t *testing.T) {
 	e := setup(t)
-	downPayments(t, e)
+	doc := downPayments(t, e)
 	bank := settleAccount(t, e, "2000", "100000")
 	v1 := "V1"
 	in := ledger.DownPaymentPayment{LegalEntityID: e.de, SupplierID: e.supplier, BankAccountID: bank, DocumentType: "SA", PostingDate: date("2026-03-20"),
@@ -222,13 +223,18 @@ func TestPayDownPayment(t *testing.T) {
 	if again.ID != first.ID {
 		t.Errorf("posting again: got entry %s, want %s", again.ID, first.ID)
 	}
-	unknown := "ZZ"
+	// GST and a non-deductible PST: one tax line cannot post it (T61d).
+	fixture.TaxCodes(t, e.ten, doc, config.TaxCode{Code: "V2", Description: "GST + PST", Components: []config.TaxComponent{
+		{Key: "gst", AccountKey: config.KeyInput, Account: "140000", Rates: []config.TaxRate{{RatePercent: "5", ValidFrom: "2026-01-01"}}},
+		{Key: "pst", AccountKey: config.KeyNonDeductible, Rates: []config.TaxRate{{RatePercent: "7", ValidFrom: "2026-01-01"}}}}})
+	unknown, parts := "ZZ", "V2"
 	for name, c := range map[string]struct {
 		mutate func(*ledger.DownPaymentPayment)
 		code   string
 	}{
 		"no down payment account": {func(p *ledger.DownPaymentPayment) { p.LegalEntityID = e.us }, "ledger.no_down_payment_account"},
 		"unknown tax code":        {func(p *ledger.DownPaymentPayment) { p.TaxCode = &unknown }, "ledger.unknown_tax_code"},
+		"a code with components":  {func(p *ledger.DownPaymentPayment) { p.TaxCode = &parts }, "ledger.tax_code_components"},
 		"tax of the whole amount": {func(p *ledger.DownPaymentPayment) { p.Tax = p.Amount }, "ledger.invalid_down_payment"},
 	} {
 		t.Run(name, func(t *testing.T) {

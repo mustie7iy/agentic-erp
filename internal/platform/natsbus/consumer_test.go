@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -88,16 +89,24 @@ func TestConsumerReadsAtLeastOnce(t *testing.T) {
 	c.Redeliver = time.Millisecond
 	ledger, tenancy, platform := event(t, b, "ledger"), event(t, b, "tenancy"), event(t, b, "platform")
 	s.fail[ledger.ID] = 1
-	n, err := c.RunOnce(ctx)
-	if err == nil || n != 1 {
-		t.Fatalf("first round: handled %d, error %v; want 1 and the ledger event's failure", n, err)
-	}
+	// A round fetches what has reached the consumer by then, so under load
+	// the first round may hold one event or both: rounds run until both are
+	// handled, and the ledger event must have failed once on the way.
+	failed := false
 	pgtest.Eventually(t, 10*time.Second, func() bool {
-		_, err := c.RunOnce(ctx)
-		return err == nil && len(s.got()) == 2
+		if _, err := c.RunOnce(ctx); err != nil {
+			failed = true
+		}
+		return len(s.got()) == 2
 	}, "the failed event was not read again")
+	if !failed {
+		t.Error("no round reported the ledger event's failure")
+	}
+	got := s.got()
+	slices.SortFunc(got, func(a, b uuid.UUID) int { return strings.Compare(a.String(), b.String()) })
 	want := []uuid.UUID{tenancy.ID, ledger.ID}
-	if got := s.got(); !slices.Equal(got, want) {
+	slices.SortFunc(want, func(a, b uuid.UUID) int { return strings.Compare(a.String(), b.String()) })
+	if !slices.Equal(got, want) {
 		t.Errorf("handled %v, want %v (never %s of an unread stream)", got, want, platform.ID)
 	}
 	// A second consumer of the same name continues where the first stopped.

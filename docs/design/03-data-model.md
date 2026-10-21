@@ -302,7 +302,8 @@ erDiagram
     int base_version
     smallint tier "1-4"
     text status "draft | validating | invalid | awaiting_evidence | pending_approval | approved | active | rejected | withdrawn"
-    uuid workflow_request_id }
+    uuid workflow_request_id
+    jsonb notes "for reviewers of a generated proposal" }
   change_item { uuid change_request_id PK
     int item_no PK
     text path
@@ -336,7 +337,17 @@ request, merged three-way from the version the company adopted. The
 document's `packs` section records, per company, the country, the pack
 version and the date it was applied on (`packs[company]`, an operational-
 tier change); validation requires a company of that country, one adoption
-per company, a `YYYY.N` version and a date.
+per company, a `YYYY.N` version and a date. The `calendars` section holds
+each company's holidays (`calendars[company].holidays[date]`, T62c): one
+calendar per company of the document, each holiday a `YYYY-MM-DD` date
+once, with a name; applying a pack merges its holidays by date. A change
+is operational, a holiday's name cosmetic. No context owns a table for it:
+readers use the active document (`config.Config.Holiday`).
+`POST /v1/country-pack-applications` (T62d) stores the draft as a change
+request in status `draft` on the active version, with the merge's notes in
+`change_request.notes` (an array of path and message, `[]` for requests
+proposed by hand), recorded when it is created; the request then goes the
+usual way, and nothing is activated by applying.
 
 A change request's simulation replays the invoices of every company, so
 that its verdict covers the whole change, but each reader is shown the
@@ -349,9 +360,31 @@ of no company is shown no invoice and counts of zero, and a replay of no
 legal entity is shown only to a reader of every company. A simulation
 recorded before this rule, with counts over every company, is shown only
 to readers of every company. The verdict (`passed`) is the change's and is
-shown to every reader, as the request's status shows it anyway. Regression
-evidence and suites' cases are not yet limited this way (tracker follow-up
-under Regression suites).
+shown to every reader, as the request's status shows it anyway.
+
+Regression suites and regression evidence are limited the same way. A
+suite samples the invoices of every company; each reader of
+`/v1/regression-suites` is shown the cases of the companies they may
+access alone, with their count (`case_count`) and the strata that selected
+them, numbered among those (`case_no` from 1, in the suite's order, so that
+gaps tell nothing of other companies' cases; the regression evidence numbers
+them the same way), and a case of no legal entity only to a reader of every
+company. The
+regression evidence is recorded by company (`cases_by_company`: each
+company's number of cases and its cases decided differently, `stale`,
+`changed` or `regressions`) with a summary that carries no count, as it
+too reaches the operation's result (`regression_summary`) and the audit
+trail; the capture's audit entry counts no cases either. Each reader of the
+change request is shown the cases of their companies and the summary's
+counts over those (`configuration.regressionShown`), failing closed as the
+simulation does. The verdict stays the change's, over every company: a
+reader of one company may see a failed regression with no case of theirs
+decided differently, since the request's status would show the verdict
+anyway. Regression evidence recorded before this rule, with counts over
+every company, is shown whole only to readers of every company, and to any
+other reader without its cases. The reader's company access is read once
+per request, however many change requests and pieces of evidence it
+returns.
 
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
@@ -737,7 +770,16 @@ items that named it before stay as they are, and posting them is refused;
 and for down payments (T46, ADR-0037) `down_payment`, the alternative
 reconciliation account of special G/L items: an asset that is a vendor
 reconciliation account, fixed once determined),
-`tax_code` (rate, account, direction), `withholding_tax_code` (T46e: the
+the tax codes (T61a, ADR-0049 §3; migration 000124): `tax_code_definition`
+(direction, never changed; kind; UN/CEFACT category), `tax_component` (one
+per tax a code levies: jurisdiction, account key, never changed;
+recoverable share; account, none when non-deductible, and the former
+accounts) and `tax_rate` (a component's dated rates, a GiST exclusion over
+the live ones; a rate's value and start never change, a rate no posting
+used is withdrawn rather than deleted, and the database refuses withdrawing
+or re-dating a rate past a posting of its code or adding one over posted
+dates, `ledger.tax_rate_in_use`); the former `tax_code` (one rate and
+account per validity) is copied into them and dropped later, `withholding_tax_code` (T46e: the
 configuration's `companies[].withholding_tax_codes`, SAP T059P/T059Z, kept
 by the setup per legal entity: a rate above 0 and below 100% of the
 invoice's net, the default, or gross, deducted at invoice or at payment, to
@@ -1367,7 +1409,10 @@ erDiagram
     text kind "rule | manual | agent"
     text rule "the matching rule, of kind rule"
     text reason
-    text status "open | matched | excluded | rejected" }
+    text status "open | matched | excluded | rejected"
+    date posting_date "booking date, or a person's with posting_reason"
+    uuid approval_request_id "bank_clearing (workflow)"
+    uuid journal_entry_id "the posting (ledger), one match per entry" }
   statement_match ||--o{ statement_match_target : clears
   statement_match_target { uuid match_id PK
     smallint candidate PK
@@ -1420,7 +1465,17 @@ the transactions in `details`) and the lines' matches
 (naming it), a person or an agent, `open` with candidates for a person or
 `matched`, `excluded` only by a person, `rejected` when a person's decision
 replaces it; its targets in `statement_match_target`, per candidate a
-payment, with the bank file of a batch booking, or a posting rule). A bank
+payment, with the bank file of a batch booking, or a posting rule). A
+matched line is posted (T49f, 000126): its match records the posting date
+(the booking date, or one a person gives with `posting_reason`), the
+latest `bank_clearing` approval request (kept when rejected or withdrawn)
+and the journal entry (`statement_match_journal_entry`: one match per
+entry; `statement_match_posted`: a posted match stays `matched`); the
+line becomes `pending_approval`, then `posted`, or `matched` again when
+the request is rejected or withdrawn. The posting debits the bank's
+clearing account and clears each payment's line on it (an open-item
+managed account, `ledger.company_account`), or posts a posting rule's
+account, against the main bank account. A bank
 file records its pain.001 message id (`bank_file.message_id`, 000123), which
 a batch booking carries. A
 statement whose opening balance is not the closing balance of the bank's
@@ -1896,7 +1951,7 @@ line or reservation. An agent's budget is identity's
 | REGUH/REGUP (F110) | `payments.payment_run`, `payment`, `payment_item` |
 | T012K | `payments.house_bank` |
 | T052 | `partner.payment_term` |
-| T007A | `ledger.tax_code` |
+| T007A, KONP/A003 (tax rates per condition), T030K (account keys MWS, VST, NVV, ESA/ESE) | `ledger.tax_code_definition`, `tax_component`, `tax_rate` (T61a) |
 | T030 | `ledger.account_determination` (VST, BNK, WRX, PRD, SKE) |
 | AGR_* | `identity.role`, `role_permission`, `principal_role` |
 | NRIV | `config.number_range` |

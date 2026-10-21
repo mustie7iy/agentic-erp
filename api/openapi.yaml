@@ -2422,13 +2422,109 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/country-packs:
+    get:
+      operationId: listCountryPacks
+      tags:
+        - configuration
+      summary: List country packs
+      description: "The released country packs in the image (ADR-0048): each country's versions with the hash they were released with, the tax specialist's sign-off and the legal sources they rest on. The same for every tenant. Ordered by country, then version."
+      x-permission: config.change.read
+      parameters:
+        - name: country
+          in: query
+          required: false
+          description: Only the packs of this country.
+          schema:
+            type: string
+            pattern: "^[A-Z]{2}$"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of country pack results.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountryPackPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/country-pack-applications:
+    post:
+      operationId: applyCountryPack
+      tags:
+        - configuration
+      summary: Apply a country pack to a company
+      description: "Merges a country pack version into the active configuration for one company (ADR-0048: three-way, from the version the company adopted) and creates the result as a change request in status `draft`, based on the active version, with the merge's notes for the reviewers. Nothing is activated: the change request is submitted, simulated, approved and activated like any other. In production a pack no tax specialist has signed off is refused (409 `config.pack_not_signed_off`); elsewhere it is applied with a note, so packs can be tried before sign-off. The company's legal entity must be active (422 `config.legal_entity_not_active`)."
+      x-permission: config.change.propose
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The pack version, the company and when it is applied.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CountryPackApplication"
+      responses:
+        "201":
+          description: "Created; the new change request, with the notes of the merge."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeRequest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/regression-suites:
     get:
       operationId: listRegressionSuites
       tags:
         - configuration
       summary: List regression suites
-      description: "Regression suites captured for this tenant, newest first. Sortable by: `captured_at`."
+      description: "Regression suites captured for this tenant, newest first, each with the cases of the companies the reader may access alone (`RegressionSuite`). Sortable by: `captured_at`."
       x-permission: config.change.read
       parameters:
         - name: config_version
@@ -2470,7 +2566,7 @@ paths:
       tags:
         - configuration
       summary: Capture a regression suite
-      description: "Captures a regression suite from the supplier invoices on purchase orders of the recent window under the active configuration version: a stratified sample (every decision, every match issue kind, invoices near the auto-post limit, then more) with the decision each case got. The simulation of a change request then replays the latest suite of its base version and records `regression` evidence: a case outside the companies the change touches that is decided differently fails it. 422 `config.no_cases` when the window has no invoices to capture."
+      description: "Captures a regression suite from the supplier invoices on purchase orders of the recent window under the active configuration version: a stratified sample (every decision, every match issue kind, invoices near the auto-post limit, then more) with the decision each case got. The simulation of a change request then replays the latest suite of its base version and records `regression` evidence: a case outside the companies the change touches that is decided differently fails it. The capture samples the invoices of every company; the suite returned shows the cases of the companies the caller may access alone. 422 `config.no_cases` when the window has no invoices to capture."
       x-permission: config.regression.manage
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -2521,7 +2617,7 @@ paths:
       tags:
         - configuration
       summary: Get a regression suite
-      description: Returns one regression suite with its cases.
+      description: "Returns one regression suite with the cases of the companies the reader may access alone (`RegressionSuite`)."
       x-permission: config.change.read
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -8387,7 +8483,7 @@ paths:
       tags:
         - payments
       summary: Import a bank statement file
-      description: "Imports the statements of a bank's file (ADR-0047) for one house bank: camt.053 (.001.02 or .001.08) or MT940, read as UTF-8, at most 4 MB. Each statement must be of the house bank's account and currency, and its entries must take its opening balance to its closing balance. The same file again for the house bank (by its SHA-256) answers 200 with the statements it imported; another file with a statement already imported (the same statement id, account and sequence) is refused with 409 `payments.statement_conflict`. A statement whose opening balance is not the closing balance of the house bank's statement before it is imported in status `gap`, and automatic posting stops for the bank; a statement imported between two others becomes the next one's previous statement, whose status follows the comparison again. A file that cannot be read is refused with 422 `payments.statement_unreadable`, naming the line where what is wrong starts. Imports are made by people and integrations; agents read statements, and an agent's import is refused with 403 `identity.agent_not_allowed`. The file is kept as accounting evidence in object storage (`GET /v1/bank-statements/{id}/file`), so without object storage, or when the store does not take it, nothing is imported (503)."
+      description: "Imports the statements of a bank's file (ADR-0047) for one house bank: camt.053 (.001.02 or .001.08) or MT940, read as UTF-8, at most 4 MB. Each statement must be of the house bank's account and currency, and its entries must take its opening balance to its closing balance. The same file again for the house bank (by its SHA-256) answers 200 with the statements it imported; another file with a statement already imported (the same statement id, account and sequence) is refused with 409 `payments.statement_conflict`. A statement whose opening balance is not the closing balance of the house bank's statement before it is imported in status `gap`, and automatic posting stops for the bank; the lines the rules match on import are posted as `POST /v1/bank-statements/{id}:match` posts them; a statement imported between two others becomes the next one's previous statement, whose status follows the comparison again. A file that cannot be read is refused with 422 `payments.statement_unreadable`, naming the line where what is wrong starts. Imports are made by people and integrations; agents read statements, and an agent's import is refused with 403 `identity.agent_not_allowed`. The file is kept as accounting evidence in object storage (`GET /v1/bank-statements/{id}/file`), so without object storage, or when the store does not take it, nothing is imported (503)."
       x-permission: payments.statement.import
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -8525,7 +8621,7 @@ paths:
       tags:
         - payments
       summary: Match a bank statement's lines
-      description: "Runs the company's matching rules (`companies[].bank_statements.matching_rules`, ADR-0047) on the statement's unmatched lines, and again on the lines a rule left open, as the import does: in the rules' order, the first rule that finds candidates decides. A rule that finds exactly one candidate, whose payments pay the line's amount, matches the line (`matched`); one that finds several, or payments that do not pay it, leaves an open match listing them for a person (`proposed`). The rules on payments read debits, never reversals; a payment another line's match holds settles no line: the id rules leave the line open for a person, and the amount rule skips it. A line a rule left open is compared with what the rules find now: the same candidates leave it as it is, others reject its open match and record the new one (or make it unmatched again). Lines matched or excluded, and an agent's proposals, are never touched, so running it twice changes nothing the second time. Agents may call it: it only applies the rules, and what they cannot decide stays open for a person. If-Match is the statement's ETag; a run that matches or leaves open a line, and a person's match or exclusion, move it on. Returns the statement with its lines; `GET /v1/bank-statements/{id}/matches` has the matches."
+      description: "Runs the company's matching rules (`companies[].bank_statements.matching_rules`, ADR-0047) on the statement's unmatched lines, and again on the lines a rule left open, as the import does: in the rules' order, the first rule that finds candidates decides. A rule that finds exactly one candidate, whose payments pay the line's amount, matches the line (`matched`); one that finds several, or payments that do not pay it, leaves an open match listing them for a person (`proposed`). The rules on payments read debits, never reversals; a payment another line's match holds settles no line: the id rules leave the line open for a person, and the amount rule skips it. A line a rule left open is compared with what the rules find now: the same candidates leave it as it is, others reject its open match and record the new one (or make it unmatched again). Lines matched or excluded, and an agent's proposals, are never touched, so running it twice changes nothing the second time. Agents may call it: it only applies the rules, and what they cannot decide stays open for a person. The lines the rules matched are then posted as `POST .../lines/{line_no}:post` posts them, by the caller, unless the caller is an agent (agents never post) or lacks `payments.statement.post`, or the house bank has a statement in `gap`: each is posted (`posted`) or waits for the approval of its posting (`pending_approval`); one the ledger refuses (a locked period, no exchange rate) stays `matched` for a person, and the refusal is audited. A line whose posting was rejected or withdrawn is not submitted again by a run. If-Match is the statement's ETag; a run that matches, leaves open or posts a line, and a person's match, exclusion or posting, move it on. Returns the statement with its lines; `GET /v1/bank-statements/{id}/matches` has the matches."
       x-permission: payments.statement.match
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -8743,6 +8839,76 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/bank-statements/{id}/lines/{line_no}:post":
+    post:
+      operationId: postBankStatementLine
+      tags:
+        - payments
+      summary: Post a matched bank statement line
+      description: "Posts a `matched` line (ADR-0047) to the house bank's main bank account (`main_gl_account`) against what its match clears: for payments, each payment's line on the bank's clearing account, which must be open-item managed (422 `ledger.not_open_item_managed`), is offset at its original amounts and cleared with the posting, and the payments must pay the line's amount (409 `payments.statement_amount_differs`); for a posting rule, the rule's account (409 `payments.statement_posting_rule_gone` when the company no longer has the rule). A statement in another currency than the company's is converted at the posting date's rates, and the difference to the payments' amounts is a realized exchange difference (fx_gain/fx_loss). The posting is dated on the line's booking date, or on `posting_date` with a `reason` (both audited); a locked or closed period refuses it (409 `ledger.period_not_open`). The posting is routed by the line's amount in the company's currency through `companies[].bank_statements.approval_tiers` (`bank_clearing` approval requests): a tier without steps posts at once (`posted`); otherwise the line waits for the request (`pending_approval`), whose approval posts it, checked again, and whose rejection or withdrawal returns it to `matched`. A company without tiers has every posting approved by the `controller` role. Whoever matched the line by hand cannot approve its posting. A house bank without a main bank account never posts (409 `payments.statement_bank_not_posting`), nor one with a statement in `gap` (409 `payments.statement_gap`). A line not matched is 409 `payments.statement_line_not_matched`; one posted or waiting already is 409 `payments.statement_line_posting`. People only. Audited; the posting publishes BankStatementLinePosted, and the ledger JournalEntryPosted and ItemsCleared. The response's ETag is the statement's new one, the If-Match of the next decision on its lines."
+      x-permission: payments.statement.post
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: line_no
+          in: path
+          required: true
+          description: The line's number in the statement, from 1.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of postBankStatementLine.
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatementLinePostInput"
+      responses:
+        "200":
+          description: The line's match, posted or waiting for the approval of its posting.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementMatch"
+              examples:
+                posted:
+                  summary: Posted on its booking date
+                  value: {id: 0192a000-0000-7000-8000-000000000b40, version: 2, created_at: "2026-10-20T11:00:00Z", created_by: 0192a000-0000-7000-8000-000000000105, updated_at: "2026-10-20T11:05:00Z", updated_by: 0192a000-0000-7000-8000-000000000105, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, kind: rule, rule: end_to_end_id, reason: "End-to-end ids 2000-PR100000-000001: 1 of 1 are payments, paying 100.00 of 100.00.", status: matched, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c01}], posting_date: "2026-04-17", journal_entry_id: 0192a000-0000-7000-8000-000000000d01, journal_entry_year: 2026}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   "/v1/bank-files/{id}":
     get:
       operationId: getBankFile
@@ -8905,6 +9071,7 @@ paths:
               - manual_entry
               - purchase_order
               - order_change
+              - bank_clearing
         - name: object_id
           in: query
           required: false
@@ -9038,7 +9205,7 @@ paths:
       tags:
         - workflow
       summary: Approve an approval request
-      description: "Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`); the requester cannot approve; a person approves a request at most once. Besides `workflow.request.decide` the caller must hold the step's role and the approval permission of the object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The request is `approved` when the last step is complete, and the object moves on (a requisition becomes `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry is posted). A manual entry is checked again as it is posted: when that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name the parked entry's), the approval is refused and the request stays pending."
+      description: "Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`); the requester cannot approve; a person approves a request at most once. Besides `workflow.request.decide` the caller must hold the step's role and the approval permission of the object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The request is `approved` when the last step is complete, and the object moves on (a requisition becomes `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry is posted, a bank statement line is posted). A manual entry is checked again as it is posted: when that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name the parked entry's), the approval is refused and the request stays pending; so is a bank statement line's posting (`bank_clearing`), and whoever matched the line by hand cannot approve its posting (403 `workflow.segregation_of_duties`)."
       x-permission: workflow.request.decide
       x-agent: false
       parameters:
@@ -9136,6 +9303,7 @@ paths:
         manual_entry: ledger.entry.approve
         purchase_order: procurement.order.approve
         order_change: procurement.order.approve
+        bank_clearing: payments.statement.clearing.approve
   "/v1/approval-requests/{id}:reject":
     post:
       operationId: rejectApprovalRequest
@@ -9204,6 +9372,7 @@ paths:
         manual_entry: ledger.entry.approve
         purchase_order: procurement.order.approve
         order_change: procurement.order.approve
+        bank_clearing: payments.statement.clearing.approve
   "/v1/approval-requests/{id}:cancel":
     post:
       operationId: cancelApprovalRequest
@@ -13855,12 +14024,12 @@ components:
           readOnly: true
         summary:
           type: string
-          description: "Summary of the result. For `simulation` evidence its counts are over the companies the reader may access alone."
+          description: "Summary of the result. For `simulation` and `regression` evidence its counts are over the companies the reader may access alone."
           readOnly: true
         detail:
           type: object
           additionalProperties: true
-          description: "Detailed result. For `simulation` evidence, the replayed invoices, decisions and posting rules of the companies the reader may access alone, counted over those: a reader of no company is shown none and counts of zero. The verdict (`passed`) is over every company the change touches."
+          description: "Detailed result. For `simulation` evidence, the replayed invoices, decisions and posting rules of the companies the reader may access alone, counted over those: a reader of no company is shown none and counts of zero. For `regression` evidence, likewise the suite's cases of those companies (`cases`, their count; `changed`, `regressions`, or `stale` when the suite no longer matches its version). The verdict (`passed`) is over every company the change touches."
           readOnly: true
         recorded_at:
           type: string
@@ -13894,7 +14063,7 @@ components:
         case_no:
           type: integer
           format: int32
-          description: Position in the suite.
+          description: "Position among the suite's cases the reader is shown: a reader of every company is shown the suite's own numbering; any other reader the cases of their companies numbered from 1, so that the numbers tell nothing of other companies' cases. It is therefore not a stable identifier (it changes with the reader's company access); `supplier_invoice_id` is."
           minimum: 1
           readOnly: true
         supplier_invoice_id:
@@ -13938,7 +14107,7 @@ components:
           expected_decision: exception
           expected_issues: [price_variance]
     RegressionSuite:
-      description: A regression suite captured under a configuration version, replayed by simulations of changes based on that version.
+      description: "A regression suite captured under a configuration version, replayed by simulations of changes based on that version. It samples the invoices of every company; each reader is shown the cases of the companies they may access alone, with their count and strata (a case of no legal entity only to a reader of every company)."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
@@ -13974,20 +14143,20 @@ components:
             case_count:
               type: integer
               format: int32
-              description: Number of cases.
+              description: "Number of cases shown: those of the companies the reader may access."
               minimum: 0
               readOnly: true
             strata:
               type: array
               items:
                 type: string
-              description: The reasons cases were selected, in order.
+              description: "The reasons the cases shown were selected, in order."
               readOnly: true
             cases:
               type: array
               items:
                 $ref: "#/components/schemas/RegressionCase"
-              description: The cases.
+              description: "The cases of the companies the reader may access alone: a reader of no company is shown none."
               readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e00"
@@ -14141,6 +14310,12 @@ components:
               items:
                 $ref: "#/components/schemas/Evidence"
               description: Recorded evidence.
+              readOnly: true
+            notes:
+              type: array
+              items:
+                $ref: "#/components/schemas/ChangeRequestNote"
+              description: "What reviewers should look at in a proposal that was generated (applyCountryPack): conflicts with the tenant's own settings, items kept that the source no longer has, rates that come later. Recorded when the change request is created and not updated when the proposal is edited; absent when there are none."
               readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41"
@@ -14303,6 +14478,268 @@ components:
           additionalProperties: true
           description: "The JSON Schema, in the restricted subset of ADR-0046: a flat `type: object` with `additionalProperties: false`, `required` and `properties`, each property with `type`, optional `format`, `maxLength`, `enum`, `minimum`, `maximum`, `title`, `description`, and `x-pii` (`none`, `personal` or `sensitive`)."
           readOnly: true
+    ChangeRequestNote:
+      type: object
+      description: A note for the reviewers of a generated proposal, on one setting of the document.
+      required:
+        - path
+        - message
+      properties:
+        path:
+          type: string
+          description: Path of the setting in the configuration document.
+          readOnly: true
+        message:
+          type: string
+          description: What the reviewers should look at.
+          readOnly: true
+      examples:
+        - path: "calendars[1000].holidays[2026-12-25]"
+          message: "conflict: changed both here and in the pack; kept as here, the pack has {Date:2026-12-25 Name:Christmas}"
+    CountryPack:
+      type: object
+      description: "A released country pack version (ADR-0048): a country's chart of accounts, tax codes, holidays, number ranges and payment terms, with the legal sources they rest on. Released versions never change."
+      required:
+        - country
+        - version
+        - name
+        - valid_from
+        - hash
+        - signed_off
+        - sources
+        - contents
+      properties:
+        country:
+          type: string
+          description: Country (ISO 3166-1 alpha-2).
+          pattern: "^[A-Z]{2}$"
+          readOnly: true
+        version:
+          type: string
+          description: "Version `YYYY.N`."
+          pattern: "^[0-9]{4}\\.[1-9][0-9]*$"
+          readOnly: true
+        name:
+          type: string
+          description: Name of the pack.
+          readOnly: true
+        valid_from:
+          type: string
+          format: date
+          description: First day the pack's settings hold.
+          readOnly: true
+        hash:
+          type: string
+          description: "SHA-256 of the pack's directory as released (`packs/released.sha256`), hex."
+          pattern: "^[0-9a-f]{64}$"
+          readOnly: true
+        signed_off:
+          type: boolean
+          description: "Whether a tax specialist signed the pack off; required before the pilot. Applying a pack without it notes so."
+          readOnly: true
+        sign_off:
+          $ref: "#/components/schemas/CountryPackSignOff"
+          description: The tax specialist's sign-off; absent until given.
+          readOnly: true
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountryPackSource"
+          description: The laws, regulations and authority publications the pack follows.
+          readOnly: true
+        contents:
+          $ref: "#/components/schemas/CountryPackContents"
+          description: How many settings of each kind the pack has.
+          readOnly: true
+      examples:
+        - country: CA
+          version: "2026.1"
+          name: Canada
+          valid_from: "2026-01-01"
+          hash: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+          signed_off: true
+          sign_off:
+            tax_specialist: A. Specialist, Example Tax LLP
+            date: "2026-10-01"
+          sources:
+            - title: Excise Tax Act, Part IX (GST/HST)
+              url: https://laws-lois.justice.gc.ca/eng/acts/E-15/
+              retrieved: "2026-09-01"
+          contents:
+            accounts: 42
+            tax_codes: 6
+            holidays: 11
+            number_ranges: 4
+            payment_terms: 3
+    CountryPackSignOff:
+      type: object
+      description: The tax specialist who reviewed a country pack, and when.
+      required:
+        - tax_specialist
+        - date
+      properties:
+        tax_specialist:
+          type: string
+          description: Who signed the pack off.
+          readOnly: true
+        date:
+          type: string
+          description: "When, as the pack records it (`YYYY-MM-DD`)."
+          readOnly: true
+      examples:
+        - tax_specialist: A. Specialist, Example Tax LLP
+          date: "2026-10-01"
+    CountryPackSource:
+      type: object
+      description: A law, regulation or authority publication a country pack follows.
+      required:
+        - title
+        - url
+        - retrieved
+      properties:
+        title:
+          type: string
+          description: Title of the source.
+          readOnly: true
+        url:
+          type: string
+          description: Where the source is published.
+          readOnly: true
+        retrieved:
+          type: string
+          description: "When the source was read for the pack (`YYYY-MM-DD`)."
+          readOnly: true
+      examples:
+        - title: Excise Tax Act, Part IX (GST/HST)
+          url: https://laws-lois.justice.gc.ca/eng/acts/E-15/
+          retrieved: "2026-09-01"
+    CountryPackContents:
+      type: object
+      description: How many settings of each kind a country pack has.
+      required:
+        - accounts
+        - tax_codes
+        - holidays
+        - number_ranges
+        - payment_terms
+      properties:
+        accounts:
+          type: integer
+          format: int32
+          description: Accounts of the chart of accounts.
+          minimum: 0
+          readOnly: true
+        tax_codes:
+          type: integer
+          format: int32
+          description: Tax codes.
+          minimum: 0
+          readOnly: true
+        holidays:
+          type: integer
+          format: int32
+          description: Holidays.
+          minimum: 0
+          readOnly: true
+        number_ranges:
+          type: integer
+          format: int32
+          description: Number range templates, one per document type.
+          minimum: 0
+          readOnly: true
+        payment_terms:
+          type: integer
+          format: int32
+          description: Payment terms.
+          minimum: 0
+          readOnly: true
+      examples:
+        - accounts: 42
+          tax_codes: 6
+          holidays: 11
+          number_ranges: 4
+          payment_terms: 3
+    CountryPackPage:
+      type: object
+      description: One page of country packs.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountryPack"
+          description: The country packs on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items:
+            - country: CA
+              version: "2026.1"
+              name: Canada
+              valid_from: "2026-01-01"
+              hash: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+              signed_off: false
+              sources:
+                - title: Excise Tax Act, Part IX (GST/HST)
+                  url: https://laws-lois.justice.gc.ca/eng/acts/E-15/
+                  retrieved: "2026-09-01"
+              contents:
+                accounts: 42
+                tax_codes: 6
+                holidays: 11
+                number_ranges: 4
+                payment_terms: 3
+    CountryPackApplication:
+      type: object
+      description: "Apply a country pack version to a company: the change request it creates."
+      required:
+        - country
+        - version
+        - company
+        - applied_on
+        - fiscal_year
+      properties:
+        country:
+          type: string
+          description: Country of the pack.
+          pattern: "^[A-Z]{2}$"
+        version:
+          type: string
+          description: "Version of the pack (`YYYY.N`); never older than the one the company adopted."
+          pattern: "^[0-9]{4}\\.[1-9][0-9]*$"
+        company:
+          type: string
+          description: Company code of the configuration document, in the pack's country, of a legal entity the caller has access to.
+          pattern: "^[A-Z0-9]{1,10}$"
+        applied_on:
+          type: string
+          format: date
+          description: "Date of application: the tax rates in force on it are written, later ones noted, and the company's adoption records it."
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year the pack's number ranges are created for.
+          minimum: 1900
+          maximum: 9999
+        title:
+          type: string
+          description: "Title of the change request; by default it names the pack and the company."
+          minLength: 1
+          maxLength: 200
+        rationale:
+          type: string
+          description: Why the change is needed.
+          maxLength: 10000
+      additionalProperties: false
+      examples:
+        - country: CA
+          version: "2026.1"
+          company: "1000"
+          applied_on: "2026-11-01"
+          fiscal_year: 2026
     ConfigVersion:
       type: object
       description: "An immutable, activated configuration version. Insert-only; `activated_*` play the role of `created_*`."
@@ -20458,6 +20895,11 @@ components:
               items: {$ref: "#/components/schemas/StatementMatchTarget"}
               description: "What it clears: of an open match, each candidate's targets under its number; of a match decided, candidate 1's; none when excluded."
               readOnly: true
+            posting_date: {type: string, format: date, description: "The date the line posts on, or was asked to post on: its booking date or the one a person gave.", readOnly: true}
+            posting_reason: {type: string, description: "Why a person dated the posting otherwise than the booking date.", readOnly: true}
+            approval_request_id: {type: string, format: uuid, description: "The latest `bank_clearing` approval request of the posting (workflow context), also once rejected or withdrawn.", readOnly: true}
+            journal_entry_id: {type: string, format: uuid, description: "The posting (ledger context), once the line is posted.", readOnly: true}
+            journal_entry_year: {type: integer, format: int32, description: "The fiscal year of the posting.", readOnly: true}
     StatementMatchTarget:
       type: object
       description: "A payment, with the bank file of a batch booking, or a posting rule."
@@ -20479,6 +20921,22 @@ components:
             - [{id: 0192a000-0000-7000-8000-000000000b40, version: 1, created_at: "2026-10-20T11:00:00Z", created_by: 0192a000-0000-7000-8000-000000000105, updated_at: "2026-10-20T11:00:00Z", updated_by: 0192a000-0000-7000-8000-000000000105, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, kind: rule, rule: end_to_end_id, reason: "End-to-end ids 2000-PR100000-000001: 1 of 1 are payments, paying 100.00 of 100.00.", status: matched, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c01}]}]
       examples:
         - {items: [{id: 0192a000-0000-7000-8000-000000000b40, version: 1, created_at: "2026-10-20T11:00:00Z", created_by: 0192a000-0000-7000-8000-000000000105, updated_at: "2026-10-20T11:00:00Z", updated_by: 0192a000-0000-7000-8000-000000000105, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, kind: rule, rule: end_to_end_id, reason: "End-to-end ids 2000-PR100000-000001: 1 of 1 are payments, paying 100.00 of 100.00.", status: matched, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c01}]}]}
+    StatementLinePostInput:
+      type: object
+      description: "A person's posting of a matched line: on its booking date, or on another date with the reason."
+      properties:
+        posting_date:
+          type: string
+          format: date
+          description: "The date to post on instead of the booking date, in an open period; with `reason`."
+        reason:
+          type: string
+          description: "Why the posting is dated otherwise; recorded in the audit trail. Only with `posting_date`."
+          minLength: 1
+          maxLength: 2000
+      additionalProperties: false
+      examples:
+        - {posting_date: "2026-05-04", reason: "April is locked; the bank booked it on 30 April."}
     StatementLineMatchInput:
       type: object
       description: "A person's match of a line: the payments it clears or a posting rule, not both, and why."
@@ -20840,6 +21298,7 @@ components:
                 - manual_entry
                 - purchase_order
                 - order_change
+                - bank_clearing
               readOnly: true
             object_id:
               type: string

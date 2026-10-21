@@ -899,9 +899,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Posting and clearing, approvals.BankClearing, period locks",
-        "r": "T49f",
+        "s": "D",
+        "t": "Matched lines posted to the main bank account, clearing the payments' lines on the open-item managed clearing account (or to a posting rule's account), FX as a settlement; on the booking date or a person's date with a reason, refused in a locked or closed period; routed by approval_tiers (approvals.BankClearing, controller without tiers), the hand-matcher barred from approving; the rules' matches posted as they are made, except by agents or while the bank is in gap",
+        "r": "db/migrations/000126 · ledger.Postings.PostBank/Postable · POST /v1/bank-statements/{id}/lines/{line_no}:post · payments.statement.post · payments.statement.clearing.approve · approvals.BankClearing · approvals.Barrer (workflow.segregation_of_duties) · BankStatementLinePosted · T49f",
         "c": []
        },
        {
@@ -1131,7 +1131,7 @@
     ]
    },
    {
-    "t": "Tax determination and calculation",
+    "t": "Tax determination, calculation and returns",
     "sap": "FI-TAX",
     "ph": 2,
     "c": [
@@ -1142,28 +1142,113 @@
       "c": []
      },
      {
+      "s": "T",
+      "t": "Tax-rate check on captured invoices: the capture agent proposes tax codes and flags a stated tax that differs from the calculated (the earlier capture.checkTaxRate was removed with T7/T8)",
+      "r": "ADR-0049 · T61d",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Tax engine integration (e.g. Avalara, Vertex): calculation in-house behind the Calculator port, no provider now (P1); the connector when a country needs one",
+      "r": "ADR-0049 · T61b · T61m",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Tax returns: GST/HST (plus QST FPZ-500 if registered in Quebec, P4) and the UAE VAT 201, prepared and approved in the ERP and filed by a person (P3)",
+      "r": "ADR-0049 · T61g-T61k",
+      "c": []
+     },
+     {
       "s": "D",
-      "t": "Tax-rate check on captured invoices",
-      "r": "capture.checkTaxRate",
-      "c": []
-     },
-     {
-      "s": "T",
-      "t": "Tax engine integration (e.g. Avalara, Vertex)",
-      "r": "T61",
-      "c": []
-     },
-     {
-      "s": "T",
-      "t": "Tax returns",
-      "r": "T61",
+      "t": "On foundation: input tax codes applied from the configuration with effective dating (dated rates per component, written ahead; T61a)",
+      "r": "internal/ledger · ledger.Setup · T61a",
       "c": []
      },
      {
       "s": "P",
-      "t": "On foundation: input tax codes applied from the configuration with effective dating",
-      "r": "internal/ledger · ledger.Setup · T61",
-      "c": []
+      "t": "Tax determination, calculation and returns (T61), split T61a-T61m; PO decisions P1-P8 2026-10-20",
+      "r": "ADR-0049 · T61",
+      "c": [
+       {
+        "s": "D",
+        "t": "Dated tax codes with components (account key, jurisdiction, recoverable %, UN/CEFACT category) in configuration and ledger: ledger.tax_rate with dated rates written ahead, a rate a posting used never edited (database-enforced), country packs carrying components and all their rates",
+        "r": "config.TaxCode · ledger.tax_code_definition/tax_component/tax_rate · db/migrations/000124 · countrypack Tax · T61a",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The calculator (internal/tax, pure): exclusive and inclusive bases, rounding per document, code and component with largest-remainder allocation, recoverable split, reverse-charge pairs, the Calculator port",
+        "r": "T61b",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Tax items in the ledger: ledger.tax_item written by every posting path that carries a tax code, reversals negated, checked against the tax lines at commit; the tax date on the entry; the ledger.TaxItems port; the contract step dropping the former ledger.tax_code (copied by 000124, no longer read), and the in-use check (ledger.tax_code_posted) reading tax items",
+        "r": "T61c",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Input tax on supplier invoices: tax per item code at the tax date, one tax line per code and component account, non-deductible tax on the item's line, the supplier's tax within the company's tolerance else 422 payables.tax_mismatch (P5), credit memos at the invoice's tax date, capture proposes codes and flags mismatches",
+        "r": "T61d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Reverse charge, self-assessment and import tax: output and input pairs, import tax from customs declaration entries, UAE domestic reverse charge, Canada line 405, PST self-assessment",
+        "r": "T61e",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Output tax from the pilot's sales: output codes on manual and integration journal entries, per sales invoice or summary per code and jurisdiction (P2), tax checked within tolerance, zero-rated and exempt bases recorded",
+        "r": "T61f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Tax registrations and periods: companies[].tax_registrations (authority, number encrypted, return type, frequency, first period, UAE tax group), tier 3, tax periods generated, API",
+        "r": "T61g",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The return engine: returns.yaml in the pack schema (boxes as item selections or CEL expressions), a draft return from unreported items with prior-period items apart up to the pack's threshold (P7), drill-down to items, GET /v1/tax-returns:compute",
+        "r": "T61h",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Return lifecycle: prepared snapshot, approved by another person, recorded as filed by a person with the authority's confirmation (P3), withdrawn, amended; human-only transitions, audit and outbox events, periods locked on filing",
+        "r": "T61i",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "GST/HST return for Canada: the GST34 lines in the Canada pack, plus the FPZ-500 (GST/HST and QST) for a Quebec registrant (P4); golden tests, tax specialist sign-off",
+        "r": "T61j",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "VAT 201 for the UAE: boxes 1a-14 in the UAE pack, emirate by fixed establishment, import boxes from customs entries; golden tests, specialist sign-off",
+        "r": "T61k",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Tax agent: prepares draft returns, explains variances, proposes adjustment entries (parked) and code corrections; evaluation suite; never transitions a return",
+        "r": "T61l",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Engine connector port (deferred, P1): quote stored on parked documents, posting uses the stored quote, commit through the outbox; provider chosen when a country needs one",
+        "r": "T61m",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -3962,26 +4047,26 @@
        },
        {
         "s": "D",
-        "t": "Apply a pack to a company: three-way merge (adopted version, tenant document, new version) by account number, account determination field, tax code, number range key and payment term into a draft document with notes; the rate in force on the date of application, later rates noted (until T61); the packs provenance section (company, country, version, applied on), validated, operational tier",
+        "t": "Apply a pack to a company: three-way merge (adopted version, tenant document, new version) by account number, account determination field, tax code, number range key and payment term into a draft document with notes; tax codes with all their dated rates (T61a; first the rate in force, later rates noted); the packs provenance section (company, country, version, applied on), validated, operational tier",
         "r": "countrypack.Apply · config.PackAdoption · T62b",
         "c": []
        },
        {
-        "s": "T",
-        "t": "The calendars section: a company's holidays",
-        "r": "T62c",
+        "s": "D",
+        "t": "The calendars section: a company's holidays (date, name), one calendar per company of the document, each date once; operational tier, a holiday's name cosmetic; applying a pack merges its holidays by date into the company's calendar with notes; read by config.Config.Holiday",
+        "r": "config.Calendar · countrypack.Apply · ADR-0048 · T62c",
         "c": []
        },
        {
-        "s": "T",
-        "t": "API: list packs and apply one as a configuration change request",
-        "r": "T62d",
+        "s": "D",
+        "t": "API: list packs and apply one as a configuration change request: GET /v1/country-packs (version, released hash, sign-off, sources, contents; paged, config.change.read); POST /v1/country-pack-applications applies a version to an active company of the caller's company access (in production only a signed-off pack) on a date and fiscal year and stores the draft as a draft change request on the active version, with the merge's notes on it (change_request.notes); x-autonomy propose as createChangeRequest; nothing activated",
+        "r": "listCountryPacks · applyCountryPack · configuration.ApplyCountryPack · migration 000125 · ADR-0048 · T62d",
         "c": []
        },
        {
-        "s": "T",
-        "t": "Canada pack",
-        "r": "T62e",
+        "s": "D",
+        "t": "Canada pack: starter chart with every account determination key, number ranges for every numbered document type, net payment terms, Canada Labour Code general holidays 2026-2027; sources cited; tax codes pending T61a (sourced GST/HST/QST/PST in packs/ca/TAX-PENDING-T61a.md); no sign-off yet (production refuses it)",
+        "r": "packs/ca/2026.1 · packs/released.sha256 · ADR-0048 · T62e",
         "c": []
        },
        {
@@ -6072,9 +6157,9 @@
       "r": "configuration.SimulationWorker records simulation and regression evidence",
       "c": [
        {
-        "s": "T",
-        "t": "Follow-up of the simulation fix (T55g review): regression evidence shown to each reader for their own companies alone, as simulation evidence is. Today its detail (changed, regressions, stale: cases with invoice, document number and company) and its summary's counts (also the operation's regression_summary and the audit entry) cover every company, and GET/list /v1/regression-suites return every company's cases. Acceptance: recorded by company with a summary of no count; a configuration.Disclosure for kind regression filtering cases by legal entity with counts over those (fail closed); suites' cases filtered by authz.Companies; tests with readers of two companies and of none, and database failures",
-        "r": "configuration regression.go · api_regression.go · payables.Disclosure (pattern)",
+        "s": "D",
+        "t": "Fix (follow-up of the simulation fix, T55g review): regression evidence and suites shown to each reader for their own companies alone. The evidence is recorded by company (cases_by_company: each company's cases and those decided differently: stale, changed, regressions) with a summary of no count, as it reaches the operation's regression_summary and the audit entry; the capture's audit entry counts no cases. Each reader is shown the cases of the companies they may access, with counts over those (fail closed: no company, no case and counts of zero; a case of no legal entity only to a reader of every company); evidence recorded before is shown whole only to readers of every company. GET/list/create /v1/regression-suites show the cases of the reader's companies, with case_count and strata over those and case_no numbered among them (the evidence's cases likewise), so gaps tell nothing of other companies. The verdict (passed) stays the change's, over every company (coordinator decision: the request's status shows it anyway). The reader's company access is read once per request (Disclosure takes it), not once per evidence. Residual: audit entries and operation results written before keep their counts over every company (ADR-0011); a capture by a person of fewer companies samples every company's invoices, so 422 config.no_cases, or a suite of no case shown, tells them whether other companies had invoices in the window (needs config.regression.manage)",
+        "r": "configuration.regressionShown · configuration.suiteShown · configuration.Disclosure(access) · api/openapi.yaml Evidence, RegressionSuite · 03-data-model §3.5 · 04-api-design §4.9 · TestRegressionShownByCompany · TestRegressionShown · TestRegressionShownAsIs · TestSuiteShown · TestDisclosure",
         "c": []
        }
       ]

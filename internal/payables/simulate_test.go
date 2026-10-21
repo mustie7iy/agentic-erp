@@ -12,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -58,7 +59,8 @@ func (e env) simulated(tb testing.TB, s payables.Simulation, from, to *config.Co
 		if err != nil {
 			return err
 		}
-		shown, err = payables.Disclosure{}.Disclose(ctx, configuration.Evidence{Kind: "simulation", Passed: sim.Passed, Summary: sim.Summary, Detail: detail})
+		shown, err = payables.Disclosure{}.Disclose(ctx, configuration.Evidence{Kind: "simulation", Passed: sim.Passed, Summary: sim.Summary, Detail: detail},
+			authz.Access{All: true})
 		return err
 	})
 	if err != nil {
@@ -109,6 +111,9 @@ func TestSimulationReplaysInvoices(t *testing.T) {
 		t.FailNow()
 	}
 	if !t.Run("decisions change", func(t *testing.T) { checkDecisionChanges(t, s, base, tolerant, held, twice) }) {
+		t.FailNow()
+	}
+	if !t.Run("dated rates", func(t *testing.T) { checkDatedRates(t, s, base) }) {
 		t.FailNow()
 	}
 	if !t.Run("postings move", func(t *testing.T) { checkPostingsMove(t, s, base) }) {
@@ -228,6 +233,38 @@ func checkPostingsMove(t *testing.T, s simulation, base *config.Config) {
 	}
 	if postings[1].Amount != 12000+13000+15600 {
 		t.Errorf("second posting amount: got %d, want %d", postings[1].Amount, 12000+13000+15600)
+	}
+}
+
+// checkDatedRates: a tax code's dated rates move what an invoice posts by
+// the rate in force on its date (T61a): a rate from a later date moves
+// nothing, one from before the invoice does; a code turned into other
+// components moves the old component to nothing and the new from nothing.
+func checkDatedRates(t *testing.T, s simulation, base *config.Config) {
+	t.Helper()
+	dated := func(rates ...config.TaxRate) *config.Config {
+		doc := fixture.Document(t)
+		doc.Companies[1].TaxCodes[0] = config.TaxCode{Code: "V1", Description: "Input tax", Components: []config.TaxComponent{
+			{Key: config.LegacyComponent, AccountKey: config.KeyInput, Account: "140000", Rates: rates}}}
+		return doc
+	}
+	later := dated(config.TaxRate{RatePercent: "19", ValidFrom: "2026-01-01", ValidTo: "2026-12-31"}, config.TaxRate{RatePercent: "21", ValidFrom: "2027-01-01"})
+	if sim := s.run(t, base, later, 0); len(sim.Postings) != 0 {
+		t.Errorf("a later rate: got postings %+v, want none", sim.Postings)
+	}
+	earlier := dated(config.TaxRate{RatePercent: "19", ValidFrom: "2026-01-01", ValidTo: "2026-02-28"}, config.TaxRate{RatePercent: "20", ValidFrom: "2026-03-01"})
+	if sim := s.run(t, base, earlier, 0); len(sim.Postings) != 1 || sim.Postings[0].Key != "tax_codes.V1.rate_percent" || sim.Postings[0].Proposed != "20" {
+		t.Errorf("an earlier rate: got postings %+v, want V1's rate to 20", sim.Postings)
+	}
+	turned := dated(config.TaxRate{RatePercent: "19", ValidFrom: "2026-01-01"})
+	turned.Companies[1].TaxCodes[0].Components[0].Key = "gst"
+	var got []string
+	for _, p := range s.run(t, base, turned, 0).Postings {
+		got = append(got, p.Key+" "+p.Base+">"+p.Proposed)
+	}
+	want := "tax_codes.V1.account 140000>, tax_codes.V1.components.gst.account >140000, tax_codes.V1.components.gst.rate_percent >19, tax_codes.V1.rate_percent 19>"
+	if strings.Join(got, ", ") != want {
+		t.Errorf("components turned: got %s, want %s", strings.Join(got, ", "), want)
 	}
 }
 

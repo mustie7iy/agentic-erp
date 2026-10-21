@@ -316,3 +316,38 @@ func TestOrderSteps(t *testing.T) {
 		}
 	})
 }
+
+// TestBankClearingSteps: a matched bank statement line's posting is routed
+// by its amount in the company's currency through the company's
+// bank_statements.approval_tiers; a tier without steps posts without
+// approval, and a company without tiers has the controller approve every
+// posting (ADR-0047, fail closed).
+func TestBankClearingSteps(t *testing.T) {
+	tiers := []config.ApprovalTier{{UpTo: "1000.00"}, {Steps: []config.ApprovalStep{{Role: "treasurer", Approvals: 2}}}}
+	doc := &config.Config{Companies: []config.Company{{Code: "1000", BankStatements: config.BankStatements{ApprovalTiers: tiers}}, {Code: "2000"}}}
+	for _, c := range []struct {
+		name    string
+		company string
+		amount  money.Minor // cents
+		want    []policyStep
+	}{
+		{"within the first tier", "1000", 100000, nil},
+		{"above it", "1000", 100001, []policyStep{{"treasurer", 2}}},
+		{"a company without tiers", "2000", 1, []policyStep{{DefaultBankClearingRole, 1}}},
+		{"a company the configuration lacks", "9999", 1, []policyStep{{DefaultBankClearingRole, 1}}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			usd := "USD"
+			got, err := steps(context.Background(), inCompany{2}, doc, NewRequest{ObjectType: BankClearing, Company: c.company, Amount: &c.amount, Currency: &usd})
+			if err != nil {
+				t.Fatalf("steps: %v", err)
+			}
+			if fmt.Sprint(got) != fmt.Sprint(c.want) {
+				t.Errorf("steps: got %v, want %v", got, c.want)
+			}
+		})
+	}
+	if got, want := ObjectPermissions[BankClearing], "payments.statement.clearing.approve"; got != want {
+		t.Errorf("permission: got %q, want %q", got, want)
+	}
+}

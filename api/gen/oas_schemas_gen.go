@@ -3305,6 +3305,7 @@ func (s *BadRequestHeaders) SetResponse(val Problem) {
 func (*BadRequestHeaders) activateChangeRequestRes()            {}
 func (*BadRequestHeaders) activateLegalEntityRes()              {}
 func (*BadRequestHeaders) activateOrgUnitRes()                  {}
+func (*BadRequestHeaders) applyCountryPackRes()                 {}
 func (*BadRequestHeaders) approveApprovalRequestRes()           {}
 func (*BadRequestHeaders) blockBusinessPartnerRes()             {}
 func (*BadRequestHeaders) blockLegalEntityRes()                 {}
@@ -3427,6 +3428,7 @@ func (*BadRequestHeaders) listCompanyAccessRes()                {}
 func (*BadRequestHeaders) listConfigVersionsRes()               {}
 func (*BadRequestHeaders) listConnectorsRes()                   {}
 func (*BadRequestHeaders) listContractsRes()                    {}
+func (*BadRequestHeaders) listCountryPacksRes()                 {}
 func (*BadRequestHeaders) listDownPaymentRequestsRes()          {}
 func (*BadRequestHeaders) listExchangeRatesRes()                {}
 func (*BadRequestHeaders) listFiscalPeriodsRes()                {}
@@ -3467,6 +3469,7 @@ func (*BadRequestHeaders) openFiscalPeriodRes()                 {}
 func (*BadRequestHeaders) parkJournalEntryRes()                 {}
 func (*BadRequestHeaders) pauseWebhookSubscriptionRes()         {}
 func (*BadRequestHeaders) pingWebhookSubscriptionRes()          {}
+func (*BadRequestHeaders) postBankStatementLineRes()            {}
 func (*BadRequestHeaders) postGoodsReceiptRes()                 {}
 func (*BadRequestHeaders) postJournalEntryRes()                 {}
 func (*BadRequestHeaders) postParkedJournalEntryRes()           {}
@@ -6595,6 +6598,11 @@ type ChangeRequest struct {
 	Items []ChangeItem `json:"items"`
 	// Recorded evidence.
 	Evidence []Evidence `json:"evidence"`
+	// What reviewers should look at in a proposal that was generated (applyCountryPack): conflicts with
+	// the tenant's own settings, items kept that the source no longer has, rates that come later. Recorded
+	// when the change request is created and not updated when the proposal is edited; absent when there
+	// are none.
+	Notes []ChangeRequestNote `json:"notes"`
 }
 
 // GetID returns the value of ID.
@@ -6687,6 +6695,11 @@ func (s *ChangeRequest) GetEvidence() []Evidence {
 	return s.Evidence
 }
 
+// GetNotes returns the value of Notes.
+func (s *ChangeRequest) GetNotes() []ChangeRequestNote {
+	return s.Notes
+}
+
 // SetID sets the value of ID.
 func (s *ChangeRequest) SetID(val uuid.UUID) {
 	s.ID = val
@@ -6775,6 +6788,11 @@ func (s *ChangeRequest) SetItems(val []ChangeItem) {
 // SetEvidence sets the value of Evidence.
 func (s *ChangeRequest) SetEvidence(val []Evidence) {
 	s.Evidence = val
+}
+
+// SetNotes sets the value of Notes.
+func (s *ChangeRequest) SetNotes(val []ChangeRequestNote) {
+	s.Notes = val
 }
 
 // Create a draft configuration change. Items and tier are computed when it is submitted.
@@ -6923,7 +6941,37 @@ func (s *ChangeRequestHeaders) SetResponse(val ChangeRequest) {
 	s.Response = val
 }
 
+func (*ChangeRequestHeaders) applyCountryPackRes()    {}
 func (*ChangeRequestHeaders) createChangeRequestRes() {}
+
+// A note for the reviewers of a generated proposal, on one setting of the document.
+// Ref: #/components/schemas/ChangeRequestNote
+type ChangeRequestNote struct {
+	// Path of the setting in the configuration document.
+	Path string `json:"path"`
+	// What the reviewers should look at.
+	Message string `json:"message"`
+}
+
+// GetPath returns the value of Path.
+func (s *ChangeRequestNote) GetPath() string {
+	return s.Path
+}
+
+// GetMessage returns the value of Message.
+func (s *ChangeRequestNote) GetMessage() string {
+	return s.Message
+}
+
+// SetPath sets the value of Path.
+func (s *ChangeRequestNote) SetPath(val string) {
+	s.Path = val
+}
+
+// SetMessage sets the value of Message.
+func (s *ChangeRequestNote) SetMessage(val string) {
+	s.Message = val
+}
 
 // One page of change requests.
 // Ref: #/components/schemas/ChangeRequestPage
@@ -8257,6 +8305,7 @@ func (s *ConflictHeaders) SetResponse(val Problem) {
 func (*ConflictHeaders) activateChangeRequestRes()            {}
 func (*ConflictHeaders) activateLegalEntityRes()              {}
 func (*ConflictHeaders) activateOrgUnitRes()                  {}
+func (*ConflictHeaders) applyCountryPackRes()                 {}
 func (*ConflictHeaders) approveApprovalRequestRes()           {}
 func (*ConflictHeaders) blockBusinessPartnerRes()             {}
 func (*ConflictHeaders) blockLegalEntityRes()                 {}
@@ -8322,6 +8371,7 @@ func (*ConflictHeaders) openFiscalPeriodRes()                 {}
 func (*ConflictHeaders) parkJournalEntryRes()                 {}
 func (*ConflictHeaders) pauseWebhookSubscriptionRes()         {}
 func (*ConflictHeaders) pingWebhookSubscriptionRes()          {}
+func (*ConflictHeaders) postBankStatementLineRes()            {}
 func (*ConflictHeaders) postGoodsReceiptRes()                 {}
 func (*ConflictHeaders) postJournalEntryRes()                 {}
 func (*ConflictHeaders) postParkedJournalEntryRes()           {}
@@ -9552,6 +9602,427 @@ func (s *ContractUpdate) SetTargetValue(val OptMoney) {
 // SetItems sets the value of Items.
 func (s *ContractUpdate) SetItems(val []ContractItem) {
 	s.Items = val
+}
+
+// A released country pack version (ADR-0048): a country's chart of accounts, tax codes, holidays,
+// number ranges and payment terms, with the legal sources they rest on. Released versions never
+// change.
+// Ref: #/components/schemas/CountryPack
+type CountryPack struct {
+	// Country (ISO 3166-1 alpha-2).
+	Country string `json:"country"`
+	// Version `YYYY.N`.
+	Version string `json:"version"`
+	// Name of the pack.
+	Name string `json:"name"`
+	// First day the pack's settings hold.
+	ValidFrom time.Time `json:"valid_from"`
+	// SHA-256 of the pack's directory as released (`packs/released.sha256`), hex.
+	Hash string `json:"hash"`
+	// Whether a tax specialist signed the pack off; required before the pilot. Applying a pack without it
+	// notes so.
+	SignedOff bool `json:"signed_off"`
+	// The tax specialist's sign-off; absent until given.
+	SignOff OptCountryPackSignOff `json:"sign_off"`
+	// The laws, regulations and authority publications the pack follows.
+	Sources []CountryPackSource `json:"sources"`
+	// How many settings of each kind the pack has.
+	Contents CountryPackContents `json:"contents"`
+}
+
+// GetCountry returns the value of Country.
+func (s *CountryPack) GetCountry() string {
+	return s.Country
+}
+
+// GetVersion returns the value of Version.
+func (s *CountryPack) GetVersion() string {
+	return s.Version
+}
+
+// GetName returns the value of Name.
+func (s *CountryPack) GetName() string {
+	return s.Name
+}
+
+// GetValidFrom returns the value of ValidFrom.
+func (s *CountryPack) GetValidFrom() time.Time {
+	return s.ValidFrom
+}
+
+// GetHash returns the value of Hash.
+func (s *CountryPack) GetHash() string {
+	return s.Hash
+}
+
+// GetSignedOff returns the value of SignedOff.
+func (s *CountryPack) GetSignedOff() bool {
+	return s.SignedOff
+}
+
+// GetSignOff returns the value of SignOff.
+func (s *CountryPack) GetSignOff() OptCountryPackSignOff {
+	return s.SignOff
+}
+
+// GetSources returns the value of Sources.
+func (s *CountryPack) GetSources() []CountryPackSource {
+	return s.Sources
+}
+
+// GetContents returns the value of Contents.
+func (s *CountryPack) GetContents() CountryPackContents {
+	return s.Contents
+}
+
+// SetCountry sets the value of Country.
+func (s *CountryPack) SetCountry(val string) {
+	s.Country = val
+}
+
+// SetVersion sets the value of Version.
+func (s *CountryPack) SetVersion(val string) {
+	s.Version = val
+}
+
+// SetName sets the value of Name.
+func (s *CountryPack) SetName(val string) {
+	s.Name = val
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *CountryPack) SetValidFrom(val time.Time) {
+	s.ValidFrom = val
+}
+
+// SetHash sets the value of Hash.
+func (s *CountryPack) SetHash(val string) {
+	s.Hash = val
+}
+
+// SetSignedOff sets the value of SignedOff.
+func (s *CountryPack) SetSignedOff(val bool) {
+	s.SignedOff = val
+}
+
+// SetSignOff sets the value of SignOff.
+func (s *CountryPack) SetSignOff(val OptCountryPackSignOff) {
+	s.SignOff = val
+}
+
+// SetSources sets the value of Sources.
+func (s *CountryPack) SetSources(val []CountryPackSource) {
+	s.Sources = val
+}
+
+// SetContents sets the value of Contents.
+func (s *CountryPack) SetContents(val CountryPackContents) {
+	s.Contents = val
+}
+
+// Apply a country pack version to a company: the change request it creates.
+// Ref: #/components/schemas/CountryPackApplication
+type CountryPackApplication struct {
+	// Country of the pack.
+	Country string `json:"country"`
+	// Version of the pack (`YYYY.N`); never older than the one the company adopted.
+	Version string `json:"version"`
+	// Company code of the configuration document, in the pack's country, of a legal entity the caller has
+	// access to.
+	Company string `json:"company"`
+	// Date of application: the tax rates in force on it are written, later ones noted, and the company's
+	// adoption records it.
+	AppliedOn time.Time `json:"applied_on"`
+	// Fiscal year the pack's number ranges are created for.
+	FiscalYear int32 `json:"fiscal_year"`
+	// Title of the change request; by default it names the pack and the company.
+	Title OptString `json:"title"`
+	// Why the change is needed.
+	Rationale OptString `json:"rationale"`
+}
+
+// GetCountry returns the value of Country.
+func (s *CountryPackApplication) GetCountry() string {
+	return s.Country
+}
+
+// GetVersion returns the value of Version.
+func (s *CountryPackApplication) GetVersion() string {
+	return s.Version
+}
+
+// GetCompany returns the value of Company.
+func (s *CountryPackApplication) GetCompany() string {
+	return s.Company
+}
+
+// GetAppliedOn returns the value of AppliedOn.
+func (s *CountryPackApplication) GetAppliedOn() time.Time {
+	return s.AppliedOn
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *CountryPackApplication) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetTitle returns the value of Title.
+func (s *CountryPackApplication) GetTitle() OptString {
+	return s.Title
+}
+
+// GetRationale returns the value of Rationale.
+func (s *CountryPackApplication) GetRationale() OptString {
+	return s.Rationale
+}
+
+// SetCountry sets the value of Country.
+func (s *CountryPackApplication) SetCountry(val string) {
+	s.Country = val
+}
+
+// SetVersion sets the value of Version.
+func (s *CountryPackApplication) SetVersion(val string) {
+	s.Version = val
+}
+
+// SetCompany sets the value of Company.
+func (s *CountryPackApplication) SetCompany(val string) {
+	s.Company = val
+}
+
+// SetAppliedOn sets the value of AppliedOn.
+func (s *CountryPackApplication) SetAppliedOn(val time.Time) {
+	s.AppliedOn = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *CountryPackApplication) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetTitle sets the value of Title.
+func (s *CountryPackApplication) SetTitle(val OptString) {
+	s.Title = val
+}
+
+// SetRationale sets the value of Rationale.
+func (s *CountryPackApplication) SetRationale(val OptString) {
+	s.Rationale = val
+}
+
+// How many settings of each kind a country pack has.
+// Ref: #/components/schemas/CountryPackContents
+type CountryPackContents struct {
+	// Accounts of the chart of accounts.
+	Accounts int32 `json:"accounts"`
+	// Tax codes.
+	TaxCodes int32 `json:"tax_codes"`
+	// Holidays.
+	Holidays int32 `json:"holidays"`
+	// Number range templates, one per document type.
+	NumberRanges int32 `json:"number_ranges"`
+	// Payment terms.
+	PaymentTerms int32 `json:"payment_terms"`
+}
+
+// GetAccounts returns the value of Accounts.
+func (s *CountryPackContents) GetAccounts() int32 {
+	return s.Accounts
+}
+
+// GetTaxCodes returns the value of TaxCodes.
+func (s *CountryPackContents) GetTaxCodes() int32 {
+	return s.TaxCodes
+}
+
+// GetHolidays returns the value of Holidays.
+func (s *CountryPackContents) GetHolidays() int32 {
+	return s.Holidays
+}
+
+// GetNumberRanges returns the value of NumberRanges.
+func (s *CountryPackContents) GetNumberRanges() int32 {
+	return s.NumberRanges
+}
+
+// GetPaymentTerms returns the value of PaymentTerms.
+func (s *CountryPackContents) GetPaymentTerms() int32 {
+	return s.PaymentTerms
+}
+
+// SetAccounts sets the value of Accounts.
+func (s *CountryPackContents) SetAccounts(val int32) {
+	s.Accounts = val
+}
+
+// SetTaxCodes sets the value of TaxCodes.
+func (s *CountryPackContents) SetTaxCodes(val int32) {
+	s.TaxCodes = val
+}
+
+// SetHolidays sets the value of Holidays.
+func (s *CountryPackContents) SetHolidays(val int32) {
+	s.Holidays = val
+}
+
+// SetNumberRanges sets the value of NumberRanges.
+func (s *CountryPackContents) SetNumberRanges(val int32) {
+	s.NumberRanges = val
+}
+
+// SetPaymentTerms sets the value of PaymentTerms.
+func (s *CountryPackContents) SetPaymentTerms(val int32) {
+	s.PaymentTerms = val
+}
+
+// One page of country packs.
+// Ref: #/components/schemas/CountryPackPage
+type CountryPackPage struct {
+	// The country packs on this page.
+	Items []CountryPack `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *CountryPackPage) GetItems() []CountryPack {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CountryPackPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *CountryPackPage) SetItems(val []CountryPack) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CountryPackPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// CountryPackPageHeaders wraps CountryPackPage with response headers.
+type CountryPackPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           CountryPackPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *CountryPackPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *CountryPackPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *CountryPackPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *CountryPackPageHeaders) GetResponse() CountryPackPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *CountryPackPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *CountryPackPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *CountryPackPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CountryPackPageHeaders) SetResponse(val CountryPackPage) {
+	s.Response = val
+}
+
+func (*CountryPackPageHeaders) listCountryPacksRes() {}
+
+// The tax specialist who reviewed a country pack, and when.
+// Ref: #/components/schemas/CountryPackSignOff
+type CountryPackSignOff struct {
+	// Who signed the pack off.
+	TaxSpecialist string `json:"tax_specialist"`
+	// When, as the pack records it (`YYYY-MM-DD`).
+	Date string `json:"date"`
+}
+
+// GetTaxSpecialist returns the value of TaxSpecialist.
+func (s *CountryPackSignOff) GetTaxSpecialist() string {
+	return s.TaxSpecialist
+}
+
+// GetDate returns the value of Date.
+func (s *CountryPackSignOff) GetDate() string {
+	return s.Date
+}
+
+// SetTaxSpecialist sets the value of TaxSpecialist.
+func (s *CountryPackSignOff) SetTaxSpecialist(val string) {
+	s.TaxSpecialist = val
+}
+
+// SetDate sets the value of Date.
+func (s *CountryPackSignOff) SetDate(val string) {
+	s.Date = val
+}
+
+// A law, regulation or authority publication a country pack follows.
+// Ref: #/components/schemas/CountryPackSource
+type CountryPackSource struct {
+	// Title of the source.
+	Title string `json:"title"`
+	// Where the source is published.
+	URL string `json:"url"`
+	// When the source was read for the pack (`YYYY-MM-DD`).
+	Retrieved string `json:"retrieved"`
+}
+
+// GetTitle returns the value of Title.
+func (s *CountryPackSource) GetTitle() string {
+	return s.Title
+}
+
+// GetURL returns the value of URL.
+func (s *CountryPackSource) GetURL() string {
+	return s.URL
+}
+
+// GetRetrieved returns the value of Retrieved.
+func (s *CountryPackSource) GetRetrieved() string {
+	return s.Retrieved
+}
+
+// SetTitle sets the value of Title.
+func (s *CountryPackSource) SetTitle(val string) {
+	s.Title = val
+}
+
+// SetURL sets the value of URL.
+func (s *CountryPackSource) SetURL(val string) {
+	s.URL = val
+}
+
+// SetRetrieved sets the value of Retrieved.
+func (s *CountryPackSource) SetRetrieved(val string) {
+	s.Retrieved = val
 }
 
 // CreateUploadCreatedHeaders wraps Upload with response headers.
@@ -10861,12 +11332,14 @@ type Evidence struct {
 	Kind string `json:"kind"`
 	// Whether the check passed.
 	Passed bool `json:"passed"`
-	// Summary of the result. For `simulation` evidence its counts are over the companies the reader may
-	// access alone.
+	// Summary of the result. For `simulation` and `regression` evidence its counts are over the companies
+	// the reader may access alone.
 	Summary string `json:"summary"`
 	// Detailed result. For `simulation` evidence, the replayed invoices, decisions and posting rules of
 	// the companies the reader may access alone, counted over those: a reader of no company is shown none
-	// and counts of zero. The verdict (`passed`) is over every company the change touches.
+	// and counts of zero. For `regression` evidence, likewise the suite's cases of those companies
+	// (`cases`, their count; `changed`, `regressions`, or `stale` when the suite no longer matches its
+	// version). The verdict (`passed`) is over every company the change touches.
 	Detail EvidenceDetail `json:"detail"`
 	// When the evidence was recorded.
 	RecordedAt time.Time `json:"recorded_at"`
@@ -10936,7 +11409,9 @@ func (s *Evidence) SetRecordedBy(val uuid.UUID) {
 
 // Detailed result. For `simulation` evidence, the replayed invoices, decisions and posting rules of
 // the companies the reader may access alone, counted over those: a reader of no company is shown none
-// and counts of zero. The verdict (`passed`) is over every company the change touches.
+// and counts of zero. For `regression` evidence, likewise the suite's cases of those companies
+// (`cases`, their count; `changed`, `regressions`, or `stale` when the suite no longer matches its
+// version). The verdict (`passed`) is over every company the change touches.
 type EvidenceDetail map[string]jx.Raw
 
 func (s *EvidenceDetail) init() EvidenceDetail {
@@ -11768,6 +12243,7 @@ func (s *ForbiddenHeaders) SetResponse(val Problem) {
 func (*ForbiddenHeaders) activateChangeRequestRes()            {}
 func (*ForbiddenHeaders) activateLegalEntityRes()              {}
 func (*ForbiddenHeaders) activateOrgUnitRes()                  {}
+func (*ForbiddenHeaders) applyCountryPackRes()                 {}
 func (*ForbiddenHeaders) approveApprovalRequestRes()           {}
 func (*ForbiddenHeaders) blockBusinessPartnerRes()             {}
 func (*ForbiddenHeaders) blockLegalEntityRes()                 {}
@@ -11890,6 +12366,7 @@ func (*ForbiddenHeaders) listCompanyAccessRes()                {}
 func (*ForbiddenHeaders) listConfigVersionsRes()               {}
 func (*ForbiddenHeaders) listConnectorsRes()                   {}
 func (*ForbiddenHeaders) listContractsRes()                    {}
+func (*ForbiddenHeaders) listCountryPacksRes()                 {}
 func (*ForbiddenHeaders) listDownPaymentRequestsRes()          {}
 func (*ForbiddenHeaders) listExchangeRatesRes()                {}
 func (*ForbiddenHeaders) listFiscalPeriodsRes()                {}
@@ -11930,6 +12407,7 @@ func (*ForbiddenHeaders) openFiscalPeriodRes()                 {}
 func (*ForbiddenHeaders) parkJournalEntryRes()                 {}
 func (*ForbiddenHeaders) pauseWebhookSubscriptionRes()         {}
 func (*ForbiddenHeaders) pingWebhookSubscriptionRes()          {}
+func (*ForbiddenHeaders) postBankStatementLineRes()            {}
 func (*ForbiddenHeaders) postGoodsReceiptRes()                 {}
 func (*ForbiddenHeaders) postJournalEntryRes()                 {}
 func (*ForbiddenHeaders) postParkedJournalEntryRes()           {}
@@ -17389,6 +17867,7 @@ func (s *NotFoundHeaders) SetResponse(val Problem) {
 func (*NotFoundHeaders) activateChangeRequestRes()            {}
 func (*NotFoundHeaders) activateLegalEntityRes()              {}
 func (*NotFoundHeaders) activateOrgUnitRes()                  {}
+func (*NotFoundHeaders) applyCountryPackRes()                 {}
 func (*NotFoundHeaders) approveApprovalRequestRes()           {}
 func (*NotFoundHeaders) blockBusinessPartnerRes()             {}
 func (*NotFoundHeaders) blockLegalEntityRes()                 {}
@@ -17482,6 +17961,7 @@ func (*NotFoundHeaders) matchSupplierInvoiceRes()             {}
 func (*NotFoundHeaders) openFiscalPeriodRes()                 {}
 func (*NotFoundHeaders) pauseWebhookSubscriptionRes()         {}
 func (*NotFoundHeaders) pingWebhookSubscriptionRes()          {}
+func (*NotFoundHeaders) postBankStatementLineRes()            {}
 func (*NotFoundHeaders) postParkedJournalEntryRes()           {}
 func (*NotFoundHeaders) postSupplierInvoiceRes()              {}
 func (*NotFoundHeaders) reconcileMigrationRunRes()            {}
@@ -18822,6 +19302,52 @@ func (o OptConnectorUpdateSettings) Or(d ConnectorUpdateSettings) ConnectorUpdat
 	return d
 }
 
+// NewOptCountryPackSignOff returns new OptCountryPackSignOff with value set to v.
+func NewOptCountryPackSignOff(v CountryPackSignOff) OptCountryPackSignOff {
+	return OptCountryPackSignOff{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptCountryPackSignOff is optional CountryPackSignOff.
+type OptCountryPackSignOff struct {
+	Value CountryPackSignOff
+	Set   bool
+}
+
+// IsSet returns true if OptCountryPackSignOff was set.
+func (o OptCountryPackSignOff) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptCountryPackSignOff) Reset() {
+	var v CountryPackSignOff
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptCountryPackSignOff) SetTo(v CountryPackSignOff) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptCountryPackSignOff) Get() (v CountryPackSignOff, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptCountryPackSignOff) Or(d CountryPackSignOff) CountryPackSignOff {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptDate returns new OptDate with value set to v.
 func NewOptDate(v time.Time) OptDate {
 	return OptDate{
@@ -19962,6 +20488,52 @@ func (o OptQuantity) Get() (v Quantity, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptQuantity) Or(d Quantity) Quantity {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptStatementLinePostInput returns new OptStatementLinePostInput with value set to v.
+func NewOptStatementLinePostInput(v StatementLinePostInput) OptStatementLinePostInput {
+	return OptStatementLinePostInput{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptStatementLinePostInput is optional StatementLinePostInput.
+type OptStatementLinePostInput struct {
+	Value StatementLinePostInput
+	Set   bool
+}
+
+// IsSet returns true if OptStatementLinePostInput was set.
+func (o OptStatementLinePostInput) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptStatementLinePostInput) Reset() {
+	var v StatementLinePostInput
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptStatementLinePostInput) SetTo(v StatementLinePostInput) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptStatementLinePostInput) Get() (v StatementLinePostInput, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptStatementLinePostInput) Or(d StatementLinePostInput) StatementLinePostInput {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -22770,6 +23342,7 @@ func (*PreconditionFailedHeaders) matchSupplierInvoiceRes()             {}
 func (*PreconditionFailedHeaders) openFiscalPeriodRes()                 {}
 func (*PreconditionFailedHeaders) pauseWebhookSubscriptionRes()         {}
 func (*PreconditionFailedHeaders) pingWebhookSubscriptionRes()          {}
+func (*PreconditionFailedHeaders) postBankStatementLineRes()            {}
 func (*PreconditionFailedHeaders) postParkedJournalEntryRes()           {}
 func (*PreconditionFailedHeaders) postSupplierInvoiceRes()              {}
 func (*PreconditionFailedHeaders) reconcileMigrationRunRes()            {}
@@ -22867,6 +23440,7 @@ func (s *PreconditionRequiredHeaders) SetResponse(val Problem) {
 func (*PreconditionRequiredHeaders) activateChangeRequestRes()            {}
 func (*PreconditionRequiredHeaders) activateLegalEntityRes()              {}
 func (*PreconditionRequiredHeaders) activateOrgUnitRes()                  {}
+func (*PreconditionRequiredHeaders) applyCountryPackRes()                 {}
 func (*PreconditionRequiredHeaders) approveApprovalRequestRes()           {}
 func (*PreconditionRequiredHeaders) blockBusinessPartnerRes()             {}
 func (*PreconditionRequiredHeaders) blockLegalEntityRes()                 {}
@@ -22930,6 +23504,7 @@ func (*PreconditionRequiredHeaders) openFiscalPeriodRes()                 {}
 func (*PreconditionRequiredHeaders) parkJournalEntryRes()                 {}
 func (*PreconditionRequiredHeaders) pauseWebhookSubscriptionRes()         {}
 func (*PreconditionRequiredHeaders) pingWebhookSubscriptionRes()          {}
+func (*PreconditionRequiredHeaders) postBankStatementLineRes()            {}
 func (*PreconditionRequiredHeaders) postGoodsReceiptRes()                 {}
 func (*PreconditionRequiredHeaders) postJournalEntryRes()                 {}
 func (*PreconditionRequiredHeaders) postParkedJournalEntryRes()           {}
@@ -25470,7 +26045,10 @@ func (*RedeliverWebhookDeliveryOKHeaders) redeliverWebhookDeliveryRes() {}
 // captured.
 // Ref: #/components/schemas/RegressionCase
 type RegressionCase struct {
-	// Position in the suite.
+	// Position among the suite's cases the reader is shown: a reader of every company is shown the suite's
+	// own numbering; any other reader the cases of their companies numbered from 1, so that the numbers
+	// tell nothing of other companies' cases. It is therefore not a stable identifier (it changes with the
+	// reader's company access); `supplier_invoice_id` is.
 	CaseNo int32 `json:"case_no"`
 	// The invoice replayed.
 	SupplierInvoiceID uuid.UUID `json:"supplier_invoice_id"`
@@ -25580,11 +26158,11 @@ type RegressionSuite struct {
 	ConfigVersion int32 `json:"config_version"`
 	// How many days of invoices the capture looked at.
 	WindowDays int32 `json:"window_days"`
-	// Number of cases.
+	// Number of cases shown: those of the companies the reader may access.
 	CaseCount int32 `json:"case_count"`
-	// The reasons cases were selected, in order.
+	// The reasons the cases shown were selected, in order.
 	Strata []string `json:"strata"`
-	// The cases.
+	// The cases of the companies the reader may access alone: a reader of no company is shown none.
 	Cases []RegressionCase `json:"cases"`
 }
 
@@ -28970,6 +29548,7 @@ func (s *ServiceUnavailableHeaders) SetResponse(val Problem) {
 func (*ServiceUnavailableHeaders) activateChangeRequestRes()            {}
 func (*ServiceUnavailableHeaders) activateLegalEntityRes()              {}
 func (*ServiceUnavailableHeaders) activateOrgUnitRes()                  {}
+func (*ServiceUnavailableHeaders) applyCountryPackRes()                 {}
 func (*ServiceUnavailableHeaders) approveApprovalRequestRes()           {}
 func (*ServiceUnavailableHeaders) blockBusinessPartnerRes()             {}
 func (*ServiceUnavailableHeaders) blockLegalEntityRes()                 {}
@@ -29036,6 +29615,7 @@ func (*ServiceUnavailableHeaders) openFiscalPeriodRes()                 {}
 func (*ServiceUnavailableHeaders) parkJournalEntryRes()                 {}
 func (*ServiceUnavailableHeaders) pauseWebhookSubscriptionRes()         {}
 func (*ServiceUnavailableHeaders) pingWebhookSubscriptionRes()          {}
+func (*ServiceUnavailableHeaders) postBankStatementLineRes()            {}
 func (*ServiceUnavailableHeaders) postGoodsReceiptRes()                 {}
 func (*ServiceUnavailableHeaders) postJournalEntryRes()                 {}
 func (*ServiceUnavailableHeaders) postParkedJournalEntryRes()           {}
@@ -29498,6 +30078,35 @@ func (s *StatementLineMatchInput) SetReason(val string) {
 	s.Reason = val
 }
 
+// A person's posting of a matched line: on its booking date, or on another date with the reason.
+// Ref: #/components/schemas/StatementLinePostInput
+type StatementLinePostInput struct {
+	// The date to post on instead of the booking date, in an open period; with `reason`.
+	PostingDate OptDate `json:"posting_date"`
+	// Why the posting is dated otherwise; recorded in the audit trail. Only with `posting_date`.
+	Reason OptString `json:"reason"`
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *StatementLinePostInput) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetReason returns the value of Reason.
+func (s *StatementLinePostInput) GetReason() OptString {
+	return s.Reason
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *StatementLinePostInput) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetReason sets the value of Reason.
+func (s *StatementLinePostInput) SetReason(val OptString) {
+	s.Reason = val
+}
+
 // Merged schema.
 // Ref: #/components/schemas/StatementMatch
 type StatementMatch struct {
@@ -29532,6 +30141,17 @@ type StatementMatch struct {
 	// What it clears: of an open match, each candidate's targets under its number; of a match decided,
 	// candidate 1's; none when excluded.
 	Targets []StatementMatchTarget `json:"targets"`
+	// The date the line posts on, or was asked to post on: its booking date or the one a person gave.
+	PostingDate OptDate `json:"posting_date"`
+	// Why a person dated the posting otherwise than the booking date.
+	PostingReason OptString `json:"posting_reason"`
+	// The latest `bank_clearing` approval request of the posting (workflow context), also once rejected or
+	// withdrawn.
+	ApprovalRequestID OptUUID `json:"approval_request_id"`
+	// The posting (ledger context), once the line is posted.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The fiscal year of the posting.
+	JournalEntryYear OptInt32 `json:"journal_entry_year"`
 }
 
 // GetID returns the value of ID.
@@ -29599,6 +30219,31 @@ func (s *StatementMatch) GetTargets() []StatementMatchTarget {
 	return s.Targets
 }
 
+// GetPostingDate returns the value of PostingDate.
+func (s *StatementMatch) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetPostingReason returns the value of PostingReason.
+func (s *StatementMatch) GetPostingReason() OptString {
+	return s.PostingReason
+}
+
+// GetApprovalRequestID returns the value of ApprovalRequestID.
+func (s *StatementMatch) GetApprovalRequestID() OptUUID {
+	return s.ApprovalRequestID
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *StatementMatch) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *StatementMatch) GetJournalEntryYear() OptInt32 {
+	return s.JournalEntryYear
+}
+
 // SetID sets the value of ID.
 func (s *StatementMatch) SetID(val uuid.UUID) {
 	s.ID = val
@@ -29662,6 +30307,31 @@ func (s *StatementMatch) SetStatus(val string) {
 // SetTargets sets the value of Targets.
 func (s *StatementMatch) SetTargets(val []StatementMatchTarget) {
 	s.Targets = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *StatementMatch) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetPostingReason sets the value of PostingReason.
+func (s *StatementMatch) SetPostingReason(val OptString) {
+	s.PostingReason = val
+}
+
+// SetApprovalRequestID sets the value of ApprovalRequestID.
+func (s *StatementMatch) SetApprovalRequestID(val OptUUID) {
+	s.ApprovalRequestID = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *StatementMatch) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *StatementMatch) SetJournalEntryYear(val OptInt32) {
+	s.JournalEntryYear = val
 }
 
 // StatementMatchHeaders wraps StatementMatch with response headers.
@@ -29736,6 +30406,7 @@ func (s *StatementMatchHeaders) SetResponse(val StatementMatch) {
 
 func (*StatementMatchHeaders) excludeBankStatementLineRes() {}
 func (*StatementMatchHeaders) matchBankStatementLineRes()   {}
+func (*StatementMatchHeaders) postBankStatementLineRes()    {}
 
 // A bank statement's matches.
 // Ref: #/components/schemas/StatementMatchList
@@ -31127,6 +31798,7 @@ func (s *TooManyRequestsHeaders) SetResponse(val Problem) {
 func (*TooManyRequestsHeaders) activateChangeRequestRes()            {}
 func (*TooManyRequestsHeaders) activateLegalEntityRes()              {}
 func (*TooManyRequestsHeaders) activateOrgUnitRes()                  {}
+func (*TooManyRequestsHeaders) applyCountryPackRes()                 {}
 func (*TooManyRequestsHeaders) approveApprovalRequestRes()           {}
 func (*TooManyRequestsHeaders) blockBusinessPartnerRes()             {}
 func (*TooManyRequestsHeaders) blockLegalEntityRes()                 {}
@@ -31249,6 +31921,7 @@ func (*TooManyRequestsHeaders) listCompanyAccessRes()                {}
 func (*TooManyRequestsHeaders) listConfigVersionsRes()               {}
 func (*TooManyRequestsHeaders) listConnectorsRes()                   {}
 func (*TooManyRequestsHeaders) listContractsRes()                    {}
+func (*TooManyRequestsHeaders) listCountryPacksRes()                 {}
 func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()          {}
 func (*TooManyRequestsHeaders) listExchangeRatesRes()                {}
 func (*TooManyRequestsHeaders) listFiscalPeriodsRes()                {}
@@ -31289,6 +31962,7 @@ func (*TooManyRequestsHeaders) openFiscalPeriodRes()                 {}
 func (*TooManyRequestsHeaders) parkJournalEntryRes()                 {}
 func (*TooManyRequestsHeaders) pauseWebhookSubscriptionRes()         {}
 func (*TooManyRequestsHeaders) pingWebhookSubscriptionRes()          {}
+func (*TooManyRequestsHeaders) postBankStatementLineRes()            {}
 func (*TooManyRequestsHeaders) postGoodsReceiptRes()                 {}
 func (*TooManyRequestsHeaders) postJournalEntryRes()                 {}
 func (*TooManyRequestsHeaders) postParkedJournalEntryRes()           {}
@@ -31407,6 +32081,7 @@ func (s *UnauthorizedHeaders) SetResponse(val Problem) {
 func (*UnauthorizedHeaders) activateChangeRequestRes()            {}
 func (*UnauthorizedHeaders) activateLegalEntityRes()              {}
 func (*UnauthorizedHeaders) activateOrgUnitRes()                  {}
+func (*UnauthorizedHeaders) applyCountryPackRes()                 {}
 func (*UnauthorizedHeaders) approveApprovalRequestRes()           {}
 func (*UnauthorizedHeaders) blockBusinessPartnerRes()             {}
 func (*UnauthorizedHeaders) blockLegalEntityRes()                 {}
@@ -31529,6 +32204,7 @@ func (*UnauthorizedHeaders) listCompanyAccessRes()                {}
 func (*UnauthorizedHeaders) listConfigVersionsRes()               {}
 func (*UnauthorizedHeaders) listConnectorsRes()                   {}
 func (*UnauthorizedHeaders) listContractsRes()                    {}
+func (*UnauthorizedHeaders) listCountryPacksRes()                 {}
 func (*UnauthorizedHeaders) listDownPaymentRequestsRes()          {}
 func (*UnauthorizedHeaders) listExchangeRatesRes()                {}
 func (*UnauthorizedHeaders) listFiscalPeriodsRes()                {}
@@ -31569,6 +32245,7 @@ func (*UnauthorizedHeaders) openFiscalPeriodRes()                 {}
 func (*UnauthorizedHeaders) parkJournalEntryRes()                 {}
 func (*UnauthorizedHeaders) pauseWebhookSubscriptionRes()         {}
 func (*UnauthorizedHeaders) pingWebhookSubscriptionRes()          {}
+func (*UnauthorizedHeaders) postBankStatementLineRes()            {}
 func (*UnauthorizedHeaders) postGoodsReceiptRes()                 {}
 func (*UnauthorizedHeaders) postJournalEntryRes()                 {}
 func (*UnauthorizedHeaders) postParkedJournalEntryRes()           {}
@@ -31676,6 +32353,7 @@ func (s *UnprocessableHeaders) SetResponse(val Problem) {
 func (*UnprocessableHeaders) activateChangeRequestRes()            {}
 func (*UnprocessableHeaders) activateLegalEntityRes()              {}
 func (*UnprocessableHeaders) activateOrgUnitRes()                  {}
+func (*UnprocessableHeaders) applyCountryPackRes()                 {}
 func (*UnprocessableHeaders) approveApprovalRequestRes()           {}
 func (*UnprocessableHeaders) blockBusinessPartnerRes()             {}
 func (*UnprocessableHeaders) blockLegalEntityRes()                 {}
@@ -31741,6 +32419,7 @@ func (*UnprocessableHeaders) openFiscalPeriodRes()                 {}
 func (*UnprocessableHeaders) parkJournalEntryRes()                 {}
 func (*UnprocessableHeaders) pauseWebhookSubscriptionRes()         {}
 func (*UnprocessableHeaders) pingWebhookSubscriptionRes()          {}
+func (*UnprocessableHeaders) postBankStatementLineRes()            {}
 func (*UnprocessableHeaders) postGoodsReceiptRes()                 {}
 func (*UnprocessableHeaders) postJournalEntryRes()                 {}
 func (*UnprocessableHeaders) postParkedJournalEntryRes()           {}

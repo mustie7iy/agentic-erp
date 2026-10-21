@@ -13,6 +13,10 @@ type ActivateOrgUnitRes interface {
 	activateOrgUnitRes()
 }
 
+type ApplyCountryPackRes interface {
+	applyCountryPackRes()
+}
+
 type ApproveApprovalRequestRes interface {
 	approveApprovalRequestRes()
 }
@@ -501,6 +505,10 @@ type ListContractsRes interface {
 	listContractsRes()
 }
 
+type ListCountryPacksRes interface {
+	listCountryPacksRes()
+}
+
 type ListDownPaymentRequestsRes interface {
 	listDownPaymentRequestsRes()
 }
@@ -659,6 +667,10 @@ type PauseWebhookSubscriptionRes interface {
 
 type PingWebhookSubscriptionRes interface {
 	pingWebhookSubscriptionRes()
+}
+
+type PostBankStatementLineRes interface {
+	postBankStatementLineRes()
 }
 
 type PostGoodsReceiptRes interface {

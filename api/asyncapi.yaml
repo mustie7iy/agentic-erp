@@ -284,6 +284,7 @@ channels:
       BankStatementFileChanged: {$ref: '#/components/messages/BankStatementFileChanged'}
       BankStatementLineMatched: {$ref: '#/components/messages/BankStatementLineMatched'}
       BankStatementLineExcluded: {$ref: '#/components/messages/BankStatementLineExcluded'}
+      BankStatementLinePosted: {$ref: '#/components/messages/BankStatementLinePosted'}
   workflow:
     address: 'erp.{cell}.workflow.{tenant}.{event}'
     title: Workflow events
@@ -464,6 +465,7 @@ operations:
       - $ref: '#/channels/payments/messages/BankStatementFileChanged'
       - $ref: '#/channels/payments/messages/BankStatementLineMatched'
       - $ref: '#/channels/payments/messages/BankStatementLineExcluded'
+      - $ref: '#/channels/payments/messages/BankStatementLinePosted'
   publishWorkflowEvents:
     action: send
     title: Workflow publishes
@@ -1427,6 +1429,22 @@ components:
         - name: excluded
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f8, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_line_excluded.v1, subject: 0192a000-0000-7000-8000-000000000b41, time: '2026-10-20T11:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
           payload: {statement_match_id: 0192a000-0000-7000-8000-000000000b41, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 2, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, kind: manual, rule: null, status: excluded, candidates: 0}
+    BankStatementLinePosted:
+      name: BankStatementLinePosted
+      title: Bank statement line posted
+      summary: A matched statement line was posted to the house bank's main bank account.
+      description: "Emitted when a matched bank statement line is posted (T49f, ADR-0047): at once when the company's approval tier for its amount has no steps, or when its `bank_clearing` approval request is approved. The ledger's JournalEntryPosted (document type SA, source context payments) and, for payments, ItemsCleared (the payments' lines on the clearing account) are published with it. Subject is the match."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_statement_line_posted.v1}
+      payload: {$ref: '#/components/schemas/BankStatementLinePostedV1'}
+      examples:
+        - name: posted
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f9, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_line_posted.v1, subject: 0192a000-0000-7000-8000-000000000b40, time: '2026-10-20T11:10:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
+          payload: {statement_match_id: 0192a000-0000-7000-8000-000000000b40, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, amount: {amount: '-100.00', currency: EUR}, posting_date: '2026-04-17', journal_entry_id: 0192a000-0000-7000-8000-000000000d01, journal_entry_year: 2026, document_number: '100000001', cleared_payments: 1, approval_request_id: 0192a000-0000-7000-8000-000000000901}
     BankFileTransmitted:
       name: BankFileTransmitted
       x-webhook: true
@@ -3255,7 +3273,7 @@ components:
       required: [approval_request_id, object_type, object_id, current_step, escalations, pending_since]
       properties:
         approval_request_id: {$ref: '#/components/schemas/Uuid'}
-        object_type: {type: string, description: 'Open enum: requisition, partner_change, config_change, invoice_exception, period_unlock, manual_entry, purchase_order, order_change.'}
+        object_type: {type: string, description: 'Open enum: requisition, partner_change, config_change, invoice_exception, period_unlock, manual_entry, purchase_order, order_change, bank_clearing.'}
         object_id: {$ref: '#/components/schemas/Uuid'}
         current_step: {type: integer, minimum: 1, description: The step waiting for a decision.}
         escalations: {type: integer, minimum: 1, description: How often the request has now been escalated.}
@@ -3265,7 +3283,7 @@ components:
       required: [approval_request_id, object_type, object_id, title, requester_id, steps]
       properties:
         approval_request_id: {$ref: '#/components/schemas/Uuid'}
-        object_type: {type: string, description: 'Open enum: requisition, partner_change, config_change, invoice_exception, period_unlock, manual_entry, purchase_order, order_change.'}
+        object_type: {type: string, description: 'Open enum: requisition, partner_change, config_change, invoice_exception, period_unlock, manual_entry, purchase_order, order_change, bank_clearing.'}
         object_id: {$ref: '#/components/schemas/Uuid'}
         title: {type: string}
         requester_id: {$ref: '#/components/schemas/Uuid', description: 'Principal that raised the request: human, agent or service.'}
@@ -3925,6 +3943,22 @@ components:
         rule: {"type": ["string", "null"], "description": "Open enum: end_to_end_id, batch_id, transaction_code, amount; null unless kind is rule."}
         status: {"type": "string", "description": "Open enum: open, matched (BankStatementLineMatched), excluded (BankStatementLineExcluded)."}
         candidates: {"type": "integer", "minimum": 0, "description": "How many candidates the match lists: 1 when matched, 0 when excluded."}
+    BankStatementLinePostedV1:
+      type: object
+      required: ["statement_match_id", "bank_statement_id", "line_no", "house_bank_id", "legal_entity_id", "amount", "posting_date", "journal_entry_id", "journal_entry_year", "document_number", "cleared_payments", "approval_request_id"]
+      properties:
+        statement_match_id: {"$ref": "#/components/schemas/Uuid"}
+        bank_statement_id: {"$ref": "#/components/schemas/Uuid"}
+        line_no: {"type": "integer", "minimum": 1, "description": "The line's number in the statement."}
+        house_bank_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        amount: {"$ref": "#/components/schemas/SignedMoney", "description": "The line's amount in the statement's currency: credit (money in) positive."}
+        posting_date: {"$ref": "#/components/schemas/Date"}
+        journal_entry_id: {"$ref": "#/components/schemas/Uuid"}
+        journal_entry_year: {"type": "integer", "description": "The fiscal year of the posting."}
+        document_number: {"type": "string"}
+        cleared_payments: {"type": "integer", "minimum": 0, "description": "How many payments' lines on the clearing account the posting cleared; 0 for a posting rule's line."}
+        approval_request_id: {"$ref": "#/components/schemas/NullableUuid", "description": "The bank_clearing request that approved the posting; null when the tier had no steps."}
     BankFileCreatedV1:
       type: object
       required: ["bank_file_id", "payment_run_id", "format", "sha256", "status"]

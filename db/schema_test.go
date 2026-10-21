@@ -3266,6 +3266,57 @@ func TestBankStatementSchema(t *testing.T) {
 		return exec(tx, `UPDATE payments.statement_match SET status = 'rejected', version = version + 1 WHERE id = $1`, live)
 	})
 	mustApp(t, f.tenant, matchOf(match{kind: "manual", status: "excluded"}))
+	statementPostingSchema(t, f, first)
+}
+
+// statementPostingSchema: a match's posting has its year and date, a
+// reason goes with a date, a posted match stays matched and a journal
+// entry posts one match (T49f, 000126).
+func statementPostingSchema(t *testing.T, f fixture, statement uuid.UUID) {
+	t.Helper()
+	matched := func(lineNo int, m uuid.UUID) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			if err := exec(tx, `INSERT INTO payments.bank_statement_line (tenant_id, statement_id, line_no, amount, booking_date, value_date, transaction_code,
+					bank_reference, owner_reference, text, status, created_by, updated_by)
+				VALUES ($1,$2,$3,-100,'2026-10-20','2026-10-20','NTRF','B','O','T','matched',$4,$4)`, f.tenant, statement, lineNo, f.actor); err != nil {
+				return err
+			}
+			return exec(tx, `INSERT INTO payments.statement_match (tenant_id, id, statement_id, line_no, kind, reason, status, created_by, updated_by)
+				VALUES ($1,$2,$3,$4,'manual','r','matched',$5,$5)`, f.tenant, m, statement, lineNo, f.actor)
+		}
+	}
+	posted, other, entry := id(), id(), id()
+	mustApp(t, f.tenant, matched(10, posted))
+	mustApp(t, f.tenant, matched(11, other))
+	set := func(m uuid.UUID, columns string, args ...any) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE payments.statement_match SET `+columns+`, version = version + 1 WHERE id = $1`, append([]any{m}, args...)...)
+		}
+	}
+	for _, c := range []struct {
+		name  string
+		write func(tx pgx.Tx) error
+		fails string
+	}{
+		{"an entry without its year", set(posted, `posting_date = '2026-10-20', journal_entry_id = $2`, entry), "statement_match_journal"},
+		{"an entry without its date", set(posted, `journal_entry_year = 2026, journal_entry_id = $2`, entry), "statement_match_posting_date"},
+		{"a request without its date", set(posted, `approval_request_id = $2`, id()), "statement_match_posting_date"},
+		{"a reason without a date", set(posted, `posting_reason = 'x'`), "statement_match_posting_reason"},
+		{"an empty reason", set(posted, `posting_date = '2026-10-20', posting_reason = ''`), "statement_match_posting_reason_check"},
+	} {
+		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, c.write), c.fails) })
+	}
+	mustApp(t, f.tenant, set(posted, `posting_date = '2026-10-21', posting_reason = 'October is locked', journal_entry_year = 2026, journal_entry_id = $2`, entry))
+	for _, c := range []struct {
+		name  string
+		write func(tx pgx.Tx) error
+		fails string
+	}{
+		{"a posted match rejected", set(posted, `status = 'rejected'`), "statement_match_posted"},
+		{"an entry posting two matches", set(other, `posting_date = '2026-10-20', journal_entry_year = 2026, journal_entry_id = $2`, entry), "statement_match_journal_entry"},
+	} {
+		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, c.write), c.fails) })
+	}
 }
 
 // TestStatementFetchSchema: a fetched file is recorded once per house bank

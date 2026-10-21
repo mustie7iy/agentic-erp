@@ -87,6 +87,7 @@ func Validate(c *Config, exponents currency.Exponents) []Finding {
 	v.extensions(c)
 	v.rules(c)
 	v.packs(c)
+	v.calendars(c)
 	switch c.Output.PurchaseOrderChannel {
 	case "email", "edi", "print":
 	default:
@@ -155,6 +156,36 @@ func (v *validator) packs(c *Config) {
 		}
 		if _, err := time.Parse(time.DateOnly, a.AppliedOn); err != nil {
 			v.err(p+".applied_on", "%q is not a date (YYYY-MM-DD)", a.AppliedOn)
+		}
+	}
+}
+
+// calendars checks the companies' holidays (ADR-0048): one calendar per
+// company of the document, each holiday a date (YYYY-MM-DD) once, named.
+func (v *validator) calendars(c *Config) {
+	seen := map[string]bool{}
+	for _, cal := range c.Calendars {
+		p := "calendars[" + cal.Company + "]"
+		if seen[cal.Company] {
+			v.err(p, "duplicate calendar")
+		}
+		seen[cal.Company] = true
+		if c.Company(cal.Company) == nil {
+			v.err(p+".company", "company %q is not in the document", cal.Company)
+		}
+		dates := map[string]bool{}
+		for _, h := range cal.Holidays {
+			hp := p + ".holidays[" + h.Date + "]"
+			if _, err := time.Parse(time.DateOnly, h.Date); err != nil {
+				v.err(hp+".date", "%q is not a date (YYYY-MM-DD)", h.Date)
+			}
+			if dates[h.Date] {
+				v.err(hp, "duplicate holiday")
+			}
+			dates[h.Date] = true
+			if strings.TrimSpace(h.Name) == "" {
+				v.err(hp+".name", "name is required")
+			}
 		}
 	}
 }
@@ -231,7 +262,9 @@ func (c *Company) isTaxAccount(number string) bool {
 	if number != "" && number == c.AccountDetermination.InputTax {
 		return true
 	}
-	return slices.ContainsFunc(c.TaxCodes, func(t TaxCode) bool { return number != "" && t.Account == number })
+	return number != "" && slices.ContainsFunc(c.TaxCodes, func(t TaxCode) bool {
+		return slices.ContainsFunc(t.Parts(), func(p TaxComponent) bool { return p.Account == number })
+	})
 }
 
 // houseBanks checks each house bank's IBAN and BIC and that its code is
@@ -605,31 +638,6 @@ func (v *validator) journalRanges(c *Config) {
 					strings.ReplaceAll(r.documentType, "_", " ")+"s", n.Company, r.why, n.FiscalYear, r.journal)
 			}
 		}
-	}
-}
-
-// taxCodes checks the company's tax codes: unique, a rate of at most 100%
-// and an account in the chart.
-func (v *validator) taxCodes(p string, co *Company) {
-	codes := map[string]bool{}
-	for _, t := range co.TaxCodes {
-		tp := fmt.Sprintf("%s.tax_codes[%s]", p, t.Code)
-		if t.Code == "" || codes[t.Code] {
-			v.err(tp, "tax code must be present and unique")
-		}
-		codes[t.Code] = true
-		if r, ok := v.amount(tp+".rate_percent", t.RatePercent, 3); ok && r > 100_000 {
-			v.err(tp+".rate_percent", "rate above 100%%")
-		}
-		switch a := co.Account(t.Account); {
-		case a == nil:
-			v.err(tp+".account", "account %s is not in the chart of accounts", t.Account)
-		case t.Account == co.AccountDetermination.GRIR:
-			v.err(tp+".account", "account %s is the GR/IR account, which only goods receipts and invoices' order items post", t.Account)
-		}
-	}
-	if len(co.TaxCodes) == 0 {
-		v.warn(p+".tax_codes", "no tax codes; captured invoices cannot be checked for tax rate")
 	}
 }
 

@@ -8,6 +8,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -165,8 +167,7 @@ func TestPostingRefusals(t *testing.T) {
 	// A period that is not open, an exhausted range, and a tax code that is valid.
 	pgtest.Exec(t, `UPDATE ledger.period_status SET status = 'closed', version = version + 1 WHERE legal_entity_id = $1 AND fiscal_year = 2026 AND period = 2`, e.de)
 	e.Problem(409, "ledger.period_not_open", "POST", "/v1/journal-entries", entry(e.de, "2026-02-10", "EUR", ok...), "")
-	pgtest.Exec(t, `INSERT INTO ledger.tax_code (tenant_id, legal_entity_id, code, description, direction, rate_pct, account_id, valid_from, created_by)
-		VALUES ($1, $2, 'V9', 'Input', 'input', 19, $3, '2026-01-01', $4)`, e.ten.ID, e.de, e.account(t, "2000", "140000"), e.ten.Human.ID)
+	fixture.TaxCodes(t, e.ten, document(t), config.TaxCode{Code: "V9", Description: "Input", RatePercent: "19", Account: "140000"})
 	taxed, _ := e.Must(201, "POST", "/v1/journal-entries", strings.Replace(entry(e.de, "2026-03-15", "EUR", ok...), `"currency": "EUR"}}, {`,
 		`"currency": "EUR"}, "tax_code": "V9", "line_text": "Fees", "quantity": {"value": "12.500", "unit": "KG"}}, {`, 1), "")
 	l := taxed["lines"].([]any)[0].(map[string]any)

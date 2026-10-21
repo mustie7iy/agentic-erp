@@ -620,6 +620,214 @@ func (s *Server) handleActivateOrgUnitRequest(args [1]string, argsEscaped bool, 
 	}
 }
 
+// handleApplyCountryPackRequest handles applyCountryPack operation.
+//
+// Merges a country pack version into the active configuration for one company (ADR-0048: three-way,
+// from the version the company adopted) and creates the result as a change request in status `draft`,
+// based on the active version, with the merge's notes for the reviewers. Nothing is activated: the
+// change request is submitted, simulated, approved and activated like any other. In production a pack
+// no tax specialist has signed off is refused (409 `config.pack_not_signed_off`); elsewhere it is
+// applied with a note, so packs can be tried before sign-off. The company's legal entity must be
+// active (422 `config.legal_entity_not_active`).
+//
+// POST /v1/country-pack-applications
+func (s *Server) handleApplyCountryPackRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("applyCountryPack"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/country-pack-applications"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ApplyCountryPackOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ApplyCountryPackOperation,
+			ID:   "applyCountryPack",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ApplyCountryPackOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeApplyCountryPackParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeApplyCountryPackRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response ApplyCountryPackRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ApplyCountryPackOperation,
+			OperationSummary: "Apply a country pack to a company",
+			OperationID:      "applyCountryPack",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *CountryPackApplication
+			Params   = ApplyCountryPackParams
+			Response = ApplyCountryPackRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackApplyCountryPackParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ApplyCountryPack(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ApplyCountryPack(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeApplyCountryPackResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleApproveApprovalRequestRequest handles approveApprovalRequest operation.
 //
 // Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`);
@@ -628,9 +836,11 @@ func (s *Server) handleActivateOrgUnitRequest(args [1]string, argsEscaped bool, 
 // object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The
 // request is `approved` when the last step is complete, and the object moves on (a requisition becomes
 // `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry
-// is posted). A manual entry is checked again as it is posted: when that refuses it (409
-// `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name the
-// parked entry's), the approval is refused and the request stays pending.
+// is posted, a bank statement line is posted). A manual entry is checked again as it is posted: when
+// that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
+// fields name the parked entry's), the approval is refused and the request stays pending; so is a bank
+// statement line's posting (`bank_clearing`), and whoever matched the line by hand cannot approve its
+// posting (403 `workflow.segregation_of_duties`).
 //
 // POST /v1/approval-requests/{id}:approve
 func (s *Server) handleApproveApprovalRequestRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -7811,8 +8021,9 @@ func (s *Server) handleCreateRecommendationRequest(args [0]string, argsEscaped b
 // the active configuration version: a stratified sample (every decision, every match issue kind,
 // invoices near the auto-post limit, then more) with the decision each case got. The simulation of a
 // change request then replays the latest suite of its base version and records `regression` evidence:
-// a case outside the companies the change touches that is decided differently fails it. 422
-// `config.no_cases` when the window has no invoices to capture.
+// a case outside the companies the change touches that is decided differently fails it. The capture
+// samples the invoices of every company; the suite returned shows the cases of the companies the
+// caller may access alone. 422 `config.no_cases` when the window has no invoices to capture.
 //
 // POST /v1/regression-suites
 func (s *Server) handleCreateRegressionSuiteRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -18274,7 +18485,8 @@ func (s *Server) handleGetRecommendationRequest(args [1]string, argsEscaped bool
 
 // handleGetRegressionSuiteRequest handles getRegressionSuite operation.
 //
-// Returns one regression suite with its cases.
+// Returns one regression suite with the cases of the companies the reader may access alone
+// (`RegressionSuite`).
 //
 // GET /v1/regression-suites/{id}
 func (s *Server) handleGetRegressionSuiteRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -21156,7 +21368,8 @@ func (s *Server) handleHoldSupplierInvoiceRequest(args [1]string, argsEscaped bo
 // statement already imported (the same statement id, account and sequence) is refused with 409
 // `payments.statement_conflict`. A statement whose opening balance is not the closing balance of the
 // house bank's statement before it is imported in status `gap`, and automatic posting stops for the
-// bank; a statement imported between two others becomes the next one's previous statement, whose
+// bank; the lines the rules match on import are posted as `POST /v1/bank-statements/{id}:match` posts
+// them; a statement imported between two others becomes the next one's previous statement, whose
 // status follows the comparison again. A file that cannot be read is refused with 422
 // `payments.statement_unreadable`, naming the line where what is wrong starts. Imports are made by
 // people and integrations; agents read statements, and an agent's import is refused with 403
@@ -24885,6 +25098,203 @@ func (s *Server) handleListContractsRequest(args [0]string, argsEscaped bool, w 
 	}
 
 	if err := encodeListContractsResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleListCountryPacksRequest handles listCountryPacks operation.
+//
+// The released country packs in the image (ADR-0048): each country's versions with the hash they were
+// released with, the tax specialist's sign-off and the legal sources they rest on. The same for every
+// tenant. Ordered by country, then version.
+//
+// GET /v1/country-packs
+func (s *Server) handleListCountryPacksRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCountryPacks"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/country-packs"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListCountryPacksOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListCountryPacksOperation,
+			ID:   "listCountryPacks",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListCountryPacksOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListCountryPacksParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListCountryPacksRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListCountryPacksOperation,
+			OperationSummary: "List country packs",
+			OperationID:      "listCountryPacks",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "country",
+					In:   "query",
+				}: params.Country,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListCountryPacksParams
+			Response = ListCountryPacksRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListCountryPacksParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListCountryPacks(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListCountryPacks(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListCountryPacksResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -29530,7 +29940,8 @@ func (s *Server) handleListRecommendationsRequest(args [0]string, argsEscaped bo
 
 // handleListRegressionSuitesRequest handles listRegressionSuites operation.
 //
-// Regression suites captured for this tenant, newest first. Sortable by: `captured_at`.
+// Regression suites captured for this tenant, newest first, each with the cases of the companies the
+// reader may access alone (`RegressionSuite`). Sortable by: `captured_at`.
 //
 // GET /v1/regression-suites
 func (s *Server) handleListRegressionSuitesRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -31822,9 +32233,15 @@ func (s *Server) handleLockFiscalPeriodRequest(args [1]string, argsEscaped bool,
 // compared with what the rules find now: the same candidates leave it as it is, others reject its open
 // match and record the new one (or make it unmatched again). Lines matched or excluded, and an agent's
 // proposals, are never touched, so running it twice changes nothing the second time. Agents may call
-// it: it only applies the rules, and what they cannot decide stays open for a person. If-Match is the
-// statement's ETag; a run that matches or leaves open a line, and a person's match or exclusion, move
-// it on. Returns the statement with its lines; `GET /v1/bank-statements/{id}/matches` has the matches.
+// it: it only applies the rules, and what they cannot decide stays open for a person. The lines the
+// rules matched are then posted as `POST .../lines/{line_no}:post` posts them, by the caller, unless
+// the caller is an agent (agents never post) or lacks `payments.statement.post`, or the house bank has
+// a statement in `gap`: each is posted (`posted`) or waits for the approval of its posting
+// (`pending_approval`); one the ledger refuses (a locked period, no exchange rate) stays `matched` for
+// a person, and the refusal is audited. A line whose posting was rejected or withdrawn is not
+// submitted again by a run. If-Match is the statement's ETag; a run that matches, leaves open or posts
+// a line, and a person's match, exclusion or posting, move it on. Returns the statement with its
+// lines; `GET /v1/bank-statements/{id}/matches` has the matches.
 //
 // POST /v1/bank-statements/{id}:match
 func (s *Server) handleMatchBankStatementRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -33229,6 +33646,239 @@ func (s *Server) handlePingWebhookSubscriptionRequest(args [1]string, argsEscape
 	}
 
 	if err := encodePingWebhookSubscriptionResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handlePostBankStatementLineRequest handles postBankStatementLine operation.
+//
+// Posts a `matched` line (ADR-0047) to the house bank's main bank account (`main_gl_account`) against
+// what its match clears: for payments, each payment's line on the bank's clearing account, which must
+// be open-item managed (422 `ledger.not_open_item_managed`), is offset at its original amounts and
+// cleared with the posting, and the payments must pay the line's amount (409
+// `payments.statement_amount_differs`); for a posting rule, the rule's account (409
+// `payments.statement_posting_rule_gone` when the company no longer has the rule). A statement in
+// another currency than the company's is converted at the posting date's rates, and the difference to
+// the payments' amounts is a realized exchange difference (fx_gain/fx_loss). The posting is dated on
+// the line's booking date, or on `posting_date` with a `reason` (both audited); a locked or closed
+// period refuses it (409 `ledger.period_not_open`). The posting is routed by the line's amount in the
+// company's currency through `companies[].bank_statements.approval_tiers` (`bank_clearing` approval
+// requests): a tier without steps posts at once (`posted`); otherwise the line waits for the request
+// (`pending_approval`), whose approval posts it, checked again, and whose rejection or withdrawal
+// returns it to `matched`. A company without tiers has every posting approved by the `controller`
+// role. Whoever matched the line by hand cannot approve its posting. A house bank without a main bank
+// account never posts (409 `payments.statement_bank_not_posting`), nor one with a statement in `gap`
+// (409 `payments.statement_gap`). A line not matched is 409 `payments.statement_line_not_matched`; one
+// posted or waiting already is 409 `payments.statement_line_posting`. People only. Audited; the
+// posting publishes BankStatementLinePosted, and the ledger JournalEntryPosted and ItemsCleared. The
+// response's ETag is the statement's new one, the If-Match of the next decision on its lines.
+//
+// POST /v1/bank-statements/{id}/lines/{line_no}:post
+func (s *Server) handlePostBankStatementLineRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("postBankStatementLine"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/bank-statements/{id}/lines/{line_no}:post"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), PostBankStatementLineOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: PostBankStatementLineOperation,
+			ID:   "postBankStatementLine",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, PostBankStatementLineOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodePostBankStatementLineParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodePostBankStatementLineRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response PostBankStatementLineRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    PostBankStatementLineOperation,
+			OperationSummary: "Post a matched bank statement line",
+			OperationID:      "postBankStatementLine",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "line_no",
+					In:   "path",
+				}: params.LineNo,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = OptStatementLinePostInput
+			Params   = PostBankStatementLineParams
+			Response = PostBankStatementLineRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackPostBankStatementLineParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.PostBankStatementLine(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.PostBankStatementLine(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodePostBankStatementLineResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)

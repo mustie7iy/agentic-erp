@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 	"time"
 
@@ -39,7 +40,7 @@ import (
 // ApprovalPermissions are added to every fixture tenant's human role.
 var ApprovalPermissions = []string{"workflow.request.read", "workflow.request.decide", "workflow.request.cancel",
 	"procurement.requisition.approve", "partner.change.approve", "payables.invoice.approve", "config.change.approve",
-	"ledger.period.unlock.approve", "ledger.entry.approve", "procurement.order.approve"}
+	"ledger.period.unlock.approve", "ledger.entry.approve", "procurement.order.approve", "payments.statement.clearing.approve"}
 
 // Years are the fiscal years the fixture sets up: 2026, which tests date
 // documents in, and the current year, which numbers documents dated today.
@@ -179,6 +180,23 @@ func (e Env) person(tb testing.TB, name string) pgtest.Actor {
 	return a
 }
 
+// Reader is a person holding the tenant's permissions in the legal entities
+// alone (none: no company).
+func (e Env) Reader(tb testing.TB, name string, legalEntities ...uuid.UUID) pgtest.Actor {
+	tb.Helper()
+	a := pgtest.Actor{ID: uuid.Must(uuid.NewV7()), Kind: "human"}
+	a.Subject = "human|" + a.ID.String()
+	pgtest.Exec(tb, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, status, created_by, updated_by)
+		VALUES ($1, $2, 'human', $3, $4, $5, 'active', $2, $2)`, e.Tenant.ID, a.ID, pgtest.Issuer(tb), a.Subject, name)
+	pgtest.Exec(tb, `INSERT INTO identity.principal_role (tenant_id, id, principal_id, role_id, valid_from, created_by)
+		SELECT $1, gen_random_uuid(), $2, id, current_date - 1, $2 FROM identity.role WHERE tenant_id = $1 AND code = 'all'`, e.Tenant.ID, a.ID)
+	for _, le := range legalEntities {
+		pgtest.Exec(tb, `INSERT INTO identity.company_access (tenant_id, id, principal_id, legal_entity_id, valid_from, created_by)
+			VALUES ($1, gen_random_uuid(), $2, $3, current_date - 1, $2)`, e.Tenant.ID, a.ID, le)
+	}
+	return a
+}
+
 // As is a client acting as another principal of the tenant.
 func (e Env) As(a pgtest.Actor) apitest.Client {
 	c := e.Client
@@ -271,6 +289,33 @@ func (e Env) Withholding(tb testing.TB, codes ...config.WithholdingTaxCode) {
 	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "236000", Name: "Withholding tax payable", Type: config.Liability})
 	de.WithholdingTaxCodes = codes
 	if err := apitest.Committed(tb, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		return ledger.Setup{LegalEntities: tenancy.Directory{}}.Apply(ctx, doc)
+	}); err != nil {
+		tb.Fatal(err)
+	}
+}
+
+// TaxCodes gives company 2000 the tax codes in the ledger, beside or in
+// place of the prototype's codes of the same name, as an activated
+// configuration with them would (T61a).
+func (e Env) TaxCodes(tb testing.TB, codes ...config.TaxCode) {
+	tb.Helper()
+	TaxCodes(tb, e.Tenant, Document(tb), codes...)
+}
+
+// TaxCodes applies doc to the tenant's ledger with company 2000's tax codes
+// beside or in place of doc's codes of the same name.
+func TaxCodes(tb testing.TB, ten pgtest.Tenant, doc *config.Config, codes ...config.TaxCode) {
+	tb.Helper()
+	de := doc.Company("2000")
+	for _, c := range codes {
+		if i := slices.IndexFunc(de.TaxCodes, func(t config.TaxCode) bool { return t.Code == c.Code }); i >= 0 {
+			de.TaxCodes[i] = c
+		} else {
+			de.TaxCodes = append(de.TaxCodes, c)
+		}
+	}
+	if err := apitest.Committed(tb, ten, ten.Human, func(ctx context.Context) error {
 		return ledger.Setup{LegalEntities: tenancy.Directory{}}.Apply(ctx, doc)
 	}); err != nil {
 		tb.Fatal(err)

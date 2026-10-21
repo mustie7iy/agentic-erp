@@ -31,10 +31,13 @@ import (
 //   - a fiscal year exists for a company once the document has a number
 //     range for it; its periods are created closed in every ledger and
 //     opened with fiscal-periods/{id}:open;
-//   - tax codes (input tax, decided in T4) are valid from the start of the
-//     company's first fiscal year; a changed rate or account ends the
-//     current one and starts the new one on the activation day, and a
-//     removed code ends on that day;
+//   - tax codes (T61a, ADR-0049 §3) are kept per legal entity as a
+//     definition, components and dated rates (taxCodes): the document's
+//     rates are written ahead, a rate a posting used never changes (the
+//     database refuses it), and a removed code's rates end on the
+//     activation day; a code in the single-rate form (T4) is valid from
+//     the start of the company's first fiscal year and a changed rate
+//     starts on the activation day;
 //   - withholding tax codes (T46e) are kept per legal entity, changed in
 //     place (what an invoice withheld is kept with its entry, T46f) and
 //     deactivated when removed, which the partner context refuses while a
@@ -88,7 +91,7 @@ func (f *findings) add(path, format string, a ...any) {
 
 // checkCompany checks one proposed company against its legal entity: the
 // account numbers, the legal entity's existence and currency, the start
-// month of its calendar, tax codes already changed today, a new GR/IR
+// month of its calendar, a tax code's direction or account key changed, a new GR/IR
 // account that is already posted, and open-item management turned on for
 // an account with postings. was is the activated company, nil for a new
 // one.
@@ -119,7 +122,7 @@ func (s Setup) checkCompany(ctx context.Context, tx pgx.Tx, co config.Company, w
 	if len(months) > 0 && !slices.Contains(months, int32(co.FiscalYearStartMonth)) {
 		out.add(p+".fiscal_year_start_month", "the legal entity's fiscal calendar starts its years in month %d", months[0])
 	}
-	if err := checkTaxCodesChangedToday(ctx, tx, p, le.ID, co, out); err != nil {
+	if err := checkTaxCodesFixed(ctx, tx, p, le.ID, co, out); err != nil {
 		return err
 	}
 	if err := checkOpenItemsUnposted(ctx, tx, p, le.ID, co, was, out); err != nil {
@@ -181,28 +184,6 @@ func checkGRIRUnposted(ctx context.Context, tx pgx.Tx, p string, le uuid.UUID, c
 	}
 	if posted {
 		out.add(p+".account_determination.gr_ir", "account %s has postings other than a migration run's; the GR/IR account starts without any", number)
-	}
-	return nil
-}
-
-// checkTaxCodesChangedToday reports tax codes the proposal changes or
-// removes that already changed today: a tax code changes at most once a
-// day.
-func checkTaxCodesChangedToday(ctx context.Context, tx pgx.Tx, p string, le uuid.UUID, co config.Company, out *findings) error {
-	var codes, rates, numbers []string
-	for _, t := range co.TaxCodes {
-		codes, rates, numbers = append(codes, t.Code), append(rates, t.RatePercent), append(numbers, t.Account)
-	}
-	rows, _ := tx.Query(ctx, `SELECT t.code FROM ledger.tax_code t JOIN ledger.gl_account g ON g.id = t.account_id
-		LEFT JOIN unnest($2::text[], $3::text[], $4::text[]) AS d(code, rate, number) ON d.code = t.code
-		WHERE t.legal_entity_id = $1 AND t.valid_to IS NULL AND t.valid_from = current_date
-			AND (d.code IS NULL OR d.rate::numeric <> t.rate_pct OR d.number <> g.number) ORDER BY 1`, le, codes, rates, numbers)
-	today, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		return fmt.Errorf("ledger: check company %s: tax codes changed today: %w", co.Code, err)
-	}
-	for _, code := range today {
-		out.add(p+".tax_codes["+code+"]", "the tax code already changed today; change it again from tomorrow")
 	}
 	return nil
 }
@@ -401,37 +382,6 @@ func applyOpenItems(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, char
 			return problem.Conflict("ledger.open_items_account_posted", "Account "+a.Number+" of company "+co.Code+
 				" has postings, so it cannot become open-item managed; name a new clearing account and transfer the old balance to it.")
 		}
-	}
-	return nil
-}
-
-// taxCodes makes the legal entity's tax codes valid today match the
-// company's, ending changed and removed ones today.
-func taxCodes(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, calendar, chart uuid.UUID, co config.Company) error {
-	var codes, descriptions, rates, numbers []string
-	for _, t := range co.TaxCodes {
-		codes, descriptions, rates, numbers = append(codes, t.Code), append(descriptions, t.Description), append(rates, t.RatePercent), append(numbers, t.Account)
-	}
-	const doc = `doc AS (SELECT d.code, d.description, d.rate::numeric AS rate, g.id AS account_id
-		FROM unnest($3::text[], $4::text[], $5::text[], $6::text[]) AS d(code, description, rate, number)
-		JOIN ledger.gl_account g ON g.chart_id = $7 AND g.number = d.number)`
-	if _, err := tx.Exec(ctx, `WITH `+doc+`
-		UPDATE ledger.tax_code t SET valid_to = current_date, ended_by = $2, ended_at = now()
-		WHERE t.legal_entity_id = $1 AND t.valid_to IS NULL AND t.valid_from < current_date
-			AND NOT EXISTS (SELECT FROM doc WHERE doc.code = t.code AND doc.rate = t.rate_pct AND doc.account_id = t.account_id)`,
-		le, p.ID, codes, descriptions, rates, numbers, chart); err != nil {
-		return fmt.Errorf("ledger: end tax codes of %s: %w", le, err)
-	}
-	_, err := tx.Exec(ctx, `WITH `+doc+`
-		INSERT INTO ledger.tax_code (tenant_id, legal_entity_id, code, description, direction, rate_pct, account_id, valid_from, created_by)
-		SELECT $8, $1, doc.code, doc.description, 'input', doc.rate, doc.account_id,
-			CASE WHEN EXISTS (SELECT FROM ledger.tax_code t WHERE t.legal_entity_id = $1 AND t.code = doc.code) THEN current_date
-			ELSE coalesce((SELECT min(start_date) FROM ledger.fiscal_period WHERE calendar_id = $9), current_date) END, $2
-		FROM doc WHERE NOT EXISTS (SELECT FROM ledger.tax_code t WHERE t.legal_entity_id = $1 AND t.code = doc.code
-			AND (t.valid_to IS NULL OR t.valid_to > current_date))`,
-		le, p.ID, codes, descriptions, rates, numbers, chart, p.TenantID, calendar)
-	if err != nil {
-		return fmt.Errorf("ledger: start tax codes of %s: %w", le, err)
 	}
 	return nil
 }

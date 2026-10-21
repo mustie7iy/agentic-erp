@@ -645,20 +645,32 @@ func (v *invoiceCheck) orderItem(field string, po *uuid.UUID, it ItemInput, item
 	return nil
 }
 
-// taxCode checks that an item's tax code, if any, is valid in the legal
-// entity on the invoice date.
+// taxCode checks that an item's tax code, if any, is an input tax code
+// valid in the legal entity on the invoice date, of components an invoice
+// can post.
 func (v *invoiceCheck) taxCode(field string, code *string) error {
 	if code == nil {
 		return nil
 	}
-	_, ok, err := v.e.Accounts.TaxCode(v.ctx, v.le.ID, *code, v.in.InvoiceDate)
+	t, ok, err := v.e.Accounts.TaxCode(v.ctx, v.le.ID, *code, v.in.InvoiceDate)
 	if err != nil {
 		return err
 	}
-	if !ok {
-		return invalid("payables.unknown_tax_code", field+".tax_code", "Tax code "+*code+" is not valid in the legal entity on the invoice date.")
+	if !ok || t.Direction != config.TaxInput {
+		return invalid("payables.unknown_tax_code", field+".tax_code", "Tax code "+*code+" is not an input tax code of the legal entity on the invoice date.")
+	}
+	if _, ok := t.Single(); !ok {
+		return componentsUnsupported(field+".tax_code", *code)
 	}
 	return nil
+}
+
+// componentsUnsupported refuses a tax code with several components, a
+// non-deductible one or a partly recoverable one: supplier invoices and
+// down payments post one tax line on one account until T61d.
+func componentsUnsupported(field, code string) error {
+	return invalid("payables.tax_code_components", field, "Tax code "+code+" has components an invoice or down payment cannot post yet "+
+		"(several, non-deductible or partly recoverable; T61d).")
 }
 
 // putItems makes the invoice's live items the given ones: existing item

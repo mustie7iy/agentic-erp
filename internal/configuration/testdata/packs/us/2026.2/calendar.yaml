@@ -1,0 +1,4 @@
+holidays:
+  - {date: 2026-07-04, name: Independence Day}
+  - {date: 2026-11-26, name: Thanksgiving Day}
+  - {date: 2026-12-25, name: Christmas}

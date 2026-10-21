@@ -264,6 +264,61 @@ Canadian bank may only offer BAI2.
   owner 2026-10-20). `BankStatementLineMatched` and
   `BankStatementLineExcluded` are published. Lines become `matched`,
   `proposed` or `excluded`; posting a match is T49f.
+- Posting (T49f, 000126): a `matched` line posts to the house bank's main
+  bank account against what its match clears, through the ledger's
+  `Postings.PostBank` (document type SA, source context payments, the
+  match as source document): a match of payments debits the bank's
+  clearing account with each payment's line on it at its original amounts
+  in all three currencies and clears those lines with the posting
+  (`ItemsCleared`), as a settlement clears supplier items; the clearing
+  account must be open-item managed in the legal entity (422
+  `ledger.not_open_item_managed`), the lines open and not reversed, and
+  together the line's amount (the payments' amounts are compared first:
+  409 `payments.statement_amount_differs`). The main bank line is
+  converted at the posting date's rates and what that leaves in local or
+  group currency is a realized exchange difference on fx_gain or fx_loss.
+  A posting rule's match posts against the rule's account (409
+  `payments.statement_posting_rule_gone` once the company dropped the
+  rule). The ledger does not check the caller's companies: payments reads
+  the statement within them, or the approval authorises the posting, as
+  for approved manual entries. A person posts a line with
+  `POST /v1/bank-statements/{id}/lines/{line_no}:post`
+  (`payments.statement.post`, `x-agent: false`), on its booking date or on
+  `posting_date` with a `reason`, both recorded on the match and audited;
+  a locked or closed period refuses it (409 `ledger.period_not_open`),
+  checked before an approval is asked for. The posting is routed through
+  the company's `approval_tiers` by the line's amount, converted exactly
+  into the company's currency on the posting date
+  (`approvals.BankClearing`, `bank_clearing` requests, approved with
+  `payments.statement.clearing.approve`); a tier without steps posts at
+  once, and a company without tiers has every posting approved by the
+  `controller` role (fail closed, as the period unlock and the manual
+  entry do). Whoever matched the line by hand cannot approve its posting
+  (403 `workflow.segregation_of_duties`, asked of the owner through
+  `approvals.Barrer` before each approval), nor can the requester. A line
+  waiting is `pending_approval`; the approval posts it, checked again (a
+  refusal refuses the decision and the request stays pending), and a
+  rejection or withdrawal returns it to `matched`, keeping the request on
+  the match so the rules' runs do not submit it again: a person posts it
+  again, on another date, or matches it again. The lines the rules match
+  are posted the same way when the rules run, on import and on
+  `:match`, as whoever ran them, unless an agent ran them (agents never
+  post; the next person's or integration's run does), a person or
+  integration without `payments.statement.post` ran them (the statement
+  fetcher, a system principal, posts what it imports), or the bank has a
+  statement in `gap`; each line posts under a savepoint, so a refusal (a
+  locked period, a missing rate) is rolled back with what it recorded,
+  audited as refused, and leaves the line `matched` for a person (T49f's
+  conservative choices, for the product owner to confirm). While the bank has a
+  statement in `gap` a person's posting is refused too (409
+  `payments.statement_gap`), and a bank without a main bank account never
+  posts (409 `payments.statement_bank_not_posting`). A posted match stays
+  `matched` and is not decided again (`statement_match_posted`); one
+  journal entry posts one match (`statement_match_journal_entry`); the
+  approval's callback acts only while the line waits for that request, so
+  a second call posts nothing. `BankStatementLinePosted` is published. The
+  statement's `reconciled` status and incoming payments posted to the
+  incoming clearing account are T49h and later steps.
 - Steps: a ADR, configuration and the house bank's columns · b parsers ·
   c tables, upload, idempotency and continuity · d SFTP fetch · e rule
   matching · f posting, clearing, approval and period locks · g agent

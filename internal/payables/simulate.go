@@ -214,10 +214,38 @@ func (t *tally) postingMoves(co string, before, after *config.Company, r replaye
 			continue
 		}
 		if was := taxCode(before, *it.TaxCode); was != nil {
-			tc := taxCode(after, *it.TaxCode)
-			t.move(co, "tax_codes."+*it.TaxCode+".rate_percent", was.RatePercent, tc.RatePercent, it.Amount, r.Conversion)
-			t.move(co, "tax_codes."+*it.TaxCode+".account", was.Account, tc.Account, it.Amount, r.Conversion)
+			t.taxMoves(co, was, taxCode(after, *it.TaxCode), v.InvoiceDate, it.Amount, r.Conversion)
 		}
+	}
+}
+
+// taxMoves records the rate in force on the invoice date and the account
+// of each component of an item's tax code (T61a) that the proposal
+// changes: a rate dated after the invoice moves nothing it posted. A
+// component one side lacks moves from or to nothing. The one component of
+// the single-rate form keeps the code's own paths.
+func (t *tally) taxMoves(co string, was, is *config.TaxCode, date time.Time, amount money.Minor, conv ledger.Conversion) {
+	parts := map[string][2]config.TaxComponent{}
+	var keys []string
+	for i, tc := range []*config.TaxCode{was, is} {
+		for _, c := range tc.Parts() {
+			p, seen := parts[c.Key]
+			if !seen {
+				keys = append(keys, c.Key)
+			}
+			p[i] = c
+			parts[c.Key] = p
+		}
+	}
+	for _, k := range keys {
+		path := "tax_codes." + was.Code
+		if k != config.LegacyComponent {
+			path += ".components." + k
+		}
+		before, _ := parts[k][0].RateOn(date) // "" when none is in force: a rate starting or ending is a move
+		after, _ := parts[k][1].RateOn(date)
+		t.move(co, path+".rate_percent", before, after, amount, conv)
+		t.move(co, path+".account", parts[k][0].Account, parts[k][1].Account, amount, conv)
 	}
 }
 

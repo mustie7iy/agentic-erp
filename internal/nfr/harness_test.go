@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"runtime"
 	"strings"
@@ -127,4 +128,30 @@ func TestConsistentChecksALostAnswerByItsKey(t *testing.T) {
 	// A complete answer that is not JSON is reported, not looked up by its key.
 	s.record(Posted{Key: key, Status: http.StatusCreated, Err: fmt.Errorf("POST: 201 with a %w", errNotJSON)})
 	pgtest.CheckErr(t, s.Consistent(ctx), "an entry answered 201 without a readable id")
+}
+
+// TestDrainWaitsForRequestsInFlight: a request the server has begun to
+// read or serve (its client gave up when the load ended) keeps Drain
+// waiting, since what it commits must reach the workers before the
+// checks; once its connection closes, Drain returns. The request here is
+// one whose headers never finish, held on the stack's own server.
+func TestDrainWaitsForRequestsInFlight(t *testing.T) {
+	s := Start(t, Options{Users: 1})
+	conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", s.Server.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Write([]byte("POST /v1/journal-entries HTTP/1.1\r\nHost: nfr\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	pgtest.Eventually(t, 10*time.Second, func() bool { return s.busy() == 1 }, "the server reading the request")
+	if err := s.Drain(100 * time.Millisecond); err == nil || !strings.Contains(err.Error(), "connections busy: 1") {
+		t.Errorf("Drain with a request in flight: got %v, want it to wait for the request", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Drain(30 * time.Second); err != nil {
+		t.Errorf("Drain once the request's connection closed: got %v, want nil", err)
+	}
 }

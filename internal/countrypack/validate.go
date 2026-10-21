@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
-	"github.com/mustie7iy/agentic-erp/internal/money"
 )
 
 var (
@@ -41,13 +40,10 @@ func (v *validator) err(path, format string, a ...any) {
 }
 
 // date parses a YYYY-MM-DD date, reporting it at path when it is not one.
-func (v *validator) date(path, s string) (time.Time, bool) {
-	d, err := time.Parse(time.DateOnly, s)
-	if err != nil {
+func (v *validator) date(path, s string) {
+	if _, err := time.Parse(time.DateOnly, s); err != nil {
 		v.err(path, "%q is not a date (YYYY-MM-DD)", s)
-		return time.Time{}, false
 	}
-	return d, true
 }
 
 func (v *validator) manifest(m *Manifest) {
@@ -114,68 +110,33 @@ func determination(ad *config.AccountDetermination) map[string]*string {
 	}
 }
 
+// taxCodes checks the pack's tax codes as the configuration does
+// (config.CheckTaxCodes), with accounts of the pack, and that each has a
+// description and components: a pack names every rate with its dates, so
+// the undated single-rate form is not one of its.
 func (v *validator) taxCodes(p *Pack) {
 	accounts := map[string]bool{}
 	for _, a := range p.Accounts.Accounts {
 		accounts[a.Number] = true
 	}
-	seen := map[string]bool{}
+	v.out = append(v.out, config.CheckTaxCodes("tax.yaml: tax_codes", p.Tax.TaxCodes, func(number string) string {
+		if !accounts[number] {
+			return "account " + number + " is not in the pack's accounts"
+		}
+		return ""
+	})...)
 	for _, t := range p.Tax.TaxCodes {
 		tp := "tax.yaml: tax_codes[" + t.Code + "]"
-		if t.Code == "" || seen[t.Code] {
-			v.err(tp, "tax code must be present and unique")
-		}
-		seen[t.Code] = true
 		if strings.TrimSpace(t.Description) == "" {
 			v.err(tp+".description", "description is required")
 		}
-		if !accounts[t.Account] {
-			v.err(tp+".account", "account %s is not in the pack's accounts", t.Account)
-		}
-		v.rates(tp+".rates", t.Rates)
-	}
-}
-
-// rates checks each rate and that the periods do not overlap: in date
-// order, each rate ends before the next begins.
-func (v *validator) rates(p string, rates []Rate) {
-	if len(rates) == 0 {
-		v.err(p, "at least one rate is required")
-	}
-	type period struct {
-		from, to time.Time
-		open     bool
-	}
-	var periods []period
-	for i, r := range rates {
-		rp := fmt.Sprintf("%s[%d]", p, i)
-		if m, err := money.ParseDecimal(r.RatePercent, 3); err != nil || m < 0 || m > 100_000 {
-			v.err(rp+".rate_percent", "rate %q must be a percentage from 0 to 100 with at most three decimals", r.RatePercent)
-		}
-		from, ok := v.date(rp+".valid_from", r.ValidFrom)
-		if !ok {
-			continue
-		}
-		per := period{from: from, open: r.ValidTo == ""}
-		if !per.open {
-			if per.to, ok = v.date(rp+".valid_to", r.ValidTo); !ok {
-				continue
-			}
-			if per.to.Before(from) {
-				v.err(rp+".valid_to", "valid_to %s is before valid_from %s", r.ValidTo, r.ValidFrom)
-			}
-		}
-		periods = append(periods, per)
-	}
-	slices.SortFunc(periods, func(a, b period) int { return a.from.Compare(b.from) })
-	for i := 1; i < len(periods); i++ {
-		if prev := periods[i-1]; prev.open || !prev.to.Before(periods[i].from) {
-			v.err(p, "rates overlap: one in force from %s has not ended by %s", prev.from.Format(time.DateOnly), periods[i].from.Format(time.DateOnly))
+		if len(t.Components) == 0 {
+			v.err(tp+".components", "a pack's tax code has components with dated rates")
 		}
 	}
 }
 
-func (v *validator) holidays(hs []Holiday) {
+func (v *validator) holidays(hs []config.Holiday) {
 	seen := map[string]bool{}
 	for i, h := range hs {
 		p := fmt.Sprintf("calendar.yaml: holidays[%d]", i)
