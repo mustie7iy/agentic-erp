@@ -6,7 +6,7 @@
 -- account on that date; when and by whom is recorded. An incoming payment a person matches by hand names neither a
 -- payment nor a posting rule: it posts to the house bank's incoming
 -- payments clearing account until accounts receivable (Phase 3) clears it.
--- The checks are added NOT VALID and validated in 000113 (06 §6.4); 000114
+-- The checks are added NOT VALID and validated in 000130 (06 §6.4); 000131
 -- builds the index of a line's matches concurrently.
 
 ALTER TABLE payments.bank_statement

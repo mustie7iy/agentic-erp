@@ -2,7 +2,7 @@
 -- migration stops rather than leave matches that clear nothing.
 DO $$ BEGIN
   IF EXISTS (SELECT FROM payments.statement_match_target WHERE incoming) THEN
-    RAISE EXCEPTION 'payments.statement_match_target has incoming payments; 000112 is undone only without them';
+    RAISE EXCEPTION 'payments.statement_match_target has incoming payments; 000129 is undone only without them';
   END IF;
 END $$;
 ALTER TABLE payments.statement_match_target

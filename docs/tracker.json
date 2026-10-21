@@ -913,7 +913,7 @@
        {
         "s": "D",
         "t": "Reconciliation report per house bank and period (statements' balances against the ledger's main bank account on each closing date: excluded, in transit, posted later, unexplained; lines with their match and proposal outcome; paged, agents too); a statement reconciled once every line up to it is posted or excluded and the ledger agrees, set once, never reopened, its lines then decided for good; incoming payments matched by a person to the incoming payments clearing account and posted there; ADR-0047 as built, operator notes",
-        "r": "db/migrations/000112-000114 · bank_statement reconciled_at/reconciled_by · statement_match_target.incoming · GET /v1/house-banks/{id}/reconciliation · :match incoming · payments.statement_reconciled · payments.statement_incoming_gone · ledger.Accounts.Balances · BankStatementReconciled · T49h",
+        "r": "db/migrations/000129-000131 · bank_statement reconciled_at/reconciled_by · statement_match_target.incoming · GET /v1/house-banks/{id}/reconciliation · :match incoming · payments.statement_reconciled · payments.statement_incoming_gone · ledger.Accounts.Balances · BankStatementReconciled · T49h",
         "c": []
        },
        {

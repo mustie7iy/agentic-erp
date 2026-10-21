@@ -3273,7 +3273,7 @@ func TestBankStatementSchema(t *testing.T) {
 
 // statementReconciliationSchema: a reconciled statement, and only one,
 // says when and by whom; a target is one of a payment, a posting rule or
-// the incoming payments clearing account (T49h, 000112).
+// the incoming payments clearing account (T49h, 000129).
 func statementReconciliationSchema(t *testing.T, f fixture, statement, match uuid.UUID) {
 	t.Helper()
 	set := func(columns string, args ...any) func(tx pgx.Tx) error {

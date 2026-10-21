@@ -388,7 +388,7 @@ Canadian bank may only offer BAI2.
   proposes nothing (the session must be the caller's); agents see
   statements' accounts masked; the agent proposes at most once per line
   and session and may propose nothing.
-- Incoming payments (T49h, 000112-000114): a person matches a credit that
+- Incoming payments (T49h, 000129-000131): a person matches a credit that
   reverses nothing to the house bank's incoming payments clearing account
   (`:match` with `incoming: true`; 422 `payments.statement_match_target`
   for a debit, a reversal, or a bank without `incoming_gl_account`); the
@@ -403,7 +403,7 @@ Canadian bank may only offer BAI2.
   `transaction_code` rule and posted as charges are; matching a credit to
   a customer's open items, by rule or agent, waits for accounts
   receivable (Phase 3).
-- Reconciliation (T49h, 000112-000114): on a statement's closing date the
+- Reconciliation (T49h, 000129-000131): on a statement's closing date the
   bank's closing balance and the ledger's balance of the main bank account
   (the leading ledger, in the legal entity's local currency, which is the
   house bank's; `ledger.Accounts.Balances`) differ by the lines of the
@@ -422,8 +422,8 @@ Canadian bank may only offer BAI2.
   (`POST /v1/bank-statements/{id}:match`), which takes up what changed in
   the ledger since (an opening entry posted later), for all the bank's
   statements whose lines are decided. It records `reconciled_at` and
-  `reconciled_by` (`bank_statement_reconciled`; 000112 adds the checks
-  `NOT VALID`, 000113 validates them, 000114 builds `statement_match_line`
+  `reconciled_by` (`bank_statement_reconciled`; 000129 adds the checks
+  `NOT VALID`, 000130 validates them, 000131 builds `statement_match_line`
   concurrently), is audited
   (`payments.bank_statement.reconcile`) and publishes
   `BankStatementReconciled` once: the update takes only a statement still
