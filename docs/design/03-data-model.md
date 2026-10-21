@@ -1327,7 +1327,11 @@ postings the check read hold until the posting commits. An approved issue
 that has grown since (more invoiced past the same receipt) counts as new, as
 does one whose figures moved otherwise (more received); `:match` then holds
 the invoice for a new exception request rather than leaving it parked on
-the approval (F18 holds only while the issues are those approved). `:match` takes no lock: its
+the approval (F18 holds only while the issues are those approved). The
+issue messages are therefore part of what an approval covers: rewording
+one makes invoices approved before it count as having new issues (refused
+at `:post`, held again at `:match`), which fails safe but is a change to
+roll out with care. `:match` takes no lock: its
 verdict is advice the posting checks again under the lock, so reading the
 received quantities `FOR SHARE` there would only make receipts wait for
 matches.
