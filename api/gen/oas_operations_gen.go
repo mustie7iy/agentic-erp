@@ -64,6 +64,7 @@ const (
 	EnableConnectorOperation                  OperationName = "EnableConnector"
 	EndAgentSessionOperation                  OperationName = "EndAgentSession"
 	EndCompanyAccessOperation                 OperationName = "EndCompanyAccess"
+	EndCurrentSessionOperation                OperationName = "EndCurrentSession"
 	EndRoleAssignmentOperation                OperationName = "EndRoleAssignment"
 	EndRolePermissionOperation                OperationName = "EndRolePermission"
 	EndSodRuleOperation                       OperationName = "EndSodRule"

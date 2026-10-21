@@ -233,6 +233,10 @@ type EndCompanyAccessRes interface {
 	endCompanyAccessRes()
 }
 
+type EndCurrentSessionRes interface {
+	endCurrentSessionRes()
+}
+
 type EndRoleAssignmentRes interface {
 	endRoleAssignmentRes()
 }

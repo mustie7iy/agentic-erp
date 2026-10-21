@@ -1968,6 +1968,60 @@ func TestIdentityProviders(t *testing.T) {
 	})
 }
 
+// TestWebClients: a provider's web workspace client is all five fields or
+// none, each in its form, and its login code names one active provider
+// across tenants, freed when the provider retires (ADR-0052 G8).
+func TestWebClients(t *testing.T) {
+	need(t)
+	a, b := newFixture(t), newFixture(t)
+	p := id()
+	code := "c-" + strings.ReplaceAll(id().String(), "-", "")[:20]
+	mustApp(t, a.tenant, registerProvider(a, p, "https://web.example.com/"+id().String(), "erp"))
+	web := func(code string) string {
+		return "web_client_id = 'erp-web', web_auth_method = 'private_key_jwt', web_credential_ref = 'file:/k', web_login_code = '" + code + "', web_scope = 'openid erp'"
+	}
+	mustApp(t, a.tenant, changeProvider(a, p, web(code)))
+	t.Run("a login code names one active provider", func(t *testing.T) {
+		q := id()
+		mustApp(t, b.tenant, registerProvider(b, q, "https://web.example.com/"+id().String(), "erp"))
+		failsWith(t, asApp(t, b.tenant, changeProvider(b, q, web(code))), "identity_provider_login_code")
+	})
+	for name, c := range map[string]struct{ set, fails string }{
+		"all or none":         {"web_scope = NULL", "identity_provider_web_client"},
+		"a client id":         {"web_client_id = 'a b'", "identity_provider_web_client_id_check"},
+		"an auth method":      {"web_auth_method = 'none'", "identity_provider_web_auth_method_check"},
+		"a reference":         {"web_credential_ref = 'the-secret'", "identity_provider_web_credential_ref_check"},
+		"a login code":        {"web_login_code = 'Acme'", "identity_provider_web_login_code_check"},
+		"openid in the scope": {"web_scope = 'profile email'", "identity_provider_web_scope_check"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			failsWith(t, asApp(t, a.tenant, changeProvider(a, p, c.set)), c.fails)
+		})
+	}
+	t.Run("the control role reads it", func(t *testing.T) {
+		tx, err := testDB.Begin(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback(context.Background()) }() // read only
+		if _, err := tx.Exec(context.Background(), "SET LOCAL ROLE erp_control"); err != nil {
+			t.Fatal(err)
+		}
+		var got string
+		if err := tx.QueryRow(context.Background(), `SELECT web_login_code FROM identity.identity_provider WHERE id = $1`, p).Scan(&got); err != nil || got != code {
+			t.Errorf("got %q, %v, want %s", got, err, code)
+		}
+	})
+	t.Run("retired, the code is free", func(t *testing.T) {
+		mustApp(t, a.tenant, changeProvider(a, p, "status = 'retired', retired_at = now()"))
+		q := id()
+		mustApp(t, b.tenant, registerProvider(b, q, "https://web.example.com/"+id().String(), "erp"))
+		if err := asApp(t, b.tenant, changeProvider(b, q, web(code))); err != nil {
+			t.Errorf("got %v, want the freed code taken", err)
+		}
+	})
+}
+
 // TestAuthPolicy: a tenant's session lifetime and idle timeout stay within
 // their bounds, and the idle timeout never exceeds the lifetime.
 func TestAuthPolicy(t *testing.T) {

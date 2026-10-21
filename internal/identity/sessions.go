@@ -83,6 +83,9 @@ var (
 	errIdle = func() error {
 		return sessionProblem("identity.session_idle", "The session was idle longer than the tenant allows; sign in again.")
 	}
+	errRevoked = func() error {
+		return sessionProblem("identity.session_revoked", "The session was ended at sign-out; sign in again.")
+	}
 )
 
 // Check applies the tenant's session rule to a person's token, before the
@@ -98,7 +101,7 @@ func (s *Sessions) Check(ctx context.Context, c reqctx.Claims) error {
 	}
 	key, keyed := sessionKey(c)
 	now := clock.Now(s.Now)
-	cacheKey := sha256.Sum256(append([]byte(c.TenantID.String()+"\n"+c.Issuer+"\n"+c.Subject+"\n"), key[:]...))
+	cacheKey := sightingKey(c, key)
 	if s.recent(cacheKey, now, rule) {
 		return nil
 	}
@@ -110,6 +113,11 @@ func (s *Sessions) Check(ctx context.Context, c reqctx.Claims) error {
 		s.remember(cacheKey, *seen)
 	}
 	return nil
+}
+
+// sightingKey is what a replica remembers a token's principal and session by.
+func sightingKey(c reqctx.Claims, key [32]byte) [32]byte {
+	return sha256.Sum256(append([]byte(c.TenantID.String()+"\n"+c.Issuer+"\n"+c.Subject+"\n"), key[:]...))
 }
 
 // sessionKey identifies the authentication: the issuer's sid, or the
@@ -243,6 +251,8 @@ func (s *Sessions) judge(row session, found bool, now time.Time, rule reqctx.Ses
 	switch {
 	case row.ended && row.reason == "idle":
 		return errIdle()
+	case row.ended && row.reason == "revoked":
+		return errRevoked()
 	case row.ended:
 		return errExpired()
 	case !found:
@@ -310,6 +320,44 @@ func readFailed(p reqctx.Principal, err error) error {
 		return nil
 	}
 	return fmt.Errorf("identity: read session of principal %s: %w", p.ID, err)
+}
+
+// End ends the session the request's token belongs to as revoked
+// (endCurrentSession, ADR-0052 G9), in the request's transaction, audited,
+// and has this replica forget having seen it once the transaction commits,
+// so the session's next token here is refused at once; other replicas
+// refuse it from their next look at the session, within TouchEvery. It
+// returns when the session ended, nil for a token whose provider keeps no
+// session (no session rule), or one whose session ended meanwhile.
+func (s *Sessions) End(ctx context.Context) (*time.Time, error) {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c, _ := reqctx.ClaimsFrom(ctx) // the unit of work put them there with the principal
+	key, keyed := sessionKey(c)
+	if c.Session.MaxAge <= 0 || !keyed {
+		return nil, nil
+	}
+	now := clock.Now(s.Now)
+	row, err := scanSession(tx.QueryRow(ctx, `UPDATE identity.session SET ended_at = $3, end_reason = 'revoked', version = version + 1
+		WHERE principal_id = $1 AND session_key = $2 AND ended_at IS NULL RETURNING `+sessionColumns, p.ID, key[:], now))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("identity: end the session of principal %s: %w", p.ID, err)
+	}
+	if err := s.audit(ctx, tx, p, now, "end", row.id, map[string]any{"reason": "revoked", "started_at": row.started, "last_seen_at": row.lastSeen}); err != nil {
+		return nil, err
+	}
+	forget := sightingKey(c, key)
+	reqctx.OnCommit(ctx, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		delete(s.seen, forget)
+	})
+	return &now, nil
 }
 
 // end ends the session for the answer's reason and audits it.

@@ -151,8 +151,14 @@ func containsValue(list []any, want string) bool {
 }
 
 // instanceMethod: POST /v1/things/{id}:verb. collectionMethod: POST /v1/things:verb.
-func instanceMethod(path string) bool   { return strings.Contains(path, "}:") }
-func collectionMethod(path string) bool { return strings.Contains(path, ":") && !instanceMethod(path) }
+// ownMethod: POST /v1/things/current:verb, on the caller's own one thing,
+// which the token names (endCurrentSession): it starts no work and has no
+// version the caller could know, so neither rule applies.
+func instanceMethod(path string) bool { return strings.Contains(path, "}:") }
+func ownMethod(path string) bool      { return strings.Contains(path, "/current:") }
+func collectionMethod(path string) bool {
+	return strings.Contains(path, ":") && !instanceMethod(path) && !ownMethod(path)
+}
 
 func TestDocument(t *testing.T) {
 	spec := loadSpec(t)

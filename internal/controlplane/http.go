@@ -15,7 +15,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
-	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
@@ -234,8 +233,8 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 	req := provisioning.Request{Name: in.Name, Region: in.Region, GroupCurrency: in.GroupCurrency, Idempotency: key,
 		Administrator: provisioning.Administrator{Subject: in.Administrator.Subject, DisplayName: in.Administrator.DisplayName, Email: in.Administrator.Email}}
 	if ip := in.IdentityProvider; ip != nil {
-		req.IdentityProvider = &identity.NewIdentityProvider{Issuer: ip.Issuer, Audience: ip.Audience, TenantClaim: ip.TenantClaim, ACRValues: ip.ACRValues, AMRValues: ip.AMRValues,
-			CertificateBound: ip.CertificateBound}
+		reg := ip.registration()
+		req.IdentityProvider = &reg
 	}
 	if len(in.Configuration) > 0 {
 		doc, err := config.Parse(in.Configuration)

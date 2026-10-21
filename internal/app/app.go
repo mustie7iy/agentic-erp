@@ -169,10 +169,13 @@ func New(cfg Config) (http.Handler, error) {
 	if _, err := governedModel(); err != nil {
 		return nil, err
 	}
+	// People's sessions, recorded per replica (ADR-0031), and ended by
+	// endCurrentSession through the same instance, which forgets them.
+	sessions := &identity.Sessions{Pool: cfg.Pool, AppRole: cfg.AppRole, Now: cfg.Now}
 	h := handler{
 		operationsAPI: &operations.Endpoints{Pages: cfg.Pages, Workflows: cfg.Workflows, Log: cfg.Log},
 		tenancyAPI:    &tenancy.Endpoints{Pages: cfg.Pages},
-		identityAPI:   &identity.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Certifications: certifications(cfg)},
+		identityAPI:   &identity.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Certifications: certifications(cfg), Sessions: sessions},
 		configAPI: &configuration.Endpoints{Pages: cfg.Pages, Packs: library, RefuseUnsignedPacks: cfg.RefuseUnsignedPacks,
 			Dependencies: Configuration(cfg)},
 		partnerAPI: &partner.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys, Schemas: configuration.Settings{}, Rules: configuration.Settings{},
@@ -207,8 +210,7 @@ func New(cfg Config) (http.Handler, error) {
 		// idempotent work; the capture that consumes it is).
 		Routes: map[string]http.Handler{"PUT /v1/uploads/{id}/content": upload},
 		Log:    cfg.Log, Metrics: cfg.Metrics, Tracer: cfg.Tracer, Meter: cfg.Meter, Now: cfg.Now,
-		// People's sessions, recorded per replica (ADR-0031).
-		Sessions:           &identity.Sessions{Pool: cfg.Pool, AppRole: cfg.AppRole, Now: cfg.Now},
+		Sessions:           sessions,
 		RequireBoundAgents: cfg.RequireBoundAgents,
 		Agents:             agents.Admit,
 		Model:              cfg.Model,

@@ -777,6 +777,43 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/sessions/current:end:
+    post:
+      operationId: endCurrentSession
+      tags:
+        - identity
+      summary: End the current session
+      description: "Ends the session the bearer token belongs to (ADR-0031: one authentication at the identity provider, by its `sid` or the subject's `auth_time`), as `revoked`, recorded in the tenant's audit trail. From then on every token of that session gets 401 `identity.session_revoked`, as an ended session does: a token refreshed at the provider does not revive it, and the person signs in again. The web workspace calls it when a person signs out, before the provider's own logout (ADR-0052 G9). Any person may end their own session (`identity.session.end` is held by every person, whatever their roles). `ended` is false for a token whose provider keeps no session (a deployment's own issuer, outside production). Other replicas of the cell may accept the session's tokens for up to a minute more, while they remember having seen it (the session check's cache)."
+      x-permission: identity.session.end
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The session is over.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionEnd"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/principals:
     get:
       operationId: listPrincipals
@@ -13320,7 +13357,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: "OAuth 2.0 bearer access token (OIDC) issued by the tenant's identity provider; validated for signature, issuer and audience at the gateway and again in the service (ADR-0010). Agents and services use client-credentials tokens tied to their own principal. Authorization (permission, legal entity access, segregation of duties) is checked per operation; the required permission is the operation's `x-permission`. The identity provider the tenant registered decides the token's tenant (ADR-0031); a token of an issuer no tenant registered is 401 `authn.invalid_token`, and while the provider's keys or the registry cannot be read the answer is 503 (`platform.identity_provider_unavailable`, `platform.unavailable`). Where the tenant requires multi-factor authentication, a person's token must prove it by the provider's `acr` or `amr` values, or is answered 401 `identity.mfa_required` with the step-up challenge of RFC 9470 (`WWW-Authenticate: Bearer error=\"insufficient_user_authentication\"` with the `acr_values` to ask the provider for); service and agent tokens are not asked. A person's session (one authentication at the provider: its `sid`, or the subject's `auth_time`) lasts the tenant's session lifetime from that authentication and ends after its idle timeout without a request: 401 `identity.session_expired` or `identity.session_idle`, and an ended session never resumes, even with a refreshed token. A person's token with neither `auth_time` nor `sid` is 401 `identity.session_unknown`, and one valid for longer than the session lifetime (`exp` − `iat`) 401 `identity.session_expired`."
+      description: "OAuth 2.0 bearer access token (OIDC) issued by the tenant's identity provider; validated for signature, issuer and audience at the gateway and again in the service (ADR-0010). Agents and services use client-credentials tokens tied to their own principal. Authorization (permission, legal entity access, segregation of duties) is checked per operation; the required permission is the operation's `x-permission`. The identity provider the tenant registered decides the token's tenant (ADR-0031); a token of an issuer no tenant registered is 401 `authn.invalid_token`, and while the provider's keys or the registry cannot be read the answer is 503 (`platform.identity_provider_unavailable`, `platform.unavailable`). Where the tenant requires multi-factor authentication, a person's token must prove it by the provider's `acr` or `amr` values, or is answered 401 `identity.mfa_required` with the step-up challenge of RFC 9470 (`WWW-Authenticate: Bearer error=\"insufficient_user_authentication\"` with the `acr_values` to ask the provider for); service and agent tokens are not asked. A person's session (one authentication at the provider: its `sid`, or the subject's `auth_time`) lasts the tenant's session lifetime from that authentication and ends after its idle timeout without a request: 401 `identity.session_expired` or `identity.session_idle` (`identity.session_revoked` once the person ended it, `endCurrentSession`), and an ended session never resumes, even with a refreshed token. A person's token with neither `auth_time` nor `sid` is 401 `identity.session_unknown`, and one valid for longer than the session lifetime (`exp` − `iat`) 401 `identity.session_expired`."
   parameters:
     Id:
       name: id
@@ -15057,6 +15094,22 @@ components:
           agent_type: ap_exceptions
           model: erp-default
           description: Office chairs, ergonomic
+    SessionEnd:
+      type: object
+      description: "The end of the caller's session (endCurrentSession)."
+      required:
+        - ended
+      properties:
+        ended:
+          type: boolean
+          description: "True when the session was ended now; false when the token's provider keeps no session."
+        ended_at:
+          type: ["string", "null"]
+          format: date-time
+          description: When the session ended; null when none was kept.
+      examples:
+        - ended: true
+          ended_at: "2026-10-21T17:30:00Z"
     Principal:
       description: A person, agent or service that can act. Agents are principals with their own roles and can never hold approval permissions. Legal entity access is granted through company access.
       allOf:
@@ -25900,7 +25953,7 @@ components:
         RateLimit-Reset:
           $ref: "#/components/headers/RateLimitReset"
     Unauthorized:
-      description: "Missing, expired or invalid bearer token (`authn.invalid_token`), or a person's token without the multi-factor authentication the tenant requires (`identity.mfa_required`, with the RFC 9470 challenge in `WWW-Authenticate`), or of a session that has ended (`identity.session_expired`, `identity.session_idle`) or cannot be told (`identity.session_unknown`)."
+      description: "Missing, expired or invalid bearer token (`authn.invalid_token`), or a person's token without the multi-factor authentication the tenant requires (`identity.mfa_required`, with the RFC 9470 challenge in `WWW-Authenticate`), or of a session that has ended (`identity.session_expired`, `identity.session_idle`, `identity.session_revoked`) or cannot be told (`identity.session_unknown`)."
       content:
         application/problem+json:
           schema:
