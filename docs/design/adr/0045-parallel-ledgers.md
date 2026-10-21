@@ -118,7 +118,10 @@ valuation area: a parallel ledger may value at a rate type of its own
 as the leading ledger always does; the valuation accounts are the legal
 entity's for every ledger, since each run posts in its own ledger. Valuation
 methods per accounting principle beyond the rate type (HGB's imparity
-principle, valuing only losses) are not built. Depreciation runs per
+principle, valuing only losses) are not built. A ledger assigned to a
+company later holds no copies of the items posted before, so its runs
+value what was posted to it since, its opening balances included.
+Depreciation runs per
 depreciation area, each posting to its ledger (T57).
 
 **Reconciliation (T52e).** `GET /v1/ledger-reconciliation` compares two

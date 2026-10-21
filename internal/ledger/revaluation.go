@@ -23,8 +23,8 @@ import (
 // Revaluation is what a foreign-currency revaluation run of a legal entity
 // and ledger at a key date values (ADR-0042): the open items of supplier
 // and customer reconciliation accounts and the balances per currency of
-// flagged accounts, each at the key date's rate of the legal entity's
-// valuation rate type.
+// flagged accounts, each at the key date's rate of the ledger's valuation
+// rate type: its own (T52d) or the legal entity's.
 type Revaluation struct {
 	LegalEntityID, LedgerID  uuid.UUID
 	KeyDate                  time.Time
@@ -145,9 +145,10 @@ const revaluationScope = `WITH scope AS MATERIALIZED (
 // so a parallel ledger values its copies of the items and its own
 // postings (T52d). The key date is the last day of a posting period of the
 // ledger; every currency is valued into local and into group currency at
-// the latest rate of the ledger's rate type (its active fx_valuation_ledger,
-// else the legal entity's) valid on it, one valid from before the key date's period being
-// stale; and every account with items in scope has an active valuation.
+// the latest rate of the ledger's rate type (its active
+// fx_valuation_ledger, else the legal entity's) valid on it, one valid from
+// before the key date's period being stale; and every account with items
+// in scope has an active valuation.
 func valueRevaluation(ctx context.Context, tx pgx.Tx, le tenancy.Entity, ledgerID uuid.UUID, group string, keyDate time.Time) (Revaluation, error) {
 	r := Revaluation{LegalEntityID: le.ID, LedgerID: ledgerID, KeyDate: keyDate, CurrencyLC: le.LocalCurrency, CurrencyGC: group}
 	var start time.Time

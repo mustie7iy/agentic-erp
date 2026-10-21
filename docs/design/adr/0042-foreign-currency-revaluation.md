@@ -35,7 +35,8 @@ posting.
   IAS 21.16, and GR/IR is valued with its order items.
 - **Rates.** One valuation rate type per legal entity
   (`companies[].fx_valuation.rate_type`, default `average`), kept in
-  `ledger.fx_valuation`. The rate is the latest of that type valid on the
+  `ledger.fx_valuation`; since T52d a parallel ledger may value at a rate
+  type of its own (`companies[].fx_valuation.ledgers`, ADR-0045). The rate is the latest of that type valid on the
   key date; one whose `valid_from` lies before the key date's period is
   stale and refused (422 `ledger.rate_stale`), as is a missing one. Rates
   are loaded by operators through `/v1/exchange-rates`; feeds come later.
