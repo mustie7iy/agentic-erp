@@ -968,21 +968,100 @@
     "ph": 2,
     "c": [
      {
+      "s": "P",
+      "t": "Cash position and liquidity forecast decided: a new leaf cash context; house banks in any currency first; flows by source, certainty and tenant liquidity items computed on read plus daily snapshots; supplier items expected on the discount or net due date at the company's payment days plus value days; inflows as memo records; optional PO item delivery dates; our own export schema (product owner 2026-10-21, P1-P8 as recommended)",
+      "r": "ADR-0051 · T53 (split T53a-T53l)",
+      "c": [
+       {
+        "s": "T",
+        "t": "Foreign-currency house banks (P2): currency on house banks in the configuration and payments.house_bank; validation (accounts flagged for revaluation and not shared with a bank of another currency, one currency per code, ranking only in the bank's currency); a USD run paid from a USD bank of a CAD company, its file, its USD statement imported, matched and posted with the realised difference, reconciled in the bank's currency; revaluation at period end covers the bank accounts; ADR-0038 amended",
+        "r": "T53a",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Cash context and configuration: cash schema and package with its imports in TestImportRules, RLS, tenant_id first; liquidity items (tree, direction), derivation (accounts, planning groups, posting rules, defaults), planning groups, per company take_discounts, payment_days, value_days, buckets, rate_type, rate_max_age_days, order_lead_days, credit_lines, snapshot_time; tiers and the derivation simulation; planning_group on partner company data; packs suggest the operating/investing/financing tree",
+        "r": "T53b",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Cash position: ports from payments (statement balances, in-transit payments, runs) and ledger (book balances, rates); GET /v1/cash-position per bank, currency and day with opening, flows by source and certainty, closing, staleness and gap flags, book balance check, credit lines; converted totals with incomplete currencies; one-snapshot read; FailingTx on every path",
+        "r": "T53c",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Memo records: table, API (create, change with If-Match, cancel, realise by a statement line, list), recurrence expanded at read with overrides, expiry, upload idempotent by batch key, agent proposals not counted until accepted; audit and events; schema tests for each database rule",
+        "r": "T53d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Forecast from payables and payments (P5): ports for supplier open items (terms, discount tiers, supplier blocks, withholding, credit memos, items in runs excluded), parked and held invoices, down payment requests; the proposer's due-date and tier logic moved to ledger.ItemTerms and used by both; expected-date rule with payment days, value days and the company calendar; liquidity item derivation with proportional split; GET /v1/liquidity-forecast with buckets, certainty cut, per currency and converted, drill-down; performance budget measured at 100,000 open items",
+        "r": "T53e",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Snapshots, actuals and variance: TakeCashSnapshot workflow per company and day (run-twice test, document level within 31 days), on-demand snapshots, retention; GET /v1/cash-actuals classifying statement lines by their matches; GET /v1/liquidity-forecast-variance with lag and attribution (timing, amount, new, missing, unclassified); variance comments by people",
+        "r": "T53f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Forecast from procurement (P7): optional delivery_date on order items (contract first, additive, copied from requisitions' need date), open value net of invoiced quantity plus tax, expected dates from delivery or lead days and the order's terms; no requisitions; ADR-0034 note",
+        "r": "T53g",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Treasury connector (P8): export schema v1 (JSON lines, CSV); treasury_export connector on the SFTP transport, files named by company, date and hash, resend recognised; CashSnapshotTaken webhook; export audited",
+        "r": "T53h",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Forecast agent: agent type cash_forecast, read tools, variance comment and memo record proposals (x-autonomy: propose), citations checked against the attribution; evals/cash with the cases of ADR-0051 §13; never confirms or posts",
+        "r": "T53i",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Analytics: datasets cash_snapshots and cash_actuals (contract files, extraction in the tenant's run; the relay marks a tenant due for payments' and cash's events), semantic dimensions (liquidity item, source, certainty, house bank) and metrics (forecast, actual, variance, accuracy); isolation tests passing",
+        "r": "T53j",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "SAP migration (if the pilot uses SAP Cash Management): liquidity items, planning groups, supplier planning groups, open memo records extracted and loaded through the services; quality-gate issues for items with no mapping",
+        "r": "T53k",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Deferred (each its own step when its trigger arrives): intraday camt.052 statements and available balances, bank-specific calendars, a tax payable reader (after T61's returns), a receivables and sales order reader (phase 3), a stored flow table kept from events (only if a larger tenant breaks the read budget, P3)",
+        "r": "T53l",
+        "c": []
+       }
+      ]
+     },
+     {
       "s": "T",
       "t": "Daily cash position",
-      "r": "T53",
+      "r": "T53a · T53c",
       "c": []
      },
      {
       "s": "T",
       "t": "Liquidity forecast from open items and orders",
-      "r": "T53",
+      "r": "T53e · T53g",
       "c": []
      },
      {
       "s": "T",
       "t": "Forecast agent with variance explanations",
-      "r": "T53",
+      "r": "T53f · T53i",
       "c": []
      }
     ]
@@ -1390,7 +1469,7 @@
      {
       "s": "T",
       "t": "Treasury system connector",
-      "r": "T53",
+      "r": "T53h",
       "c": []
      }
     ]

@@ -1,8 +1,7 @@
 # ADR-0051: Cash position and liquidity forecast
 
-**Status:** proposed (T53, for the product owner: decisions P1-P8 at the
-end). The steps T53a-T53l enter the tracker once the product owner has
-decided.
+**Status:** accepted (T53, product owner 2026-10-21: P1-P8 as recommended,
+see "Decisions taken"). The steps T53a-T53l are in the tracker.
 
 ## Context
 T53 is "Cash position and liquidity forecast" (07 §7.6): "A daily cash
@@ -679,7 +678,31 @@ from what is posted, with variance from the first week); T53g follows as
 soon as orders carry delivery dates; T53h and T53i complete the exit
 criterion; T53j and T53k can follow the pilot's first month.
 
-## Decisions for the product owner
+## Decisions taken (product owner, 2026-10-21)
+All eight as recommended:
+- **P1** (a): a new leaf context `cash` reads ledger, payments, payables
+  and procurement through their published ports; nothing depends on it.
+- **P2** (a): house banks may hold a currency other than the company's,
+  built first (T53a), before the cash position.
+- **P3** (a): position and forecast are computed on read from PostgreSQL,
+  plus a stored daily snapshot; a stored flow table kept from events only
+  if a larger tenant breaks the read budget.
+- **P4** (a): fixed sources and certainty levels plus the tenant's
+  liquidity items, derived by rules from the offsetting account, the
+  supplier's planning group and posting rules.
+- **P5** (a): a supplier item is expected on the last day of its earliest
+  open discount tier while the company takes discounts, else on its net
+  due date, moved to the company's payment days, plus the bank's value
+  days.
+- **P6** (a): inflows before receivables exist are memo records (manual,
+  recurring, uploaded), with agent proposals from statement history.
+- **P7** (a): purchase order items gain an optional delivery date;
+  requisitions are not a source.
+- **P8** (a): our own versioned export schema by API pull, SFTP push and a
+  webhook; a named treasury system's format is a mapping when the pilot
+  names one.
+
+The options as proposed:
 
 | # | Decision | Options | Recommendation |
 |---|---|---|---|
