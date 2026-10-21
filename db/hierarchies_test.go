@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Hierarchies of cost and profit centers (T56b, migration 000128): the
+// Hierarchies of cost and profit centers (T56b, migration 000139): the
 // rules the database keeps for trees, places and the changes that write
 // them.
 
@@ -251,7 +251,7 @@ func TestHierarchyChanges(t *testing.T) {
 	})
 }
 
-// TestHierarchyBackfill: centers that exist before migration 000128 are
+// TestHierarchyBackfill: centers that exist before migration 000139 are
 // placed in a STANDARD hierarchy's UNASSIGNED leaf when active; pending and
 // rejected ones are not.
 func TestHierarchyBackfill(t *testing.T) {

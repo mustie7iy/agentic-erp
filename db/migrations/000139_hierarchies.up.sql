@@ -93,7 +93,7 @@ CREATE TABLE ledger.hierarchy_member (
   node_id               uuid NOT NULL,
   cost_center_id        uuid,
   profit_center_id      uuid,
-  change_id             uuid,               -- the change that placed it; NULL when placed by migration 000128
+  change_id             uuid,               -- the change that placed it; NULL when placed by migration 000139
   removed_by_change_id  uuid,
   created_at            timestamptz NOT NULL DEFAULT now(),
   created_by            uuid NOT NULL,

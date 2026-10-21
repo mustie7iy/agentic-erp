@@ -946,7 +946,7 @@ stay per legal entity: the ledgers keep their amounts apart on them. A run's
 ledger is one its legal entity keeps (`revaluation_run_ledger_kept`,
 migration 000138, checked on insert).
 
-Hierarchies of cost and profit centers (T56b, migration 000128) are trees
+Hierarchies of cost and profit centers (T56b, migration 000139) are trees
 not dated (decision P7). `hierarchy` has a kind, a code unique per kind
 (`hierarchy_code_once`) and at most one standard per kind
 (`hierarchy_one_standard`), all fixed (`check_hierarchy_fixed`).
@@ -966,7 +966,7 @@ hierarchy of its kind at commit (`check_center_placed`, deferred).
 `node_rename`, `node_move`, `node_remove` (no center) and `place` (a center
 and a hierarchy): `center_change_one_center`, `center_change_hierarchy`.
 
-The configuration's controlling rules (T56c, ADR-0050 §4, migration 000145)
+The configuration's controlling rules (T56c, ADR-0050 §4, migration 000140)
 are kept by the ledger's setup. `gl_account.cost_element` is the account's
 cost element category: `none`, `primary_cost` only on an expense, `revenue`
 only on a revenue (`gl_account_cost_element`); accounts set up before took

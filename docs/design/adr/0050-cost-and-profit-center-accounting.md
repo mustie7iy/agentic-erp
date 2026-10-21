@@ -239,7 +239,7 @@ As built in T56a (migration 000128):
   12). Hierarchies are not time-dependent: reports show history under
   today's tree, as SAP does (decision P7).
 
-  As built in T56b (migration 000128):
+  As built in T56b (migration 000139):
   - **Tables.** `hierarchy` (kind, code `^[0-9A-Z_-]{1,15}$` unique per
     kind, `is_standard` with at most one standard per kind, all three
     fixed), `hierarchy_node` (parent in the same hierarchy by foreign key,
@@ -273,7 +273,7 @@ As built in T56a (migration 000128):
     hierarchy of the kind, checked at the request and again at approval,
     when the center is placed there; a tenant creates its standard
     hierarchies before its first center. Centers that existed before
-    000128 (T56a was not released) were placed in a `STANDARD` hierarchy's
+    000139 (T56a was not released) were placed in a `STANDARD` hierarchy's
     `UNASSIGNED` leaf, created per tenant and kind; a create still pending
     then has no node and its approval is refused, so it is withdrawn and
     requested again.
@@ -338,7 +338,7 @@ companies:
   for a company with no postings yet in the open year, so a year's P&L by
   profit center is complete.
 
-As built in T56c (migration 000145):
+As built in T56c (migration 000140):
 - **Document.** `controlling.cost_center_categories` (`code` as a period's
   category, `name`, `revenue_allowed`, and `lock_actual_cost`,
   `lock_actual_revenue`, `lock_plan`: the locks a new cost center of the

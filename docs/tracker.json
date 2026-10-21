@@ -1507,13 +1507,13 @@
        {
         "s": "D",
         "t": "Hierarchies (ledger): hierarchy (kind, code, at most one standard per kind), hierarchy_node (one root, parent in the same hierarchy, code unique, position), hierarchy_member (a center of the kind once per hierarchy, at a leaf); nothing deleted, removed nodes and places carry removed_by_change_id; triggers refuse cycles, a 13th level and centers off leaves under the hierarchy's row lock; every active center is in the standard hierarchy at commit (deferred trigger); every tree change (node create/rename/move/remove, place) is a center_change approved by the controller, planned at request and again at approval, x-autonomy: propose, alternative trees included (PO to confirm); new centers name a standard leaf (standard_node_id), existing ones were placed in STANDARD/UNASSIGNED; /v1/hierarchies (list, create, tree, subtree, :add, :rename, :move, :remove, :place), /v1/cost-centers/{id}/hierarchy-paths, /v1/profit-centers/{id}/hierarchy-paths; HierarchyChanged; schema tests per rule",
-        "r": "migration 000128 · internal/ledger hierarchies.go, hierarchychange.go, hierarchies_api.go · api/openapi.yaml · api/asyncapi.yaml · ADR-0050 · T56b",
+        "r": "migration 000139 · internal/ledger hierarchies.go, hierarchychange.go, hierarchies_api.go · api/openapi.yaml · api/asyncapi.yaml · ADR-0050 · T56b",
         "c": []
        },
        {
         "s": "D",
         "t": "Configuration rules: controlling.cost_center_categories (revenue_allowed, lock defaults of new cost centers; create/move refuse an inactive category), cost_element per account (defaults by type; DB check by type), default_assignments by account, cost_center_accounting and profit_center_accounting per company (on only before the year's first posting, from that fiscal year, never off), default_profit_center; tiers: category name 1, rules 3, switches 4; activation refuses an automatically posted primary_cost account without a default, and a default center not active, open-ended and unlocked from today (checked again at activation; a lock or redate leaving a default unusable is refused); packs carry cost_element (ca/2026.1 unchanged, for T62g); ledger.AssignmentSimulation lists per company and account the window's lines assigned differently or refused, disclosed by company access",
-        "r": "migration 000145 · internal/config controlling.go · internal/ledger controlling.go, assignsim.go, setup.go, costcenters.go · internal/countrypack validate.go · api/openapi.yaml · ADR-0050 §4 · T56c",
+        "r": "migration 000140 · internal/config controlling.go · internal/ledger controlling.go, assignsim.go, setup.go, costcenters.go · internal/countrypack validate.go · api/openapi.yaml · ADR-0050 §4 · T56c",
         "c": []
        },
        {

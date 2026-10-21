@@ -67,7 +67,7 @@ func newCenters(t *testing.T) centerFixture {
 	return f
 }
 
-// Statements that write hierarchies (T56b, migration 000128).
+// Statements that write hierarchies (T56b, migration 000139).
 const (
 	hierarchy = `INSERT INTO ledger.hierarchy (tenant_id, id, kind, code, name, is_standard, created_by, updated_by) VALUES ($1, $2, $3, $4, 'H', $5, $6, $6)`
 	node      = `INSERT INTO ledger.hierarchy_node (tenant_id, id, hierarchy_id, parent_id, code, name, created_by, updated_by)

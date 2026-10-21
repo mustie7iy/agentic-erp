@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Controlling rules (T56c, migration 000145): what the database keeps of
+// Controlling rules (T56c, migration 000140): what the database keeps of
 // the configuration's cost elements, categories, center accounting and
 // default assignments.
 
@@ -90,7 +90,7 @@ func TestControllingRules(t *testing.T) {
 	})
 }
 
-// TestControllingBackfill: accounts that exist before migration 000145 take
+// TestControllingBackfill: accounts that exist before migration 000140 take
 // their type's cost element, and the categories cost center periods have
 // become categories named by their code, one per tenant and code.
 func TestControllingBackfill(t *testing.T) {
