@@ -68,11 +68,15 @@ func (p Postings) ClearDownPayments(ctx context.Context, in DownPaymentClearing)
 	if err := e.checkAccounts(ctx, tx, le.ID, lines, false); err != nil {
 		return Entry{}, err
 	}
+	ledgers, err := itemLedgers(ctx, tx, items)
+	if err != nil {
+		return Entry{}, err
+	}
 	taxItems, err := downPaymentTaxItems(ctx, tx, items)
 	if err != nil {
 		return Entry{}, err
 	}
-	entry, err := e.post(ctx, tx, actor, draft{entity: le, ledgerID: items[0].ledger, documentType: in.DocumentType, documentDate: in.PostingDate,
+	entry, err := e.post(ctx, tx, actor, draft{entity: le, ledgers: ledgers, documentType: in.DocumentType, documentDate: in.PostingDate,
 		postingDate: in.PostingDate, sourcedItems: taxItems, currencyTC: in.Currency, currencyLC: items[0].currencyLC, currencyGC: items[0].currencyGC,
 		rateTCLC: items[0].rateTCLC, rateLCGC: items[0].rateLCGC, reference: in.Reference, headerText: in.HeaderText,
 		sourceContext: in.SourceContext, sourceDocumentID: &in.SourceDocumentID, lines: lines})

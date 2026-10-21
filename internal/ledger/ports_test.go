@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -11,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -155,6 +157,40 @@ func TestAccountsAndCalendarPorts(t *testing.T) {
 			apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
 		})
 	}
+}
+
+// TestAccountBalances: an account's balances on dates are what the
+// leading ledger posted to it on or before each date, in the legal
+// entity's local currency, in the dates' order (T49h).
+func TestAccountBalances(t *testing.T) {
+	e := setup(t)
+	bank, revenue, expense := e.account(t, "2000", "100000"), e.account(t, "2000", "400000"), e.account(t, "2000", "520000")
+	e.rate(t, "USD", "EUR", "2026-01-01", "0.5")
+	e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-15", "EUR", line{bank, "100.00", ""}, line{revenue, "-100.00", ""}), "")
+	e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-16", "EUR", line{expense, "30.00", ""}, line{bank, "-30.00", ""}), "")
+	e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-04-02", "USD", line{expense, "10.00", ""}, line{bank, "-10.00", ""}), "")
+	a, account := ledger.Accounts{}, uuid.MustParse(bank)
+	dates := []time.Time{date("2026-04-02"), date("2026-03-14"), date("2026-03-15"), date("2026-03-31")}
+	err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+		got, err := a.Balances(ctx, e.de, account, dates)
+		if err != nil {
+			return err
+		}
+		for i, want := range []money.Minor{6500, 0, 10000, 7000} {
+			if got[i] != want {
+				t.Errorf("balance on %s: got %d, want %d", dates[i].Format(time.DateOnly), got[i], want)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := func(ctx context.Context) error { _, err := a.Balances(ctx, e.de, account, dates); return err }
+	if call(context.Background()) == nil {
+		t.Error("outside a unit of work: got no error, want one")
+	}
+	apitest.EveryFailure(t, e.ten, e.ten.Human, "balances", call)
 }
 
 // TestReversalBelongsToTheOwner: an entry another context posted for one of

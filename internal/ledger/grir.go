@@ -217,23 +217,19 @@ func (r rates) localMove(p *position, after *big.Rat, tc, target money.Minor) (l
 type grirPosting struct {
 	in         Posting
 	le         tenancy.Entity
-	ledgerID   uuid.UUID
 	group      string
 	rates      rates
 	grir, diff uuid.UUID
 }
 
 // prepareGRIR resolves what a GR/IR posting books with: the legal entity,
-// the leading ledger, the rates of the posting date and the GR/IR and
+// the rates of the posting date and the GR/IR and
 // price difference accounts.
 func (p Postings) prepareGRIR(ctx context.Context, tx pgx.Tx, in Posting) (grirPosting, error) {
 	e := p.endpoints()
 	g := grirPosting{in: in}
 	var err error
 	if g.le, err = e.legalEntity(ctx, in.LegalEntityID, "legal_entity_id"); err != nil {
-		return g, err
-	}
-	if g.ledgerID, err = ledgerID(ctx, tx, nil); err != nil {
 		return g, err
 	}
 	if g.group, err = e.LegalEntities.GroupCurrency(ctx); err != nil {
@@ -392,7 +388,7 @@ func (p Postings) postGRIR(ctx context.Context, in Posting) (Entry, error) {
 	if err := checkTaxCodes(ctx, tx, g.le.ID, taxDate, lines); err != nil {
 		return Entry{}, err
 	}
-	posted, err := e.post(ctx, tx, actor, draft{entity: g.le, ledgerID: g.ledgerID, documentType: in.DocumentType, documentDate: in.DocumentDate,
+	posted, err := e.post(ctx, tx, actor, draft{entity: g.le, documentType: in.DocumentType, documentDate: in.DocumentDate,
 		postingDate: in.PostingDate, taxDate: taxDate, currencyTC: in.Currency, currencyLC: g.le.LocalCurrency, currencyGC: g.group, rateTCLC: g.rates.toLC.shown,
 		rateLCGC: g.rates.toGC.shown, reference: in.Reference, headerText: in.HeaderText, sourceContext: in.SourceContext,
 		sourceDocumentID: &in.SourceDocumentID, lines: lines})

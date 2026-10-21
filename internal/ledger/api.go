@@ -2,7 +2,6 @@ package ledger
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -25,7 +24,8 @@ func entryToAPI(e Entry) gen.JournalEntry {
 		Currency: e.CurrencyTC, LocalCurrency: e.CurrencyLC, GroupCurrency: e.CurrencyGC, RateTcLc: gen.Decimal(e.RateTCLC),
 		RateLcGc: gen.Decimal(e.RateLCGC), Reference: apitypes.OptString(e.Reference), HeaderText: apitypes.OptString(e.HeaderText),
 		SourceContext: e.SourceContext, SourceDocumentID: apitypes.OptUUID(e.SourceDocumentID), ReversalOfID: apitypes.OptUUID(e.ReversalOfID),
-		ReversedByID: apitypes.OptUUID(e.ReversedByID), PostedAt: e.PostedAt, PostedBy: e.PostedBy, Lines: make([]gen.JournalLine, len(e.Lines)),
+		ReversedByID: apitypes.OptUUID(e.ReversedByID), PostingGroupID: apitypes.OptUUID(e.PostingGroupID), LedgerGroupID: apitypes.OptUUID(e.LedgerGroupID),
+		PostedAt: e.PostedAt, PostedBy: e.PostedBy, Lines: make([]gen.JournalLine, len(e.Lines)),
 	}
 	for i, l := range e.Lines {
 		line := gen.JournalLine{LineNo: l.LineNo, AccountID: l.AccountID, Amount: apitypes.Money(l.TC, e.CurrencyTC, e.ExpTC),
@@ -215,9 +215,9 @@ func (e *Endpoints) UnlockFiscalPeriod(ctx context.Context, req *gen.ReasonInput
 
 // newEntry is the manual entry a create request describes.
 func newEntry(req *gen.JournalEntryCreate) NewEntry {
-	in := NewEntry{LegalEntityID: req.LegalEntityID, LedgerID: apitypes.Ptr[uuid.UUID](req.LedgerID), DocumentType: req.DocumentType.Or("SA"),
-		DocumentDate: req.DocumentDate, PostingDate: req.PostingDate, TaxDate: apitypes.Ptr[time.Time](req.TaxDate), Currency: req.Currency,
-		Reference:  apitypes.Ptr[string](req.Reference),
+	in := NewEntry{LegalEntityID: req.LegalEntityID, LedgerID: apitypes.Ptr[uuid.UUID](req.LedgerID), LedgerGroup: apitypes.Ptr[string](req.LedgerGroup),
+		DocumentType: req.DocumentType.Or("SA"), DocumentDate: req.DocumentDate, PostingDate: req.PostingDate, TaxDate: apitypes.Ptr[time.Time](req.TaxDate),
+		Currency: req.Currency, Reference: apitypes.Ptr[string](req.Reference),
 		HeaderText: apitypes.Ptr[string](req.HeaderText), Lines: make([]NewLine, len(req.Lines))}
 	for i, l := range req.Lines {
 		line := NewLine{AccountID: l.AccountID, Amount: l.Amount.Amount, Currency: l.Amount.Currency, PartnerID: apitypes.Ptr[uuid.UUID](l.PartnerID),
@@ -254,15 +254,19 @@ var entrySort = pagination.Sort{Default: "posting_date", Fields: []pagination.Fi
 	{Name: "posting_date", Column: "e.posting_date", Type: "date"}, {Name: "document_number", Column: "e.document_number", Type: "text"},
 }}
 
-// ListJournalEntries implements GET /v1/journal-entries.
+// ListJournalEntries implements GET /v1/journal-entries: the entries of
+// one ledger, the leading ledger by default, so a posting's copies in the
+// parallel ledgers are listed only when their ledger is asked for and
+// readers that sum the list (analytics) see each posting once (ADR-0045).
 func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJournalEntriesParams) (gen.ListJournalEntriesRes, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
 	from, to := apitypes.Ptr[time.Time](params.PostingDateFrom), apitypes.Ptr[time.Time](params.PostingDateTo)
-	scope := fmt.Sprintf("listJournalEntries|%s|%s|%v|%v|%d|%s|%s", apitypes.Ptr[uuid.UUID](params.LegalEntityID), params.DocumentNumber.Value, from, to,
-		params.FiscalYear.Value, params.SourceContext.Value, apitypes.Ptr[uuid.UUID](params.SourceDocumentID))
+	ledger := apitypes.Ptr[uuid.UUID](params.LedgerID)
+	scope := fmt.Sprintf("listJournalEntries|%s|%s|%v|%v|%d|%s|%s|%s", apitypes.Ptr[uuid.UUID](params.LegalEntityID), params.DocumentNumber.Value, from, to,
+		params.FiscalYear.Value, params.SourceContext.Value, apitypes.Ptr[uuid.UUID](params.SourceDocumentID), ledger)
 	ks, err := e.Pages.Keyset(entrySort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
@@ -271,11 +275,20 @@ func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJourn
 	if err != nil {
 		return nil, err
 	}
+	// The ledger is tested inside a CASE on purpose. As a plain condition
+	// the planner estimates its selectivity across every tenant's ledgers
+	// and multiplies it with the legal entity's, expects a handful of
+	// entries, and reads and sorts the legal entity's whole year instead of
+	// following a page index (000055) for one page
+	// (TestListReadsOnlyItsPage). A CASE is estimated at one half, so the
+	// page indexes keep serving the sort, and a page reads its entries and
+	// at most their copies in the other ledgers.
 	q, args := ks.SQL(entrySelect+` WHERE ($1 OR e.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR e.legal_entity_id = $3)
 		AND ($4 = '' OR e.document_number = $4) AND ($5::date IS NULL OR e.posting_date >= $5) AND ($6::date IS NULL OR e.posting_date <= $6)
-		AND ($7::smallint IS NULL OR e.fiscal_year = $7) AND ($8 = '' OR e.source_context = $8) AND ($9::uuid IS NULL OR e.source_document_id = $9)`,
+		AND ($7::smallint IS NULL OR e.fiscal_year = $7) AND ($8 = '' OR e.source_context = $8) AND ($9::uuid IS NULL OR e.source_document_id = $9)
+		AND CASE WHEN e.ledger_id = coalesce($10, (SELECT g.id FROM ledger.ledger g WHERE g.is_leading)) THEN true ELSE false END`,
 		[]any{access.All, access.IDs, apitypes.Ptr[uuid.UUID](params.LegalEntityID), params.DocumentNumber.Value, from, to, apitypes.Ptr[int32](params.FiscalYear),
-			params.SourceContext.Value, apitypes.Ptr[uuid.UUID](params.SourceDocumentID)})
+			params.SourceContext.Value, apitypes.Ptr[uuid.UUID](params.SourceDocumentID), ledger})
 	rows, _ := tx.Query(ctx, q, args...)
 	entries, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Entry, error) { return scanEntry(r) })
 	if err != nil {
@@ -397,13 +410,9 @@ func (e *Endpoints) ListBalances(ctx context.Context, params gen.ListBalancesPar
 	if !ok || !access.Allows(le.ID) {
 		return empty, nil
 	}
-	var ledger uuid.UUID
-	err = tx.QueryRow(ctx, `SELECT id FROM ledger.ledger WHERE ($1::uuid IS NULL AND is_leading) OR id = $1`, apitypes.Ptr[uuid.UUID](params.LedgerID)).Scan(&ledger)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return empty, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("ledger: list balances %s: find ledger: %w", le.ID, err)
+	ledger, ok, err := ledgerOrLeading(ctx, tx, apitypes.Ptr[uuid.UUID](params.LedgerID))
+	if err != nil || !ok {
+		return empty, err
 	}
 	group, err := e.LegalEntities.GroupCurrency(ctx)
 	if err != nil {
@@ -413,7 +422,7 @@ func (e *Endpoints) ListBalances(ctx context.Context, params gen.ListBalancesPar
 	if err != nil {
 		return nil, err
 	}
-	q, args := ks.SQL(balanceSelect+` WHERE true`, []any{le.ID, ledger, params.FiscalYear, period, account})
+	q, args := ks.SQL(balanceSelect+` WHERE true`, []any{le.ID, []uuid.UUID{ledger}, params.FiscalYear, period, account})
 	rows, _ := tx.Query(ctx, q, args...)
 	balances, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Balance, error) { return scanBalance(r) })
 	if err != nil {
@@ -534,7 +543,7 @@ var clearingSort = pagination.Sort{Default: "clearing_date", Fields: []paginatio
 
 // ListClearings implements GET /v1/clearings.
 func (e *Endpoints) ListClearings(ctx context.Context, params gen.ListClearingsParams) (gen.ListClearingsRes, error) {
-	l := entityList{sort: clearingSort, name: "listClearings", query: clearingSelect, column: "c.legal_entity_id"}
+	l := entityList{sort: clearingSort, name: "listClearings", query: clearingSelect, column: "c.legal_entity_id", condition: shownClearing}
 	l.filter(params.LegalEntityID, params.OrderBy, params.PageSize, params.PageToken)
 	page := gen.ClearingPage{}
 	var err error
@@ -554,6 +563,7 @@ type entityList struct {
 	legalEntity *uuid.UUID // the filter, if any
 	query       string     // the select, without WHERE
 	column      string     // its legal entity column
+	condition   string     // a further SQL condition the rows meet, if any
 }
 
 // filter sets the list's legal entity filter and page from a request.
@@ -577,7 +587,11 @@ func listOfEntities[R, A any](ctx context.Context, e *Endpoints, l entityList, s
 	if err != nil {
 		return nil, gen.OptString{}, err
 	}
-	q, args := ks.SQL(l.query+` WHERE ($1 OR `+l.column+` = ANY($2)) AND ($3::uuid IS NULL OR `+l.column+` = $3)`, []any{access.All, access.IDs, l.legalEntity})
+	where := ` WHERE ($1 OR ` + l.column + ` = ANY($2)) AND ($3::uuid IS NULL OR ` + l.column + ` = $3)`
+	if l.condition != "" {
+		where += ` AND ` + l.condition
+	}
+	q, args := ks.SQL(l.query+where, []any{access.All, access.IDs, l.legalEntity})
 	rows, _ := tx.Query(ctx, q, args...)
 	got, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (R, error) { return scan(r) })
 	if err != nil {

@@ -804,7 +804,7 @@
      {
       "s": "T",
       "t": "Incoming payment posting and clearing",
-      "r": "",
+      "r": "clears the open items T49h leaves on a house bank's incoming payments clearing account (ADR-0047)",
       "c": []
      },
      {
@@ -864,7 +864,7 @@
     "ph": 2,
     "c": [
      {
-      "s": "P",
+      "s": "D",
       "t": "Bank statement import (camt.053, MT940)",
       "r": "ADR-0047 · T49 (split T49a-T49h)",
       "c": [
@@ -899,21 +899,21 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Posting and clearing, approvals.BankClearing, period locks",
-        "r": "T49f",
+        "s": "D",
+        "t": "Matched lines posted to the main bank account, clearing the payments' lines on the open-item managed clearing account (or to a posting rule's account), FX as a settlement; on the booking date or a person's date with a reason, refused in a locked or closed period; routed by approval_tiers (approvals.BankClearing, controller without tiers), the hand-matcher barred from approving; the rules' matches posted as they are made, except by agents or while the bank is in gap",
+        "r": "db/migrations/000126 · ledger.Postings.PostBank/Postable · POST /v1/bank-statements/{id}/lines/{line_no}:post · payments.statement.post · payments.statement.clearing.approve · approvals.BankClearing · approvals.Barrer (workflow.segregation_of_duties) · BankStatementLinePosted · T49f",
         "c": []
        },
        {
-        "s": "T",
-        "t": "Agent proposals (x-autonomy: propose)",
-        "r": "T49g",
+        "s": "D",
+        "t": "Agent proposals (x-autonomy: propose): the reconciliation agent proposes for lines the rules left unmatched or open the payments they clear, a posting rule or their exclusion, in its session, once per line and session; a person accepts (the person's own match, posted and approved as any) or rejects it, or overrides it; agents read statements masked; evaluation suite in replay",
+        "r": "db/migrations/000127 · statement_match session_id/proposal/outcome · POST /v1/bank-statements/{id}/lines/{line_no}:propose/:acceptProposal/:rejectProposal · GET /v1/bank-statements/{id}/rules · GET /v1/house-banks · payments.statement.propose · BankStatementLineProposed · BankStatementLineProposalDecided · internal/reconagent · erp agent reconcile · agent type reconciliation · evals/reconciliation · eval setup form · T49g",
         "c": []
        },
        {
-        "s": "T",
-        "t": "Reconciliation report and documentation",
-        "r": "T49h",
+        "s": "D",
+        "t": "Reconciliation report per house bank and period (statements' balances against the ledger's main bank account on each closing date: excluded, in transit, posted later, unexplained; lines with their match and proposal outcome; paged, agents too); a statement reconciled once every line up to it is posted or excluded and the ledger agrees, set once, never reopened, its lines then decided for good; incoming payments matched by a person to the incoming payments clearing account and posted there; ADR-0047 as built, operator notes",
+        "r": "db/migrations/000129-000131 · bank_statement reconciled_at/reconciled_by · statement_match_target.incoming · GET /v1/house-banks/{id}/reconciliation · :match incoming · payments.statement_reconciled · payments.statement_incoming_gone · ledger.Accounts.Balances · BankStatementReconciled · T49h",
         "c": []
        },
        {
@@ -921,25 +921,43 @@
         "t": "ISO-8859-1 statement files, only if a pilot bank cannot send UTF-8 (coordinator 2026-10-20)",
         "r": "T49",
         "c": []
+       },
+       {
+        "s": "T",
+        "t": "Live certification run of the reconciliation agent with a case that proposes a payment run's payments (needs a cell running the proposal and release workers and a second approver; the replay cell does not)",
+        "r": "evals/reconciliation · ADR-0039 · T49",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A person accepts a gap without the missing statement (reason, audited), so the bank's lines post again",
+        "r": "ADR-0047 Continuity · T49",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Bound the reconciliation check to the bank's statements from the earliest one not reconciled, before production-sized statement history",
+        "r": "internal/payments/reconciliation.go · T49",
+        "c": []
        }
       ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Rule-based automatic matching",
-      "r": "T49",
+      "r": "T49e",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Reconciliation agent for unmatched lines",
-      "r": "T49",
+      "r": "T49g",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Clearing postings with approval",
-      "r": "T49",
+      "r": "T49f",
       "c": []
      }
     ]
@@ -1037,21 +1055,58 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Leading and non-leading ledgers",
       "r": "T52",
+      "c": [
+       {
+        "s": "D",
+        "t": "Ledgers, company ledgers (exactly one leading 0L) and ledger groups with a representative from configuration, kept once activated; periods per ledger of each company; ledgers and groups read through the API",
+        "r": "db/migrations/000132 · ledgers · companies[].ledgers · ledger_groups · GET /v1/ledgers · GET /v1/ledger-groups · ADR-0045 · T52a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Postings copied to every ledger of the company (posting_group_id, one document number); a posting naming a ledger or group limited to the company's ledgers",
+        "r": "db/migrations/000133-000136 · migrate:partitioned-index · ledger_group on manual and parked entries · reversal of every copy · open items on the leading ledger · ADR-0045 · T52b",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Clearing in every ledger: subledger postings copied, clearings applied to each ledger's copy lines by posting_group_id, a clearing's own entry narrowed to its items' ledgers; journal list by ledger (leading by default); ledger groups narrowed to the ledgers kept",
+        "r": "clearCopies · itemLedgers · GET /v1/journal-entries?ledger_id · ADR-0045 · T52c",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Ledger-specific postings refused on supplier and customer reconciliation accounts (422 ledger.ledger_specific_reconciliation), so open items are the same in every ledger; a migrated clearing's entry must be the leading ledger's",
+        "r": "commonOnReconciliation · clearingPeriod · ADR-0045 · T52d",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Revaluation per ledger: a run values its ledger's own lines and posts and reverses in that ledger alone, one posted run per key date and ledger; a parallel ledger's own rate type (valuation area) from companies[].fx_valuation.ledgers",
+        "r": "db/migrations/000137-000138 · fx_valuation_ledger · revaluation_run_ledger_kept · revaluationTarget · TestRevaluationPerLedger · ADR-0045 · ADR-0042 · T52f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Ledger-aware list index and planner statistics for the journal list's ledger filter",
+        "r": "T52",
+        "c": []
+       }
+      ]
+     },
+     {
+      "s": "D",
+      "t": "Ledger-specific postings: a manual or parked entry names a ledger or ledger group, never on a supplier or customer reconciliation account",
+      "r": "ledger_id · ledger_group · ADR-0045 · T52b · T52d",
       "c": []
      },
      {
-      "s": "T",
-      "t": "Ledger-specific postings",
-      "r": "T52",
-      "c": []
-     },
-     {
-      "s": "T",
-      "t": "Ledger reconciliation",
-      "r": "T52",
+      "s": "D",
+      "t": "Ledger reconciliation: differences between two ledgers of a company per account and currency, each ledger's trial balance checked, drill-down to the ledger-specific entries; perf budget; T52b's contract step found empty",
+      "r": "GET /v1/ledger-reconciliation · GET /v1/ledger-reconciliation/entries · TestLedgerReconciliationBudget · ADR-0045 · T52e",
       "c": []
      }
     ]
@@ -1191,7 +1246,7 @@
        {
         "s": "D",
         "t": "Tax items in the ledger: ledger.tax_item written by every posting path that carries a tax code, reversals negated, checked against the tax lines at commit; the tax date on the entry; the ledger.TaxItems port; the contract step dropping the former ledger.tax_code (copied by 000124, no longer read), and the in-use check (ledger.tax_code_posted) reading tax items; internal/tax in the shared kernel",
-        "r": "db/migrations/000140-000141 · ledger.tax_item · ledger.write_tax_items · ledger.TaxItems · journal_entry.tax_date · internal/layout shared tax · ADR-0049 · T61c",
+        "r": "db/migrations/000139-000140 · ledger.tax_item · ledger.write_tax_items · ledger.TaxItems · journal_entry.tax_date · internal/layout shared tax · ADR-0049 · T61c",
         "c": []
        },
        {
@@ -1445,21 +1500,100 @@
     "ph": 2,
     "c": [
      {
+      "s": "P",
+      "t": "Cost and profit center accounting decided: centers, segments and hierarchies as ledger master data maintained by API with approved change requests; cost element category per account; cost center, profit center and segment on every journal line; minimal plan; no document splitting (product owner 2026-10-21, P1-P8 as recommended)",
+      "r": "ADR-0050 · T56 (split T56a-T56l)",
+      "c": [
+       {
+        "s": "D",
+        "t": "Center master data (ledger): segment, profit_center (+ profit_center_company, insert-only), cost_center of one legal entity, their effective-dated periods (category, profit center, locks; valid_to exclusive) written once and retired by the change that replaces them, EXCLUDE on active validity, a cost center period's profit center assigned to its company (FK), RLS, tenant_id first, schema tests per rule; texts change at once (audited by field name); creating a center and every validity, lock, profit center/category, segment or company change is a center_change on a center_change approval request decided by the controller (ledger.cost_center.approve, never the requester, never an agent; locks x-agent: false, the rest x-autonomy: propose), planned and checked at request and again at approval; /v1/cost-centers, /v1/profit-centers, /v1/segments, /v1/center-changes with ETag/If-Match and Idempotency-Key; CostCenterChanged, ProfitCenterChanged, SegmentChanged; the in-use refusals that need postings move to T56d",
+        "r": "migration 000128 · internal/ledger centers.go, costcenters.go, profitcenters.go, centerchange.go · approvals.CenterChange · api/openapi.yaml · api/asyncapi.yaml · ADR-0050 · T56a",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Hierarchies: standard and alternative per kind; one leaf per center in the standard (commit-time check), no cycles, depth at most 12; node moves as change requests; GET /v1/hierarchies/{kind}/{code} with members; schema tests",
+        "r": "T56b",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Configuration rules: controlling.cost_center_categories, cost_element per account (defaults by type), default_assignments, profit_center_accounting, default_profit_center; tiers as ADR-0050 §4; activation refuses an automatically posted account needing a cost object without a default; packs set cost_element; simulation lists lines that would be refused or reassigned",
+        "r": "T56c",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Assignment on the journal: the in-use refusals T56a leaves out (ledger.cost_center_period_in_use, ledger.cost_center_posted_after, ledger.segment_in_use); expand migration (cost_center_id, profit_center_id, segment_id; FKs NOT VALID then validated per partition, partial indexes concurrently); derivation and validation in every posting path incl. parked and Postings; commit-time check of ADR-0050 §5's table; reversals copy; T52 copies carry the same; journal API, list filters and event fields (additive); FOR SHARE on center periods with a race test against a lock. After T52's posting steps are in main",
+        "r": "T56d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Procurement and payables: account_assignment and cost_center_id on requisition and PO items (validated at release), GR and price-difference lines with the item's center; invoice items' cost_center_id/profit_center_id; capture agent proposals with eval cases; the free-text custom field in fixtures replaced; ADR-0034 note",
+        "r": "T56e",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Actual reports: ledger.assignment_balance maintained by the projector (exactly once, run-twice test); GET /v1/cost-center-balances, /v1/profit-center-balances (by center, node, segment, account, period; exact at the read); schema test that assignment balances add up to period_balance on P&L accounts; drill-down via journal filters",
+        "r": "T56f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Plan and plan/actual (P5): controlling context and schema; plan categories with a human-only lock; plan lines by upload and API, idempotent by batch; GET /v1/cost-center-plan-actual; actuals through ledger.AssignmentBalances",
+        "r": "T56g",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "SAP migration: CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), CSKB categories, OKB9 defaults, sets 0101/0106 with ranges expanded; ACDOCA RCNTR/PRCTR/SEGMENT; quality-gate issues; mock generator extended; reconciliation of migrated center totals",
+        "r": "T56h",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Analytics: dataset contract change (journal columns, center and hierarchy snapshots); semantic dimensions and plan metrics; isolation tests unchanged and passing",
+        "r": "T56i",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Controlling agent: proposes assignments and repostings (parked), new centers as change requests, explains plan/actual variances; evaluation suite; never approves or locks",
+        "r": "T56j",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Cost object custom fields: ADR-0046's cost_object reference type, checked on write; the compiler's refusal lifted; ADR-0046 amended",
+        "r": "T56k",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Deferred by the product owner (2026-10-21, P3): document splitting, only if a balance sheet per profit center or segment is needed; its own ADR amendment first, from a fiscal year start",
+        "r": "T56l",
+        "c": []
+       }
+      ]
+     },
+     {
       "s": "T",
       "t": "Cost center master and hierarchy; then lift the custom field schema compiler's refusal of cost object reference fields (ADR-0046, T58d)",
-      "r": "T56",
+      "r": "T56a · T56b · T56k",
       "c": []
      },
      {
       "s": "T",
       "t": "Plan vs actual",
-      "r": "T56",
+      "r": "T56g",
       "c": []
      },
      {
       "s": "T",
       "t": "Cost center reports",
-      "r": "T56",
+      "r": "T56f",
       "c": []
      }
     ]
@@ -1472,13 +1606,13 @@
      {
       "s": "T",
       "t": "Profit center derivation",
-      "r": "T56",
+      "r": "T56a · T56d",
       "c": []
      },
      {
       "s": "T",
       "t": "Profit center reporting",
-      "r": "T56",
+      "r": "T56f",
       "c": []
      }
     ]
@@ -3594,8 +3728,14 @@
        },
        {
         "s": "D",
-        "t": "erp-analytics image and deployment: pinned multi-stage Dockerfile (Go 1.26.2 bookworm builder cross-compiling with Debian's cross gcc, DuckDB static from duckdb-go-bindings, glibc dynamic on distroless cc-debian12:nonroot, both bases by digest; -trimpath, no build id or VCS stamp, layers at SOURCE_DATE_EPOCH: two clean builds matched per platform), make image-analytics; erp-cell chart: Deployment, Service, PDB, certificate as .../erp-analytics, non-root and read-only with an emptyDir cache, TCP probes, NetworkPolicy admitting erp-server alone on 8443 and egress 443 only, ERP_ANALYTICS_URL and egress on erp-server; Terraform: IRSA role reading analytics/ alone (GetObject, prefixed ListBucket, data key via S3), ECR repository erp-analytics; images.analytics required in release.json (promotion-checks) and in the admission checks",
+        "t": "erp-analytics image and deployment: pinned multi-stage Dockerfile (Go 1.26.10 bookworm builder cross-compiling with Debian's cross gcc, DuckDB static from duckdb-go-bindings, glibc dynamic on distroless cc-debian12:nonroot, both bases by digest; -trimpath, no build id or VCS stamp, layers at SOURCE_DATE_EPOCH: two clean builds matched per platform), make image-analytics; erp-cell chart: Deployment, Service, PDB, certificate as .../erp-analytics, non-root and read-only with an emptyDir cache, TCP probes, NetworkPolicy admitting erp-server alone on 8443 and egress 443 only, ERP_ANALYTICS_URL and egress on erp-server; Terraform: IRSA role reading analytics/ alone (GetObject, prefixed ListBucket, data key via S3), ECR repository erp-analytics; images.analytics required in release.json (promotion-checks) and in the admission checks",
         "r": "deploy/images/erp-analytics.Dockerfile · .dockerignore · deploy/helm/erp-cell/templates/analytics.yaml · modules/cell irsa.tf · modules/ecr · scripts/promotion-checks.sh · ADR-0044 · ADR-0032 · T55h",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Remove the .grype.yaml exception for libssl3 3.0.20 in distroless/cc-debian12 (six CVEs; erp-analytics links no libssl) by its expiry on 2026-11-20: move to the fixed base digest when distroless publishes it, or to cc-debian13 by an ADR-0044 amendment",
+        "r": ".grype.yaml · ADR-0044 · T55h follow-up",
         "c": []
        },
        {
@@ -4053,32 +4193,38 @@
        },
        {
         "s": "D",
-        "t": "Apply a pack to a company: three-way merge (adopted version, tenant document, new version) by account number, account determination field, tax code, number range key and payment term into a draft document with notes; tax codes with all their dated rates (T61a; first the rate in force, later rates noted); the packs provenance section (company, country, version, applied on), validated, operational tier",
+        "t": "Apply a pack to a company: three-way merge (adopted version, tenant document, new version) by account number, account determination field, tax code, number range key and payment term into a draft document with notes; tax codes with all their dated rates, future ones included (T61a; before it, the rate in force with later rates noted); the packs provenance section (company, country, version, applied on), validated, operational tier",
         "r": "countrypack.Apply · config.PackAdoption · T62b",
         "c": []
        },
        {
-        "s": "T",
-        "t": "The calendars section: a company's holidays",
-        "r": "T62c",
+        "s": "D",
+        "t": "The calendars section: a company's holidays (date, name), one calendar per company of the document, each date once; operational tier, a holiday's name cosmetic; applying a pack merges its holidays by date into the company's calendar with notes; read by config.Config.Holiday",
+        "r": "config.Calendar · countrypack.Apply · ADR-0048 · T62c",
         "c": []
        },
        {
-        "s": "T",
-        "t": "API: list packs and apply one as a configuration change request",
-        "r": "T62d",
+        "s": "D",
+        "t": "API: list packs and apply one as a configuration change request: GET /v1/country-packs (version, released hash, sign-off, sources, contents; paged, config.change.read); POST /v1/country-pack-applications applies a version to an active company of the caller's company access (in production only a signed-off pack) on a date and fiscal year and stores the draft as a draft change request on the active version, with the merge's notes on it (change_request.notes); x-autonomy propose as createChangeRequest; nothing activated",
+        "r": "listCountryPacks · applyCountryPack · configuration.ApplyCountryPack · migration 000125 · ADR-0048 · T62d",
         "c": []
        },
        {
-        "s": "T",
-        "t": "Canada pack",
-        "r": "T62e",
+        "s": "D",
+        "t": "Canada pack: starter chart with every account determination key, number ranges for every numbered document type, net payment terms, Canada Labour Code general holidays 2026-2027; sources cited; tax codes pending T61a (sourced GST/HST/QST/PST in packs/ca/TAX-PENDING-T61a.md); no sign-off yet (production refuses it)",
+        "r": "packs/ca/2026.1 · packs/released.sha256 · ADR-0048 · T62e",
         "c": []
        },
        {
         "s": "T",
         "t": "UAE pack",
         "r": "T62f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Canada pack 2026.2: the tax codes (GST/HST/QST/PST) in the component schema of T61a, from packs/ca/TAX-PENDING-T61a.md, with all their dated rates; released beside 2026.1 (which stays as released); signed off by the tax specialist before the pilot",
+        "r": "packs/ca/2026.2 · packs/released.sha256 · ADR-0048 · ADR-0049 · T62g",
         "c": []
        }
       ]
@@ -6163,9 +6309,9 @@
       "r": "configuration.SimulationWorker records simulation and regression evidence",
       "c": [
        {
-        "s": "T",
-        "t": "Follow-up of the simulation fix (T55g review): regression evidence shown to each reader for their own companies alone, as simulation evidence is. Today its detail (changed, regressions, stale: cases with invoice, document number and company) and its summary's counts (also the operation's regression_summary and the audit entry) cover every company, and GET/list /v1/regression-suites return every company's cases. Acceptance: recorded by company with a summary of no count; a configuration.Disclosure for kind regression filtering cases by legal entity with counts over those (fail closed); suites' cases filtered by authz.Companies; tests with readers of two companies and of none, and database failures",
-        "r": "configuration regression.go · api_regression.go · payables.Disclosure (pattern)",
+        "s": "D",
+        "t": "Fix (follow-up of the simulation fix, T55g review): regression evidence and suites shown to each reader for their own companies alone. The evidence is recorded by company (cases_by_company: each company's cases and those decided differently: stale, changed, regressions) with a summary of no count, as it reaches the operation's regression_summary and the audit entry; the capture's audit entry counts no cases. Each reader is shown the cases of the companies they may access, with counts over those (fail closed: no company, no case and counts of zero; a case of no legal entity only to a reader of every company); evidence recorded before is shown whole only to readers of every company. GET/list/create /v1/regression-suites show the cases of the reader's companies, with case_count and strata over those and case_no numbered among them (the evidence's cases likewise), so gaps tell nothing of other companies. The verdict (passed) stays the change's, over every company (coordinator decision: the request's status shows it anyway). The reader's company access is read once per request (Disclosure takes it), not once per evidence. Residual: audit entries and operation results written before keep their counts over every company (ADR-0011); a capture by a person of fewer companies samples every company's invoices, so 422 config.no_cases, or a suite of no case shown, tells them whether other companies had invoices in the window (needs config.regression.manage)",
+        "r": "configuration.regressionShown · configuration.suiteShown · configuration.Disclosure(access) · api/openapi.yaml Evidence, RegressionSuite · 03-data-model §3.5 · 04-api-design §4.9 · TestRegressionShownByCompany · TestRegressionShown · TestRegressionShownAsIs · TestSuiteShown · TestDisclosure",
         "c": []
        }
       ]

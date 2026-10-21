@@ -88,7 +88,9 @@ also routes every lookup to one partition.
   (lag is exposed in a header). Reads that must see the caller's own write
   use the primary.
 - **Trial balance and reports** read `ledger.period_balance` plus entries not
-  yet projected, so they stay fast as history grows (target p95 1 s).
+  yet projected, so they stay fast as history grows (target p95 1 s). The
+  ledger reconciliation reads the same for two ledgers (T52e; budget
+  `TestLedgerReconciliationBudget`, p95 1 s for a year of 5,000 accounts).
 - **Analytics** reads a columnar store (ADR-0044): per-tenant Parquet
   extracted incrementally under the tenant's RLS on a read replica, queried
   by DuckDB in `erp-analytics`; freshness p95 15 min, with a fallback to the

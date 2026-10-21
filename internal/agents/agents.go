@@ -118,6 +118,24 @@ func ownRunning(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID
 	return s, nil
 }
 
+// Sessions answers other contexts whether a session is the calling
+// agent's and running, refusing it as a recommendation's session is
+// refused: the payments context's proposals for statement lines name the
+// session they are made in (T49g, ADR-0047).
+type Sessions struct{}
+
+// Running checks the session, locking it as a recommendation does.
+func (Sessions) Running(ctx context.Context, id uuid.UUID) error {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = ownRunning(ctx, tx, p, id, func() error {
+		return problem.ReferenceNotFound("session_id", "agent session", "a running session of yours")
+	})
+	return err
+}
+
 // StartSession opens a running session for the calling agent.
 func StartSession(ctx context.Context, purpose, model string) (Session, error) {
 	tx, p, err := reqctx.Request(ctx)

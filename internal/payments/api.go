@@ -10,11 +10,14 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -278,13 +281,28 @@ func (e *Endpoints) TransmitBankFile(ctx context.Context, params gen.TransmitBan
 	return &gen.OperationHeaders{Location: gen.NewOptString("/v1/operations/" + op.ID.String()), Response: operations.ToAPI(op)}, nil
 }
 
-func statementToAPI(s Statement) gen.BankStatement {
+// forAgent reports whether statements are shown to the caller masked, as
+// partner bank accounts are shown (T49g): to an agent, and to a caller
+// the request does not name (fail closed).
+func forAgent(ctx context.Context) bool {
+	p, ok := reqctx.PrincipalFrom(ctx)
+	return !ok || p.Kind == reqctx.KindAgent
+}
+
+// statementToAPI is the statement as the caller sees it: masked, an agent.
+func statementToAPI(s Statement, masked bool) gen.BankStatement {
 	out := gen.BankStatement{ID: s.ID, Version: s.Version, CreatedAt: s.CreatedAt, CreatedBy: s.CreatedBy, UpdatedAt: s.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(s.UpdatedBy), HouseBankID: s.HouseBankID, LegalEntityID: s.LegalEntityID, Format: s.Format,
 		FileSHA256: sha256Hex(s.FileSHA256), FilePosition: s.FilePosition, StatementRef: s.Ref, Sequence: s.Sequence, Account: s.Account,
 		OpeningBalance: apitypes.Money(s.Opening, s.Currency, s.Exponent), OpeningDate: s.OpeningDate,
 		ClosingBalance: apitypes.Money(s.Closing, s.Currency, s.Exponent), ClosingDate: s.ClosingDate, LineCount: s.LineCount,
-		PreviousStatementID: apitypes.OptUUID(s.PreviousID), Status: s.Status}
+		PreviousStatementID: apitypes.OptUUID(s.PreviousID), Status: s.Status, ReconciledBy: apitypes.OptUUID(s.ReconciledBy)}
+	if s.ReconciledAt != nil {
+		out.ReconciledAt.SetTo(*s.ReconciledAt)
+	}
+	if masked {
+		out.Account = "****" + fieldcrypt.Last4(s.Account)
+	}
 	if s.MessageID != nil {
 		out.MessageID.SetTo(*s.MessageID)
 	}
@@ -292,19 +310,27 @@ func statementToAPI(s Statement) gen.BankStatement {
 		out.Lines = make([]gen.BankStatementLine, 0, len(s.Lines))
 	}
 	for _, l := range s.Lines {
-		line := gen.BankStatementLine{LineNo: l.LineNo, Amount: apitypes.Money(l.Amount, s.Currency, s.Exponent), IsReversal: l.Reversal,
-			BookingDate: l.BookingDate, ValueDate: l.ValueDate, TransactionCode: l.TransactionCode, BankReference: l.BankReference,
-			OwnerReference: l.OwnerReference, Text: l.Text, Status: l.Status, Transactions: make([]gen.BankStatementTransaction, len(l.Details))}
-		for i, d := range l.Details {
-			line.Transactions[i] = gen.BankStatementTransaction{Amount: apitypes.Money(d.Amount, s.Currency, s.Exponent),
-				MessageID: optText(d.MessageID), PaymentInformationID: optText(d.PaymentInfoID), InstructionID: optText(d.InstructionID),
-				EndToEndID: optText(d.EndToEndID), TransactionCode: optText(d.TransactionCode), CounterpartyName: optText(d.CounterpartyName),
-				CounterpartyIban: optText(d.CounterpartyIBAN), CounterpartyAccount: optText(d.CounterpartyAccount), CounterpartyBic: optText(d.CounterpartyBIC),
-				Remittance: optText(d.Remittance)}
-		}
-		out.Lines = append(out.Lines, line)
+		out.Lines = append(out.Lines, lineToAPI(l, s, masked))
 	}
 	return out
+}
+
+func lineToAPI(l StatementLine, s Statement, masked bool) gen.BankStatementLine {
+	line := gen.BankStatementLine{LineNo: l.LineNo, Amount: apitypes.Money(l.Amount, s.Currency, s.Exponent), IsReversal: l.Reversal,
+		BookingDate: l.BookingDate, ValueDate: l.ValueDate, TransactionCode: l.TransactionCode, BankReference: l.BankReference,
+		OwnerReference: l.OwnerReference, Text: l.Text, Status: l.Status, Transactions: make([]gen.BankStatementTransaction, len(l.Details))}
+	for i, d := range l.Details {
+		t := gen.BankStatementTransaction{Amount: apitypes.Money(d.Amount, s.Currency, s.Exponent),
+			MessageID: optText(d.MessageID), PaymentInformationID: optText(d.PaymentInfoID), InstructionID: optText(d.InstructionID),
+			EndToEndID: optText(d.EndToEndID), TransactionCode: optText(d.TransactionCode), CounterpartyName: optText(d.CounterpartyName),
+			CounterpartyIban: optText(d.CounterpartyIBAN), CounterpartyAccount: optText(d.CounterpartyAccount), CounterpartyBic: optText(d.CounterpartyBIC),
+			Remittance: optText(d.Remittance), CounterpartyAccountLast4: optText(fieldcrypt.Last4(d.counterpartyAccount()))}
+		if masked {
+			t.CounterpartyIban, t.CounterpartyAccount = gen.OptString{}, gen.OptString{}
+		}
+		line.Transactions[i] = t
+	}
+	return line
 }
 
 // optText is a text the bank may not give: absent when empty.
@@ -323,7 +349,7 @@ func (e *Endpoints) ImportBankStatements(ctx context.Context, req *gen.BankState
 	}
 	out := gen.BankStatementImport{FileSHA256: sha256Hex(sum), Statements: make([]gen.BankStatement, len(statements))}
 	for i, s := range statements {
-		out.Statements[i] = statementToAPI(s)
+		out.Statements[i] = statementToAPI(s, false) // agents import nothing
 	}
 	if created {
 		return &gen.ImportBankStatementsCreated{Response: out}, nil
@@ -337,7 +363,7 @@ func (e *Endpoints) GetBankStatement(ctx context.Context, params gen.GetBankStat
 	if err != nil {
 		return nil, err
 	}
-	return &gen.BankStatementHeaders{ETag: gen.NewOptString(etag.Format(s.Version)), Response: statementToAPI(s)}, nil
+	return &gen.BankStatementHeaders{ETag: gen.NewOptString(etag.Format(s.Version)), Response: statementToAPI(s, forAgent(ctx))}, nil
 }
 
 // GetBankStatementFile implements GET /v1/bank-statements/{id}/file.
@@ -374,7 +400,9 @@ func (e *Endpoints) ListBankStatements(ctx context.Context, params gen.ListBankS
 	if err != nil {
 		return nil, fmt.Errorf("payments: list bank statements: %w", err)
 	}
-	items, next := apitypes.PageOf(ks, statements, func(s Statement) (string, uuid.UUID) { return s.ClosingDate.Format(time.DateOnly), s.ID }, statementToAPI)
+	masked := forAgent(ctx)
+	items, next := apitypes.PageOf(ks, statements, func(s Statement) (string, uuid.UUID) { return s.ClosingDate.Format(time.DateOnly), s.ID },
+		func(s Statement) gen.BankStatement { return statementToAPI(s, masked) })
 	return &gen.BankStatementPageHeaders{Response: gen.BankStatementPage{Items: items, NextPageToken: next}}, nil
 }
 
@@ -384,7 +412,7 @@ func (e *Endpoints) MatchBankStatement(ctx context.Context, params gen.MatchBank
 	if err != nil {
 		return nil, err
 	}
-	return &gen.MatchBankStatementOKHeaders{ETag: gen.NewOptString(etag.Format(s.Version)), Response: statementToAPI(s)}, nil
+	return &gen.MatchBankStatementOKHeaders{ETag: gen.NewOptString(etag.Format(s.Version)), Response: statementToAPI(s, forAgent(ctx))}, nil
 }
 
 func matchToAPI(m Match) gen.StatementMatch {
@@ -394,10 +422,21 @@ func matchToAPI(m Match) gen.StatementMatch {
 	if m.Rule != nil {
 		out.Rule.SetTo(*m.Rule)
 	}
+	if m.PostingDate != nil {
+		out.PostingDate.SetTo(*m.PostingDate)
+	}
+	out.PostingReason, out.ApprovalRequestID, out.JournalEntryID = apitypes.OptString(m.PostingReason), apitypes.OptUUID(m.ApprovalRequestID), apitypes.OptUUID(m.JournalEntryID)
+	if m.JournalEntryYear != nil {
+		out.JournalEntryYear.SetTo(int32(*m.JournalEntryYear))
+	}
+	out.SessionID, out.Proposal, out.Outcome = apitypes.OptUUID(m.SessionID), apitypes.OptString(m.Proposal), apitypes.OptString(m.Outcome)
 	for i, t := range m.Targets {
 		out.Targets[i] = gen.StatementMatchTarget{Candidate: int32(t.Candidate), PaymentID: apitypes.OptUUID(t.PaymentID), BankFileID: apitypes.OptUUID(t.BankFileID)}
 		if t.PostingRule != nil {
 			out.Targets[i].PostingRule.SetTo(*t.PostingRule)
+		}
+		if t.Incoming {
+			out.Targets[i].Incoming.SetTo(true)
 		}
 	}
 	return out
@@ -418,7 +457,8 @@ func (e *Endpoints) ListBankStatementMatches(ctx context.Context, params gen.Lis
 
 // MatchBankStatementLine implements POST /v1/bank-statements/{id}/lines/{line_no}:match.
 func (e *Endpoints) MatchBankStatementLine(ctx context.Context, req *gen.StatementLineMatchInput, params gen.MatchBankStatementLineParams) (gen.MatchBankStatementLineRes, error) {
-	m, err := e.MatchLine(ctx, params.ID, params.LineNo, etag.IfMatch(params.IfMatch), ManualMatch{PaymentIDs: req.PaymentIds, PostingRule: req.PostingRule.Value, Reason: req.Reason})
+	m, err := e.MatchLine(ctx, params.ID, params.LineNo, etag.IfMatch(params.IfMatch), ManualMatch{PaymentIDs: req.PaymentIds, PostingRule: req.PostingRule.Value,
+		Incoming: req.Incoming.Value, Reason: req.Reason})
 	if err != nil {
 		return nil, err
 	}
@@ -432,4 +472,182 @@ func (e *Endpoints) ExcludeBankStatementLine(ctx context.Context, req *gen.Reaso
 		return nil, err
 	}
 	return &gen.StatementMatchHeaders{ETag: gen.NewOptString(etag.Format(m.StatementVersion)), Response: matchToAPI(m)}, nil
+}
+
+// PostBankStatementLine implements POST /v1/bank-statements/{id}/lines/{line_no}:post.
+func (e *Endpoints) PostBankStatementLine(ctx context.Context, req gen.OptStatementLinePostInput, params gen.PostBankStatementLineParams) (gen.PostBankStatementLineRes, error) {
+	m, err := e.PostLine(ctx, params.ID, params.LineNo, etag.IfMatch(params.IfMatch),
+		LinePosting{Date: apitypes.Ptr[time.Time](req.Value.PostingDate), Reason: req.Value.Reason.Value})
+	if err != nil {
+		return nil, err
+	}
+	return &gen.StatementMatchHeaders{ETag: gen.NewOptString(etag.Format(m.StatementVersion)), Response: matchToAPI(m)}, nil
+}
+
+// ProposeBankStatementLine implements POST /v1/bank-statements/{id}/lines/{line_no}:propose.
+func (e *Endpoints) ProposeBankStatementLine(ctx context.Context, req *gen.StatementLineProposalInput, params gen.ProposeBankStatementLineParams) (gen.ProposeBankStatementLineRes, error) {
+	m, created, err := e.ProposeLine(ctx, params.ID, params.LineNo, etag.IfMatch(params.IfMatch), LineProposal{SessionID: req.SessionID,
+		PaymentIDs: req.PaymentIds, PostingRule: req.PostingRule.Value, Exclude: req.Exclude.Value, Reason: req.Reason})
+	if err != nil {
+		return nil, err
+	}
+	if !created {
+		return &gen.ProposeBankStatementLineOK{ETag: gen.NewOptString(etag.Format(m.StatementVersion)), Response: matchToAPI(m)}, nil
+	}
+	return &gen.ProposeBankStatementLineCreated{ETag: gen.NewOptString(etag.Format(m.StatementVersion)), Response: matchToAPI(m)}, nil
+}
+
+// AcceptBankStatementLineProposal implements POST /v1/bank-statements/{id}/lines/{line_no}:accept.
+func (e *Endpoints) AcceptBankStatementLineProposal(ctx context.Context, req gen.OptStatementLineProposalAccept, params gen.AcceptBankStatementLineProposalParams) (gen.AcceptBankStatementLineProposalRes, error) {
+	m, err := e.AcceptProposal(ctx, params.ID, params.LineNo, etag.IfMatch(params.IfMatch), req.Value.Comment.Value)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.StatementMatchHeaders{ETag: gen.NewOptString(etag.Format(m.StatementVersion)), Response: matchToAPI(m)}, nil
+}
+
+// RejectBankStatementLineProposal implements POST /v1/bank-statements/{id}/lines/{line_no}:reject.
+func (e *Endpoints) RejectBankStatementLineProposal(ctx context.Context, req *gen.ReasonInput, params gen.RejectBankStatementLineProposalParams) (gen.RejectBankStatementLineProposalRes, error) {
+	m, err := e.RejectProposal(ctx, params.ID, params.LineNo, etag.IfMatch(params.IfMatch), req.Reason)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.StatementMatchHeaders{ETag: gen.NewOptString(etag.Format(m.StatementVersion)), Response: matchToAPI(m)}, nil
+}
+
+var houseBankSort = pagination.Sort{Default: "code", Fields: []pagination.Field{{Name: "code", Column: "h.code", Type: "text"}}}
+
+// ListHouseBanks implements GET /v1/house-banks: the house banks of the
+// legal entities the caller may access, the account by its last four
+// characters.
+func (e *Endpoints) ListHouseBanks(ctx context.Context, params gen.ListHouseBanksParams) (gen.ListHouseBanksRes, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	le := apitypes.Ptr[uuid.UUID](params.LegalEntityID)
+	ks, err := e.Pages.Keyset(houseBankSort, fmt.Sprintf("listHouseBanks|%s", le), apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
+	if err != nil {
+		return nil, err
+	}
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return nil, err
+	}
+	q, args := ks.SQL(`SELECT h.id, h.legal_entity_id, h.code, h.currency, h.iban_last4, h.bic, h.status FROM payments.house_bank h
+		WHERE ($1 OR h.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR h.legal_entity_id = $3)`, []any{access.All, access.IDs, le})
+	rows, _ := tx.Query(ctx, q, args...)
+	banks, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (gen.HouseBank, error) {
+		var b gen.HouseBank
+		err := r.Scan(&b.ID, &b.LegalEntityID, &b.Code, &b.Currency, &b.AccountLast4, &b.Bic, &b.Status)
+		return b, errs.Wrapf(err, "scan house bank")
+	})
+	if err != nil {
+		return nil, fmt.Errorf("payments: list house banks: %w", err)
+	}
+	items, next := apitypes.PageOf(ks, banks, func(b gen.HouseBank) (string, uuid.UUID) { return b.Code, b.ID }, func(b gen.HouseBank) gen.HouseBank { return b })
+	return &gen.HouseBankPageHeaders{Response: gen.HouseBankPage{Items: items, NextPageToken: next}}, nil
+}
+
+// GetBankStatementRules implements GET /v1/bank-statements/{id}/rules: the
+// posting and matching rules of the statement's company.
+func (e *Endpoints) GetBankStatementRules(ctx context.Context, params gen.GetBankStatementRulesParams) (gen.GetBankStatementRulesRes, error) {
+	s, _, err := visibleStatement(ctx, params.ID)
+	if err != nil {
+		return nil, err
+	}
+	co, err := e.statementCompany(ctx, s.LegalEntityID)
+	if err != nil {
+		return nil, err
+	}
+	out := gen.BankStatementRules{PostingRules: []gen.BankStatementRulesPostingRulesItem{}, MatchingRules: []gen.BankStatementRulesMatchingRulesItem{}}
+	if co == nil {
+		return &gen.BankStatementRulesHeaders{Response: out}, nil
+	}
+	for _, r := range co.BankStatements.PostingRules {
+		out.PostingRules = append(out.PostingRules, gen.BankStatementRulesPostingRulesItem{TransactionCode: r.TransactionCode, Description: r.Description, Account: r.Account})
+	}
+	for _, r := range co.BankStatements.MatchingRules {
+		m := gen.BankStatementRulesMatchingRulesItem{Kind: r.Kind, AmountTolerance: optText(r.AmountTolerance)}
+		if r.Kind == config.MatchAmount {
+			m.DateWindowDays, m.Counterparty = gen.NewOptInt32(int32(r.DateWindowDays)), gen.NewOptBool(r.Counterparty)
+		}
+		out.MatchingRules = append(out.MatchingRules, m)
+	}
+	return &gen.BankStatementRulesHeaders{Response: out}, nil
+}
+
+// GetBankReconciliation implements GET /v1/house-banks/{id}/reconciliation:
+// one page of the house bank's reconciliation report (T49h).
+func (e *Endpoints) GetBankReconciliation(ctx context.Context, params gen.GetBankReconciliationParams) (gen.GetBankReconciliationRes, error) {
+	from, to := apitypes.Ptr[time.Time](params.ClosingDateFrom), apitypes.Ptr[time.Time](params.ClosingDateTo)
+	scope := fmt.Sprintf("getBankReconciliation|%s|%v|%v|%s", params.ID, from, to, params.LineStatus.Value)
+	ks, err := e.Pages.Keyset(statementSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
+	if err != nil {
+		return nil, err
+	}
+	r, err := e.BankReconciliation(ctx, params.ID, ReconciliationQuery{From: from, To: to, LineStatus: params.LineStatus.Value, Page: ks})
+	if err != nil {
+		return nil, err
+	}
+	amount := func(m money.Minor) gen.Money { return apitypes.Money(m, r.Currency, r.Exponent) }
+	out := gen.BankReconciliation{HouseBankID: r.HouseBankID, LegalEntityID: r.LegalEntityID, Currency: r.Currency,
+		ClosingDateFrom: optDate(r.From), ClosingDateTo: optDate(r.To), Items: make([]gen.BankReconciliationStatement, len(r.Statements)),
+		Summary: gen.BankReconciliationSummary{Statements: r.Summary.Statements, OpeningDate: optDate(r.Summary.OpeningDate), Lines: lineCounts(r.Summary.Counts)}}
+	if r.Summary.Opening != nil {
+		out.Summary.OpeningBalance.SetTo(amount(*r.Summary.Opening))
+	}
+	if r.Summary.Figures != nil {
+		out.Summary.Figures.SetTo(figuresToAPI(*r.Summary.Figures, amount))
+	}
+	for i, s := range r.Statements {
+		st := gen.BankReconciliationStatement{BankStatementID: s.Statement.ID, StatementRef: s.Statement.Ref, Sequence: s.Statement.Sequence,
+			Status: s.Statement.Status, OpeningDate: s.Statement.OpeningDate, OpeningBalance: amount(s.Statement.Opening),
+			Figures: figuresToAPI(s.Figures, amount), LineCounts: lineCounts(s.Counts), Lines: make([]gen.BankReconciliationLine, len(s.Lines))}
+		for j, l := range s.Lines {
+			st.Lines[j] = reconciledLineToAPI(l, amount)
+		}
+		out.Items[i] = st
+	}
+	if r.NextPageToken != "" {
+		out.NextPageToken.SetTo(r.NextPageToken)
+	}
+	return &gen.BankReconciliationHeaders{Response: out}, nil
+}
+
+func optDate(d *time.Time) gen.OptDate {
+	if d == nil {
+		return gen.OptDate{}
+	}
+	return gen.NewOptDate(*d)
+}
+
+func figuresToAPI(f Figures, amount func(money.Minor) gen.Money) gen.BankReconciliationFigures {
+	out := gen.BankReconciliationFigures{AsOf: f.AsOf, ClosingBalance: amount(f.Closing), Excluded: amount(f.Excluded), InTransit: amount(f.InTransit),
+		PostedLater: amount(f.PostedLater)}
+	if f.Ledger != nil {
+		out.LedgerBalance.SetTo(amount(*f.Ledger))
+		out.Unexplained.SetTo(amount(*f.Unexplained()))
+	}
+	return out
+}
+
+func lineCounts(c LineCounts) gen.BankReconciliationLineCounts {
+	return gen.BankReconciliationLineCounts{Unmatched: c["unmatched"], Proposed: c["proposed"], Matched: c[MatchMatched], Excluded: c[MatchExcluded],
+		PendingApproval: c["pending_approval"], Posted: c["posted"]}
+}
+
+func reconciledLineToAPI(l ReconciledLine, amount func(money.Minor) gen.Money) gen.BankReconciliationLine {
+	out := gen.BankReconciliationLine{LineNo: l.LineNo, BookingDate: l.BookingDate, Amount: amount(l.Amount), IsReversal: l.Reversal,
+		TransactionCode: l.TransactionCode, Status: l.Status, MatchID: apitypes.OptUUID(l.MatchID), MatchKind: apitypes.OptString(l.MatchKind),
+		MatchRule: apitypes.OptString(l.MatchRule), MatchStatus: apitypes.OptString(l.MatchStatus), PostingDate: optDate(l.PostingDate),
+		JournalEntryID: apitypes.OptUUID(l.JournalEntryID), ApprovalRequestID: apitypes.OptUUID(l.ApprovalRequestID),
+		ProposalOutcome: apitypes.OptString(l.ProposalOutcome)}
+	if l.Incoming {
+		out.Incoming.SetTo(true)
+	}
+	if l.JournalEntryYear != nil {
+		out.JournalEntryYear.SetTo(int32(*l.JournalEntryYear))
+	}
+	return out
 }

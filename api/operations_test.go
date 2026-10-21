@@ -37,7 +37,7 @@ func TestOperationsFromTheContract(t *testing.T) {
 		"createSupplierInvoice": true, "updateSupplierInvoice": true, "cancelApprovalRequest": true,
 		"createDownPaymentRequest": true, "cancelDownPaymentRequest": true, "clearSupplierInvoiceDownPayments": false,
 		"postSupplierInvoice": false, "releasePurchaseOrder": false, "cancelPurchaseOrder": false, "proposePaymentRun": false, "verifyAuditChain": false,
-		"runAnalyticsQuery": false} {
+		"runAnalyticsQuery": false, "proposeBankStatementLine": true, "matchBankStatement": false, "acceptBankStatementLineProposal": false} {
 		if got := ops[id].Proposes; got != want {
 			t.Errorf("%s proposes: got %v, want %v", id, got, want)
 		}

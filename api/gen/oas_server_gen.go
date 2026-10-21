@@ -8,6 +8,21 @@ import (
 
 // Handler handles operations described by OpenAPI v3 specification.
 type Handler interface {
+	// AcceptBankStatementLineProposal implements acceptBankStatementLineProposal operation.
+	//
+	// A person accepts the line's open proposal by the reconciliation agent (ADR-0047, T49g): the line is
+	// matched by hand to what it proposed, checked again as `:match` checks it (422
+	// `payments.statement_match_target` when a payment is no longer one the line may clear, or the posting
+	// rule is gone), or excluded with its reason. The proposal becomes `rejected` with outcome `accepted`,
+	// and the person's match (kind `manual`) is the line's, so the person posts it with `:post` and cannot
+	// approve its posting (segregation of duties). A line without an open proposal is 409
+	// `payments.statement_line_no_proposal`; one on its way to the ledger keeps its match (409
+	// `payments.statement_line_posting`). People only. Audited; published as
+	// BankStatementLineProposalDecided and BankStatementLineMatched (or BankStatementLineExcluded).
+	// If-Match is the statement's ETag; the response's is its new one.
+	//
+	// POST /v1/bank-statements/{id}/lines/{line_no}:acceptProposal
+	AcceptBankStatementLineProposal(ctx context.Context, req OptStatementLineProposalAccept, params AcceptBankStatementLineProposalParams) (AcceptBankStatementLineProposalRes, error)
 	// ActivateChangeRequest implements activateChangeRequest operation.
 	//
 	// Creates and activates a new configuration version from an approved change request; each context
@@ -28,6 +43,18 @@ type Handler interface {
 	//
 	// POST /v1/org-units/{id}:activate
 	ActivateOrgUnit(ctx context.Context, params ActivateOrgUnitParams) (ActivateOrgUnitRes, error)
+	// ApplyCountryPack implements applyCountryPack operation.
+	//
+	// Merges a country pack version into the active configuration for one company (ADR-0048: three-way,
+	// from the version the company adopted) and creates the result as a change request in status `draft`,
+	// based on the active version, with the merge's notes for the reviewers. Nothing is activated: the
+	// change request is submitted, simulated, approved and activated like any other. In production a pack
+	// no tax specialist has signed off is refused (409 `config.pack_not_signed_off`); elsewhere it is
+	// applied with a note, so packs can be tried before sign-off. The company's legal entity must be
+	// active (422 `config.legal_entity_not_active`).
+	//
+	// POST /v1/country-pack-applications
+	ApplyCountryPack(ctx context.Context, req *CountryPackApplication, params ApplyCountryPackParams) (ApplyCountryPackRes, error)
 	// ApproveApprovalRequest implements approveApprovalRequest operation.
 	//
 	// Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`);
@@ -36,12 +63,26 @@ type Handler interface {
 	// object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The
 	// request is `approved` when the last step is complete, and the object moves on (a requisition becomes
 	// `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry
-	// is posted). A manual entry is checked again as it is posted: when that refuses it (409
-	// `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name the
-	// parked entry's), the approval is refused and the request stays pending.
+	// is posted, a bank statement line is posted). A manual entry is checked again as it is posted: when
+	// that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
+	// fields name the parked entry's), the approval is refused and the request stays pending; so is a bank
+	// statement line's posting (`bank_clearing`), and whoever matched the line by hand cannot approve its
+	// posting (403 `workflow.segregation_of_duties`).
 	//
 	// POST /v1/approval-requests/{id}:approve
 	ApproveApprovalRequest(ctx context.Context, req OptDecisionInput, params ApproveApprovalRequestParams) (ApproveApprovalRequestRes, error)
+	// AssignProfitCenter implements assignProfitCenter operation.
+	//
+	// Assigns the profit center to further legal entities, which the caller must be allowed to act in;
+	// assignments are never removed. Companies it is already assigned to are refused (422
+	// `ledger.nothing_to_change`). Opens a pending center change (`GET /v1/center-changes/{id}`) and its
+	// `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides,
+	// never its requester and never an agent; the change is applied when the request is approved. One
+	// pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409
+	// `ledger.invalid_center_status`).
+	//
+	// POST /v1/profit-centers/{id}:assign
+	AssignProfitCenter(ctx context.Context, req *ProfitCenterAssign, params AssignProfitCenterParams) (AssignProfitCenterRes, error)
 	// BlockBusinessPartner implements blockBusinessPartner operation.
 	//
 	// Blocks the partner for postings and payments immediately (blocking reduces risk, so it needs no
@@ -130,13 +171,13 @@ type Handler interface {
 	// CancelRevaluationRun implements cancelRevaluationRun operation.
 	//
 	// Cancels a posted revaluation run (ADR-0042, T48d): reverses its valuation entry and its reset entry
-	// through the ledger's reversal path, each on its own posting date (`JournalEntryReversed` for each),
-	// and marks the run `cancelled`, which frees its key date for another run. This is the only way a
-	// run's entries are reversed (`journal-entries/{id}:reverse` refuses them with 409
-	// `ledger.entry_owned_elsewhere`). Both entries' periods must be open (409 `ledger.period_not_open`,
-	// also when one is closed or locked, T32); a cancelled run is 409 `ledger.revaluation_not_posted`. A
-	// run without entries is cancelled without reversals. Audited and published
-	// (`RevaluationRunCancelled`). The If-Match is the run's ETag. Human-only.
+	// through the ledger's reversal path, each on its own posting date and in the run's ledger alone
+	// (`JournalEntryReversed` for each), and marks the run `cancelled`, which frees its key date for
+	// another run. This is the only way a run's entries are reversed (`journal-entries/{id}:reverse`
+	// refuses them with 409 `ledger.entry_owned_elsewhere`). Both entries' periods must be open (409
+	// `ledger.period_not_open`, also when one is closed or locked, T32); a cancelled run is 409
+	// `ledger.revaluation_not_posted`. A run without entries is cancelled without reversals. Audited and
+	// published (`RevaluationRunCancelled`). The If-Match is the run's ETag. Human-only.
 	//
 	// POST /v1/revaluation-runs/{id}:cancel
 	CancelRevaluationRun(ctx context.Context, req *ReasonInput, params CancelRevaluationRunParams) (CancelRevaluationRunRes, error)
@@ -229,6 +270,16 @@ type Handler interface {
 	//
 	// POST /v1/contracts
 	CreateContract(ctx context.Context, req *ContractCreate, params CreateContractParams) (CreateContractRes, error)
+	// CreateCostCenter implements createCostCenter operation.
+	//
+	// Creates the cost center in status `pending` together with its center change of kind `create` and
+	// that change's `center_change` approval request; it becomes `active`, with its first period, when a
+	// controller approves (ADR-0050 §11). A code is unique per legal entity among centers not rejected
+	// (409 `ledger.cost_center_exists`). The profit center, if given, must be active, assigned to the
+	// legal entity and valid over the whole validity (422 `ledger.profit_center_invalid`).
+	//
+	// POST /v1/cost-centers
+	CreateCostCenter(ctx context.Context, req *CostCenterCreate, params CreateCostCenterParams) (CreateCostCenterRes, error)
 	// CreateDownPaymentRequest implements createDownPaymentRequest operation.
 	//
 	// Requests a down payment to a supplier (SAP F-47, special G/L F): a payables document, not a ledger
@@ -281,6 +332,16 @@ type Handler interface {
 	//
 	// POST /v1/principals
 	CreatePrincipal(ctx context.Context, req *PrincipalCreate, params CreatePrincipalParams) (CreatePrincipalRes, error)
+	// CreateProfitCenter implements createProfitCenter operation.
+	//
+	// Creates the profit center in status `pending` together with its center change of kind `create` and
+	// that change's `center_change` approval request; it becomes `active`, with its first period and its
+	// companies, when a controller approves (ADR-0050 §11). A code is unique in the tenant among centers
+	// not rejected (409 `ledger.profit_center_exists`). The caller must be allowed to act in every company
+	// named.
+	//
+	// POST /v1/profit-centers
+	CreateProfitCenter(ctx context.Context, req *ProfitCenterCreate, params CreateProfitCenterParams) (CreateProfitCenterRes, error)
 	// CreatePurchaseOrder implements createPurchaseOrder operation.
 	//
 	// Creates a draft purchase order, optionally from an approved requisition (one live order per
@@ -312,8 +373,9 @@ type Handler interface {
 	// the active configuration version: a stratified sample (every decision, every match issue kind,
 	// invoices near the auto-post limit, then more) with the decision each case got. The simulation of a
 	// change request then replays the latest suite of its base version and records `regression` evidence:
-	// a case outside the companies the change touches that is decided differently fails it. 422
-	// `config.no_cases` when the window has no invoices to capture.
+	// a case outside the companies the change touches that is decided differently fails it. The capture
+	// samples the invoices of every company; the suite returned shows the cases of the companies the
+	// caller may access alone. 422 `config.no_cases` when the window has no invoices to capture.
 	//
 	// POST /v1/regression-suites
 	CreateRegressionSuite(ctx context.Context, req *RegressionSuiteCreate, params CreateRegressionSuiteParams) (CreateRegressionSuiteRes, error)
@@ -335,6 +397,13 @@ type Handler interface {
 	//
 	// POST /v1/role-assignments
 	CreateRoleAssignment(ctx context.Context, req *RoleAssignmentCreate, params CreateRoleAssignmentParams) (CreateRoleAssignmentRes, error)
+	// CreateSegment implements createSegment operation.
+	//
+	// Creates a segment at once: a segment changes nothing until a profit center names it, which is an
+	// approved change. A code is unique in the tenant (409 `ledger.segment_exists`).
+	//
+	// POST /v1/segments
+	CreateSegment(ctx context.Context, req *SegmentCreate, params CreateSegmentParams) (CreateSegmentRes, error)
 	// CreateSodRule implements createSodRule operation.
 	//
 	// Adds a segregation-of-duties rule.
@@ -434,9 +503,11 @@ type Handler interface {
 	//
 	// A person excludes the line from reconciliation, with a reason: the bank's booking clears nothing the
 	// ledger holds. The line's live match becomes `rejected` and the new one `excluded` (kind `manual`),
-	// with no targets; the line is `excluded`. People only; a line on its way to the ledger keeps its
-	// match (409 `payments.statement_line_posting`). Audited, and published as BankStatementLineExcluded.
-	// The response's ETag is the statement's new one, the If-Match of the next decision on its lines.
+	// with no targets; the line is `excluded`; a statement whose last line to decide this was may become
+	// `reconciled` (T49h). People only; a line on its way to the ledger keeps its match (409
+	// `payments.statement_line_posting`), and a reconciled statement's lines are decided for good (409
+	// `payments.statement_reconciled`). Audited, and published as BankStatementLineExcluded. The
+	// response's ETag is the statement's new one, the If-Match of the next decision on its lines.
 	//
 	// POST /v1/bank-statements/{id}/lines/{line_no}:exclude
 	ExcludeBankStatementLine(ctx context.Context, req *ReasonInput, params ExcludeBankStatementLineParams) (ExcludeBankStatementLineRes, error)
@@ -509,6 +580,26 @@ type Handler interface {
 	//
 	// GET /v1/bank-files/{id}/content
 	GetBankFileContent(ctx context.Context, params GetBankFileContentParams) (GetBankFileContentRes, error)
+	// GetBankReconciliation implements getBankReconciliation operation.
+	//
+	// The reconciliation report of a house bank (ADR-0047, T49h) over its statements closing in the period
+	// (`closing_date_from`, `closing_date_to`; without them, all): per statement, its balances as the bank
+	// gave them, the ledger's balance of the house bank's main bank account (`main_gl_account`) on its
+	// closing date, and what explains the difference, from the lines of the bank's statements up to that
+	// date: those excluded, those not posted yet (`in_transit`: unmatched, proposed, matched or waiting
+	// for approval) and those posted after the date (`posted_later`, on another date a person gave); what
+	// is left is `unexplained` (an opening balance the ledger never received, or an entry on the bank
+	// account that no statement line made). Each statement lists its lines with their status, their live
+	// match (kind, rule, posting) and the outcome of the latest agent proposal a person decided,
+	// optionally only the lines of one status (`line_status`). `summary` is the period's, on its last
+	// closing date. A statement becomes `reconciled` once nothing is in transit or unexplained on its
+	// closing date. The ledger's balances are in the legal entity's local currency, which is a house
+	// bank's currency; a house bank without a main bank account has no ledger balance, nor anything
+	// unexplained. The report names no account numbers, so agents read it as people do. Paged by
+	// statement, by closing date. Sortable by: `closing_date`.
+	//
+	// GET /v1/house-banks/{id}/reconciliation
+	GetBankReconciliation(ctx context.Context, params GetBankReconciliationParams) (GetBankReconciliationRes, error)
 	// GetBankStatement implements getBankStatement operation.
 	//
 	// Returns one bank statement with its lines.
@@ -519,17 +610,33 @@ type Handler interface {
 	//
 	// The file a bank statement was imported from, byte for byte as the bank sent it (camt.053 XML or
 	// MT940 text): kept as accounting evidence in object storage, written once, encrypted and locked for
-	// the retention of financial records (ADR-0047). The statements of one file share it. 503 while the
+	// the retention of financial records (ADR-0047). The statements of one file share it. People and
+	// integrations only: the file holds the accounts whole, which agents see masked (T49g). 503 while the
 	// server has no object storage or the store does not answer.
 	//
 	// GET /v1/bank-statements/{id}/file
 	GetBankStatementFile(ctx context.Context, params GetBankStatementFileParams) (GetBankStatementFileRes, error)
+	// GetBankStatementRules implements getBankStatementRules operation.
+	//
+	// The posting rules and matching rules of the statement's company in the active configuration
+	// (`companies[].bank_statements`, ADR-0047): what the transaction codes post to, and how lines are
+	// matched, in the rules' order. Read by people and by the reconciliation agent, which proposes a
+	// posting rule by its transaction code. Empty lists for a company without them.
+	//
+	// GET /v1/bank-statements/{id}/rules
+	GetBankStatementRules(ctx context.Context, params GetBankStatementRulesParams) (GetBankStatementRulesRes, error)
 	// GetBusinessPartner implements getBusinessPartner operation.
 	//
 	// Returns one business partner.
 	//
 	// GET /v1/business-partners/{id}
 	GetBusinessPartner(ctx context.Context, params GetBusinessPartnerParams) (GetBusinessPartnerRes, error)
+	// GetCenterChange implements getCenterChange operation.
+	//
+	// Returns one center change.
+	//
+	// GET /v1/center-changes/{id}
+	GetCenterChange(ctx context.Context, params GetCenterChangeParams) (GetCenterChangeRes, error)
 	// GetChangeRequest implements getChangeRequest operation.
 	//
 	// Returns one change request with items and evidence.
@@ -566,6 +673,12 @@ type Handler interface {
 	//
 	// GET /v1/contracts/{id}
 	GetContract(ctx context.Context, params GetContractParams) (GetContractRes, error)
+	// GetCostCenter implements getCostCenter operation.
+	//
+	// Returns one cost center with its active periods.
+	//
+	// GET /v1/cost-centers/{id}
+	GetCostCenter(ctx context.Context, params GetCostCenterParams) (GetCostCenterRes, error)
 	// GetDownPaymentRequest implements getDownPaymentRequest operation.
 	//
 	// Returns one down payment request.
@@ -656,6 +769,12 @@ type Handler interface {
 	//
 	// GET /v1/principals/{id}
 	GetPrincipal(ctx context.Context, params GetPrincipalParams) (GetPrincipalRes, error)
+	// GetProfitCenter implements getProfitCenter operation.
+	//
+	// Returns one profit center with its companies and active periods.
+	//
+	// GET /v1/profit-centers/{id}
+	GetProfitCenter(ctx context.Context, params GetProfitCenterParams) (GetProfitCenterRes, error)
 	// GetPurchaseOrder implements getPurchaseOrder operation.
 	//
 	// Returns one purchase order. Expandable: `supplier`.
@@ -676,7 +795,8 @@ type Handler interface {
 	GetRecommendation(ctx context.Context, params GetRecommendationParams) (GetRecommendationRes, error)
 	// GetRegressionSuite implements getRegressionSuite operation.
 	//
-	// Returns one regression suite with its cases.
+	// Returns one regression suite with the cases of the companies the reader may access alone
+	// (`RegressionSuite`).
 	//
 	// GET /v1/regression-suites/{id}
 	GetRegressionSuite(ctx context.Context, params GetRegressionSuiteParams) (GetRegressionSuiteRes, error)
@@ -721,6 +841,12 @@ type Handler interface {
 	//
 	// GET /v1/schemas/{entity}
 	GetSchema(ctx context.Context, params GetSchemaParams) (GetSchemaRes, error)
+	// GetSegment implements getSegment operation.
+	//
+	// Returns one segment.
+	//
+	// GET /v1/segments/{id}
+	GetSegment(ctx context.Context, params GetSegmentParams) (GetSegmentRes, error)
 	// GetSodRule implements getSodRule operation.
 	//
 	// Returns one segregation-of-duties rule.
@@ -781,7 +907,8 @@ type Handler interface {
 	// statement already imported (the same statement id, account and sequence) is refused with 409
 	// `payments.statement_conflict`. A statement whose opening balance is not the closing balance of the
 	// house bank's statement before it is imported in status `gap`, and automatic posting stops for the
-	// bank; a statement imported between two others becomes the next one's previous statement, whose
+	// bank; the lines the rules match on import are posted as `POST /v1/bank-statements/{id}:match` posts
+	// them; a statement imported between two others becomes the next one's previous statement, whose
 	// status follows the comparison again. A file that cannot be read is refused with 422
 	// `payments.statement_unreadable`, naming the line where what is wrong starts. Imports are made by
 	// people and integrations; agents read statements, and an agent's import is refused with 403
@@ -861,6 +988,13 @@ type Handler interface {
 	//
 	// GET /v1/business-partners
 	ListBusinessPartners(ctx context.Context, params ListBusinessPartnersParams) (ListBusinessPartnersRes, error)
+	// ListCenterChanges implements listCenterChanges operation.
+	//
+	// Requested changes to cost and profit centers (ADR-0050 §11). Changes of cost centers in legal
+	// entities the caller may not act in are not listed. Sortable by: `created_at`.
+	//
+	// GET /v1/center-changes
+	ListCenterChanges(ctx context.Context, params ListCenterChangesParams) (ListCenterChangesRes, error)
 	// ListChangeRequests implements listChangeRequests operation.
 	//
 	// Configuration change requests. Sortable by: `created_at`.
@@ -897,6 +1031,21 @@ type Handler interface {
 	//
 	// GET /v1/contracts
 	ListContracts(ctx context.Context, params ListContractsParams) (ListContractsRes, error)
+	// ListCostCenters implements listCostCenters operation.
+	//
+	// Cost centers of the legal entities the caller may act in, with their active periods. Sortable by:
+	// `code`.
+	//
+	// GET /v1/cost-centers
+	ListCostCenters(ctx context.Context, params ListCostCentersParams) (ListCostCentersRes, error)
+	// ListCountryPacks implements listCountryPacks operation.
+	//
+	// The released country packs in the image (ADR-0048): each country's versions with the hash they were
+	// released with, the tax specialist's sign-off and the legal sources they rest on. The same for every
+	// tenant. Ordered by country, then version.
+	//
+	// GET /v1/country-packs
+	ListCountryPacks(ctx context.Context, params ListCountryPacksParams) (ListCountryPacksRes, error)
 	// ListDownPaymentRequests implements listDownPaymentRequests operation.
 	//
 	// Down payment requests (SAP F-47, ADR-0037). Sortable by: `due_date`.
@@ -932,12 +1081,60 @@ type Handler interface {
 	//
 	// GET /v1/gr-ir-balances
 	ListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (ListGrIrBalancesRes, error)
+	// ListHouseBanks implements listHouseBanks operation.
+	//
+	// The house banks of the companies the caller may access, as the configuration names them
+	// (`companies[].house_bank(s)`), active and inactive, by legal entity and code: the id a statement
+	// import names. The account is shown by its last four characters only. Sortable by: `code`.
+	//
+	// GET /v1/house-banks
+	ListHouseBanks(ctx context.Context, params ListHouseBanksParams) (ListHouseBanksRes, error)
 	// ListJournalEntries implements listJournalEntries operation.
 	//
-	// Posted journal entries. Sortable by: `posting_date`, `document_number`.
+	// Posted journal entries of one ledger, the leading ledger unless `ledger_id` names another: a
+	// posting's copies in the parallel ledgers (ADR-0045) show only when their ledger is asked for.
+	// Sortable by: `posting_date`, `document_number`.
 	//
 	// GET /v1/journal-entries
 	ListJournalEntries(ctx context.Context, params ListJournalEntriesParams) (ListJournalEntriesRes, error)
+	// ListLedgerGroups implements listLedgerGroups operation.
+	//
+	// Ledger groups name the ledgers a posting goes to together; the representative ledger decides the
+	// posting period (ADR-0045). Groups come from the configuration (`ledger_groups`) and change only
+	// through its approval loop. Sortable by: `code`.
+	//
+	// GET /v1/ledger-groups
+	ListLedgerGroups(ctx context.Context, params ListLedgerGroupsParams) (ListLedgerGroupsRes, error)
+	// ListLedgerReconciliation implements listLedgerReconciliation operation.
+	//
+	// Compares two ledgers a legal entity keeps (ADR-0045): per account and transaction currency, the
+	// balances in the ledger and in the compared ledger and their difference in transaction, local and
+	// group currency; only accounts that differ are listed. The figures are the balances'
+	// (`GET /v1/balances`): exact at the moment of the read, of one period or, without `fiscal_period`, of
+	// the year. `trial_balances`, on the first page, checks each of the two ledgers: its debits and
+	// credits net to zero. The entries behind a difference are listed by
+	// `GET /v1/ledger-reconciliation/entries`. A legal entity the caller cannot act in, or a ledger it
+	// does not keep, has no differences and no trial balances. Sortable by: `account_id`.
+	//
+	// GET /v1/ledger-reconciliation
+	ListLedgerReconciliation(ctx context.Context, params ListLedgerReconciliationParams) (ListLedgerReconciliationRes, error)
+	// ListLedgerReconciliationEntries implements listLedgerReconciliationEntries operation.
+	//
+	// The journal lines on one account, of the ledger and the compared ledger, whose entry has no copy in
+	// the other ledger (ADR-0045): the ledger-specific postings, and entries posted before the ledger was
+	// assigned, that make up the difference `GET /v1/ledger-reconciliation` shows. The parameters are its
+	// own, with `account_id` required. Sortable by: `posting_date`.
+	//
+	// GET /v1/ledger-reconciliation/entries
+	ListLedgerReconciliationEntries(ctx context.Context, params ListLedgerReconciliationEntriesParams) (ListLedgerReconciliationEntriesRes, error)
+	// ListLedgers implements listLedgers operation.
+	//
+	// The leading ledger 0L and the parallel ledgers kept under other accounting principles, with the
+	// legal entities that keep each (ADR-0045). Ledgers come from the configuration (`ledgers`,
+	// `companies[].ledgers`) and change only through its approval loop. Sortable by: `code`.
+	//
+	// GET /v1/ledgers
+	ListLedgers(ctx context.Context, params ListLedgersParams) (ListLedgersRes, error)
 	// ListLegalEntities implements listLegalEntities operation.
 	//
 	// Legal entities the caller has access to. Sortable by: `code`, `name`.
@@ -1019,6 +1216,12 @@ type Handler interface {
 	//
 	// GET /v1/principals
 	ListPrincipals(ctx context.Context, params ListPrincipalsParams) (ListPrincipalsRes, error)
+	// ListProfitCenters implements listProfitCenters operation.
+	//
+	// Profit centers of the tenant with their companies and active periods. Sortable by: `code`.
+	//
+	// GET /v1/profit-centers
+	ListProfitCenters(ctx context.Context, params ListProfitCentersParams) (ListProfitCentersRes, error)
 	// ListPurchaseOrderChanges implements listPurchaseOrderChanges operation.
 	//
 	// The order changes of a released purchase order, newest first: its versions, each with the order as
@@ -1040,7 +1243,8 @@ type Handler interface {
 	ListRecommendations(ctx context.Context, params ListRecommendationsParams) (ListRecommendationsRes, error)
 	// ListRegressionSuites implements listRegressionSuites operation.
 	//
-	// Regression suites captured for this tenant, newest first. Sortable by: `captured_at`.
+	// Regression suites captured for this tenant, newest first, each with the cases of the companies the
+	// reader may access alone (`RegressionSuite`). Sortable by: `captured_at`.
 	//
 	// GET /v1/regression-suites
 	ListRegressionSuites(ctx context.Context, params ListRegressionSuitesParams) (ListRegressionSuitesRes, error)
@@ -1075,6 +1279,12 @@ type Handler interface {
 	//
 	// GET /v1/roles
 	ListRoles(ctx context.Context, params ListRolesParams) (ListRolesRes, error)
+	// ListSegments implements listSegments operation.
+	//
+	// Segments of the tenant (IFRS 8 operating segments). Sortable by: `code`.
+	//
+	// GET /v1/segments
+	ListSegments(ctx context.Context, params ListSegmentsParams) (ListSegmentsRes, error)
 	// ListSodRules implements listSodRules operation.
 	//
 	// Segregation-of-duties rules of the tenant, including ended ones. Sortable by: `created_at`.
@@ -1101,6 +1311,19 @@ type Handler interface {
 	//
 	// GET /v1/webhook-subscriptions
 	ListWebhookSubscriptions(ctx context.Context, params ListWebhookSubscriptionsParams) (ListWebhookSubscriptionsRes, error)
+	// LockCostCenter implements lockCostCenter operation.
+	//
+	// Sets or clears the cost center's locks for actual primary costs, actual revenue and plan from
+	// `valid_from` to `valid_to` (exclusive; absent: to the end of its validity), within its validity (422
+	// `ledger.invalid_validity`). Locking and unlocking are people's decisions: agents may not request
+	// them. Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval
+	// request, which a controller holding `ledger.cost_center.approve` decides, never its requester and
+	// never an agent; the change is applied when the request is approved. One pending change per center
+	// (409 `ledger.center_change_pending`). The center must be `active` (409
+	// `ledger.invalid_center_status`).
+	//
+	// POST /v1/cost-centers/{id}:lock
+	LockCostCenter(ctx context.Context, req *CostCenterLock, params LockCostCenterParams) (LockCostCenterRes, error)
 	// LockFiscalPeriod implements lockFiscalPeriod operation.
 	//
 	// Locks the period for good: a locked period refuses postings, reversals and clearings dated in it, as
@@ -1109,6 +1332,18 @@ type Handler interface {
 	//
 	// POST /v1/fiscal-periods/{id}:lock
 	LockFiscalPeriod(ctx context.Context, params LockFiscalPeriodParams) (LockFiscalPeriodRes, error)
+	// LockProfitCenter implements lockProfitCenter operation.
+	//
+	// Sets or clears the profit center's lock from `valid_from` to `valid_to` (exclusive; absent: to the
+	// end of its validity), within its validity (422 `ledger.invalid_validity`). Locking and unlocking are
+	// people's decisions: agents may not request them. Opens a pending center change
+	// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+	// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
+	// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
+	// The center must be `active` (409 `ledger.invalid_center_status`).
+	//
+	// POST /v1/profit-centers/{id}:lock
+	LockProfitCenter(ctx context.Context, req *ProfitCenterLock, params LockProfitCenterParams) (LockProfitCenterRes, error)
 	// MatchBankStatement implements matchBankStatement operation.
 	//
 	// Runs the company's matching rules (`companies[].bank_statements.matching_rules`, ADR-0047) on the
@@ -1121,21 +1356,30 @@ type Handler interface {
 	// compared with what the rules find now: the same candidates leave it as it is, others reject its open
 	// match and record the new one (or make it unmatched again). Lines matched or excluded, and an agent's
 	// proposals, are never touched, so running it twice changes nothing the second time. Agents may call
-	// it: it only applies the rules, and what they cannot decide stays open for a person. If-Match is the
-	// statement's ETag; a run that matches or leaves open a line, and a person's match or exclusion, move
-	// it on. Returns the statement with its lines; `GET /v1/bank-statements/{id}/matches` has the matches.
+	// it: it only applies the rules, and what they cannot decide stays open for a person. The lines the
+	// rules matched are then posted as `POST .../lines/{line_no}:post` posts them, by the caller, unless
+	// the caller is an agent (agents never post) or lacks `payments.statement.post`, or the house bank has
+	// a statement in `gap`: each is posted (`posted`) or waits for the approval of its posting
+	// (`pending_approval`); one the ledger refuses (a locked period, no exchange rate) stays `matched` for
+	// a person, and the refusal is audited. A line whose posting was rejected or withdrawn is not
+	// submitted again by a run. If-Match is the statement's ETag; a run that matches, leaves open or posts
+	// a line, and a person's match, exclusion or posting, move it on. Returns the statement with its
+	// lines; `GET /v1/bank-statements/{id}/matches` has the matches.
 	//
 	// POST /v1/bank-statements/{id}:match
 	MatchBankStatement(ctx context.Context, params MatchBankStatementParams) (MatchBankStatementRes, error)
 	// MatchBankStatementLine implements matchBankStatementLine operation.
 	//
-	// A person matches the line to the payments it clears or to a posting rule of the company (charges,
-	// interest), with a reason, whatever the rules found: the line's live match becomes `rejected` and the
-	// new one `matched` (kind `manual`). Each payment must be posted, from the statement's house bank, in
-	// its currency and matched to no other line (422 `payments.statement_match_target`). People only; a
-	// line on its way to the ledger keeps its match (409 `payments.statement_line_posting`). Audited, and
-	// published as BankStatementLineMatched. The response's ETag is the statement's new one, the If-Match
-	// of the next decision on its lines.
+	// A person matches the line to the payments it clears, to a posting rule of the company (charges,
+	// interest), or, for an incoming payment, to the house bank's incoming payments clearing account
+	// (`incoming: true`, T49h), with a reason, whatever the rules found: the line's live match becomes
+	// `rejected` and the new one `matched` (kind `manual`). Each payment must be posted, from the
+	// statement's house bank, in its currency and matched to no other line, and an incoming payment a
+	// credit that reverses nothing, of a house bank with `incoming_gl_account` (422
+	// `payments.statement_match_target`). People only; a line on its way to the ledger keeps its match
+	// (409 `payments.statement_line_posting`), and a reconciled statement's lines are decided for good
+	// (409 `payments.statement_reconciled`). Audited, and published as BankStatementLineMatched. The
+	// response's ETag is the statement's new one, the If-Match of the next decision on its lines.
 	//
 	// POST /v1/bank-statements/{id}/lines/{line_no}:match
 	MatchBankStatementLine(ctx context.Context, req *StatementLineMatchInput, params MatchBankStatementLineParams) (MatchBankStatementLineRes, error)
@@ -1146,6 +1390,30 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices/{id}:match
 	MatchSupplierInvoice(ctx context.Context, params MatchSupplierInvoiceParams) (MatchSupplierInvoiceRes, error)
+	// MoveCostCenter implements moveCostCenter operation.
+	//
+	// Assigns the cost center to another profit center (`null`: none, so its lines take the company's
+	// default) or category from `valid_from` to the end of its validity, as a new period (ADR-0050 §3).
+	// The profit center must be active, assigned to the cost center's legal entity and valid from
+	// `valid_from` to the end of the cost center's validity (422 `ledger.profit_center_invalid`). Opens a
+	// pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request,
+	// which a controller holding `ledger.cost_center.approve` decides, never its requester and never an
+	// agent; the change is applied when the request is approved. One pending change per center (409
+	// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
+	//
+	// POST /v1/cost-centers/{id}:move
+	MoveCostCenter(ctx context.Context, req *CostCenterMove, params MoveCostCenterParams) (MoveCostCenterRes, error)
+	// MoveProfitCenter implements moveProfitCenter operation.
+	//
+	// Assigns the profit center to another segment (`null`: none). Once lines carry the profit center
+	// (T56d), its segment is fixed: a segment move is then a reorganisation (ADR-0050 §3). Opens a
+	// pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request,
+	// which a controller holding `ledger.cost_center.approve` decides, never its requester and never an
+	// agent; the change is applied when the request is approved. One pending change per center (409
+	// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
+	//
+	// POST /v1/profit-centers/{id}:move
+	MoveProfitCenter(ctx context.Context, req *ProfitCenterMove, params MoveProfitCenterParams) (MoveProfitCenterRes, error)
 	// OpenFiscalPeriod implements openFiscalPeriod operation.
 	//
 	// Opens the period for postings. Requires status `closed`: a `locked` period is not reopened here (409
@@ -1187,6 +1455,37 @@ type Handler interface {
 	//
 	// POST /v1/webhook-subscriptions/{id}:ping
 	PingWebhookSubscription(ctx context.Context, params PingWebhookSubscriptionParams) (PingWebhookSubscriptionRes, error)
+	// PostBankStatementLine implements postBankStatementLine operation.
+	//
+	// Posts a `matched` line (ADR-0047) to the house bank's main bank account (`main_gl_account`) against
+	// what its match clears: for payments, each payment's line on the bank's clearing account, which must
+	// be open-item managed (422 `ledger.not_open_item_managed`), is offset at its original amounts and
+	// cleared with the posting, and the payments must pay the line's amount (409
+	// `payments.statement_amount_differs`); for a posting rule, the rule's account (409
+	// `payments.statement_posting_rule_gone` when the company no longer has the rule); for an incoming
+	// payment, the house bank's incoming payments clearing account, where the line stays an open item
+	// until accounts receivable clears it (409 `payments.statement_incoming_gone` when the bank no longer
+	// names one). A statement in another currency than the company's is converted at the posting date's
+	// rates, and the difference to the payments' amounts is a realized exchange difference
+	// (fx_gain/fx_loss). The posting is dated on the line's booking date, or on `posting_date` with a
+	// `reason` (both audited); a locked or closed period refuses it (409 `ledger.period_not_open`). The
+	// posting is routed by the line's amount in the company's currency through
+	// `companies[].bank_statements.approval_tiers` (`bank_clearing` approval requests): a tier without
+	// steps posts at once (`posted`); otherwise the line waits for the request (`pending_approval`), whose
+	// approval posts it, checked again, and whose rejection or withdrawal returns it to `matched`. A
+	// company without tiers has every posting approved by the `controller` role. Whoever matched the line
+	// by hand cannot approve its posting. A house bank without a main bank account never posts (409
+	// `payments.statement_bank_not_posting`), nor one with a statement in `gap` (409
+	// `payments.statement_gap`). A line not matched is 409 `payments.statement_line_not_matched`; one
+	// posted or waiting already is 409 `payments.statement_line_posting`. A `posting_date` before the
+	// booking date is refused (422): a later one takes the line out of a locked period, an earlier one
+	// would book it before the bank did. A statement whose last line to decide this was becomes
+	// `reconciled` once the ledger agrees (T49h). People only. Audited; the posting publishes
+	// BankStatementLinePosted, and the ledger JournalEntryPosted and ItemsCleared. The response's ETag is
+	// the statement's new one, the If-Match of the next decision on its lines.
+	//
+	// POST /v1/bank-statements/{id}/lines/{line_no}:post
+	PostBankStatementLine(ctx context.Context, req OptStatementLinePostInput, params PostBankStatementLineParams) (PostBankStatementLineRes, error)
 	// PostGoodsReceipt implements postGoodsReceipt operation.
 	//
 	// Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122,
@@ -1207,8 +1506,11 @@ type Handler interface {
 	// `manual_entry_approval_limit` is 409 `ledger.approval_required` (after the period is found open: a
 	// closed one is 409 `ledger.period_not_open` first): park it and post it with `:post`, which asks
 	// someone else's approval (T35). A line on the legal entity's GR/IR account (account determination
-	// `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. Human-only:
-	// agents propose entries by parking them.
+	// `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. It posts to
+	// every ledger its company keeps as linked entries of one posting group sharing the document number
+	// (`posting_group_id`), each period checked open in its ledger, and returns the leading ledger's;
+	// `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to those ledgers
+	// only (ADR-0045). Human-only: agents propose entries by parking them.
 	//
 	// POST /v1/journal-entries
 	PostJournalEntry(ctx context.Context, req *JournalEntryCreate, params PostJournalEntryParams) (PostJournalEntryRes, error)
@@ -1233,15 +1535,17 @@ type Handler interface {
 	// Values what `previewRevaluation` values and, in one transaction, posts the differences (ADR-0042,
 	// T48c): a valuation entry (document type SA, in local currency, source the run) dated the key date
 	// and its reset, a separate entry of the negated lines dated the next day, the first of the next
-	// period, so the items stay open at their booked amounts. Each item's local and group differences go
-	// to the account itself for a flagged account and to its adjustment account for a reconciliation
-	// account, against the unrealised gain or loss account by the item's direction. Both periods must be
-	// open (409 `ledger.period_not_open`). A run whose items have no difference is recorded without
-	// entries. The run and its items are recorded, audited and published (`RevaluationRunPosted`, besides
-	// each entry's `JournalEntryPosted`). One run per legal entity, ledger and key date is posted: a
-	// second is 409 `ledger.revaluation_exists`, whose `detail` names the posted run and whose `Location`
-	// header links it; cancelling that run (`cancelRevaluationRun`) frees the key date. Concurrent
-	// clearings and reversals of the tenant wait for the run. Human-only.
+	// period, so the items stay open at their booked amounts. Both entries post in the run's ledger alone
+	// (T52f, ADR-0045): a run of the leading ledger leaves the parallel ledgers untouched, and each
+	// parallel ledger is revalued by a run of its own. Each item's local and group differences go to the
+	// account itself for a flagged account and to its adjustment account for a reconciliation account,
+	// against the unrealised gain or loss account by the item's direction. Both periods must be open in
+	// the run's ledger (409 `ledger.period_not_open`). A run whose items have no difference is recorded
+	// without entries. The run and its items are recorded, audited and published (`RevaluationRunPosted`,
+	// besides each entry's `JournalEntryPosted`). One run per legal entity, ledger and key date is posted:
+	// a second is 409 `ledger.revaluation_exists`, whose `detail` names the posted run and whose
+	// `Location` header links it; cancelling that run (`cancelRevaluationRun`) frees the key date.
+	// Concurrent clearings and reversals of the tenant wait for the run. Human-only.
 	//
 	// POST /v1/revaluation-runs
 	PostRevaluationRun(ctx context.Context, req *RevaluationPreviewRequest, params PostRevaluationRunParams) (PostRevaluationRunRes, error)
@@ -1258,25 +1562,47 @@ type Handler interface {
 	// PreviewRevaluation implements previewRevaluation operation.
 	//
 	// Values, without posting, what a revaluation run of a legal entity and ledger at a key date would
-	// value (ADR-0042, T48): the open items on supplier and customer reconciliation accounts on the key
-	// date (posted on or before it and not cleared by a clearing dated on or before it) and, per currency,
-	// the balance of each G/L account flagged `revalue_foreign_currency`, in every currency other than
-	// local currency. Down payments (special G/L items) and the GR/IR account are not revalued. A flagged
-	// account's balance that is zero in its currency but not in local or group currency is valued too, at
-	// zero and without a rate (none is looked up or checked for it): that residual is what revaluation
-	// corrects. Each item is valued in local and, on its own, in group currency at the legal entity's
-	// valuation rate type valid on the key date, each rounded once: `valued_lc` = amount × rate and
-	// `valued_gc` = amount × rate_gc (SAP's parallel-currency valuation, not the local difference
-	// translated); the differences to the booked amounts are an unrealised gain when positive and a loss
-	// when negative, by the local difference's sign, or the group one's when local does not differ. The
-	// key date is the last day of a posting period of the ledger (422 `ledger.key_date_not_period_end`); a
-	// rate into local or group currency valid from before that period is stale (422 `ledger.rate_stale`)
-	// and a missing one is refused (422 `ledger.no_exchange_rate`); an account with items in scope and no
-	// active valuation accounts fails the preview (422 `ledger.revaluation_account_missing`, naming the
-	// account). Reads only; every agent autonomy level may call it.
+	// value (ADR-0042, T48; per ledger, T52f): read from that ledger's lines, the open items on supplier
+	// and customer reconciliation accounts on the key date (posted on or before it and not cleared by a
+	// clearing dated on or before it) and, per currency, the balance of each G/L account flagged
+	// `revalue_foreign_currency`, in every currency other than local currency. Down payments (special G/L
+	// items) and the GR/IR account are not revalued. A flagged account's balance that is zero in its
+	// currency but not in local or group currency is valued too, at zero and without a rate (none is
+	// looked up or checked for it): that residual is what revaluation corrects. Each item is valued in
+	// local and, on its own, in group currency at the ledger's valuation rate type valid on the key date
+	// (the legal entity's, or the ledger's own where `companies[].fx_valuation.ledgers` gives one, T52f),
+	// each rounded once: `valued_lc` = amount × rate and `valued_gc` = amount × rate_gc (SAP's
+	// parallel-currency valuation, not the local difference translated); the differences to the booked
+	// amounts are an unrealised gain when positive and a loss when negative, by the local difference's
+	// sign, or the group one's when local does not differ. The key date is the last day of a posting
+	// period of the ledger (422 `ledger.key_date_not_period_end`); a rate into local or group currency
+	// valid from before that period is stale (422 `ledger.rate_stale`) and a missing one is refused (422
+	// `ledger.no_exchange_rate`); an account with items in scope and no active valuation accounts fails
+	// the preview (422 `ledger.revaluation_account_missing`, naming the account). Reads only; every agent
+	// autonomy level may call it.
 	//
 	// POST /v1/revaluation-runs/preview
 	PreviewRevaluation(ctx context.Context, req *RevaluationPreviewRequest, params PreviewRevaluationParams) (PreviewRevaluationRes, error)
+	// ProposeBankStatementLine implements proposeBankStatementLine operation.
+	//
+	// The reconciliation agent proposes (ADR-0047, T49g), for a line the rules left `unmatched` or open
+	// (`proposed` by a rule), the payments it clears, a posting rule of the company, or its exclusion,
+	// with a reason, in its running session (`session_id`; another's or an ended one is refused as
+	// `createRecommendation` refuses it). A person decides the proposal: `:acceptProposal` matches or
+	// excludes the line by it, `:rejectProposal` turns it down, and a person's own `:match` or `:exclude`
+	// overrides it. The proposal is a match of kind `agent` and status `open` naming its session and
+	// `proposal` (`match` or `exclude`); the line's open match by a rule is rejected, and the line is
+	// `proposed`. The rules never take a proposal up again. A proposal reserves no payment and never
+	// posts: each payment must be one the line may clear, as for a person's match (422
+	// `payments.statement_match_target`). A session proposes once per line: the same proposal again
+	// answers 200 with the first; another is 409 `payments.statement_line_proposed`, as is a proposal for
+	// a line with another session's proposal. A line matched, excluded, waiting for its posting's approval
+	// or posted takes no proposal (409 `payments.statement_line_not_open`). If-Match is the statement's
+	// ETag, as the agent read it (a proposal made before is answered whatever it is). Audited, and
+	// published as BankStatementLineProposed. The response's ETag is the statement's new one.
+	//
+	// POST /v1/bank-statements/{id}/lines/{line_no}:propose
+	ProposeBankStatementLine(ctx context.Context, req *StatementLineProposalInput, params ProposeBankStatementLineParams) (ProposeBankStatementLineRes, error)
 	// ProposePaymentRun implements proposePaymentRun operation.
 	//
 	// Creates a run in status `proposing` (the Operation's `resource` points to it from the start), then
@@ -1306,6 +1632,29 @@ type Handler interface {
 	//
 	// POST /v1/agent-sessions/{id}/tool-calls
 	RecordAgentToolCall(ctx context.Context, req *AgentToolCallCreate, params RecordAgentToolCallParams) (RecordAgentToolCallRes, error)
+	// RedateCostCenter implements redateCostCenter operation.
+	//
+	// Extends or ends the cost center's validity: the first period starts at `valid_from`, the last ends
+	// at `valid_to` (exclusive; `null` open-ended). Opens a pending center change
+	// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+	// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
+	// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
+	// The center must be `active` (409 `ledger.invalid_center_status`).
+	//
+	// POST /v1/cost-centers/{id}:redate
+	RedateCostCenter(ctx context.Context, req *CenterRedate, params RedateCostCenterParams) (RedateCostCenterRes, error)
+	// RedateProfitCenter implements redateProfitCenter operation.
+	//
+	// Extends or ends the profit center's validity: the first period starts at `valid_from`, the last ends
+	// at `valid_to` (exclusive; `null` open-ended). A validity that no longer covers an active cost center
+	// period naming the profit center is refused (409 `ledger.profit_center_in_use`). Opens a pending
+	// center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a
+	// controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the
+	// change is applied when the request is approved. One pending change per center (409
+	// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
+	//
+	// POST /v1/profit-centers/{id}:redate
+	RedateProfitCenter(ctx context.Context, req *CenterRedate, params RedateProfitCenterParams) (RedateProfitCenterRes, error)
 	// RedeliverWebhookDelivery implements redeliverWebhookDelivery operation.
 	//
 	// Queues the delivery again, whatever its status: `pending` with no attempts, sent in its resource's
@@ -1324,6 +1673,17 @@ type Handler interface {
 	//
 	// POST /v1/approval-requests/{id}:reject
 	RejectApprovalRequest(ctx context.Context, req *CommentRequiredInput, params RejectApprovalRequestParams) (RejectApprovalRequestRes, error)
+	// RejectBankStatementLineProposal implements rejectBankStatementLineProposal operation.
+	//
+	// A person rejects the line's open proposal by the reconciliation agent, with a reason (ADR-0047,
+	// T49g): the proposal becomes `rejected` with outcome `rejected`, and the line `unmatched`, for the
+	// rules' next run or a person. The reconciliation agent does not propose for the line again. A line
+	// without an open proposal is 409 `payments.statement_line_no_proposal`. People only. Audited, and
+	// published as BankStatementLineProposalDecided. If-Match is the statement's ETag; the response's is
+	// its new one.
+	//
+	// POST /v1/bank-statements/{id}/lines/{line_no}:rejectProposal
+	RejectBankStatementLineProposal(ctx context.Context, req *ReasonInput, params RejectBankStatementLineProposalParams) (RejectBankStatementLineProposalRes, error)
 	// RejectPaymentRun implements rejectPaymentRun operation.
 	//
 	// Rejects a proposed run and frees its open items for later runs. A direct human transition like
@@ -1448,16 +1808,19 @@ type Handler interface {
 	ReverseGoodsReceipt(ctx context.Context, req OptGoodsReceiptReverse, params ReverseGoodsReceiptParams) (ReverseGoodsReceiptRes, error)
 	// ReverseJournalEntry implements reverseJournalEntry operation.
 	//
-	// Posts a reversal entry with every amount negated and links both entries. Open-item lines of the
-	// original are cleared against the reversal's lines in the same transaction (the reversal entry is the
-	// clearing document), so the pair leaves the open items. An entry can be reversed at most once (409).
-	// Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and
-	// payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409
-	// `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a
-	// goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt
-	// is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any
-	// other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet.
-	// Returns the new reversal entry. Human-only.
+	// Reverses every entry of the posting group (one reversal entry per ledger, the first returned); a
+	// copy in a parallel ledger is reversed only through its group's first entry (409
+	// `ledger.entry_is_copy`). Posts a reversal entry with every amount negated and links both entries.
+	// Open-item lines of the original are cleared against the reversal's lines in the same transaction
+	// (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be
+	// reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run
+	// loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's
+	// entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with
+	// `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409
+	// `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with
+	// `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. Entries of any other context are
+	// 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new
+	// reversal entry. Human-only.
 	//
 	// POST /v1/journal-entries/{id}:reverse
 	ReverseJournalEntry(ctx context.Context, req OptJournalEntryReverse, params ReverseJournalEntryParams) (ReverseJournalEntryRes, error)
@@ -1634,6 +1997,14 @@ type Handler interface {
 	//
 	// PATCH /v1/contracts/{id}
 	UpdateContract(ctx context.Context, req *ContractUpdate, params UpdateContractParams) (UpdateContractRes, error)
+	// UpdateCostCenter implements updateCostCenter operation.
+	//
+	// Changes name, description or person responsible at once: texts need no approval (ADR-0050 §11,
+	// decision P1) and are recorded in the audit trail. JSON Merge Patch (RFC 7396): absent fields are
+	// unchanged, `null` clears the description.
+	//
+	// PATCH /v1/cost-centers/{id}
+	UpdateCostCenter(ctx context.Context, req *CenterTextsUpdate, params UpdateCostCenterParams) (UpdateCostCenterRes, error)
 	// UpdateLegalEntity implements updateLegalEntity operation.
 	//
 	// Changes master data of a legal entity. JSON Merge Patch (RFC 7396): absent fields are unchanged,
@@ -1667,6 +2038,14 @@ type Handler interface {
 	//
 	// PATCH /v1/principals/{id}
 	UpdatePrincipal(ctx context.Context, req *PrincipalUpdate, params UpdatePrincipalParams) (UpdatePrincipalRes, error)
+	// UpdateProfitCenter implements updateProfitCenter operation.
+	//
+	// Changes name, description or person responsible at once: texts need no approval (ADR-0050 §11,
+	// decision P1) and are recorded in the audit trail. JSON Merge Patch (RFC 7396): absent fields are
+	// unchanged, `null` clears the description.
+	//
+	// PATCH /v1/profit-centers/{id}
+	UpdateProfitCenter(ctx context.Context, req *CenterTextsUpdate, params UpdateProfitCenterParams) (UpdateProfitCenterRes, error)
 	// UpdatePurchaseOrder implements updatePurchaseOrder operation.
 	//
 	// Changes a purchase order in status `draft`. JSON Merge Patch (RFC 7396): absent fields are
@@ -1696,6 +2075,13 @@ type Handler interface {
 	//
 	// PATCH /v1/roles/{id}
 	UpdateRole(ctx context.Context, req *RoleUpdate, params UpdateRoleParams) (UpdateRoleRes, error)
+	// UpdateSegment implements updateSegment operation.
+	//
+	// Changes the segment's name or description at once. JSON Merge Patch (RFC 7396): absent fields are
+	// unchanged, `null` clears the description.
+	//
+	// PATCH /v1/segments/{id}
+	UpdateSegment(ctx context.Context, req *SegmentUpdate, params UpdateSegmentParams) (UpdateSegmentRes, error)
 	// UpdateSupplierInvoice implements updateSupplierInvoice operation.
 	//
 	// Changes a supplier invoice in status `parked`. JSON Merge Patch (RFC 7396): absent fields are

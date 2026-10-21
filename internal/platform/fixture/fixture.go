@@ -40,7 +40,8 @@ import (
 // ApprovalPermissions are added to every fixture tenant's human role.
 var ApprovalPermissions = []string{"workflow.request.read", "workflow.request.decide", "workflow.request.cancel",
 	"procurement.requisition.approve", "partner.change.approve", "payables.invoice.approve", "config.change.approve",
-	"ledger.period.unlock.approve", "ledger.entry.approve", "procurement.order.approve"}
+	"ledger.period.unlock.approve", "ledger.entry.approve", "procurement.order.approve", "payments.statement.clearing.approve",
+	"ledger.cost_center.approve"}
 
 // Years are the fiscal years the fixture sets up: 2026, which tests date
 // documents in, and the current year, which numbers documents dated today.
@@ -134,6 +135,14 @@ type Env struct {
 // ApprovalPermissions. Tenant.Human requests; the approvers decide.
 func New(tb testing.TB, permissions ...string) Env {
 	tb.Helper()
+	return NewWith(tb, Document(tb), permissions...)
+}
+
+// NewWith is New with doc, a variant of Document, as the tenant's first
+// configuration: one with parallel ledgers (ADR-0045), say, which a later
+// change request cannot add without its evidence.
+func NewWith(tb testing.TB, doc *config.Config, permissions ...string) Env {
+	tb.Helper()
 	ten := pgtest.NewTenant(tb, append(permissions, ApprovalPermissions...)...)
 	ten.AllCompanies(tb, ten.Human)
 	e := Env{Client: apitest.Client{T: tb, API: apitest.New(tb), Tenant: ten, As: ten.Human}, Tenant: ten,
@@ -141,7 +150,6 @@ func New(tb testing.TB, permissions ...string) Env {
 	pgtest.Exec(tb, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
 		VALUES ($1, $2, '1000', 'Acme Corp US', 'US', 'USD', gen_random_uuid(), 'active', $4, $4),
 		       ($1, $3, '2000', 'Acme GmbH', 'DE', 'EUR', gen_random_uuid(), 'active', $4, $4)`, ten.ID, e.US, e.DE, ten.Human.ID)
-	doc := Document(tb)
 	for _, r := range doc.RoleNames() {
 		pgtest.Exec(tb, `INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1, gen_random_uuid(), $2, $2, 'active', $3, $3)`,
 			ten.ID, r, ten.Human.ID)
@@ -177,6 +185,23 @@ func (e Env) person(tb testing.TB, name string) pgtest.Actor {
 		VALUES ($1, $2, 'human', $3, $4, $5, true, 'active', $2, $2)`, e.Tenant.ID, a.ID, pgtest.Issuer(tb), a.Subject, name)
 	pgtest.Exec(tb, `INSERT INTO identity.principal_role (tenant_id, id, principal_id, role_id, valid_from, created_by)
 		SELECT $1, gen_random_uuid(), $2, id, current_date - 1, $2 FROM identity.role WHERE tenant_id = $1 AND code <> 'machine'`, e.Tenant.ID, a.ID)
+	return a
+}
+
+// Reader is a person holding the tenant's permissions in the legal entities
+// alone (none: no company).
+func (e Env) Reader(tb testing.TB, name string, legalEntities ...uuid.UUID) pgtest.Actor {
+	tb.Helper()
+	a := pgtest.Actor{ID: uuid.Must(uuid.NewV7()), Kind: "human"}
+	a.Subject = "human|" + a.ID.String()
+	pgtest.Exec(tb, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, status, created_by, updated_by)
+		VALUES ($1, $2, 'human', $3, $4, $5, 'active', $2, $2)`, e.Tenant.ID, a.ID, pgtest.Issuer(tb), a.Subject, name)
+	pgtest.Exec(tb, `INSERT INTO identity.principal_role (tenant_id, id, principal_id, role_id, valid_from, created_by)
+		SELECT $1, gen_random_uuid(), $2, id, current_date - 1, $2 FROM identity.role WHERE tenant_id = $1 AND code = 'all'`, e.Tenant.ID, a.ID)
+	for _, le := range legalEntities {
+		pgtest.Exec(tb, `INSERT INTO identity.company_access (tenant_id, id, principal_id, legal_entity_id, valid_from, created_by)
+			VALUES ($1, gen_random_uuid(), $2, $3, current_date - 1, $2)`, e.Tenant.ID, a.ID, le)
+	}
 	return a
 }
 

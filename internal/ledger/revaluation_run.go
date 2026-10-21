@@ -130,7 +130,7 @@ func revaluationNotPosted(ctx context.Context, tx pgx.Tx, le, ledgerID uuid.UUID
 func (e *Endpoints) postRevaluation(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le tenancy.Entity, r Revaluation) (RevaluationRun, error) {
 	next := r.KeyDate.AddDate(0, 0, 1)
 	for _, day := range []time.Time{r.KeyDate, next} {
-		if _, _, err := postingPeriod(ctx, tx, le, r.LedgerID, day); err != nil {
+		if _, _, _, err := postingPeriod(ctx, tx, le, []uuid.UUID{r.LedgerID}, day); err != nil {
 			return RevaluationRun{}, err
 		}
 	}
@@ -244,7 +244,7 @@ func (e *Endpoints) postRevaluationEntry(ctx context.Context, tx pgx.Tx, p reqct
 		return Entry{}, err
 	}
 	text := header + r.KeyDate.Format(time.DateOnly)
-	return e.post(ctx, tx, p, draft{entity: le, ledgerID: r.LedgerID, documentType: RevaluationDocumentType, documentDate: day, postingDate: day,
+	return e.post(ctx, tx, p, draft{entity: le, ledgers: []uuid.UUID{r.LedgerID}, documentType: RevaluationDocumentType, documentDate: day, postingDate: day,
 		currencyTC: r.CurrencyLC, currencyLC: r.CurrencyLC, currencyGC: r.CurrencyGC, rateTCLC: "1", rateLCGC: toGC.shown, headerText: &text,
 		sourceContext: "ledger", sourceDocumentID: &run, lines: lines})
 }

@@ -71,10 +71,14 @@ type Case struct {
 // answer, itself filled) fill {{name}} in later calls, the task, the
 // checks and the replay.
 type Call struct {
-	As     string            `yaml:"as"` // a subject; empty: the administrator
-	Method string            `yaml:"method"`
-	Path   string            `yaml:"path"`
-	Body   any               `yaml:"body"`
+	As     string `yaml:"as"` // a subject; empty: the administrator
+	Method string `yaml:"method"`
+	Path   string `yaml:"path"`
+	Body   any    `yaml:"body"`
+	// Form, instead of a body, posts these values as a multipart form, each
+	// filled: an upload whose file the contract takes as a string of bytes
+	// (a bank statement's text).
+	Form   map[string]string `yaml:"form"`
 	Status int               `yaml:"status"` // the answer expected; 0: any 2xx
 	Save   map[string]string `yaml:"save"`
 }

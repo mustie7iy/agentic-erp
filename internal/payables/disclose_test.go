@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
@@ -38,23 +39,6 @@ func (e env) usInvoice(t *testing.T) {
 		"invoice_date": "2026-03-10", "gross_amount": {"amount": "120.00", "currency": "USD"}, "tax_amount": {"amount": "0.00", "currency": "USD"},
 		"items": [{"purchase_order_id": %q, "po_item_no": 1, "quantity": {"value": "10", "unit": "EA"}, "amount": {"amount": "120.00", "currency": "USD"}}]}`,
 		e.US, e.Supplier, po), "")
-}
-
-// reader is a person holding the tenant's permissions in the legal entities
-// alone (none: no company).
-func (e env) reader(t *testing.T, name string, legalEntities ...uuid.UUID) pgtest.Actor {
-	t.Helper()
-	a := pgtest.Actor{ID: uuid.Must(uuid.NewV7()), Kind: "human"}
-	a.Subject = "human|" + a.ID.String()
-	pgtest.Exec(t, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, status, created_by, updated_by)
-		VALUES ($1, $2, 'human', $3, $4, $5, 'active', $2, $2)`, e.Tenant.ID, a.ID, pgtest.Issuer(t), a.Subject, name)
-	pgtest.Exec(t, `INSERT INTO identity.principal_role (tenant_id, id, principal_id, role_id, valid_from, created_by)
-		SELECT $1, gen_random_uuid(), $2, id, current_date - 1, $2 FROM identity.role WHERE tenant_id = $1 AND code = 'all'`, e.Tenant.ID, a.ID)
-	for _, le := range legalEntities {
-		pgtest.Exec(t, `INSERT INTO identity.company_access (tenant_id, id, principal_id, legal_entity_id, valid_from, created_by)
-			VALUES ($1, gen_random_uuid(), $2, $3, current_date - 1, $2)`, e.Tenant.ID, a.ID, le)
-	}
-	return a
 }
 
 // simulatedChange proposes lower auto-post limits in both companies and a
@@ -117,11 +101,11 @@ func simulationOf(t *testing.T, cr map[string]any) (string, payables.Shown) {
 	return "", payables.Shown{}
 }
 
-// TestSimulationShownByCompany: one change request's simulation, read by
-// people of different company access, shows each the invoices of their own
-// companies alone, counted over those; a person of no company sees none.
-// The summary recorded (in the operation's result too) has no count.
-func TestSimulationShownByCompany(t *testing.T) {
+// shownByCompany sets up invoices of both companies, captures a regression
+// suite of them and has a change request's evidence recorded; it returns
+// the tenant with the paths of the change request and its operation.
+func shownByCompany(t *testing.T) (env, string, string) {
+	t.Helper()
 	f := fixture.New(t, append(perms, "config.change.read", "config.change.propose", "config.regression.manage", "platform.operation.read")...)
 	e := env{Env: f, expense: f.Account(t, "2000", "520000"), tax: f.Account(t, "2000", "140000"), ap: f.Account(t, "2000", "211000")}
 	if !t.Run("invoices", func(t *testing.T) {
@@ -131,6 +115,15 @@ func TestSimulationShownByCompany(t *testing.T) {
 		t.FailNow()
 	}
 	path, opPath := e.simulatedChange(t)
+	return e, path, opPath
+}
+
+// TestSimulationShownByCompany: one change request's simulation, read by
+// people of different company access, shows each the invoices of their own
+// companies alone, counted over those; a person of no company sees none.
+// The summary recorded (in the operation's result too) has no count.
+func TestSimulationShownByCompany(t *testing.T) {
+	e, path, opPath := shownByCompany(t)
 	cases := map[string]struct {
 		as       pgtest.Actor
 		summary  string
@@ -140,9 +133,9 @@ func TestSimulationShownByCompany(t *testing.T) {
 		company  string // of every change and posting shown
 	}{
 		"every company": {e.Tenant.Human, "4 invoices of the last 90 days replayed: 2 decided differently, 1 posting rules move", 4, 2, 1, ""},
-		"company 2000":  {e.reader(t, "DE", e.DE), "3 invoices of the last 90 days replayed: 1 decided differently, 1 posting rules move", 3, 1, 1, "2000"},
-		"company 1000":  {e.reader(t, "US", e.US), "1 invoices of the last 90 days replayed: 1 decided differently, 0 posting rules move", 1, 1, 0, "1000"},
-		"no company":    {e.reader(t, "None"), "0 invoices of the last 90 days replayed: 0 decided differently, 0 posting rules move", 0, 0, 0, "none"},
+		"company 2000":  {e.Reader(t, "DE", e.DE), "3 invoices of the last 90 days replayed: 1 decided differently, 1 posting rules move", 3, 1, 1, "2000"},
+		"company 1000":  {e.Reader(t, "US", e.US), "1 invoices of the last 90 days replayed: 1 decided differently, 0 posting rules move", 1, 1, 0, "1000"},
+		"no company":    {e.Reader(t, "None"), "0 invoices of the last 90 days replayed: 0 decided differently, 0 posting rules move", 0, 0, 0, "none"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -212,21 +205,20 @@ func checkShown(t *testing.T, summary string, shown payables.Shown, wantSummary 
 // shown as it is; a simulation recorded with counts over every company,
 // before they were kept by company, is shown whole to a reader of every
 // company and to no other; a replay of no legal entity is shown to a
-// reader of every company alone; a detail that does not read, or company
-// access that cannot be read, fails the read rather than show it whole.
+// reader of every company alone; a detail that does not read fails the
+// read rather than show it whole.
 func TestDisclosureOfOtherEvidence(t *testing.T) {
-	f := fixture.New(t, perms...)
-	e := env{Env: f}
-	narrow := e.reader(t, "DE", e.DE)
+	us, de := uuid.New(), uuid.New()
+	all, narrow := authz.Access{All: true}, authz.Access{IDs: []uuid.UUID{de}}
 	legacy := configuration.Evidence{Kind: "simulation", Summary: "3 invoices of the last 90 days replayed: 1 decided differently, 0 posting rules move",
 		Detail: json.RawMessage(`{"invoices": 3, "decisions": {"changed": 1}, "changes": [], "breaks": [], "postings": [], "window_days": 90, "other": 1}`)}
 	nowhere := configuration.Evidence{Kind: "simulation", Summary: "Invoices on purchase orders of the last 90 days replayed under the proposal.",
 		Detail: json.RawMessage(`{"window_days": 90, "invoices_by_company": [{"company": "9000", "invoices": 2, "base": {"review": 2}, "proposed": {"review": 2}}]}`)}
 	broken := configuration.Evidence{Kind: "simulation", Summary: nowhere.Summary, Detail: json.RawMessage(fmt.Sprintf(`{"window_days": 90, "invoices_by_company": [
 		{"company": "1000", "legal_entity_id": %q, "invoices": 2, "broken": 2, "breaks": [{"document_number": "SI-US1", "company": "1000", "reason": "r"}, {"document_number": "SI-US2", "company": "1000", "reason": "r"}]},
-		{"company": "2000", "legal_entity_id": %q, "invoices": 1, "broken": 1, "breaks": [{"document_number": "SI-DE", "company": "2000", "reason": "r"}]}]}`, e.US, e.DE))}
+		{"company": "2000", "legal_entity_id": %q, "invoices": 1, "broken": 1, "breaks": [{"document_number": "SI-DE", "company": "2000", "reason": "r"}]}]}`, us, de))}
 	cases := map[string]struct {
-		as          pgtest.Actor
+		access      authz.Access
 		in          configuration.Evidence
 		wantSummary string
 		wantDetail  string
@@ -235,10 +227,10 @@ func TestDisclosureOfOtherEvidence(t *testing.T) {
 			"Suite RS-0001", `{"cases": 3}`},
 		"another context's": {narrow, configuration.Evidence{Kind: "simulation", Summary: "Metrics.", Detail: json.RawMessage(`{"metrics": []}`)},
 			"Metrics.", `{"metrics": []}`},
-		"legacy, every company": {e.Tenant.Human, legacy, legacy.Summary, string(legacy.Detail)},
+		"legacy, every company": {all, legacy, legacy.Summary, string(legacy.Detail)},
 		"legacy, narrower": {narrow, legacy,
 			"Invoices replayed under the proposal; recorded before the results were kept by company, so shown only to readers of every company.", `{"other":1}`},
-		"no legal entity, every company": {e.Tenant.Human, nowhere, "2 invoices of the last 90 days replayed: 0 decided differently, 0 posting rules move", ""},
+		"no legal entity, every company": {all, nowhere, "2 invoices of the last 90 days replayed: 0 decided differently, 0 posting rules move", ""},
 		"no legal entity, narrower": {narrow, nowhere, "0 invoices of the last 90 days replayed: 0 decided differently, 0 posting rules move",
 			`{"breaks":[],"changes":[],"decisions":{"changed":0,"unchanged":0,"base":{},"proposed":{}},"invoices":0,"postings":[],"window_days":90}`},
 		"breaks of another company": {narrow, broken, "1 invoices of the last 90 days replayed: 0 decided differently, 0 posting rules move; 1 cannot be evaluated under the proposal",
@@ -246,11 +238,8 @@ func TestDisclosureOfOtherEvidence(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			var got configuration.Evidence
-			if err := apitest.InRequest(t, e.Tenant, c.as, func(ctx context.Context) (err error) {
-				got, err = payables.Disclosure{}.Disclose(ctx, c.in)
-				return err
-			}); err != nil {
+			got, err := payables.Disclosure{}.Disclose(context.Background(), c.in, c.access)
+			if err != nil {
 				t.Fatal(err)
 			}
 			if got.Summary != c.wantSummary {
@@ -263,22 +252,8 @@ func TestDisclosureOfOtherEvidence(t *testing.T) {
 	}
 	for name, detail := range map[string]string{"not an object": `[1]`, "replays not a list": `{"invoices_by_company": 1}`} {
 		t.Run(name, func(t *testing.T) {
-			err := apitest.InRequest(t, e.Tenant, narrow, func(ctx context.Context) error {
-				_, err := payables.Disclosure{}.Disclose(ctx, configuration.Evidence{Kind: "simulation", Detail: json.RawMessage(detail)})
-				return err
-			})
+			_, err := payables.Disclosure{}.Disclose(context.Background(), configuration.Evidence{Kind: "simulation", Detail: json.RawMessage(detail)}, narrow)
 			pgtest.CheckErr(t, err, "payables: simulated invoices")
 		})
 	}
-	t.Run("every statement failing", func(t *testing.T) {
-		apitest.EveryFailure(t, e.Tenant, narrow, "disclose", func(ctx context.Context) error {
-			_, err := payables.Disclosure{}.Disclose(ctx, nowhere)
-			return err
-		})
-	})
-	t.Run("outside a request", func(t *testing.T) {
-		if _, err := (payables.Disclosure{}).Disclose(context.Background(), nowhere); err == nil {
-			t.Error("disclosed outside a request: got no error, want one")
-		}
-	})
 }

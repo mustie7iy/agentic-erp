@@ -284,3 +284,54 @@ func TestNonRecoverable(t *testing.T) {
 		})
 	}
 }
+
+// groupItems counts the tax items of a posting group's entries by ledger
+// code, as code:count.
+func (p parallelEnv) groupItems(t *testing.T, first string) string {
+	t.Helper()
+	var got string
+	pgtest.Scan(t, `SELECT string_agg(l.code || ':' || (SELECT count(*) FROM ledger.tax_item i WHERE i.tenant_id = e.tenant_id AND i.fiscal_year = e.fiscal_year
+			AND i.journal_entry_id = e.id), ',' ORDER BY l.code)
+		FROM ledger.journal_entry e JOIN ledger.ledger l ON l.id = e.ledger_id WHERE e.tenant_id = $1 AND e.posting_group_id = $2`, []any{p.ten.ID, first}, &got)
+	return got
+}
+
+// TestTaxItemsInParallelLedgers: in a company keeping 2L, a posting's tax
+// items are its leading ledger's entry's alone (ADR-0045, ADR-0049 §5):
+// returns are statutory and read the leading ledger, so its copy, which
+// carries the same tax lines, has none; so for a reversal and a cash
+// discount's correction; and an entry of 2L alone has none either.
+func TestTaxItemsInParallelLedgers(t *testing.T) {
+	p := setupParallel(t)
+	je, tag := p.Must(201, "POST", "/v1/journal-entries", taxedEntry(t, p.env, "2026-03-10", ""), "")
+	id := apitest.String(t, je, "id")
+	if got := p.groupItems(t, id); got != "0L:2,2L:0" {
+		t.Errorf("posting group's items: got %s, want 0L's two alone", got)
+	}
+	rev, _ := p.in(t).Must(200, "POST", "/v1/journal-entries/"+id+":reverse", "", tag)
+	if got := p.groupItems(t, apitest.String(t, rev, "id")); got != "0L:2,2L:0" {
+		t.Errorf("reversal's items: got %s, want 0L's two alone", got)
+	}
+	if got := taxItemsOf(t, p.env, uuid.MustParse(apitest.String(t, rev, "id"))); !strings.Contains(got, "V1/tax 2026-03-10 -10000 -1900") {
+		t.Errorf("reversal's items: got %s, want V1's negated", got)
+	}
+	local, _ := p.in(t).Must(201, "POST", "/v1/journal-entries", with(taxedEntry(t, p.env, "2026-03-11", ""), `"ledger_id": "`+p.local+`"`), "")
+	if got := p.groupItems(t, apitest.String(t, local, "id")); got != "2L:0" {
+		t.Errorf("2L's own entry: got %s, want no items", got)
+	}
+
+	determine(t, p.env, p.de, "cash_discount", settleAccount(t, p.env, "2000", "400000"))
+	item := taxedPost(t, p.env, "PARALLEL-ITEM", 10000, map[string]money.Minor{"V1": 1900})
+	var settled ledger.Entry
+	if err := apitest.Committed(t, p.ten, p.ten.Human, func(ctx context.Context) (err error) {
+		in := settlementOf(t, p.env, p.de, "2000", "EUR", "2026-03-25", item)
+		in.Discounts = []money.Minor{238}
+		settled, err = postings().Settle(ctx, in)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := p.groupItems(t, settled.ID.String()); got != "0L:1,2L:0" {
+		t.Errorf("settlement's items: got %s, want 0L's one alone", got)
+	}
+}

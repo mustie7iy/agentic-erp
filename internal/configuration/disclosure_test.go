@@ -11,6 +11,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -18,7 +19,7 @@ import (
 // summary as "Shown.", or fails.
 type disclosure struct{ err error }
 
-func (d disclosure) Disclose(_ context.Context, e configuration.Evidence) (configuration.Evidence, error) {
+func (d disclosure) Disclose(_ context.Context, e configuration.Evidence, _ authz.Access) (configuration.Evidence, error) {
 	if d.err != nil {
 		return configuration.Evidence{}, d.err
 	}
@@ -30,8 +31,9 @@ func (d disclosure) Disclose(_ context.Context, e configuration.Evidence) (confi
 
 // TestDisclosure: a change request's reader is shown each evidence's
 // summary and detail as the disclosures leave them, on every read that returns the
-// request; a disclosure that fails fails the read rather than show the
-// detail whole.
+// request; a disclosure that fails, company access that cannot be read or
+// regression evidence whose cases do not read fails the read rather than
+// show the detail whole.
 func TestDisclosure(t *testing.T) {
 	e := setup(t, false)
 	tax := document(t)
@@ -60,6 +62,22 @@ func TestDisclosure(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The reader's company access is read once per request; every statement
+	// of a read, that one too, can fail.
+	for name, call := range map[string]func(ctx context.Context) error{
+		"get": func(ctx context.Context) error {
+			_, err := h.GetChangeRequest(ctx, gen.GetChangeRequestParams{ID: id})
+			return err
+		},
+		"list": func(ctx context.Context) error {
+			_, err := h.ListChangeRequests(ctx, gen.ListChangeRequestsParams{})
+			return err
+		},
+	} {
+		t.Run("every statement of "+name+" failing", func(t *testing.T) {
+			apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
+		})
+	}
 	h.Disclosures = []configuration.Disclosure{disclosure{err: errors.New("directory down")}}
 	calls := map[string]func(ctx context.Context) error{
 		"get": func(ctx context.Context) error {
@@ -80,4 +98,12 @@ func TestDisclosure(t *testing.T) {
 			pgtest.CheckErr(t, apitest.InRequest(t, e.ten, e.ten.Human, call), "directory down")
 		})
 	}
+	// Regression evidence whose cases do not read fails the read.
+	h.Disclosures = []configuration.Disclosure{disclosure{}}
+	pgtest.Exec(t, `INSERT INTO config.evidence (tenant_id, change_request_id, kind, passed, summary, detail, recorded_by)
+		VALUES ($1, $2, 'regression', true, 'Suite RS-0001 replayed under the proposal.', '{"cases_by_company": 1}', $3)`, e.ten.ID, id, e.ten.Human.ID)
+	pgtest.CheckErr(t, apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+		_, err := h.GetChangeRequest(ctx, gen.GetChangeRequestParams{ID: id})
+		return err
+	}), "configuration: regression cases")
 }

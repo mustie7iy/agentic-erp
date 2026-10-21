@@ -302,7 +302,8 @@ erDiagram
     int base_version
     smallint tier "1-4"
     text status "draft | validating | invalid | awaiting_evidence | pending_approval | approved | active | rejected | withdrawn"
-    uuid workflow_request_id }
+    uuid workflow_request_id
+    jsonb notes "for reviewers of a generated proposal" }
   change_item { uuid change_request_id PK
     int item_no PK
     text path
@@ -336,7 +337,17 @@ request, merged three-way from the version the company adopted. The
 document's `packs` section records, per company, the country, the pack
 version and the date it was applied on (`packs[company]`, an operational-
 tier change); validation requires a company of that country, one adoption
-per company, a `YYYY.N` version and a date.
+per company, a `YYYY.N` version and a date. The `calendars` section holds
+each company's holidays (`calendars[company].holidays[date]`, T62c): one
+calendar per company of the document, each holiday a `YYYY-MM-DD` date
+once, with a name; applying a pack merges its holidays by date. A change
+is operational, a holiday's name cosmetic. No context owns a table for it:
+readers use the active document (`config.Config.Holiday`).
+`POST /v1/country-pack-applications` (T62d) stores the draft as a change
+request in status `draft` on the active version, with the merge's notes in
+`change_request.notes` (an array of path and message, `[]` for requests
+proposed by hand), recorded when it is created; the request then goes the
+usual way, and nothing is activated by applying.
 
 A change request's simulation replays the invoices of every company, so
 that its verdict covers the whole change, but each reader is shown the
@@ -349,9 +360,31 @@ of no company is shown no invoice and counts of zero, and a replay of no
 legal entity is shown only to a reader of every company. A simulation
 recorded before this rule, with counts over every company, is shown only
 to readers of every company. The verdict (`passed`) is the change's and is
-shown to every reader, as the request's status shows it anyway. Regression
-evidence and suites' cases are not yet limited this way (tracker follow-up
-under Regression suites).
+shown to every reader, as the request's status shows it anyway.
+
+Regression suites and regression evidence are limited the same way. A
+suite samples the invoices of every company; each reader of
+`/v1/regression-suites` is shown the cases of the companies they may
+access alone, with their count (`case_count`) and the strata that selected
+them, numbered among those (`case_no` from 1, in the suite's order, so that
+gaps tell nothing of other companies' cases; the regression evidence numbers
+them the same way), and a case of no legal entity only to a reader of every
+company. The
+regression evidence is recorded by company (`cases_by_company`: each
+company's number of cases and its cases decided differently, `stale`,
+`changed` or `regressions`) with a summary that carries no count, as it
+too reaches the operation's result (`regression_summary`) and the audit
+trail; the capture's audit entry counts no cases either. Each reader of the
+change request is shown the cases of their companies and the summary's
+counts over those (`configuration.regressionShown`), failing closed as the
+simulation does. The verdict stays the change's, over every company: a
+reader of one company may see a failed regression with no case of theirs
+decided differently, since the request's status would show the verdict
+anyway. Regression evidence recorded before this rule, with counts over
+every company, is shown whole only to readers of every company, and to any
+other reader without its cases. The reader's company access is read once
+per request, however many change requests and pieces of evidence it
+returns.
 
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
@@ -500,6 +533,12 @@ erDiagram
   ledger ||--o{ journal_entry : in
   parked_entry ||--|{ parked_entry_line : contains
   parked_entry |o--o| journal_entry : "posted as"
+  segment ||--o{ profit_center : groups
+  profit_center ||--|{ profit_center_company : "posted in"
+  profit_center ||--o{ profit_center_period : "valid in"
+  cost_center ||--o{ cost_center_period : "valid in"
+  profit_center ||--o{ cost_center_period : "of"
+  center_change ||--o{ cost_center_period : writes
   journal_entry { uuid id PK
     uuid legal_entity_id
     uuid ledger_id
@@ -714,6 +753,41 @@ Rules enforced in the database:
 - `period_status` (one row per legal entity, ledger, year and period) has a
   uuid `id` so the API can address a posting period; its natural key stays
   the primary key.
+- Parallel ledgers (ADR-0045, T52a): `ledger` (0L is the leading ledger,
+  `ledger_leading_is_0l`), `company_ledger` (the ledgers a legal entity
+  keeps, insert-only; exactly one leading per legal entity:
+  `company_ledger_one_leading` and the commit-time
+  `company_ledger_leading_required`), `ledger_group` and
+  `ledger_group_member` (insert-only; the representative is a member,
+  `ledger_group_representative_member`, the leading ledger when it is one,
+  `ledger_group_leading_represents`, and only the name changes,
+  `ledger_group_fixed`). All from the configuration's `ledgers`,
+  `companies[].ledgers` and `ledger_groups`; `period_status` has rows for
+  every ledger the legal entity keeps.
+- Posting groups (ADR-0045, T52b): a posting is written once per ledger
+  it goes to, as `journal_entry` rows sharing `posting_group_id` (the
+  first entry's id, the representative ledger's) and the document number,
+  now unique per ledger (`journal_entry_document`, built per partition;
+  the constraint without the ledger is dropped). The insert trigger
+  `journal_entry_ledger` holds an entry to a ledger its company keeps
+  (`ledger.company_keeps`: its `company_ledger` rows, or the leading
+  ledger alone before any are assigned), to a member of the
+  `ledger_group_id` it names, and a copy to its group's first entry's
+  header in another ledger. `parked_entry` keeps what it posts to
+  (`ledger_specific`, `ledger_group_id`, not both, fixed once parked).
+- Clearing in every ledger (ADR-0045, T52c): a clearing writes one
+  `clearing` per ledger where its clearing entry has a copy, by that copy,
+  with `clearing_item` rows for the copies of the cleared lines (an item
+  with its offset, only where both have a copy); the leading ledger's is
+  the one read and announced.
+- Ledger reconciliation (ADR-0045, T52e) needs no table: it reads the
+  balances the trial balance reads (`period_balance` plus the lines not
+  yet projected) for two ledgers, and finds the entries behind a
+  difference as those whose `posting_group_id` has no entry in the other
+  ledger (`journal_entry_posting_group`). The contract step of T52b's
+  expand is empty: the old document number constraint went in 000136, and
+  `posting_group_id` stays nullable, entries posted before T52b having
+  none.
 
 Enforced by the ledger, not the database (T32c): `:unlock` (permission
 `ledger.period.lock`, people only) opens the `period_unlock` request with
@@ -747,15 +821,16 @@ used is withdrawn rather than deleted, and the database refuses withdrawing
 or re-dating a rate past a posting of its code or adding one over posted
 dates, `ledger.tax_rate_in_use`, read from the tax items by tax date since
 T61c); the former `tax_code` (one rate and account per validity) was copied
-into them and is dropped (000141, T61c), `withholding_tax_code` (T46e: the
+into them and is dropped (000140, T61c), `withholding_tax_code` (T46e: the
 configuration's `companies[].withholding_tax_codes`, SAP T059P/T059Z, kept
 by the setup per legal entity: a rate above 0 and below 100% of the
 invoice's net, the default, or gross, deducted at invoice or at payment, to
 a liability that reconciles no supplier, the withholding tax payable; a code
 the document no longer has is deactivated).
 
-Tax items (T61c, ADR-0049 §5; migrations 000140-000141): `tax_item`, one per
-entry, tax code, component and tax line account, written with every entry
+Tax items (T61c, ADR-0049 §5; migrations 000139-000140): `tax_item`, one per
+entry of the leading ledger (a parallel ledger's copies and entries have
+none, `tax_item_leading`), tax code, component and tax line account, written with every entry
 that carries a tax code in its transaction (from its lines, or a reversal's
 and a down payment transfer's negated from the entries they reverse, a cash
 discount's from its items' at their rates): the tax date, the rate row and
@@ -841,6 +916,46 @@ any rate, so it is valued without rates, every other item with both
 entries through the ledger's reversal path (`ledger.reversal`) and sets
 `cancelled`, under the entries' bucket locks and the run read `FOR UPDATE`;
 the key date is then free for another posted run.
+
+Cost centers, profit centers and segments (T56a, ADR-0050, migration
+000128) are the ledger's master data, which journal lines carry from T56d.
+`segment` (IFRS 8) and `profit_center` are tenant-wide, `cost_center`
+belongs to one legal entity, fixed; codes are SAP's (`^[0-9A-Z_-]{1,10}$`),
+unique per tenant (per legal entity for cost centers) among centers not
+rejected. `profit_center_company` assigns a profit center to the legal
+entities it may be posted in, insert-only. A center's texts (name,
+description, person responsible) are on it and change without approval;
+what postings read is in effective-dated periods (`valid_to` exclusive,
+NULL open): `cost_center_period` (category, profit center, locks for actual
+costs, actual revenue and plan) and `profit_center_period` (lock), whose
+active periods never overlap (`*_period_overlap`, EXCLUDE where not
+retired). A cost center period names the cost center with its legal entity
+(`cost_center_period_company`) and a profit center assigned to it
+(`cost_center_period_profit_center_company`). Periods are written once: a
+change retires the periods it replaces (`retired_by_change_id`, once) and
+inserts new ones (`check_center_period_fixed`). `center_change` is a
+requested change of one center (`center_change_one_center`; `assign` only
+for a profit center): create, redate, lock, move, assign, with its payload
+fixed, decided once from `pending` on its `center_change` approval request
+(`check_center_change_decision`), one pending per center
+(`center_change_one_pending`). A center goes `pending` to `active` or
+`rejected` only, its code and a cost center's legal entity fixed
+(`check_center_change`).
+
+Revaluation per ledger (T52f, ADR-0045, migrations 000137-000138). A run
+values its ledger's own lines (a parallel ledger's copies of the open items, which
+T52c clears with the leading ledger's, and its ledger-specific postings)
+and posts and reverses its entries in that ledger alone; the posted-run
+index already keys runs by ledger, so each ledger has its run per key
+date. `fx_valuation_ledger` is the rate type a parallel ledger values at of
+its own (its valuation area, from `companies[].fx_valuation.ledgers`),
+deactivated when removed; a ledger without an active one values at the
+legal entity's `fx_valuation`. Its foreign keys hold it to a ledger the
+legal entity keeps (`company_ledger`) and not the leading one (`is_leading`,
+always false, against `ledger.ledger`'s role key). The valuation accounts
+stay per legal entity: the ledgers keep their amounts apart on them. A run's
+ledger is one its legal entity keeps (`revaluation_run_ledger_kept`,
+migration 000138, checked on insert).
 
 ## 3.8 Procurement (`procurement`)
 
@@ -1382,7 +1497,8 @@ erDiagram
     bigint opening_balance
     bigint closing_balance
     uuid previous_statement_id "the bank's statement before; null for its first"
-    text status "imported | gap | reconciled" }
+    text status "imported | gap | reconciled"
+    timestamptz reconciled_at "with reconciled_by, exactly when reconciled" }
   bank_statement_line { uuid statement_id PK
     int line_no PK
     bigint amount "signed: credit positive"
@@ -1395,14 +1511,21 @@ erDiagram
     text kind "rule | manual | agent"
     text rule "the matching rule, of kind rule"
     text reason
-    text status "open | matched | excluded | rejected" }
+    text status "open | matched | excluded | rejected"
+    date posting_date "booking date, or a person's with posting_reason"
+    uuid approval_request_id "bank_clearing (workflow)"
+    uuid journal_entry_id "the posting (ledger), one match per entry"
+    uuid session_id "an agent's: its session (agents), once per line"
+    text proposal "an agent's: match | exclude"
+    text outcome "a decided proposal: accepted | rejected | overridden" }
   statement_match ||--o{ statement_match_target : clears
   statement_match_target { uuid match_id PK
     smallint candidate PK
     smallint target_no PK
     uuid payment_id
     uuid bank_file_id "of a batch booking"
-    text posting_rule }
+    text posting_rule
+    boolean incoming "the incoming payments clearing account; one target" }
   bank_file { uuid id PK
     uuid payment_run_id "unique per run, house bank and method"
     uuid house_bank_id "null: the run's (T45c)"
@@ -1448,7 +1571,37 @@ the transactions in `details`) and the lines' matches
 (naming it), a person or an agent, `open` with candidates for a person or
 `matched`, `excluded` only by a person, `rejected` when a person's decision
 replaces it; its targets in `statement_match_target`, per candidate a
-payment, with the bank file of a batch booking, or a posting rule). A bank
+payment, with the bank file of a batch booking, or a posting rule). A
+matched line is posted (T49f, 000126): its match records the posting date
+(the booking date, or one a person gives with `posting_reason`), the
+latest `bank_clearing` approval request (kept when rejected or withdrawn)
+and the journal entry (`statement_match_journal_entry`: one match per
+entry; `statement_match_posted`: a posted match stays `matched`); the
+line becomes `pending_approval`, then `posted`, or `matched` again when
+the request is rejected or withdrawn. The reconciliation agent proposes
+(T49g, 000127) for a line the rules left unmatched or open a match of kind
+`agent`, `open`, that names its agent session (`session_id`, agents
+context) and what it proposes (`proposal`: `match`, with one candidate's
+targets, or `exclude`); a session proposes once per line
+(`statement_match_session`), an agent's match never posts
+(`statement_match_agent_open`), and once a person decides it, it is
+`rejected` with the `outcome` (`accepted`: the person's own match by it
+follows; `rejected`: the line is unmatched again; `overridden`). The
+posting debits the bank's
+clearing account and clears each payment's line on it (an open-item
+managed account, `ledger.company_account`), or posts a posting rule's
+account, or (T49h, 000129) the incoming payments clearing account for an
+incoming payment a person matched there (`statement_match_target.incoming`;
+a target is one of a payment, a posting rule or it), against the main bank
+account. A statement becomes `reconciled` (T49h; checks added `NOT VALID`
+in 000129 and validated in 000130, the index in 000131) once every line of it and
+of the bank's statements before it is posted or excluded and its closing
+balance, less the lines excluded and those posted after its closing date,
+is the ledger's balance of the main bank account on that date; it records
+when and by whom (`bank_statement_reconciled`: both exactly when
+reconciled) and is never set back. `statement_match_line` indexes a line's
+matches, live and rejected, for the reconciliation report's latest
+proposal outcome. A bank
 file records its pain.001 message id (`bank_file.message_id`, 000123), which
 a batch booking carries. A
 statement whose opening balance is not the closing balance of the bank's
@@ -1801,6 +1954,11 @@ within the limit the policy has no steps and the entry posts at once
 for direct posts). A company without a limit has a limit of 0. Above it,
 one approval by the role `controller` with `ledger.entry.approve`, whatever
 the configuration says, as for period unlocks.
+
+A change of a cost or profit center (object type `center_change`, T56a,
+ADR-0050 §11) needs one approval by the role `controller` with
+`ledger.cost_center.approve`, whatever the configuration says; the ledger
+applies, rejects or cancels the change in the deciding transaction.
 
 The release of a purchase order without an approved requisition (object
 type `purchase_order`) and a change that raises a released order's total

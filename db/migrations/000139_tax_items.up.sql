@@ -128,12 +128,15 @@ SET LOCAL row_security = off;
 SELECT ledger.write_tax_items(e.tenant_id, e.fiscal_year, e.id, e.posting_date, true)
 FROM ledger.journal_entry e
 WHERE EXISTS (SELECT FROM ledger.journal_line l WHERE l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year AND l.journal_entry_id = e.id
-  AND l.tax_code IS NOT NULL);
+  AND l.tax_code IS NOT NULL)
+  -- Tax items are the leading ledger's (ADR-0045): a parallel ledger's
+  -- copy, or entry, has none.
+  AND EXISTS (SELECT FROM ledger.ledger g WHERE g.tenant_id = e.tenant_id AND g.id = e.ledger_id AND g.is_leading);
 RESET row_security;
 
--- An entry's tax lines and its items agree when it commits: each tax code
--- its lines carry that posts to an account has an item, the items are of
--- its legal entity, and per
+-- An entry of the leading ledger and its items agree when it commits (a
+-- parallel ledger's has none): each tax code its lines carry that posts to
+-- an account has an item, the items are of its legal entity, and per
 -- account and code the lines on an item's account or on a component's
 -- account add up to the items' tax, in transaction and local currency.
 -- Checked when the entry or an item is written, deferred like the balance.
@@ -141,10 +144,22 @@ CREATE FUNCTION ledger.check_tax_items(t uuid, y smallint, e uuid) RETURNS void
 LANGUAGE plpgsql AS $$
 DECLARE
   v_le uuid;
+  v_leading boolean;
   v_code text;
   v_account uuid;
 BEGIN
-  SELECT j.legal_entity_id INTO v_le FROM ledger.journal_entry j WHERE j.tenant_id = t AND j.fiscal_year = y AND j.id = e;
+  SELECT j.legal_entity_id, g.is_leading INTO v_le, v_leading FROM ledger.journal_entry j
+    JOIN ledger.ledger g ON g.tenant_id = j.tenant_id AND g.id = j.ledger_id WHERE j.tenant_id = t AND j.fiscal_year = y AND j.id = e;
+  -- Tax items are the leading ledger's (ADR-0045, ADR-0049 §5): returns are
+  -- statutory and read it; a parallel ledger's copy carries the tax lines
+  -- and no items, and an entry of a parallel ledger has none either.
+  IF NOT v_leading THEN
+    IF EXISTS (SELECT FROM ledger.tax_item i WHERE i.tenant_id = t AND i.fiscal_year = y AND i.journal_entry_id = e) THEN
+      RAISE EXCEPTION 'journal entry % is not the leading ledger''s: it has no tax items', e
+        USING ERRCODE = 'check_violation', CONSTRAINT = 'tax_item_leading';
+    END IF;
+    RETURN;
+  END IF;
   -- A code whose components post to no account (all non-deductible) has
   -- no tax line and no item until T61d.
   SELECT l.tax_code INTO v_code FROM ledger.journal_line l WHERE l.tenant_id = t AND l.fiscal_year = y AND l.journal_entry_id = e

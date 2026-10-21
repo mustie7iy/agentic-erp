@@ -144,7 +144,7 @@ echo "test-images: each build on a builder of its own; differing erp-analytics d
 [ "$(calls "^crane digest")" -eq 3 ] || fail current "$(calls "^crane digest") pins checked, want 3"
 if FAKE_MOVED=gcr.io/distroless/cc-debian12:nonroot "$root/scripts/base-image-current.sh" >"$work/log" 2>&1; then fail moved "a moved base accepted"; fi
 grep -q "cc-debian12:nonroot is now .*erp-analytics.Dockerfile pins" "$work/log" || { cat "$work/log" >&2; fail moved "the moved pin not named"; }
-grep -q "golang:1.26.2-bookworm is still" "$work/log" || fail moved "the pins after the moved one not checked"
+grep -q "golang:1.26.10-bookworm is still" "$work/log" || fail moved "the pins after the moved one not checked"
 echo "test-images: base-image-current checks ko's base and erp-analytics's builder and base"
 
 if [ "$failed" -ne 0 ]; then

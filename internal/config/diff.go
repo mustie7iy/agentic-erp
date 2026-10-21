@@ -61,6 +61,7 @@ var tierRules = []struct {
 	{rx(`^companies\[\*\]$`), TierStructural},
 	{rx(`^companies\[\*\]\.(code|currency|fiscal_year_start_month)$`), TierStructural},
 	{rx(`^companies\[\*\]\.chart_of_accounts\[\*\]\.name$`), TierCosmetic},
+	{rx(`^companies\[\*\]\.ledgers`), TierStructural},
 	// Flagging an account for revaluation changes what runs post (ADR-0042).
 	{rx(`^companies\[\*\]\.chart_of_accounts\[\*\]\.revalue_foreign_currency$`), TierPostingRelated},
 	{rx(`^companies\[\*\]\.chart_of_accounts`), TierStructural},
@@ -74,6 +75,10 @@ var tierRules = []struct {
 	// postings and returns carry: tier 3 (ADR-0049 §3), as rates were.
 	{rx(`^companies\[\*\]\.(account_determination|tax_codes|auto_post_limit|manual_entry_approval_limit|house_bank)`), TierPostingRelated},
 	{rx(`^companies\[\*\]\.(invoice_tolerance|gr_over_delivery_percent)`), TierOperational},
+	{rx(`^(ledgers|ledger_groups)\[\*\]\.name$`), TierCosmetic},
+	{rx(`^ledgers`), TierStructural},
+	// A group decides which ledgers a posting naming it reaches (T52b).
+	{rx(`^ledger_groups`), TierPostingRelated},
 	{rx(`^payment_terms\[\*\]\.description$`), TierCosmetic},
 	// Discounts change what payments post (cash discount and tax).
 	{rx(`^payment_terms\[\*\]\.discounts`), TierPostingRelated},
@@ -99,6 +104,10 @@ var tierRules = []struct {
 	// settings applying it changes carry their own tiers. It decides what
 	// the next upgrade merges from, so it is not cosmetic (ADR-0048).
 	{rx(`^packs`), TierOperational},
+	// Holidays post nothing; they move what falls due on business days
+	// (due dates, payment runs), as payment terms' days do (ADR-0048).
+	{rx(`^calendars\[\*\]\.holidays\[\*\]\.name$`), TierCosmetic},
+	{rx(`^calendars`), TierOperational},
 }
 
 func rx(s string) *regexp.Regexp { return regexp.MustCompile(s) }
@@ -116,7 +125,8 @@ func classify(path string) Tier {
 }
 
 // listKeys names the identity field of each list, so items are compared by
-// identity instead of position.
+// identity instead of position. A list is found by its field name alone, so
+// two lists of one name anywhere in the document share their key.
 var listKeys = map[string]string{
 	"companies": "code", "chart_of_accounts": "number", "tax_codes": "code", "withholding_tax_codes": "code",
 	// A tax code's components and each component's dated rates (T61a).
@@ -126,12 +136,14 @@ var listKeys = map[string]string{
 	// fx_valuation.accounts, and a list of that name elsewhere shares it.
 	"accounts":      "account",
 	"posting_rules": "transaction_code", "matching_rules": "kind",
-	"payment_terms": "key",
+	"payment_terms": "key", "ledgers": "code", "ledger_groups": "code",
 	"number_ranges": "company,document_type,fiscal_year",
 	// The analytics section's; a metric's own dimensions are names, listed
 	// by position.
 	"metrics": "name", "dimensions": "name",
-	"packs": "company",
+	"packs":     "company",
+	"calendars": "company",
+	"holidays":  "date",
 }
 
 // Diff lists every setting that differs from old to new, with its tier.
@@ -259,18 +271,28 @@ func walk(path, field string, v any, out map[string]string) {
 	case []any:
 		key := listKeys[field]
 		for i, item := range x {
-			id := fmt.Sprint(i)
-			if m, ok := item.(map[string]any); ok && key != "" {
-				var parts []string
-				for _, k := range strings.Split(key, ",") {
-					parts = append(parts, fmt.Sprint(m[k]))
-				}
-				id = strings.Join(parts, "/")
-			}
+			id := itemID(key, i, item)
 			walk(fmt.Sprintf("%s[%s]", path, id), "", item, out)
 		}
 	case nil:
 	default:
 		out[path] = fmt.Sprint(x)
 	}
+}
+
+// itemID is a list item's identity: the fields key names of an object, a
+// code itself in a list of codes (a company's ledgers), else its position.
+func itemID(key string, i int, item any) string {
+	if s, ok := item.(string); ok && key != "" {
+		return s
+	}
+	m, ok := item.(map[string]any)
+	if !ok || key == "" {
+		return fmt.Sprint(i)
+	}
+	var parts []string
+	for _, k := range strings.Split(key, ",") {
+		parts = append(parts, fmt.Sprint(m[k]))
+	}
+	return strings.Join(parts, "/")
 }

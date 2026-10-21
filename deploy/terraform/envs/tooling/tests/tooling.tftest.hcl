@@ -60,7 +60,7 @@ run "the_tooling_account_plans_and_wires_its_parts" {
     error_message = "ERP_COSIGN_KEY is the signing key's awskms reference"
   }
   assert {
-    condition     = length(output.repository_urls) == 5
+    condition     = length(output.repository_urls) == 6
     error_message = "one repository per binary and per mirrored upstream image"
   }
   assert {

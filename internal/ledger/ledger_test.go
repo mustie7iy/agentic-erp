@@ -25,7 +25,8 @@ import (
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
 var perms = []string{"ledger.account.read", "ledger.period.read", "ledger.period.manage", "ledger.period.lock", "ledger.entry.read", "ledger.entry.post", "ledger.entry.park",
-	"ledger.rate.read", "ledger.rate.maintain", "ledger.clearing.post"}
+	"ledger.rate.read", "ledger.rate.maintain", "ledger.clearing.post",
+	"ledger.cost_center.read", "ledger.cost_center.change", "ledger.cost_center.approve", "workflow.request.read", "workflow.request.decide", "workflow.request.cancel"}
 
 // document is the prototype's configuration (companies 1000 in USD and
 // 2000 in EUR) with journal number ranges for 2026.

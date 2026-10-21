@@ -279,7 +279,7 @@ tax_codes:
   code is valid on a date when one of its components has a rate then. The old
   `ledger.tax_code` (one row per validity, one rate and account) was copied
   into them, each code one component `tax`, and is no longer read or written;
-  a later release drops it (contract, with T61c: dropped by 000141). Rates in the future are
+  a later release drops it (contract, with T61c: dropped by 000140). Rates in the future are
   written when the configuration is activated, so a known change (NS HST 15%
   to 14%) is set up once, ahead. The "changed today" refusal goes: a rate's
   dates are explicit, a different rate is a new row (a rate's value and start
@@ -376,7 +376,7 @@ writes items too. A schema test enforces that every tax line has its item and
 that items balance with the tax lines per entry and account (the ledger's
 commit-time check, like the balance trigger).
 
-- **As built (T61c, migrations 000140-000141):** `ledger.tax_item`, keyed by
+- **As built (T61c, migrations 000139-000140):** `ledger.tax_item`, keyed by
   entry and item number, `tenant_id` first, RLS, fixed but for `reported_in`
   (set once, `tax_item_fixed`; the application may update that column only).
   An item names its code, component, jurisdiction, direction, kind, account
@@ -400,7 +400,7 @@ commit-time check, like the balance trigger).
   and the discount's net that is a code's base is posted on `cash_discount`
   with the code, the untaxed rest without one. The cash discount split reads
   the paid entries' items, so it needs no account history
-  (`former_account_ids` is read only by 000140's migration of the entries
+  (`former_account_ids` is read only by 000139's migration of the entries
   posted before, which writes their items from their lines at their posting
   date, former accounts included), and allocates with `money.Allocate`.
   **Commit-time check** (`journal_entry_tax_items`, `tax_item_checked`,
@@ -414,8 +414,15 @@ commit-time check, like the balance trigger).
   are read on it); a reversal's the original's; other postings' their
   posting date. Codes are validated on the tax date. The in-use check of
   rates (`ledger.tax_code_posted`) reads items by tax date, and `ledger.tax_code`
-  and the index of lines by tax code are dropped (000141). `ledger.TaxItems`
+  and the index of lines by tax code are dropped (000140). `ledger.TaxItems`
   is the port: `Of` an entry, `Dated` by legal entity and tax date range.
+  **Parallel ledgers (ADR-0045):** tax items are the leading ledger's
+  entry's alone. Returns are statutory and read the leading ledger; a
+  posting's copy in a parallel ledger carries the same tax lines and has
+  no items, which would count the tax twice, and an entry of a parallel
+  ledger alone has none either. The commit-time check holds a parallel
+  ledger's entry to having none (`tax_item_leading`), and the migration
+  writes items for the leading ledger's entries only.
   A tax line names its account and code, not its component, so the ledger
   refuses a code two of whose components with a rate on the tax date post
   to one account (422 `ledger.tax_code_components`; the database's

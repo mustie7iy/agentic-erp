@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -27,6 +28,10 @@ type Config struct {
 	Payments     Payments      `yaml:"payments" json:"payments"`
 	Output       Output        `yaml:"output" json:"output"`
 	NumberRanges []NumberRange `yaml:"number_ranges,omitempty" json:"number_ranges,omitempty"`
+	// Ledgers and LedgerGroups are the tenant's parallel ledgers (T52a,
+	// ADR-0045); without them the tenant keeps only the leading ledger 0L.
+	Ledgers      []Ledger      `yaml:"ledgers,omitempty" json:"ledgers,omitempty"`
+	LedgerGroups []LedgerGroup `yaml:"ledger_groups,omitempty" json:"ledger_groups,omitempty"`
 	// Extensions are the tenant's custom field schemas by entity (ADR-0046).
 	Extensions map[string]extensions.Schema `yaml:"extensions,omitempty" json:"extensions,omitempty"`
 	// Rules are the tenant's validation rules by entity and name (ADR-0046).
@@ -37,6 +42,89 @@ type Config struct {
 	// Packs records, per company, the country pack it adopted (ADR-0048):
 	// the base the next upgrade of the pack merges from.
 	Packs []PackAdoption `yaml:"packs,omitempty" json:"packs,omitempty"`
+	// Calendars are the companies' holidays (ADR-0048), one calendar per
+	// company: the days, besides weekends, on which it does no business.
+	Calendars []Calendar `yaml:"calendars,omitempty" json:"calendars,omitempty"`
+}
+
+// Calendar is a company's holidays, each date once.
+type Calendar struct {
+	Company  string    `yaml:"company" json:"company"`
+	Holidays []Holiday `yaml:"holidays" json:"holidays"`
+}
+
+// Holiday is a day the company does no business, on Date (YYYY-MM-DD).
+type Holiday struct {
+	Date string `yaml:"date" json:"date"`
+	Name string `yaml:"name" json:"name"`
+}
+
+// Calendar is the company's calendar, or nil.
+func (c *Config) Calendar(company string) *Calendar {
+	for i := range c.Calendars {
+		if c.Calendars[i].Company == company {
+			return &c.Calendars[i]
+		}
+	}
+	return nil
+}
+
+// Holiday is the company's holiday on the date, if it has one: the read
+// other contexts use to tell whether the company does business that day.
+// The date is d's calendar date in d's own location, so callers pass the
+// company's business date, not an instant in UTC. It returns a copy, so a
+// reader cannot change the active document.
+func (c *Config) Holiday(company string, d time.Time) (Holiday, bool) {
+	if cal := c.Calendar(company); cal != nil {
+		date := d.Format(time.DateOnly)
+		for _, h := range cal.Holidays {
+			if h.Date == date {
+				return h, true
+			}
+		}
+	}
+	return Holiday{}, false
+}
+
+// LeadingLedger is the code of the leading ledger every company keeps.
+const LeadingLedger = "0L"
+
+// Ledger is a ledger of the tenant (SAP FINSC_LEDGER): the leading ledger
+// 0L or a parallel ledger kept under another accounting principle. Once
+// activated only its name changes.
+type Ledger struct {
+	Code                string `yaml:"code" json:"code"`
+	Name                string `yaml:"name" json:"name"`
+	AccountingPrinciple string `yaml:"accounting_principle" json:"accounting_principle"`
+}
+
+// LedgerGroup names ledgers a posting goes to together (SAP FAGL ledger
+// group); its representative ledger decides the posting period. Once
+// activated it keeps its members and representative; only its name and
+// new members change.
+type LedgerGroup struct {
+	Code           string   `yaml:"code" json:"code"`
+	Name           string   `yaml:"name" json:"name"`
+	Representative string   `yaml:"representative" json:"representative"`
+	Ledgers        []string `yaml:"ledgers" json:"ledgers"`
+}
+
+// LedgerList is the tenant's ledgers: those of the document, or the
+// leading ledger alone when it names none.
+func (c *Config) LedgerList() []Ledger {
+	if len(c.Ledgers) > 0 {
+		return c.Ledgers
+	}
+	return []Ledger{{Code: LeadingLedger, Name: "Leading ledger", AccountingPrinciple: "IFRS"}}
+}
+
+// LedgerCodes is the company's ledgers: those it names, or the leading
+// ledger alone.
+func (c *Company) LedgerCodes() []string {
+	if len(c.Ledgers) > 0 {
+		return c.Ledgers
+	}
+	return []string{LeadingLedger}
 }
 
 // PackAdoption is the country pack version a company adopted and the date
@@ -109,14 +197,28 @@ type Company struct {
 	// BankStatements says how the company's bank statements are matched
 	// and posted (SAP FF_5/FEBAN, T028G; ADR-0047).
 	BankStatements BankStatements `yaml:"bank_statements,omitempty" json:"bank_statements,omitzero"`
+	// Ledgers are the codes of the ledgers the company keeps (SAP ledger
+	// assignment), the leading ledger 0L among them; none means 0L alone.
+	Ledgers []string `yaml:"ledgers,omitempty" json:"ledgers,omitempty"`
 }
 
 // FXValuation is the company's foreign-currency valuation (ADR-0042): the
 // one rate type it values at, average when none is given, and where the
-// valuation of each revalued account posts.
+// valuation of each revalued account posts. Ledgers are the parallel
+// ledgers that value at a rate type of their own, their valuation area's
+// (T52f, ADR-0045); the leading ledger and any other values at RateType,
+// and every ledger posts to the same valuation accounts.
 type FXValuation struct {
 	RateType string               `yaml:"rate_type,omitempty" json:"rate_type,omitempty"`
 	Accounts []FXValuationAccount `yaml:"accounts,omitempty" json:"accounts,omitempty"`
+	Ledgers  []FXValuationLedger  `yaml:"ledgers,omitempty" json:"ledgers,omitempty"`
+}
+
+// FXValuationLedger is the rate type a parallel ledger the company keeps
+// values at (SAP valuation area per accounting principle).
+type FXValuationLedger struct {
+	Code     string `yaml:"code" json:"code"`
+	RateType string `yaml:"rate_type" json:"rate_type"`
 }
 
 // RateTypeOrAverage is the rate type the company values at, average when

@@ -8,29 +8,32 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-type stmt struct {
-	sql  string
-	args []any
-}
-
-func step(sql string, args ...any) stmt { return stmt{sql, args} }
-
 // taxLine adds line n of entry je on account with the code (in USD, the
 // group amount 90%).
 func (s taxScene) taxLine(tx pgx.Tx, je uuid.UUID, n int, account uuid.UUID, amount int64, code string) error {
+	return s.taxLineIn(tx, s.ledger, je, n, account, amount, code)
+}
+
+// taxLineIn is taxLine in a ledger.
+func (s taxScene) taxLineIn(tx pgx.Tx, ledger, je uuid.UUID, n int, account uuid.UUID, amount int64, code string) error {
 	return exec(tx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id, fiscal_period,
 		posting_date, account_id, amount_tc, amount_lc, amount_gc, tax_code) VALUES ($1,2026,$2,$3,$4,$5,3,'2026-03-10',$6,$7,$7,$8,nullif($9, ''))`,
-		s.tenant, je, n, s.entity, s.ledger, account, amount, amount*9/10, code)
+		s.tenant, je, n, s.entity, ledger, account, amount, amount*9/10, code)
 }
 
 // header inserts an entry's header dated 2026-03-10, with that tax date
 // as the ledger writes it, or with none as the release before T61c did.
 func (s taxScene) header(tx pgx.Tx, taxDate bool) (uuid.UUID, error) {
+	return s.headerIn(tx, s.ledger, taxDate)
+}
+
+// headerIn is header in a ledger.
+func (s taxScene) headerIn(tx pgx.Tx, ledger uuid.UUID, taxDate bool) (uuid.UUID, error) {
 	je := id()
 	return je, exec(tx, `INSERT INTO ledger.journal_entry (tenant_id, fiscal_year, id, legal_entity_id, ledger_id, fiscal_period, document_type,
 		document_number, document_date, posting_date, tax_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc, source_context, posted_by)
 		VALUES ($1,2026,$2,$3,$4,3,'SA',$5,'2026-03-10','2026-03-10',CASE WHEN $6 THEN '2026-03-10'::date END,'USD','USD','EUR',1,0.9,'ledger',$7)`,
-		s.tenant, je, s.entity, s.ledger, je.String()[24:], taxDate, s.actor)
+		s.tenant, je, s.entity, ledger, je.String()[24:], taxDate, s.actor)
 }
 
 // taxedEntry is an entry of 105.00 on I5: 100.00 expense, 5.00 GST on the
@@ -226,6 +229,38 @@ func TestTaxItemRules(t *testing.T) {
 			return err
 		})
 	})
+	t.Run("a parallel ledger's entry", func(t *testing.T) {
+		local := id()
+		mustApp(t, s.tenant, func(tx pgx.Tx) error {
+			return all(tx, step(`INSERT INTO ledger.ledger (tenant_id, id, code, name, is_leading, accounting_principle, created_by)
+				VALUES ($1, $2, '2L', 'Local', false, 'HGB', $3)`, s.tenant, local, s.actor),
+				step(`INSERT INTO ledger.company_ledger (tenant_id, legal_entity_id, ledger_id, is_leading, created_by) VALUES ($1, $2, $3, true, $5), ($1, $2, $4, false, $5)`,
+					s.tenant, s.entity, s.ledger, local, s.actor),
+				step(`INSERT INTO ledger.period_status (tenant_id, id, legal_entity_id, ledger_id, calendar_id, fiscal_year, period, status, updated_by)
+					VALUES ($1, gen_random_uuid(), $2, $3, $4, 2026, 3, 'open', $5)`, s.tenant, s.entity, local, s.calendar, s.actor))
+		})
+		entry := func(items bool) func(tx pgx.Tx) error {
+			return func(tx pgx.Tx) error {
+				je, err := s.headerIn(tx, local, true)
+				for i, l := range []struct {
+					account uuid.UUID
+					amount  int64
+					code    string
+				}{{s.bank, -10500, ""}, {s.expense, 10000, "I5"}, {s.tax, 500, "I5"}} {
+					if err == nil {
+						err = s.taxLineIn(tx, local, je, i+1, l.account, l.amount, l.code)
+					}
+				}
+				if err == nil && items {
+					err = exec(tx, `SELECT ledger.write_tax_items($1, 2026::smallint, $2, '2026-03-10'::date, false)`, s.tenant, je)
+				}
+				return err
+			}
+		}
+		// Its tax lines need no items; it may have none (ADR-0045).
+		mustApp(t, s.tenant, entry(false))
+		failsOn(t, asApp(t, s.tenant, entry(true)), "tax_item_leading")
+	})
 	t.Run("an item of an entry committed before", func(t *testing.T) {
 		failsOn(t, asApp(t, s.tenant, func(tx pgx.Tx) error {
 			return exec(tx, `INSERT INTO ledger.tax_item (tenant_id, fiscal_year, journal_entry_id, item_no, legal_entity_id, code, component, direction,
@@ -258,14 +293,14 @@ func TestTaxItemRules(t *testing.T) {
 	})
 }
 
-// TestTaxItemsBackfilled: 000140 writes the items of the entries posted
+// TestTaxItemsBackfilled: 000139 writes the items of the entries posted
 // before, from their lines at their posting date: a tax line on a
 // component's former account is its tax as one on its current account is,
 // the code's other lines its base, once per component,
 // and an entry without codes has none; the rate check reads them.
 func TestTaxItemsBackfilled(t *testing.T) {
 	conn := emptyDatabase(t)
-	migrateBefore(t, conn, 140)
+	migrateBefore(t, conn, 139)
 	f := fixtureIDs()
 	rate := id()
 	var taxed, plain uuid.UUID

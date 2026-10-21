@@ -10,6 +10,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -27,9 +28,22 @@ func suiteToAPI(s RegressionSuite) gen.RegressionSuite {
 	return out
 }
 
+// shownSuite is the suite as the request's reader is shown it: the cases
+// of the companies they may access alone (suiteShown).
+func shownSuite(ctx context.Context, s RegressionSuite) (RegressionSuite, error) {
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return RegressionSuite{}, fmt.Errorf("configuration: regression suite %s: %w", s.ID, err)
+	}
+	return suiteShown(s, access), nil
+}
+
 // CreateRegressionSuite implements POST /v1/regression-suites.
 func (e *Endpoints) CreateRegressionSuite(ctx context.Context, req *gen.RegressionSuiteCreate, _ gen.CreateRegressionSuiteParams) (gen.CreateRegressionSuiteRes, error) {
 	s, err := CaptureRegressionSuite(ctx, e.Dependencies, NewRegressionSuite{Name: req.Name, MaxCases: int(req.MaxCases.Value), WindowDays: int(req.WindowDays.Value)})
+	if err == nil {
+		s, err = shownSuite(ctx, s)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -40,6 +54,9 @@ func (e *Endpoints) CreateRegressionSuite(ctx context.Context, req *gen.Regressi
 // GetRegressionSuite implements GET /v1/regression-suites/{id}.
 func (e *Endpoints) GetRegressionSuite(ctx context.Context, params gen.GetRegressionSuiteParams) (gen.GetRegressionSuiteRes, error) {
 	s, err := GetRegressionSuite(ctx, params.ID)
+	if err == nil {
+		s, err = shownSuite(ctx, s)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -66,6 +83,13 @@ func (e *Endpoints) ListRegressionSuites(ctx context.Context, params gen.ListReg
 	suites, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (RegressionSuite, error) { return scanSuite(r) })
 	if err != nil {
 		return nil, fmt.Errorf("configuration: list regression suites: %w", err)
+	}
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("configuration: list regression suites: %w", err)
+	}
+	for i := range suites {
+		suites[i] = suiteShown(suites[i], access)
 	}
 	items, next := apitypes.PageOf(ks, suites, func(s RegressionSuite) (string, uuid.UUID) { return s.CapturedAt.UTC().Format(time.RFC3339Nano), s.ID }, suiteToAPI)
 	return &gen.RegressionSuitePageHeaders{Response: gen.RegressionSuitePage{Items: items, NextPageToken: next}}, nil

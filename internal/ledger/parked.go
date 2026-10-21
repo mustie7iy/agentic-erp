@@ -30,9 +30,14 @@ const (
 // ParkedEntry is a manual journal entry parked before it is posted, with
 // its lines in transaction currency (Line.TC; LC and GC are zero).
 type ParkedEntry struct {
-	ID                uuid.UUID
-	LegalEntityID     uuid.UUID
-	LedgerID          uuid.UUID
+	ID            uuid.UUID
+	LegalEntityID uuid.UUID
+	LedgerID      uuid.UUID
+	// LedgerSpecific: it posts to LedgerID alone; LedgerGroup: to that
+	// ledger group (LedgerID its representative); neither: to every ledger
+	// of its company (LedgerID the leading one).
+	LedgerSpecific    bool
+	LedgerGroup       *string
 	DocumentType      string
 	DocumentDate      time.Time
 	PostingDate       time.Time
@@ -58,7 +63,8 @@ type ParkedEntry struct {
 
 const parkedSelect = `SELECT p.id, p.legal_entity_id, p.ledger_id, p.document_type, p.document_date, p.posting_date, p.tax_date, p.currency, c.exponent,
 		p.reference, p.header_text, p.status, p.created_by_kind, p.owner_id, p.approval_request_id, p.journal_fiscal_year, p.journal_entry_id,
-		p.version, p.created_at, p.created_by, p.updated_at, p.updated_by,
+		p.version, p.created_at, p.created_by, p.updated_at, p.updated_by, p.ledger_specific,
+		(SELECT g.code FROM ledger.ledger_group g WHERE g.tenant_id = p.tenant_id AND g.id = p.ledger_group_id),
 		coalesce((SELECT json_agg(json_build_object('line_no', l.line_no, 'account_id', l.account_id, 'tc', l.amount, 'lc', 0, 'gc', 0,
 			'partner_id', l.partner_id, 'tax_code', l.tax_code, 'quantity', trim_scale(l.quantity)::text, 'unit', l.uom_code, 'text', l.line_text)
 			ORDER BY l.line_no)
@@ -71,7 +77,7 @@ func scanParked(row pgx.Row) (ParkedEntry, error) {
 	var pe ParkedEntry
 	err := row.Scan(&pe.ID, &pe.LegalEntityID, &pe.LedgerID, &pe.DocumentType, &pe.DocumentDate, &pe.PostingDate, &pe.TaxDate, &pe.Currency, &pe.Exp,
 		&pe.Reference, &pe.HeaderText, &pe.Status, &pe.CreatedByKind, &pe.OwnerID, &pe.ApprovalRequestID, &pe.JournalFiscalYear, &pe.JournalEntryID,
-		&pe.Version, &pe.CreatedAt, &pe.CreatedBy, &pe.UpdatedAt, &pe.UpdatedBy, &pe.Lines, &pe.Debits)
+		&pe.Version, &pe.CreatedAt, &pe.CreatedBy, &pe.UpdatedAt, &pe.UpdatedBy, &pe.LedgerSpecific, &pe.LedgerGroup, &pe.Lines, &pe.Debits)
 	return pe, errs.Wrapf(err, "scan parked entry")
 }
 
@@ -119,10 +125,10 @@ func (e *Endpoints) parkEntry(ctx context.Context, in NewEntry) (ParkedEntry, er
 		owner = &p.ID
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.parked_entry (tenant_id, id, legal_entity_id, ledger_id, document_type, document_date, posting_date,
-			currency, reference, header_text, created_by_kind, owner_id, created_by, updated_by, tax_date)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, $14)`,
-		p.TenantID, id, v.le.ID, v.ledger, in.DocumentType, in.DocumentDate, in.PostingDate, in.Currency, in.Reference, in.HeaderText,
-		p.Kind, owner, p.ID, in.TaxDate); err != nil {
+			currency, reference, header_text, created_by_kind, owner_id, created_by, updated_by, ledger_specific, ledger_group_id, tax_date)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, $14, $15, $16)`,
+		p.TenantID, id, v.le.ID, v.choice.ledger, in.DocumentType, in.DocumentDate, in.PostingDate, in.Currency, in.Reference, in.HeaderText,
+		p.Kind, owner, p.ID, v.choice.specific, v.choice.group, in.TaxDate); err != nil {
 		return ParkedEntry{}, fmt.Errorf("ledger: park entry %s: %w", id, err)
 	}
 	if err := putParkedLines(ctx, tx, p.TenantID, id, v.lines); err != nil {
@@ -281,8 +287,11 @@ func ownerAfter(pe ParkedEntry, p reqctx.Principal) (*uuid.UUID, error) {
 
 // changed is the parked entry as a manual entry with the change applied.
 func changed(pe ParkedEntry, ch EntryChange) NewEntry {
-	in := NewEntry{LegalEntityID: pe.LegalEntityID, LedgerID: &pe.LedgerID, DocumentType: pe.DocumentType, DocumentDate: pe.DocumentDate,
+	in := NewEntry{LegalEntityID: pe.LegalEntityID, LedgerGroup: pe.LedgerGroup, DocumentType: pe.DocumentType, DocumentDate: pe.DocumentDate,
 		PostingDate: pe.PostingDate, TaxDate: pe.TaxDate, Currency: pe.Currency, Reference: pe.Reference, HeaderText: pe.HeaderText, Lines: ch.Lines}
+	if pe.LedgerSpecific {
+		in.LedgerID = &pe.LedgerID
+	}
 	if in.Lines == nil {
 		in.Lines = make([]NewLine, len(pe.Lines))
 		for i, l := range pe.Lines {
@@ -327,7 +336,7 @@ func (e *Endpoints) changeEntry(ctx context.Context, id uuid.UUID, ifMatch func(
 	}
 	if _, err := tx.Exec(ctx, `UPDATE ledger.parked_entry SET ledger_id = $2, document_type = $3, document_date = $4, posting_date = $5, currency = $6,
 			reference = $7, header_text = $8, owner_id = $9, version = version + 1, updated_by = $10, tax_date = $11 WHERE id = $1`,
-		id, v.ledger, in.DocumentType, in.DocumentDate, in.PostingDate, in.Currency, in.Reference, in.HeaderText, owner, p.ID, in.TaxDate); err != nil {
+		id, v.choice.ledger, in.DocumentType, in.DocumentDate, in.PostingDate, in.Currency, in.Reference, in.HeaderText, owner, p.ID, in.TaxDate); err != nil {
 		return ParkedEntry{}, fmt.Errorf("ledger: change parked entry %s: %w", id, err)
 	}
 	if err := putParkedLines(ctx, tx, p.TenantID, id, v.lines); err != nil {

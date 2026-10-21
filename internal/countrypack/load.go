@@ -3,12 +3,15 @@ package countrypack
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"maps"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -20,9 +23,11 @@ const ReleasedFile = "released.sha256"
 
 // Library is every released pack, by directory (cc/version).
 type Library struct {
-	packs map[string]*Pack
+	packs  map[string]*Pack
+	hashes map[string]string // by directory, as released
 	// Warnings are the packs' findings that do not block loading, such as
-	// a missing tax specialist's sign-off (the pilot gate).
+	// a missing tax specialist's sign-off (the pilot gate), each path
+	// starting with the pack's directory.
 	Warnings []config.Finding
 }
 
@@ -30,6 +35,24 @@ type Library struct {
 func (l *Library) Get(country, version string) *Pack {
 	return l.packs[strings.ToLower(country)+"/"+version]
 }
+
+// All is every pack, by country, then version.
+func (l *Library) All() []*Pack {
+	out := slices.Collect(maps.Values(l.packs))
+	slices.SortFunc(out, Order)
+	return out
+}
+
+// Order orders packs by country, then version, as cmp.Compare does.
+func Order(a, b *Pack) int {
+	if c := cmp.Compare(a.Manifest.Country, b.Manifest.Country); c != 0 {
+		return c
+	}
+	return CompareVersions(a.Manifest.Version, b.Manifest.Version)
+}
+
+// Hash is the hash the pack was released with, from the hash list.
+func (l *Library) Hash(p *Pack) string { return l.hashes[p.Dir()] }
 
 // Latest is the newest version of a country's pack, or nil.
 func (l *Library) Latest(country string) *Pack {
@@ -55,14 +78,17 @@ func LoadAll(fsys fs.FS) (*Library, error) {
 	if err != nil {
 		return nil, err
 	}
-	lib := &Library{packs: map[string]*Pack{}}
+	lib := &Library{packs: map[string]*Pack{}, hashes: map[string]string{}}
 	for _, dir := range dirs {
 		p, warnings, err := loadReleased(fsys, dir, released)
 		if err != nil {
 			return nil, err
 		}
-		lib.packs[dir] = p
-		lib.Warnings = append(lib.Warnings, warnings...)
+		lib.packs[dir], lib.hashes[dir] = p, released[dir]
+		for _, w := range warnings { // named by the pack, as several share file names
+			w.Path = dir + "/" + w.Path
+			lib.Warnings = append(lib.Warnings, w)
+		}
 		delete(released, dir)
 	}
 	for dir := range released {

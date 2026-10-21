@@ -25,6 +25,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
+	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
@@ -63,7 +64,10 @@ func newReplayCell(t *testing.T) replayCell {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api := apitest.NewWith(t, func(c *app.Config) { c.Extractor, c.ExtractDir, c.EvalCell = extract, extracts, true }) // an evaluation cell (ADR-0039)
+	objects := blobstoretest.New(t).Store()         // the reconciliation suite's statement files
+	api := apitest.NewWith(t, func(c *app.Config) { // an evaluation cell (ADR-0039)
+		c.Extractor, c.ExtractDir, c.EvalCell, c.Objects = extract, extracts, true, objects
+	})
 	is := api.Issuer
 	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
 	if err != nil {
@@ -310,6 +314,22 @@ func TestAdapterFailures(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "1900000001") {
 		t.Errorf("an invoice not reviewed: got %v, want its number in the error", err)
 	}
+	open := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/bank-statements/s":
+			_, _ = w.Write([]byte(`{"lines": [{"line_no": 7, "status": "unmatched"}]}`))
+		case "/v1/bank-statements/s/matches":
+			_, _ = w.Write([]byte(`{"items": []}`))
+		default:
+			w.WriteHeader(503)
+			_, _ = w.Write([]byte(`{"code": "platform.unavailable"}`))
+		}
+	}))
+	t.Cleanup(open.Close)
+	err = reconciliationEval(context.Background(), eval.Env{Agent: &apitools.Client{BaseURL: open.URL, Token: "t"}, LLM: &llm.Runner{}, Task: map[string]any{"statement": "s"}})
+	if err == nil || !strings.Contains(err.Error(), "line 7") {
+		t.Errorf("a line not reviewed: got %v, want its number in the error", err)
+	}
 	dir := t.TempDir()
 	if err := captureEval(context.Background(), eval.Env{Agent: gone, Dir: dir, Task: map[string]any{"document": "none.pdf"}}); err == nil {
 		t.Error("a missing document: got no error")
@@ -326,10 +346,12 @@ func TestAdapterFailures(t *testing.T) {
 		"migration, a year that is no number":            migrationEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{"connector": "c", "mode": "documents", "fiscal_year": "x"}}),
 		"migration without its API": migrationEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{},
 			Task: map[string]any{"connector": "c", "mode": "documents", "fiscal_year": 2026, "legal_entities": []any{"e"}}}),
-		"test without its API":            testEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"change_request": "c"}}),
-		"configuration without a request": configurationEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
-		"migration without a connector":   migrationEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
-		"test without a change request":   testEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
+		"test without its API":               testEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"change_request": "c"}}),
+		"configuration without a request":    configurationEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
+		"migration without a connector":      migrationEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
+		"test without a change request":      testEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
+		"reconciliation without a statement": reconciliationEval(context.Background(), eval.Env{Agent: gone, Task: map[string]any{}}),
+		"reconciliation without its API":     reconciliationEval(context.Background(), eval.Env{Agent: gone, LLM: &llm.Runner{}, Task: map[string]any{"statement": "s"}}),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err == nil {

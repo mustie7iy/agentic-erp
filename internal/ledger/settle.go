@@ -204,7 +204,7 @@ func (p Postings) Settle(ctx context.Context, in Settlement) (Entry, error) {
 	if err := e.checkAccounts(ctx, tx, le.ID, lines, false); err != nil {
 		return Entry{}, err
 	}
-	entry, err := e.post(ctx, tx, actor, draft{entity: le, ledgerID: items[0].ledger, documentType: in.DocumentType, documentDate: in.PostingDate,
+	entry, err := e.post(ctx, tx, actor, draft{entity: le, documentType: in.DocumentType, documentDate: in.PostingDate,
 		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: le.LocalCurrency, currencyGC: bank.group, rateTCLC: bank.rateLC.shown, rateLCGC: bank.rateGC.shown,
 		reference: in.Reference, headerText: in.HeaderText, sourceContext: in.SourceContext, sourceDocumentID: &in.SourceDocumentID, lines: lines,
 		sourcedItems: taxItems})
@@ -267,7 +267,7 @@ func (e *Endpoints) paymentLines(ctx context.Context, tx pgx.Tx, in Settlement, 
 	if err != nil {
 		return nil, settlementBank{}, nil, err
 	}
-	bank, err := e.bankAmounts(ctx, tx, in, le, bankTC)
+	bank, err := e.bankAmounts(ctx, tx, in.Currency, in.PostingDate, le, bankTC)
 	if err != nil {
 		return nil, settlementBank{}, nil, err
 	}
@@ -366,20 +366,20 @@ func discountLines(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, items 
 
 // bankAmounts converts the settled transaction amount to local currency,
 // and that to group currency, at the average rates of the posting date.
-func (e *Endpoints) bankAmounts(ctx context.Context, tx pgx.Tx, in Settlement, le tenancy.Entity, tc money.Minor) (settlementBank, error) {
+func (e *Endpoints) bankAmounts(ctx context.Context, tx pgx.Tx, currency string, date time.Time, le tenancy.Entity, tc money.Minor) (settlementBank, error) {
 	var b settlementBank
 	var err error
 	if b.group, err = e.LegalEntities.GroupCurrency(ctx); err != nil {
 		return settlementBank{}, err
 	}
-	exps, err := exponents(ctx, tx, in.Currency, le.LocalCurrency, b.group)
+	exps, err := exponents(ctx, tx, currency, le.LocalCurrency, b.group)
 	if err != nil {
 		return settlementBank{}, err
 	}
-	if b.rateLC, b.rateGC, err = postingRates(ctx, tx, in.Currency, le.LocalCurrency, b.group, in.PostingDate); err != nil {
+	if b.rateLC, b.rateGC, err = postingRates(ctx, tx, currency, le.LocalCurrency, b.group, date); err != nil {
 		return settlementBank{}, err
 	}
-	b.expTC, b.expLC, b.expGC = exps[in.Currency], exps[le.LocalCurrency], exps[b.group]
+	b.expTC, b.expLC, b.expGC = exps[currency], exps[le.LocalCurrency], exps[b.group]
 	if b.lc, b.gc, err = b.convert(tc); err != nil {
 		return settlementBank{}, err
 	}
@@ -393,12 +393,13 @@ func (e *Endpoints) bankAmounts(ctx context.Context, tx pgx.Tx, in Settlement, l
 // line of the same position.
 func clearWithEntry(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, le uuid.UUID, date time.Time, entry Entry, items []item,
 	offsets []int32) (uuid.UUID, error) {
-	cleared := make([]ItemRef, 0, 2*len(items))
+	cleared, sets := make([]ItemRef, 0, 2*len(items)), make([]int, 0, 2*len(items))
 	for i, it := range items {
 		cleared = append(cleared, it.ref, ItemRef{FiscalYear: entry.FiscalYear, EntryID: entry.ID, LineNo: offsets[i]})
+		sets = append(sets, i, i)
 	}
 	by := ItemRef{FiscalYear: entry.FiscalYear, EntryID: entry.ID}
-	return recordClearing(ctx, tx, actor, clearingDoc{le: le, date: date, by: by}, cleared, clearedItemsPayload(items, entry))
+	return recordClearing(ctx, tx, actor, clearingDoc{le: le, date: date, by: by}, cleared, sets, clearedItemsPayload(items, entry))
 }
 
 // clearingDoc is a clearing's header: the legal entity, the clearing date
@@ -410,23 +411,37 @@ type clearingDoc struct {
 }
 
 // recordClearing records a clearing by the entry doc.by, marks the cleared
-// lines and publishes items_cleared with the items' payload: one path for a
-// clearing that posts its entry (clearWithEntry) and one whose entry was
-// migrated already posted (Postings.Clear), which clears no line of it.
-func recordClearing(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, doc clearingDoc, cleared []ItemRef,
+// lines, applies the clearing to their copies in the other ledgers
+// (clearCopies, sets as there) and publishes items_cleared with the items'
+// payload: one path for a clearing that posts its entry (clearWithEntry)
+// and one whose entry was migrated already posted (Postings.Clear), which
+// clears no line of it.
+func recordClearing(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, doc clearingDoc, cleared []ItemRef, sets []int,
 	payload []map[string]any) (uuid.UUID, error) {
-	id := uuid.Must(uuid.NewV7())
-	if _, err := tx.Exec(ctx, `INSERT INTO ledger.clearing (tenant_id, id, legal_entity_id, clearing_date, clearing_entry_year, clearing_entry_id, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`, actor.TenantID, id, doc.le, doc.date, doc.by.FiscalYear, doc.by.EntryID, actor.ID); err != nil {
-		return uuid.Nil, fmt.Errorf("ledger: record clearing %s by entry %s: %w", id, doc.by.EntryID, err)
+	id, err := insertClearing(ctx, tx, actor, doc)
+	if err != nil {
+		return uuid.Nil, err
 	}
 	if err := markCleared(ctx, tx, actor.TenantID, id, cleared); err != nil {
+		return uuid.Nil, err
+	}
+	if err := clearCopies(ctx, tx, actor, doc, cleared, sets); err != nil {
 		return uuid.Nil, err
 	}
 	if _, err := outbox.Add(ctx, outbox.Event{Context: "ledger", Name: "items_cleared", AggregateType: "ledger.clearing", AggregateID: id,
 		Payload: map[string]any{"clearing_id": id, "legal_entity_id": doc.le, "clearing_date": doc.date.Format(time.DateOnly),
 			"clearing_entry_id": doc.by.EntryID, "clearing_entry_year": doc.by.FiscalYear, "items": payload}}); err != nil {
 		return uuid.Nil, err
+	}
+	return id, nil
+}
+
+// insertClearing inserts the clearing's header row.
+func insertClearing(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, doc clearingDoc) (uuid.UUID, error) {
+	id := uuid.Must(uuid.NewV7())
+	if _, err := tx.Exec(ctx, `INSERT INTO ledger.clearing (tenant_id, id, legal_entity_id, clearing_date, clearing_entry_year, clearing_entry_id, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`, actor.TenantID, id, doc.le, doc.date, doc.by.FiscalYear, doc.by.EntryID, actor.ID); err != nil {
+		return uuid.Nil, fmt.Errorf("ledger: record clearing %s by entry %s: %w", id, doc.by.EntryID, err)
 	}
 	return id, nil
 }
@@ -447,16 +462,25 @@ func leadingLines(n int) []int32 {
 // items must be open items on reconciliation accounts of the legal entity,
 // in one ledger and in the settlement's currency.
 func settledItemLines(items []item, in Settlement, legalEntity uuid.UUID) (lines []Line, tc, lc, gc money.Minor, err error) {
+	return offsetItems(items, in.Currency, in.HeaderText, func(i int, it item) error { return checkItem(i, it, &legalEntity, in.ReservedFor) })
+}
+
+// offsetItems offsets each item on its account at its original amounts,
+// once check passes it, and returns the lines with the items' totals per
+// currency: the items share the first's ledger and the currency. A
+// settlement offsets supplier items so, and a bank statement line its
+// payments' lines on the bank's clearing account (PostBank).
+func offsetItems(items []item, currency string, text *string, check func(int, item) error) (lines []Line, tc, lc, gc money.Minor, err error) {
 	lines = make([]Line, 0, len(items)+3)
 	tcs, lcs, gcs := make([]money.Minor, len(items)), make([]money.Minor, len(items)), make([]money.Minor, len(items))
 	for i, it := range items {
-		if err := checkItem(i, it, &legalEntity, in.ReservedFor); err != nil {
+		if err := check(i, it); err != nil {
 			return nil, 0, 0, 0, err
 		}
-		if it.currency != in.Currency || it.ledger != items[0].ledger {
-			return nil, 0, 0, 0, problem.Unprocessable("ledger.mixed_items", "The items of one settlement share their ledger and transaction currency "+in.Currency+".")
+		if it.currency != currency || it.ledger != items[0].ledger {
+			return nil, 0, 0, 0, problem.Unprocessable("ledger.mixed_items", "The items of one settlement share their ledger and transaction currency "+currency+".")
 		}
-		lines = append(lines, Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, Text: in.HeaderText})
+		lines = append(lines, Line{AccountID: it.account, TC: -it.tc, LC: -it.lc, GC: -it.gc, PartnerID: it.partner, Text: text})
 		tcs[i], lcs[i], gcs[i] = it.tc, it.lc, it.gc
 	}
 	if tc, err = money.Sum(tcs...); err == nil {

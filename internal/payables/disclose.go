@@ -68,7 +68,7 @@ type recorded struct {
 }
 
 // Disclose implements configuration.Disclosure.
-func (Disclosure) Disclose(ctx context.Context, e configuration.Evidence) (configuration.Evidence, error) {
+func (Disclosure) Disclose(_ context.Context, e configuration.Evidence, access authz.Access) (configuration.Evidence, error) {
 	if e.Kind != "simulation" {
 		return e, nil
 	}
@@ -79,10 +79,6 @@ func (Disclosure) Disclose(ctx context.Context, e configuration.Evidence) (confi
 	legacy := fields[byCompanyKey] == nil && fields["decisions"] != nil
 	if fields[byCompanyKey] == nil && !legacy {
 		return e, nil // another context's simulation
-	}
-	access, err := authz.Companies(ctx)
-	if err != nil {
-		return configuration.Evidence{}, fmt.Errorf("payables: simulated invoices: %w", err)
 	}
 	if legacy {
 		return legacyShown(e, fields, access), nil

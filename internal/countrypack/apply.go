@@ -6,6 +6,7 @@ import (
 	"maps"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
@@ -25,6 +26,11 @@ type Options struct {
 // ErrDowngrade refuses applying a version older than the one adopted.
 var ErrDowngrade = errors.New("countrypack: the company adopted a newer version")
 
+// ErrNotApplicable refuses applying a pack to a company it is not for: one
+// not in the document, in another country, or that adopted another
+// country's pack.
+var ErrNotApplicable = errors.New("countrypack: the pack does not apply to the company")
+
 // Apply merges next into a copy of cur for one company and returns the
 // draft document, with notes for the reviewers, for an ordinary change
 // request (ADR-0048). The merge is three-way: the base is the version the
@@ -37,12 +43,13 @@ func Apply(cur *config.Config, next *Pack, lib *Library, o Options) (*config.Con
 	draft := *cur
 	draft.Companies = slices.Clone(cur.Companies)
 	draft.Packs = slices.Clone(cur.Packs)
+	draft.Calendars = slices.Clone(cur.Calendars)
 	co := draft.Company(o.Company)
 	switch {
 	case co == nil:
-		return nil, nil, fmt.Errorf("countrypack: company %q is not in the document", o.Company)
+		return nil, nil, fmt.Errorf("%w: company %q is not in the document", ErrNotApplicable, o.Company)
 	case co.Country != next.Manifest.Country:
-		return nil, nil, fmt.Errorf("countrypack: company %s is in %q, the pack is for %s", o.Company, co.Country, next.Manifest.Country)
+		return nil, nil, fmt.Errorf("%w: company %s is in %q, the pack is for %s", ErrNotApplicable, o.Company, co.Country, next.Manifest.Country)
 	}
 	base, err := adopted(cur, next, lib, o.Company)
 	if err != nil {
@@ -61,6 +68,7 @@ func Apply(cur *config.Config, next *Pack, lib *Library, o Options) (*config.Con
 	draft.NumberRanges = issuedStay(m, cur.NumberRanges, draft.NumberRanges)
 	draft.PaymentTerms = merge3(m, "payment_terms", base.Payments.PaymentTerms, cur.PaymentTerms, next.Payments.PaymentTerms,
 		func(t config.PaymentTerm) string { return t.Key })
+	mergeCalendar(m, &draft, base, next, o.Company)
 	adopt(&draft, next, o)
 	m.note("packs["+o.Company+"]", "applies the %s pack %s (%s) on %s", next.Manifest.Country, next.Manifest.Version, baseText(base), o.On.Format(time.DateOnly))
 	if !next.SignedOff() {
@@ -77,7 +85,7 @@ func adopted(cur *config.Config, next *Pack, lib *Library, company string) (*Pac
 		return &Pack{}, nil
 	}
 	if a.Country != next.Manifest.Country {
-		return nil, fmt.Errorf("countrypack: company %s adopted the %s pack, not %s", company, a.Country, next.Manifest.Country)
+		return nil, fmt.Errorf("%w: company %s adopted the %s pack, not %s", ErrNotApplicable, company, a.Country, next.Manifest.Country)
 	}
 	if CompareVersions(next.Manifest.Version, a.Version) < 0 {
 		return nil, fmt.Errorf("%w: %s %s, not %s", ErrDowngrade, a.Country, a.Version, next.Manifest.Version)
@@ -146,6 +154,26 @@ func issuedStay(m *merger, cur, merged []config.NumberRange) []config.NumberRang
 		}
 	}
 	return merged
+}
+
+// mergeCalendar merges the pack's holidays into the company's calendar by
+// date, in date order; a company without a calendar gets one when the
+// merge leaves it any holidays.
+func mergeCalendar(m *merger, c *config.Config, base, next *Pack, company string) {
+	var tenant []config.Holiday
+	cal := c.Calendar(company)
+	if cal != nil {
+		tenant = cal.Holidays
+	}
+	merged := merge3(m, "calendars["+company+"].holidays", base.Calendar.Holidays, tenant, next.Calendar.Holidays,
+		func(h config.Holiday) string { return h.Date })
+	slices.SortStableFunc(merged, func(a, b config.Holiday) int { return strings.Compare(a.Date, b.Date) })
+	switch {
+	case cal != nil:
+		cal.Holidays = merged
+	case len(merged) > 0:
+		c.Calendars = append(c.Calendars, config.Calendar{Company: company, Holidays: merged})
+	}
 }
 
 // field is one account determination setting, merged like a list item.

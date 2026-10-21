@@ -251,8 +251,10 @@ at most one bank file.
 - Company access is checked on every read and write; resources outside the
   caller's companies are 404, not 403, so ids cannot be probed. A resource
   of no company that holds values of several (a change request's simulation
-  evidence) shows each reader the values of their own companies alone, with
-  counts over those, failing closed (03 §3.5).
+  and regression evidence, a regression suite's cases) shows each reader the
+  values of their own companies alone, with counts over those, failing
+  closed; a verdict over every company (the evidence's `passed`) is shown
+  whole, as the request's status shows it anyway (03 §3.5).
 - Segregation of duties is checked on transitions (for example, the user who
   created a payment run cannot release it).
 - A document's journal entry is reversed through the document, never
@@ -379,6 +381,19 @@ operations marked `x-autonomy: propose`, 2 any write its permissions allow
 operations marked `x-autonomy: read`, which change no business data.
 `startAgentSession` answers with the agent's `autonomy_level`, and an agent
 offers its model only the tools of that level (ADR-0036).
+A proposal that a person takes up as it stands is a domain operation of
+its own, as a change request or a draft is: the reconciliation agent
+(ADR-0047, T49g) proposes for a bank statement line in its session
+(`proposeBankStatementLine`, `x-autonomy: propose`), and a person accepts
+or rejects it (`acceptBankStatementLineProposal`,
+`rejectBankStatementLineProposal`, `x-agent: false`); free-text advice is a
+recommendation. Bank statements reach agents with the accounts masked to
+their last four characters, as partner bank accounts reach everyone. A
+report that names no account, such as a house bank's reconciliation
+(`getBankReconciliation`, ADR-0047, T49h: its statements' balances against
+the ledger's main bank account, what explains the difference and each
+line's match and proposal outcome, paged by statement), reaches agents as
+it reaches people.
 `getAiUsage` reports a month's model calls per principal from the call
 ledger: calls, tokens, redactions and cost, summed exact and rounded once,
 with the month's total against the tenant's cap.

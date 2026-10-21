@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"go.opentelemetry.io/otel/metric/noop"
@@ -95,7 +96,23 @@ func TestQuotasAndDeadlines(t *testing.T) {
 func TestNewWithoutModel(t *testing.T) {
 	governedModel = func() (*analytics.Model, error) { return nil, errors.New("model unreadable") }
 	t.Cleanup(func() { governedModel = analytics.DefaultModel })
-	if _, err := New(Config{}); err == nil || err.Error() != "model unreadable" {
+	if _, err := New(Config{Log: slog.New(slog.DiscardHandler)}); err == nil || err.Error() != "model unreadable" {
 		t.Errorf("got %v, want the model's error", err)
+	}
+}
+
+// The server does not start on country packs that are not as released.
+func TestCountryPacksRefused(t *testing.T) {
+	_, err := New(Config{Packs: fstest.MapFS{}, Log: slog.New(slog.DiscardHandler)}) // no hash list
+	if err == nil || !strings.Contains(err.Error(), "app: country packs") {
+		t.Errorf("New: got %v, want the country packs refused", err)
+	}
+}
+
+// TestNewWithoutLogger: the API is not built without a logger, which the
+// country packs' findings at start must reach.
+func TestNewWithoutLogger(t *testing.T) {
+	if _, err := New(Config{}); err == nil || !strings.Contains(err.Error(), "a logger is required") {
+		t.Errorf("New: got %v, want a logger required", err)
 	}
 }

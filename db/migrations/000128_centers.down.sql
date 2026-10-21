@@ -1,0 +1,13 @@
+DELETE FROM identity.sod_rule WHERE permission_a LIKE 'ledger.cost\_center.%' OR permission_b LIKE 'ledger.cost\_center.%';
+DELETE FROM identity.role_permission WHERE permission_code LIKE 'ledger.cost\_center.%';
+DELETE FROM ref.permission WHERE code IN ('ledger.cost_center.read', 'ledger.cost_center.change', 'ledger.cost_center.approve');
+DROP TABLE ledger.profit_center_period;
+DROP TABLE ledger.cost_center_period;
+DROP TABLE ledger.center_change;
+DROP TABLE ledger.cost_center;
+DROP TABLE ledger.profit_center_company;
+DROP TABLE ledger.profit_center;
+DROP TABLE ledger.segment;
+DROP FUNCTION ledger.check_center_period_fixed();
+DROP FUNCTION ledger.check_center_change_decision();
+DROP FUNCTION ledger.check_center_change();

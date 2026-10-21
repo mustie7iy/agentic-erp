@@ -368,6 +368,44 @@ func TestRefusals(t *testing.T) {
 	}
 }
 
+// TestDiscardFrom: entries buffered since a mark are dropped and those
+// before it stand; outside a unit of work there is nothing to mark.
+func TestDiscardFrom(t *testing.T) {
+	if got := audit.Mark(context.Background()); got != 0 {
+		t.Errorf("mark outside a unit of work: got %d, want 0", got)
+	}
+	audit.DiscardFrom(context.Background(), 0)
+	ctx, buf := audit.WithBuffer(context.Background())
+	add := func() {
+		if err := audit.Add(ctx, audit.Entry{Action: "platform.operation.cancel"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add()
+	mark := audit.Mark(ctx)
+	add()
+	add()
+	audit.DiscardFrom(ctx, mark)
+	if buf.Len() != 1 {
+		t.Errorf("entries after discarding from the mark: got %d, want 1", buf.Len())
+	}
+	audit.DiscardFrom(ctx, 5)
+	if buf.Len() != 1 {
+		t.Errorf("entries after discarding from a later mark: got %d, want 1", buf.Len())
+	}
+	// A refusal made after the mark stays: the work was refused, not
+	// rehearsed (Discard drops it, TestRefusals).
+	mark = audit.Mark(ctx)
+	if err := audit.Refuse(ctx, audit.Entry{Action: "platform.operation.cancel", Outcome: "refused"}); err != nil {
+		t.Fatal(err)
+	}
+	add()
+	audit.DiscardFrom(ctx, mark)
+	if buf.Len() != 2 {
+		t.Errorf("entries and refusals after discarding from the mark: got %d, want 2 (the entry before it and the refusal)", buf.Len())
+	}
+}
+
 // TestObjectTypeOf: the action without its verb; an action without one is
 // its own type.
 func TestObjectTypeOf(t *testing.T) {

@@ -69,6 +69,8 @@ type Statement struct {
 	Version                        int32
 	CreatedAt, UpdatedAt           time.Time
 	CreatedBy, UpdatedBy           uuid.UUID
+	ReconciledAt                   *time.Time // when it became reconciled (T49h)
+	ReconciledBy                   *uuid.UUID
 	Lines                          []StatementLine // read with the statement, not in lists
 }
 
@@ -96,6 +98,15 @@ type LineDetail struct {
 	CounterpartyAccount string      `json:"counterparty_account,omitempty"`
 	CounterpartyBIC     string      `json:"counterparty_bic,omitempty"`
 	Remittance          string      `json:"remittance,omitempty"`
+}
+
+// counterpartyAccount is the other side's IBAN, or its account number
+// where it has none.
+func (d LineDetail) counterpartyAccount() string {
+	if d.CounterpartyIBAN != "" {
+		return d.CounterpartyIBAN
+	}
+	return d.CounterpartyAccount
 }
 
 // statementBank is what an import needs of its house bank.
@@ -409,14 +420,14 @@ func recordStatement(ctx context.Context, id uuid.UUID, bank statementBank, sum 
 
 const statementSelect = `SELECT s.id, s.house_bank_id, s.legal_entity_id, s.format, s.file_sha256, s.file_position, s.file_ref, s.message_id, s.statement_ref,
 	s.sequence, s.account, s.currency, c.exponent, s.opening_balance, s.closing_balance, s.opening_date, s.closing_date, s.line_count,
-	s.previous_statement_id, s.status, s.version, s.created_at, s.updated_at, s.created_by, s.updated_by
+	s.previous_statement_id, s.status, s.version, s.created_at, s.updated_at, s.created_by, s.updated_by, s.reconciled_at, s.reconciled_by
 	FROM payments.bank_statement s JOIN ref.currency c ON c.code = s.currency`
 
 func scanStatement(row pgx.Row) (Statement, error) {
 	var s Statement
 	err := row.Scan(&s.ID, &s.HouseBankID, &s.LegalEntityID, &s.Format, &s.FileSHA256, &s.FilePosition, &s.FileRef, &s.MessageID, &s.Ref, &s.Sequence, &s.Account,
 		&s.Currency, &s.Exponent, &s.Opening, &s.Closing, &s.OpeningDate, &s.ClosingDate, &s.LineCount, &s.PreviousID, &s.Status, &s.Version,
-		&s.CreatedAt, &s.UpdatedAt, &s.CreatedBy, &s.UpdatedBy)
+		&s.CreatedAt, &s.UpdatedAt, &s.CreatedBy, &s.UpdatedBy, &s.ReconciledAt, &s.ReconciledBy)
 	return s, errs.Wrapf(err, "scan bank statement")
 }
 

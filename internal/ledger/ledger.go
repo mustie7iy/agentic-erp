@@ -9,6 +9,15 @@
 // flagged accounts' balances at a key date; its settings are kept from the
 // configuration (fxsetup.go).
 //
+// Cost centers, profit centers and segments (ADR-0050, T56a) are the
+// ledger's master data: their texts change at once, their creation and
+// effective-dated periods, segment and companies only through a center
+// change a controller approves (centerchange.go, CenterChanges).
+//
+// Parallel ledgers (ADR-0045, T52): the leading ledger 0L and ledgers kept
+// under other accounting principles, assigned per company, and ledger
+// groups (ledgers.go).
+//
 // A locked period returns to closed only through an approved period_unlock
 // approval request (T32): the ledger opens it (RequestUnlock) and is called
 // back when it completes (PeriodUnlocks).

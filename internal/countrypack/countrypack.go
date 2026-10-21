@@ -71,15 +71,10 @@ type Tax struct {
 	TaxCodes []config.TaxCode `yaml:"tax_codes"`
 }
 
-// Calendar is calendar.yaml: the country's public holidays.
+// Calendar is calendar.yaml: the country's public holidays, which applying
+// the pack merges into the company's calendar by date.
 type Calendar struct {
-	Holidays []Holiday `yaml:"holidays"`
-}
-
-// Holiday is a public holiday on Date (YYYY-MM-DD).
-type Holiday struct {
-	Date string `yaml:"date"`
-	Name string `yaml:"name"`
+	Holidays []config.Holiday `yaml:"holidays"`
 }
 
 // Numbering is numbering.yaml: number range templates, one per document

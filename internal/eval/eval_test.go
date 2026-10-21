@@ -104,6 +104,13 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, _ = w.Write([]byte(`{"monthly_cap": {"amount": "50.00", "currency": "USD"}, "effective_routes": {"erp-default": "claude-test-1"}}`))
+	case r.Method == "POST" && r.URL.Path == "/v1/forms":
+		if r.FormValue("file") != "a\nb" || r.Header.Get("Idempotency-Key") == "" {
+			w.WriteHeader(400)
+			return
+		}
+		w.WriteHeader(201)
+		_ = json.NewEncoder(w).Encode(map[string]any{"name": r.FormValue("name")})
 	case r.URL.Path == "/v1/down":
 		w.WriteHeader(502)
 	case r.URL.Path == "/v1/empty":
@@ -178,6 +185,7 @@ tenant: {administrator: {subject: eval|admin}}
 setup:
   - {path: /v1/things, body: {name: thing, tags: [a, 1]}, status: 201, save: {thing: id, amount: amount, lines: "lines.#"}}
   - {path: /v1/empty, status: 204}
+  - {path: /v1/forms, form: {name: "{{thing}}", file: "a\nb"}, status: 201, save: {form: name}}
 cases:
   - name: always right
     task: {status: done, tool: setThing, thing: "{{thing}}"}
@@ -372,6 +380,11 @@ func TestHarnessFailures(t *testing.T) {
 		{"another principal's token", func(_ *eval.Runner, ts *tenants) { ts.asErr = boom }, func(y string) string {
 			return strings.Replace(y, "  - {path: /v1/empty, status: 204}", "  - {as: eval|approver, path: /v1/empty, status: 204}", 1)
 		}, "boom"},
+		{"unsaved in a form", nil, func(y string) string {
+			return strings.Replace(y, `form: {name: "{{thing}}"`, `form: {name: "{{nope}}"`, 1)
+		}, "{{nope}}"},
+		{"a form that cannot be sent", nil, func(y string) string { return strings.Replace(y, "path: /v1/forms", `path: "/v1/%zz"`, 1) }, "eval: call"},
+		{"a form refused", nil, func(y string) string { return strings.Replace(y, `file: "a\nb"`, `file: "c"`, 1) }, "answered 400"},
 		{"unsaved in a save path", nil, func(y string) string { return strings.Replace(y, "amount: amount", "amount: \"{{nope}}\"", 1) }, "{{nope}}"},
 		{"unreachable API", func(_ *eval.Runner, ts *tenants) { ts.url = "http://127.0.0.1:1" }, nil, "call"},
 		{"no currency", func(_ *eval.Runner, ts *tenants) { ts.api.currency = "" }, nil, "no stated currency"},
