@@ -96,6 +96,8 @@ func TestCashValidation(t *testing.T) {
 			c.Cash.Derivation.PlanningGroups = append(c.Cash.Derivation.PlanningGroups, c.Cash.Derivation.PlanningGroups[0])
 		}, "cash.derivation.planning_groups[TAX_AUTHORITY].group"},
 		{"a planning group's item", func(c *Config) { c.Cash.Derivation.PlanningGroups[0].Item = "INVESTING" }, "cash.derivation.planning_groups[TAX_AUTHORITY].item"},
+		{"a planning group's item for inflows", func(c *Config) { c.Cash.Derivation.PlanningGroups[0].Item = "REC_CUSTOMERS" },
+			"cash.derivation.planning_groups[TAX_AUTHORITY].item"},
 		{"a posting rule no company has", func(c *Config) { c.Cash.Derivation.PostingRules[0].Rule = "NINT" }, "cash.derivation.posting_rules[NINT].rule"},
 		{"a posting rule's rule twice", func(c *Config) {
 			c.Cash.Derivation.PostingRules = append(c.Cash.Derivation.PostingRules, c.Cash.Derivation.PostingRules[0])

@@ -1,5 +1,5 @@
 // Package fixture builds a configured tenant for tests of the business
-// contexts: two legal entities (more with NewWith), a bootstrapped
+// contexts: two legal entities (more with NewWithCompanies), a bootstrapped
 // configuration with number ranges for every document type, open 2026
 // periods, approvers holding every role the configuration names, and two
 // active suppliers, so application tests run on real PostgreSQL

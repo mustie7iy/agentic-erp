@@ -342,14 +342,17 @@ As built (T53b):
   positive amount in the bank's currency, `snapshot_time` HH:MM default
   07:00). Account ranges compare as SAP's ALPHA conversion keeps numbers
   (all-digit numbers zero-padded to ten). Rules name items without
-  children; a default names an item of its direction or of both; missing
+  children; a default names an item of its direction or of both, and a
+  planning group's rule one for outflows or both; missing
   defaults are a warning (a flow no rule assigns then has no item, shown
   unclassified), so a pack can bring a tree alone. The account rules are
   diffed by position, their order being a setting.
 - **Derivation.** `cash.Derive` gives each offsetting line the first
   covering account rule's item, else the fallback (planning group, then
   posting rule, then default), and shares the amount out over the items
-  by the lines' sizes with `money.Allocate`.
+  in proportion to the lines' signed amounts with `money.Allocate`, so a
+  credit line (a discount on its own account) takes its item's share
+  down; lines that cancel out give the whole amount to the fallback.
 - **Partner.** `planning_group` on supplier company data (migrations
   000142-000143, `SupplierCompany(Input).planning_group` in the contract,
   `partner.Supplier.PlanningGroup` in the port), checked against active

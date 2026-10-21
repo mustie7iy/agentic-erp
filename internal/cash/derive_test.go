@@ -36,7 +36,7 @@ func TestDerive(t *testing.T) {
 			"[RENT:-333 CAPEX:-667]"},
 		{"lines of one item together", -100, cash.Basis{Direction: out, Lines: []cash.Line{{"6100", 1}, {"1510", 1}, {"6100", 1}}},
 			"[RENT:-67 CAPEX:-33]"},
-		{"a credit line weighs by its size", 500, cash.Basis{Direction: config.DirectionInflow, Lines: []cash.Line{{"6100", -100}, {"1510", -400}}},
+		{"lines of a credit memo", 500, cash.Basis{Direction: config.DirectionInflow, Lines: []cash.Line{{"6100", -100}, {"1510", -400}}},
 			"[RENT:100 CAPEX:400]"},
 		{"a line no rule covers takes the fallback", -1000, cash.Basis{Direction: out, PlanningGroup: "TAX_AUTHORITY",
 			Lines: []cash.Line{{"6100", 500}, {"5100", 500}}}, "[RENT:-500 TAX:-500]"},
@@ -46,6 +46,9 @@ func TestDerive(t *testing.T) {
 		{"a posting rule without a rule", -25, cash.Basis{Direction: out, PostingRule: "NINT"}, "[SUPPLIERS:-25]"},
 		{"the outflow default", -1000, cash.Basis{Direction: out, Lines: []cash.Line{{"5100", 900}}}, "[SUPPLIERS:-1000]"},
 		{"the inflow default", 1000, cash.Basis{Direction: config.DirectionInflow}, "[RECEIPTS:1000]"},
+		{"a credit line takes its item's share down", -800, cash.Basis{Direction: out, Lines: []cash.Line{{"6100", 1000}, {"1510", -200}}},
+			"[RENT:-1000 CAPEX:200]"},
+		{"lines that cancel out", -10, cash.Basis{Direction: out, Lines: []cash.Line{{"6100", 5}, {"1510", -5}}}, "[SUPPLIERS:-10]"},
 		{"lines of nothing", -1000, cash.Basis{Direction: out, Lines: []cash.Line{{"6100", 0}}}, "[SUPPLIERS:-1000]"},
 	} {
 		t.Run(c.name, func(t *testing.T) {

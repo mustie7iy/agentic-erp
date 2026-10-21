@@ -25,8 +25,8 @@ type Basis struct {
 	PostingRule string
 }
 
-// Line is an offsetting line: its account number and its amount, whose
-// size weighs the line in the split.
+// Line is an offsetting line: its account number and its amount, signed
+// as the document's lines are, which weighs the line in the split.
 type Line struct {
 	Account string
 	Amount  money.Minor
@@ -42,8 +42,11 @@ type Share struct {
 // Derive splits a flow's amount over its liquidity items: each line takes
 // the item of the first account rule covering its account, a line no rule
 // covers (or a flow without lines) the fallback; the amount is shared out
-// in proportion to the lines' sizes (money.Allocate), so the shares add up
-// to it, one per item in the order the lines first name it. The fallback
+// in proportion to the lines' signed amounts (money.Allocate), so the
+// shares add up to it, one per item in the order the lines first name it:
+// a credit line of an invoice, such as a discount on its own account,
+// takes its item's share down, as it takes the document's total down.
+// Lines that cancel out give the whole amount to the fallback. The fallback
 // is the planning group's item, else the posting rule's, else the
 // direction's default (SAP's query sequence and Flow Builder split).
 func Derive(d config.Derivation, amount money.Minor, b Basis) ([]Share, error) {
@@ -62,7 +65,7 @@ func Derive(d config.Derivation, amount money.Minor, b Basis) ([]Share, error) {
 		if weight[item] == nil {
 			items, weight[item] = append(items, item), new(big.Rat)
 		}
-		w := new(big.Rat).Abs(new(big.Rat).SetInt64(int64(l.Amount)))
+		w := new(big.Rat).SetInt64(int64(l.Amount))
 		weight[item].Add(weight[item], w)
 		total.Add(total, w)
 	}

@@ -204,7 +204,7 @@ func (c CompanyCash) BucketsOrDefault() []Bucket {
 	if len(c.Buckets) == 0 {
 		return slices.Clone(DefaultBuckets)
 	}
-	return c.Buckets
+	return slices.Clone(c.Buckets)
 }
 
 // ValueDaysFor is the value days of a payment from the house bank by the
@@ -332,7 +332,7 @@ func (v *validator) liquidityParent(pp string, it LiquidityItem, byCode map[stri
 }
 
 // derivation checks the rules giving flows their items (ADR-0051 §4):
-// each names a leaf item; account rules valid ranges, planning group
+// each names a leaf item, a planning group's one for outflows or both; account rules valid ranges, planning group
 // rules groups of the document and posting rule rules the transaction
 // code of a company's posting rule, each once; the defaults items of
 // their direction. Without defaults a flow no rule assigns has no item.
@@ -351,7 +351,7 @@ func (v *validator) derivation(c *Config, items map[string]LiquidityItem, groups
 			v.err(rp+".group", "a planning group of cash.planning_groups, each once")
 		}
 		seen[r.Group] = true
-		leaf(rp+".item", r.Item, "")
+		leaf(rp+".item", r.Item, DirectionOutflow) // a supplier's flows are payments
 	}
 	clear(seen)
 	for _, r := range d.PostingRules {

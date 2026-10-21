@@ -414,7 +414,10 @@ func (c supplierCodes) apply(ctx context.Context, entities EntitiesByCode, doc *
 
 // taken are the company and code pairs suppliers have, or pending partner
 // changes give them, that the document's companies do not have, under the
-// lock.
+// lock. Only the document's companies are read: suppliers are set up only
+// in legal entities of configured companies (checkCompanies), and a
+// company is never removed from the document, so for a tenant's codes
+// (planning groups) these are every legal entity a supplier can use one in.
 func (c supplierCodes) taken(ctx context.Context, tx pgx.Tx, entities EntitiesByCode, doc *config.Config) ([][2]string, error) {
 	if err := lockCodes(ctx, tx, c.lock); err != nil {
 		return nil, err
