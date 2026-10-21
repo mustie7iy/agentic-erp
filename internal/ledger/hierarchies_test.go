@@ -350,25 +350,30 @@ func TestCentersCreatedInTheStandardHierarchy(t *testing.T) {
 	}
 }
 
-// TestCentersCreatedUnassigned: a new center that names no leaf is placed
-// in the standard hierarchy's UNASSIGNED leaf, for a controller to place
-// later (product owner, 2026-10-21): the leaf is added below the root the
-// first time and taken again after, and created with the standard
-// hierarchy when the tenant has none; an UNASSIGNED node with child nodes
-// refuses it.
+// TestCentersCreatedUnassigned: a new center that names no leaf is placed,
+// when its create is approved, in the standard hierarchy's UNASSIGNED leaf,
+// for a controller to place later (product owner, 2026-10-21): proposing it
+// changes no tree; the leaf is added below the root the first time and
+// taken again after, and created with the standard hierarchy when the
+// tenant has none; an UNASSIGNED node with child nodes, or another
+// hierarchy coded STANDARD where the tenant has no standard one, refuses
+// the approval.
 func TestCentersCreatedUnassigned(t *testing.T) {
 	c := setupCenters(t)
 	std := tree{c: c, path: "/v1/hierarchies/" + c.ccTree.String()}
-	body := func(code string) string {
-		return fmt.Sprintf(`{"legal_entity_id": %q, "code": %q, "name": "N", "responsible": "J", "category": "ADMIN", "valid_from": "2026-01-01",
-			"reason": "r"}`, c.de, code)
+	outlined := func(h tree) string {
+		t.Helper()
+		tr, _ := h.get(t)
+		return fmt.Sprint(outline(t, tr))
 	}
-	first, _ := c.Must(201, "POST", "/v1/cost-centers", body("U1"), "")
+	first, _ := c.Must(201, "POST", "/v1/cost-centers", ccBodyWithout(c.de, "U1"), "")
+	if got := outlined(std); got != "[STANDARD@1[] LEAF@2[]]" {
+		t.Errorf("tree while the create is pending: got %s, want it unchanged", got)
+	}
 	c.decide(t, first["pending_change_id"], "approve")
-	second, _ := c.Must(201, "POST", "/v1/cost-centers", body("U2"), "")
+	second, _ := c.Must(201, "POST", "/v1/cost-centers", ccBodyWithout(c.de, "U2"), "")
 	c.decide(t, second["pending_change_id"], "approve")
-	tr, _ := std.get(t)
-	if got, want := fmt.Sprint(outline(t, tr)), fmt.Sprintf("[STANDARD@1[] LEAF@2[] UNASSIGNED@2[%v %v]]", first["id"], second["id"]); got != want {
+	if got, want := outlined(std), fmt.Sprintf("[STANDARD@1[] LEAF@2[] UNASSIGNED@2[%v %v]]", first["id"], second["id"]); got != want {
 		t.Errorf("standard tree: got %s, want %s", got, want)
 	}
 	if got := c.paths(t, first["id"].(string)); fmt.Sprint(got) != "[STANDARD:STANDARD/UNASSIGNED]" {
@@ -378,22 +383,82 @@ func TestCentersCreatedUnassigned(t *testing.T) {
 	pcs := tree{c: c, path: "/v1/hierarchies/" + c.pcTree.String()}
 	pr, _ := pcs.get(t)
 	pcs.add(t, pcs.add(t, pr["root_node_id"], "UNASSIGNED"), "BELOW")
-	p := c.Problem(422, "ledger.hierarchy_change_invalid", "POST", "/v1/profit-centers", fmt.Sprintf(`{"code": "PU", "name": "P", "responsible": "J",
-		"legal_entity_ids": [%q], "valid_from": "2026-01-01", "reason": "r"}`, c.de), "")
-	if errs := p["errors"].([]any); errs[0].(map[string]any)["field"] != "standard_node_id" || errs[0].(map[string]any)["code"] != "has_children" {
-		t.Errorf("an UNASSIGNED node with children: got %v, want standard_node_id has_children", errs)
+	pu, _ := c.Must(201, "POST", "/v1/profit-centers", pcBodyWithout(c.de, "PU"), "")
+	if code := c.approveRefused(t, pu["pending_change_id"]); code != "has_children" {
+		t.Errorf("an UNASSIGNED node with children: got %s, want has_children", code)
 	}
 
-	e := withControllerRole(t, setup(t))
-	e.Must(201, "POST", "/v1/profit-centers", fmt.Sprintf(`{"code": "PC", "name": "P", "responsible": "J",
-		"legal_entity_ids": [%q], "valid_from": "2026-01-01", "reason": "r"}`, e.de), "")
-	var nodes string
-	pgtest.Scan(t, `SELECT string_agg(h.code || '/' || n.code, ' ' ORDER BY n.parent_id NULLS FIRST) FROM ledger.hierarchy h
-		JOIN ledger.hierarchy_node n ON n.tenant_id = h.tenant_id AND n.hierarchy_id = h.id WHERE h.tenant_id = $1 AND h.kind = 'profit_center' AND h.is_standard`,
-		[]any{e.ten.ID}, &nodes)
-	if nodes != "STANDARD/STANDARD STANDARD/UNASSIGNED" {
-		t.Errorf("a tenant's first center: got hierarchy %q, want STANDARD with its UNASSIGNED leaf", nodes)
+	bare := setupBareCenters(t)
+	pc, _ := bare.Must(201, "POST", "/v1/profit-centers", pcBodyWithout(bare.de, "PC"), "")
+	bare.decide(t, pc["pending_change_id"], "approve")
+	if got := standardNodes(t, bare, "profit_center"); got != "STANDARD/STANDARD STANDARD/UNASSIGNED[1]" {
+		t.Errorf("a tenant's first center: got %q, want STANDARD with its UNASSIGNED leaf holding it", got)
 	}
+	bare.Must(201, "POST", "/v1/hierarchies", `{"kind": "cost_center", "code": "STANDARD", "name": "Not standard"}`, "")
+	cc, _ := bare.Must(201, "POST", "/v1/cost-centers", ccBodyWithout(bare.de, "CC"), "")
+	if code := bare.approveRefused(t, cc["pending_change_id"]); code != "unknown" {
+		t.Errorf("STANDARD taken by an alternative hierarchy: got %s, want unknown", code)
+	}
+}
+
+// TestFirstCentersApprovedAtOnce: two first centers approved at the same
+// time create one standard hierarchy with one UNASSIGNED leaf: the second
+// approval waits for the first and finds what it created.
+func TestFirstCentersApprovedAtOnce(t *testing.T) {
+	c := setupBareCenters(t)
+	h := endpoints()
+	var pending []gen.OptUUID
+	for _, code := range []string{"P1", "P2"} {
+		pc, _ := c.Must(201, "POST", "/v1/profit-centers", pcBodyWithout(c.de, code), "")
+		pending = append(pending, gen.NewOptUUID(uuid.MustParse(pc["pending_change_id"].(string))))
+	}
+	approve := func(p gen.OptUUID) func(ctx context.Context) error {
+		return func(ctx context.Context) error { return created(ctx, h, p, "approve") }
+	}
+	first, second := apitest.Serialized(t, c.ten, c.ten.Human, approve(pending[0]), approve(pending[1]))
+	if first != nil || second != nil {
+		t.Fatalf("approvals: got %v and %v, want both", first, second)
+	}
+	if got := standardNodes(t, c, "profit_center"); got != "STANDARD/STANDARD STANDARD/UNASSIGNED[2]" {
+		t.Errorf("after two first approvals: got %q, want one STANDARD with one UNASSIGNED leaf holding both", got)
+	}
+}
+
+// ccBodyWithout and pcBodyWithout are create requests naming no leaf.
+func ccBodyWithout(le uuid.UUID, code string) string {
+	return fmt.Sprintf(`{"legal_entity_id": %q, "code": %q, "name": "N", "responsible": "J", "category": "ADMIN", "valid_from": "2026-01-01",
+		"reason": "r"}`, le, code)
+}
+
+func pcBodyWithout(le uuid.UUID, code string) string {
+	return fmt.Sprintf(`{"code": %q, "name": "P", "responsible": "J", "legal_entity_ids": [%q], "valid_from": "2026-01-01", "reason": "r"}`, code, le)
+}
+
+// approveRefused has the controller approve the change and returns the
+// reason of the 422 refusal of standard_node_id.
+func (c centers) approveRefused(t *testing.T, change any) string {
+	t.Helper()
+	page, _ := c.ctl.Must(200, "GET", fmt.Sprintf("/v1/approval-requests?status=pending&object_id=%v", change), "", "")
+	r := page["items"].([]any)[0].(map[string]any)
+	p := c.ctl.Problem(422, "ledger.hierarchy_change_invalid", "POST", "/v1/approval-requests/"+r["id"].(string)+":approve", `{"comment": "ok"}`,
+		fmt.Sprintf(`"%v"`, r["version"]))
+	e := p["errors"].([]any)[0].(map[string]any)
+	if e["field"] != "standard_node_id" {
+		t.Errorf("refused field: got %v, want standard_node_id", e["field"])
+	}
+	return fmt.Sprint(e["code"])
+}
+
+// standardNodes is the tenant's standard hierarchy of the kind as
+// "hierarchy/node" with the number of centers at each leaf that has any.
+func standardNodes(t *testing.T, c centers, kind string) string {
+	t.Helper()
+	var nodes string
+	pgtest.Scan(t, `SELECT string_agg(h.code || '/' || n.code || CASE WHEN m.n > 0 THEN '[' || m.n || ']' ELSE '' END, ' ' ORDER BY n.parent_id NULLS FIRST, n.code)
+		FROM ledger.hierarchy h JOIN ledger.hierarchy_node n ON n.tenant_id = h.tenant_id AND n.hierarchy_id = h.id
+		LEFT JOIN LATERAL (SELECT count(*) AS n FROM ledger.hierarchy_member x WHERE x.tenant_id = n.tenant_id AND x.node_id = n.id) m ON true
+		WHERE h.tenant_id = $1 AND h.kind = $2 AND h.is_standard`, []any{c.ten.ID, kind}, &nodes)
+	return nodes
 }
 
 // TestHierarchyChangesReplanned: changes planned against the same tree

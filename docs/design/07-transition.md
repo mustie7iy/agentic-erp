@@ -1700,7 +1700,7 @@ falls in (§7.7).
 
 | Step | Work | Exit criterion |
 |---|---|---|
-| T72a | **Three-way match race** | Two invoices matched against one order item cannot both post past its received quantity: `:post` re-checks the quantities under the order's lock, and matching and posting read received quantities `FOR SHARE` |
+| T72a | **Three-way match race** | Two invoices matched against one order item cannot both post past its received quantity: `:post` locks the order items (`FOR UPDATE`) and matches again under the lock, refusing a changed verdict (409 `payables.match_outdated`) |
 | T72b | **SAP credit memos by kind** | A parked SAP credit memo or subsequent debit/credit (RBKP XRECH/TBTKZ) loads as its kind, never as a positive invoice that gets paid |
 | T72c | **SAP open down payments** | Open SAP down payments (BSIK UMSKZ A) load on the down payment account with their special G/L indicator: a payment run never nets them and their input tax can be reversed (needed if the pilot has open down payments) |
 | T72d | **SAP Canadian bank accounts** | Canadian vendor bank accounts (LFBK) load as scheme ca with institution and transit numbers, and Canadian house banks (T012K) load without an IBAN, so migrated Canadian suppliers can be paid |

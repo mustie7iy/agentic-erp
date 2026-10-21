@@ -23,7 +23,7 @@ type centers struct {
 	ccTree, pcTree, ccLeaf, pcLeaf uuid.UUID
 }
 
-func setupCenters(t *testing.T) centers {
+func setupBareCenters(t *testing.T) centers {
 	t.Helper()
 	e := withControllerRole(t, setup(t))
 	a := pgtest.Actor{ID: uuid.Must(uuid.NewV7()), Kind: "human"}
@@ -35,7 +35,14 @@ func setupCenters(t *testing.T) centers {
 		e.ten.ID, a.ID, approvals.DefaultCenterChangeRole)
 	ctl := e.Client
 	ctl.As = a
-	c := centers{env: e, ctl: ctl}
+	return centers{env: e, ctl: ctl}
+}
+
+// setupCenters is setupBareCenters with a standard hierarchy of each kind,
+// each with one leaf.
+func setupCenters(t *testing.T) centers {
+	t.Helper()
+	c := setupBareCenters(t)
 	c.ccTree, c.ccLeaf = c.standard(t, "cost_center")
 	c.pcTree, c.pcLeaf = c.standard(t, "profit_center")
 	return c

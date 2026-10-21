@@ -3100,7 +3100,7 @@ components:
         is_standard: {type: boolean}
         version: {type: integer, description: The hierarchy's version after the change.}
         change: {type: string, description: 'Open enum: create, node_create, node_rename, node_move, node_remove, place.'}
-        center_change_id: {$ref: '#/components/schemas/NullableUuid', description: The applied center change; null when the hierarchy was created.}
+        center_change_id: {$ref: '#/components/schemas/NullableUuid', description: "The applied center change; null when the hierarchy was created, and for the `node_create` of an `UNASSIGNED` leaf an approved center creation added."}
         node_id: {$ref: '#/components/schemas/NullableUuid', description: The node changed, or the node a center was placed at; null when a center left an alternative hierarchy, and on create.}
         center_id: {$ref: '#/components/schemas/NullableUuid', description: The cost or profit center placed (kind); null for a node change.}
     ParkedJournalEntryChangedV1:

@@ -266,19 +266,26 @@ func checkStandardNode(ctx context.Context, tx pgx.Tx, kind string, center, node
 // owner, 2026-10-21), as migration 000139 placed the centers before T56b.
 const unassignedCode = "UNASSIGNED"
 
-// creationNode is the leaf a new center is placed at: the one its request
-// names, checked, or the standard hierarchy's UNASSIGNED leaf, which is
-// created, with the standard hierarchy when the tenant has none, so that
-// a center never waits on a tree being built first. Two first centers
-// created at once race on the standard hierarchy; the loser is refused
-// (409 ledger.standard_hierarchy_exists) and succeeds when retried.
-func creationNode(ctx context.Context, tx pgx.Tx, kind string, center uuid.UUID, node *uuid.UUID) (uuid.UUID, error) {
-	if node != nil {
-		return *node, checkStandardNode(ctx, tx, kind, center, *node)
+// unassignedLeaf is the standard hierarchy's UNASSIGNED leaf, which takes a
+// center whose approved create named no leaf: added below the root when
+// the tree has none, and created with the standard hierarchy when the
+// tenant has none, so that a center never waits on a tree being built
+// first. It runs when the create is approved, by the approver, so that
+// proposing a center (x-autonomy: propose) changes no tree. Approvals of
+// two first centers are serialized per tenant and kind: the second finds
+// what the first created.
+func unassignedLeaf(ctx context.Context, tx pgx.Tx, kind string) (uuid.UUID, error) {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('ledger.standard_hierarchy:' || platform.require_tenant() || ':' || $1, 0))`,
+		kind); err != nil {
+		return uuid.Nil, fmt.Errorf("ledger: lock the standard hierarchy of %s: %w", kind, err)
 	}
 	t, err := loadTree(ctx, tx, `h.kind = $1 AND h.is_standard`, true, kind)
 	if err != nil && problem.From(err).Code == "request.not_found" {
 		if _, err := CreateHierarchy(ctx, NewHierarchy{Kind: kind, Code: "STANDARD", Name: "Standard hierarchy", IsStandard: true}); err != nil {
+			if problem.From(err).Code == "ledger.hierarchy_exists" {
+				return uuid.Nil, invalidChange("standard_node_id", reasonUnknown,
+					"the tenant has no standard hierarchy of this kind and another hierarchy has the code STANDARD; create a standard hierarchy or name a leaf")
+			}
 			return uuid.Nil, err
 		}
 		t, err = loadTree(ctx, tx, `h.kind = $1 AND h.is_standard`, true, kind)
@@ -287,7 +294,7 @@ func creationNode(ctx context.Context, tx pgx.Tx, kind string, center uuid.UUID,
 		return uuid.Nil, err
 	}
 	for id, n := range t.nodes {
-		if n.Code != unassignedCode {
+		if n.Code != unassignedCode || n.ParentID == nil {
 			continue
 		}
 		if len(t.children[id]) > 0 {
@@ -315,8 +322,16 @@ func addUnassigned(ctx context.Context, tx pgx.Tx, t tree) (uuid.UUID, error) {
 }
 
 // placeCreated places a center whose create was approved at the node its
-// request named, checked again against the standard tree as it now is.
+// request named, checked again against the standard tree as it now is,
+// or, when it named none, at the UNASSIGNED leaf (unassignedLeaf).
 func placeCreated(ctx context.Context, tx pgx.Tx, kind string, center, change uuid.UUID, node *uuid.UUID) error {
+	if node == nil {
+		leaf, err := unassignedLeaf(ctx, tx, kind)
+		if err != nil {
+			return err
+		}
+		node = &leaf
+	}
 	t, err := standardTree(ctx, tx, kind, true, "standard_node_id")
 	if err != nil {
 		return err

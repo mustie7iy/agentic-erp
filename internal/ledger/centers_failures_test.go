@@ -104,11 +104,14 @@ func centerCalls(h *ledger.Endpoints, c centers, seg, pc, cc, change uuid.UUID) 
 			}
 			return created(ctx, h, res.(*gen.CostCenterHeaders).Response.PendingChangeID, "approve")
 		},
-		"create a cost center unassigned": func(ctx context.Context) error {
+		"create and approve a cost center unassigned": func(ctx context.Context) error {
 			in := newCC("NEW3")
 			in.StandardNodeID = gen.OptUUID{}
-			_, err := h.CreateCostCenter(ctx, in, gen.CreateCostCenterParams{})
-			return err
+			res, err := h.CreateCostCenter(ctx, in, gen.CreateCostCenterParams{})
+			if err != nil {
+				return err
+			}
+			return created(ctx, h, res.(*gen.CostCenterHeaders).Response.PendingChangeID, "approve")
 		},
 		"create and withdraw a cost center": func(ctx context.Context) error {
 			res, err := h.CreateCostCenter(ctx, newCC("NEW2"), gen.CreateCostCenterParams{})
@@ -192,15 +195,18 @@ func centerCalls(h *ledger.Endpoints, c centers, seg, pc, cc, change uuid.UUID) 
 	}
 }
 
-// TestUnassignedDatabaseFailures: a tenant's first center that names no
-// leaf creates the standard hierarchy and its UNASSIGNED leaf, with each
-// statement failing in turn.
+// TestUnassignedDatabaseFailures: approving a tenant's first center that
+// names no leaf creates the standard hierarchy and its UNASSIGNED leaf,
+// with each statement failing in turn.
 func TestUnassignedDatabaseFailures(t *testing.T) {
 	e := withControllerRole(t, setup(t))
 	h := endpoints()
 	apitest.EveryFailure(t, e.ten, e.ten.Human, "first center", func(ctx context.Context) error {
-		_, err := h.CreateProfitCenter(ctx, &gen.ProfitCenterCreate{Code: "PC", Name: "N", Responsible: "R", LegalEntityIds: []uuid.UUID{e.de},
+		res, err := h.CreateProfitCenter(ctx, &gen.ProfitCenterCreate{Code: "PC", Name: "N", Responsible: "R", LegalEntityIds: []uuid.UUID{e.de},
 			ValidFrom: date("2026-01-01"), Reason: "r"}, gen.CreateProfitCenterParams{})
-		return err
+		if err != nil {
+			return err
+		}
+		return created(ctx, h, res.(*gen.ProfitCenterHeaders).Response.PendingChangeID, "approve")
 	})
 }

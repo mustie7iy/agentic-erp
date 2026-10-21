@@ -273,21 +273,22 @@ As built in T56a (migration 000128):
     hierarchy of the kind, checked at the request and again at approval,
     when the center is placed there. Without one (product owner
     2026-10-21: no breaking change to the create operations) the center
-    is placed in the standard hierarchy's `UNASSIGNED` leaf, for a
-    controller to place later: the request adds that leaf below the root
-    when the tree has none, and creates the standard hierarchy with it
-    when the tenant has none, as 000139 does for older centers. Neither
-    needs an approval, as an empty node changes no center; the creation
-    itself is approved as before. An `UNASSIGNED` node with child nodes,
-    or a root that is still a leaf holding centers, refuses a create
-    without a node (422 `ledger.hierarchy_change_invalid`). Two first
-    centers created at once race on the standard hierarchy: the loser
-    gets 409 `ledger.standard_hierarchy_exists` and succeeds when retried.
+    is placed, when its creation is approved, in the standard hierarchy's
+    `UNASSIGNED` leaf, for a controller to place later: the approval adds
+    that leaf below the root when the tree has none, and creates the
+    standard hierarchy with it when the tenant has none, as 000139 does
+    for older centers. Proposing a center (`x-autonomy: propose`) so
+    changes no tree; the approver's decision does, and an empty node
+    changes no center. Approvals of two first centers are serialized per
+    tenant and kind (an advisory lock): the second finds the hierarchy
+    and leaf the first created. An `UNASSIGNED` node with child nodes, a
+    root that is still a leaf holding centers, or another hierarchy of
+    the kind coded `STANDARD` where the tenant has no standard one
+    refuses the approval (422 `ledger.hierarchy_change_invalid`).
     Centers that existed before
     000139 (T56a was not released) were placed in a `STANDARD` hierarchy's
     `UNASSIGNED` leaf, created per tenant and kind; a create still pending
-    then has no node and its approval is refused, so it is withdrawn and
-    requested again.
+    then has no node, and its approval places it in that leaf too.
   - **API.** `GET|POST /v1/hierarchies`, `GET /v1/hierarchies/{id}` (the
     tree in order, each node with its level and centers; the ETag is the
     hierarchy's version, moved on by each applied change), `GET
@@ -754,6 +755,10 @@ All eight as recommended:
 - **P7** (a): one current hierarchy; reports restate history under it.
 - **P8** (a): company-level access as today; per-center access is a later
   step if the pilot asks.
+- **No breaking change** (product owner, 2026-10-21, after T56b): creating
+  a center does not require a standard hierarchy node; one created without
+  goes to the standard hierarchy's `UNASSIGNED` leaf when its creation is
+  approved (§3 as built).
 
 The options as proposed:
 

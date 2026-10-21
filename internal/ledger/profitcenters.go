@@ -37,7 +37,7 @@ type NewProfitCenter struct {
 	Texts          Texts
 	SegmentID      *uuid.UUID
 	LegalEntityIDs []uuid.UUID
-	StandardNodeID *uuid.UUID // its leaf in the standard hierarchy; nil: the UNASSIGNED leaf (creationNode)
+	StandardNodeID *uuid.UUID // its leaf in the standard hierarchy; nil: the UNASSIGNED leaf, at approval (unassignedLeaf)
 	ValidFrom      time.Time
 	ValidTo        time.Time // zero: open-ended
 	Reason         string
@@ -84,12 +84,13 @@ func (e *Endpoints) RequestProfitCenter(ctx context.Context, in NewProfitCenter)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $8)`, p.TenantID, id, in.Code, in.SegmentID, in.Texts.Name, in.Texts.Description, in.Texts.Responsible, p.ID); err != nil {
 		return ProfitCenter{}, fmt.Errorf("ledger: insert profit center %s: %w", in.Code, err)
 	}
-	node, err := creationNode(ctx, tx, HierarchyProfitCenters, id, in.StandardNodeID)
-	if err != nil {
-		return ProfitCenter{}, err
+	if in.StandardNodeID != nil {
+		if err := checkStandardNode(ctx, tx, HierarchyProfitCenters, id, *in.StandardNodeID); err != nil {
+			return ProfitCenter{}, err
+		}
 	}
 	payload := profitCenterPayload{ValidFrom: dateText(in.ValidFrom), ValidTo: dateText(in.ValidTo), LegalEntityIDs: in.LegalEntityIDs,
-		StandardNodeID: &node}
+		StandardNodeID: in.StandardNodeID}
 	if _, err := requestChange(ctx, tx, e.Approvals, profitCenterRef(id, in.Code), KindCreate, payload, in.Reason); err != nil {
 		return ProfitCenter{}, err
 	}

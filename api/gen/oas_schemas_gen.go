@@ -11436,9 +11436,10 @@ type CostCenterCreate struct {
 	ValidTo OptDate `json:"valid_to"`
 	// Leaf node of the tenant's standard hierarchy of this kind where the center is placed when its
 	// creation is approved (ADR-0050 §3: every active center sits in exactly one leaf of it); a node
-	// without child nodes (422 `ledger.hierarchy_change_invalid`). Absent: the standard hierarchy's
-	// `UNASSIGNED` leaf, for a controller to place the center later; the standard hierarchy and that leaf
-	// are created when the tenant has none (product owner, 2026-10-21).
+	// without child nodes (422 `ledger.hierarchy_change_invalid`). Absent: the center is placed, when its
+	// creation is approved, in the standard hierarchy's `UNASSIGNED` leaf, for a controller to place
+	// later; the approval creates that leaf, and the standard hierarchy with it, when the tenant has none
+	// (product owner, 2026-10-21).
 	StandardNodeID OptUUID `json:"standard_node_id"`
 	// Why; shown to the approver and recorded in the audit trail.
 	Reason string `json:"reason"`
@@ -29280,9 +29281,10 @@ type ProfitCenterCreate struct {
 	ValidTo OptDate `json:"valid_to"`
 	// Leaf node of the tenant's standard hierarchy of this kind where the center is placed when its
 	// creation is approved (ADR-0050 §3: every active center sits in exactly one leaf of it); a node
-	// without child nodes (422 `ledger.hierarchy_change_invalid`). Absent: the standard hierarchy's
-	// `UNASSIGNED` leaf, for a controller to place the center later; the standard hierarchy and that leaf
-	// are created when the tenant has none (product owner, 2026-10-21).
+	// without child nodes (422 `ledger.hierarchy_change_invalid`). Absent: the center is placed, when its
+	// creation is approved, in the standard hierarchy's `UNASSIGNED` leaf, for a controller to place
+	// later; the approval creates that leaf, and the standard hierarchy with it, when the tenant has none
+	// (product owner, 2026-10-21).
 	StandardNodeID OptUUID `json:"standard_node_id"`
 	// Why; shown to the approver and recorded in the audit trail.
 	Reason string `json:"reason"`

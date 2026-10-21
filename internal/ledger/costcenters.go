@@ -47,7 +47,7 @@ type NewCostCenter struct {
 	Texts          Texts
 	Category       string
 	ProfitCenterID *uuid.UUID
-	StandardNodeID *uuid.UUID // its leaf in the standard hierarchy; nil: the UNASSIGNED leaf (creationNode)
+	StandardNodeID *uuid.UUID // its leaf in the standard hierarchy; nil: the UNASSIGNED leaf, at approval (unassignedLeaf)
 	ValidFrom      time.Time
 	ValidTo        time.Time // zero: open-ended
 	Reason         string
@@ -89,12 +89,13 @@ func (e *Endpoints) RequestCostCenter(ctx context.Context, in NewCostCenter) (Co
 		VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $8)`, p.TenantID, id, le.ID, in.Code, in.Texts.Name, in.Texts.Description, in.Texts.Responsible, p.ID); err != nil {
 		return CostCenter{}, fmt.Errorf("ledger: insert cost center %s: %w", in.Code, err)
 	}
-	node, err := creationNode(ctx, tx, HierarchyCostCenters, id, in.StandardNodeID)
-	if err != nil {
-		return CostCenter{}, err
+	if in.StandardNodeID != nil {
+		if err := checkStandardNode(ctx, tx, HierarchyCostCenters, id, *in.StandardNodeID); err != nil {
+			return CostCenter{}, err
+		}
 	}
 	payload := costCenterPayload{ValidFrom: dateText(in.ValidFrom), ValidTo: dateText(in.ValidTo), Category: in.Category, ProfitCenterID: in.ProfitCenterID,
-		StandardNodeID: &node}
+		StandardNodeID: in.StandardNodeID}
 	c := CostCenter{LegalEntityID: le.ID}
 	if _, err := planCostCenter(ctx, tx, c, KindCreate, payload); err != nil {
 		return CostCenter{}, err
