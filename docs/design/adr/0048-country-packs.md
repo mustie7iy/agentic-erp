@@ -95,6 +95,27 @@ settings cannot simply overwrite their document.
   `calendars` section (company → holidays); T62d the API; T62e the Canada
   pack; T62f the UAE pack.
 
+- **The Canada pack** (`packs/ca/2026.1`, T62e) has a starter chart of
+  accounts with every account determination key; purchase tax codes for
+  GST (5%) and the HST of Ontario, New Brunswick, Newfoundland and
+  Labrador, Nova Scotia (15%, then 14% from 2025-04-01) and Prince Edward
+  Island, with the dates of the CRA's rate table, recovered on the input
+  tax account; QST (9.975%, recovered on its own account) and the PST of
+  British Columbia, Manitoba and Saskatchewan (7%, 7%, 6%, expensed as
+  non-recoverable); number ranges for every document type the ERP numbers;
+  four net payment terms; and the Canada Labour Code's general holidays of
+  2026 and 2027. It carries no sign-off, so production refuses to apply it
+  until the tax specialist has confirmed: the start dates of the PST and
+  QST rates (given from 2026-01-01, as far as the cited pages vouch); New
+  Brunswick's HST of July to September 2016 (left out, the rate table being
+  read two ways); whether PST is expensed and QST recovered as written; the
+  day observed when a holiday falls on a weekend; and the provincial
+  holidays and harmonized combinations a company needs (one tax code per
+  line until T61, so British Columbia's GST plus PST is two codes). A
+  payment term with a cash discount is left out: the document's payment
+  terms are shared by its companies, and a discount term would require a
+  cash discount account in each of them.
+
 ## Consequences
 - A pack upgrade never silently overwrites a tenant's decision; reviewers
   see each conflict as a note in the change request.

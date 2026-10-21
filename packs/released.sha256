@@ -1,3 +1,4 @@
 # Released country packs (ADR-0048): sha256 of each pack directory, as
 # countrypack.Hash computes it, then <cc>/<version>. A released pack never
 # changes and is never removed; a change is a new version.
+75c1beff11e1d59c4ec93f65da889d40b5eb566fadb21190d97cc9fc12eea7c8  ca/2026.1
