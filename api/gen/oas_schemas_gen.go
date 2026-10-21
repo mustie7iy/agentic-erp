@@ -3302,6 +3302,7 @@ func (s *BadRequestHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*BadRequestHeaders) acceptBankStatementLineProposalRes()  {}
 func (*BadRequestHeaders) activateChangeRequestRes()            {}
 func (*BadRequestHeaders) activateLegalEntityRes()              {}
 func (*BadRequestHeaders) activateOrgUnitRes()                  {}
@@ -3370,6 +3371,7 @@ func (*BadRequestHeaders) getBankFileContentRes()               {}
 func (*BadRequestHeaders) getBankFileRes()                      {}
 func (*BadRequestHeaders) getBankStatementFileRes()             {}
 func (*BadRequestHeaders) getBankStatementRes()                 {}
+func (*BadRequestHeaders) getBankStatementRulesRes()            {}
 func (*BadRequestHeaders) getBusinessPartnerRes()               {}
 func (*BadRequestHeaders) getChangeRequestRes()                 {}
 func (*BadRequestHeaders) getClearingRes()                      {}
@@ -3434,6 +3436,7 @@ func (*BadRequestHeaders) listExchangeRatesRes()                {}
 func (*BadRequestHeaders) listFiscalPeriodsRes()                {}
 func (*BadRequestHeaders) listGoodsReceiptsRes()                {}
 func (*BadRequestHeaders) listGrIrBalancesRes()                 {}
+func (*BadRequestHeaders) listHouseBanksRes()                   {}
 func (*BadRequestHeaders) listJournalEntriesRes()               {}
 func (*BadRequestHeaders) listLegalEntitiesRes()                {}
 func (*BadRequestHeaders) listMatchResultsRes()                 {}
@@ -3476,11 +3479,13 @@ func (*BadRequestHeaders) postParkedJournalEntryRes()           {}
 func (*BadRequestHeaders) postRevaluationRunRes()               {}
 func (*BadRequestHeaders) postSupplierInvoiceRes()              {}
 func (*BadRequestHeaders) previewRevaluationRes()               {}
+func (*BadRequestHeaders) proposeBankStatementLineRes()         {}
 func (*BadRequestHeaders) proposePaymentRunRes()                {}
 func (*BadRequestHeaders) reconcileMigrationRunRes()            {}
 func (*BadRequestHeaders) recordAgentToolCallRes()              {}
 func (*BadRequestHeaders) redeliverWebhookDeliveryRes()         {}
 func (*BadRequestHeaders) rejectApprovalRequestRes()            {}
+func (*BadRequestHeaders) rejectBankStatementLineProposalRes()  {}
 func (*BadRequestHeaders) rejectPaymentRunRes()                 {}
 func (*BadRequestHeaders) releaseContractRes()                  {}
 func (*BadRequestHeaders) releasePaymentRunRes()                {}
@@ -4746,7 +4751,8 @@ type BankStatement struct {
 	// The statement's number in the account's series: camt.053 ElctrncSeqNb (or LglSeqNb), MT940 field
 	// 28C.
 	Sequence string `json:"sequence"`
-	// The account's IBAN, or the bank's account number where it has none.
+	// The account's IBAN, or the bank's account number where it has none. Agents see its last four
+	// characters only, after `****`.
 	Account        string `json:"account"`
 	OpeningBalance Money  `json:"opening_balance"`
 	// Date of the opening balance.
@@ -5377,6 +5383,179 @@ func (s *BankStatementPageHeaders) SetResponse(val BankStatementPage) {
 
 func (*BankStatementPageHeaders) listBankStatementsRes() {}
 
+// The posting and matching rules of a bank statement's company (`companies[].bank_statements`).
+// Ref: #/components/schemas/BankStatementRules
+type BankStatementRules struct {
+	// What lines of a bank transaction code post to (SAP T028G).
+	PostingRules []BankStatementRulesPostingRulesItem `json:"posting_rules"`
+	// How lines are matched, in the order the rules are tried.
+	MatchingRules []BankStatementRulesMatchingRulesItem `json:"matching_rules"`
+}
+
+// GetPostingRules returns the value of PostingRules.
+func (s *BankStatementRules) GetPostingRules() []BankStatementRulesPostingRulesItem {
+	return s.PostingRules
+}
+
+// GetMatchingRules returns the value of MatchingRules.
+func (s *BankStatementRules) GetMatchingRules() []BankStatementRulesMatchingRulesItem {
+	return s.MatchingRules
+}
+
+// SetPostingRules sets the value of PostingRules.
+func (s *BankStatementRules) SetPostingRules(val []BankStatementRulesPostingRulesItem) {
+	s.PostingRules = val
+}
+
+// SetMatchingRules sets the value of MatchingRules.
+func (s *BankStatementRules) SetMatchingRules(val []BankStatementRulesMatchingRulesItem) {
+	s.MatchingRules = val
+}
+
+// BankStatementRulesHeaders wraps BankStatementRules with response headers.
+type BankStatementRulesHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           BankStatementRules
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *BankStatementRulesHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *BankStatementRulesHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *BankStatementRulesHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *BankStatementRulesHeaders) GetResponse() BankStatementRules {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *BankStatementRulesHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *BankStatementRulesHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *BankStatementRulesHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *BankStatementRulesHeaders) SetResponse(val BankStatementRules) {
+	s.Response = val
+}
+
+func (*BankStatementRulesHeaders) getBankStatementRulesRes() {}
+
+// A matching rule.
+type BankStatementRulesMatchingRulesItem struct {
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Kind string `json:"kind"`
+	// The amount rule's tolerance, in the company's currency.
+	AmountTolerance OptString `json:"amount_tolerance"`
+	// The amount rule's window around the booking date, in days.
+	DateWindowDays OptInt32 `json:"date_window_days"`
+	// Whether the amount rule asks for the payee's IBAN or name.
+	Counterparty OptBool `json:"counterparty"`
+}
+
+// GetKind returns the value of Kind.
+func (s *BankStatementRulesMatchingRulesItem) GetKind() string {
+	return s.Kind
+}
+
+// GetAmountTolerance returns the value of AmountTolerance.
+func (s *BankStatementRulesMatchingRulesItem) GetAmountTolerance() OptString {
+	return s.AmountTolerance
+}
+
+// GetDateWindowDays returns the value of DateWindowDays.
+func (s *BankStatementRulesMatchingRulesItem) GetDateWindowDays() OptInt32 {
+	return s.DateWindowDays
+}
+
+// GetCounterparty returns the value of Counterparty.
+func (s *BankStatementRulesMatchingRulesItem) GetCounterparty() OptBool {
+	return s.Counterparty
+}
+
+// SetKind sets the value of Kind.
+func (s *BankStatementRulesMatchingRulesItem) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetAmountTolerance sets the value of AmountTolerance.
+func (s *BankStatementRulesMatchingRulesItem) SetAmountTolerance(val OptString) {
+	s.AmountTolerance = val
+}
+
+// SetDateWindowDays sets the value of DateWindowDays.
+func (s *BankStatementRulesMatchingRulesItem) SetDateWindowDays(val OptInt32) {
+	s.DateWindowDays = val
+}
+
+// SetCounterparty sets the value of Counterparty.
+func (s *BankStatementRulesMatchingRulesItem) SetCounterparty(val OptBool) {
+	s.Counterparty = val
+}
+
+// A posting rule.
+type BankStatementRulesPostingRulesItem struct {
+	// The bank transaction code: ISO 20022 domain, family and sub-family, an MT940 type or the bank's
+	// proprietary code.
+	TransactionCode string `json:"transaction_code"`
+	// What the rule posts.
+	Description string `json:"description"`
+	// The number of the account the line posts to.
+	Account string `json:"account"`
+}
+
+// GetTransactionCode returns the value of TransactionCode.
+func (s *BankStatementRulesPostingRulesItem) GetTransactionCode() string {
+	return s.TransactionCode
+}
+
+// GetDescription returns the value of Description.
+func (s *BankStatementRulesPostingRulesItem) GetDescription() string {
+	return s.Description
+}
+
+// GetAccount returns the value of Account.
+func (s *BankStatementRulesPostingRulesItem) GetAccount() string {
+	return s.Account
+}
+
+// SetTransactionCode sets the value of TransactionCode.
+func (s *BankStatementRulesPostingRulesItem) SetTransactionCode(val string) {
+	s.TransactionCode = val
+}
+
+// SetDescription sets the value of Description.
+func (s *BankStatementRulesPostingRulesItem) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetAccount sets the value of Account.
+func (s *BankStatementRulesPostingRulesItem) SetAccount(val string) {
+	s.Account = val
+}
+
 // One transaction within a booking.
 // Ref: #/components/schemas/BankStatementTransaction
 type BankStatementTransaction struct {
@@ -5393,10 +5572,13 @@ type BankStatementTransaction struct {
 	TransactionCode OptString `json:"transaction_code"`
 	// The other side: the creditor of a debit, the debtor of a credit.
 	CounterpartyName OptString `json:"counterparty_name"`
-	// The other side's IBAN.
+	// The other side's IBAN; absent for agents, who see `counterparty_account_last4` only.
 	CounterpartyIban OptString `json:"counterparty_iban"`
-	// The other side's account number, where it has no IBAN.
+	// The other side's account number, where it has no IBAN; absent for agents.
 	CounterpartyAccount OptString `json:"counterparty_account"`
+	// The last up to four characters of the other side's IBAN or account number, as partner bank accounts
+	// show them (`account_last4`).
+	CounterpartyAccountLast4 OptString `json:"counterparty_account_last4"`
 	// The other side's bank.
 	CounterpartyBic OptString `json:"counterparty_bic"`
 	// The remittance information.
@@ -5446,6 +5628,11 @@ func (s *BankStatementTransaction) GetCounterpartyIban() OptString {
 // GetCounterpartyAccount returns the value of CounterpartyAccount.
 func (s *BankStatementTransaction) GetCounterpartyAccount() OptString {
 	return s.CounterpartyAccount
+}
+
+// GetCounterpartyAccountLast4 returns the value of CounterpartyAccountLast4.
+func (s *BankStatementTransaction) GetCounterpartyAccountLast4() OptString {
+	return s.CounterpartyAccountLast4
 }
 
 // GetCounterpartyBic returns the value of CounterpartyBic.
@@ -5501,6 +5688,11 @@ func (s *BankStatementTransaction) SetCounterpartyIban(val OptString) {
 // SetCounterpartyAccount sets the value of CounterpartyAccount.
 func (s *BankStatementTransaction) SetCounterpartyAccount(val OptString) {
 	s.CounterpartyAccount = val
+}
+
+// SetCounterpartyAccountLast4 sets the value of CounterpartyAccountLast4.
+func (s *BankStatementTransaction) SetCounterpartyAccountLast4(val OptString) {
+	s.CounterpartyAccountLast4 = val
 }
 
 // SetCounterpartyBic sets the value of CounterpartyBic.
@@ -8302,6 +8494,7 @@ func (s *ConflictHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*ConflictHeaders) acceptBankStatementLineProposalRes()  {}
 func (*ConflictHeaders) activateChangeRequestRes()            {}
 func (*ConflictHeaders) activateLegalEntityRes()              {}
 func (*ConflictHeaders) activateOrgUnitRes()                  {}
@@ -8378,11 +8571,13 @@ func (*ConflictHeaders) postParkedJournalEntryRes()           {}
 func (*ConflictHeaders) postRevaluationRunRes()               {}
 func (*ConflictHeaders) postSupplierInvoiceRes()              {}
 func (*ConflictHeaders) previewRevaluationRes()               {}
+func (*ConflictHeaders) proposeBankStatementLineRes()         {}
 func (*ConflictHeaders) proposePaymentRunRes()                {}
 func (*ConflictHeaders) reconcileMigrationRunRes()            {}
 func (*ConflictHeaders) recordAgentToolCallRes()              {}
 func (*ConflictHeaders) redeliverWebhookDeliveryRes()         {}
 func (*ConflictHeaders) rejectApprovalRequestRes()            {}
+func (*ConflictHeaders) rejectBankStatementLineProposalRes()  {}
 func (*ConflictHeaders) rejectPaymentRunRes()                 {}
 func (*ConflictHeaders) releaseContractRes()                  {}
 func (*ConflictHeaders) releasePaymentRunRes()                {}
@@ -12240,6 +12435,7 @@ func (s *ForbiddenHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*ForbiddenHeaders) acceptBankStatementLineProposalRes()  {}
 func (*ForbiddenHeaders) activateChangeRequestRes()            {}
 func (*ForbiddenHeaders) activateLegalEntityRes()              {}
 func (*ForbiddenHeaders) activateOrgUnitRes()                  {}
@@ -12308,6 +12504,7 @@ func (*ForbiddenHeaders) getBankFileContentRes()               {}
 func (*ForbiddenHeaders) getBankFileRes()                      {}
 func (*ForbiddenHeaders) getBankStatementFileRes()             {}
 func (*ForbiddenHeaders) getBankStatementRes()                 {}
+func (*ForbiddenHeaders) getBankStatementRulesRes()            {}
 func (*ForbiddenHeaders) getBusinessPartnerRes()               {}
 func (*ForbiddenHeaders) getChangeRequestRes()                 {}
 func (*ForbiddenHeaders) getClearingRes()                      {}
@@ -12372,6 +12569,7 @@ func (*ForbiddenHeaders) listExchangeRatesRes()                {}
 func (*ForbiddenHeaders) listFiscalPeriodsRes()                {}
 func (*ForbiddenHeaders) listGoodsReceiptsRes()                {}
 func (*ForbiddenHeaders) listGrIrBalancesRes()                 {}
+func (*ForbiddenHeaders) listHouseBanksRes()                   {}
 func (*ForbiddenHeaders) listJournalEntriesRes()               {}
 func (*ForbiddenHeaders) listLegalEntitiesRes()                {}
 func (*ForbiddenHeaders) listMatchResultsRes()                 {}
@@ -12414,11 +12612,13 @@ func (*ForbiddenHeaders) postParkedJournalEntryRes()           {}
 func (*ForbiddenHeaders) postRevaluationRunRes()               {}
 func (*ForbiddenHeaders) postSupplierInvoiceRes()              {}
 func (*ForbiddenHeaders) previewRevaluationRes()               {}
+func (*ForbiddenHeaders) proposeBankStatementLineRes()         {}
 func (*ForbiddenHeaders) proposePaymentRunRes()                {}
 func (*ForbiddenHeaders) reconcileMigrationRunRes()            {}
 func (*ForbiddenHeaders) recordAgentToolCallRes()              {}
 func (*ForbiddenHeaders) redeliverWebhookDeliveryRes()         {}
 func (*ForbiddenHeaders) rejectApprovalRequestRes()            {}
+func (*ForbiddenHeaders) rejectBankStatementLineProposalRes()  {}
 func (*ForbiddenHeaders) rejectPaymentRunRes()                 {}
 func (*ForbiddenHeaders) releaseContractRes()                  {}
 func (*ForbiddenHeaders) releasePaymentRunRes()                {}
@@ -15395,6 +15595,176 @@ func (s *GrIrBalancePageHeaders) SetResponse(val GrIrBalancePage) {
 
 func (*GrIrBalancePageHeaders) listGrIrBalancesRes() {}
 
+// A house bank of a company (SAP T012K), from the configuration (`companies[].house_bank(s)`,
+// ADR-0038).
+// Ref: #/components/schemas/HouseBank
+type HouseBank struct {
+	// Identifier: the `house_bank_id` of statement imports and payment runs.
+	ID uuid.UUID `json:"id"`
+	// The house bank's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The bank's name in the configuration, unique within the legal entity.
+	Code string `json:"code"`
+	// The account's currency (ISO 4217).
+	Currency string `json:"currency"`
+	// The last up to four characters of the account's IBAN.
+	AccountLast4 string `json:"account_last4"`
+	// The bank's BIC.
+	Bic string `json:"bic"`
+	// `inactive` once the configuration no longer lists it. Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+}
+
+// GetID returns the value of ID.
+func (s *HouseBank) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *HouseBank) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCode returns the value of Code.
+func (s *HouseBank) GetCode() string {
+	return s.Code
+}
+
+// GetCurrency returns the value of Currency.
+func (s *HouseBank) GetCurrency() string {
+	return s.Currency
+}
+
+// GetAccountLast4 returns the value of AccountLast4.
+func (s *HouseBank) GetAccountLast4() string {
+	return s.AccountLast4
+}
+
+// GetBic returns the value of Bic.
+func (s *HouseBank) GetBic() string {
+	return s.Bic
+}
+
+// GetStatus returns the value of Status.
+func (s *HouseBank) GetStatus() string {
+	return s.Status
+}
+
+// SetID sets the value of ID.
+func (s *HouseBank) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *HouseBank) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCode sets the value of Code.
+func (s *HouseBank) SetCode(val string) {
+	s.Code = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *HouseBank) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetAccountLast4 sets the value of AccountLast4.
+func (s *HouseBank) SetAccountLast4(val string) {
+	s.AccountLast4 = val
+}
+
+// SetBic sets the value of Bic.
+func (s *HouseBank) SetBic(val string) {
+	s.Bic = val
+}
+
+// SetStatus sets the value of Status.
+func (s *HouseBank) SetStatus(val string) {
+	s.Status = val
+}
+
+// One page of house banks.
+// Ref: #/components/schemas/HouseBankPage
+type HouseBankPage struct {
+	// The house banks on this page.
+	Items []HouseBank `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *HouseBankPage) GetItems() []HouseBank {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *HouseBankPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *HouseBankPage) SetItems(val []HouseBank) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *HouseBankPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// HouseBankPageHeaders wraps HouseBankPage with response headers.
+type HouseBankPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           HouseBankPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *HouseBankPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *HouseBankPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *HouseBankPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *HouseBankPageHeaders) GetResponse() HouseBankPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *HouseBankPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *HouseBankPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *HouseBankPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *HouseBankPageHeaders) SetResponse(val HouseBankPage) {
+	s.Response = val
+}
+
+func (*HouseBankPageHeaders) listHouseBanksRes() {}
+
 type ImportBankStatementsCreated BankStatementImportHeaders
 
 func (*ImportBankStatementsCreated) importBankStatementsRes() {}
@@ -17864,6 +18234,7 @@ func (s *NotFoundHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*NotFoundHeaders) acceptBankStatementLineProposalRes()  {}
 func (*NotFoundHeaders) activateChangeRequestRes()            {}
 func (*NotFoundHeaders) activateLegalEntityRes()              {}
 func (*NotFoundHeaders) activateOrgUnitRes()                  {}
@@ -17905,6 +18276,7 @@ func (*NotFoundHeaders) getBankFileContentRes()               {}
 func (*NotFoundHeaders) getBankFileRes()                      {}
 func (*NotFoundHeaders) getBankStatementFileRes()             {}
 func (*NotFoundHeaders) getBankStatementRes()                 {}
+func (*NotFoundHeaders) getBankStatementRulesRes()            {}
 func (*NotFoundHeaders) getBusinessPartnerRes()               {}
 func (*NotFoundHeaders) getChangeRequestRes()                 {}
 func (*NotFoundHeaders) getClearingRes()                      {}
@@ -17964,10 +18336,12 @@ func (*NotFoundHeaders) pingWebhookSubscriptionRes()          {}
 func (*NotFoundHeaders) postBankStatementLineRes()            {}
 func (*NotFoundHeaders) postParkedJournalEntryRes()           {}
 func (*NotFoundHeaders) postSupplierInvoiceRes()              {}
+func (*NotFoundHeaders) proposeBankStatementLineRes()         {}
 func (*NotFoundHeaders) reconcileMigrationRunRes()            {}
 func (*NotFoundHeaders) recordAgentToolCallRes()              {}
 func (*NotFoundHeaders) redeliverWebhookDeliveryRes()         {}
 func (*NotFoundHeaders) rejectApprovalRequestRes()            {}
+func (*NotFoundHeaders) rejectBankStatementLineProposalRes()  {}
 func (*NotFoundHeaders) rejectPaymentRunRes()                 {}
 func (*NotFoundHeaders) releaseContractRes()                  {}
 func (*NotFoundHeaders) releasePaymentRunRes()                {}
@@ -20534,6 +20908,52 @@ func (o OptStatementLinePostInput) Get() (v StatementLinePostInput, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptStatementLinePostInput) Or(d StatementLinePostInput) StatementLinePostInput {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptStatementLineProposalAccept returns new OptStatementLineProposalAccept with value set to v.
+func NewOptStatementLineProposalAccept(v StatementLineProposalAccept) OptStatementLineProposalAccept {
+	return OptStatementLineProposalAccept{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptStatementLineProposalAccept is optional StatementLineProposalAccept.
+type OptStatementLineProposalAccept struct {
+	Value StatementLineProposalAccept
+	Set   bool
+}
+
+// IsSet returns true if OptStatementLineProposalAccept was set.
+func (o OptStatementLineProposalAccept) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptStatementLineProposalAccept) Reset() {
+	var v StatementLineProposalAccept
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptStatementLineProposalAccept) SetTo(v StatementLineProposalAccept) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptStatementLineProposalAccept) Get() (v StatementLineProposalAccept, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptStatementLineProposalAccept) Or(d StatementLineProposalAccept) StatementLineProposalAccept {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -23303,6 +23723,7 @@ func (s *PreconditionFailedHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*PreconditionFailedHeaders) acceptBankStatementLineProposalRes()  {}
 func (*PreconditionFailedHeaders) activateChangeRequestRes()            {}
 func (*PreconditionFailedHeaders) activateLegalEntityRes()              {}
 func (*PreconditionFailedHeaders) activateOrgUnitRes()                  {}
@@ -23345,9 +23766,11 @@ func (*PreconditionFailedHeaders) pingWebhookSubscriptionRes()          {}
 func (*PreconditionFailedHeaders) postBankStatementLineRes()            {}
 func (*PreconditionFailedHeaders) postParkedJournalEntryRes()           {}
 func (*PreconditionFailedHeaders) postSupplierInvoiceRes()              {}
+func (*PreconditionFailedHeaders) proposeBankStatementLineRes()         {}
 func (*PreconditionFailedHeaders) reconcileMigrationRunRes()            {}
 func (*PreconditionFailedHeaders) redeliverWebhookDeliveryRes()         {}
 func (*PreconditionFailedHeaders) rejectApprovalRequestRes()            {}
+func (*PreconditionFailedHeaders) rejectBankStatementLineProposalRes()  {}
 func (*PreconditionFailedHeaders) rejectPaymentRunRes()                 {}
 func (*PreconditionFailedHeaders) releaseContractRes()                  {}
 func (*PreconditionFailedHeaders) releasePaymentRunRes()                {}
@@ -23437,6 +23860,7 @@ func (s *PreconditionRequiredHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*PreconditionRequiredHeaders) acceptBankStatementLineProposalRes()  {}
 func (*PreconditionRequiredHeaders) activateChangeRequestRes()            {}
 func (*PreconditionRequiredHeaders) activateLegalEntityRes()              {}
 func (*PreconditionRequiredHeaders) activateOrgUnitRes()                  {}
@@ -23511,11 +23935,13 @@ func (*PreconditionRequiredHeaders) postParkedJournalEntryRes()           {}
 func (*PreconditionRequiredHeaders) postRevaluationRunRes()               {}
 func (*PreconditionRequiredHeaders) postSupplierInvoiceRes()              {}
 func (*PreconditionRequiredHeaders) previewRevaluationRes()               {}
+func (*PreconditionRequiredHeaders) proposeBankStatementLineRes()         {}
 func (*PreconditionRequiredHeaders) proposePaymentRunRes()                {}
 func (*PreconditionRequiredHeaders) reconcileMigrationRunRes()            {}
 func (*PreconditionRequiredHeaders) recordAgentToolCallRes()              {}
 func (*PreconditionRequiredHeaders) redeliverWebhookDeliveryRes()         {}
 func (*PreconditionRequiredHeaders) rejectApprovalRequestRes()            {}
+func (*PreconditionRequiredHeaders) rejectBankStatementLineProposalRes()  {}
 func (*PreconditionRequiredHeaders) rejectPaymentRunRes()                 {}
 func (*PreconditionRequiredHeaders) releaseContractRes()                  {}
 func (*PreconditionRequiredHeaders) releasePaymentRunRes()                {}
@@ -24147,6 +24573,14 @@ func (s *Problem) SetTraceID(val OptString) {
 func (s *Problem) SetErrors(val []FieldError) {
 	s.Errors = val
 }
+
+type ProposeBankStatementLineCreated StatementMatchHeaders
+
+func (*ProposeBankStatementLineCreated) proposeBankStatementLineRes() {}
+
+type ProposeBankStatementLineOK StatementMatchHeaders
+
+func (*ProposeBankStatementLineOK) proposeBankStatementLineRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/PurchaseOrder
@@ -29545,6 +29979,7 @@ func (s *ServiceUnavailableHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*ServiceUnavailableHeaders) acceptBankStatementLineProposalRes()  {}
 func (*ServiceUnavailableHeaders) activateChangeRequestRes()            {}
 func (*ServiceUnavailableHeaders) activateLegalEntityRes()              {}
 func (*ServiceUnavailableHeaders) activateOrgUnitRes()                  {}
@@ -29621,11 +30056,13 @@ func (*ServiceUnavailableHeaders) postJournalEntryRes()                 {}
 func (*ServiceUnavailableHeaders) postParkedJournalEntryRes()           {}
 func (*ServiceUnavailableHeaders) postRevaluationRunRes()               {}
 func (*ServiceUnavailableHeaders) postSupplierInvoiceRes()              {}
+func (*ServiceUnavailableHeaders) proposeBankStatementLineRes()         {}
 func (*ServiceUnavailableHeaders) proposePaymentRunRes()                {}
 func (*ServiceUnavailableHeaders) reconcileMigrationRunRes()            {}
 func (*ServiceUnavailableHeaders) recordAgentToolCallRes()              {}
 func (*ServiceUnavailableHeaders) redeliverWebhookDeliveryRes()         {}
 func (*ServiceUnavailableHeaders) rejectApprovalRequestRes()            {}
+func (*ServiceUnavailableHeaders) rejectBankStatementLineProposalRes()  {}
 func (*ServiceUnavailableHeaders) rejectPaymentRunRes()                 {}
 func (*ServiceUnavailableHeaders) releaseContractRes()                  {}
 func (*ServiceUnavailableHeaders) releasePaymentRunRes()                {}
@@ -30107,6 +30544,90 @@ func (s *StatementLinePostInput) SetReason(val OptString) {
 	s.Reason = val
 }
 
+// A person's acceptance of the agent's proposal for a line.
+// Ref: #/components/schemas/StatementLineProposalAccept
+type StatementLineProposalAccept struct {
+	// Added to the proposal's reason on the person's match; recorded in the audit trail.
+	Comment OptString `json:"comment"`
+}
+
+// GetComment returns the value of Comment.
+func (s *StatementLineProposalAccept) GetComment() OptString {
+	return s.Comment
+}
+
+// SetComment sets the value of Comment.
+func (s *StatementLineProposalAccept) SetComment(val OptString) {
+	s.Comment = val
+}
+
+// The reconciliation agent's proposal for a line, in its running session: the payments the line
+// clears, a posting rule, or its exclusion (one of the three), and why.
+// Ref: #/components/schemas/StatementLineProposalInput
+type StatementLineProposalInput struct {
+	// The caller's running agent session; a session proposes once per line.
+	SessionID uuid.UUID `json:"session_id"`
+	// The payments the line clears.
+	PaymentIds []uuid.UUID `json:"payment_ids"`
+	// The transaction code of the company's posting rule that posts the line.
+	PostingRule OptString `json:"posting_rule"`
+	// True to propose that the line clears nothing the ledger holds.
+	Exclude OptBool `json:"exclude"`
+	// Why, with the figures that support it; recorded on the proposal, in the audit trail and on the
+	// event, for the person who decides.
+	Reason string `json:"reason"`
+}
+
+// GetSessionID returns the value of SessionID.
+func (s *StatementLineProposalInput) GetSessionID() uuid.UUID {
+	return s.SessionID
+}
+
+// GetPaymentIds returns the value of PaymentIds.
+func (s *StatementLineProposalInput) GetPaymentIds() []uuid.UUID {
+	return s.PaymentIds
+}
+
+// GetPostingRule returns the value of PostingRule.
+func (s *StatementLineProposalInput) GetPostingRule() OptString {
+	return s.PostingRule
+}
+
+// GetExclude returns the value of Exclude.
+func (s *StatementLineProposalInput) GetExclude() OptBool {
+	return s.Exclude
+}
+
+// GetReason returns the value of Reason.
+func (s *StatementLineProposalInput) GetReason() string {
+	return s.Reason
+}
+
+// SetSessionID sets the value of SessionID.
+func (s *StatementLineProposalInput) SetSessionID(val uuid.UUID) {
+	s.SessionID = val
+}
+
+// SetPaymentIds sets the value of PaymentIds.
+func (s *StatementLineProposalInput) SetPaymentIds(val []uuid.UUID) {
+	s.PaymentIds = val
+}
+
+// SetPostingRule sets the value of PostingRule.
+func (s *StatementLineProposalInput) SetPostingRule(val OptString) {
+	s.PostingRule = val
+}
+
+// SetExclude sets the value of Exclude.
+func (s *StatementLineProposalInput) SetExclude(val OptBool) {
+	s.Exclude = val
+}
+
+// SetReason sets the value of Reason.
+func (s *StatementLineProposalInput) SetReason(val string) {
+	s.Reason = val
+}
+
 // Merged schema.
 // Ref: #/components/schemas/StatementMatch
 type StatementMatch struct {
@@ -30134,9 +30655,10 @@ type StatementMatch struct {
 	Rule OptString `json:"rule"`
 	// What the rule found, or the person's reason.
 	Reason string `json:"reason"`
-	// Open: candidates for a person to choose from; matched: the targets decided; excluded: the line
-	// clears nothing; rejected: replaced by a person's decision. Open enumeration: clients must accept and
-	// preserve values not listed here; values may be added within /v1.
+	// Open: candidates for a person to choose from, or an agent's proposal; matched: the targets decided;
+	// excluded: the line clears nothing; rejected: replaced by a person's decision, or an agent's proposal
+	// a person decided (`outcome`). Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
 	Status string `json:"status"`
 	// What it clears: of an open match, each candidate's targets under its number; of a match decided,
 	// candidate 1's; none when excluded.
@@ -30152,6 +30674,15 @@ type StatementMatch struct {
 	JournalEntryID OptUUID `json:"journal_entry_id"`
 	// The fiscal year of the posting.
 	JournalEntryYear OptInt32 `json:"journal_entry_year"`
+	// The agent session that made an agent's proposal (agents context).
+	SessionID OptUUID `json:"session_id"`
+	// What an agent's proposal proposes: `match` (its targets) or `exclude` (none). Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Proposal OptString `json:"proposal"`
+	// What a person did with an agent's proposal, once decided: `accepted` (the person's match by it),
+	// `rejected`, or `overridden` (the person matched or excluded the line otherwise). Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Outcome OptString `json:"outcome"`
 }
 
 // GetID returns the value of ID.
@@ -30244,6 +30775,21 @@ func (s *StatementMatch) GetJournalEntryYear() OptInt32 {
 	return s.JournalEntryYear
 }
 
+// GetSessionID returns the value of SessionID.
+func (s *StatementMatch) GetSessionID() OptUUID {
+	return s.SessionID
+}
+
+// GetProposal returns the value of Proposal.
+func (s *StatementMatch) GetProposal() OptString {
+	return s.Proposal
+}
+
+// GetOutcome returns the value of Outcome.
+func (s *StatementMatch) GetOutcome() OptString {
+	return s.Outcome
+}
+
 // SetID sets the value of ID.
 func (s *StatementMatch) SetID(val uuid.UUID) {
 	s.ID = val
@@ -30334,6 +30880,21 @@ func (s *StatementMatch) SetJournalEntryYear(val OptInt32) {
 	s.JournalEntryYear = val
 }
 
+// SetSessionID sets the value of SessionID.
+func (s *StatementMatch) SetSessionID(val OptUUID) {
+	s.SessionID = val
+}
+
+// SetProposal sets the value of Proposal.
+func (s *StatementMatch) SetProposal(val OptString) {
+	s.Proposal = val
+}
+
+// SetOutcome sets the value of Outcome.
+func (s *StatementMatch) SetOutcome(val OptString) {
+	s.Outcome = val
+}
+
 // StatementMatchHeaders wraps StatementMatch with response headers.
 type StatementMatchHeaders struct {
 	ETag               OptString
@@ -30404,9 +30965,11 @@ func (s *StatementMatchHeaders) SetResponse(val StatementMatch) {
 	s.Response = val
 }
 
-func (*StatementMatchHeaders) excludeBankStatementLineRes() {}
-func (*StatementMatchHeaders) matchBankStatementLineRes()   {}
-func (*StatementMatchHeaders) postBankStatementLineRes()    {}
+func (*StatementMatchHeaders) acceptBankStatementLineProposalRes() {}
+func (*StatementMatchHeaders) excludeBankStatementLineRes()        {}
+func (*StatementMatchHeaders) matchBankStatementLineRes()          {}
+func (*StatementMatchHeaders) postBankStatementLineRes()           {}
+func (*StatementMatchHeaders) rejectBankStatementLineProposalRes() {}
 
 // A bank statement's matches.
 // Ref: #/components/schemas/StatementMatchList
@@ -31795,6 +32358,7 @@ func (s *TooManyRequestsHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*TooManyRequestsHeaders) acceptBankStatementLineProposalRes()  {}
 func (*TooManyRequestsHeaders) activateChangeRequestRes()            {}
 func (*TooManyRequestsHeaders) activateLegalEntityRes()              {}
 func (*TooManyRequestsHeaders) activateOrgUnitRes()                  {}
@@ -31863,6 +32427,7 @@ func (*TooManyRequestsHeaders) getBankFileContentRes()               {}
 func (*TooManyRequestsHeaders) getBankFileRes()                      {}
 func (*TooManyRequestsHeaders) getBankStatementFileRes()             {}
 func (*TooManyRequestsHeaders) getBankStatementRes()                 {}
+func (*TooManyRequestsHeaders) getBankStatementRulesRes()            {}
 func (*TooManyRequestsHeaders) getBusinessPartnerRes()               {}
 func (*TooManyRequestsHeaders) getChangeRequestRes()                 {}
 func (*TooManyRequestsHeaders) getClearingRes()                      {}
@@ -31927,6 +32492,7 @@ func (*TooManyRequestsHeaders) listExchangeRatesRes()                {}
 func (*TooManyRequestsHeaders) listFiscalPeriodsRes()                {}
 func (*TooManyRequestsHeaders) listGoodsReceiptsRes()                {}
 func (*TooManyRequestsHeaders) listGrIrBalancesRes()                 {}
+func (*TooManyRequestsHeaders) listHouseBanksRes()                   {}
 func (*TooManyRequestsHeaders) listJournalEntriesRes()               {}
 func (*TooManyRequestsHeaders) listLegalEntitiesRes()                {}
 func (*TooManyRequestsHeaders) listMatchResultsRes()                 {}
@@ -31969,11 +32535,13 @@ func (*TooManyRequestsHeaders) postParkedJournalEntryRes()           {}
 func (*TooManyRequestsHeaders) postRevaluationRunRes()               {}
 func (*TooManyRequestsHeaders) postSupplierInvoiceRes()              {}
 func (*TooManyRequestsHeaders) previewRevaluationRes()               {}
+func (*TooManyRequestsHeaders) proposeBankStatementLineRes()         {}
 func (*TooManyRequestsHeaders) proposePaymentRunRes()                {}
 func (*TooManyRequestsHeaders) reconcileMigrationRunRes()            {}
 func (*TooManyRequestsHeaders) recordAgentToolCallRes()              {}
 func (*TooManyRequestsHeaders) redeliverWebhookDeliveryRes()         {}
 func (*TooManyRequestsHeaders) rejectApprovalRequestRes()            {}
+func (*TooManyRequestsHeaders) rejectBankStatementLineProposalRes()  {}
 func (*TooManyRequestsHeaders) rejectPaymentRunRes()                 {}
 func (*TooManyRequestsHeaders) releaseContractRes()                  {}
 func (*TooManyRequestsHeaders) releasePaymentRunRes()                {}
@@ -32078,6 +32646,7 @@ func (s *UnauthorizedHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*UnauthorizedHeaders) acceptBankStatementLineProposalRes()  {}
 func (*UnauthorizedHeaders) activateChangeRequestRes()            {}
 func (*UnauthorizedHeaders) activateLegalEntityRes()              {}
 func (*UnauthorizedHeaders) activateOrgUnitRes()                  {}
@@ -32146,6 +32715,7 @@ func (*UnauthorizedHeaders) getBankFileContentRes()               {}
 func (*UnauthorizedHeaders) getBankFileRes()                      {}
 func (*UnauthorizedHeaders) getBankStatementFileRes()             {}
 func (*UnauthorizedHeaders) getBankStatementRes()                 {}
+func (*UnauthorizedHeaders) getBankStatementRulesRes()            {}
 func (*UnauthorizedHeaders) getBusinessPartnerRes()               {}
 func (*UnauthorizedHeaders) getChangeRequestRes()                 {}
 func (*UnauthorizedHeaders) getClearingRes()                      {}
@@ -32210,6 +32780,7 @@ func (*UnauthorizedHeaders) listExchangeRatesRes()                {}
 func (*UnauthorizedHeaders) listFiscalPeriodsRes()                {}
 func (*UnauthorizedHeaders) listGoodsReceiptsRes()                {}
 func (*UnauthorizedHeaders) listGrIrBalancesRes()                 {}
+func (*UnauthorizedHeaders) listHouseBanksRes()                   {}
 func (*UnauthorizedHeaders) listJournalEntriesRes()               {}
 func (*UnauthorizedHeaders) listLegalEntitiesRes()                {}
 func (*UnauthorizedHeaders) listMatchResultsRes()                 {}
@@ -32252,11 +32823,13 @@ func (*UnauthorizedHeaders) postParkedJournalEntryRes()           {}
 func (*UnauthorizedHeaders) postRevaluationRunRes()               {}
 func (*UnauthorizedHeaders) postSupplierInvoiceRes()              {}
 func (*UnauthorizedHeaders) previewRevaluationRes()               {}
+func (*UnauthorizedHeaders) proposeBankStatementLineRes()         {}
 func (*UnauthorizedHeaders) proposePaymentRunRes()                {}
 func (*UnauthorizedHeaders) reconcileMigrationRunRes()            {}
 func (*UnauthorizedHeaders) recordAgentToolCallRes()              {}
 func (*UnauthorizedHeaders) redeliverWebhookDeliveryRes()         {}
 func (*UnauthorizedHeaders) rejectApprovalRequestRes()            {}
+func (*UnauthorizedHeaders) rejectBankStatementLineProposalRes()  {}
 func (*UnauthorizedHeaders) rejectPaymentRunRes()                 {}
 func (*UnauthorizedHeaders) releaseContractRes()                  {}
 func (*UnauthorizedHeaders) releasePaymentRunRes()                {}
@@ -32350,6 +32923,7 @@ func (s *UnprocessableHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*UnprocessableHeaders) acceptBankStatementLineProposalRes()  {}
 func (*UnprocessableHeaders) activateChangeRequestRes()            {}
 func (*UnprocessableHeaders) activateLegalEntityRes()              {}
 func (*UnprocessableHeaders) activateOrgUnitRes()                  {}
@@ -32426,11 +33000,13 @@ func (*UnprocessableHeaders) postParkedJournalEntryRes()           {}
 func (*UnprocessableHeaders) postRevaluationRunRes()               {}
 func (*UnprocessableHeaders) postSupplierInvoiceRes()              {}
 func (*UnprocessableHeaders) previewRevaluationRes()               {}
+func (*UnprocessableHeaders) proposeBankStatementLineRes()         {}
 func (*UnprocessableHeaders) proposePaymentRunRes()                {}
 func (*UnprocessableHeaders) reconcileMigrationRunRes()            {}
 func (*UnprocessableHeaders) recordAgentToolCallRes()              {}
 func (*UnprocessableHeaders) redeliverWebhookDeliveryRes()         {}
 func (*UnprocessableHeaders) rejectApprovalRequestRes()            {}
+func (*UnprocessableHeaders) rejectBankStatementLineProposalRes()  {}
 func (*UnprocessableHeaders) rejectPaymentRunRes()                 {}
 func (*UnprocessableHeaders) releaseContractRes()                  {}
 func (*UnprocessableHeaders) releasePaymentRunRes()                {}

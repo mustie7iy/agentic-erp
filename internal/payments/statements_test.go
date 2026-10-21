@@ -342,6 +342,9 @@ func TestStatementFile(t *testing.T) {
 		}
 		e.in(t).Problem(404, "request.not_found", "GET", "/v1/bank-statements/"+e.expense.String()+"/file", "", "")
 	})
+	t.Run("never to agents, who see the accounts masked", func(t *testing.T) {
+		e.in(t).agent().Problem(403, "identity.agent_not_allowed", "GET", "/v1/bank-statements/"+id(s)+"/file", "", "")
+	})
 	t.Run("imported again after its rows went, the kept file is the same", func(t *testing.T) {
 		pgtest.Exec(t, `DELETE FROM payments.bank_statement_line WHERE statement_id = $1`, uuidOf(id(s)))
 		pgtest.Exec(t, `UPDATE payments.bank_statement SET file_sha256 = decode(repeat('00', 32), 'hex'), statement_key = 'gone', version = version + 1 WHERE id = $1`, uuidOf(id(s)))

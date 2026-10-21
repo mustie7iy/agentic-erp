@@ -406,7 +406,7 @@ func TestAgentErrors(t *testing.T) {
 	t.Chdir(t.TempDir())
 	model(t)
 	fakeAPI(t, routes{})
-	fails(t, "agent invoices | config", "agent")
+	fails(t, "agent invoices | config | migration | test | reconcile", "agent")
 	fails(t, "unknown agent", "agent", "bogus")
 	fails(t, "flag provided", "agent", "config", "-x")
 	fails(t, "say what to change", "agent", "config")
@@ -416,8 +416,18 @@ func TestAgentErrors(t *testing.T) {
 	fails(t, "start session", "agent", "migration", "-connector", "c")
 	fails(t, "flag provided", "agent", "test", "-x")
 	fails(t, "404", "agent", "test", "-change-request", "cr")
+	fails(t, "flag provided", "agent", "reconcile", "-x")
+	fails(t, "404", "agent", "reconcile", "-statement", "s")
+	fakeAPI(t, routes{"GET /v1/bank-statements/s": {ok(`{"lines": [{"line_no": 1, "status": "unmatched"}]}`)},
+		"GET /v1/bank-statements/s/matches": {page()}})
+	fails(t, "line 1: ", "agent", "reconcile", "-statement", "s")
+	fakeAPI(t, routes{"GET /v1/bank-statements/s": {ok(`{"lines": []}`)}, "GET /v1/bank-statements/s/matches": {page()}})
+	if got := must(t, "agent", "reconcile", "-statement", "s"); !strings.Contains(got, "reviewed 0 lines and made 0 proposals") {
+		t.Errorf("agent reconcile: got %s", got)
+	}
+	printFails(t, "agent", "reconcile", "-statement", "s")
 	fakeAPI(t, routes{}, "ERP_AGENT_TOKEN", "")
-	for _, a := range []string{"config", "migration", "test"} {
+	for _, a := range []string{"config", "migration", "test", "reconcile"} {
 		t.Run(a+" without a token", func(t *testing.T) {
 			fails(t, "ERP_AGENT_TOKEN is not set", "agent", a, "do", "it")
 		})

@@ -1412,7 +1412,10 @@ erDiagram
     text status "open | matched | excluded | rejected"
     date posting_date "booking date, or a person's with posting_reason"
     uuid approval_request_id "bank_clearing (workflow)"
-    uuid journal_entry_id "the posting (ledger), one match per entry" }
+    uuid journal_entry_id "the posting (ledger), one match per entry"
+    uuid session_id "an agent's: its session (agents), once per line"
+    text proposal "an agent's: match | exclude"
+    text outcome "a decided proposal: accepted | rejected | overridden" }
   statement_match ||--o{ statement_match_target : clears
   statement_match_target { uuid match_id PK
     smallint candidate PK
@@ -1472,7 +1475,16 @@ latest `bank_clearing` approval request (kept when rejected or withdrawn)
 and the journal entry (`statement_match_journal_entry`: one match per
 entry; `statement_match_posted`: a posted match stays `matched`); the
 line becomes `pending_approval`, then `posted`, or `matched` again when
-the request is rejected or withdrawn. The posting debits the bank's
+the request is rejected or withdrawn. The reconciliation agent proposes
+(T49g, 000111) for a line the rules left unmatched or open a match of kind
+`agent`, `open`, that names its agent session (`session_id`, agents
+context) and what it proposes (`proposal`: `match`, with one candidate's
+targets, or `exclude`); a session proposes once per line
+(`statement_match_session`), an agent's match never posts
+(`statement_match_agent_open`), and once a person decides it, it is
+`rejected` with the `outcome` (`accepted`: the person's own match by it
+follows; `rejected`: the line is unmatched again; `overridden`). The
+posting debits the bank's
 clearing account and clears each payment's line on it (an open-item
 managed account, `ledger.company_account`), or posts a posting rule's
 account, against the main bank account. A bank

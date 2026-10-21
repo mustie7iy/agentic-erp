@@ -226,17 +226,9 @@ func do(ctx context.Context, c *apitools.Client, call Call, saved map[string]str
 	if err != nil {
 		return err
 	}
-	body, err := fill(call.Body, saved)
+	res, err := send(ctx, c, call, path, saved)
 	if err != nil {
 		return err
-	}
-	method := call.Method
-	if method == "" {
-		method = http.MethodPost
-	}
-	res, err := c.Do(ctx, method, path, nil, body, "*")
-	if err != nil {
-		return fmt.Errorf("eval: call: %w", err)
 	}
 	if (call.Status == 0 && !res.OK()) || (call.Status != 0 && res.Status != call.Status) {
 		return fmt.Errorf("answered %d: %s", res.Status, res.Body)
@@ -256,6 +248,43 @@ func do(ctx context.Context, c *apitools.Client, call Call, saved map[string]str
 		saved[name] = text(v)
 	}
 	return nil
+}
+
+// send makes a setup call: its form, or its body.
+func send(ctx context.Context, c *apitools.Client, call Call, path string, saved map[string]string) (apitools.Response, error) {
+	if call.Form != nil {
+		return sendForm(ctx, c, call, path, saved)
+	}
+	body, err := fill(call.Body, saved)
+	if err != nil {
+		return apitools.Response{}, err
+	}
+	method := call.Method
+	if method == "" {
+		method = http.MethodPost
+	}
+	res, err := c.Do(ctx, method, path, nil, body, "*")
+	if err != nil {
+		return res, fmt.Errorf("eval: call: %w", err)
+	}
+	return res, nil
+}
+
+// sendForm posts a setup call's form, its values filled.
+func sendForm(ctx context.Context, c *apitools.Client, call Call, path string, saved map[string]string) (apitools.Response, error) {
+	values := map[string]string{}
+	for k, v := range call.Form {
+		filled, err := fillString(v, saved)
+		if err != nil {
+			return apitools.Response{}, err
+		}
+		values[k] = filled
+	}
+	res, err := c.Form(ctx, path, values)
+	if err != nil {
+		return res, fmt.Errorf("eval: call: %w", err)
+	}
+	return res, nil
 }
 
 // decode reads an answer keeping numbers as they were written.

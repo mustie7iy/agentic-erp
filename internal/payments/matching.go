@@ -78,6 +78,10 @@ type Match struct {
 	ApprovalRequestID *uuid.UUID
 	JournalEntryYear  *int16
 	JournalEntryID    *uuid.UUID
+	// An agent's proposal (T49g): its session, what it proposes and, once
+	// a person decided it, the outcome.
+	SessionID         *uuid.UUID
+	Proposal, Outcome *string
 }
 
 // matchLine is what the rules read of a line.
@@ -236,7 +240,7 @@ func (m matcher) line(ctx context.Context, l matchLine) (bool, error) {
 		if *l.Open == sig {
 			return false, nil // the rules find what they found before
 		}
-		if err := rejectLive(ctx, m.tx, m.p, m.s.ID, l.LineNo); err != nil {
+		if err := rejectLive(ctx, m.tx, m.p, m.s, l.LineNo, rejection{}); err != nil {
 			return false, err
 		}
 	}
@@ -298,9 +302,14 @@ func reopenLine(ctx context.Context, tx pgx.Tx, p reqctx.Principal, statement uu
 	if l.Open == nil {
 		return nil
 	}
+	return unmatchLine(ctx, tx, p, statement, l.LineNo)
+}
+
+// unmatchLine makes the line unmatched again: its live match was rejected.
+func unmatchLine(ctx context.Context, tx pgx.Tx, p reqctx.Principal, statement uuid.UUID, lineNo int32) error {
 	if _, err := tx.Exec(ctx, `UPDATE payments.bank_statement_line SET status = 'unmatched', version = version + 1, updated_by = $3
-		WHERE statement_id = $1 AND line_no = $2`, statement, l.LineNo, p.ID); err != nil {
-		return fmt.Errorf("payments: reopen line %d of statement %s: %w", l.LineNo, statement, err)
+		WHERE statement_id = $1 AND line_no = $2`, statement, lineNo, p.ID); err != nil {
+		return fmt.Errorf("payments: reopen line %d of statement %s: %w", lineNo, statement, err)
 	}
 	return nil
 }
@@ -509,22 +518,27 @@ func targets(candidate int16, pays []paid) []MatchTarget {
 	return out
 }
 
-// newMatch is a match to record.
+// newMatch is a match to record; an agent's names its session and what
+// it proposes.
 type newMatch struct {
 	kind       string
 	rule       *string
 	reason     string
 	status     string
 	candidates [][]MatchTarget
+	session    *uuid.UUID
+	proposal   *string
 }
 
 // writeMatch records the match of the line with its targets, sets the
 // line's status by it, audits it and publishes BankStatementLineMatched,
-// or BankStatementLineExcluded.
+// BankStatementLineExcluded, or for an agent's BankStatementLineProposed.
 func writeMatch(ctx context.Context, tx pgx.Tx, p reqctx.Principal, s Statement, lineNo int32, m newMatch) (uuid.UUID, error) {
 	id := uuid.Must(uuid.NewV7())
-	if _, err := tx.Exec(ctx, `INSERT INTO payments.statement_match (tenant_id, id, statement_id, line_no, kind, rule, reason, status, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`, p.TenantID, id, s.ID, lineNo, m.kind, m.rule, m.reason, m.status, p.ID); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO payments.statement_match (tenant_id, id, statement_id, line_no, kind, rule, reason, status, created_by, updated_by,
+			session_id, proposal)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10, $11)`, p.TenantID, id, s.ID, lineNo, m.kind, m.rule, m.reason, m.status, p.ID,
+		m.session, m.proposal); err != nil {
 		return uuid.Nil, fmt.Errorf("payments: record the match of line %d of statement %s: %w", lineNo, s.ID, err)
 	}
 	var cands, nos []int16
@@ -546,9 +560,14 @@ func writeMatch(ctx context.Context, tx pgx.Tx, p reqctx.Principal, s Statement,
 	}
 	payload := map[string]any{"statement_match_id": id, "bank_statement_id": s.ID, "line_no": lineNo, "house_bank_id": s.HouseBankID,
 		"legal_entity_id": s.LegalEntityID, "kind": m.kind, "rule": m.rule, "status": m.status, "candidates": len(m.candidates)}
+	detail := map[string]any{"bank_statement_id": s.ID, "line_no": lineNo, "kind": m.kind, "rule": m.rule, "status": m.status, "reason": m.reason,
+		"targets": m.candidates}
 	name := map[bool]string{true: "bank_statement_line_excluded", false: "bank_statement_line_matched"}[m.status == MatchExcluded]
-	return id, record(ctx, "payments.statement_match.create", id, map[string]any{"bank_statement_id": s.ID, "line_no": lineNo, "kind": m.kind,
-		"rule": m.rule, "status": m.status, "reason": m.reason, "targets": m.candidates},
+	if m.kind == MatchAgent {
+		name, payload["session_id"], payload["proposal"], detail["session_id"], detail["proposal"] =
+			"bank_statement_line_proposed", m.session, m.proposal, m.session, m.proposal
+	}
+	return id, record(ctx, "payments.statement_match.create", id, detail,
 		outbox.Event{Context: "payments", Name: name, AggregateType: "payments.statement_match", AggregateID: id, Payload: payload})
 }
 
@@ -558,12 +577,13 @@ const matchSelect = `SELECT m.id, m.statement_id, m.line_no, m.kind, m.rule, m.r
 		'posting_rule', t.posting_rule)) ORDER BY t.candidate, t.target_no)
 		FROM payments.statement_match_target t WHERE t.tenant_id = m.tenant_id AND t.match_id = m.id), '[]'),
 	m.version, m.created_at, m.updated_at, m.created_by, m.updated_by, m.posting_date, m.posting_reason, m.approval_request_id,
-	m.journal_entry_year, m.journal_entry_id FROM payments.statement_match m`
+	m.journal_entry_year, m.journal_entry_id, m.session_id, m.proposal, m.outcome FROM payments.statement_match m`
 
 func scanMatch(row pgx.CollectableRow) (Match, error) {
 	var m Match
 	err := row.Scan(&m.ID, &m.StatementID, &m.LineNo, &m.Kind, &m.Rule, &m.Reason, &m.Status, &m.Targets, &m.Version, &m.CreatedAt, &m.UpdatedAt,
-		&m.CreatedBy, &m.UpdatedBy, &m.PostingDate, &m.PostingReason, &m.ApprovalRequestID, &m.JournalEntryYear, &m.JournalEntryID)
+		&m.CreatedBy, &m.UpdatedBy, &m.PostingDate, &m.PostingReason, &m.ApprovalRequestID, &m.JournalEntryYear, &m.JournalEntryID,
+		&m.SessionID, &m.Proposal, &m.Outcome)
 	return m, errs.Wrapf(err, "scan statement match")
 }
 

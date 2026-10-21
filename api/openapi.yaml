@@ -22,7 +22,7 @@ info:
     - **Resource kinds.** Mutable resources carry `id`, `version` (= ETag), `created_*` and `updated_*`. Insert-only resources (journal entries, goods receipts, clearings, match results, decisions, audit events) carry `id`, `created_at`, `created_by`; corrections are new documents (`:reverse`). Effective-dated grants (role assignments, role permissions, company access, SoD rules, bank accounts) add `valid_from`, `valid_to`, `ended_at`, `ended_by`: they are never updated otherwise and never deleted, only ended (`:end`). Resources without a version have an ETag derived from their representation, so `If-Match` still guards their custom methods.
     - **Long-running work** returns 202 with an `Operation` (ADR-0012).
     - **Approvals.** Approval decisions are made only on approval requests (`:approve`, `:reject`), which require `workflow.request.decide` plus the approval permission of the object type, listed per operation in `x-object-permissions` (object type to permission code). Payment runs are released directly (`payment-runs/{id}:release`) by a person other than the proposer.
-    - **Agents** call the same operations. Operations marked `x-agent: false` (approval decisions, identity administration) are never exposed as agent tools and refuse agent tokens. An agent acts within its autonomy level (`agent_profile.autonomy_level`, ADR-0036): level 0 only reads; level 1 also performs the operations marked `x-autonomy: propose`, which only propose (its sessions, tool-call records and recommendations, change requests, drafts, down payment requests); level 2 performs any write its permissions allow. Operations marked `x-autonomy: read` change no business data though they are not GET (a long-running verification), and every level performs them. Above its level an agent is refused with 403 `identity.autonomy_insufficient`. While the tenant's AI is off (`getAiPolicy`: switched off by its administrators or suspended by the platform's operators), every agent request is refused with 403 `agents.ai_disabled`.
+    - **Agents** call the same operations. Operations marked `x-agent: false` (approval decisions, identity administration) are never exposed as agent tools and refuse agent tokens. An agent acts within its autonomy level (`agent_profile.autonomy_level`, ADR-0036): level 0 only reads; level 1 also performs the operations marked `x-autonomy: propose`, which only propose (its sessions, tool-call records and recommendations, change requests, drafts, down payment requests, bank statement line proposals); level 2 performs any write its permissions allow. Operations marked `x-autonomy: read` change no business data though they are not GET (a long-running verification), and every level performs them. Above its level an agent is refused with 403 `identity.autonomy_insufficient`. While the tenant's AI is off (`getAiPolicy`: switched off by its administrators or suspended by the platform's operators), every agent request is refused with 403 `agents.ai_disabled`.
     - **Rate limits.** Every response carries `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`; 429 adds `Retry-After`.
     - **Latency classes.** Each operation's latency objective (01-requirements §1.3) is that of its class: `read` (a GET of one resource), `list` (any other GET), `write` (any other method), unless `x-slo-class` names `approval` or `report` (ADR-0043).
   contact:
@@ -8583,8 +8583,9 @@ paths:
       tags:
         - payments
       summary: Download a bank statement's file
-      description: "The file a bank statement was imported from, byte for byte as the bank sent it (camt.053 XML or MT940 text): kept as accounting evidence in object storage, written once, encrypted and locked for the retention of financial records (ADR-0047). The statements of one file share it. 503 while the server has no object storage or the store does not answer."
+      description: "The file a bank statement was imported from, byte for byte as the bank sent it (camt.053 XML or MT940 text): kept as accounting evidence in object storage, written once, encrypted and locked for the retention of financial records (ADR-0047). The statements of one file share it. People and integrations only: the file holds the accounts whole, which agents see masked (T49g). 503 while the server has no object storage or the store does not answer."
       x-permission: payments.statement.read
+      x-agent: false
       parameters:
         - $ref: "#/components/parameters/Id"
       responses:
@@ -8697,6 +8698,40 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StatementMatchList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/bank-statements/{id}/rules":
+    get:
+      operationId: getBankStatementRules
+      tags:
+        - payments
+      summary: Get the rules a bank statement is matched and posted by
+      description: "The posting rules and matching rules of the statement's company in the active configuration (`companies[].bank_statements`, ADR-0047): what the transaction codes post to, and how lines are matched, in the rules' order. Read by people and by the reconciliation agent, which proposes a posting rule by its transaction code. Empty lists for a company without them."
+      x-permission: payments.statement.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The statement's rules.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankStatementRules"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -8909,6 +8944,266 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/bank-statements/{id}/lines/{line_no}:propose":
+    post:
+      operationId: proposeBankStatementLine
+      tags:
+        - payments
+      summary: Propose a match or exclusion of a bank statement line
+      description: "The reconciliation agent proposes (ADR-0047, T49g), for a line the rules left `unmatched` or open (`proposed` by a rule), the payments it clears, a posting rule of the company, or its exclusion, with a reason, in its running session (`session_id`; another's or an ended one is refused as `createRecommendation` refuses it). A person decides the proposal: `:acceptProposal` matches or excludes the line by it, `:rejectProposal` turns it down, and a person's own `:match` or `:exclude` overrides it. The proposal is a match of kind `agent` and status `open` naming its session and `proposal` (`match` or `exclude`); the line's open match by a rule is rejected, and the line is `proposed`. The rules never take a proposal up again. A proposal reserves no payment and never posts: each payment must be one the line may clear, as for a person's match (422 `payments.statement_match_target`). A session proposes once per line: the same proposal again answers 200 with the first; another is 409 `payments.statement_line_proposed`, as is a proposal for a line with another session's proposal. A line matched, excluded, waiting for its posting's approval or posted takes no proposal (409 `payments.statement_line_not_open`). If-Match is the statement's ETag, as the agent read it (a proposal made before is answered whatever it is). Audited, and published as BankStatementLineProposed. The response's ETag is the statement's new one."
+      x-permission: payments.statement.propose
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: line_no
+          in: path
+          required: true
+          description: The line's number in the statement, from 1.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of proposeBankStatementLine.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatementLineProposalInput"
+      responses:
+        "200":
+          description: "The session's proposal for the line, made before."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementMatch"
+        "201":
+          description: "The proposal, the line's new live match."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementMatch"
+              examples:
+                proposed:
+                  summary: Charges deducted by the bank
+                  value: {id: 0192a000-0000-7000-8000-000000000b42, version: 1, created_at: "2026-10-21T09:00:00Z", created_by: 0192a000-0000-7000-8000-000000000106, updated_at: "2026-10-21T09:00:00Z", updated_by: 0192a000-0000-7000-8000-000000000106, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 4, kind: agent, reason: "The bank booked 99.50 for payment 2000-PR100000-000004 of 100.00 to the same payee; 0.50 is its charge.", status: open, proposal: match, session_id: 0192a000-0000-7000-8000-000000000a01, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c04}]}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/bank-statements/{id}/lines/{line_no}:acceptProposal":
+    post:
+      operationId: acceptBankStatementLineProposal
+      tags:
+        - payments
+      summary: Accept the agent's proposal for a bank statement line
+      description: "A person accepts the line's open proposal by the reconciliation agent (ADR-0047, T49g): the line is matched by hand to what it proposed, checked again as `:match` checks it (422 `payments.statement_match_target` when a payment is no longer one the line may clear, or the posting rule is gone), or excluded with its reason. The proposal becomes `rejected` with outcome `accepted`, and the person's match (kind `manual`) is the line's, so the person posts it with `:post` and cannot approve its posting (segregation of duties). A line without an open proposal is 409 `payments.statement_line_no_proposal`; one on its way to the ledger keeps its match (409 `payments.statement_line_posting`). People only. Audited; published as BankStatementLineProposalDecided and BankStatementLineMatched (or BankStatementLineExcluded). If-Match is the statement's ETag; the response's is its new one."
+      x-permission: payments.statement.match
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: line_no
+          in: path
+          required: true
+          description: The line's number in the statement, from 1.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of acceptBankStatementLineProposal.
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatementLineProposalAccept"
+      responses:
+        "201":
+          description: "The line's new match, the person's, by the proposal."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementMatch"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/bank-statements/{id}/lines/{line_no}:rejectProposal":
+    post:
+      operationId: rejectBankStatementLineProposal
+      tags:
+        - payments
+      summary: Reject the agent's proposal for a bank statement line
+      description: "A person rejects the line's open proposal by the reconciliation agent, with a reason (ADR-0047, T49g): the proposal becomes `rejected` with outcome `rejected`, and the line `unmatched`, for the rules' next run or a person. The reconciliation agent does not propose for the line again. A line without an open proposal is 409 `payments.statement_line_no_proposal`. People only. Audited, and published as BankStatementLineProposalDecided. If-Match is the statement's ETag; the response's is its new one."
+      x-permission: payments.statement.match
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: line_no
+          in: path
+          required: true
+          description: The line's number in the statement, from 1.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of rejectBankStatementLineProposal.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonInput"
+      responses:
+        "200":
+          description: "The proposal, rejected."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementMatch"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/house-banks:
+    get:
+      operationId: listHouseBanks
+      tags:
+        - payments
+      summary: List house banks
+      description: "The house banks of the companies the caller may access, as the configuration names them (`companies[].house_bank(s)`), active and inactive, by legal entity and code: the id a statement import names. The account is shown by its last four characters only. Sortable by: `code`."
+      x-permission: payments.statement.read
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: false
+          description: Only the house banks of this legal entity.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: "One page of house banks."
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HouseBankPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   "/v1/bank-files/{id}":
     get:
       operationId: getBankFile
@@ -13320,6 +13615,7 @@ components:
             - migration
             - test
             - analytics
+            - reconciliation
           maxLength: 50
         model:
           type: string
@@ -20822,7 +21118,7 @@ components:
               readOnly: true
             account:
               type: string
-              description: "The account's IBAN, or the bank's account number where it has none."
+              description: "The account's IBAN, or the bank's account number where it has none. Agents see its last four characters only, after `****`."
               readOnly: true
             opening_balance:
               $ref: "#/components/schemas/Money"
@@ -20864,7 +21160,7 @@ components:
               description: "The booked entries, in the bank's order; absent in lists."
               readOnly: true
     StatementMatch:
-      description: "What a bank statement line clears (ADR-0047): found by a matching rule, decided by a person, or (later) proposed by the reconciliation agent."
+      description: "What a bank statement line clears (ADR-0047): found by a matching rule, decided by a person, or proposed by the reconciliation agent for a person to decide (kind `agent`, T49g)."
       examples:
         - {id: 0192a000-0000-7000-8000-000000000b40, version: 1, created_at: "2026-10-20T11:00:00Z", created_by: 0192a000-0000-7000-8000-000000000105, updated_at: "2026-10-20T11:00:00Z", updated_by: 0192a000-0000-7000-8000-000000000105, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, kind: rule, rule: end_to_end_id, reason: "End-to-end ids 2000-PR100000-000001: 1 of 1 are payments, paying 100.00 of 100.00.", status: matched, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c01}]}
       allOf:
@@ -20887,7 +21183,7 @@ components:
             reason: {type: string, description: "What the rule found, or the person's reason.", readOnly: true}
             status:
               type: string
-              description: "open: candidates for a person to choose from; matched: the targets decided; excluded: the line clears nothing; rejected: replaced by a person's decision. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "open: candidates for a person to choose from, or an agent's proposal; matched: the targets decided; excluded: the line clears nothing; rejected: replaced by a person's decision, or an agent's proposal a person decided (`outcome`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum: [open, matched, excluded, rejected]
               readOnly: true
             targets:
@@ -20900,6 +21196,17 @@ components:
             approval_request_id: {type: string, format: uuid, description: "The latest `bank_clearing` approval request of the posting (workflow context), also once rejected or withdrawn.", readOnly: true}
             journal_entry_id: {type: string, format: uuid, description: "The posting (ledger context), once the line is posted.", readOnly: true}
             journal_entry_year: {type: integer, format: int32, description: "The fiscal year of the posting.", readOnly: true}
+            session_id: {type: string, format: uuid, description: "The agent session that made an agent's proposal (agents context).", readOnly: true}
+            proposal:
+              type: string
+              description: "What an agent's proposal proposes: `match` (its targets) or `exclude` (none). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [match, exclude]
+              readOnly: true
+            outcome:
+              type: string
+              description: "What a person did with an agent's proposal, once decided: `accepted` (the person's match by it), `rejected`, or `overridden` (the person matched or excluded the line otherwise). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [accepted, rejected, overridden]
+              readOnly: true
     StatementMatchTarget:
       type: object
       description: "A payment, with the bank file of a batch booking, or a posting rule."
@@ -20921,6 +21228,121 @@ components:
             - [{id: 0192a000-0000-7000-8000-000000000b40, version: 1, created_at: "2026-10-20T11:00:00Z", created_by: 0192a000-0000-7000-8000-000000000105, updated_at: "2026-10-20T11:00:00Z", updated_by: 0192a000-0000-7000-8000-000000000105, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, kind: rule, rule: end_to_end_id, reason: "End-to-end ids 2000-PR100000-000001: 1 of 1 are payments, paying 100.00 of 100.00.", status: matched, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c01}]}]
       examples:
         - {items: [{id: 0192a000-0000-7000-8000-000000000b40, version: 1, created_at: "2026-10-20T11:00:00Z", created_by: 0192a000-0000-7000-8000-000000000105, updated_at: "2026-10-20T11:00:00Z", updated_by: 0192a000-0000-7000-8000-000000000105, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, kind: rule, rule: end_to_end_id, reason: "End-to-end ids 2000-PR100000-000001: 1 of 1 are payments, paying 100.00 of 100.00.", status: matched, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c01}]}]}
+    StatementLineProposalInput:
+      type: object
+      description: "The reconciliation agent's proposal for a line, in its running session: the payments the line clears, a posting rule, or its exclusion (one of the three), and why."
+      required: [session_id, reason]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+          description: "The caller's running agent session; a session proposes once per line."
+        payment_ids:
+          type: array
+          items: {type: string, format: uuid}
+          minItems: 1
+          maxItems: 1000
+          uniqueItems: true
+          description: The payments the line clears.
+          examples:
+            - [0192a000-0000-7000-8000-000000000c04]
+        posting_rule:
+          type: string
+          minLength: 1
+          maxLength: 35
+          description: The transaction code of the company's posting rule that posts the line.
+        exclude:
+          type: boolean
+          description: "True to propose that the line clears nothing the ledger holds."
+        reason:
+          type: string
+          description: "Why, with the figures that support it; recorded on the proposal, in the audit trail and on the event, for the person who decides."
+          minLength: 1
+          maxLength: 2000
+      additionalProperties: false
+      examples:
+        - {session_id: 0192a000-0000-7000-8000-000000000a01, payment_ids: [0192a000-0000-7000-8000-000000000c04], reason: "The bank booked 99.50 for payment 2000-PR100000-000004 of 100.00 to the same payee; 0.50 is its charge."}
+    StatementLineProposalAccept:
+      type: object
+      description: "A person's acceptance of the agent's proposal for a line."
+      properties:
+        comment:
+          type: string
+          description: "Added to the proposal's reason on the person's match; recorded in the audit trail."
+          minLength: 1
+          maxLength: 2000
+      additionalProperties: false
+      examples:
+        - {comment: "Checked against the bank's charges schedule."}
+    HouseBank:
+      type: object
+      description: "A house bank of a company (SAP T012K), from the configuration (`companies[].house_bank(s)`, ADR-0038)."
+      required: [id, legal_entity_id, code, currency, account_last4, bic, status]
+      properties:
+        id: {type: string, format: uuid, description: "Identifier: the `house_bank_id` of statement imports and payment runs.", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: The house bank's legal entity., readOnly: true}
+        code: {type: string, description: "The bank's name in the configuration, unique within the legal entity.", readOnly: true}
+        currency: {type: string, description: "The account's currency (ISO 4217).", readOnly: true}
+        account_last4: {type: string, description: "The last up to four characters of the account's IBAN.", readOnly: true}
+        bic: {type: string, description: The bank's BIC., readOnly: true}
+        status:
+          type: string
+          description: "`inactive` once the configuration no longer lists it. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [active, inactive]
+          readOnly: true
+      examples:
+        - {id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, code: MAIN, currency: EUR, account_last4: "3000", bic: COBADEFFXXX, status: active}
+    HouseBankPage:
+      type: object
+      description: One page of house banks.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/HouseBank"}
+          description: The house banks on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - {items: [{id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, code: MAIN, currency: EUR, account_last4: "3000", bic: COBADEFFXXX, status: active}]}
+    BankStatementRules:
+      type: object
+      description: "The posting and matching rules of a bank statement's company (`companies[].bank_statements`)."
+      required: [posting_rules, matching_rules]
+      properties:
+        posting_rules:
+          type: array
+          description: "What lines of a bank transaction code post to (SAP T028G)."
+          items:
+            type: object
+            description: A posting rule.
+            required: [transaction_code, description, account]
+            properties:
+              transaction_code: {type: string, description: "The bank transaction code: ISO 20022 domain, family and sub-family, an MT940 type or the bank's proprietary code.", readOnly: true}
+              description: {type: string, description: What the rule posts., readOnly: true}
+              account: {type: string, description: "The number of the account the line posts to.", readOnly: true}
+          readOnly: true
+        matching_rules:
+          type: array
+          description: "How lines are matched, in the order the rules are tried."
+          items:
+            type: object
+            description: A matching rule.
+            required: [kind]
+            properties:
+              kind:
+                type: string
+                description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+                x-extensible-enum: [end_to_end_id, batch_id, transaction_code, amount]
+                readOnly: true
+              amount_tolerance: {type: string, description: "The amount rule's tolerance, in the company's currency.", readOnly: true}
+              date_window_days: {type: integer, format: int32, description: "The amount rule's window around the booking date, in days.", readOnly: true}
+              counterparty: {type: boolean, description: "Whether the amount rule asks for the payee's IBAN or name.", readOnly: true}
+          readOnly: true
+      examples:
+        - {posting_rules: [{transaction_code: NCHG, description: Bank charges, account: "520000"}], matching_rules: [{kind: end_to_end_id}, {kind: amount, amount_tolerance: "0.50", date_window_days: 3, counterparty: true}]}
     StatementLinePostInput:
       type: object
       description: "A person's posting of a matched line: on its booking date, or on another date with the reason."
@@ -21069,11 +21491,15 @@ components:
           readOnly: true
         counterparty_iban:
           type: string
-          description: The other side's IBAN.
+          description: "The other side's IBAN; absent for agents, who see `counterparty_account_last4` only."
           readOnly: true
         counterparty_account:
           type: string
-          description: "The other side's account number, where it has no IBAN."
+          description: "The other side's account number, where it has no IBAN; absent for agents."
+          readOnly: true
+        counterparty_account_last4:
+          type: string
+          description: "The last up to four characters of the other side's IBAN or account number, as partner bank accounts show them (`account_last4`)."
           readOnly: true
         counterparty_bic:
           type: string

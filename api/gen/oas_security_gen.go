@@ -51,6 +51,7 @@ func findAuthorization(h http.Header, prefix string) (string, bool) {
 
 // operationRolesOidc is a private map storing roles per operation.
 var operationRolesOidc = map[string][]string{
+	AcceptBankStatementLineProposalOperation:  []string{},
 	ActivateChangeRequestOperation:            []string{},
 	ActivateLegalEntityOperation:              []string{},
 	ActivateOrgUnitOperation:                  []string{},
@@ -119,6 +120,7 @@ var operationRolesOidc = map[string][]string{
 	GetBankFileContentOperation:               []string{},
 	GetBankStatementOperation:                 []string{},
 	GetBankStatementFileOperation:             []string{},
+	GetBankStatementRulesOperation:            []string{},
 	GetBusinessPartnerOperation:               []string{},
 	GetChangeRequestOperation:                 []string{},
 	GetClearingOperation:                      []string{},
@@ -183,6 +185,7 @@ var operationRolesOidc = map[string][]string{
 	ListFiscalPeriodsOperation:                []string{},
 	ListGoodsReceiptsOperation:                []string{},
 	ListGrIrBalancesOperation:                 []string{},
+	ListHouseBanksOperation:                   []string{},
 	ListJournalEntriesOperation:               []string{},
 	ListLegalEntitiesOperation:                []string{},
 	ListMatchResultsOperation:                 []string{},
@@ -225,11 +228,13 @@ var operationRolesOidc = map[string][]string{
 	PostRevaluationRunOperation:               []string{},
 	PostSupplierInvoiceOperation:              []string{},
 	PreviewRevaluationOperation:               []string{},
+	ProposeBankStatementLineOperation:         []string{},
 	ProposePaymentRunOperation:                []string{},
 	ReconcileMigrationRunOperation:            []string{},
 	RecordAgentToolCallOperation:              []string{},
 	RedeliverWebhookDeliveryOperation:         []string{},
 	RejectApprovalRequestOperation:            []string{},
+	RejectBankStatementLineProposalOperation:  []string{},
 	RejectPaymentRunOperation:                 []string{},
 	ReleaseContractOperation:                  []string{},
 	ReleasePaymentRunOperation:                []string{},

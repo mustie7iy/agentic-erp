@@ -6,6 +6,7 @@ package gen
 type OperationName = string
 
 const (
+	AcceptBankStatementLineProposalOperation  OperationName = "AcceptBankStatementLineProposal"
 	ActivateChangeRequestOperation            OperationName = "ActivateChangeRequest"
 	ActivateLegalEntityOperation              OperationName = "ActivateLegalEntity"
 	ActivateOrgUnitOperation                  OperationName = "ActivateOrgUnit"
@@ -74,6 +75,7 @@ const (
 	GetBankFileContentOperation               OperationName = "GetBankFileContent"
 	GetBankStatementOperation                 OperationName = "GetBankStatement"
 	GetBankStatementFileOperation             OperationName = "GetBankStatementFile"
+	GetBankStatementRulesOperation            OperationName = "GetBankStatementRules"
 	GetBusinessPartnerOperation               OperationName = "GetBusinessPartner"
 	GetChangeRequestOperation                 OperationName = "GetChangeRequest"
 	GetClearingOperation                      OperationName = "GetClearing"
@@ -138,6 +140,7 @@ const (
 	ListFiscalPeriodsOperation                OperationName = "ListFiscalPeriods"
 	ListGoodsReceiptsOperation                OperationName = "ListGoodsReceipts"
 	ListGrIrBalancesOperation                 OperationName = "ListGrIrBalances"
+	ListHouseBanksOperation                   OperationName = "ListHouseBanks"
 	ListJournalEntriesOperation               OperationName = "ListJournalEntries"
 	ListLegalEntitiesOperation                OperationName = "ListLegalEntities"
 	ListMatchResultsOperation                 OperationName = "ListMatchResults"
@@ -180,11 +183,13 @@ const (
 	PostRevaluationRunOperation               OperationName = "PostRevaluationRun"
 	PostSupplierInvoiceOperation              OperationName = "PostSupplierInvoice"
 	PreviewRevaluationOperation               OperationName = "PreviewRevaluation"
+	ProposeBankStatementLineOperation         OperationName = "ProposeBankStatementLine"
 	ProposePaymentRunOperation                OperationName = "ProposePaymentRun"
 	ReconcileMigrationRunOperation            OperationName = "ReconcileMigrationRun"
 	RecordAgentToolCallOperation              OperationName = "RecordAgentToolCall"
 	RedeliverWebhookDeliveryOperation         OperationName = "RedeliverWebhookDelivery"
 	RejectApprovalRequestOperation            OperationName = "RejectApprovalRequest"
+	RejectBankStatementLineProposalOperation  OperationName = "RejectBankStatementLineProposal"
 	RejectPaymentRunOperation                 OperationName = "RejectPaymentRun"
 	ReleaseContractOperation                  OperationName = "ReleaseContract"
 	ReleasePaymentRunOperation                OperationName = "ReleasePaymentRun"

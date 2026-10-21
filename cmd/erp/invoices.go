@@ -17,6 +17,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/delivery/migrationagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/testagent"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/reconagent"
 )
 
 type parkedInvoice struct {
@@ -269,7 +270,7 @@ func agentInvoices(ctx context.Context) error {
 // agentCmd runs a delivery agent with the agents' token.
 func agentCmd(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("agent invoices | config | migration | test")
+		return errors.New("agent invoices | config | migration | test | reconcile")
 	}
 	switch args[0] {
 	case "invoices":
@@ -280,6 +281,8 @@ func agentCmd(ctx context.Context, args []string) error {
 		return agentMigration(ctx, args[1:])
 	case "test":
 		return agentTest(ctx, args[1:])
+	case "reconcile":
+		return agentReconcile(ctx, args[1:])
 	}
 	return fmt.Errorf("unknown agent %q", args[0])
 }
@@ -354,6 +357,31 @@ func agentTest(ctx context.Context, args []string) error {
 		if err := os.WriteFile(*outFile, []byte(rev.Scripts), 0o600); err != nil {
 			return fmt.Errorf("agent test: write scripts: %w", err)
 		}
+	}
+	return nil
+}
+
+// agentReconcile has the reconciliation agent propose for the statement's
+// lines the rules left open (T49g): a person accepts or rejects each.
+func agentReconcile(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("agent reconcile", flag.ContinueOnError)
+	statement := fs.String("statement", "", "bank statement id")
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	c, err := client("ERP_AGENT_TOKEN")
+	if err != nil {
+		return err
+	}
+	res, err := (&reconagent.Agent{LLM: newRunner(c), API: c}).Review(ctx, *statement)
+	if err != nil {
+		return err
+	}
+	if err := printf("agent reconcile", "Agent reviewed %d lines and made %d proposals; %d left to people.\n", len(res.Reviewed), res.Proposals, len(res.Declined)); err != nil {
+		return err
+	}
+	if len(res.Errors) > 0 {
+		return fmt.Errorf("agent reconcile: %s", strings.Join(res.Errors, "; "))
 	}
 	return nil
 }

@@ -381,6 +381,14 @@ operations marked `x-autonomy: propose`, 2 any write its permissions allow
 operations marked `x-autonomy: read`, which change no business data.
 `startAgentSession` answers with the agent's `autonomy_level`, and an agent
 offers its model only the tools of that level (ADR-0036).
+A proposal that a person takes up as it stands is a domain operation of
+its own, as a change request or a draft is: the reconciliation agent
+(ADR-0047, T49g) proposes for a bank statement line in its session
+(`proposeBankStatementLine`, `x-autonomy: propose`), and a person accepts
+or rejects it (`acceptBankStatementLineProposal`,
+`rejectBankStatementLineProposal`, `x-agent: false`); free-text advice is a
+recommendation. Bank statements reach agents with the accounts masked to
+their last four characters, as partner bank accounts reach everyone.
 `getAiUsage` reports a month's model calls per principal from the call
 ledger: calls, tokens, redactions and cost, summed exact and rounded once,
 with the month's total against the tenant's cap.

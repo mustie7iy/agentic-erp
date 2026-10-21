@@ -92,7 +92,8 @@ Canadian bank may only offer BAI2.
   by hand cannot approve its posting (segregation of duties).
 - **Agents.** The reconciliation agent proposes matches for unmatched lines
   (`x-autonomy: propose`) and never posts; its proposals go through the
-  same approval as a person's.
+  same approval as a person's: a person accepts one as the person's own
+  match, which the person posts (T49g).
 - **Statuses and events.** A statement is `imported`, `gap`, `reconciled`;
   a line `unmatched`, `proposed`, `matched`, `excluded`,
   `pending_approval`, `posted`; the
@@ -166,7 +167,8 @@ Canadian bank may only offer BAI2.
   locked object and a statement never names a missing file; without object
   storage, or when the store does not take it, nothing is imported (503).
   `GET /v1/bank-statements/{id}/file` downloads it, byte for byte, with
-  `payments.statement.read`. Permissions: `payments.statement.import`
+  `payments.statement.read`, to people and integrations only (`x-agent:
+  false` since T49g: the file holds the accounts whole). Permissions: `payments.statement.import`
   (people and integrations) and `payments.statement.read` (agents too). An
   agent's import is refused with 403 `identity.agent_not_allowed` by the
   handler: `x-agent: false` would refuse integrations' service principals
@@ -319,6 +321,60 @@ Canadian bank may only offer BAI2.
   a second call posts nothing. `BankStatementLinePosted` is published. The
   statement's `reconciled` status and incoming payments posted to the
   incoming clearing account are T49h and later steps.
+- Proposals (T49g, 000111): the reconciliation agent (`internal/reconagent`,
+  agent type `reconciliation`, `erp agent reconcile -statement ID`) takes
+  the statement's lines that are `unmatched` or that a rule left open,
+  except one whose proposal a person rejected, and runs one session per
+  line on read-only tools (`getBankStatement`, `listBankStatementMatches`,
+  `getBankStatementRules`, `listPaymentRuns`, `listPayments`,
+  `getBusinessPartner`, `listBankAccounts`) and the one that proposes,
+  `POST /v1/bank-statements/{id}/lines/{line_no}:propose`
+  (`payments.statement.propose`, `x-autonomy: propose`): the payments the
+  line clears, a posting rule, or its exclusion, with a reason, in the
+  caller's running session (refused as a recommendation's session is,
+  through the agents context's `Sessions`, wired in `internal/app`). The
+  proposal is a match of kind `agent`, `open`, naming its session and
+  `proposal`; it rejects a rule's open match, makes the line `proposed`,
+  reserves no payment, never posts and is never taken up by the rules.
+  Its targets are checked as a person's match's are. A session proposes
+  once per line (`statement_match_session`): the same proposal again
+  answers 200 with the first, whatever the If-Match, so a retry whose
+  answer was lost finds it; another is 409 `payments.statement_line_proposed`,
+  as is a proposal for a line with another session's waiting. A person
+  decides it with `payments.statement.match` (`x-agent: false`):
+  `:acceptProposal` matches or excludes the line by it as the person's own
+  decision (kind `manual`, its targets checked again), so the person posts
+  it with `:post` and, as whoever matched it by hand, cannot approve the
+  posting; `:rejectProposal` with a reason makes the line `unmatched`
+  again; a person's own `:match` or `:exclude` overrides it. The proposal
+  is then `rejected` with its `outcome` (`accepted`, `rejected`,
+  `overridden`). Proposals publish `BankStatementLineProposed`, decisions
+  `BankStatementLineProposalDecided`; both are audited. Agents read
+  statements with the accounts masked to their last four characters
+  (`****3000`, `counterparty_account_last4`), as partner bank accounts are
+  shown (a request that names no principal is shown masked too), never
+  download the statement's file, and the gateway redacts IBANs besides. The agent reads the
+  company's rules through `GET /v1/bank-statements/{id}/rules`, and a
+  statement import finds its house bank through `GET /v1/house-banks`
+  (`payments.statement.read`, the account by its last four), which no
+  operation listed before. Proposals are a domain operation rather than
+  a free-text recommendation (`createRecommendation`): a person accepts
+  one as it stands, which needs its targets, as a change request or a
+  draft invoice is proposed. The evaluation suite is
+  `evals/reconciliation` (ADR-0039): charges under the bank's own code, a
+  debit and its reversal excluded, instructions in the bank's text
+  ignored, an incoming payment nothing explains left to a person. It has
+  no case of a proposal of payments yet: a paid run needs the proposal and
+  release workers, which the replay cell does not run; the API's own
+  tests cover such proposals, and a case is added with the live
+  certification run (T49h).
+  Conservative choices for the product owner: the agent does not propose
+  again for a line whose proposal a person rejected (the agent's rule,
+  which the server does not enforce: another agent's session may); accepting needs no
+  reason (the proposal's is the match's, a comment is added); a person
+  proposes nothing (the session must be the caller's); agents see
+  statements' accounts masked; the agent proposes at most once per line
+  and session and may propose nothing.
 - Steps: a ADR, configuration and the house bank's columns · b parsers ·
   c tables, upload, idempotency and continuity · d SFTP fetch · e rule
   matching · f posting, clearing, approval and period locks · g agent

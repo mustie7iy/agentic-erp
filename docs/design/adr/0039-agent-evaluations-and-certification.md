@@ -35,7 +35,12 @@ the suites set.
   scripts, is not graded yet: their checks read what they did.
 - **Suites so far:** AP exceptions, capture, configuration (change
   requests submitted, never approved or activated), test (one
-  recommendation per change request), migration and analytics. The
+  recommendation per change request), migration, analytics and
+  reconciliation (T49g: proposals for bank statement lines, never a match,
+  exclusion or posting; a line nothing explains left to a person, graded
+  as right). A setup call may post a multipart `form` of values instead of
+  a body (a bank statement's file as text), so a live cell running the
+  reconciliation suite needs object storage. The
   migration agent rehearses only, its own guard refusing a real load
   whatever the model asks, on its throwaway tenants, from the suite's SAP
   extract

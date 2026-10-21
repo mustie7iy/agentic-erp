@@ -28,10 +28,10 @@ var postRules = strings.Replace(matchRules, `"matching_rules"`,
 
 // postScenario is the matching scenario of a house bank whose statements
 // post: its main bank account is 101000, its clearing account is
-// open-item managed, and the tiers are postRules.
-func postScenario(t *testing.T) matchScenario {
+// open-item managed, and the tiers are postRules; the people hold more.
+func postScenario(t *testing.T, more ...string) matchScenario {
 	t.Helper()
-	e := matchSetupWith(t, "payments.statement.post")
+	e := matchSetupWith(t, append([]string{"payments.statement.post"}, more...)...)
 	e.statementRules(t, postRules)
 	e.bankPosts(t)
 	return matchStatementOf(t, e)

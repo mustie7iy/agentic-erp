@@ -13,6 +13,24 @@ type UnimplementedHandler struct{}
 
 var _ Handler = UnimplementedHandler{}
 
+// AcceptBankStatementLineProposal implements acceptBankStatementLineProposal operation.
+//
+// A person accepts the line's open proposal by the reconciliation agent (ADR-0047, T49g): the line is
+// matched by hand to what it proposed, checked again as `:match` checks it (422
+// `payments.statement_match_target` when a payment is no longer one the line may clear, or the posting
+// rule is gone), or excluded with its reason. The proposal becomes `rejected` with outcome `accepted`,
+// and the person's match (kind `manual`) is the line's, so the person posts it with `:post` and cannot
+// approve its posting (segregation of duties). A line without an open proposal is 409
+// `payments.statement_line_no_proposal`; one on its way to the ledger keeps its match (409
+// `payments.statement_line_posting`). People only. Audited; published as
+// BankStatementLineProposalDecided and BankStatementLineMatched (or BankStatementLineExcluded).
+// If-Match is the statement's ETag; the response's is its new one.
+//
+// POST /v1/bank-statements/{id}/lines/{line_no}:acceptProposal
+func (UnimplementedHandler) AcceptBankStatementLineProposal(ctx context.Context, req OptStatementLineProposalAccept, params AcceptBankStatementLineProposalParams) (r AcceptBankStatementLineProposalRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ActivateChangeRequest implements activateChangeRequest operation.
 //
 // Creates and activates a new configuration version from an approved change request; each context
@@ -740,11 +758,24 @@ func (UnimplementedHandler) GetBankStatement(ctx context.Context, params GetBank
 //
 // The file a bank statement was imported from, byte for byte as the bank sent it (camt.053 XML or
 // MT940 text): kept as accounting evidence in object storage, written once, encrypted and locked for
-// the retention of financial records (ADR-0047). The statements of one file share it. 503 while the
+// the retention of financial records (ADR-0047). The statements of one file share it. People and
+// integrations only: the file holds the accounts whole, which agents see masked (T49g). 503 while the
 // server has no object storage or the store does not answer.
 //
 // GET /v1/bank-statements/{id}/file
 func (UnimplementedHandler) GetBankStatementFile(ctx context.Context, params GetBankStatementFileParams) (r GetBankStatementFileRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetBankStatementRules implements getBankStatementRules operation.
+//
+// The posting rules and matching rules of the statement's company in the active configuration
+// (`companies[].bank_statements`, ADR-0047): what the transaction codes post to, and how lines are
+// matched, in the rules' order. Read by people and by the reconciliation agent, which proposes a
+// posting rule by its transaction code. Empty lists for a company without them.
+//
+// GET /v1/bank-statements/{id}/rules
+func (UnimplementedHandler) GetBankStatementRules(ctx context.Context, params GetBankStatementRulesParams) (r GetBankStatementRulesRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1358,6 +1389,17 @@ func (UnimplementedHandler) ListGrIrBalances(ctx context.Context, params ListGrI
 	return r, ht.ErrNotImplemented
 }
 
+// ListHouseBanks implements listHouseBanks operation.
+//
+// The house banks of the companies the caller may access, as the configuration names them
+// (`companies[].house_bank(s)`), active and inactive, by legal entity and code: the id a statement
+// import names. The account is shown by its last four characters only. Sortable by: `code`.
+//
+// GET /v1/house-banks
+func (UnimplementedHandler) ListHouseBanks(ctx context.Context, params ListHouseBanksParams) (r ListHouseBanksRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListJournalEntries implements listJournalEntries operation.
 //
 // Posted journal entries. Sortable by: `posting_date`, `document_number`.
@@ -1861,6 +1903,29 @@ func (UnimplementedHandler) PreviewRevaluation(ctx context.Context, req *Revalua
 	return r, ht.ErrNotImplemented
 }
 
+// ProposeBankStatementLine implements proposeBankStatementLine operation.
+//
+// The reconciliation agent proposes (ADR-0047, T49g), for a line the rules left `unmatched` or open
+// (`proposed` by a rule), the payments it clears, a posting rule of the company, or its exclusion,
+// with a reason, in its running session (`session_id`; another's or an ended one is refused as
+// `createRecommendation` refuses it). A person decides the proposal: `:acceptProposal` matches or
+// excludes the line by it, `:rejectProposal` turns it down, and a person's own `:match` or `:exclude`
+// overrides it. The proposal is a match of kind `agent` and status `open` naming its session and
+// `proposal` (`match` or `exclude`); the line's open match by a rule is rejected, and the line is
+// `proposed`. The rules never take a proposal up again. A proposal reserves no payment and never
+// posts: each payment must be one the line may clear, as for a person's match (422
+// `payments.statement_match_target`). A session proposes once per line: the same proposal again
+// answers 200 with the first; another is 409 `payments.statement_line_proposed`, as is a proposal for
+// a line with another session's proposal. A line matched, excluded, waiting for its posting's approval
+// or posted takes no proposal (409 `payments.statement_line_not_open`). If-Match is the statement's
+// ETag, as the agent read it (a proposal made before is answered whatever it is). Audited, and
+// published as BankStatementLineProposed. The response's ETag is the statement's new one.
+//
+// POST /v1/bank-statements/{id}/lines/{line_no}:propose
+func (UnimplementedHandler) ProposeBankStatementLine(ctx context.Context, req *StatementLineProposalInput, params ProposeBankStatementLineParams) (r ProposeBankStatementLineRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ProposePaymentRun implements proposePaymentRun operation.
 //
 // Creates a run in status `proposing` (the Operation's `resource` points to it from the start), then
@@ -1920,6 +1985,20 @@ func (UnimplementedHandler) RedeliverWebhookDelivery(ctx context.Context, params
 //
 // POST /v1/approval-requests/{id}:reject
 func (UnimplementedHandler) RejectApprovalRequest(ctx context.Context, req *CommentRequiredInput, params RejectApprovalRequestParams) (r RejectApprovalRequestRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// RejectBankStatementLineProposal implements rejectBankStatementLineProposal operation.
+//
+// A person rejects the line's open proposal by the reconciliation agent, with a reason (ADR-0047,
+// T49g): the proposal becomes `rejected` with outcome `rejected`, and the line `unmatched`, for the
+// rules' next run or a person. The reconciliation agent does not propose for the line again. A line
+// without an open proposal is 409 `payments.statement_line_no_proposal`. People only. Audited, and
+// published as BankStatementLineProposalDecided. If-Match is the statement's ETag; the response's is
+// its new one.
+//
+// POST /v1/bank-statements/{id}/lines/{line_no}:rejectProposal
+func (UnimplementedHandler) RejectBankStatementLineProposal(ctx context.Context, req *ReasonInput, params RejectBankStatementLineProposalParams) (r RejectBankStatementLineProposalRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

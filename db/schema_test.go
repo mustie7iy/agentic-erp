@@ -3267,6 +3267,58 @@ func TestBankStatementSchema(t *testing.T) {
 	})
 	mustApp(t, f.tenant, matchOf(match{kind: "manual", status: "excluded"}))
 	statementPostingSchema(t, f, first)
+	statementProposalSchema(t, f, first)
+}
+
+// statementProposalSchema: an agent's match, and only one, names its
+// session and what it proposes, stays open until a person decides it,
+// never posts, and records the person's outcome once decided; a session
+// proposes once per line (T49g, 000111).
+func statementProposalSchema(t *testing.T, f fixture, statement uuid.UUID) {
+	t.Helper()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `INSERT INTO payments.bank_statement_line (tenant_id, statement_id, line_no, amount, booking_date, value_date, transaction_code,
+				bank_reference, owner_reference, text, status, created_by, updated_by)
+			VALUES ($1,$2,20,-100,'2026-10-20','2026-10-20','NTRF','B','O','T','proposed',$3,$3)`, f.tenant, statement, f.actor)
+	})
+	session := id()
+	type proposal struct {
+		kind, status string
+		session      any
+		proposal     any
+		outcome      any
+		postingDate  any
+	}
+	write := func(p proposal) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.statement_match (tenant_id, id, statement_id, line_no, kind, reason, status, session_id, proposal, outcome,
+					posting_date, created_by, updated_by)
+				VALUES ($1,$2,$3,20,$4,'r',$5,$6,$7,$8,$9,$10,$10)`, f.tenant, id(), statement, p.kind, p.status, p.session, p.proposal, p.outcome, p.postingDate, f.actor)
+		}
+	}
+	for _, c := range []struct {
+		name  string
+		write func(tx pgx.Tx) error
+		fails string
+	}{
+		{"an agent's match without its session", write(proposal{kind: "agent", status: "open", proposal: "match"}), "statement_match_agent"},
+		{"an agent's match proposing nothing", write(proposal{kind: "agent", status: "open", session: session}), "statement_match_agent"},
+		{"a person's match naming a session", write(proposal{kind: "manual", status: "rejected", session: session, proposal: "match"}), "statement_match_agent"},
+		{"another proposal", write(proposal{kind: "agent", status: "open", session: session, proposal: "post"}), "statement_match_proposal_check"},
+		{"an agent's match matched", write(proposal{kind: "agent", status: "matched", session: session, proposal: "match"}), "statement_match_agent_open"},
+		{"an agent's match posting", write(proposal{kind: "agent", status: "open", session: session, proposal: "match", postingDate: "2026-10-20"}), "statement_match_agent_open"},
+		{"an open proposal decided", write(proposal{kind: "agent", status: "open", session: session, proposal: "match", outcome: "accepted"}), "statement_match_outcome"},
+		{"a proposal rejected undecided", write(proposal{kind: "agent", status: "rejected", session: session, proposal: "match"}), "statement_match_outcome"},
+		{"a person's match decided", write(proposal{kind: "manual", status: "rejected", outcome: "accepted"}), "statement_match_outcome"},
+		{"another outcome", write(proposal{kind: "agent", status: "rejected", session: session, proposal: "match", outcome: "approved"}), "statement_match_outcome_check"},
+	} {
+		t.Run(c.name, func(t *testing.T) { failsOn(t, asApp(t, f.tenant, c.write), c.fails) })
+	}
+	mustApp(t, f.tenant, write(proposal{kind: "agent", status: "rejected", session: session, proposal: "exclude", outcome: "rejected"}))
+	t.Run("a session proposing twice for a line", func(t *testing.T) {
+		failsOn(t, asApp(t, f.tenant, write(proposal{kind: "agent", status: "open", session: session, proposal: "match"})), "statement_match_session")
+	})
+	mustApp(t, f.tenant, write(proposal{kind: "agent", status: "open", session: id(), proposal: "match"}))
 }
 
 // statementPostingSchema: a match's posting has its year and date, a

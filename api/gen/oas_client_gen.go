@@ -29,6 +29,21 @@ func trimTrailingSlashes(u *url.URL) {
 
 // Invoker invokes operations described by OpenAPI v3 specification.
 type Invoker interface {
+	// AcceptBankStatementLineProposal invokes acceptBankStatementLineProposal operation.
+	//
+	// A person accepts the line's open proposal by the reconciliation agent (ADR-0047, T49g): the line is
+	// matched by hand to what it proposed, checked again as `:match` checks it (422
+	// `payments.statement_match_target` when a payment is no longer one the line may clear, or the posting
+	// rule is gone), or excluded with its reason. The proposal becomes `rejected` with outcome `accepted`,
+	// and the person's match (kind `manual`) is the line's, so the person posts it with `:post` and cannot
+	// approve its posting (segregation of duties). A line without an open proposal is 409
+	// `payments.statement_line_no_proposal`; one on its way to the ledger keeps its match (409
+	// `payments.statement_line_posting`). People only. Audited; published as
+	// BankStatementLineProposalDecided and BankStatementLineMatched (or BankStatementLineExcluded).
+	// If-Match is the statement's ETag; the response's is its new one.
+	//
+	// POST /v1/bank-statements/{id}/lines/{line_no}:acceptProposal
+	AcceptBankStatementLineProposal(ctx context.Context, request OptStatementLineProposalAccept, params AcceptBankStatementLineProposalParams) (AcceptBankStatementLineProposalRes, error)
 	// ActivateChangeRequest invokes activateChangeRequest operation.
 	//
 	// Creates and activates a new configuration version from an approved change request; each context
@@ -555,11 +570,21 @@ type Invoker interface {
 	//
 	// The file a bank statement was imported from, byte for byte as the bank sent it (camt.053 XML or
 	// MT940 text): kept as accounting evidence in object storage, written once, encrypted and locked for
-	// the retention of financial records (ADR-0047). The statements of one file share it. 503 while the
+	// the retention of financial records (ADR-0047). The statements of one file share it. People and
+	// integrations only: the file holds the accounts whole, which agents see masked (T49g). 503 while the
 	// server has no object storage or the store does not answer.
 	//
 	// GET /v1/bank-statements/{id}/file
 	GetBankStatementFile(ctx context.Context, params GetBankStatementFileParams) (GetBankStatementFileRes, error)
+	// GetBankStatementRules invokes getBankStatementRules operation.
+	//
+	// The posting rules and matching rules of the statement's company in the active configuration
+	// (`companies[].bank_statements`, ADR-0047): what the transaction codes post to, and how lines are
+	// matched, in the rules' order. Read by people and by the reconciliation agent, which proposes a
+	// posting rule by its transaction code. Empty lists for a company without them.
+	//
+	// GET /v1/bank-statements/{id}/rules
+	GetBankStatementRules(ctx context.Context, params GetBankStatementRulesParams) (GetBankStatementRulesRes, error)
 	// GetBusinessPartner invokes getBusinessPartner operation.
 	//
 	// Returns one business partner.
@@ -978,6 +1003,14 @@ type Invoker interface {
 	//
 	// GET /v1/gr-ir-balances
 	ListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (ListGrIrBalancesRes, error)
+	// ListHouseBanks invokes listHouseBanks operation.
+	//
+	// The house banks of the companies the caller may access, as the configuration names them
+	// (`companies[].house_bank(s)`), active and inactive, by legal entity and code: the id a statement
+	// import names. The account is shown by its last four characters only. Sortable by: `code`.
+	//
+	// GET /v1/house-banks
+	ListHouseBanks(ctx context.Context, params ListHouseBanksParams) (ListHouseBanksRes, error)
 	// ListJournalEntries invokes listJournalEntries operation.
 	//
 	// Posted journal entries. Sortable by: `posting_date`, `document_number`.
@@ -1355,6 +1388,26 @@ type Invoker interface {
 	//
 	// POST /v1/revaluation-runs/preview
 	PreviewRevaluation(ctx context.Context, request *RevaluationPreviewRequest, params PreviewRevaluationParams) (PreviewRevaluationRes, error)
+	// ProposeBankStatementLine invokes proposeBankStatementLine operation.
+	//
+	// The reconciliation agent proposes (ADR-0047, T49g), for a line the rules left `unmatched` or open
+	// (`proposed` by a rule), the payments it clears, a posting rule of the company, or its exclusion,
+	// with a reason, in its running session (`session_id`; another's or an ended one is refused as
+	// `createRecommendation` refuses it). A person decides the proposal: `:acceptProposal` matches or
+	// excludes the line by it, `:rejectProposal` turns it down, and a person's own `:match` or `:exclude`
+	// overrides it. The proposal is a match of kind `agent` and status `open` naming its session and
+	// `proposal` (`match` or `exclude`); the line's open match by a rule is rejected, and the line is
+	// `proposed`. The rules never take a proposal up again. A proposal reserves no payment and never
+	// posts: each payment must be one the line may clear, as for a person's match (422
+	// `payments.statement_match_target`). A session proposes once per line: the same proposal again
+	// answers 200 with the first; another is 409 `payments.statement_line_proposed`, as is a proposal for
+	// a line with another session's proposal. A line matched, excluded, waiting for its posting's approval
+	// or posted takes no proposal (409 `payments.statement_line_not_open`). If-Match is the statement's
+	// ETag, as the agent read it (a proposal made before is answered whatever it is). Audited, and
+	// published as BankStatementLineProposed. The response's ETag is the statement's new one.
+	//
+	// POST /v1/bank-statements/{id}/lines/{line_no}:propose
+	ProposeBankStatementLine(ctx context.Context, request *StatementLineProposalInput, params ProposeBankStatementLineParams) (ProposeBankStatementLineRes, error)
 	// ProposePaymentRun invokes proposePaymentRun operation.
 	//
 	// Creates a run in status `proposing` (the Operation's `resource` points to it from the start), then
@@ -1402,6 +1455,17 @@ type Invoker interface {
 	//
 	// POST /v1/approval-requests/{id}:reject
 	RejectApprovalRequest(ctx context.Context, request *CommentRequiredInput, params RejectApprovalRequestParams) (RejectApprovalRequestRes, error)
+	// RejectBankStatementLineProposal invokes rejectBankStatementLineProposal operation.
+	//
+	// A person rejects the line's open proposal by the reconciliation agent, with a reason (ADR-0047,
+	// T49g): the proposal becomes `rejected` with outcome `rejected`, and the line `unmatched`, for the
+	// rules' next run or a person. The reconciliation agent does not propose for the line again. A line
+	// without an open proposal is 409 `payments.statement_line_no_proposal`. People only. Audited, and
+	// published as BankStatementLineProposalDecided. If-Match is the statement's ETag; the response's is
+	// its new one.
+	//
+	// POST /v1/bank-statements/{id}/lines/{line_no}:rejectProposal
+	RejectBankStatementLineProposal(ctx context.Context, request *ReasonInput, params RejectBankStatementLineProposalParams) (RejectBankStatementLineProposalRes, error)
 	// RejectPaymentRun invokes rejectPaymentRun operation.
 	//
 	// Rejects a proposed run and frees its open items for later runs. A direct human transition like
@@ -1846,6 +1910,194 @@ func (c *Client) requestURL(ctx context.Context) *url.URL {
 		return c.serverURL
 	}
 	return u
+}
+
+// AcceptBankStatementLineProposal invokes acceptBankStatementLineProposal operation.
+//
+// A person accepts the line's open proposal by the reconciliation agent (ADR-0047, T49g): the line is
+// matched by hand to what it proposed, checked again as `:match` checks it (422
+// `payments.statement_match_target` when a payment is no longer one the line may clear, or the posting
+// rule is gone), or excluded with its reason. The proposal becomes `rejected` with outcome `accepted`,
+// and the person's match (kind `manual`) is the line's, so the person posts it with `:post` and cannot
+// approve its posting (segregation of duties). A line without an open proposal is 409
+// `payments.statement_line_no_proposal`; one on its way to the ledger keeps its match (409
+// `payments.statement_line_posting`). People only. Audited; published as
+// BankStatementLineProposalDecided and BankStatementLineMatched (or BankStatementLineExcluded).
+// If-Match is the statement's ETag; the response's is its new one.
+//
+// POST /v1/bank-statements/{id}/lines/{line_no}:acceptProposal
+func (c *Client) AcceptBankStatementLineProposal(ctx context.Context, request OptStatementLineProposalAccept, params AcceptBankStatementLineProposalParams) (AcceptBankStatementLineProposalRes, error) {
+	res, err := c.sendAcceptBankStatementLineProposal(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendAcceptBankStatementLineProposal(ctx context.Context, request OptStatementLineProposalAccept, params AcceptBankStatementLineProposalParams) (res AcceptBankStatementLineProposalRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("acceptBankStatementLineProposal"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/bank-statements/{id}/lines/{line_no}:acceptProposal"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, AcceptBankStatementLineProposalOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/bank-statements/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/lines/"
+	{
+		// Encode "line_no" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "line_no",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.Int32ToString(params.LineNo))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":acceptProposal"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeAcceptBankStatementLineProposalRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, AcceptBankStatementLineProposalOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeAcceptBankStatementLineProposalResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
 }
 
 // ActivateChangeRequest invokes activateChangeRequest operation.
@@ -11670,7 +11922,8 @@ func (c *Client) sendGetBankStatement(ctx context.Context, params GetBankStateme
 //
 // The file a bank statement was imported from, byte for byte as the bank sent it (camt.053 XML or
 // MT940 text): kept as accounting evidence in object storage, written once, encrypted and locked for
-// the retention of financial records (ADR-0047). The statements of one file share it. 503 while the
+// the retention of financial records (ADR-0047). The statements of one file share it. People and
+// integrations only: the file holds the accounts whole, which agents see masked (T49g). 503 while the
 // server has no object storage or the store does not answer.
 //
 // GET /v1/bank-statements/{id}/file
@@ -11794,6 +12047,141 @@ func (c *Client) sendGetBankStatementFile(ctx context.Context, params GetBankSta
 
 	stage = "DecodeResponse"
 	result, err := decodeGetBankStatementFileResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetBankStatementRules invokes getBankStatementRules operation.
+//
+// The posting rules and matching rules of the statement's company in the active configuration
+// (`companies[].bank_statements`, ADR-0047): what the transaction codes post to, and how lines are
+// matched, in the rules' order. Read by people and by the reconciliation agent, which proposes a
+// posting rule by its transaction code. Empty lists for a company without them.
+//
+// GET /v1/bank-statements/{id}/rules
+func (c *Client) GetBankStatementRules(ctx context.Context, params GetBankStatementRulesParams) (GetBankStatementRulesRes, error) {
+	res, err := c.sendGetBankStatementRules(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetBankStatementRules(ctx context.Context, params GetBankStatementRulesParams) (res GetBankStatementRulesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getBankStatementRules"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/bank-statements/{id}/rules"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetBankStatementRulesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/bank-statements/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/rules"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetBankStatementRulesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetBankStatementRulesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -22604,6 +22992,193 @@ func (c *Client) sendListGrIrBalances(ctx context.Context, params ListGrIrBalanc
 	return result, nil
 }
 
+// ListHouseBanks invokes listHouseBanks operation.
+//
+// The house banks of the companies the caller may access, as the configuration names them
+// (`companies[].house_bank(s)`), active and inactive, by legal entity and code: the id a statement
+// import names. The account is shown by its last four characters only. Sortable by: `code`.
+//
+// GET /v1/house-banks
+func (c *Client) ListHouseBanks(ctx context.Context, params ListHouseBanksParams) (ListHouseBanksRes, error) {
+	res, err := c.sendListHouseBanks(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListHouseBanks(ctx context.Context, params ListHouseBanksParams) (res ListHouseBanksRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listHouseBanks"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/house-banks"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListHouseBanksOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/house-banks"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListHouseBanksOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListHouseBanksResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListJournalEntries invokes listJournalEntries operation.
 //
 // Posted journal entries. Sortable by: `posting_date`, `document_number`.
@@ -31135,6 +31710,199 @@ func (c *Client) sendPreviewRevaluation(ctx context.Context, request *Revaluatio
 	return result, nil
 }
 
+// ProposeBankStatementLine invokes proposeBankStatementLine operation.
+//
+// The reconciliation agent proposes (ADR-0047, T49g), for a line the rules left `unmatched` or open
+// (`proposed` by a rule), the payments it clears, a posting rule of the company, or its exclusion,
+// with a reason, in its running session (`session_id`; another's or an ended one is refused as
+// `createRecommendation` refuses it). A person decides the proposal: `:acceptProposal` matches or
+// excludes the line by it, `:rejectProposal` turns it down, and a person's own `:match` or `:exclude`
+// overrides it. The proposal is a match of kind `agent` and status `open` naming its session and
+// `proposal` (`match` or `exclude`); the line's open match by a rule is rejected, and the line is
+// `proposed`. The rules never take a proposal up again. A proposal reserves no payment and never
+// posts: each payment must be one the line may clear, as for a person's match (422
+// `payments.statement_match_target`). A session proposes once per line: the same proposal again
+// answers 200 with the first; another is 409 `payments.statement_line_proposed`, as is a proposal for
+// a line with another session's proposal. A line matched, excluded, waiting for its posting's approval
+// or posted takes no proposal (409 `payments.statement_line_not_open`). If-Match is the statement's
+// ETag, as the agent read it (a proposal made before is answered whatever it is). Audited, and
+// published as BankStatementLineProposed. The response's ETag is the statement's new one.
+//
+// POST /v1/bank-statements/{id}/lines/{line_no}:propose
+func (c *Client) ProposeBankStatementLine(ctx context.Context, request *StatementLineProposalInput, params ProposeBankStatementLineParams) (ProposeBankStatementLineRes, error) {
+	res, err := c.sendProposeBankStatementLine(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendProposeBankStatementLine(ctx context.Context, request *StatementLineProposalInput, params ProposeBankStatementLineParams) (res ProposeBankStatementLineRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("proposeBankStatementLine"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/bank-statements/{id}/lines/{line_no}:propose"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ProposeBankStatementLineOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/bank-statements/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/lines/"
+	{
+		// Encode "line_no" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "line_no",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.Int32ToString(params.LineNo))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":propose"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeProposeBankStatementLineRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ProposeBankStatementLineOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeProposeBankStatementLineResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ProposePaymentRun invokes proposePaymentRun operation.
 //
 // Creates a run in status `proposing` (the Operation's `resource` points to it from the start), then
@@ -31917,6 +32685,190 @@ func (c *Client) sendRejectApprovalRequest(ctx context.Context, request *Comment
 
 	stage = "DecodeResponse"
 	result, err := decodeRejectApprovalRequestResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// RejectBankStatementLineProposal invokes rejectBankStatementLineProposal operation.
+//
+// A person rejects the line's open proposal by the reconciliation agent, with a reason (ADR-0047,
+// T49g): the proposal becomes `rejected` with outcome `rejected`, and the line `unmatched`, for the
+// rules' next run or a person. The reconciliation agent does not propose for the line again. A line
+// without an open proposal is 409 `payments.statement_line_no_proposal`. People only. Audited, and
+// published as BankStatementLineProposalDecided. If-Match is the statement's ETag; the response's is
+// its new one.
+//
+// POST /v1/bank-statements/{id}/lines/{line_no}:rejectProposal
+func (c *Client) RejectBankStatementLineProposal(ctx context.Context, request *ReasonInput, params RejectBankStatementLineProposalParams) (RejectBankStatementLineProposalRes, error) {
+	res, err := c.sendRejectBankStatementLineProposal(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendRejectBankStatementLineProposal(ctx context.Context, request *ReasonInput, params RejectBankStatementLineProposalParams) (res RejectBankStatementLineProposalRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("rejectBankStatementLineProposal"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/bank-statements/{id}/lines/{line_no}:rejectProposal"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RejectBankStatementLineProposalOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/bank-statements/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/lines/"
+	{
+		// Encode "line_no" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "line_no",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.Int32ToString(params.LineNo))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":rejectProposal"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeRejectBankStatementLineProposalRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RejectBankStatementLineProposalOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRejectBankStatementLineProposalResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
