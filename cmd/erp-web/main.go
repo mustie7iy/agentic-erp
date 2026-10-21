@@ -100,19 +100,15 @@ func run(ctx context.Context, cfg web.Config, log *slog.Logger, started func(pub
 // listen opens the public and the admin listener, or neither; the public
 // one reads the load balancer's PROXY header from its subnets.
 func listen(ctx context.Context, cfg web.Config) (net.Listener, net.Listener, error) {
-	var lc net.ListenConfig
-	ln, err := lc.Listen(ctx, "tcp", cfg.Addr)
+	ln, err := proxyproto.Listen(ctx, cfg.Addr, cfg.ProxyFrom)
 	if err != nil {
 		return nil, nil, fmt.Errorf("erp-web: listen on %s: %w", cfg.Addr, err)
 	}
+	var lc net.ListenConfig
 	adminLn, err := lc.Listen(ctx, "tcp", cfg.AdminAddr)
 	if err != nil {
 		_ = ln.Close() // the admin listener's failure is the one reported
 		return nil, nil, fmt.Errorf("erp-web: admin listen on %s: %w", cfg.AdminAddr, err)
-	}
-	if len(cfg.ProxyFrom) > 0 {
-		// Under the public TLS: the load balancer's header comes first.
-		ln = &proxyproto.Listener{Listener: ln, From: cfg.ProxyFrom}
 	}
 	return ln, adminLn, nil
 }

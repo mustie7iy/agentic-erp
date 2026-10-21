@@ -167,7 +167,8 @@ spec:
             secretName: erp-router-public-tls
 ---
 # The TargetGroupBinding's Service: the controller registers its
-# endpoints' addresses; the cluster's own clients do not use it.
+# endpoints' addresses. erp-web reaches the public listener through it
+# (ERP_WEB_API_DIAL, ADR-0052); no other client in the cluster uses it.
 apiVersion: v1
 kind: Service
 metadata:

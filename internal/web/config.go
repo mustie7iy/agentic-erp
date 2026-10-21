@@ -10,7 +10,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/mustie7iy/agentic-erp/internal/platform/config"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/proxyproto"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
@@ -43,10 +43,10 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		return def
 	}
 	c := Config{Addr: get("ERP_WEB_ADDR", ":8082"), AdminAddr: get("ERP_WEB_ADMIN_ADDR", ":9092"), Environment: getenv("ERP_ENV")}
-	if err := config.CheckEnvironment(c.Environment); err != nil {
+	if err := authn.CheckEnvironment(c.Environment); err != nil {
 		errs = append(errs, err)
 	}
-	production := c.Environment == config.Production
+	production := c.Environment == string(authn.Production)
 	c.PseudoLocales = !production
 	var err error
 	if c.PublicURL, err = address("ERP_WEB_PUBLIC_URL", getenv("ERP_WEB_PUBLIC_URL"), production, production); err != nil {

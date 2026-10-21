@@ -48,13 +48,20 @@ var testSupport = map[string]bool{
 // through the public API's client (api/gen) as the signed-in person
 // (ADR-0052 §7), so it can never become a second backend.
 var webPlatform = map[string]bool{
-	"platform/authn": true, "platform/buildinfo": true, "platform/config": true, "platform/etag": true, "platform/problem": true,
+	"platform/authn": true, "platform/buildinfo": true, "platform/etag": true, "platform/problem": true,
 	"platform/proxyproto": true, "platform/secrets": true, "platform/telemetry": true, "platform/tlsconf": true,
 }
 
-// webForbidden are platform packages the workspace may not link even
-// through another package: they write tenants' data.
-var webForbidden = []string{"platform/uow", "platform/outbox", "platform/audit", "platform/fieldcrypt", "platform/workflow"}
+// webForbidden are packages the workspace may not link even through
+// another package: they hold a database pool or write tenants' data.
+// platform/reqctx (and with it pgx's transaction type) is linked, through
+// telemetry and authn, which keep a request's identity in it; the
+// workspace cannot open a transaction without a pool (ADR-0052, Built in
+// T73a).
+var webForbidden = []string{"platform/database", "platform/uow", "platform/outbox", "platform/audit", "platform/fieldcrypt", "platform/workflow", "platform/config"}
+
+// webForbiddenModules are third-party packages likewise: a connection pool.
+var webForbiddenModules = []string{"github.com/jackc/pgx/v5/pgxpool"}
 
 // allowed is every import from one context to another that production code
 // makes today, by importing unit. A new one fails TestImportRules; one that
@@ -222,6 +229,9 @@ func TestWebLinksNoBackend(t *testing.T) {
 	}
 	n := 0
 	for _, dep := range strings.Fields(string(out)) {
+		if slices.Contains(webForbiddenModules, dep) {
+			t.Errorf("erp-web links %s: the workspace holds no database pool (ADR-0052 §7)", dep)
+		}
 		pkg, ok := strings.CutPrefix(dep, module)
 		if !ok {
 			continue
@@ -232,7 +242,7 @@ func TestWebLinksNoBackend(t *testing.T) {
 			t.Errorf("erp-web links %s: a context; the workspace reaches it only through the API (ADR-0052 §7)", pkg)
 		}
 		if slices.Contains(webForbidden, to) {
-			t.Errorf("erp-web links %s, which writes tenants' data", pkg)
+			t.Errorf("erp-web links %s, which holds a database pool or writes tenants' data (ADR-0052 §7)", pkg)
 		}
 	}
 	if n < 3 {

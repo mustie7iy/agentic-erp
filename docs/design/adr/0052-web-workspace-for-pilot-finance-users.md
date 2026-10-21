@@ -559,7 +559,7 @@ requires a router and a web per region, which goes beyond this ADR (facts).
   `PUT` to the bucket. That keeps the bucket off the CSP and without CORS.
 
 ### 8. Pages, headers and conventions
-- **Content Security Policy:** `default-src 'self'; script-src 'self'
+- **Content Security Policy:** `default-src 'self'; script-src
   'nonce-…'; style-src 'self'; img-src 'self' data:; object-src 'none';
   base-uri 'none'; form-action 'self'; frame-ancestors 'none'`, plus
   `connect-src 'self'` and a `frame-src 'self'` for document previews.
@@ -886,10 +886,15 @@ What the skeleton settled that the decision above left open:
   (templ components and pages), `internal/web/i18n` (the catalog) and
   `internal/web/e2e` (the browser suite, tests only). `TestImportRules`
   holds `internal/web` and `cmd/erp-web` to their own packages, `money`
-  and the platform packages of §7 (plus `buildinfo`, `config` and
-  `proxyproto`); `TestWebLinksNoBackend` holds the binary's whole
-  dependency graph to no context and none of `uow`, `outbox`, `audit`,
-  `fieldcrypt` or `workflow`.
+  and the platform packages of §7 (plus `buildinfo` and `proxyproto`);
+  `TestWebLinksNoBackend` holds the binary's whole dependency graph to no
+  context, none of `config`, `database`, `uow`, `outbox`, `audit`,
+  `fieldcrypt` or `workflow`, and no `pgxpool`. `CheckEnvironment` moved
+  from `platform/config` (which links the database pool) to
+  `platform/authn` for this. Accepted: `platform/reqctx`, and with it
+  pgx's types, are linked through `telemetry` and `authn`, which keep a
+  request's identity there; without a pool the workspace cannot open a
+  transaction.
 - **templ and coverage.** `make generate` runs `templ generate` (templ
   pinned as a `go.mod` tool, v0.3.1070); CI and `ci-local` fail on a
   difference or an uncommitted generated file. The generated code counts
@@ -907,6 +912,11 @@ What the skeleton settled that the decision above left open:
   `refreshOnHistoryMiss: true`, because htmx keeps history snapshots of
   pages in `localStorage`, where a page of business data would outlive the
   session; going back reloads from the server instead.
+- **Script source by nonce alone.** `script-src` is `'nonce-…'` without
+  `'self'` (amending §8 as first written): with `'self'` any same-origin
+  script URL would run without the nonce, which matters once erp-web
+  serves outside documents under its origin (§7). A browser test plants
+  htmx's own file again without the nonce and requires it refused.
 - **Headers.** As §8, plus `X-Frame-Options: DENY` (older browsers' form
   of `frame-ancestors 'none'`) and `Cross-Origin-Resource-Policy:
   same-origin`. HSTS is two years with subdomains. Nonces are 128 random

@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"log/slog"
 	"net"
 	"net/http"
@@ -58,7 +59,7 @@ func newServer(cfg Config, build buildinfo.Info, log *slog.Logger, catalog func(
 	if s.Assets, err = assets(); err != nil {
 		return nil, err
 	}
-	if s.API, err = NewAPI(cfg.APIURL.String(), apiClient(cfg.APIDial)); err != nil {
+	if s.API, err = NewAPI(cfg.APIURL.String(), apiClient(cfg.APIDial, nil)); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -66,9 +67,10 @@ func newServer(cfg Config, build buildinfo.Info, log *slog.Logger, catalog func(
 
 // apiClient reaches the API, at dial when it is set: in the cluster the
 // router's Service, reached directly rather than through the internet and
-// its load balancer, still verified as the API's public name.
-func apiClient(dial string) *http.Client {
-	t := &http.Transport{ForceAttemptHTTP2: true, MaxIdleConns: 100, IdleConnTimeout: 90 * time.Second, TLSHandshakeTimeout: 10 * time.Second}
+// its load balancer, still verified as the API's public name; trust is
+// the system's roots unless tlsConfig (tests) says otherwise.
+func apiClient(dial string, tlsConfig *tls.Config) *http.Client {
+	t := &http.Transport{TLSClientConfig: tlsConfig, ForceAttemptHTTP2: true, MaxIdleConns: 100, IdleConnTimeout: 90 * time.Second, TLSHandshakeTimeout: 10 * time.Second}
 	if dial != "" {
 		dialer := &net.Dialer{Timeout: 10 * time.Second}
 		t.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
@@ -140,11 +142,12 @@ const permissionsPolicy = "accelerometer=(), camera=(), display-capture=(), geol
 	"magnetometer=(), microphone=(), midi=(), payment=(), serial=(), usb=()"
 
 // CSP is the Content Security Policy of a response with the given nonce
-// (ADR-0052 §8): scripts from this origin with the nonce, styles and
-// everything else from this origin only, no plugins, no base element, no
-// framing by anyone, forms posted here only.
+// (ADR-0052 §8): a script only with the response's nonce, even from this
+// origin (so a planted <script src> of a same-origin URL does not run),
+// styles and everything else from this origin only, no plugins, no base
+// element, no framing by anyone, forms posted here only.
 func CSP(nonce string) string {
-	return "default-src 'self'; script-src 'self' 'nonce-" + nonce + "'; style-src 'self'; img-src 'self' data:; " +
+	return "default-src 'self'; script-src 'nonce-" + nonce + "'; style-src 'self'; img-src 'self' data:; " +
 		"connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 }
 

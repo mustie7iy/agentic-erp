@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -76,7 +79,7 @@ func routes(t *testing.T, s *Server) map[string]int {
 func TestSecurityHeaders(t *testing.T) {
 	s, _ := testServer(t)
 	h := s.Handler()
-	cspRE := regexp.MustCompile(`^default-src 'self'; script-src 'self' 'nonce-[A-Z2-7]{26}'; style-src 'self'; img-src 'self' data:; ` +
+	cspRE := regexp.MustCompile(`^default-src 'self'; script-src 'nonce-[A-Z2-7]{26}'; style-src 'self'; img-src 'self' data:; ` +
 		`connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'$`)
 	want := map[string]string{
 		"Strict-Transport-Security":    "max-age=63072000; includeSubDomains",
@@ -185,7 +188,7 @@ func TestScripts(t *testing.T) {
 			var scripts []string
 			walk(parse(t, rec), func(n *html.Node) {
 				for _, a := range n.Attr {
-					if strings.HasPrefix(a.Key, "on") || strings.HasPrefix(a.Key, "hx-on") {
+					if strings.HasPrefix(a.Key, "on") || strings.HasPrefix(a.Key, "hx-on") || strings.HasPrefix(a.Key, "data-hx-on") {
 						t.Errorf("<%s %s>: an event handler attribute", n.Data, a.Key)
 					}
 				}
@@ -217,7 +220,7 @@ func checkHTMXConfig(t *testing.T, n *html.Node) {
 	if err := json.Unmarshal([]byte(content), &cfg); err != nil {
 		t.Fatalf("htmx-config %q: %v", content, err)
 	}
-	for key, want := range map[string]any{"allowEval": false, "allowScriptTags": false, "selfRequestsOnly": true, "includeIndicatorStyles": false, "historyCacheSize": float64(0)} {
+	for key, want := range map[string]any{"allowEval": false, "allowScriptTags": false, "selfRequestsOnly": true, "includeIndicatorStyles": false, "historyCacheSize": float64(0), "refreshOnHistoryMiss": true} {
 		if cfg[key] != want {
 			t.Errorf("htmx-config %s: got %v, want %v", key, cfg[key], want)
 		}
@@ -264,7 +267,7 @@ func TestOnlyHTMX(t *testing.T) {
 			}
 			return nil
 		}
-		if ext := filepath.Ext(p); (ext == ".js" || ext == ".mjs" || ext == ".ts") && !allowed[filepath.ToSlash(filepath.Dir(rel))] {
+		if ext := filepath.Ext(p); slices.Contains([]string{".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx"}, ext) && !allowed[filepath.ToSlash(filepath.Dir(rel))] {
 			t.Errorf("%s: JavaScript outside the vendored htmx and test tooling (ADR-0052 §4)", rel)
 		}
 		return nil
@@ -281,23 +284,70 @@ func TestLogicalProperties(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Comments say "margin-left" when they explain the rule.
-	body := regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(string(css), "")
-	decl := regexp.MustCompile(`([a-z-]+)\s*:\s*([^;{}]+)[;}]`)
-	physical := regexp.MustCompile(`(^|-)(left|right)(-|$)`)
-	found := 0
-	for _, m := range decl.FindAllStringSubmatch(body, -1) {
-		prop, value := m[1], strings.TrimSpace(m[2])
-		found++
-		if physical.MatchString(prop) {
-			t.Errorf("%s: %s: a physical direction; use the logical property (inline-start, inline-end)", prop, value)
-		}
-		if slices.Contains([]string{"text-align", "float", "clear", "caption-side", "resize"}, prop) && regexp.MustCompile(`\b(left|right)\b`).MatchString(value) {
-			t.Errorf("%s: %s: a physical direction; use start or end", prop, value)
-		}
-	}
+	found, problems := physical(string(css))
 	if found < 50 {
 		t.Fatalf("found %d declarations: the check judged nothing", found)
+	}
+	for _, p := range problems {
+		t.Error(p)
+	}
+}
+
+var (
+	cssComment = regexp.MustCompile(`(?s)/\*.*?\*/`)
+	cssDecl    = regexp.MustCompile(`([a-z-]+)\s*:\s*([^;{}]+)[;}]`)
+	cssSide    = regexp.MustCompile(`(^|-)(left|right)(-|$)`)
+	cssWord    = regexp.MustCompile(`\b(left|right)\b`)
+	cssShiftX  = regexp.MustCompile(`translateX\(\s*[^0)\s]|translate\(\s*[^0,)\s]`)
+	// Shorthands whose four values run top, right, bottom, left.
+	cssFourSides = map[string]bool{"margin": true, "padding": true, "inset": true, "border-width": true, "border-style": true,
+		"border-color": true, "scroll-margin": true, "scroll-padding": true}
+)
+
+// physical counts the declarations of css and lists those with a physical
+// direction: a left or right property or value, a horizontal shift, or a
+// four-sided shorthand (or radius) that differs between left and right.
+func physical(css string) (int, []string) {
+	var problems []string
+	decls := cssDecl.FindAllStringSubmatch(cssComment.ReplaceAllString(css, ""), -1)
+	for _, m := range decls {
+		prop, value := m[1], strings.TrimSpace(m[2])
+		values := strings.Fields(strings.Split(value, "/")[0])
+		switch {
+		case cssSide.MatchString(prop), cssWord.MatchString(value), cssShiftX.MatchString(value):
+		case cssFourSides[prop] && len(values) == 4 && values[1] != values[3]:
+		case prop == "border-radius" && len(values) >= 2 && (values[0] != values[1] || (len(values) == 4 && values[2] != values[3])):
+		default:
+			continue
+		}
+		problems = append(problems, fmt.Sprintf("%s: %s: a physical direction; use the logical property (inline-start, inline-end, start, end)", prop, value))
+	}
+	return len(decls), problems
+}
+
+// TestPhysicalCaught: the check itself, on what breaks a mirrored page.
+func TestPhysicalCaught(t *testing.T) {
+	for _, css := range []string{
+		"a{margin-left:1rem}", "a{left:0}", "a{border-right-color:red}", "a{text-align:right}", "a{float:left}",
+		"a{margin:0 2rem 0 0}", "a{inset:0 auto 0 0}", "a{border-width:0 0 0 5px}", "a{border-radius:4px 0 0 4px}",
+		"a{border-radius:4px 0}", "a{transform:translateX(-1rem)}", "a{transform:translate(1rem, 0)}",
+		"a{background-position:left}", "a{background:linear-gradient(to right, red, blue)}",
+	} {
+		t.Run(css, func(t *testing.T) {
+			if _, problems := physical(css); len(problems) != 1 {
+				t.Errorf("got %v, want it refused", problems)
+			}
+		})
+	}
+	for _, css := range []string{
+		"a{margin:0 1rem}", "a{margin:0 1rem 0 1rem}", "a{padding-inline-start:1rem}", "a{inset-inline-start:0}",
+		"a{border-radius:4px}", "a{transform:translateY(-110%)}", "a{transform:translate(0, 2px)}", "a{text-align:start}",
+	} {
+		t.Run(css, func(t *testing.T) {
+			if _, problems := physical(css); len(problems) != 0 {
+				t.Errorf("got %v, want it taken", problems)
+			}
+		})
 	}
 }
 
@@ -308,7 +358,7 @@ func texts(n *html.Node, out *[]string) {
 		if v, _ := attr(n, "translate"); v == "no" || n.Data == "script" || n.Data == "style" {
 			return
 		}
-		for _, key := range []string{"aria-label", "title", "alt", "placeholder"} {
+		for _, key := range []string{"aria-label", "aria-description", "aria-roledescription", "aria-valuetext", "title", "alt", "placeholder", "label", "value"} {
 			if v, ok := attr(n, key); ok {
 				*out = append(*out, v)
 			}
@@ -359,12 +409,54 @@ func TestPseudoLocales(t *testing.T) {
 					t.Fatalf("texts: got %v, too few to judge", all)
 				}
 				for _, text := range all {
-					if !strings.HasPrefix(text, tc.open) || !strings.HasSuffix(text, tc.close) {
-						t.Errorf("text %q: not from the catalog (want it in %s…%s)", text, tc.open, tc.close)
+					if rest := outsideCatalog(text, tc.open, tc.close); rest != "" {
+						t.Errorf("text %q: %q is not from the catalog (want every part in %s…%s)", text, rest, tc.open, tc.close)
 					}
 				}
 			})
 		}
+	}
+}
+
+// outsideCatalog is what of text no catalog message holds: the text with
+// every open…close segment removed, innermost first (a page title nests
+// two messages in a third), trimmed.
+func outsideCatalog(text, open, close string) string {
+	for {
+		end := strings.Index(text, close)
+		if end < 0 {
+			break
+		}
+		start := strings.LastIndex(text[:end], open)
+		if start < 0 {
+			break
+		}
+		text = text[:start] + " " + text[end+len(close):]
+	}
+	return strings.TrimSpace(text)
+}
+
+// TestOutsideCatalog: the pseudo-locale check itself, on text a template
+// could produce.
+func TestOutsideCatalog(t *testing.T) {
+	for text, want := range map[string]string{
+		"⟦a⟧":             "",
+		"⟦⟦a⟧ – ⟦b⟧ ··⟧":  "",
+		"⟦a⟧ | Draft ⟦b⟧": "| Draft",
+		"Draft":           "Draft",
+		"⟦a":              "⟦a",
+		"x ⟦a⟧":           "x",
+		i18n.RTLOpen + "a" + i18n.RTLClose + " y": "y",
+	} {
+		t.Run(text, func(t *testing.T) {
+			open, close := i18n.LongOpen, i18n.LongClose
+			if strings.Contains(text, i18n.RTLOpen) {
+				open, close = i18n.RTLOpen, i18n.RTLClose
+			}
+			if got := outsideCatalog(text, open, close); got != want {
+				t.Errorf("got %q, want %q", got, want)
+			}
+		})
 	}
 }
 
@@ -551,24 +643,32 @@ func TestNew(t *testing.T) {
 }
 
 // TestAPIDial: with a dial address the client connects there, whatever
-// the URL's host, which stays the request's.
+// the URL's host, which stays the request's Host and the name TLS
+// verifies.
 func TestAPIDial(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(r.Host)) }))
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(r.Host)) }))
 	t.Cleanup(srv.Close)
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://api.example.invalid/v1/x", nil)
-	if err != nil {
-		t.Fatal(err)
+	roots := x509.NewCertPool()
+	roots.AddCert(srv.Certificate())
+	c := apiClient(srv.Listener.Addr().String(), &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12})
+	call := func(u string) (string, error) {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, u, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := c.Do(req)
+		if err != nil {
+			return "", err
+		}
+		defer func() { _ = resp.Body.Close() }() // the body is read below; a close error changes nothing asserted
+		body, err := io.ReadAll(resp.Body)
+		return string(body), err
 	}
-	resp, err := apiClient(srv.Listener.Addr().String()).Do(req)
-	if err != nil {
-		t.Fatal(err)
+	// httptest's certificate names example.com.
+	if got, err := call("https://example.com/v1/x"); err != nil || got != "example.com" {
+		t.Errorf("the certificate's name: got %q, %v, want the URL's host at the dialled server", got, err)
 	}
-	defer func() { _ = resp.Body.Close() }() // the body is read below; a close error changes nothing asserted
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(body) != "api.example.invalid" {
-		t.Errorf("Host at the dialled server: got %q, want the URL's host", body)
+	if _, err := call("https://api.example.invalid/v1/x"); err == nil || !strings.Contains(err.Error(), "certificate") {
+		t.Errorf("another name: got %v, want TLS to refuse the dialled server's certificate", err)
 	}
 }

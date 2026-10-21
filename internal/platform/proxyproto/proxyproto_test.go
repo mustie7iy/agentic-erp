@@ -237,3 +237,25 @@ func TestParseFrom(t *testing.T) {
 		t.Errorf("bad CIDR: got %v", err)
 	}
 }
+
+func TestListen(t *testing.T) {
+	plain, err := Listen(t.Context(), "127.0.0.1:0", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = plain.Close() }() // the test is over
+	if _, ok := plain.(*Listener); ok {
+		t.Error("without subnets: got a PROXY listener, want the plain one")
+	}
+	behind, err := Listen(t.Context(), "127.0.0.1:0", loopback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = behind.Close() }() // the test is over
+	if l, ok := behind.(*Listener); !ok || !slices.Equal(l.From, loopback) {
+		t.Errorf("with subnets: got %T, want a PROXY listener trusting them", behind)
+	}
+	if _, err := Listen(t.Context(), plain.Addr().String(), nil); err == nil || !strings.Contains(err.Error(), "proxyproto:") {
+		t.Errorf("address in use: got %v", err)
+	}
+}

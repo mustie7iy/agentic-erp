@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -310,7 +311,8 @@ func TestPagesInTheBrowser(t *testing.T) {
 }
 
 // TestCSPEnforced: the browser refuses a script the page did not carry
-// with its nonce, so a planted script cannot run.
+// with its nonce, inline or from this origin (htmx's own file, planted
+// again without the nonce), so a planted script cannot run.
 func TestCSPEnforced(t *testing.T) {
 	browserCtx := browse(t)
 	s := newStack(t)
@@ -319,8 +321,16 @@ func TestCSPEnforced(t *testing.T) {
 		chromedp.Navigate(s.url+"/"),
 		chromedp.WaitReady(chromedp.CSS("main")),
 		chromedp.Evaluate[chromedp.Void](`(() => { const s = document.createElement("script"); s.textContent = "window.planted = true"; document.body.append(s) })()`),
+		chromedp.Evaluate[chromedp.Void](`(() => { window.htmx = undefined; const s = document.createElement("script"); s.src = "`+s.web.Assets.Script+`"; document.body.append(s) })()`),
 	); err != nil {
 		t.Fatal(err)
+	}
+	// The browser reports the refused file; until then it might still run.
+	pgtest.Eventually(t, 10*time.Second, func() bool {
+		return slices.ContainsFunc(c.errors(), func(e string) bool { return strings.Contains(e, s.web.Assets.Script) })
+	}, "the browser did not report refusing %s", s.web.Assets.Script)
+	if again, err := chromedp.Run(ctx, chromedp.Evaluate[bool](`typeof window.htmx === "object"`)); err != nil || again {
+		t.Errorf("a same-origin script without the nonce ran (%v)", err)
 	}
 	ran, err := chromedp.Run(ctx, chromedp.Evaluate[bool](`window.planted === true`))
 	if err != nil {
