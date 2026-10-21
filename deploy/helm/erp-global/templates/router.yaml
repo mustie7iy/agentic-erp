@@ -97,7 +97,7 @@ spec:
               {{- include "erp-global.selector" . | nindent 14 }}
       containers:
         - name: router
-          image: {{ include "erp-global.image" . }}
+          image: {{ include "erp-global.image" (dict "root" . "name" "router") }}
           ports:
             - {name: public, containerPort: 8081}
             - {name: admin, containerPort: 9091}
@@ -167,7 +167,8 @@ spec:
             secretName: erp-router-public-tls
 ---
 # The TargetGroupBinding's Service: the controller registers its
-# endpoints' addresses; the cluster's own clients do not use it.
+# endpoints' addresses. erp-web reaches the public listener through it
+# (ERP_WEB_API_DIAL, ADR-0052); no other client in the cluster uses it.
 apiVersion: v1
 kind: Service
 metadata:

@@ -1,0 +1,68 @@
+package ui
+
+import "github.com/mustie7iy/agentic-erp/internal/web/i18n"
+
+// Notice is a notification banner: a region named by its title, holding a
+// short message. id names the title, unique on the page.
+templ Notice(id string, title i18n.Key, message templ.Component) {
+	<section class="notice" role="region" { labelledBy(id)... }>
+		<h2 class="notice__title" { idAttr(id)... }>
+			@T(title)
+		</h2>
+		<div class="notice__body">
+			@message
+		</div>
+	</section>
+}
+
+// Row is one pair of a summary list.
+type Row struct {
+	Key   i18n.Key
+	Value templ.Component
+}
+
+// SummaryList shows key and value pairs.
+templ SummaryList(rows []Row) {
+	<dl class="summary-list">
+		for _, r := range rows {
+			<div class="summary-list__row">
+				<dt class="summary-list__key">
+					@T(r.Key)
+				</dt>
+				<dd class="summary-list__value">
+					@r.Value
+				</dd>
+			</div>
+		}
+	</dl>
+}
+
+// Tag is a status in words; kind ("" or "success") only colours it.
+templ Tag(text i18n.Key, kind string) {
+	<strong { tagClass(kind)... }>
+		@T(text)
+	</strong>
+}
+
+// ButtonLink is a link that looks like a button, for a navigation that
+// is the page's main action.
+templ ButtonLink(path string, text i18n.Key) {
+	<a class="button" draggable="false" { link(path, "")... }>
+		@T(text)
+	</a>
+}
+
+// Code is a code, number or identifier: never translated, kept left to
+// right in a right-to-left page.
+templ Code(value string) {
+	<code translate="no">
+		@Value(value)
+	</code>
+}
+
+// Paragraph is a paragraph of one catalog message.
+templ Paragraph(k i18n.Key, args ...any) {
+	<p>
+		@T(k, args...)
+	</p>
+}

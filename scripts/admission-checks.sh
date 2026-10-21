@@ -282,7 +282,8 @@ echo "admission-checks: the erp-cell chart's workloads and certificates are admi
 
 # The erp-global chart likewise, in its namespace.
 "$HELM" template erp-global "$root/deploy/helm/erp-global" --namespace erp-global -f "$root/deploy/helm/erp-global/tests/values.yaml" \
-  --set "images.router.repository=${full%@*}" --set "images.router.digest=${full#*@}" >global-rendered.yaml
+  --set "images.router.repository=${full%@*}" --set "images.router.digest=${full#*@}" \
+  --set "images.web.repository=${full%@*}" --set "images.web.digest=${full#*@}" >global-rendered.yaml
 "$CONFTEST" parse --parser yaml global-rendered.yaml | python3 -c '
 import json, sys
 docs = [d for d in json.load(sys.stdin) if d]
@@ -291,5 +292,5 @@ for d in docs:
 print("\n---\n".join(json.dumps(d) for d in docs))
 ' >global.yaml
 apply global.json --resource global.yaml --registry
-expect global.json erp-router:admitted erp-router-tls:admitted
-echo "admission-checks: the erp-global chart's router and its certificate are admitted"
+expect global.json erp-router:admitted erp-router-tls:admitted erp-web:admitted
+echo "admission-checks: the erp-global chart's router, its certificate and the web workspace are admitted"

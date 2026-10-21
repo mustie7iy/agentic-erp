@@ -81,6 +81,25 @@ const (
 	Production  Environment = "production"
 )
 
+// environmentHint tells the operator what to set when ERP_ENV is missing or
+// unknown.
+const environmentHint = "set ERP_ENV=development on a developer's machine or in tests, ERP_ENV=production everywhere else"
+
+// CheckEnvironment checks ERP_ENV as read: development or production, and
+// nothing else, not even empty. Every process that reads the environment
+// (the server, the router, erp-web) checks it here, so they agree on the
+// names. It lives here rather than in platform/config, which links the
+// database pool, so that erp-web need not (ADR-0052 §7).
+func CheckEnvironment(env string) error {
+	switch Environment(env) {
+	case Development, Production:
+		return nil
+	case "":
+		return errors.New("ERP_ENV is required: " + environmentHint)
+	}
+	return fmt.Errorf("ERP_ENV %q must be development or production: %s", env, environmentHint)
+}
+
 // Verifier checks bearer tokens from the trusted issuers: the static ones
 // configured for the deployment, and, with a registry, the identity
 // providers tenants registered (ADR-0031).

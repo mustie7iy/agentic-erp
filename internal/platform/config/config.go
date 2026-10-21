@@ -660,22 +660,9 @@ const (
 	Production  = string(authn.Production)
 )
 
-// environmentHint tells the operator what to set when ERP_ENV is missing or
-// unknown.
-const environmentHint = "set ERP_ENV=development on a developer's machine or in tests, ERP_ENV=production everywhere else"
-
-// CheckEnvironment checks ERP_ENV as read: development or production, and
-// nothing else, not even empty. Every process that reads the environment
-// (the server, the router) checks it here, so they agree on the names.
-func CheckEnvironment(env string) error {
-	switch env {
-	case Development, Production:
-		return nil
-	case "":
-		return errors.New("ERP_ENV is required: " + environmentHint)
-	}
-	return fmt.Errorf("ERP_ENV %q must be development or production: %s", env, environmentHint)
-}
+// CheckEnvironment checks ERP_ENV as read (authn.CheckEnvironment):
+// development or production, and nothing else, not even empty.
+func CheckEnvironment(env string) error { return authn.CheckEnvironment(env) }
 
 // checkEnvironment requires ERP_ENV and refuses, in production, the
 // settings that are only safe on a developer's machine: a missing security

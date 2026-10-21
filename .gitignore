@@ -7,11 +7,13 @@ bin/
 # binaries built in the repository root (go build ./cmd/...)
 /erp-server
 /erp-router
+/erp-web
 /erp
 # and the same built inside their own directory (go build in cmd/<name>)
 /cmd/erp/erp
 /cmd/erp-server/erp-server
 /cmd/erp-router/erp-router
+/cmd/erp-web/erp-web
 
 # per-user Claude Code state; .claude/settings.json, agents/ and hooks/ are shared
 .claude/settings.local.json

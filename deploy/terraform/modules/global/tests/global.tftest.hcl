@@ -85,14 +85,43 @@ run "the_load_balancer_passes_tls_through_to_the_router" {
   }
 }
 
+run "the_web_workspace_has_its_own_load_balancer" {
+  command = apply
+
+  assert {
+    condition     = aws_lb.web.load_balancer_type == "network" && !aws_lb.web.internal && aws_lb.web.enable_deletion_protection && aws_lb.web.name == "erp-dev-web"
+    error_message = "an internet-facing NLB of its own, protected from deletion: a browser never meets the router's certificate request (ADR-0052)"
+  }
+  assert {
+    condition     = aws_lb_listener.web_https.port == 443 && aws_lb_listener.web_https.protocol == "TCP"
+    error_message = "layer 4 on 443: erp-web terminates TLS, the load balancer holds no certificate"
+  }
+  assert {
+    condition     = aws_lb_target_group.web.target_type == "ip" && aws_lb_target_group.web.port == 8082 && aws_lb_target_group.web.proxy_protocol_v2 && aws_lb_target_group.web.preserve_client_ip == "false"
+    error_message = "erp-web's pods are the targets, on ERP_WEB_ADDR's port, each connection with a PROXY v2 header from the balancer's addresses"
+  }
+  assert {
+    condition     = aws_vpc_security_group_ingress_rule.web_pods.security_group_id == var.cluster_security_group_id && aws_vpc_security_group_ingress_rule.web_pods.from_port == 8082 && aws_vpc_security_group_ingress_rule.web_pods.to_port == 8082
+    error_message = "the cluster lets the web load balancer reach erp-web's port only"
+  }
+  assert {
+    condition     = join(",", output.web_proxy_sources) == "10.10.0.0/24"
+    error_message = "erp-web takes the header from the public subnets' ranges"
+  }
+  assert {
+    condition     = contains([for s in aws_secretsmanager_secret.global : s.name], "erp/global/web-public-certificate") && contains([for s in aws_secretsmanager_secret.global : s.name], "erp/global/web-public-key")
+    error_message = "the web workspace's public certificate and key are entries under erp/global/"
+  }
+}
+
 run "clients_can_be_limited" {
   command = plan
   variables {
     client_cidrs = ["203.0.113.0/24"]
   }
   assert {
-    condition     = keys(aws_vpc_security_group_ingress_rule.clients) == ["203.0.113.0/24"]
-    error_message = "only the listed clients reach the load balancer"
+    condition     = keys(aws_vpc_security_group_ingress_rule.clients) == ["203.0.113.0/24"] && keys(aws_vpc_security_group_ingress_rule.web_clients) == ["203.0.113.0/24"]
+    error_message = "only the listed clients reach the load balancers"
   }
 }
 
@@ -120,7 +149,7 @@ run "the_routers_secrets_are_empty_entries_under_the_global_key" {
   command = apply
 
   assert {
-    condition     = length(aws_secretsmanager_secret.global) == 3 && alltrue([for s in aws_secretsmanager_secret.global : s.kms_key_id == aws_kms_key.directory.arn && startswith(s.name, "erp/global/")])
+    condition     = length(aws_secretsmanager_secret.global) == 5 && alltrue([for s in aws_secretsmanager_secret.global : s.kms_key_id == aws_kms_key.directory.arn && startswith(s.name, "erp/global/")])
     error_message = "the router's secrets are under erp/global/ and encrypted with the global tier's key"
   }
   assert {

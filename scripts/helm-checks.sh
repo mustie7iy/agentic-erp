@@ -28,6 +28,9 @@
 #   - deploy/helm/erp-global likewise, its router reading the PROXY header
 #     from, and taking public connections from, the load balancer's
 #     subnets alone, ready only once the load balancer finds it healthy;
+#     erp-web (ADR-0052) likewise behind its own load balancer, in
+#     production, on its own https hostname, reaching the router's public
+#     listener alone, with no SPIFFE certificate;
 #   - deploy/helm/erp-delivery likewise: the cell's Argo CD Applications,
 #     one per add-on of addons.txt in its order, then erp-cluster, erp-cell
 #     and (on the home cell alone) erp-global with the cell's release.json;
@@ -493,15 +496,43 @@ policy = next(d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"][
 sources = [p["ipBlock"]["cidr"] for rule in policy["spec"]["ingress"] for p in rule["from"]]
 if sources != want:
     sys.exit("helm-checks: erp-global's public listener takes %r, want the load balancer's subnets alone" % sources)
-binding = next(d for d in docs if d["kind"] == "TargetGroupBinding")
-if "networking" in binding["spec"]:
-    sys.exit("helm-checks: erp-global's TargetGroupBinding manages security group rules; Terraform owns them")
+bindings = {d["metadata"]["name"]: d for d in docs if d["kind"] == "TargetGroupBinding"}
+if sorted(bindings) != ["erp-router", "erp-web"] or any("networking" in b["spec"] for b in bindings.values()):
+    sys.exit("helm-checks: erp-global's TargetGroupBindings %s: want erp-router's and erp-web's, managing no security group rule (Terraform owns them)" % sorted(bindings))
 gates = [g["conditionType"] for g in router["spec"]["template"]["spec"].get("readinessGates", [])]
-if gates != ["target-health.elbv2.k8s.aws/" + binding["metadata"]["name"]]:
+if gates != ["target-health.elbv2.k8s.aws/erp-router"]:
     sys.exit("helm-checks: erp-global's router is ready before the load balancer finds it healthy (readiness gate %r)" % gates)
+# The web workspace (ADR-0052): its own balancer's subnets alone, in
+# production on its https hostname, reaching the router's public listener
+# and nothing else, with no SPIFFE certificate.
+web = next(d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"] == "erp-web")
+pod = web["spec"]["template"]["spec"]
+env = {e["name"]: e.get("value") for e in pod["containers"][0]["env"]}
+for name, value in {"ERP_ENV": "production", "ERP_WEB_PROXY_FROM": ",".join(want), "ERP_WEB_PUBLIC_URL": "https://app.dev.erp.example",
+                    "ERP_WEB_API_URL": "https://api.dev.erp.example", "ERP_WEB_API_DIAL": "erp-router.erp-global.svc.cluster.local:8081"}.items():
+    if env.get(name) != value:
+        sys.exit("helm-checks: erp-web's %s is %r, want %r" % (name, env.get(name), value))
+if [g["conditionType"] for g in pod.get("readinessGates", [])] != ["target-health.elbv2.k8s.aws/erp-web"]:
+    sys.exit("helm-checks: erp-web is ready before its load balancer finds it healthy")
+if pod.get("automountServiceAccountToken") is not False:
+    sys.exit("helm-checks: erp-web mounts a service account token")
+policy = next(d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == "erp-web")
+sources = [p["ipBlock"]["cidr"] for rule in policy["spec"]["ingress"] for p in rule["from"]]
+if sources != want:
+    sys.exit("helm-checks: erp-web's public listener takes %r, want its load balancer's subnets alone" % sources)
+egress = [(p.get("podSelector", {}).get("matchLabels", {}).get("app.kubernetes.io/name"), [x["port"] for x in rule["ports"]])
+          for rule in policy["spec"]["egress"] for p in rule["to"]]
+if egress != [("erp-router", [8081])]:
+    sys.exit("helm-checks: erp-web reaches %r, want the router's public listener alone" % egress)
+into = next(d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == "erp-router-from-web")
+if [p["podSelector"]["matchLabels"]["app.kubernetes.io/name"] for rule in into["spec"]["ingress"] for p in rule["from"]] != ["erp-web"]:
+    sys.exit("helm-checks: the router's listener is opened to more than erp-web")
+if any(d["kind"] == "Certificate" and "erp-web" in d["metadata"]["name"] for d in docs):
+    sys.exit("helm-checks: erp-web has a SPIFFE certificate; it holds no identity a cell would accept (ADR-0052 §6)")
 PY
 for value in trustDomain vpcCidr trust.caBundle secrets.prefix images.router.repository images.router.digest \
-  router.targetGroupArn router.proxyFrom router.operatorIssuers directory.endpoint directory.masterSecretArn directory.caBundle; do
+  router.targetGroupArn router.proxyFrom router.operatorIssuers directory.endpoint directory.masterSecretArn directory.caBundle \
+  images.web.repository images.web.digest web.hostname web.apiUrl web.targetGroupArn web.proxyFrom; do
   if "$HELM" template erp-global "$chart" --namespace erp-global -f "$values" --set "$value=null" >/dev/null 2>"$work/err"; then
     echo "helm-checks: erp-global rendered without $value" >&2
     exit 1
@@ -512,13 +543,14 @@ for value in trustDomain vpcCidr trust.caBundle secrets.prefix images.router.rep
     exit 1
   fi
 done
-for bad in 'images.router.digest=latest' 'router.proxyFrom={}' 'router.proxyFrom={10.16.0.0}'; do
+for bad in 'images.router.digest=latest' 'router.proxyFrom={}' 'router.proxyFrom={10.16.0.0}' 'images.web.digest=latest' \
+  'web.proxyFrom={}' 'web.proxyFrom={10.16.0.0}' 'web.hostname=App_Workspace' 'web.apiUrl=http://api.dev.erp.example' 'web.apiUrl=https://api.dev.erp.example/v1'; do
   if "$HELM" template erp-global "$chart" --namespace erp-global -f "$values" --set "$bad" >/dev/null 2>&1; then
     echo "helm-checks: erp-global took $bad" >&2
     exit 1
   fi
 done
-echo "helm-checks: erp-global refuses to render without each value it requires, with an image not by digest, or no load balancer subnets"
+echo "helm-checks: erp-global refuses to render without each value it requires, with an image not by digest, no load balancer subnets, or a web hostname or API address that is not one"
 rotating "$work/erp-cell.json" "$work/erp-global.json"
 echo "helm-checks: every rotating password is refreshed within five minutes"
 

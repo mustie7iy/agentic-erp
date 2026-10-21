@@ -1,7 +1,7 @@
 # The erp-analytics image (ADR-0044, ADR-0032): the one cgo binary, which
 # links DuckDB, so ko (static Go only, no cgo cross-compilation) cannot
 # build it. Built with docker buildx from the repository's root, by
-# scripts/images.sh (`make images`), with the other three images.
+# scripts/images.sh (`make images`), with the other four images.
 #
 # - Both bases are pinned by the digest of their multi-platform index, as
 #   .ko.yaml pins ko's: a base that moves under a tag would change the

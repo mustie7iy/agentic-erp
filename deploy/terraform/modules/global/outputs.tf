@@ -23,6 +23,21 @@ output "router_proxy_sources" {
   value       = sort(distinct([for s in data.aws_subnet.public : s.cidr_block]))
 }
 
+output "web_dns_name" {
+  description = "The web workspace's load balancer's DNS name, the target of its hostname's public record (app.<domain>, ADR-0052)."
+  value       = aws_lb.web.dns_name
+}
+
+output "web_target_group_arn" {
+  description = "Where the erp-global chart's TargetGroupBinding registers erp-web's pods (web.targetGroupArn)."
+  value       = aws_lb_target_group.web.arn
+}
+
+output "web_proxy_sources" {
+  description = "The web load balancer's subnets, whose connections carry a PROXY v2 header: the erp-global chart's web.proxyFrom (ERP_WEB_PROXY_FROM)."
+  value       = sort(distinct([for s in data.aws_subnet.public : s.cidr_block]))
+}
+
 output "external_secrets" {
   description = "What the home cell's External Secrets Operator reads for the erp-global chart: the global secrets, the directory's master credentials, and the key encrypting them (the cell module's global_secrets)."
   value = {
