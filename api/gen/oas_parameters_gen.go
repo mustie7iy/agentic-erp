@@ -10964,6 +10964,150 @@ func decodeGetRolePermissionParams(args [2]string, argsEscaped bool, r *http.Req
 	return params, nil
 }
 
+// GetSchemaParams is parameters of getSchema operation.
+type GetSchemaParams struct {
+	// The extensible entity.
+	Entity string
+	// The ETag the client last read. When it still matches, the answer is 304 without a body.
+	IfNoneMatch OptString `json:",omitempty,omitzero"`
+}
+
+func unpackGetSchemaParams(packed middleware.Parameters) (params GetSchemaParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "entity",
+			In:   "path",
+		}
+		params.Entity = packed[key].(string)
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "If-None-Match",
+			In:   "header",
+		}
+		if v, ok := packed[key]; ok {
+			params.IfNoneMatch = v.(OptString)
+		}
+	}
+	return params
+}
+
+func decodeGetSchemaParams(args [1]string, argsEscaped bool, r *http.Request) (params GetSchemaParams, _ error) {
+	h := uri.NewHeaderDecoder(r.Header)
+	// Decode path: entity.
+	if err := func() error {
+		param := args[0]
+		if argsEscaped {
+			unescaped, err := url.PathUnescape(args[0])
+			if err != nil {
+				return errors.Wrap(err, "unescape path")
+			}
+			param = unescaped
+		}
+		if len(param) > 0 {
+			d := uri.NewPathDecoder(uri.PathDecoderConfig{
+				Param:   "entity",
+				Value:   param,
+				Style:   uri.PathStyleSimple,
+				Explode: false,
+			})
+
+			if err := func() error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToString(val)
+				if err != nil {
+					return err
+				}
+
+				params.Entity = c
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return validate.ErrFieldRequired
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "entity",
+			In:   "path",
+			Err:  err,
+		}
+	}
+	// Decode header: If-None-Match.
+	if err := func() error {
+		cfg := uri.HeaderParameterDecodingConfig{
+			Name:    "If-None-Match",
+			Explode: false,
+		}
+		if err := h.HasParam(cfg); err == nil {
+			if err := h.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotIfNoneMatchVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotIfNoneMatchVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.IfNoneMatch.SetTo(paramsDotIfNoneMatchVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.IfNoneMatch.Get(); ok {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     1,
+							MinLengthSet:  true,
+							MaxLength:     256,
+							MaxLengthSet:  true,
+							Email:         false,
+							Hostname:      false,
+							Regex:         nil,
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(value)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "If-None-Match",
+			In:   "header",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
 // GetSodRuleParams is parameters of getSodRule operation.
 type GetSodRuleParams struct {
 	// Resource identifier (UUIDv7).

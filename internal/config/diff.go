@@ -84,6 +84,8 @@ var tierRules = []struct {
 	// Submission only lets new ranges and raised upper limits through, so
 	// issued numbers stay valid.
 	{rx(`^number_ranges`), TierCosmetic},
+	// A rule refuses writes: tier 3, with :simulate evidence (ADR-0046).
+	{rx(`^rules\.`), TierPostingRelated},
 }
 
 func rx(s string) *regexp.Regexp { return regexp.MustCompile(s) }
@@ -160,7 +162,7 @@ func Diff(old, new *Config) ([]Change, error) {
 		}
 		out = append(out, ch)
 	}
-	return out, nil
+	return append(out, extensionChanges(old, new)...), nil
 }
 
 // wholeItem returns the outermost list item containing path that exists in
@@ -210,7 +212,9 @@ func flatten(c *Config) map[string]string {
 	if c == nil {
 		return out
 	}
-	b, _ := json.Marshal(c)
+	flat := *c
+	flat.Extensions = nil // compared field by field by extensionChanges
+	b, _ := json.Marshal(flat)
 	var v any
 	_ = json.Unmarshal(b, &v)
 	walk("", "", v, out)

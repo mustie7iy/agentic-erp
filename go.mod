@@ -5,6 +5,7 @@ go 1.26.2
 toolchain go1.26.9
 
 require (
+	cel.dev/cel-go v0.32.0
 	github.com/anthropics/anthropic-sdk-go v1.79.1
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/go-faster/errors v0.8.0
@@ -34,7 +35,9 @@ require (
 )
 
 require (
+	cel.dev/expr v0.25.2 // indirect
 	github.com/antithesishq/antithesis-sdk-go v0.8.0-default-no-op // indirect
+	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/buger/jsonparser v1.1.2 // indirect

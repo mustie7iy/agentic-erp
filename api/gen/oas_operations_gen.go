@@ -100,6 +100,7 @@ const (
 	GetRoleOperation                          OperationName = "GetRole"
 	GetRoleAssignmentOperation                OperationName = "GetRoleAssignment"
 	GetRolePermissionOperation                OperationName = "GetRolePermission"
+	GetSchemaOperation                        OperationName = "GetSchema"
 	GetSodRuleOperation                       OperationName = "GetSodRule"
 	GetSupplierInvoiceOperation               OperationName = "GetSupplierInvoice"
 	GetSupplierInvoiceDocumentOperation       OperationName = "GetSupplierInvoiceDocument"

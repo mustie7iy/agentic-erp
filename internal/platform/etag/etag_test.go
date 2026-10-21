@@ -55,3 +55,21 @@ func TestIfMatch(t *testing.T) {
 		})
 	}
 }
+
+func TestNoneMatch(t *testing.T) {
+	for header, want := range map[string]bool{
+		``:         true,
+		`"3"`:      false,
+		`W/"3"`:    false, // compared weakly
+		`"1", "3"`: false,
+		`*`:        false,
+		`"2"`:      true,
+		`3`:        true,
+	} {
+		t.Run(header, func(t *testing.T) {
+			if got := NoneMatch(header, `"3"`); got != want {
+				t.Errorf("NoneMatch(%q, \"3\"): got %v, want %v", header, got, want)
+			}
+		})
+	}
+}

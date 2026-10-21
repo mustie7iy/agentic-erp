@@ -267,18 +267,24 @@ var businessOutcome = map[int]bool{
 
 // finish decides what the transaction keeps:
 //   - 2xx/3xx: everything, plus the audit entries and the stored response;
-//   - a business outcome on an unsafe request: only the key and the answer;
+//   - a business outcome on an unsafe request: only the key, the answer
+//     and the audit of a refusal (audit.Refuse), so a refused write is
+//     recorded although its work rolls back, once, with the answer a
+//     retry gets (ADR-0046);
 //   - anything else: nothing (the deferred rollback).
 func (m *Middleware) finish(ctx context.Context, tx pgx.Tx, p reqctx.Principal, req *request, rec *recorder, buf *audit.Buffer) error {
 	failed := rec.status >= 400
 	if failed && (req == nil || !businessOutcome[rec.status]) {
 		return nil
 	}
+	flush := buf.Flush
 	if failed {
 		if _, err := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT uow"); err != nil {
 			return fmt.Errorf("uow: rollback to savepoint: %w", err)
 		}
-	} else if err := buf.Flush(ctx, tx, p, reqctx.TraceID(ctx), m.Now()); err != nil {
+		flush = buf.FlushRefusals
+	}
+	if err := flush(ctx, tx, p, reqctx.TraceID(ctx), m.Now()); err != nil {
 		// The audit trail rejecting an entry is never the client's fault: a
 		// lost connection stays the retryable 503 it translates to, anything
 		// else is internal.

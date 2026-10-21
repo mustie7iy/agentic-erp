@@ -84,6 +84,16 @@ func newApp(t *testing.T, pool *database.Pool, also ...*authntest.Issuer) *app {
 		a.check(err)
 		problem.Write(w, r, problem.Conflict("test.conflict", "no"))
 	})
+	mux.HandleFunc("POST /refuse", func(w http.ResponseWriter, r *http.Request) {
+		// A write refused by a rule: its work and entries roll back, its
+		// refusal is kept with the answer (ADR-0046).
+		id, err := create(w, r)
+		a.check(err)
+		a.check(audit.Add(r.Context(), audit.Entry{Action: "test.create", ObjectType: "platform.operation", ObjectID: id, Outcome: "succeeded"}))
+		a.check(audit.Refuse(r.Context(), audit.Entry{Action: "test.create", ObjectType: "platform.operation", Outcome: "refused",
+			Detail: map[string]any{"source": "rule"}}))
+		problem.Write(w, r, problem.Unprocessable("request.rule_refused", "no"))
+	})
 	mux.HandleFunc("POST /stale", func(w http.ResponseWriter, r *http.Request) {
 		_, err := create(w, r)
 		a.check(err)
@@ -279,6 +289,32 @@ func TestIdempotentCreate(t *testing.T) {
 	}
 	if n := operations(t, ten); n != 2 {
 		t.Fatalf("operations after expired key: got %d, want 2", n)
+	}
+}
+
+// TestRefusalKeptWithTheAnswer: a business outcome keeps a refusal's
+// audit, and only it, with the stored answer; the replayed answer records
+// no second refusal.
+func TestRefusalKeptWithTheAnswer(t *testing.T) {
+	a := newApp(t, pgtest.Pool(t))
+	ten := pgtest.NewTenant(t)
+	c := call{method: "POST", path: "/refuse", key: "key-refuse-1", tenant: ten.ID, subject: ten.Human.Subject}
+	for i := range 2 {
+		if r := a.do(c); r.Code != 422 {
+			t.Fatalf("attempt %d status: got %d, want 422 (%s)", i+1, r.Code, r.Body)
+		}
+	}
+	audited := func(outcome string) int {
+		return count(t, "SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'test.create' AND outcome = $2", ten.ID, outcome)
+	}
+	if n := audited("refused"); n != 1 {
+		t.Errorf("refusals audited: got %d, want 1", n)
+	}
+	if n := audited("succeeded"); n != 0 {
+		t.Errorf("rolled-back entries audited: got %d, want 0", n)
+	}
+	if n := operations(t, ten); n != 0 {
+		t.Errorf("rows kept: got %d, want 0", n)
 	}
 }
 

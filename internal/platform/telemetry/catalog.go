@@ -29,6 +29,7 @@ var Labels = map[string]int{
 	"status":     4,   // agents.CallStatuses; T44's and T50's states take their own label within the ceiling
 	"currency":   200, // ISO 4217 codes
 	"decision":   4,   // ProposalDecided decisions: approved, rejected, modified
+	"entity":     8,   // rules.Entities: the entities tenants write validation rules on
 }
 
 // MaxSeries is the most series one process may expose when every label
@@ -56,6 +57,13 @@ func (m *Metrics) counterVec(name, help string, labels ...string) *prometheus.Co
 	c := prometheus.NewCounterVec(prometheus.CounterOpts{Name: name, Help: help}, labels)
 	m.register(c, family{name: name, help: help, kind: dto.MetricType_COUNTER, labels: labels})
 	return c
+}
+
+// Counter registers a counter vector another package owns, one it counts
+// where no Metrics is at hand (rules.Unevaluable), with its catalog entry,
+// so Check and Series hold it to the catalog like the rest.
+func (m *Metrics) Counter(c *prometheus.CounterVec, name, help string, labels ...string) {
+	m.register(c, family{name: name, help: help, kind: dto.MetricType_COUNTER, labels: labels})
 }
 
 func (m *Metrics) histogramVec(name, help string, buckets []float64, labels ...string) *prometheus.HistogramVec {

@@ -13,7 +13,7 @@ new record. Status values: proposed, accepted, superseded.
 | [0006](0006-append-only-ledger.md) | Append-only ledger, derived balances, partitioning by fiscal year | proposed |
 | [0007](0007-events-and-outbox.md) | Domain events via transactional outbox, CloudEvents | proposed |
 | [0008](0008-concurrency-and-idempotency.md) | Optimistic locking and idempotency keys | proposed |
-| [0009](0009-extensibility.md) | Governed custom fields in jsonb | proposed |
+| [0009](0009-extensibility.md) | Governed custom fields in jsonb | accepted (amended by 0046) |
 | [0010](0010-authentication-authorization.md) | OIDC authentication; permission, company and SoD authorization | proposed |
 | [0011](0011-audit-trail.md) | Hash-chained audit events in the same transaction | proposed |
 | [0012](0012-long-running-operations.md) | Long-running work as Temporal workflows behind API operations: multi-step, cross-module, human waits, timers and batches; postings stay one ACID activity; ids from business keys | accepted |
@@ -48,3 +48,4 @@ new record. Status values: proposed, accepted, superseded.
 | [0041](0041-api-lifecycle-and-webhooks.md) | API lifecycle: /vN paths and .vN event types alongside for 12 months; deprecation in the contract with Deprecation, Sunset and Link headers and 365 days' notice; accepted breaks name a T-number; events additive within a version; Standard Webhooks signed per subscription, dispatched with backoff, ordering and dead letters | accepted |
 | [0042](0042-foreign-currency-revaluation.md) | Foreign-currency revaluation at a period-end key date: open items of reconciliation accounts and balances of flagged accounts at one rate type per entity, posted to unrealised gain/loss and adjustment accounts, reversed on the next day, one posted run per key date | accepted |
 | [0043](0043-observability.md) | Prometheus, Alertmanager and Grafana per cell; labels only bounded enumerations, held by a catalog test (promlint, allow-list, series ceiling); latency SLOs per operation class; events counted on commit; logs to CloudWatch 90 days, traces to X-Ray 5% plus errors | accepted |
+| [0046](0046-custom-fields-and-cel-rules.md) | Custom fields on the supplier invoice, purchase order and business partner in one jsonb column, declared per tenant in a JSON Schema subset we compile (typed, flat, limited, PII-classified, immutable versions, tier 1 to add optional fields, tier 2 to require, narrow or remove); CEL validation rules on write only, bounded, tier 3 with simulation | accepted |

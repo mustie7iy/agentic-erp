@@ -25,11 +25,15 @@ var modelYAML []byte
 // Operation is what the request pipeline needs to know about an operation
 // beyond what the generated server enforces.
 type Operation struct {
-	ID           string // operationId
-	Method       string // upper case
-	Path         string
-	Permission   string // x-permission
-	AgentAllowed bool   // false when x-agent: false
+	ID         string // operationId
+	Method     string // upper case
+	Path       string
+	Permission string // x-permission
+	// EntityPermissions is x-entity-permissions, in place of x-permission:
+	// the permission by the operation's {entity} path parameter, for a
+	// resource whoever may read the entity may read (a custom field schema).
+	EntityPermissions map[string]string
+	AgentAllowed      bool // false when x-agent: false
 	// Proposes is x-autonomy: propose: the operation only proposes, and an
 	// agent of autonomy level 1 may perform it (ADR-0036).
 	Proposes bool
@@ -62,15 +66,16 @@ const MinSunsetNotice = 365 * 24 * time.Hour
 
 // operationNode is an operation's fields that the request pipeline reads.
 type operationNode struct {
-	ID           string `yaml:"operationId"`
-	Permission   string `yaml:"x-permission"`
-	Agent        *bool  `yaml:"x-agent"`
-	Autonomy     string `yaml:"x-autonomy"`
-	Deprecated   bool   `yaml:"deprecated"`
-	DeprecatedAt string `yaml:"x-deprecated-at"`
-	Sunset       string `yaml:"x-sunset"`
-	Stability    string `yaml:"x-stability-level"`
-	Class        string `yaml:"x-slo-class"`
+	ID           string            `yaml:"operationId"`
+	Permission   string            `yaml:"x-permission"`
+	Entities     map[string]string `yaml:"x-entity-permissions"`
+	Agent        *bool             `yaml:"x-agent"`
+	Autonomy     string            `yaml:"x-autonomy"`
+	Deprecated   bool              `yaml:"deprecated"`
+	DeprecatedAt string            `yaml:"x-deprecated-at"`
+	Sunset       string            `yaml:"x-sunset"`
+	Stability    string            `yaml:"x-stability-level"`
+	Class        string            `yaml:"x-slo-class"`
 	ExternalDocs struct {
 		URL string `yaml:"url"`
 	} `yaml:"externalDocs"`
@@ -83,8 +88,8 @@ func decodeOperation(method, path string, node yaml.Node, permissioned bool) (Op
 	if err := node.Decode(&op); err != nil {
 		return Operation{}, fmt.Errorf("decode: %w", err)
 	}
-	if op.ID == "" || (permissioned && op.Permission == "") {
-		return Operation{}, errors.New("operationId and x-permission are required")
+	if op.ID == "" || (permissioned && (op.Permission == "") == (len(op.Entities) == 0)) {
+		return Operation{}, errors.New("operationId and one of x-permission and x-entity-permissions are required")
 	}
 	if op.Autonomy != "" && op.Autonomy != "propose" && op.Autonomy != "read" {
 		return Operation{}, errors.New("x-autonomy is propose, read or absent")
@@ -105,7 +110,7 @@ func decodeOperation(method, path string, node yaml.Node, permissioned bool) (Op
 		return Operation{}, err
 	}
 	return Operation{
-		ID: op.ID, Method: strings.ToUpper(method), Path: path, Permission: op.Permission,
+		ID: op.ID, Method: strings.ToUpper(method), Path: path, Permission: op.Permission, EntityPermissions: op.Entities,
 		AgentAllowed: op.Agent == nil || *op.Agent, Proposes: op.Autonomy == "propose", Reads: op.Autonomy == "read",
 		Lifecycle: life, Stability: op.Stability, Class: cls,
 	}, nil

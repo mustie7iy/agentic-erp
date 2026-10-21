@@ -377,6 +377,10 @@ type GetRoleRes interface {
 	getRoleRes()
 }
 
+type GetSchemaRes interface {
+	getSchemaRes()
+}
+
 type GetSodRuleRes interface {
 	getSodRuleRes()
 }

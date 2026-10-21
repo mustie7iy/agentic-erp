@@ -145,6 +145,7 @@ var operationRolesOidc = map[string][]string{
 	GetRoleOperation:                          []string{},
 	GetRoleAssignmentOperation:                []string{},
 	GetRolePermissionOperation:                []string{},
+	GetSchemaOperation:                        []string{},
 	GetSodRuleOperation:                       []string{},
 	GetSupplierInvoiceOperation:               []string{},
 	GetSupplierInvoiceDocumentOperation:       []string{},

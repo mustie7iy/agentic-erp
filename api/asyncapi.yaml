@@ -54,6 +54,8 @@ info:
     strings and open: consumers must accept values they do not know.
     Sensitive values never appear (bank accounts expose `account_last4` and
     `account_scheme` only).
+    Custom fields (`extensions`, ADR-0046) appear with personal and
+    sensitive values masked.
 
     ## Delivery
 
@@ -2464,6 +2466,20 @@ components:
     CurrencyCode: {type: string, pattern: '^[A-Z]{3}$', description: ISO 4217 code (`ref.currency`).}
     CountryCode: {type: string, pattern: '^[A-Z]{2}$', description: ISO 3166-1 alpha-2 code (`ref.country`).}
     FiscalYear: {type: integer, minimum: 1900, maximum: 2999}
+    EventExtensions:
+      type: object
+      description: |
+        The row's custom fields as written (ADR-0046). The value of every
+        field the tenant's active schema does not declare `x-pii: none`
+        (personal, sensitive, or not declared) is the string `[MASKED]`;
+        the field's value is read through the API. Webhooks deliver these
+        events, so they carry the same masking. Keys follow the tenant's
+        schema at `GET /v1/schemas/{entity}`.
+      additionalProperties: true
+    ExtensionsSchemaVersion:
+      type: [integer, 'null']
+      minimum: 1
+      description: The version of the tenant's custom field schema the extensions were written under; null when the tenant had none.
     Sha256Hex: {type: string, pattern: '^[0-9a-f]{64}$', description: SHA-256 digest, lower-case hex.}
     Money:
       type: object
@@ -2572,6 +2588,8 @@ components:
       type: object
       required: [partner_id, number, kind, name, country_code, roles, status, partner_change_id]
       properties:
+        extensions: {$ref: '#/components/schemas/EventExtensions'}
+        extensions_schema: {$ref: '#/components/schemas/ExtensionsSchemaVersion'}
         partner_id: {$ref: '#/components/schemas/Uuid'}
         number: {type: string, pattern: '^[A-Z0-9-]{1,20}$'}
         kind: {type: string, description: 'Open enum: organization, person.'}
@@ -2742,6 +2760,8 @@ components:
       type: object
       required: [purchase_order_id, document_number, legal_entity_id, supplier_id, order_date, payment_term_code, total_amount, items]
       properties:
+        extensions: {$ref: '#/components/schemas/EventExtensions'}
+        extensions_schema: {$ref: '#/components/schemas/ExtensionsSchemaVersion'}
         purchase_order_id: {$ref: '#/components/schemas/Uuid'}
         document_number: {type: string}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
@@ -2771,6 +2791,8 @@ components:
       type: object
       required: [purchase_order_id, document_number, legal_entity_id, supplier_id, change_id, revision, reason, order_date, payment_term_code, total_before, total_after, items]
       properties:
+        extensions: {$ref: '#/components/schemas/EventExtensions'}
+        extensions_schema: {$ref: '#/components/schemas/ExtensionsSchemaVersion'}
         purchase_order_id: {$ref: '#/components/schemas/Uuid'}
         document_number: {type: string}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
@@ -2856,6 +2878,8 @@ components:
       type: object
       required: [supplier_invoice_id, document_number, legal_entity_id, supplier_id, supplier_reference, invoice_date, gross_amount, tax_amount, source, status]
       properties:
+        extensions: {$ref: '#/components/schemas/EventExtensions'}
+        extensions_schema: {$ref: '#/components/schemas/ExtensionsSchemaVersion'}
         supplier_invoice_id: {$ref: '#/components/schemas/Uuid'}
         document_number: {type: string}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
@@ -2905,6 +2929,8 @@ components:
       type: object
       required: [supplier_invoice_id, document_number, legal_entity_id, supplier_id, supplier_reference, invoice_date, posting_date, gross_amount, tax_amount, journal_entry_id, journal_entry_year, status]
       properties:
+        extensions: {$ref: '#/components/schemas/EventExtensions'}
+        extensions_schema: {$ref: '#/components/schemas/ExtensionsSchemaVersion'}
         supplier_invoice_id: {$ref: '#/components/schemas/Uuid'}
         document_number: {type: string}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
@@ -3617,6 +3643,8 @@ components:
       type: object
       required: ["partner_id", "partner_change_id", "changed_fields"]
       properties:
+        extensions: {$ref: '#/components/schemas/EventExtensions'}
+        extensions_schema: {$ref: '#/components/schemas/ExtensionsSchemaVersion'}
         partner_id: {"$ref": "#/components/schemas/Uuid"}
         partner_change_id: {"$ref": "#/components/schemas/Uuid"}
         changed_fields: {"type": "array", "minItems": 1, "items": {"type": "string"}}

@@ -20,7 +20,7 @@ func (m Migration) Create(ctx context.Context, in NewPartner) (uuid.UUID, error)
 	if err != nil {
 		return uuid.Nil, err
 	}
-	_, err = ApplyChange(ctx, c.ID)
+	_, err = ApplyChange(ctx, m.Ports.Schemas, c.ID)
 	return bp.ID, err
 }
 
@@ -30,7 +30,7 @@ func (m Migration) AddCompanies(ctx context.Context, id uuid.UUID, companies []S
 	if err != nil {
 		return err
 	}
-	_, err = ApplyChange(ctx, c.ID)
+	_, err = ApplyChange(ctx, m.Ports.Schemas, c.ID)
 	return err
 }
 

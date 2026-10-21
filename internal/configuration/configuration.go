@@ -31,6 +31,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 )
 
 // Change request statuses.
@@ -84,6 +85,9 @@ type Dependencies struct {
 	Simulator     Simulator // replays transactions for simulation evidence (the worker)
 	Regressor     Regressor // captures and replays regression suites
 	Actors        Actors    // who a queued simulation acts as (the worker)
+	// RuleSamplers read each entity's recent rows, on which a simulation
+	// replays proposed validation rules (ADR-0046), by entity.
+	RuleSamplers map[string]rules.Sampler
 }
 
 // Actors reads who deferred work acts as: the person who queued it
@@ -105,6 +109,7 @@ func (d Dependencies) check(ctx context.Context, tx pgx.Tx, base, proposed *conf
 	if base != nil {
 		findings = append(findings, rangeTransitions(base, proposed)...)
 	}
+	findings = append(findings, config.ExtensionTransitions(base, proposed)...)
 	companies, err := rangeCompanies(ctx, d.LegalEntities, proposed)
 	if err != nil {
 		return err
@@ -545,6 +550,9 @@ func ActivateChangeRequest(ctx context.Context, deps Dependencies, id uuid.UUID,
 	// does not know refuses the activation, which would drop it.
 	doc, err := storedProposal(c.Proposed)
 	if err != nil {
+		return ChangeRequest{}, err
+	}
+	if err := requireRulesSimulated(c, doc); err != nil {
 		return ChangeRequest{}, err
 	}
 	v, err := activate(ctx, tx, deps, actor, doc, &current, "change_request", &id)

@@ -53,6 +53,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
@@ -491,6 +492,7 @@ func (s *server) collaborators() {
 // of ADR-0043 by its test.
 func newMetrics(pool *database.Pool, cfg config.Config, log *slog.Logger) *telemetry.Metrics {
 	m := telemetry.NewMetrics()
+	m.Counter(rules.Unevaluable, rules.UnevaluableName, rules.UnevaluableHelp, rules.UnevaluableLabel)
 	backlogs(pool, cfg, m)
 	businessGauges(pool, cfg, m)
 	horizonGauges(pool, cfg, m, time.Now)

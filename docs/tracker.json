@@ -1276,7 +1276,7 @@
     "c": [
      {
       "s": "T",
-      "t": "Cost center master and hierarchy",
+      "t": "Cost center master and hierarchy; then lift the custom field schema compiler's refusal of cost object reference fields (ADR-0046, T58d)",
       "r": "T56",
       "c": []
      },
@@ -3693,16 +3693,78 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Custom fields",
-      "r": "T58",
-      "c": []
+      "r": "ADR-0046 · T58",
+      "c": [
+       {
+        "s": "D",
+        "t": "Custom fields and CEL rules decided: supplier invoice, purchase order and business partner first; one jsonb column; a JSON Schema subset we compile; typed, flat, at most 50 fields and 16 KiB per row; PII classified per field; tiers; events masked; agents only propose",
+        "r": "ADR-0046 · T58a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Field schemas in the configuration document: compiled with the restrictions, validated on proposal, tier 1 to add optional fields, tier 2 to require, narrow, remove or reclassify, immutable versions",
+        "r": "internal/platform/extensions · Compile, Narrows, FuzzCompile · config.ExtensionTransitions · T58b",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Writes of the supplier invoice, purchase order and business partner validate extensions (422 request.invalid_extension per key)",
+        "r": "extensions.Writes.Check · configuration.Settings.Schema · partner.References · extensions_schema (000113) · TestWritesCheck · T58c",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "The tenant's active schema at GET /v1/schemas/{entity}: ETag the configuration version, 304 on If-None-Match, 404 without a schema, readable by whoever may read the entity (x-entity-permissions); cost object fields refused until T56",
+        "r": "configuration.GetSchema · authz.AuthorizeEntity · etag.NoneMatch · TestGetSchema · T58d",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Events carry extensions and the extensions_schema version, personal and sensitive values masked",
+        "r": "extensions.Writes.Event · Compiled.Mask · apitest.NeverPublished · EventExtensions (asyncapi) · TestEventsMaskCustomFields · T58e",
+        "c": []
+       }
+      ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Custom rules",
-      "r": "T58",
-      "c": []
+      "r": "ADR-0046 · T58",
+      "c": [
+       {
+        "s": "D",
+        "t": "CEL engine: cost and compile-size limits, 10 ms timeout, at most 20 rules per entity, inputs the row and its extensions",
+        "r": "rules.Compile · rules.Set.Check · config rules section · rules:FuzzCompile · T58f",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Validation rules on every create, update and change request of the three entities, after the schema check: 422 request.rule_refused naming the rule, refusals audited with source: rule, the rule and the configuration version, kept although the write rolls back; captured invoices held naming the rule and judged again at posting, on the posting date the post uses; a rule that fails or exceeds a limit on a real input refuses with 422 request.rule_unevaluable naming it (a captured invoice is held naming it instead, audited), logged and counted (erp_rules_unevaluable_total); money inputs carry minor units",
+        "r": "rules.Writes · rules.Money · configuration.Settings.Rules · audit.Refuse · TestRulesOnInvoiceWrites · TestCaptureHeldByRule · TestCaptureHeldByUnevaluableRule · TestRulesOnOrderWrites · TestRulesOnPartnerWrites · TestWritesUnevaluable · TestRulesSeeThePostingDateOfThePost · T58g",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Rules simulated before activation: :simulate replays the last 30 days of each changed entity (at most 200 rows) under the active and proposed rules; per rule the rows newly refused and newly passing among those still writable (custom fields masked per x-pii), historical rows (posted or cancelled invoices, closed or cancelled orders) counted apart as unaffected, unevaluable rows fail the simulation; a change of the custom fields an entity's rules read is tier 3 like the rules; activation needs a passed simulation of the exact proposal (409 config.rules_not_simulated); agents propose, never activate",
+        "r": "rules.Simulate · rules.Sampler · RuleSamples (payables, procurement, partner) · configuration.requireRulesSimulated · Config.ReadByRules · TestRulesSimulatedBeforeActivation · TestSimulate · TestRuleSamplesHistorical · TestExtensionTiersReadByRules · T58h",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Index (tenant_id, updated_at) on supplier invoices, purchase orders and business partners, by a concurrent migration, if the simulation's sample read gets slow",
+        "r": "ADR-0046 · T58j",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Rule inputs from item lines (Phase 2 reads header fields only)",
+        "r": "ADR-0046 · T58i",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
@@ -5315,7 +5377,7 @@
      {
       "s": "D",
       "t": "Performance budgets in CI",
-      "r": "internal/nfr · ledger TestTrialBalanceBudget · payments TestProposalBudget · make perf",
+      "r": "internal/nfr · ledger TestTrialBalanceBudget · payments TestProposalBudget · make perf · note (2026-10-20): procurement TestGoodsReceiptBudget fails under load on main; a load-sensitive budget, left unchanged",
       "c": [
        {
         "s": "D",

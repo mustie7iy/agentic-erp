@@ -226,6 +226,9 @@ func (w *SimulationWorker) evidence(ctx context.Context, tx pgx.Tx, actor reqctx
 		return false, nil, err
 	}
 	sim, err := w.Dependencies.Simulator.Simulate(ctx, base, proposed)
+	if err == nil {
+		sim, err = w.replayRules(ctx, c, base, proposed, sim)
+	}
 	if err != nil {
 		return false, nil, failOrRetry(err, fail)
 	}

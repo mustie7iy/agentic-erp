@@ -37,6 +37,7 @@ types. Both are reviewed together.
 | `updated_at timestamptz`, `updated_by uuid` | mutable tables | Last change |
 | `version integer` | mutable aggregate roots | Optimistic locking, exposed as ETag (ADR-0008) |
 | `extensions jsonb` | extensible entities | Governed custom fields (ADR-0009) |
+| `extensions_schema integer` | entities with a custom field schema | The schema version the extensions were validated against; NULL without a schema (ADR-0046) |
 
 Insert-only tables (journal entries and lines, clearings, goods movements,
 decisions, audit events) have no `updated_*` or `version`, and the

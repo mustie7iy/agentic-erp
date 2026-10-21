@@ -11,7 +11,8 @@ type Handler interface {
 	// ActivateChangeRequest implements activateChangeRequest operation.
 	//
 	// Creates and activates a new configuration version from an approved change request; each context
-	// applies its part. Human-only. Requires status `approved`.
+	// applies its part. Human-only. Requires status `approved`; a change of validation rules also needs a
+	// passed simulation of this exact proposal (409 `config.rules_not_simulated`).
 	//
 	// POST /v1/change-requests/{id}:activate
 	ActivateChangeRequest(ctx context.Context, params ActivateChangeRequestParams) (ActivateChangeRequestRes, error)
@@ -673,6 +674,17 @@ type Handler interface {
 	//
 	// GET /v1/roles/{id}/permissions/{permission_id}
 	GetRolePermission(ctx context.Context, params GetRolePermissionParams) (GetRolePermissionRes, error)
+	// GetSchema implements getSchema operation.
+	//
+	// The tenant's custom field schema for the entity in the active configuration version (ADR-0046): the
+	// restricted subset of JSON Schema that writes of the entity's `extensions` are checked against, every
+	// field with its privacy class `x-pii`. The ETag is the configuration version, so `If-None-Match`
+	// answers 304 until a change request activates a new version. Whoever may read the entity may read its
+	// schema: the permission depends on the entity, listed in `x-entity-permissions`. An entity without a
+	// schema, or one that takes no custom fields, is 404.
+	//
+	// GET /v1/schemas/{entity}
+	GetSchema(ctx context.Context, params GetSchemaParams) (GetSchemaRes, error)
 	// GetSodRule implements getSodRule operation.
 	//
 	// Returns one segregation-of-duties rule.
@@ -1369,7 +1381,11 @@ type Handler interface {
 	// SimulateChangeRequest implements simulateChangeRequest operation.
 	//
 	// Replays recent business transactions against the proposed configuration and records the result as
-	// `simulation` evidence. Requires status `awaiting_evidence`.
+	// `simulation` evidence. A change of validation rules (ADR-0046) also replays the recent rows of each
+	// entity whose rules change (the last 30 days, at most 200, newest first) under the active and the
+	// proposed rules: the evidence's `detail.rules` lists, per rule, the rows it would newly refuse and
+	// newly pass, with personal custom fields masked, and the rows it cannot evaluate, which fail the
+	// simulation. Requires status `awaiting_evidence`.
 	//
 	// POST /v1/change-requests/{id}:simulate
 	SimulateChangeRequest(ctx context.Context, params SimulateChangeRequestParams) (SimulateChangeRequestRes, error)

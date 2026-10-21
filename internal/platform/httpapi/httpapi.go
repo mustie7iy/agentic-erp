@@ -159,7 +159,9 @@ func (security) HandleOidc(ctx context.Context, _ gen.OperationName, _ gen.Oidc)
 func authorize(a *authz.Authorizer) middleware.Middleware {
 	return func(req middleware.Request, next middleware.Next) (middleware.Response, error) {
 		reqctx.InfoFrom(req.Context).Operation = req.OperationID
-		if err := a.Authorize(req.Context, req.OperationID); err != nil {
+		v, _ := req.Params.Path("entity")
+		entity, _ := v.(string) // absent (""): the operation's permission does not depend on it
+		if err := a.AuthorizeEntity(req.Context, req.OperationID, entity); err != nil {
 			return middleware.Response{}, err
 		}
 		return next(req)

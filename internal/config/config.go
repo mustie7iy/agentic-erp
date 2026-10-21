@@ -13,6 +13,9 @@ import (
 	"os"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 )
 
 type Config struct {
@@ -23,6 +26,10 @@ type Config struct {
 	Payments     Payments      `yaml:"payments" json:"payments"`
 	Output       Output        `yaml:"output" json:"output"`
 	NumberRanges []NumberRange `yaml:"number_ranges,omitempty" json:"number_ranges,omitempty"`
+	// Extensions are the tenant's custom field schemas by entity (ADR-0046).
+	Extensions map[string]extensions.Schema `yaml:"extensions,omitempty" json:"extensions,omitempty"`
+	// Rules are the tenant's validation rules by entity and name (ADR-0046).
+	Rules map[string]map[string]rules.Rule `yaml:"rules,omitempty" json:"rules,omitempty"`
 }
 
 // NumberRange is a document number interval for one company, document type
@@ -340,9 +347,10 @@ func Load(path string) (*Config, error) {
 
 // Marshal renders a configuration as YAML.
 func (c *Config) Marshal() ([]byte, error) {
-	// Config holds only strings, numbers, bools, slices and structs, and the
-	// buffer never fails, so encoding cannot fail; the error result is kept
-	// for API stability.
+	// Config holds only strings, numbers, bools, slices, string-keyed maps,
+	// structs and the decoded YAML values of rule cases, and the buffer
+	// never fails, so encoding cannot fail; the error result is kept for API
+	// stability.
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)

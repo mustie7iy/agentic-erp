@@ -27,7 +27,7 @@ func TestUpdateChange(t *testing.T) {
 		"addresses": [{"purpose": "legal", "line1": "Neue Strasse 2", "city": "Hamburg", "country_code": "DE", "valid_from": %q},
 			{"purpose": "remit_to", "line1": "Postfach 1", "city": "Hamburg", "country_code": "DE", "valid_from": %q, "valid_to": %q}],
 		"tax_identifiers": [{"scheme": "EU_VAT", "value": "DE999999999"}, {"scheme": "DE_TAX_NO", "value": "12/345/67890"}],
-		"extensions": {"cost_object_hint": null, "segment": "B2B", "routing": {"desk": "north"}}}`, e.le, e.recon, e.date(0), e.date(3), e.date(30))
+		"extensions": {"cost_object_hint": null, "segment": "B2B", "routing": "north"}}`, e.le, e.recon, e.date(0), e.date(3), e.date(30))
 	c, tag := e.Must(201, "POST", "/v1/partner-changes", e.update(pid, payload), "")
 	if c["kind"] != "update" {
 		t.Errorf("change kind: got %v, want update", c["kind"])
@@ -68,6 +68,11 @@ func TestUpdateChange(t *testing.T) {
 	if term := got["supplier_companies"].([]any)[0].(map[string]any)["payment_term_code"]; term != "NT60" {
 		t.Errorf("payment term: got %v, want NT60", term)
 	}
+	var schema *int
+	pgtest.Scan(t, `SELECT extensions_schema FROM partner.business_partner WHERE id = $1`, []any{pid}, &schema)
+	if schema == nil || *schema != 1 {
+		t.Errorf("partner's extensions schema: got %v, want 1", schema)
+	}
 	ext := got["extensions"].(map[string]any)
 	if ext["segment"] != "B2B" {
 		t.Errorf("extension segment: got %v, want B2B", ext["segment"])
@@ -75,8 +80,8 @@ func TestUpdateChange(t *testing.T) {
 	if ext["cost_object_hint"] != nil {
 		t.Errorf("extension cost_object_hint: got %v, want none", ext["cost_object_hint"])
 	}
-	if desk := ext["routing"].(map[string]any)["desk"]; desk != "north" {
-		t.Errorf("extension routing.desk: got %v, want north", desk)
+	if ext["routing"] != "north" {
+		t.Errorf("extension routing: got %v, want north", ext["routing"])
 	}
 	addrs := got["addresses"].([]any)
 	if len(addrs) != 3 {

@@ -42,6 +42,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -170,6 +171,9 @@ type Endpoints struct {
 	Numbers       Numbers
 	Calendar      Calendar
 	Settings      Settings
+	Schemas       extensions.Schemas    // the tenant's custom field schemas (configuration context)
+	References    extensions.References // what custom fields refer to (partner context)
+	Rules         rules.Source          // the tenant's validation rules (configuration context)
 	Rates         Rates
 	Approvals     Opener
 	Payments      Payments
@@ -217,6 +221,7 @@ type Invoice struct {
 	ReversalEntryID    *uuid.UUID
 	WorkflowRequestID  *uuid.UUID
 	Extensions         map[string]any
+	ExtensionsSchema   *int       // the custom field schema version the extensions were written under (ADR-0046)
 	Kind               string     // KindInvoice, KindCreditMemo, KindSubsequentDebit or KindSubsequentCredit (T34)
 	ReferenceInvoiceID *uuid.UUID // the posted invoice a correction names
 	// Terms are the payment terms the invoice posted with (T36b), or nil.
@@ -231,7 +236,7 @@ type Invoice struct {
 
 const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.supplier_id, i.supplier_reference, i.invoice_date, i.posting_date,
 		i.currency, c.exponent, i.gross_amount, i.tax_amount, i.purchase_order_id, i.status, i.hold_reason, i.source, i.capture_sha256, i.capture_object_ref,
-		i.journal_entry_year, i.journal_entry_id, i.reversal_entry_year, i.reversal_entry_id, i.workflow_request_id, i.extensions, i.kind, i.reference_invoice_id,
+		i.journal_entry_year, i.journal_entry_id, i.reversal_entry_year, i.reversal_entry_id, i.workflow_request_id, i.extensions, i.extensions_schema, i.kind, i.reference_invoice_id,
 		coalesce((SELECT json_agg(json_build_object('item_no', t.item_no, 'purchase_order_id', t.purchase_order_id, 'po_item_no', t.po_item_no,
 			'description', t.description, 'quantity', trim_scale(t.quantity)::text, 'unit', t.uom_code, 'amount', t.amount, 'tax_code', t.tax_code,
 			'account_id', t.account_id) ORDER BY t.item_no)
@@ -246,7 +251,7 @@ func scanInvoice(row pgx.Row) (Invoice, error) {
 	err := row.Scan(append(append([]any{&v.ID, &v.DocumentNumber, &v.LegalEntityID, &v.SupplierID, &v.SupplierReference, &v.InvoiceDate,
 		&v.PostingDate, &v.Currency, &v.Exponent, &v.Gross, &v.Tax, &v.PurchaseOrderID, &v.Status, &v.HoldReason, &v.Source, &v.CaptureSHA256,
 		&v.CaptureObjectRef, &v.JournalEntryYear, &v.JournalEntryID, &v.ReversalEntryYear, &v.ReversalEntryID, &v.WorkflowRequestID, &v.Extensions,
-		&v.Kind, &v.ReferenceInvoiceID, &v.Items}, terms.fields()...), &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)...)
+		&v.ExtensionsSchema, &v.Kind, &v.ReferenceInvoiceID, &v.Items}, terms.fields()...), &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)...)
 	v.Terms = terms.terms()
 	return v, errs.Wrapf(err, "scan invoice")
 }
@@ -323,6 +328,13 @@ type Input struct {
 	// posted invoice a correction names (T34).
 	Kind               string
 	ReferenceInvoiceID *uuid.UUID
+	// held: the extensions were checked already, as a captured document's
+	// are (CheckHeld), against the schema version extensionsSchema.
+	held             bool
+	extensionsSchema *int
+	// incomplete: a captured invoice lacks required custom fields, which
+	// its rules read; they run when a person completes it (ADR-0046).
+	incomplete bool
 }
 
 // checked is an input that passed validation.
@@ -332,6 +344,64 @@ type checked struct {
 	purchaseOrder *uuid.UUID
 	items         []Item
 	kind          string
+	// extensionsSchema is the custom field schema version the extensions
+	// were checked against, written with the invoice.
+	extensionsSchema *int
+}
+
+// extensions checks a supplier invoice's custom fields (ADR-0046).
+func (e *Endpoints) extensions() extensions.Writes {
+	return extensions.Writes{Entity: "supplier_invoice", Schemas: e.Schemas, References: e.References}
+}
+
+// ruleWrites evaluates a supplier invoice's validation rules (ADR-0046).
+func (e *Endpoints) ruleWrites() rules.Writes {
+	return rules.Writes{Entity: "supplier_invoice", Source: e.Rules}
+}
+
+// ruleWrite is a checked invoice as its rules read it: the header of its
+// create request, amounts in minor units too.
+func ruleWrite(action string, id uuid.UUID, in Input, c checked, source string) rules.Write {
+	row := map[string]any{"legal_entity_id": in.LegalEntityID.String(), "supplier_id": in.SupplierID.String(),
+		"supplier_reference": in.SupplierReference, "invoice_date": in.InvoiceDate.Format(time.DateOnly),
+		"gross_amount": rules.Money{Amount: in.Gross.Value, Currency: c.currency, Minor: c.gross},
+		"tax_amount":   rules.Money{Amount: in.Tax.Value, Currency: c.currency, Minor: c.tax},
+		"posting_date": rules.Date(in.PostingDate), "purchase_order_id": rules.ID(c.purchaseOrder), "kind": c.kind,
+		"reference_invoice_id": rules.ID(in.ReferenceInvoiceID), "source": source}
+	return rules.Write{Action: action, ID: id, Row: row, Extensions: in.Extensions}
+}
+
+// storedRuleWrite is a stored invoice's header as its rules read it, with
+// a change applied.
+func storedRuleWrite(action string, v Invoice, ch Change) rules.Write {
+	return ruleWrite(action, v.ID, changed(v, ch),
+		checked{currency: v.Currency, gross: v.Gross, tax: v.Tax, purchaseOrder: v.PurchaseOrderID, kind: v.Kind}, v.Source)
+}
+
+// RuleSamples reads the recent supplier invoices on which a simulation
+// replays proposed rules (rules.Sampler, ADR-0046): those changed since
+// the time given, newest first, read as their rules read them.
+type RuleSamples struct{}
+
+// Sample implements rules.Sampler.
+func (RuleSamples) Sample(ctx context.Context, since time.Time, limit int) ([]rules.Sample, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, invoiceSelect+` WHERE i.updated_at >= $1 ORDER BY i.updated_at DESC, i.id LIMIT $2`, since, limit)
+	vs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Invoice, error) { return scanInvoice(r) })
+	if err != nil {
+		return nil, fmt.Errorf("payables: sample invoices for rules: %w", err)
+	}
+	out := make([]rules.Sample, len(vs))
+	for i, v := range vs {
+		w := storedRuleWrite("", v, Change{})
+		// Only a parked or held invoice is written again (changed, released, posted).
+		historical := v.Status != Parked && v.Status != OnHold
+		out[i] = rules.Sample{ID: v.ID, Reference: v.DocumentNumber, Row: w.Row, Extensions: w.Extensions, Historical: historical}
+	}
+	return out, nil
 }
 
 func invalid(code, field, message string) error {
@@ -346,10 +416,13 @@ func (e *Endpoints) validate(ctx context.Context, tx pgx.Tx, in Input) (checked,
 	if err != nil {
 		return checked{}, err
 	}
-	if err := extensions.Check(in.Extensions); err != nil {
-		return checked{}, err
+	schema := in.extensionsSchema
+	if !in.held {
+		if schema, err = e.extensions().Check(ctx, in.Extensions); err != nil {
+			return checked{}, err
+		}
 	}
-	c := checked{currency: in.Gross.Currency, purchaseOrder: in.PurchaseOrderID}
+	c := checked{currency: in.Gross.Currency, purchaseOrder: in.PurchaseOrderID, extensionsSchema: schema}
 	exp, err := currencyExponent(ctx, tx, c.currency, "gross_amount.currency")
 	if err != nil {
 		return checked{}, err
