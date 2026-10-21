@@ -43,6 +43,8 @@ type Operation struct {
 	// default). Breaking changes to beta operations may be accepted after
 	// the first partner consumes /v1; to stable ones never (ADR-0041).
 	Stability string
+	// Class is the operation's latency class (ADR-0043): one of Classes.
+	Class string
 }
 
 // Lifecycle is a deprecated operation's schedule: deprecated: true with
@@ -68,6 +70,7 @@ type operationNode struct {
 	DeprecatedAt string `yaml:"x-deprecated-at"`
 	Sunset       string `yaml:"x-sunset"`
 	Stability    string `yaml:"x-stability-level"`
+	Class        string `yaml:"x-slo-class"`
 	ExternalDocs struct {
 		URL string `yaml:"url"`
 	} `yaml:"externalDocs"`
@@ -75,7 +78,7 @@ type operationNode struct {
 
 // decodeOperation reads one operation; permissioned says whether it must
 // declare x-permission.
-func decodeOperation(node yaml.Node, permissioned bool) (Operation, error) {
+func decodeOperation(method, path string, node yaml.Node, permissioned bool) (Operation, error) {
 	var op operationNode
 	if err := node.Decode(&op); err != nil {
 		return Operation{}, fmt.Errorf("decode: %w", err)
@@ -97,9 +100,14 @@ func decodeOperation(node yaml.Node, permissioned bool) (Operation, error) {
 	if err != nil {
 		return Operation{}, err
 	}
+	cls, err := class(method, path, op.Class)
+	if err != nil {
+		return Operation{}, err
+	}
 	return Operation{
-		ID: op.ID, Permission: op.Permission, AgentAllowed: op.Agent == nil || *op.Agent,
-		Proposes: op.Autonomy == "propose", Reads: op.Autonomy == "read", Lifecycle: life, Stability: op.Stability,
+		ID: op.ID, Method: strings.ToUpper(method), Path: path, Permission: op.Permission,
+		AgentAllowed: op.Agent == nil || *op.Agent, Proposes: op.Autonomy == "propose", Reads: op.Autonomy == "read",
+		Lifecycle: life, Stability: op.Stability, Class: cls,
 	}, nil
 }
 
@@ -127,6 +135,35 @@ func lifecycle(op operationNode) (Lifecycle, error) {
 		return Lifecycle{}, errors.New("a deprecated operation links its migration notes in externalDocs.url")
 	}
 	return Lifecycle{Deprecated: true, DeprecatedAt: at, Sunset: sunset, Link: op.ExternalDocs.URL}, nil
+}
+
+// Latency classes (ADR-0043): each has its p95/p99 objective in
+// 01-requirements §1.3, and erp_operation_info maps every operation to one.
+const (
+	ClassRead     = "read"     // a GET of one resource
+	ClassList     = "list"     // any other GET
+	ClassWrite    = "write"    // any other method
+	ClassApproval = "approval" // x-slo-class: approval
+	ClassReport   = "report"   // x-slo-class: report
+)
+
+// Classes are the latency classes, a bounded enumeration.
+var Classes = []string{ClassRead, ClassList, ClassWrite, ClassApproval, ClassReport}
+
+// class is the latency class an operation declares with x-slo-class, or
+// the one its method and path imply.
+func class(method, path, declared string) (string, error) {
+	switch {
+	case declared == ClassApproval || declared == ClassReport:
+		return declared, nil
+	case declared != "":
+		return "", fmt.Errorf("x-slo-class is approval, report or absent, not %q", declared)
+	case method != "get":
+		return ClassWrite, nil
+	case strings.HasSuffix(path, "}"):
+		return ClassRead, nil
+	}
+	return ClassList, nil
 }
 
 // Autonomy levels (ADR-0036): what an agent of the level performs beyond
@@ -174,11 +211,10 @@ func parseOperations(src []byte, permissioned bool) (map[string]Operation, error
 			default:
 				continue
 			}
-			op, err := decodeOperation(node, permissioned)
+			op, err := decodeOperation(method, path, node, permissioned)
 			if err != nil {
 				return nil, fmt.Errorf("api: %s %s: %w", method, path, err)
 			}
-			op.Method, op.Path = strings.ToUpper(method), path
 			ops[op.ID] = op
 		}
 	}

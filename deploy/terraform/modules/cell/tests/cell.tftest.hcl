@@ -50,6 +50,9 @@ mock_provider "aws" {
       master_user_secret = [{ secret_arn = "arn:aws:secretsmanager:eu-central-1:222222222222:secret:rds!db-1", kms_key_id = "k", secret_status = "active" }]
     }
   }
+  mock_resource "aws_cloudwatch_log_group" {
+    defaults = { arn = "arn:aws:logs:eu-central-1:222222222222:log-group:/erp/dev1/containers" }
+  }
   mock_resource "aws_secretsmanager_secret" {
     defaults = { arn = "arn:aws:secretsmanager:eu-central-1:222222222222:secret:erp/dev1/x" }
   }
@@ -176,6 +179,35 @@ run "the_controllers_may_do_what_the_charts_need_only" {
   }
 }
 
+run "logs_and_traces_leave_through_roles_of_their_own" {
+  command = apply
+
+  assert {
+    condition     = aws_cloudwatch_log_group.containers.name == "/erp/dev1/containers" && aws_cloudwatch_log_group.containers.retention_in_days == 90 && aws_cloudwatch_log_group.containers.kms_key_id == aws_kms_key.cluster.arn
+    error_message = "the containers' logs are kept 90 days, encrypted with the cluster key"
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.workload["logging"].policy).Statement == [{ Sid = "ContainerLogs", Effect = "Allow", Action = ["logs:CreateLogStream", "logs:PutLogEvents"], Resource = ["arn:aws:logs:eu-central-1:222222222222:log-group:/erp/dev1/containers", "arn:aws:logs:eu-central-1:222222222222:log-group:/erp/dev1/containers:log-stream:*"] }]
+    error_message = "Fluent Bit writes streams of its log group and nothing else: no group, retention or key change"
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role.workload["logging"].assume_role_policy).Statement[0].Condition.StringEquals["oidc.eks.eu-central-1.amazonaws.com/id/ABC:sub"] == "system:serviceaccount:logging:erp-logging"
+    error_message = "the logging role trusts Fluent Bit's service account alone"
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.workload["tracing"].policy).Statement == [{ Sid = "Traces", Effect = "Allow", Action = ["xray:PutTraceSegments", "xray:PutTelemetryRecords"], Resource = "*" }]
+    error_message = "the collector writes traces to X-Ray and does nothing else"
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role.workload["tracing"].assume_role_policy).Statement[0].Condition.StringEquals["oidc.eks.eu-central-1.amazonaws.com/id/ABC:sub"] == "system:serviceaccount:tracing:erp-tracing"
+    error_message = "the tracing role trusts the collector's service account alone"
+  }
+  assert {
+    condition     = output.container_log_group == "/erp/dev1/containers"
+    error_message = "the log group is an output, for the fluent-bit add-on's values"
+  }
+}
+
 run "only_the_server_unwraps_tenant_keys" {
   command = apply
 
@@ -298,9 +330,18 @@ run "secrets_and_objects_are_encrypted_with_the_data_key" {
     error_message = "the cell's Argo CD has a secret for its deploy key"
   }
   assert {
-    # The mock gives every secret one ARN: the statement names all but one.
-    condition     = length([for r in jsondecode(aws_iam_role_policy.workload["external_secrets"].policy).Statement[0].Resource : r if r == aws_secretsmanager_secret.cell["argocd-repository"].arn]) == length(aws_secretsmanager_secret.cell) - 1
-    error_message = "the External Secrets Operator cannot read the deploy key"
+    # The mock gives every secret one ARN: the statement names all but
+    # the deploy key and the monitoring add-on's two.
+    condition     = length([for r in jsondecode(aws_iam_role_policy.workload["external_secrets"].policy).Statement[0].Resource : r if r == aws_secretsmanager_secret.cell["argocd-repository"].arn]) == length(aws_secretsmanager_secret.cell) - 3
+    error_message = "the External Secrets Operator cannot read the deploy key, nor the monitoring add-on's secrets"
+  }
+  assert {
+    condition     = length(jsondecode(aws_iam_role_policy.workload["monitoring"].policy).Statement[0].Resource) == 2 && contains(keys(aws_secretsmanager_secret.cell), "alertmanager-receivers") && contains(keys(aws_secretsmanager_secret.cell), "grafana-oidc")
+    error_message = "the monitoring add-on's role reads its two secrets and nothing else"
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role.workload["monitoring"].assume_role_policy).Statement[0].Condition.StringEquals["oidc.eks.eu-central-1.amazonaws.com/id/ABC:sub"] == "system:serviceaccount:monitoring:erp-monitoring-secrets"
+    error_message = "the monitoring add-on's role trusts its SecretStore's service account alone"
   }
   assert {
     condition     = one(one(aws_s3_bucket_server_side_encryption_configuration.objects.rule).apply_server_side_encryption_by_default).sse_algorithm == "aws:kms"

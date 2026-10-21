@@ -4,7 +4,10 @@
   "cell": "dev1",
   "home": true,
   "addons": {
-    "external-secrets": {"serviceAccount": {"annotations": {"eks.amazonaws.com/role-arn": "arn:aws:iam::222222222222:role/erp-dev1-external-secrets"}}}
+    "external-secrets": {"serviceAccount": {"annotations": {"eks.amazonaws.com/role-arn": "arn:aws:iam::222222222222:role/erp-dev1-external-secrets"}}},
+    "kube-prometheus-stack": {"erp": {"cell": "dev1", "region": "eu-central-1", "clusterKmsKeyArn": "arn:aws:kms:eu-central-1:222222222222:key/1d5c2b1e-0000-4000-8000-000000000000", "secretsRoleArn": "arn:aws:iam::222222222222:role/erp-dev1-monitoring"}},
+    "fluent-bit": {"erp": {"region": "eu-central-1", "logGroup": "/erp/dev1/containers", "kubeURL": "https://0123456789ABCDEF0123456789ABCDEF.gr7.eu-central-1.eks.amazonaws.com"}, "serviceAccount": {"annotations": {"eks.amazonaws.com/role-arn": "arn:aws:iam::222222222222:role/erp-dev1-logging"}}},
+    "opentelemetry-collector": {"serviceAccount": {"annotations": {"eks.amazonaws.com/role-arn": "arn:aws:iam::222222222222:role/erp-dev1-tracing"}}}
   },
   "erpCluster": {"region": "eu-central-1"},
   "erpCell": {"cell": "dev1", "region": "eu-central-1"},

@@ -28,6 +28,12 @@ type Publisher interface {
 	Publish(ctx context.Context, m Message) error
 }
 
+// Counter counts the events a relay published, once their batch is
+// committed (erp_events_published_total, ADR-0043).
+type Counter interface {
+	EventsPublished(context, event string, n int)
+}
+
 // Relay moves unpublished outbox rows to the bus, oldest first.
 type Relay struct {
 	Pool      *database.Pool
@@ -37,6 +43,7 @@ type Relay struct {
 	Batch     int           // rows per context per round; default 100
 	Interval  time.Duration // idle wait between rounds; default 1s
 	Log       *slog.Logger
+	Counter   Counter // nil counts nothing
 }
 
 // RunOnce relays one batch from every context and returns how many events
@@ -68,8 +75,9 @@ type row struct {
 }
 
 func (r *Relay) relay(ctx context.Context, schema string) (int, error) {
-	published := 0
+	var published []row
 	err := r.Pool.InTx(ctx, database.Scope{Role: r.Role}, func(ctx context.Context, tx pgx.Tx) error {
+		published = nil
 		// One publisher per context at a time keeps events in order per
 		// resource: without the context's advisory lock the query returns nothing.
 		table := pgx.Identifier{schema, "outbox"}.Sanitize()
@@ -96,19 +104,36 @@ func (r *Relay) relay(ctx context.Context, schema string) (int, error) {
 			WHERE (tenant_id, id) IN (SELECT * FROM unnest($1::uuid[], $2::uuid[]))`, tenants, ids); err != nil {
 			return fmt.Errorf("mark %d events published: %w", len(rs), err)
 		}
-		published = len(rs)
+		published = rs
 		return nil
 	})
 	if err != nil {
 		return 0, fmt.Errorf("outbox relay %s: %w", schema, err)
 	}
-	return published, nil
+	r.count(schema, published)
+	return len(published), nil
 }
 
-func (r *Relay) message(schema string, e row) Message {
+// count adds a committed batch to the published events, by event: only
+// after the commit, so a batch rolled back and relayed again counts once.
+func (r *Relay) count(schema string, published []row) {
+	if r.Counter == nil {
+		return
+	}
 	ctxName := PublicContext(schema)
-	// com.example.erp.<context>.<event>.v<n> → <event>
-	name := strings.TrimPrefix(e.eventType, "com.example.erp."+ctxName+".")
+	byEvent := map[string]int{}
+	for _, e := range published {
+		byEvent[eventName(ctxName, e.eventType)]++
+	}
+	for event, n := range byEvent {
+		r.Counter.EventsPublished(ctxName, event, n)
+	}
+}
+
+// eventName is the event's name within its context:
+// com.example.erp.<context>.<event>.v<n> → <event>.
+func eventName(ctxName, eventType string) string {
+	name := strings.TrimPrefix(eventType, "com.example.erp."+ctxName+".")
 	// The outbox's CHECK refuses a type without the version suffix. Should
 	// one get past it, it is published under the name it has: refusing it
 	// would leave the row at the head of the context's ordered queue and
@@ -116,6 +141,12 @@ func (r *Relay) message(schema string, e row) Message {
 	if i := strings.LastIndex(name, "."); i >= 0 {
 		name = name[:i]
 	}
+	return name
+}
+
+func (r *Relay) message(schema string, e row) Message {
+	ctxName := PublicContext(schema)
+	name := eventName(ctxName, e.eventType)
 	h := map[string]string{
 		"ce-specversion":     "1.0",
 		"ce-id":              e.id.String(),

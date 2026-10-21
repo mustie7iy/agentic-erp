@@ -17,3 +17,6 @@ external-secrets               external-secrets  https://charts.external-secrets
 aws-load-balancer-controller   kube-system       https://aws.github.io/eks-charts                      aws-load-balancer-controller  3.5.0    45051f634b33e10baccb3354d0681b7de787c60445e599fa276e0c9aedd4ccd5
 kyverno                        kyverno           https://kyverno.github.io/kyverno                     kyverno                       3.9.1    7b7fe51a431b5b133b0ce7eb9dcb222b6a37fb967c163223cf480054ad14d752
 argo-cd                        argocd            https://argoproj.github.io/argo-helm                  argo-cd                       10.10.5  ba6447eeed42bc41d1f0527721047b236304e97669a7b6286d02be4a1644ba7a
+kube-prometheus-stack          monitoring        https://prometheus-community.github.io/helm-charts    kube-prometheus-stack         91.8.2   dbd50ecc4b3c4a0231d8a7c766d4fd8690be4bf2230acb572849fae129797a23
+fluent-bit                     logging           https://fluent.github.io/helm-charts                  fluent-bit                    0.58.3   99e025e461fa080e68dcfe65b8bc0bf64dd74d2c04b87cb910f9192fbf954f20
+opentelemetry-collector        tracing           https://open-telemetry.github.io/opentelemetry-helm-charts opentelemetry-collector       0.175.1  33996399f5d831193603f8a56ed46b7cd3f012eeb6df4d5046c5b560a554e21d

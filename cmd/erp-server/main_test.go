@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -35,6 +36,7 @@ import (
 	"go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/google/uuid"
+	"github.com/mustie7iy/agentic-erp/api"
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/eval"
 	"github.com/mustie7iy/agentic-erp/internal/integration"
@@ -42,16 +44,21 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 
+	"github.com/mustie7iy/agentic-erp/internal/agents"
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
+	"github.com/mustie7iy/agentic-erp/internal/platform/autonomy"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt/kmstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
+	"github.com/mustie7iy/agentic-erp/internal/platform/modelalias"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus"
 	"github.com/mustie7iy/agentic-erp/internal/platform/natsbus/natstest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf/tlstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow/workflowtest"
@@ -2038,6 +2045,88 @@ func TestEngineOverMutualTLS(t *testing.T) {
 	}
 }
 
+// TestMetricsCatalog: every metric the cell registers passes the catalog
+// of ADR-0043, and the enumerations its labels take fit their bounds.
+func TestMetricsCatalog(t *testing.T) {
+	cfg := config.Config{RelayRole: "erp_relay", ProjectorRole: "erp_projector", WorkerRole: "erp_worker",
+		AtRest: config.AtRest{Postgres: "storage-kms", Objects: "sse-kms", NATS: "file-kms"}}
+	if err := newMetrics(pgtest.Pool(t), cfg, quiet()).Check(); err != nil {
+		t.Errorf("catalog: got %v, want none", err)
+	}
+	control, err := api.ControlOperations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := os.ReadFile("../../api/asyncapi.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := map[string]bool{}
+	for _, m := range regexp.MustCompile(`com\.example\.erp\.[a-z_]+\.([a-z_]+)\.v[0-9]+`).FindAllSubmatch(contract, -1) {
+		events[string(m[1])] = true
+	}
+	for label, n := range map[string]int{"operation": len(api.MustOperations()) + len(control) + 1, "class": len(api.Classes),
+		"context": len(outbox.Contexts), "event": len(events), "agent_kind": len(autonomy.Kinds), "alias": len(modelalias.Aliases),
+		"decision": len(telemetry.Decisions), "kind": len(telemetry.TokenKinds), "status": len(agents.CallStatuses)} {
+		if n > telemetry.Labels[label] {
+			t.Errorf("label %s: got %d values, want at most %d", label, n, telemetry.Labels[label])
+		}
+	}
+}
+
+// TestRulesUseCatalog: the cell's SLO rules (deploy/helm/erp-cell/rules)
+// name only series the cell exports, match only labels those series carry,
+// and group by or print only catalog labels (ADR-0043, T54e).
+func TestRulesUseCatalog(t *testing.T) {
+	rules, err := os.ReadFile("../../deploy/helm/erp-cell/rules/erp.rules.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := regexp.MustCompile(`(?m)^\s*#.*$`).ReplaceAllString(string(rules), "")
+	series := newMetrics(pgtest.Pool(t), config.Config{}, quiet()).Series()
+	// Labels a rule makes itself (label_replace) are its own to group on.
+	made := map[string]bool{"le": true, "__name__": true}
+	for _, m := range regexp.MustCompile(`label_replace\([^,]*,\s*"([a-z_]+)"`).FindAllStringSubmatch(src, -1) {
+		made[m[1]] = true
+	}
+	known := func(label string) bool {
+		_, ok := telemetry.Labels[label]
+		return ok || made[label]
+	}
+	for _, sel := range regexp.MustCompile(`\b(erp_[a-z0-9_]+)(\{[^}]*\})?`).FindAllStringSubmatch(src, -1) {
+		labels, ok := series[sel[1]]
+		if !ok {
+			t.Errorf("%s: not a series the cell exports", sel[1])
+			continue
+		}
+		for _, m := range regexp.MustCompile(`([a-z_]+)\s*(?:=~|!~|!=|=)`).FindAllStringSubmatch(sel[2], -1) {
+			if !slices.Contains(labels, m[1]) {
+				t.Errorf("%s: matches label %s, which it does not carry", sel[1], m[1])
+			}
+		}
+	}
+	for _, g := range regexp.MustCompile(`\b(?:by|on|without|ignoring|group_left|group_right)\s*\(([^)]*)\)|\$labels\.([a-z_]+)`).FindAllStringSubmatch(src, -1) {
+		for _, l := range strings.FieldsFunc(g[1]+","+g[2], func(r rune) bool { return r == ',' || r == ' ' }) {
+			if !known(l) {
+				t.Errorf("label %s: not in the catalog", l)
+			}
+		}
+	}
+	// Each latency rule gives every class its threshold: a class without
+	// one would have a denominator and no ratio.
+	latency := regexp.MustCompile(`(?s)record: erp:http_latency_slow:ratio_rate\w+\n.*?(?:\n      - |\n  - )`).FindAllString(src, -1)
+	if len(latency) != 7 {
+		t.Errorf("latency rules: got %d, want one per window (7)", len(latency))
+	}
+	for _, rule := range latency {
+		for _, class := range api.Classes {
+			if !regexp.MustCompile(`class=~?"(?:[a-z|]*\|)?` + class + `(?:\|[a-z|]*)?"`).MatchString(rule) {
+				t.Errorf("%s: no threshold for class %s", strings.SplitN(rule, "\n", 2)[0], class)
+			}
+		}
+	}
+}
+
 // TestAtRestStatedAndChecked: with ERP_AT_REST the cell logs how each
 // store encrypts at rest and exports it as erp_at_rest_info; with
 // objects=sse-kms it asks for KMS encryption on every write and starts
@@ -2082,7 +2171,8 @@ func TestAtRestStatedAndChecked(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close() // read whole
-	for _, want := range []string{`erp_at_rest_info{encryption="storage-kms",store="postgres"} 1`, `erp_at_rest_info{encryption="sse-kms",store="objects"} 1`} {
+	for _, want := range []string{`erp_at_rest_info{encryption="storage-kms",store="postgres"} 1`, `erp_at_rest_info{encryption="sse-kms",store="objects"} 1`,
+		`erp_operation_info{class="report",operation="listBalances"} 1`} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("metrics: got %s, want %s", body, want)
 		}

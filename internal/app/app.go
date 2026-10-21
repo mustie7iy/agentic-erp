@@ -139,7 +139,7 @@ func New(cfg Config) (http.Handler, error) {
 			PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, Approvals: opener()},
 		ledgerAPI: &ledger.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{},
 			Numbers: configuration.Numbers{}, Approvals: opener()},
-		workflowAPI: &approvals.Endpoints{Pages: cfg.Pages, Decider: approvals.Decider{Roles: identity.Directory{}, Handlers: map[string]approvals.Handler{
+		workflowAPI: &approvals.Endpoints{Pages: cfg.Pages, Decider: approvals.Decider{Roles: identity.Directory{}, AgentKind: identity.AgentKind, Metrics: cfg.Metrics, Handlers: map[string]approvals.Handler{
 			approvals.Requisition:      procurement.Approvals{},
 			approvals.PartnerChange:    partner.Approvals{},
 			approvals.ConfigChange:     configuration.Approvals{},

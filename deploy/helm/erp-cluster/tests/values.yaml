@@ -4,6 +4,7 @@ region: eu-central-1
 subordinateCaArn: arn:aws:acm-pca:eu-central-1:222222222222:certificate-authority/2222
 clusterKmsKeyArn: arn:aws:kms:eu-central-1:222222222222:key/0000
 trustDomain: dev.erp.example
+vpcCidr: 10.16.0.0/16
 release:
   publicKey: |
     -----BEGIN PUBLIC KEY-----

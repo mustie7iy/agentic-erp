@@ -1,6 +1,7 @@
 package api
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -50,12 +51,36 @@ func TestOperationsFromTheContract(t *testing.T) {
 	}
 }
 
+// Every operation has a latency class (ADR-0043): its method and path
+// imply read, list or write; approvals and reports declare theirs.
+func TestOperationClasses(t *testing.T) {
+	ops, err := Operations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]string{"getJournalEntry": ClassRead, "listJournalEntries": ClassList, "postSupplierInvoice": ClassWrite,
+		"updatePurchaseOrder": ClassWrite, "approveApprovalRequest": ClassApproval, "rejectApprovalRequest": ClassApproval,
+		"listBalances": ClassReport, "listGrIrBalances": ClassReport} {
+		t.Run(id, func(t *testing.T) {
+			if got := ops[id].Class; got != want {
+				t.Errorf("class: got %q, want %q", got, want)
+			}
+		})
+	}
+	for id, op := range ops {
+		if !slices.Contains(Classes, op.Class) {
+			t.Errorf("%s class: got %q, want one of %v", id, op.Class, Classes)
+		}
+	}
+}
+
 func TestOperationsRejectsBadContracts(t *testing.T) {
 	for name, src := range map[string]string{
 		"not yaml":      "paths: [",
 		"no permission": "paths:\n  /v1/x:\n    get:\n      operationId: getX\n",
 		"bad operation": "paths:\n  /v1/x:\n    get: [1]\n",
 		"bad autonomy":  "paths:\n  /v1/x:\n    post:\n      operationId: x\n      x-permission: a.b.c\n      x-autonomy: decide\n",
+		"bad class":     "paths:\n  /v1/x:\n    get:\n      operationId: x\n      x-permission: a.b.c\n      x-slo-class: read\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parseOperations([]byte(src), true); err == nil {

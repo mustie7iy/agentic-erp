@@ -24,6 +24,7 @@ info:
     - **Approvals.** Approval decisions are made only on approval requests (`:approve`, `:reject`), which require `workflow.request.decide` plus the approval permission of the object type, listed per operation in `x-object-permissions` (object type to permission code). Payment runs are released directly (`payment-runs/{id}:release`) by a person other than the proposer.
     - **Agents** call the same operations. Operations marked `x-agent: false` (approval decisions, identity administration) are never exposed as agent tools and refuse agent tokens. An agent acts within its autonomy level (`agent_profile.autonomy_level`, ADR-0036): level 0 only reads; level 1 also performs the operations marked `x-autonomy: propose`, which only propose (its sessions, tool-call records and recommendations, change requests, drafts, down payment requests); level 2 performs any write its permissions allow. Operations marked `x-autonomy: read` change no business data though they are not GET (a long-running verification), and every level performs them. Above its level an agent is refused with 403 `identity.autonomy_insufficient`. While the tenant's AI is off (`getAiPolicy`: switched off by its administrators or suspended by the platform's operators), every agent request is refused with 403 `agents.ai_disabled`.
     - **Rate limits.** Every response carries `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`; 429 adds `Retry-After`.
+    - **Latency classes.** Each operation's latency objective (01-requirements §1.3) is that of its class: `read` (a GET of one resource), `list` (any other GET), `write` (any other method), unless `x-slo-class` names `approval` or `report` (ADR-0043).
   contact:
     name: Platform API team
     url: "https://github.com/mustie7iy/agentic-erp"
@@ -4688,6 +4689,7 @@ paths:
   /v1/gr-ir-balances:
     get:
       operationId: listGrIrBalances
+      x-slo-class: report
       tags:
         - ledger
       summary: List GR/IR balances
@@ -4751,6 +4753,7 @@ paths:
   /v1/balances:
     get:
       operationId: listBalances
+      x-slo-class: report
       tags:
         - ledger
       summary: List balances
@@ -8551,6 +8554,7 @@ paths:
   "/v1/approval-requests/{id}:approve":
     post:
       operationId: approveApprovalRequest
+      x-slo-class: approval
       tags:
         - workflow
       summary: Approve an approval request
@@ -8655,6 +8659,7 @@ paths:
   "/v1/approval-requests/{id}:reject":
     post:
       operationId: rejectApprovalRequest
+      x-slo-class: approval
       tags:
         - workflow
       summary: Reject an approval request

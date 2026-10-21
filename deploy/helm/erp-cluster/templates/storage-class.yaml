@@ -1,6 +1,8 @@
 # Volumes of the cell's stateful workloads (NATS JetStream), encrypted with
 # the cell's cluster key (ADR-0035). Retained when their claim goes, so a
-# deleted StatefulSet does not take its stream with it.
+# deleted StatefulSet does not take its stream with it. The monitoring
+# add-on keeps a copy of this class, erp-monitoring, since it syncs before
+# this chart (deploy/helm/addons/values/kube-prometheus-stack.yaml).
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:

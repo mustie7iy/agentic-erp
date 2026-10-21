@@ -14,7 +14,16 @@ locals {
     ebs_csi          = { namespace = "kube-system", name = "ebs-csi-controller-sa" }
     load_balancer    = { namespace = "kube-system", name = "aws-load-balancer-controller" }
     kyverno          = { namespace = "kyverno", name = "kyverno-admission-controller" }
+    monitoring       = { namespace = "monitoring", name = "erp-monitoring-secrets" }
+    logging          = { namespace = "logging", name = "erp-logging" }
+    tracing          = { namespace = "tracing", name = "erp-tracing" }
   }
+
+  # The monitoring add-on's secrets (ADR-0043): read through its own
+  # SecretStore as its own role, so nothing in its namespace can reach the
+  # platform's secrets, nor the platform's store these.
+  monitoring_secrets = ["alertmanager-receivers", "grafana-oidc"]
+  secrets_key_via    = { StringEquals = { "kms:ViaService" = "secretsmanager.${data.aws_region.current.region}.amazonaws.com" } }
 
   workloads = {
     # The API server and its workers: objects, field-key wrapping.
@@ -31,10 +40,10 @@ locals {
     # the deploy key, which only the bootstrap reads, into Argo CD.
     external_secrets = {
       statements = [
-        { Sid = "Secrets", Effect = "Allow", Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], Resource = concat([for name, secret in aws_secretsmanager_secret.cell : secret.arn if name != "argocd-repository"], compact([local.database_master_secret_arn]), var.global_secrets.arns) },
+        { Sid = "Secrets", Effect = "Allow", Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], Resource = concat([for name, secret in aws_secretsmanager_secret.cell : secret.arn if !contains(concat(["argocd-repository"], local.monitoring_secrets), name)], compact([local.database_master_secret_arn]), var.global_secrets.arns) },
         # Through Secrets Manager only: the global tier's key also encrypts
         # the directory's storage and logs.
-        { Sid = "SecretsKey", Effect = "Allow", Action = "kms:Decrypt", Resource = compact([aws_kms_key.data.arn, var.global_secrets.kms_key_arn]), Condition = { StringEquals = { "kms:ViaService" = "secretsmanager.${data.aws_region.current.region}.amazonaws.com" } } },
+        { Sid = "SecretsKey", Effect = "Allow", Action = "kms:Decrypt", Resource = compact([aws_kms_key.data.arn, var.global_secrets.kms_key_arn]), Condition = local.secrets_key_via },
       ]
     }
     # cert-manager's aws-privateca-issuer: certificates from the
@@ -73,6 +82,30 @@ locals {
         # The same actions as the repositories grant the environments
         # (modules/ecr pull_actions): cross-account, both sides must allow.
         { Sid = "ReadImages", Effect = "Allow", Action = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability", "ecr:DescribeImages", "ecr:ListImages"], Resource = "arn:${data.aws_partition.current.partition}:ecr:*:${var.image_registry_account_id}:repository/erp*" },
+      ]
+    }
+    # The monitoring add-on's SecretStore (kube-prometheus-stack, T54d):
+    # Alertmanager's receivers and Grafana's OIDC client, read only.
+    monitoring = {
+      statements = [
+        { Sid = "Secrets", Effect = "Allow", Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], Resource = [for name in local.monitoring_secrets : aws_secretsmanager_secret.cell[name].arn] },
+        { Sid = "SecretsKey", Effect = "Allow", Action = "kms:Decrypt", Resource = aws_kms_key.data.arn, Condition = local.secrets_key_via },
+      ]
+    }
+    # Fluent Bit (T54g): the cell's container logs into their log group,
+    # whose streams it creates; not the group itself, its retention or its
+    # key, which are Terraform's (logs.tf). CloudWatch Logs encrypts with
+    # the cluster key under the key's own policy, so no KMS permission.
+    logging = {
+      statements = [
+        { Sid = "ContainerLogs", Effect = "Allow", Action = ["logs:CreateLogStream", "logs:PutLogEvents"], Resource = [aws_cloudwatch_log_group.containers.arn, "${aws_cloudwatch_log_group.containers.arn}:log-stream:*"] },
+      ]
+    }
+    # The OpenTelemetry Collector (T54g): the sampled traces into X-Ray,
+    # whose two write actions take no resource narrower than "*".
+    tracing = {
+      statements = [
+        { Sid = "Traces", Effect = "Allow", Action = ["xray:PutTraceSegments", "xray:PutTelemetryRecords"], Resource = "*" },
       ]
     }
   }

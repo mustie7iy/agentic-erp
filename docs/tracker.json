@@ -5176,9 +5176,27 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Metrics conventions: labels only bounded enumerations, a catalog test over the registry (promlint, label allow-list, series ceiling); erp_events_published_total{context,event} counted on commit; latency buckets at every objective (0.4 and 3 s added); erp_operation_info{operation,class} with x-slo-class",
+        "r": "internal/platform/telemetry/catalog.go · outbox.Relay.Counter · api.Operation.Class · ADR-0043 · 05 §5.9 · T54a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Business gauges per context, cell-wide: invoices on hold, and entered over 7 days ago and still parked, payment runs proposed and failed in 24 h, bank files unacknowledged (count, oldest age) and rejected in 24 h, approvals pending (count, oldest age), periods past their end still open",
+        "r": "cmd/erp-server/gauges.go · db/migrations/000108-000112 · ADR-0043 · T54b",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Business metrics per context",
-        "r": "T54",
+        "t": "Bank file gauges for the transmission worker's statuses (to_send, sending, failed) once T44 merges",
+        "r": "T44",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Webhook delivery gauges (pending, failing, oldest age) once T50 merges",
+        "r": "T50",
         "c": []
        },
        {
@@ -5196,15 +5214,76 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
+      "t": "Logs and traces leave the cell: Fluent Bit (0.58.3, SHA-256 pinned) ships every container's lines, parsed (tenant_id a field, never a label), to /erp/<cell>/containers through the logs VPC endpoint as its own IRSA role (that group's streams alone); Terraform keeps the group 90 days, encrypted with the cluster key. An OpenTelemetry Collector (0.175.1, contrib) takes OTLP/HTTP from the server alone and tail-samples 5% of traces plus every failed one (5xx, panic: the span's status) to X-Ray through the X-Ray VPC endpoint as its own role; the server's OTLP endpoint in erp-cell's values; neither add-on makes metrics (helm-checks refuses log_to_metrics and connectors)",
+      "r": "addons.txt · addons/values/fluent-bit.yaml, opentelemetry-collector.yaml · cell logs.tf, irsa.tf logging, tracing · network xray endpoint · erp-cell server.otlpEndpoint, network-policy · telemetry.Middleware span status · erp-cluster logging-network-policy · scripts/helm-checks.sh · ADR-0043 · T54g",
+      "c": []
+     },
+     {
+      "s": "P",
       "t": "Dashboards and alerting (Grafana)",
+      "r": "T54",
+      "c": [
+       {
+        "s": "D",
+        "t": "Monitoring stack as a cell add-on: kube-prometheus-stack pinned (Prometheus HA pair keeping 15 days on encrypted gp3, Alertmanager on two replicas, Grafana), ~2.3 vCPU / 9.5 GiB; the server's admin /metrics scraped over verified TLS by a ServiceMonitor, admitted by a NetworkPolicy; Grafana signs in through the operators' IdP (OIDC) alone, no local admin; Alertmanager's receivers and Grafana's client secret from erp/<cell>/ through the add-on's own SecretStore and IRSA role, placeholder receiver erp-alerts",
+        "r": "deploy/helm/addons/values/kube-prometheus-stack.yaml · erp-cell templates/monitoring.yaml · irsa.tf monitoring · scripts/helm-checks.sh · ADR-0043 · ADR-0035 bootstrap · T54d",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "SLOs and alerts as the erp-slo PrometheusRule: availability (5xx and 429 of requests that count) and per-class latency (share over the class's p95 threshold, joined on erp_operation_info) recorded over 5m-3d; multi-window burn-rate alerts on the 99.95% monthly budget, page at 14.4x (1h/5m) and 6x (6h/30m), ticket at 3x (1d/2h) and 1x (3d/6h), the same for latency's 5%; symptom alerts for outbox and projector lag, partition horizon (erp_partition_horizon_* gauges), bank file unacknowledged, payment run failed, audit tamper (page at once), unreadable gauges, no server scraped; ErpWatchdog dead man's switch to erp-heartbeat; the override-rate recording rule; promtool 3.15.0 checks and unit tests pinned by SHA-256; rules held to the catalog by TestRulesUseCatalog",
+        "r": "deploy/helm/erp-cell/rules · templates/rules.yaml · cmd/erp-server/gauges.go horizonGauges · telemetry.Metrics.Series · scripts/helm-checks.sh · deploy.yml · ADR-0043 · T54e",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Dashboards as code: plain Grafana JSON (cell overview: traffic, errors, latency per class, saturation, outbox and projection lag; SLOs and error budget from the recording rules; ledger, payables, payments, procurement, identity; agents: tokens, cost, latency, override rate), one ConfigMap each that Grafana's watching dashboards sidecar loads by grafana_dashboard=1; stable UIDs erp-<file>, no datasource but the default; TestDashboardsUseCatalog parses every panel's PromQL (Prometheus 3.15's parser) against the series the cell exports, the SLO rules' recorded series, the catalog's labels and closed label values; helm-checks renders them. actionlint 1.7.12 pinned by SHA-256 lints the workflows in deploy-checks",
+        "r": "deploy/helm/erp-cell/dashboards · templates/dashboards.yaml · cmd/erp-server/dashboards_test.go · kube-prometheus-stack.yaml sidecar · scripts/helm-checks.sh · scripts/deploy-checks.sh · deploy.yml · ADR-0043 · T54f",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "CPU and memory saturation on the cell overview from the stack: CPU used of requested and working set of the memory limit per container (cAdvisor over kube-state-metrics), restarts; no process collectors in the server; the dashboard lint admits those five series by name with their Kubernetes labels, namespace closed to erp and resource to cpu|memory",
+        "r": "cell-overview.json · cmd/erp-server/dashboards_test.go stackSeries · ADR-0043 · T54g",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Fix the flaky payments TestProposeReleaseTransmit (\"worker did 2 jobs\" under -race/-shuffle)",
+        "r": "internal/payments · T54f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Decide Alertmanager's receivers (PO): set erp/<cell>/alertmanager-receivers' erp-alerts and erp-heartbeat (the dead man's switch's outside service) to the chosen integrations, and whether severity=page and ticket go to different ones",
+        "r": "ADR-0043 · T54d",
+        "c": []
+       }
+      ]
+     },
+     {
+      "s": "D",
+      "t": "Agent telemetry by agent kind: erp_model_tokens_total, erp_model_cost_micro_total, erp_model_call_duration_seconds at the gateway; erp_agent_proposals_decided_total{decision=approved|rejected|modified} counted after commit; override rate recording rule in ADR-0043",
+      "r": "telemetry/agents.go · agents.Gateway.Metrics · approvals.Decider.observe · identity.AgentKind · reqctx.OnCommit · ADR-0043 · T54c",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Count modified-then-approved agent proposals: an owning context whose objects a person may change while their approval waits implements approvals.Modifier (stays opt-in per owning context, coordinator decision on T54c)",
       "r": "T54",
       "c": []
      },
      {
       "s": "T",
-      "t": "Agent telemetry: tokens, cost, latency, override rate per agent",
-      "r": "T54",
+      "t": "Override rate: a payment run proposed by an agent and released or rejected by a person counts as an agent proposal decided (coordinator decision on T54c)",
+      "r": "T54 · erp_agent_proposals_decided_total",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Worker-side decisions (uow.Act) get an OnCommit hook so their agent proposal decisions are counted (coordinator decision on T54c)",
+      "r": "T54 · uow.Act · reqctx.OnCommit",
       "c": []
      }
     ]

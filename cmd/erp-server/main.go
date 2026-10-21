@@ -473,9 +473,10 @@ func modelClient(cfg config.Config) *http.Client {
 // collaborators sets up the optional outside services (document extraction,
 // the bank connector) and the metrics with the queues' backlogs.
 func (s *server) collaborators() {
+	s.metrics = newMetrics(s.pool, s.cfg, s.log) // first: the gateway counts its calls in them
 	if s.cfg.Model.Enabled() {
 		s.gateway = &agents.Gateway{Provider: agents.Anthropic{Endpoint: s.cfg.Model.Endpoint, Key: s.cfg.Model.APIKey, Client: modelClient(s.cfg)},
-			Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log, Timeout: modelTimeout, AgentBudget: identity.AgentBudget,
+			Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log, Timeout: modelTimeout, AgentBudget: identity.AgentBudget, AgentKind: identity.AgentKind, Metrics: s.metrics,
 			Countries: tenancy.Countries}
 		// Capture's model calls go through the gateway too, in the
 		// request's unit of work (ADR-0036).
@@ -484,9 +485,29 @@ func (s *server) collaborators() {
 	if s.cfg.BankOutboxDir != "" {
 		s.connector = payments.DirConnector{Dir: s.cfg.BankOutboxDir}
 	}
-	s.metrics = telemetry.NewMetrics()
-	backlogs(s.pool, s.cfg, s.metrics)
-	atRest(s.cfg.AtRest, s.metrics, s.log)
+}
+
+// newMetrics registers the cell's metrics, all of them held to the catalog
+// of ADR-0043 by its test.
+func newMetrics(pool *database.Pool, cfg config.Config, log *slog.Logger) *telemetry.Metrics {
+	m := telemetry.NewMetrics()
+	backlogs(pool, cfg, m)
+	businessGauges(pool, cfg, m)
+	horizonGauges(pool, cfg, m, time.Now)
+	atRest(cfg.AtRest, m, log)
+	operationClasses(m)
+	return m
+}
+
+// operationClasses exports erp_operation_info{operation,class}: each public
+// operation's latency class, which the latency SLOs join the request
+// histogram on, so a class's objective covers its operations (ADR-0043).
+func operationClasses(m *telemetry.Metrics) {
+	var rows [][]string
+	for id, op := range api.MustOperations() {
+		rows = append(rows, []string{id, op.Class})
+	}
+	m.Info("erp_operation_info", "The latency class of each operation of the public API (ADR-0043).", []string{"operation", "class"}, rows)
 }
 
 // atRest states how each store encrypts at rest, in the log and as
@@ -691,7 +712,7 @@ func (s *server) startRelay(ctx, runCtx context.Context, bus *natsbus.Bus) error
 	if err := bus.EnsureStreams(ctx, s.cfg.Cell); err != nil {
 		return err
 	}
-	relay := &outbox.Relay{Pool: s.pool, Role: s.cfg.RelayRole, Publisher: bus, Cell: s.cfg.Cell, Log: s.log}
+	relay := &outbox.Relay{Pool: s.pool, Role: s.cfg.RelayRole, Publisher: bus, Cell: s.cfg.Cell, Log: s.log, Counter: s.metrics}
 	s.spawn("relay", func() { relay.Run(runCtx) })
 	// Events offered to webhooks become deliveries (ADR-0041), each in its
 	// tenant's transaction, so the fan-out needs no role beyond the app's.
@@ -959,16 +980,7 @@ func maintain(ctx context.Context, interval time.Duration, job func(context.Cont
 // since they are the operators' view of the cell, read-only, and change
 // with the queues they watch.
 func backlogs(pool *database.Pool, cfg config.Config, m *telemetry.Metrics) {
-	//nolint:forbidigo // a row count read as a Prometheus gauge value, which is float64; no amount or quantity
-	count := func(role, sql string, args ...any) func(context.Context) (float64, error) {
-		return func(ctx context.Context) (float64, error) {
-			var n float64
-			err := pool.InTx(ctx, database.Scope{Role: role, ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
-				return tx.QueryRow(ctx, sql, args...).Scan(&n)
-			})
-			return n, err
-		}
-	}
+	count := reader(pool)
 	var parts, oldest []string
 	for _, c := range outbox.Contexts {
 		parts = append(parts, "SELECT count(*) FROM "+pgx.Identifier{c, "outbox"}.Sanitize()+" WHERE published_at IS NULL")

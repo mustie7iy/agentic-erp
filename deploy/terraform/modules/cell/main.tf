@@ -156,7 +156,7 @@ variable "dr_region" {
 }
 
 variable "log_retention_days" {
-  description = "How long the cluster's and the database's logs are kept."
+  description = "How long the cluster's, the database's and the containers' logs are kept."
   type        = number
   default     = 90
 }

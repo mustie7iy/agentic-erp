@@ -1,0 +1,17 @@
+# The cell's dashboards (ADR-0043, T54f): dashboards/*.json as they are,
+# one ConfigMap each, which the monitoring add-on's Grafana sidecar loads
+# from every namespace by its grafana_dashboard label. Their PromQL is held
+# to the catalog by cmd/erp-server's TestDashboardsUseCatalog.
+{{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: erp-dashboard-{{ base $path | trimSuffix ".json" }}
+  labels:
+    {{- include "erp-cell.labels" (dict "root" $ "component" "erp-server") | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  {{ base $path }}: |-
+    {{- $.Files.Get $path | nindent 4 }}
+{{- end }}

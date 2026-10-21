@@ -170,11 +170,7 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 		}
 	}
 
-	ctx = reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), principal)
-	if req == nil {
-		ctx = reqctx.WithReadOnly(ctx)
-	}
-	ctx, buf := audit.WithBuffer(ctx)
+	ctx, buf, committed := handlerContext(ctx, tx, principal, req == nil)
 	rec := &recorder{header: http.Header{}, status: http.StatusOK}
 	ctx = context.WithValue(ctx, omitKey{}, rec)
 	next.ServeHTTP(rec, r.WithContext(ctx))
@@ -182,8 +178,24 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 	if err := m.finish(ctx, tx, principal, req, rec, buf); err != nil {
 		return err
 	}
+	if rec.status < http.StatusBadRequest { // finish committed the request's work
+		committed.Run()
+	}
 	rec.send(w)
 	return nil
+}
+
+// handlerContext is what the handler runs with: the transaction, the
+// principal, read-only for a safe method, the audit buffer finish writes
+// and what runs once the work committed.
+func handlerContext(ctx context.Context, tx pgx.Tx, principal reqctx.Principal, readOnly bool) (context.Context, *audit.Buffer, *reqctx.Commit) {
+	ctx = reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), principal)
+	if readOnly {
+		ctx = reqctx.WithReadOnly(ctx)
+	}
+	ctx, buf := audit.WithBuffer(ctx)
+	ctx, committed := reqctx.WithCommit(ctx)
+	return ctx, buf, committed
 }
 
 // admit checks what the token alone decides, before the transaction. A

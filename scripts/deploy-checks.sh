@@ -9,13 +9,17 @@
 #   - the encryption-at-rest policy (deploy/policy) unit-tested with
 #     `conftest verify`, then applied to every root and module, which must
 #     pass, and to the fixtures under deploy/policy/testdata, which must be refused
-#     on each of their resources (encryption at rest, VPC endpoints).
-# TERRAFORM, TFLINT and CONFTEST name the binaries.
+#     on each of their resources (encryption at rest, VPC endpoints);
+#   - actionlint on .github/workflows: the workflows' syntax, expressions,
+#     job graph and action inputs. Without shellcheck and pyflakes, whose
+#     versions the runner image picks, so the gate does not move under us.
+# TERRAFORM, TFLINT, CONFTEST and ACTIONLINT name the binaries.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 TERRAFORM="${TERRAFORM:-terraform}"
 TFLINT="${TFLINT:-tflint}"
 CONFTEST="${CONFTEST:-conftest}"
+ACTIONLINT="${ACTIONLINT:-actionlint}"
 export TF_IN_AUTOMATION=1 TF_INPUT=0
 # One provider download for every module: each init otherwise unpacks its
 # own copy of the AWS provider (several hundred MB), and the modules together
@@ -23,6 +27,9 @@ export TF_IN_AUTOMATION=1 TF_INPUT=0
 # module's .terraform is dropped once its checks ran.
 export TF_PLUGIN_CACHE_DIR="${TF_PLUGIN_CACHE_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/tf-plugin-cache}"
 mkdir -p "$TF_PLUGIN_CACHE_DIR"
+
+echo "== actionlint"
+"$ACTIONLINT" -shellcheck= -pyflakes=
 
 echo "== terraform fmt"
 $TERRAFORM fmt -check -recursive deploy/terraform

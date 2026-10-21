@@ -6,7 +6,7 @@
 # cost.
 #
 # Providers are never proxied (T38b): S3 is reached through a gateway
-# endpoint, KMS, STS, ECR, Secrets Manager, CloudWatch Logs and EC2 through
+# endpoint, KMS, STS, ECR, Secrets Manager, CloudWatch Logs, X-Ray and EC2 through
 # interface endpoints with private DNS, so the platform's calls to them
 # never leave AWS's network. The NAT gateways carry only what has no
 # endpoint: the tenants' identity providers, banks, model APIs.
@@ -37,7 +37,7 @@ variable "availability_zones" {
 variable "more_interface_endpoints" {
   description = "Services reached through interface endpoints besides KMS and STS (which always are) and S3 (a gateway endpoint)."
   type        = list(string)
-  default     = ["ecr.api", "ecr.dkr", "secretsmanager", "logs", "ec2", "elasticloadbalancing"]
+  default     = ["ecr.api", "ecr.dkr", "secretsmanager", "logs", "xray", "ec2", "elasticloadbalancing"]
   validation {
     condition     = length(setintersection(toset(var.more_interface_endpoints), toset(["kms", "sts", "s3"]))) == 0
     error_message = "S3, KMS and STS have endpoints of their own here"

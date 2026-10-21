@@ -23,7 +23,8 @@ on:
       - scripts/temporal-checks.sh
       - temporal/**
       - scripts/lib/**
-      - .github/workflows/deploy.yml
+      # The workflows themselves, which deploy-checks.sh lints.
+      - .github/workflows/**
   pull_request:
     paths: *paths
 
@@ -41,12 +42,14 @@ jobs:
     env:
       TERRAFORM_VERSION: 1.16.4
       TERRAFORM_SHA256: dc94af0eef1147718ad7c8daea792ed199e3e0492eec180d0adafa2a65a879df
+      ACTIONLINT_VERSION: 1.7.12
+      ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - name: Install Terraform, tflint and conftest (pinned)
+      - name: Install Terraform, tflint, conftest and actionlint (pinned)
         run: |
           cd "$RUNNER_TEMP"
           archive="terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
@@ -54,6 +57,10 @@ jobs:
           echo "${TERRAFORM_SHA256}  ${archive}" | sha256sum -c -
           unzip -q "${archive}" terraform
           mkdir -p bin && mv terraform bin/
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -sSfLO "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          echo "${ACTIONLINT_SHA256}  ${archive}" | sha256sum -c -
+          tar -xzf "${archive}" -C bin actionlint
           GOBIN="$RUNNER_TEMP/bin" go install github.com/terraform-linters/tflint@v0.63.1
           GOBIN="$RUNNER_TEMP/bin" go install github.com/open-policy-agent/conftest@v0.71.0
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
@@ -74,12 +81,15 @@ jobs:
       ZOT_SHA256: a053169f97b4ceaa051e054d53971799188a398cb36acbaf5e08622ec8664c44
       SYFT_VERSION: 1.52.0
       SYFT_SHA256: caeedb81fb0491615f1ebd1761e4145d41ee86dd2cc7bf80669f9f5ad9d6133d
+      # The Prometheus the monitoring add-on runs (kube-prometheus-stack 91.8.2).
+      PROMTOOL_VERSION: 3.15.0
+      PROMTOOL_SHA256: 2a542df32eac02ee17b9d844fb2aa1de00dafa5476579ba8a3ba862e9d572ea0
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - name: Install Helm, kubeconform, Kyverno, zot, syft, cosign, crane and conftest (pinned)
+      - name: Install Helm, kubeconform, Kyverno, zot, syft, promtool, cosign, crane and conftest (pinned)
         run: |
           cd "$RUNNER_TEMP"
           mkdir -p bin
@@ -94,6 +104,8 @@ jobs:
           chmod +x bin/zot
           fetch syft.tgz "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz" "$SYFT_SHA256"
           tar -xzf syft.tgz -C bin syft
+          fetch prometheus.tgz "https://github.com/prometheus/prometheus/releases/download/v${PROMTOOL_VERSION}/prometheus-${PROMTOOL_VERSION}.linux-amd64.tar.gz" "$PROMTOOL_SHA256"
+          tar -xzf prometheus.tgz --strip-components=1 -C bin "prometheus-${PROMTOOL_VERSION}.linux-amd64/promtool"
           # The cosign the release signs with (ADR-0032).
           GOBIN="$RUNNER_TEMP/bin" go install github.com/sigstore/cosign/v3/cmd/cosign@v3.1.1
           GOBIN="$RUNNER_TEMP/bin" go install github.com/google/go-containerregistry/cmd/crane@v0.20.6

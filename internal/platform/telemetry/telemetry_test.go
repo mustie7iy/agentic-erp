@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,9 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -90,6 +94,64 @@ func TestPanicsBecomeProblems(t *testing.T) {
 	}
 }
 
+// TestFailedRequestsMarkTheirSpan: a 5xx or a panic marks the request's
+// span failed, which the cell's collector keeps whatever its sampling
+// (ADR-0043); a client error does not.
+func TestFailedRequestsMarkTheirSpan(t *testing.T) {
+	for name, tc := range map[string]struct {
+		handler http.HandlerFunc
+		want    codes.Code
+	}{
+		"ok":           {func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) }, codes.Unset},
+		"client error": {func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(404) }, codes.Unset},
+		"server error": {func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(503) }, codes.Error},
+		"panic":        {func(http.ResponseWriter, *http.Request) { panic("boom") }, codes.Error},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := tracetest.NewSpanRecorder()
+			tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
+			Middleware(NewLogger(&bytes.Buffer{}, slog.LevelInfo), NewMetrics(), tp)(tc.handler).
+				ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/x", nil))
+			spans := rec.Ended()
+			if len(spans) != 1 {
+				t.Fatalf("spans: got %d, want 1", len(spans))
+			}
+			if got := spans[0].Status().Code; got != tc.want {
+				t.Errorf("span status: got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestUnsampledCallersAreRecorded: a caller's traceparent with the sampled
+// flag off does not stop a failed request's span from being recorded.
+func TestUnsampledCallersAreRecorded(t *testing.T) {
+	tp, err := Tracing(context.Background(), "http://collector.invalid:4318/v1/traces")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := tracetest.NewSpanRecorder()
+	tp.RegisterSpanProcessor(rec)
+	r := httptest.NewRequest("GET", "/x", nil)
+	r.Header.Set("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00")
+	Middleware(NewLogger(&bytes.Buffer{}, slog.LevelInfo), NewMetrics(), tp)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(503)
+	})).ServeHTTP(httptest.NewRecorder(), r)
+	spans := rec.Ended()
+	if len(spans) != 1 {
+		t.Fatalf("spans: got %d, want 1", len(spans))
+	}
+	if got := spans[0].Status().Code; got != codes.Error {
+		t.Errorf("span status: got %v, want %v", got, codes.Error)
+	}
+	tp.UnregisterSpanProcessor(rec)
+	// The batcher holds the span for an endpoint that does not resolve:
+	// shutting down with a cancelled context drops it without I/O.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = tp.Shutdown(ctx) // its error is the cancelled context's, which is the point
+}
+
 func TestOTLPExport(t *testing.T) {
 	var spans atomic.Int32
 	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -158,5 +220,65 @@ func TestInfo(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Errorf("got %s, want %s", rec.Body.String(), want)
 		}
+	}
+}
+
+// The catalog (ADR-0043) holds every registered metric: names that pass
+// promlint, labels from the allow-list, series under the ceiling.
+func TestCatalog(t *testing.T) {
+	m := NewMetrics()
+	m.Gauge("erp_outbox_backlog", "Events waiting.", func(context.Context) (float64, error) { return 0, nil })
+	m.Info("erp_operation_info", "Operations by latency class.", []string{"operation", "class"}, [][]string{{"getX", "read"}})
+	if err := m.Check(); err != nil {
+		t.Fatalf("catalog: got %v, want none", err)
+	}
+	for name, c := range map[string]struct {
+		register func(*Metrics)
+		want     string
+	}{
+		"label not allowed": {func(m *Metrics) {
+			m.Info("erp_tenant_info", "Tenants.", []string{"tenant_id"}, nil)
+		}, `label "tenant_id" is not in the catalog's allow-list`},
+		"promlint": {func(m *Metrics) {
+			m.Gauge("erp_backlog_total", "A gauge named as a counter.", func(context.Context) (float64, error) { return 0, nil })
+		}, "erp_backlog_total: non-counter metrics should not have \"_total\" suffix"},
+		"series ceiling": {func(m *Metrics) {
+			m.counterVec("erp_by_everything_total", "Too many series.", "operation", "event", "code")
+		}, "over the ceiling of 50000"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := NewMetrics()
+			c.register(m)
+			if err := m.Check(); err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("catalog: got %v, want %s", err, c.want)
+			}
+		})
+	}
+}
+
+// Series names what a scrape exposes: a histogram as its three series.
+func TestSeries(t *testing.T) {
+	m := NewMetrics()
+	m.Gauge("erp_outbox_backlog", "Events waiting.", func(context.Context) (float64, error) { return 0, nil })
+	got := m.Series()
+	for name, want := range map[string]string{"erp_outbox_backlog": "[]", "erp_http_requests_total": "[operation code]",
+		"erp_http_request_duration_seconds_bucket": "[operation le]", "erp_http_request_duration_seconds_count": "[operation]",
+		"erp_http_request_duration_seconds_sum": "[operation]"} {
+		if labels, ok := got[name]; !ok || fmt.Sprint(labels) != want {
+			t.Errorf("%s: got %v (present %v), want %s", name, labels, ok, want)
+		}
+	}
+	if _, ok := got["erp_http_request_duration_seconds"]; ok {
+		t.Errorf("histogram: got its bare name, want only _bucket, _sum and _count")
+	}
+}
+
+func TestEventsPublished(t *testing.T) {
+	m := NewMetrics()
+	m.EventsPublished("ledger", "journal_entry_posted", 2)
+	rec := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
+	if want := `erp_events_published_total{context="ledger",event="journal_entry_posted"} 2`; !strings.Contains(rec.Body.String(), want) {
+		t.Errorf("metrics: got %s, want %s", rec.Body.String(), want)
 	}
 }

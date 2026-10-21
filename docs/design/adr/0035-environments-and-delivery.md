@@ -337,7 +337,8 @@ charts, pinned by version and by their archive's SHA-256 in
 namespace: Argo CD (T40d3), cert-manager, aws-privateca-issuer, the External Secrets
 Operator, the AWS Load Balancer Controller (for TargetGroupBinding only:
 it registers targets and creates no load balancer, listener or security
-group rule) and Kyverno. Each runs as an IRSA role of the cell
+group rule), Kyverno and the observability add-ons of ADR-0043
+(kube-prometheus-stack, Fluent Bit, the OpenTelemetry Collector). Each runs as an IRSA role of the cell
 (`workload_role_arns`) trusting exactly its service account; the EBS CSI
 driver is an EKS add-on with its role. The `erp-cluster` chart, installed
 after them, holds the cell's own resources: the `AWSPCAClusterIssuer` on
@@ -624,6 +625,15 @@ which the state bucket refuses.
      `kubectl create namespace argocd`, then
      `kubectl -n argocd create secret generic erp-repository --from-literal=type=git --from-literal=url=<repository> --from-file=sshPrivateKey=<(aws secretsmanager get-secret-value --secret-id erp/<cell>/argocd-repository --query SecretString --output text)`
      and `kubectl -n argocd label secret erp-repository argocd.argoproj.io/secret-type=repository`;
+   - seed the monitoring add-on's secrets (ADR-0043): register Grafana as
+     a client of the operators' identity provider (redirect
+     `<root_url>/login/generic_oauth`) and store its secret in
+     `erp/<cell>/grafana-oidc`; store Alertmanager's receivers, a YAML list,
+     in `erp/<cell>/alertmanager-receivers`, `- name: erp-alerts` and
+     `- name: erp-heartbeat` (which notify no one) until the receivers are
+     decided: a block list, each
+     entry starting `- ` at column 0, and no receiver named `erp-null`,
+     which the routes keep for the always-firing alerts;
    - install Argo CD from its pinned archive, checked against `addons.txt`:
      `helm pull argo-cd --repo https://argoproj.github.io/argo-helm --version <version>`,
      `shasum -a 256` it, then
