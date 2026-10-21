@@ -11332,12 +11332,14 @@ type Evidence struct {
 	Kind string `json:"kind"`
 	// Whether the check passed.
 	Passed bool `json:"passed"`
-	// Summary of the result. For `simulation` evidence its counts are over the companies the reader may
-	// access alone.
+	// Summary of the result. For `simulation` and `regression` evidence its counts are over the companies
+	// the reader may access alone.
 	Summary string `json:"summary"`
 	// Detailed result. For `simulation` evidence, the replayed invoices, decisions and posting rules of
 	// the companies the reader may access alone, counted over those: a reader of no company is shown none
-	// and counts of zero. The verdict (`passed`) is over every company the change touches.
+	// and counts of zero. For `regression` evidence, likewise the suite's cases of those companies
+	// (`cases`, their count; `changed`, `regressions`, or `stale` when the suite no longer matches its
+	// version). The verdict (`passed`) is over every company the change touches.
 	Detail EvidenceDetail `json:"detail"`
 	// When the evidence was recorded.
 	RecordedAt time.Time `json:"recorded_at"`
@@ -11407,7 +11409,9 @@ func (s *Evidence) SetRecordedBy(val uuid.UUID) {
 
 // Detailed result. For `simulation` evidence, the replayed invoices, decisions and posting rules of
 // the companies the reader may access alone, counted over those: a reader of no company is shown none
-// and counts of zero. The verdict (`passed`) is over every company the change touches.
+// and counts of zero. For `regression` evidence, likewise the suite's cases of those companies
+// (`cases`, their count; `changed`, `regressions`, or `stale` when the suite no longer matches its
+// version). The verdict (`passed`) is over every company the change touches.
 type EvidenceDetail map[string]jx.Raw
 
 func (s *EvidenceDetail) init() EvidenceDetail {
@@ -26041,7 +26045,10 @@ func (*RedeliverWebhookDeliveryOKHeaders) redeliverWebhookDeliveryRes() {}
 // captured.
 // Ref: #/components/schemas/RegressionCase
 type RegressionCase struct {
-	// Position in the suite.
+	// Position among the suite's cases the reader is shown: a reader of every company is shown the suite's
+	// own numbering; any other reader the cases of their companies numbered from 1, so that the numbers
+	// tell nothing of other companies' cases. It is therefore not a stable identifier (it changes with the
+	// reader's company access); `supplier_invoice_id` is.
 	CaseNo int32 `json:"case_no"`
 	// The invoice replayed.
 	SupplierInvoiceID uuid.UUID `json:"supplier_invoice_id"`
@@ -26151,11 +26158,11 @@ type RegressionSuite struct {
 	ConfigVersion int32 `json:"config_version"`
 	// How many days of invoices the capture looked at.
 	WindowDays int32 `json:"window_days"`
-	// Number of cases.
+	// Number of cases shown: those of the companies the reader may access.
 	CaseCount int32 `json:"case_count"`
-	// The reasons cases were selected, in order.
+	// The reasons the cases shown were selected, in order.
 	Strata []string `json:"strata"`
-	// The cases.
+	// The cases of the companies the reader may access alone: a reader of no company is shown none.
 	Cases []RegressionCase `json:"cases"`
 }
 

@@ -8021,8 +8021,9 @@ func (s *Server) handleCreateRecommendationRequest(args [0]string, argsEscaped b
 // the active configuration version: a stratified sample (every decision, every match issue kind,
 // invoices near the auto-post limit, then more) with the decision each case got. The simulation of a
 // change request then replays the latest suite of its base version and records `regression` evidence:
-// a case outside the companies the change touches that is decided differently fails it. 422
-// `config.no_cases` when the window has no invoices to capture.
+// a case outside the companies the change touches that is decided differently fails it. The capture
+// samples the invoices of every company; the suite returned shows the cases of the companies the
+// caller may access alone. 422 `config.no_cases` when the window has no invoices to capture.
 //
 // POST /v1/regression-suites
 func (s *Server) handleCreateRegressionSuiteRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -18484,7 +18485,8 @@ func (s *Server) handleGetRecommendationRequest(args [1]string, argsEscaped bool
 
 // handleGetRegressionSuiteRequest handles getRegressionSuite operation.
 //
-// Returns one regression suite with its cases.
+// Returns one regression suite with the cases of the companies the reader may access alone
+// (`RegressionSuite`).
 //
 // GET /v1/regression-suites/{id}
 func (s *Server) handleGetRegressionSuiteRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -29938,7 +29940,8 @@ func (s *Server) handleListRecommendationsRequest(args [0]string, argsEscaped bo
 
 // handleListRegressionSuitesRequest handles listRegressionSuites operation.
 //
-// Regression suites captured for this tenant, newest first. Sortable by: `captured_at`.
+// Regression suites captured for this tenant, newest first, each with the cases of the companies the
+// reader may access alone (`RegressionSuite`). Sortable by: `captured_at`.
 //
 // GET /v1/regression-suites
 func (s *Server) handleListRegressionSuitesRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

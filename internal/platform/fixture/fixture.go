@@ -180,6 +180,23 @@ func (e Env) person(tb testing.TB, name string) pgtest.Actor {
 	return a
 }
 
+// Reader is a person holding the tenant's permissions in the legal entities
+// alone (none: no company).
+func (e Env) Reader(tb testing.TB, name string, legalEntities ...uuid.UUID) pgtest.Actor {
+	tb.Helper()
+	a := pgtest.Actor{ID: uuid.Must(uuid.NewV7()), Kind: "human"}
+	a.Subject = "human|" + a.ID.String()
+	pgtest.Exec(tb, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, status, created_by, updated_by)
+		VALUES ($1, $2, 'human', $3, $4, $5, 'active', $2, $2)`, e.Tenant.ID, a.ID, pgtest.Issuer(tb), a.Subject, name)
+	pgtest.Exec(tb, `INSERT INTO identity.principal_role (tenant_id, id, principal_id, role_id, valid_from, created_by)
+		SELECT $1, gen_random_uuid(), $2, id, current_date - 1, $2 FROM identity.role WHERE tenant_id = $1 AND code = 'all'`, e.Tenant.ID, a.ID)
+	for _, le := range legalEntities {
+		pgtest.Exec(tb, `INSERT INTO identity.company_access (tenant_id, id, principal_id, legal_entity_id, valid_from, created_by)
+			VALUES ($1, gen_random_uuid(), $2, $3, current_date - 1, $2)`, e.Tenant.ID, a.ID, le)
+	}
+	return a
+}
+
 // As is a client acting as another principal of the tenant.
 func (e Env) As(a pgtest.Actor) apitest.Client {
 	c := e.Client

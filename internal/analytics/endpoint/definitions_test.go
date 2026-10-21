@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/analytics/wire"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -207,7 +208,11 @@ func TestDisclosure(t *testing.T) {
 		Summary: "3 invoices replayed. " + recorded([]string{"revenue"}, 2025)}
 	d := Disclosure{Endpoints: &Endpoints{Companies: codes{}}}
 	inRequest(t, 0, func(ctx context.Context) {
-		got, err := d.Disclose(ctx, evidence)
+		access, err := authz.Companies(ctx) // as configuration reads it, once per request
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := d.Disclose(ctx, evidence, access)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -221,20 +226,20 @@ func TestDisclosure(t *testing.T) {
 		}
 		other := evidence
 		other.Summary = "Recorded otherwise."
-		if got, err := d.Disclose(ctx, other); err != nil || got.Summary != other.Summary {
+		if got, err := d.Disclose(ctx, other, access); err != nil || got.Summary != other.Summary {
 			t.Errorf("a summary recorded otherwise: got %q, %v; want it as it is", got.Summary, err)
 		}
 		for kind, whole := range map[string]string{"regression": `[1]`, "simulation": `{"metrics_not_computed": ["revenue"]}`} {
 			e := configuration.Evidence{Kind: kind, Summary: "s", Detail: json.RawMessage(whole)}
-			if got, err := d.Disclose(ctx, e); err != nil || string(got.Detail) != whole || got.Summary != "s" {
+			if got, err := d.Disclose(ctx, e, access); err != nil || string(got.Detail) != whole || got.Summary != "s" {
 				t.Errorf("%s %s: got %+v, %v; want it whole", kind, whole, got, err)
 			}
 		}
 		for _, bad := range []string{`[1]`, `{"metrics": ["revenue"]}`} {
-			pgtest.CheckErr(t, errOf(d.Disclose(ctx, configuration.Evidence{Kind: "simulation", Detail: json.RawMessage(bad)})), "simulated values")
+			pgtest.CheckErr(t, errOf(d.Disclose(ctx, configuration.Evidence{Kind: "simulation", Detail: json.RawMessage(bad)}, access)), "simulated values")
 		}
 		failing := Disclosure{Endpoints: &Endpoints{Companies: codes{errors.New("directory down")}}}
-		pgtest.CheckErr(t, errOf(failing.Disclose(ctx, evidence)), "directory down")
+		pgtest.CheckErr(t, errOf(failing.Disclose(ctx, evidence, access)), "directory down")
 	})
 	var sim simulated
 	if err := json.Unmarshal([]byte(detail), &sim); err != nil {

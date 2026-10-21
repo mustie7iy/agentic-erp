@@ -448,8 +448,9 @@ func (UnimplementedHandler) CreateRecommendation(ctx context.Context, req *Recom
 // the active configuration version: a stratified sample (every decision, every match issue kind,
 // invoices near the auto-post limit, then more) with the decision each case got. The simulation of a
 // change request then replays the latest suite of its base version and records `regression` evidence:
-// a case outside the companies the change touches that is decided differently fails it. 422
-// `config.no_cases` when the window has no invoices to capture.
+// a case outside the companies the change touches that is decided differently fails it. The capture
+// samples the invoices of every company; the suite returned shows the cases of the companies the
+// caller may access alone. 422 `config.no_cases` when the window has no invoices to capture.
 //
 // POST /v1/regression-suites
 func (UnimplementedHandler) CreateRegressionSuite(ctx context.Context, req *RegressionSuiteCreate, params CreateRegressionSuiteParams) (r CreateRegressionSuiteRes, _ error) {
@@ -974,7 +975,8 @@ func (UnimplementedHandler) GetRecommendation(ctx context.Context, params GetRec
 
 // GetRegressionSuite implements getRegressionSuite operation.
 //
-// Returns one regression suite with its cases.
+// Returns one regression suite with the cases of the companies the reader may access alone
+// (`RegressionSuite`).
 //
 // GET /v1/regression-suites/{id}
 func (UnimplementedHandler) GetRegressionSuite(ctx context.Context, params GetRegressionSuiteParams) (r GetRegressionSuiteRes, _ error) {
@@ -1515,7 +1517,8 @@ func (UnimplementedHandler) ListRecommendations(ctx context.Context, params List
 
 // ListRegressionSuites implements listRegressionSuites operation.
 //
-// Regression suites captured for this tenant, newest first. Sortable by: `captured_at`.
+// Regression suites captured for this tenant, newest first, each with the cases of the companies the
+// reader may access alone (`RegressionSuite`). Sortable by: `captured_at`.
 //
 // GET /v1/regression-suites
 func (UnimplementedHandler) ListRegressionSuites(ctx context.Context, params ListRegressionSuitesParams) (r ListRegressionSuitesRes, _ error) {

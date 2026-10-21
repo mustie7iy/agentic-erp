@@ -159,6 +159,11 @@ func (e *Endpoints) principal(ctx context.Context, asked []string) (analytics.Pr
 	if err != nil {
 		return analytics.Principal{}, err
 	}
+	return e.principalOf(ctx, access, asked)
+}
+
+// principalOf is principal for company access already read.
+func (e *Endpoints) principalOf(ctx context.Context, access authz.Access, asked []string) (analytics.Principal, error) {
 	p := analytics.Principal{ID: "request"}
 	if !access.All {
 		p.Companies = []string{}

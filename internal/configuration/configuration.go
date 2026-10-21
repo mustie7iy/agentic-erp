@@ -10,6 +10,11 @@
 // changes open approval requests in the workflow context; tier 3-4 changes
 // first wait for simulation evidence, which the SimulationWorker records
 // by replaying recent transactions under the proposal (:simulate).
+//
+// Simulations and regression suites replay every company's invoices, so
+// that a verdict covers the whole change; each reader of the evidence and
+// of the suites is shown the companies they may access alone (Disclosure,
+// regressionShown, suiteShown; ADR-0010).
 package configuration
 
 import (
