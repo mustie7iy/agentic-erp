@@ -88,30 +88,6 @@ func mapleSetup(t *testing.T) mapleScenario {
 	return sc
 }
 
-// lc is what a journal entry booked in local currency, by account number.
-func lc(t *testing.T, entry string) map[string]money.Minor {
-	t.Helper()
-	rows, err := pgtest.Admin(t).Query(context.Background(), `SELECT a.number, l.amount_lc FROM ledger.journal_line l
-		JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id WHERE l.journal_entry_id = $1`, entry)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	out := map[string]money.Minor{}
-	for rows.Next() {
-		var number string
-		var amount money.Minor
-		if err := rows.Scan(&number, &amount); err != nil {
-			t.Fatal(err)
-		}
-		out[number] += amount
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
-	return out
-}
-
 // TestForeignCurrencyHouseBankEndToEnd: a Canadian company's USD account is
 // a house bank (ADR-0051 §3, T53a). The configuration keeps its currency;
 // a run in USD pays from it, its file debits the USD account in USD, the
@@ -200,7 +176,7 @@ func (sc mapleScenario) paymentRun(t *testing.T) (run, payment map[string]any) {
 	e.release(t, run, "")
 	payment = e.payments(t, run)[0].(map[string]any)
 	want := map[string]money.Minor{"211000": 135000, "102000": -137000, "630000": 2000}
-	if got := lc(t, payment["journal_entry_id"].(string)); !maps.Equal(got, want) {
+	if got := booked(t, payment["journal_entry_id"].(string), "amount_lc"); !maps.Equal(got, want) {
 		t.Errorf("payment entry in CAD: got %v, want %v", got, want)
 	}
 	return run, payment
@@ -266,7 +242,7 @@ func (sc mapleScenario) statement(t *testing.T, payment map[string]any) string {
 	ms := e.matchesOf(t, id(s), 1)
 	entry := ms[len(ms)-1].(map[string]any)["journal_entry_id"].(string)
 	want := map[string]money.Minor{"102000": 137000, "103000": -138000, "630000": 1000}
-	if got := lc(t, entry); !maps.Equal(got, want) {
+	if got := booked(t, entry, "amount_lc"); !maps.Equal(got, want) {
 		t.Errorf("statement posting in CAD: got %v, want %v", got, want)
 	}
 	var open int

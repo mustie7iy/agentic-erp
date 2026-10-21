@@ -302,6 +302,19 @@ decided (ADR-0051, P2) that a house bank may hold another currency.
 - **Canadian accounts** (T45d) work alike in any currency: a Canadian
   company's USD account is written in `Othr` with the bank's `CACPA`
   member id.
+- **Known limits** (review 2026-10-21, for the product owner): the
+  valuation of a flagged clearing account posts on the account itself,
+  so at a month end with payments in transit its valuation and reset
+  lines stay open items there beside the payments' lines; the statement
+  posting clears only the payments' lines, and readers of in-transit
+  payments (T53c) take payment lines only. An entry in another currency
+  posted by hand to a foreign-currency bank's main account (a CAD fee on
+  the USD account) is not in the bank's USD balance, so the
+  reconciliation report does not show it as unexplained; refusing such
+  postings would be a database rule of its own, not built. The SAP load
+  (T012K) carries no currency, so an SAP foreign-currency house bank is
+  loaded in its company's currency until the extract maps it (tracked);
+  since a currency never changes under a code, check it before go-live.
 - Tested end to end on a CAD company with a USD bank: configuration, a
   USD run, its file, the USD statement imported, matched, posted with the
   realised loss, reconciled, and the bank account revalued at the month's

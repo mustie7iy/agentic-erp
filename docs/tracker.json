@@ -986,7 +986,7 @@
        },
        {
         "s": "T",
-        "t": "Cash position: ports from payments (statement balances, in-transit payments, runs) and ledger (book balances, rates); GET /v1/cash-position per bank, currency and day with opening, flows by source and certainty, closing, staleness and gap flags, book balance check, credit lines; converted totals with incomplete currencies; one-snapshot read; FailingTx on every path",
+        "t": "Cash position: ports from payments (statement balances, in-transit payments, runs) and ledger (book balances, rates); GET /v1/cash-position per bank, currency and day with opening, flows by source and certainty, closing, staleness and gap flags, book balance check, credit lines; converted totals with incomplete currencies; one-snapshot read; FailingTx on every path; in-transit payments are the payments' open lines on the clearing account, never a revaluation's valuation or reset lines there (T53a review)",
         "r": "T53c",
         "c": []
        },
@@ -1036,6 +1036,12 @@
         "s": "T",
         "t": "SAP migration (if the pilot uses SAP Cash Management): liquidity items, planning groups, supplier planning groups, open memo records extracted and loaded through the services; quality-gate issues for items with no mapping",
         "r": "T53k",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "SAP load of house banks (T012K) with their account currency, so an SAP foreign-currency house bank is not loaded in its company's currency (a currency never changes under a code); and, if the product owner asks, refuse or report entries in another currency on a foreign-currency bank's accounts (T53a review)",
+        "r": "internal/sap · internal/delivery/sapconfig · ADR-0038 (T53a amendment) · T53",
         "c": []
        },
        {
