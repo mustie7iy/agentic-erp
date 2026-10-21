@@ -457,6 +457,7 @@ func TestPostingDatabaseFailures(t *testing.T) {
 			_, err := ledger.Postings{}.PostBank(context.Background(), ledger.BankPosting{})
 			return err
 		}(),
+		"postable": ledger.Postings{}.Postable(context.Background(), e.DE, date("2026-04-17")),
 	} {
 		t.Run(name, func(t *testing.T) { pgtest.WantErr(t, err, "") })
 	}
@@ -475,6 +476,11 @@ func TestAutomaticPostingRefusedRollsBack(t *testing.T) {
 		pgtest.Exec(t, `UPDATE ledger.period_status SET status = $3, version = version + 1 WHERE tenant_id = $1 AND legal_entity_id = $2
 			AND fiscal_year = 2026 AND period = 4`, e.Tenant.ID, e.DE, status)
 	}
+	h := endpoints(nil)
+	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "a refused automatic posting", func(ctx context.Context) error {
+		_, err := h.MatchStatement(ctx, uuidOf(sc.statement), anyVersion)
+		return err
+	})
 	e.Must(200, "POST", "/v1/bank-statements/"+sc.statement+":match", "", sc.tag(t))
 	if got := e.lineStatuses(t, sc.statement)[:3]; strings.Join(got, ",") != "matched,matched,matched" {
 		t.Errorf("lines 1-3 in a locked April: got %v, want matched", got)
