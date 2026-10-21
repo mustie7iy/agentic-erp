@@ -1,6 +1,7 @@
 // Package redact replaces, in text bound for a model, what must not leave
 // the cell (ADR-0036): IBANs (ISO 13616 mod 97), payment card numbers
-// (Luhn) and the tax identifiers of the tenant's countries, each with a
+// (Luhn), the tax identifiers of the tenant's countries and the domestic
+// bank accounts of those that have no IBAN (Canada, T45d), each with a
 // placeholder, and counts the replacements. It is deterministic: the same
 // text and countries always give the same result. Names and e-mail
 // addresses pass; the work needs them.
@@ -19,6 +20,8 @@ const (
 	IBAN  = "[IBAN]"
 	Card  = "[CARD]"
 	TaxID = "[TAX_ID]"
+	// BankAccount replaces a domestic account of a country without IBANs.
+	BankAccount = "[BANK_ACCOUNT]"
 )
 
 var (
@@ -36,15 +39,27 @@ var (
 	digitRun = regexp.MustCompile(`\b[0-9]+(?:[ -][0-9]+)*\b`)
 )
 
-// compiled are the tax-identifier patterns, compiled once.
-var compiled = map[string][]*regexp.Regexp{}
+// compiled and compiledAccounts are the tax-identifier and bank-account
+// patterns, compiled once.
+var compiled, compiledAccounts = compile(taxIDs), compile(bankAccounts)
 
-func init() {
-	for c, ps := range taxIDs {
+func compile(patterns map[string][]string) map[string][]*regexp.Regexp {
+	out := map[string][]*regexp.Regexp{}
+	for c, ps := range patterns {
 		for _, p := range ps {
-			compiled[c] = append(compiled[c], regexp.MustCompile(p))
+			out[c] = append(out[c], regexp.MustCompile(p))
 		}
 	}
+	return out
+}
+
+// bankAccounts are the domestic bank account patterns of countries without
+// IBANs. They are conservative: only the dashed forms a document or a
+// cheque shows, institution-transit-account (with the electronic form's
+// leading 0) and transit-institution-account, since bare runs of digits
+// are invoice and order numbers far more often than accounts.
+var bankAccounts = map[string][]string{
+	"CA": {`\b0?[0-9]{3}-[0-9]{5}-[0-9]{7,12}\b`, `\b[0-9]{5}-[0-9]{3}-[0-9]{7,12}\b`},
 }
 
 // taxIDs are the tax-identifier patterns per country: the VAT number with
@@ -78,7 +93,7 @@ var taxIDs = map[string][]string{
 
 // Redactor redacts for one tenant's countries.
 type Redactor struct {
-	taxIDs []*regexp.Regexp
+	taxIDs, accounts []*regexp.Regexp
 }
 
 // For is the redactor of the given countries (ISO 3166 alpha-2); a country
@@ -89,14 +104,20 @@ func For(countries []string) *Redactor {
 	slices.Sort(sorted)
 	for _, c := range slices.Compact(sorted) {
 		r.taxIDs = append(r.taxIDs, compiled[c]...)
+		r.accounts = append(r.accounts, compiledAccounts[c]...)
 	}
 	return r
 }
 
-// Text is s with its IBANs, card numbers and tax identifiers replaced,
-// and how many were.
+// Text is s with its IBANs, bank accounts, card numbers and tax
+// identifiers replaced, and how many were. Bank accounts go before card
+// numbers: a dashed Canadian account of 15 to 19 digits would otherwise
+// pass Luhn one time in ten and be counted a card.
 func (r *Redactor) Text(s string) (string, int) {
 	s, n := ibans(s)
+	for _, re := range r.accounts {
+		s = replace(s, re, &n, func(string) (string, int) { return BankAccount, 1 })
+	}
 	s = replace(s, digitRun, &n, cardsIn)
 	for _, re := range r.taxIDs {
 		s = replace(s, re, &n, func(string) (string, int) { return TaxID, 1 })

@@ -77,8 +77,11 @@ func (Payees) Payees(ctx context.Context, legalEntity uuid.UUID, partners []uuid
 // BankDetail is a bank account opened for a payment instruction.
 type BankDetail struct {
 	Holder  string
-	Account string // IBAN, or the domestic account number
+	Account string // IBAN, or the domestic or Canadian account number
 	BIC     string
+	// Institution and Transit are a Canadian account's bank (scheme ca,
+	// T45d); empty for the other schemes.
+	Institution, Transit string
 }
 
 // BankDetails opens the bank accounts, keyed by id.
@@ -87,12 +90,13 @@ func (y Payees) BankDetails(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT id, holder_name, account_cipher, coalesce(bic, '') FROM partner.bank_account WHERE id = ANY($1)`, ids)
+	rows, _ := tx.Query(ctx, `SELECT id, holder_name, account_cipher, coalesce(bic, ''), coalesce(institution_number, ''), coalesce(transit_number, '')
+		FROM partner.bank_account WHERE id = ANY($1)`, ids)
 	out := map[uuid.UUID]BankDetail{}
 	var id uuid.UUID
 	var d BankDetail
 	var sealed []byte
-	_, err = pgx.ForEachRow(rows, []any{&id, &d.Holder, &sealed, &d.BIC}, func() error {
+	_, err = pgx.ForEachRow(rows, []any{&id, &d.Holder, &sealed, &d.BIC, &d.Institution, &d.Transit}, func() error {
 		var err error
 		if d.Account, err = y.Keys.Open(ctx, p.TenantID, sealed); err != nil {
 			return err

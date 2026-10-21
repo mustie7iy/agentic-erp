@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/bankfile"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/cabank"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 )
 
@@ -249,9 +251,7 @@ func (v *validator) houseBanks(p string, co *Company) {
 			v.err(hp+".name", "duplicate house bank")
 		}
 		codes[hb.Name] = true
-		if !ValidIBAN(hb.IBAN) {
-			v.err(hp+".iban", "IBAN %q fails the ISO 13616 check", hb.IBAN)
-		}
+		v.houseBankAccount(hp, hb)
 		if !bicRe.MatchString(hb.BIC) {
 			v.err(hp+".bic", "BIC %q is not a valid SWIFT code", hb.BIC)
 		}
@@ -270,6 +270,29 @@ func (v *validator) houseBanks(p string, co *Company) {
 			v.err(hp+".gl_account", "account %s is already the ledger account of house bank %s", number, other)
 		}
 		accounts[number] = hb.Name
+	}
+}
+
+// houseBankAccount checks the house bank's IBAN, or its Canadian account
+// by the digits and lengths of its numbers (T45d).
+func (v *validator) houseBankAccount(hp string, hb HouseBank) {
+	if !hb.Canadian() {
+		if !ValidIBAN(hb.IBAN) {
+			v.err(hp+".iban", "IBAN %q fails the ISO 13616 check", hb.IBAN)
+		}
+		return
+	}
+	if hb.IBAN != "" {
+		v.err(hp+".iban", "a Canadian house bank has no IBAN; give either the IBAN or the institution, transit and account numbers")
+	}
+	_, err := cabank.Parse(hb.InstitutionNumber, hb.TransitNumber, hb.AccountNumber)
+	switch {
+	case errors.Is(err, cabank.ErrInstitution):
+		v.err(hp+".institution_number", "institution number %q is not 3 digits", hb.InstitutionNumber)
+	case errors.Is(err, cabank.ErrTransit):
+		v.err(hp+".transit_number", "transit number %q is not 5 digits", hb.TransitNumber)
+	case err != nil:
+		v.err(hp+".account_number", "a Canadian account number is 7-12 digits")
 	}
 }
 

@@ -370,17 +370,21 @@ type houseBank struct {
 	ID            uuid.UUID
 	LegalEntityID uuid.UUID
 	Code          string
-	IBANCipher    []byte
+	IBANCipher    []byte // the IBAN, or a Canadian bank's account number
 	BIC           string
 	Currency      string
 	GLAccountID   uuid.UUID
 	Status        string
+	// Institution and Transit are a Canadian house bank's routing (T45d),
+	// empty for an IBAN.
+	Institution, Transit string
 }
 
 func loadHouseBank(ctx context.Context, tx pgx.Tx, id uuid.UUID) (houseBank, bool, error) {
 	var h houseBank
-	err := tx.QueryRow(ctx, `SELECT id, legal_entity_id, code, iban_cipher, bic, currency, gl_account_id, status FROM payments.house_bank WHERE id = $1`, id).
-		Scan(&h.ID, &h.LegalEntityID, &h.Code, &h.IBANCipher, &h.BIC, &h.Currency, &h.GLAccountID, &h.Status)
+	err := tx.QueryRow(ctx, `SELECT id, legal_entity_id, code, iban_cipher, bic, currency, gl_account_id, status,
+		coalesce(institution_number, ''), coalesce(transit_number, '') FROM payments.house_bank WHERE id = $1`, id).
+		Scan(&h.ID, &h.LegalEntityID, &h.Code, &h.IBANCipher, &h.BIC, &h.Currency, &h.GLAccountID, &h.Status, &h.Institution, &h.Transit)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return h, false, nil
 	}

@@ -33271,8 +33271,9 @@ func (s *Server) handleReconcileMigrationRunRequest(args [1]string, argsEscaped 
 //
 // Records one tool call of a running session, numbered in order. Insert-only. Only the session's agent
 // records its calls. The input's strings and the result summary are recorded minimized, as the model
-// gateway redacts what leaves the cell (ADR-0036): IBANs, card numbers and the tax identifiers of the
-// tenant's countries become `[IBAN]`, `[CARD]` and `[TAX_ID]`.
+// gateway redacts what leaves the cell (ADR-0036): IBANs, card numbers, the tax identifiers of the
+// tenant's countries and, for a tenant in Canada, Canadian bank accounts written
+// institution-transit-account become `[IBAN]`, `[CARD]`, `[TAX_ID]` and `[BANK_ACCOUNT]`.
 //
 // POST /v1/agent-sessions/{id}/tool-calls
 func (s *Server) handleRecordAgentToolCallRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

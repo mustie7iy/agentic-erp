@@ -3793,9 +3793,14 @@ type BankAccount struct {
 	Purpose string `json:"purpose"`
 	// Last up to four characters of the account number.
 	AccountLast4 string `json:"account_last4"`
-	// Account number scheme. Open enumeration: clients must accept and preserve values not listed here;
-	// values may be added within /v1.
+	// Account number scheme: `iban`, `domestic`, or `ca` for a Canadian account. Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
 	AccountScheme string `json:"account_scheme"`
+	// Canadian institution number of a scheme `ca` account; absent for the others. It names the bank, as a
+	// BIC does, and is not masked.
+	InstitutionNumber OptString `json:"institution_number"`
+	// Canadian transit (branch) number of a scheme `ca` account; absent for the others.
+	TransitNumber OptString `json:"transit_number"`
 	// BIC.
 	Bic OptString `json:"bic"`
 	// Country of the bank.
@@ -3859,6 +3864,16 @@ func (s *BankAccount) GetAccountLast4() string {
 // GetAccountScheme returns the value of AccountScheme.
 func (s *BankAccount) GetAccountScheme() string {
 	return s.AccountScheme
+}
+
+// GetInstitutionNumber returns the value of InstitutionNumber.
+func (s *BankAccount) GetInstitutionNumber() OptString {
+	return s.InstitutionNumber
+}
+
+// GetTransitNumber returns the value of TransitNumber.
+func (s *BankAccount) GetTransitNumber() OptString {
+	return s.TransitNumber
 }
 
 // GetBic returns the value of Bic.
@@ -3934,6 +3949,16 @@ func (s *BankAccount) SetAccountLast4(val string) {
 // SetAccountScheme sets the value of AccountScheme.
 func (s *BankAccount) SetAccountScheme(val string) {
 	s.AccountScheme = val
+}
+
+// SetInstitutionNumber sets the value of InstitutionNumber.
+func (s *BankAccount) SetInstitutionNumber(val OptString) {
+	s.InstitutionNumber = val
+}
+
+// SetTransitNumber sets the value of TransitNumber.
+func (s *BankAccount) SetTransitNumber(val OptString) {
+	s.TransitNumber = val
 }
 
 // SetBic sets the value of Bic.
@@ -4052,11 +4077,17 @@ type BankAccountInput struct {
 	// Use of the account. Open enumeration: clients must accept and preserve values not listed here;
 	// values may be added within /v1.
 	Purpose OptString `json:"purpose"`
-	// Full IBAN or domestic account number. Write-only; stored encrypted and never returned.
+	// Full IBAN, domestic account number, or for scheme `ca` the Canadian account number (7-12 digits).
+	// Write-only; stored encrypted and never returned.
 	AccountNumber string `json:"account_number"`
-	// Account number scheme. Open enumeration: clients must accept and preserve values not listed here;
+	// Account number scheme: `iban`, `domestic`, or `ca` for a Canadian account (institution, transit and
+	// account number; no IBAN). Open enumeration: clients must accept and preserve values not listed here;
 	// values may be added within /v1.
 	AccountScheme string `json:"account_scheme"`
+	// Canadian institution number (3 digits). Required for scheme `ca`, refused for the others.
+	InstitutionNumber OptString `json:"institution_number"`
+	// Canadian transit (branch) number (5 digits). Required for scheme `ca`, refused for the others.
+	TransitNumber OptString `json:"transit_number"`
 	// BIC.
 	Bic OptString `json:"bic"`
 	// Country of the bank.
@@ -4080,6 +4111,16 @@ func (s *BankAccountInput) GetAccountNumber() string {
 // GetAccountScheme returns the value of AccountScheme.
 func (s *BankAccountInput) GetAccountScheme() string {
 	return s.AccountScheme
+}
+
+// GetInstitutionNumber returns the value of InstitutionNumber.
+func (s *BankAccountInput) GetInstitutionNumber() OptString {
+	return s.InstitutionNumber
+}
+
+// GetTransitNumber returns the value of TransitNumber.
+func (s *BankAccountInput) GetTransitNumber() OptString {
+	return s.TransitNumber
 }
 
 // GetBic returns the value of Bic.
@@ -4115,6 +4156,16 @@ func (s *BankAccountInput) SetAccountNumber(val string) {
 // SetAccountScheme sets the value of AccountScheme.
 func (s *BankAccountInput) SetAccountScheme(val string) {
 	s.AccountScheme = val
+}
+
+// SetInstitutionNumber sets the value of InstitutionNumber.
+func (s *BankAccountInput) SetInstitutionNumber(val OptString) {
+	s.InstitutionNumber = val
+}
+
+// SetTransitNumber sets the value of TransitNumber.
+func (s *BankAccountInput) SetTransitNumber(val OptString) {
+	s.TransitNumber = val
 }
 
 // SetBic sets the value of Bic.
@@ -4235,11 +4286,17 @@ type BankChangeCreate struct {
 	// Use of the account. Open enumeration: clients must accept and preserve values not listed here;
 	// values may be added within /v1.
 	Purpose OptString `json:"purpose"`
-	// Full IBAN or domestic account number. Write-only; stored encrypted and never returned.
+	// Full IBAN, domestic account number, or for scheme `ca` the Canadian account number (7-12 digits).
+	// Write-only; stored encrypted and never returned.
 	AccountNumber string `json:"account_number"`
-	// Account number scheme. Open enumeration: clients must accept and preserve values not listed here;
+	// Account number scheme: `iban`, `domestic`, or `ca` for a Canadian account (institution, transit and
+	// account number; no IBAN). Open enumeration: clients must accept and preserve values not listed here;
 	// values may be added within /v1.
 	AccountScheme string `json:"account_scheme"`
+	// Canadian institution number (3 digits). Required for scheme `ca`, refused for the others.
+	InstitutionNumber OptString `json:"institution_number"`
+	// Canadian transit (branch) number (5 digits). Required for scheme `ca`, refused for the others.
+	TransitNumber OptString `json:"transit_number"`
 	// BIC.
 	Bic OptString `json:"bic"`
 	// Country of the bank.
@@ -4265,6 +4322,16 @@ func (s *BankChangeCreate) GetAccountNumber() string {
 // GetAccountScheme returns the value of AccountScheme.
 func (s *BankChangeCreate) GetAccountScheme() string {
 	return s.AccountScheme
+}
+
+// GetInstitutionNumber returns the value of InstitutionNumber.
+func (s *BankChangeCreate) GetInstitutionNumber() OptString {
+	return s.InstitutionNumber
+}
+
+// GetTransitNumber returns the value of TransitNumber.
+func (s *BankChangeCreate) GetTransitNumber() OptString {
+	return s.TransitNumber
 }
 
 // GetBic returns the value of Bic.
@@ -4305,6 +4372,16 @@ func (s *BankChangeCreate) SetAccountNumber(val string) {
 // SetAccountScheme sets the value of AccountScheme.
 func (s *BankChangeCreate) SetAccountScheme(val string) {
 	s.AccountScheme = val
+}
+
+// SetInstitutionNumber sets the value of InstitutionNumber.
+func (s *BankChangeCreate) SetInstitutionNumber(val OptString) {
+	s.InstitutionNumber = val
+}
+
+// SetTransitNumber sets the value of TransitNumber.
+func (s *BankChangeCreate) SetTransitNumber(val OptString) {
+	s.TransitNumber = val
 }
 
 // SetBic sets the value of Bic.

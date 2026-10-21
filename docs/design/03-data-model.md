@@ -429,7 +429,10 @@ erDiagram
     bytea account_cipher
     text account_fingerprint
     text account_last4
+    text account_scheme "iban | domestic | ca"
     text bic
+    text institution_number "scheme ca only: 3 digits"
+    text transit_number "scheme ca only: 5 digits"
     date valid_from
     date valid_to }
   tax_identifier { uuid partner_id PK
@@ -1326,8 +1329,10 @@ erDiagram
     text reason_code }
   house_bank { uuid id PK
     uuid legal_entity_id
-    bytea iban_cipher
+    bytea iban_cipher "the IBAN, or a Canadian bank's account number (T45d)"
     text bic
+    text institution_number "Canadian bank: 3 digits; null for an IBAN"
+    text transit_number "Canadian bank: 5 digits; null for an IBAN"
     uuid gl_account_id
     uuid active_gl_account_id "gl_account_id while active; unique per legal entity"
     uuid connector_id "its channel, an integration connector; null: the server's directory (T44b)" }
