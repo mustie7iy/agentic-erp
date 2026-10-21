@@ -303,7 +303,9 @@ Canadian bank may only offer BAI2.
   again, on another date, or matches it again. The lines the rules match
   are posted the same way when the rules run, on import and on
   `:match`, as whoever ran them, unless an agent ran them (agents never
-  post; the next person's or integration's run does) or the bank has a
+  post; the next person's or integration's run does), a person or
+  integration without `payments.statement.post` ran them (the statement
+  fetcher, a system principal, posts what it imports), or the bank has a
   statement in `gap`; each line posts under a savepoint, so a refusal (a
   locked period, a missing rate) is rolled back with what it recorded,
   audited as refused, and leaves the line `matched` for a person (T49f's

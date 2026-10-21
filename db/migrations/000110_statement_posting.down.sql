@@ -1,5 +1,3 @@
-DELETE FROM identity.sod_rule WHERE permission_a IN ('payments.statement.post', 'payments.statement.clearing.approve')
-  OR permission_b IN ('payments.statement.post', 'payments.statement.clearing.approve');
 DELETE FROM identity.role_permission WHERE permission_code IN ('payments.statement.post', 'payments.statement.clearing.approve');
 DELETE FROM ref.permission WHERE code IN ('payments.statement.post', 'payments.statement.clearing.approve');
 DROP INDEX payments.statement_match_journal_entry;

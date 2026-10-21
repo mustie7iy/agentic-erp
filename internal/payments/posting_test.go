@@ -16,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
+	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -85,6 +86,17 @@ func posting(t *testing.T, entry string) map[string]money.Minor {
 	return out
 }
 
+// wantPosting checks what the entry booked on each account.
+func wantPosting(t *testing.T, what, entry string, want map[string]money.Minor) {
+	t.Helper()
+	got := posting(t, entry)
+	for account, amount := range want {
+		if got[account] != amount {
+			t.Errorf("%s posting on %s: got %d, want %d", what, account, got[account], amount)
+		}
+	}
+}
+
 // clearingBalance is what the payment's entry and the line's posting
 // leave on the house bank's clearing account, and how many of their lines
 // on it are cleared.
@@ -121,20 +133,20 @@ func TestPostStatementLines(t *testing.T) {
 		t.Fatalf("line statuses after import: got %v, want %v", got, want)
 	}
 	charges := sc.live(t, 3)
-	if got := posting(t, charges["journal_entry_id"].(string)); got["101000"] != -1050 || got["520000"] != 1050 {
-		t.Errorf("charges posting: got %v, want 101000 credited and 520000 debited 10.50", got)
-	}
+	wantPosting(t, "charges", charges["journal_entry_id"].(string), map[string]money.Minor{"101000": -1050, "520000": 1050})
 	if charges["posting_date"] != "2026-04-17" {
 		t.Errorf("charges posting date: got %v, want the booking date", charges["posting_date"])
 	}
 	first := sc.live(t, 1)
 	e.approve(t, e.Approver, id(first))
 	first = sc.live(t, 1)
-	if got := posting(t, first["journal_entry_id"].(string)); got["100000"] != 10000 || got["101000"] != -10000 {
-		t.Errorf("payment posting: got %v, want 100000 debited and 101000 credited 100.00", got)
+	wantPosting(t, "payment", first["journal_entry_id"].(string), map[string]money.Minor{"100000": 10000, "101000": -10000})
+	balance, cleared := e.clearingBalance(t, pays[0].payment, first["journal_entry_id"].(string))
+	if balance != 0 {
+		t.Errorf("clearing account balance of the payment and its posting: got %d, want 0", balance)
 	}
-	if balance, cleared := e.clearingBalance(t, pays[0].payment, first["journal_entry_id"].(string)); balance != 0 || cleared != 2 {
-		t.Errorf("clearing account: got %d left and %d lines cleared, want 0 and both", balance, cleared)
+	if cleared != 2 {
+		t.Errorf("cleared lines on the clearing account: got %d, want 2", cleared)
 	}
 	batch := sc.live(t, 2)
 	r := e.Pending(t, id(batch))
@@ -147,8 +159,17 @@ func TestPostStatementLines(t *testing.T) {
 		t.Errorf("line 2 after a run of the rules: got %s, want matched, not submitted again", got)
 	}
 	m, next := e.Must(200, "POST", sc.line(2, "post"), `{"posting_date": "2026-04-30", "reason": "Booked on the month's last day."}`, tag)
-	if m["posting_date"] != "2026-04-30" || m["posting_reason"] != "Booked on the month's last day." || m["approval_request_id"] == r["id"] || next == tag {
-		t.Errorf("posting again: got %v and ETag %s, want a new request on the date given and a new ETag", m, next)
+	if m["posting_date"] != "2026-04-30" {
+		t.Errorf("posting date: got %v, want 2026-04-30", m["posting_date"])
+	}
+	if m["posting_reason"] != "Booked on the month's last day." {
+		t.Errorf("posting reason: got %v, want the person's", m["posting_reason"])
+	}
+	if m["approval_request_id"] == r["id"] {
+		t.Errorf("approval request: got the rejected %v, want a new one", m["approval_request_id"])
+	}
+	if next == tag {
+		t.Errorf("ETag after posting: got %s, want a new one", next)
 	}
 	e.approve(t, e.Approver2, id(batch))
 	if got := e.lineStatuses(t, sc.statement)[:3]; strings.Join(got, ",") != "posted,posted,posted" {
@@ -174,8 +195,11 @@ func TestPostStatementLineByHand(t *testing.T) {
 	e, pays := sc.e, sc.pays
 	_, tag := e.As(e.Approver).Must(201, "POST", sc.line(4, "match"), `{"payment_ids": ["`+pays[2].payment+`"], "reason": "Remittance names INV-3."}`, sc.tag(t))
 	m, _ := e.Must(200, "POST", sc.line(4, "post"), "", tag)
-	if m["approval_request_id"] == nil || m["journal_entry_id"] != nil {
-		t.Fatalf("posting above the first tier: got %v, want it waiting for approval", m)
+	if m["approval_request_id"] == nil {
+		t.Fatalf("approval request of a posting above the first tier: got none, want one (%v)", m)
+	}
+	if m["journal_entry_id"] != nil {
+		t.Errorf("journal entry of a posting waiting for approval: got %v, want none", m["journal_entry_id"])
 	}
 	r := e.Pending(t, id(m))
 	e.As(e.Approver).Problem(403, "workflow.segregation_of_duties", "POST", "/v1/approval-requests/"+r["id"].(string)+":approve", `{"comment": "ok"}`,
@@ -215,9 +239,7 @@ func TestPostStatementLineByHand(t *testing.T) {
 		})
 	}
 	m, _ = e.Must(200, "POST", sc.line(7, "post"), "", tag)
-	if got := posting(t, m["journal_entry_id"].(string)); got["101000"] != -1050 || got["520000"] != 1050 {
-		t.Errorf("a reversed credit to charges: got %v, want 101000 credited and 520000 debited 10.50", got)
-	}
+	wantPosting(t, "a reversed credit to charges", m["journal_entry_id"].(string), map[string]money.Minor{"101000": -1050, "520000": 1050})
 }
 
 // TestPostStatementLineRefused: a locked period refuses a posting (another
@@ -437,5 +459,58 @@ func TestPostingDatabaseFailures(t *testing.T) {
 		}(),
 	} {
 		t.Run(name, func(t *testing.T) { pgtest.WantErr(t, err, "") })
+	}
+}
+
+// TestAutomaticPostingRefusedRollsBack: a run whose postings the ledger
+// refuses (April locked) leaves the lines matched, keeps nothing of the
+// approval request it opened for one (no request, no event, no audit
+// entry) and audits each refusal.
+func TestAutomaticPostingRefusedRollsBack(t *testing.T) {
+	e := matchSetupWith(t, "payments.statement.post")
+	e.statementRules(t, postRules)
+	sc := matchStatementOf(t, e)
+	e.bankPosts(t)
+	for _, status := range []string{"closed", "locked"} {
+		pgtest.Exec(t, `UPDATE ledger.period_status SET status = $3, version = version + 1 WHERE tenant_id = $1 AND legal_entity_id = $2
+			AND fiscal_year = 2026 AND period = 4`, e.Tenant.ID, e.DE, status)
+	}
+	e.Must(200, "POST", "/v1/bank-statements/"+sc.statement+":match", "", sc.tag(t))
+	if got := e.lineStatuses(t, sc.statement)[:3]; strings.Join(got, ",") != "matched,matched,matched" {
+		t.Errorf("lines 1-3 in a locked April: got %v, want matched", got)
+	}
+	count := func(q string, args ...any) int {
+		t.Helper()
+		var n int
+		if err := pgtest.Admin(t).QueryRow(context.Background(), q, append([]any{e.Tenant.ID}, args...)...).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	first := id(sc.live(t, 1))
+	if got := count(`SELECT count(*) FROM workflow.approval_request WHERE tenant_id = $1 AND object_id = $2`, first); got != 0 {
+		t.Errorf("approval requests of line 1: got %d, want none", got)
+	}
+	if got := len(apitest.Published(t, e.Tenant, outbox.Event{Context: "workflow", Name: "approval_requested"})); got != 0 {
+		t.Errorf("approval_requested events: got %d, want none", got)
+	}
+	if got := count(`SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'workflow.approval_request.open'`); got != 0 {
+		t.Errorf("audited request openings: got %d, want none", got)
+	}
+	if got := count(`SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'payments.statement_match.post' AND outcome = 'refused'
+		AND detail->>'code' = 'ledger.period_not_open'`); got != 3 {
+		t.Errorf("audited refusals in the locked period: got %d, want 3", got)
+	}
+}
+
+// TestAutomaticPostingNeedsThePermission: a person without
+// payments.statement.post imports and runs the rules, and nothing posts.
+func TestAutomaticPostingNeedsThePermission(t *testing.T) {
+	e := matchSetup(t)
+	e.statementRules(t, postRules)
+	e.bankPosts(t)
+	sc := matchStatementOf(t, e)
+	if got := e.lineStatuses(t, sc.statement)[:3]; strings.Join(got, ",") != "matched,matched,matched" {
+		t.Errorf("lines 1-3 imported by a person who may not post: got %v, want matched", got)
 	}
 }

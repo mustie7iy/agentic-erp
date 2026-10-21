@@ -1033,13 +1033,13 @@ type Handler interface {
 	// proposals, are never touched, so running it twice changes nothing the second time. Agents may call
 	// it: it only applies the rules, and what they cannot decide stays open for a person. The lines the
 	// rules matched are then posted as `POST .../lines/{line_no}:post` posts them, by the caller, unless
-	// the caller is an agent (agents never post) or the house bank has a statement in `gap`: each is
-	// posted (`posted`) or waits for the approval of its posting (`pending_approval`); one the ledger
-	// refuses (a locked period, no exchange rate) stays `matched` for a person, and the refusal is
-	// audited. A line whose posting was rejected or withdrawn is not submitted again by a run. If-Match is
-	// the statement's ETag; a run that matches, leaves open or posts a line, and a person's match,
-	// exclusion or posting, move it on. Returns the statement with its lines;
-	// `GET /v1/bank-statements/{id}/matches` has the matches.
+	// the caller is an agent (agents never post) or lacks `payments.statement.post`, or the house bank has
+	// a statement in `gap`: each is posted (`posted`) or waits for the approval of its posting
+	// (`pending_approval`); one the ledger refuses (a locked period, no exchange rate) stays `matched` for
+	// a person, and the refusal is audited. A line whose posting was rejected or withdrawn is not
+	// submitted again by a run. If-Match is the statement's ETag; a run that matches, leaves open or posts
+	// a line, and a person's match, exclusion or posting, move it on. Returns the statement with its
+	// lines; `GET /v1/bank-statements/{id}/matches` has the matches.
 	//
 	// POST /v1/bank-statements/{id}:match
 	MatchBankStatement(ctx context.Context, params MatchBankStatementParams) (MatchBankStatementRes, error)
