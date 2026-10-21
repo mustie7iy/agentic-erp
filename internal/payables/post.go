@@ -107,7 +107,15 @@ func (e *Endpoints) posting(ctx context.Context, tx pgx.Tx, v Invoice, sup partn
 	if err != nil {
 		return ledger.Posting{}, nil, err
 	}
-	lines, grir, err := e.invoiceLines(ctx, v, sup, grirOnly(order))
+	taxDate, err := taxDateOf(ctx, tx, v.TaxDate, v.InvoiceDate, v.ReferenceInvoiceID)
+	if err != nil {
+		return ledger.Posting{}, nil, err
+	}
+	t, err := e.calculateTax(ctx, v, taxDate)
+	if err != nil {
+		return ledger.Posting{}, nil, err
+	}
+	lines, grir, err := e.invoiceLines(ctx, v, sup, grirOnly(order), t)
 	if err != nil {
 		return ledger.Posting{}, nil, err
 	}
@@ -125,6 +133,7 @@ func (e *Endpoints) posting(ctx context.Context, tx pgx.Tx, v Invoice, sup partn
 	lines = append(lines, wl...)
 	posting := invoicePosting(v, v.ID, date)
 	posting.Lines, posting.GRIR, posting.Terms, posting.Withholding = lines, grir, terms, ws
+	posting.TaxDate, posting.TaxItems = &taxDate, t.items
 	return posting, terms, nil
 }
 
@@ -162,11 +171,8 @@ func (e *Endpoints) recordPosted(ctx context.Context, posted Invoice, entry ledg
 func invoicePosting(v Invoice, id uuid.UUID, date time.Time) ledger.Posting {
 	text := map[string]string{KindInvoice: "Supplier invoice ", KindCreditMemo: "Supplier credit memo ", KindSubsequentDebit: "Subsequent debit ",
 		KindSubsequentCredit: "Subsequent credit "}[v.Kind] + v.DocumentNumber
-	// The invoice date is the tax date (ADR-0049 §4, P6): its codes'
-	// rates apply then and its tax is reported in that period.
-	taxDate := v.InvoiceDate
 	return ledger.Posting{LegalEntityID: v.LegalEntityID, DocumentType: documentType(v.Kind), DocumentDate: v.InvoiceDate,
-		PostingDate: date, TaxDate: &taxDate, Currency: v.Currency, Reference: &v.SupplierReference, HeaderText: &text, SourceContext: "payables",
+		PostingDate: date, Currency: v.Currency, Reference: &v.SupplierReference, HeaderText: &text, SourceContext: "payables",
 		SourceDocumentID: id}
 }
 
@@ -330,44 +336,44 @@ func grirOnly(o *procurement.Order) *procurement.Order {
 	return o
 }
 
-// invoiceLines builds the entry: Dr expense per non-zero item, or a GR/IR
-// item per item on an order item of an order valued through GR/IR (order
-// not nil); Dr input tax on the first item tax code's account; Cr the
-// supplier's reconciliation account.
-func (e *Endpoints) invoiceLines(ctx context.Context, v Invoice, sup partner.Supplier, order *procurement.Order) ([]ledger.PostingLine,
+// invoiceLines builds the entry (T61d): Dr expense per non-zero item, or a
+// GR/IR item per item on an order item of an order valued through GR/IR
+// (order not nil), each with the tax it bears (a non-deductible
+// component's, a part not recovered); the tax lines, one per code and
+// component account (calculateTax), or, without coded items, the stated
+// tax on the input tax account; Cr the supplier's reconciliation account.
+func (e *Endpoints) invoiceLines(ctx context.Context, v Invoice, sup partner.Supplier, order *procurement.Order, t invoiceTax) ([]ledger.PostingLine,
 	[]ledger.GRIRItem, error) {
 	var lines []ledger.PostingLine
 	var grir []ledger.GRIRItem
-	var taxCode *string
-	for _, it := range v.Items {
-		if it.TaxCode != nil && taxCode == nil {
-			taxCode = it.TaxCode
-		}
+	for i, it := range v.Items {
+		amount := it.Amount + t.borne[i] // the item and tax on it: in range as the gross is
 		if order != nil && it.POItemNo != nil {
-			item, err := grirItem(*order, v.Kind, it)
+			item, err := grirItem(*order, v.Kind, it, amount)
 			if err != nil {
 				return nil, nil, err
 			}
 			grir = append(grir, item)
 			continue
 		}
-		if it.Amount != 0 {
+		if amount != 0 {
 			// Every item has an account: validation requires one on an item
 			// without an order item and fills it from the order item
 			// otherwise (orderItem).
-			lines = append(lines, ledger.PostingLine{AccountID: *it.AccountID, Amount: signed(v, it.Amount), TaxCode: it.TaxCode, Text: it.Description})
+			lines = append(lines, ledger.PostingLine{AccountID: *it.AccountID, Amount: signed(v, amount), TaxCode: it.TaxCode, Text: it.Description})
 		}
 	}
-	if v.Tax != 0 {
-		account, ok, err := e.taxAccount(ctx, v.LegalEntityID, taxCode, v.InvoiceDate)
+	if t.items == nil && v.Tax != 0 {
+		account, ok, err := e.Accounts.Determination(ctx, v.LegalEntityID, "input_tax")
 		if err != nil {
 			return nil, nil, err
 		}
 		if !ok {
 			return nil, nil, problem.Unprocessable("payables.no_tax_account", "The legal entity has no input tax account for the invoice's tax.")
 		}
-		lines = append(lines, ledger.PostingLine{AccountID: account, Amount: signed(v, v.Tax), TaxCode: taxCode})
+		lines = append(lines, ledger.PostingLine{AccountID: account, Amount: signed(v, v.Tax)})
 	}
+	lines = append(lines, t.lines...)
 	lines = append(lines, ledger.PostingLine{AccountID: sup.ReconciliationID, Amount: -signed(v, v.Gross), PartnerID: &v.SupplierID})
 	return lines, grir, nil
 }
@@ -380,8 +386,8 @@ func (e *Endpoints) invoiceLines(ctx context.Context, v Invoice, sup partner.Sup
 // quantity, its amount going to price differences whole (T34). An order
 // item the order no longer has is refused, as the match flags it
 // (order_item_missing).
-func grirItem(o procurement.Order, kind string, it Item) (ledger.GRIRItem, error) {
-	quantity, amount := it.Quantity, it.Amount
+func grirItem(o procurement.Order, kind string, it Item, amount money.Minor) (ledger.GRIRItem, error) {
+	quantity := it.Quantity
 	if credits(kind) {
 		amount = -amount
 	}
@@ -396,26 +402,6 @@ func grirItem(o procurement.Order, kind string, it Item) (ledger.GRIRItem, error
 	}
 	return ledger.GRIRItem{}, problem.Unprocessable("payables.order_item_missing",
 		fmt.Sprintf("Order item %d is not on purchase order %s.", *it.POItemNo, o.DocumentNumber))
-}
-
-// taxAccount is the account of the tax code valid on the tax date, else the
-// legal entity's input tax account. A code with components an invoice
-// cannot post yet is refused (T61d posts them).
-func (e *Endpoints) taxAccount(ctx context.Context, le uuid.UUID, code *string, date time.Time) (uuid.UUID, bool, error) {
-	if code != nil {
-		t, ok, err := e.Accounts.TaxCode(ctx, le, *code, date)
-		if err != nil {
-			return uuid.Nil, false, err
-		}
-		if ok {
-			single, ok := t.Single()
-			if !ok {
-				return uuid.Nil, false, componentsUnsupported("items.tax_code", *code)
-			}
-			return *single.AccountID, true, nil
-		}
-	}
-	return e.Accounts.Determination(ctx, le, "input_tax")
 }
 
 // ReverseInvoice reverses a posted invoice's entry; an invoice whose open

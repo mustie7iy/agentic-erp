@@ -22587,6 +22587,10 @@ components:
               type: string
               format: date
               description: "Posting date; set at the latest by `:post`."
+            tax_date:
+              type: string
+              format: date
+              description: "Tax date a person set (ADR-0049 §4, decision P6); absent: the invoice date, or for a correction the corrected invoice's tax date."
             gross_amount:
               $ref: "#/components/schemas/Money"
               description: Gross amount.
@@ -22727,6 +22731,10 @@ components:
           type: string
           format: date
           description: Posting date.
+        tax_date:
+          type: string
+          format: date
+          description: "Tax date: the date the items' tax codes' rates apply on and the tax is reported in (ADR-0049 §4, decision P6); defaults to the invoice date, or for a correction to the corrected invoice's tax date. Set by a person only: an agent's is 403 `payables.tax_date_human_only`."
         gross_amount:
           $ref: "#/components/schemas/Money"
           description: "Gross amount; all amounts must share one currency."
@@ -22806,6 +22814,12 @@ components:
             - "null"
           format: date
           description: Posting date. Send null to clear.
+        tax_date:
+          type:
+            - string
+            - "null"
+          format: date
+          description: "Tax date: the date the items' tax codes' rates apply on and the tax is reported in (ADR-0049 §4, decision P6). Set by a person only: an agent's is 403 `payables.tax_date_human_only`. Send null to clear: the invoice date, or for a correction the corrected invoice's tax date."
         gross_amount:
           $ref: "#/components/schemas/Money"
           description: Gross amount.

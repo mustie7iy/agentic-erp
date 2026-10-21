@@ -109,6 +109,9 @@ type Line struct {
 	// SpecialGL is the special G/L indicator of a supplier line, A for a
 	// down payment (ADR-0037), or nil for an ordinary line.
 	SpecialGL *string `json:"special_gl"`
+	// keptLC is a local amount the posting keeps rather than converts
+	// (PostingLine.LC).
+	keptLC *money.Minor
 }
 
 const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id,
@@ -186,9 +189,11 @@ type draft struct {
 	lines          []Line
 	// sourcedItems are the entry's tax items when they come from other
 	// entries' items (a reversal, a down payment transfer, a cash
-	// discount's tax correction); nil: those its lines carry. Only the
-	// leading ledger's entry has items (writeTaxItems).
+	// discount's tax correction); givenItems those a context calculated
+	// (T61d); neither: those its lines carry. Only the leading ledger's
+	// entry has items (writeTaxItems).
 	sourcedItems []sourcedTaxItem
+	givenItems   []PostingTaxItem
 }
 
 // target is a ledger a posting goes to, with the status of its period.
@@ -437,7 +442,8 @@ type NewLine struct {
 	TaxCode        *string
 	Quantity, Unit *string
 	Text           *string
-	SpecialGL      *string // set by the posting contexts only (ADR-0037)
+	SpecialGL      *string      // set by the posting contexts only (ADR-0037)
+	lc             *money.Minor // a kept local amount (PostingLine.LC): the posting contexts only
 }
 
 // NewEntry is a manual journal entry to post.
@@ -461,6 +467,8 @@ type NewEntry struct {
 	// the ledger's own (source "ledger", no document).
 	SourceContext    string
 	SourceDocumentID *uuid.UUID
+	// taxItems are the context's calculated items (Posting.TaxItems).
+	taxItems []PostingTaxItem
 }
 
 // taxDay is the entry's tax date: the one it names, else its posting date.
@@ -936,6 +944,9 @@ func (e *Endpoints) postPrepared(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 	if err := convertLines(v.lines, rateLC, rateGC, v.expTC, v.exps[v.le.LocalCurrency], v.exps[v.group]); err != nil {
 		return Entry{}, err
 	}
+	if v.lines, err = keepLocal(ctx, v.le.ID, v.lines, rateGC, v.exps[v.le.LocalCurrency], v.exps[v.group], in.HeaderText); err != nil {
+		return Entry{}, err
+	}
 	if check != nil {
 		if err := check(ctx, tx, v, in); err != nil {
 			return Entry{}, err
@@ -944,7 +955,7 @@ func (e *Endpoints) postPrepared(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 	posted, err := e.post(ctx, tx, p, draft{entity: v.le, ledgers: v.choice.ledgers, ledgerGroup: v.choice.group, documentType: in.DocumentType, documentDate: in.DocumentDate,
 		postingDate: in.PostingDate, taxDate: in.taxDay(), currencyTC: in.Currency, currencyLC: v.le.LocalCurrency, currencyGC: v.group, rateTCLC: rateLC.shown,
 		rateLCGC: rateGC.shown, reference: in.Reference, headerText: in.HeaderText, sourceContext: cmp.Or(in.SourceContext, "ledger"),
-		sourceDocumentID: in.SourceDocumentID, lines: v.lines})
+		sourceDocumentID: in.SourceDocumentID, lines: v.lines, givenItems: in.taxItems})
 	if err != nil {
 		return Entry{}, err
 	}
@@ -975,7 +986,7 @@ func entryLines(in NewEntry, expTC int) ([]Line, error) {
 		}
 		amounts[i] = tc
 		lines[i] = Line{AccountID: l.AccountID, TC: tc, PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text,
-			SpecialGL: l.SpecialGL}
+			SpecialGL: l.SpecialGL, keptLC: l.lc}
 	}
 	sum, err := money.Sum(amounts...)
 	if err != nil {

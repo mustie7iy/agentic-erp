@@ -72,8 +72,11 @@ CREATE TRIGGER tax_item_fixed BEFORE UPDATE OR DELETE ON ledger.tax_item FOR EAC
 -- component with a rate on that day of each tax code its lines carry (and
 -- per tax line account), the tax the lines on the component's account with
 -- the code, the base the lines with the code on no account of the code's
--- components (once per component: on its first account's item). The rate is the component's on that day; the recoverable
--- part the tax times the component's share, rounded half away from zero.
+-- components (once per component: on its first account's item). The rate
+-- is the component's on that day. What an input component's lines post on
+-- its account is what was recovered: its recoverable part is all of it (a
+-- part not recovered goes on the expense, as a context that calculates the
+-- tax posts it, T61d).
 -- A non-deductible component has no tax line of its own and is not
 -- written (T61d). former: a component's former accounts are its tax lines'
 -- too (the migration of entries posted before, T61a); the application
@@ -111,9 +114,9 @@ LANGUAGE sql AS $$
       x.direction, x.kind, x.account_key, x.tax_account, day, x.rate_id, x.rate_pct, x.recoverable_pct,
       -- The code's base once per component, on its first account's item.
       CASE WHEN row_number() OVER (PARTITION BY x.code, x.component ORDER BY x.tax_account) = 1 THEN coalesce(b.tc, 0) ELSE 0 END, x.tax_tc,
-      CASE WHEN x.account_key IN ('output', 'self_output') THEN 0 ELSE round(x.tax_tc * x.recoverable_pct / 100)::bigint END,
+      CASE WHEN x.account_key IN ('output', 'self_output') THEN 0 ELSE x.tax_tc END,
       CASE WHEN row_number() OVER (PARTITION BY x.code, x.component ORDER BY x.tax_account) = 1 THEN coalesce(b.lc, 0) ELSE 0 END, x.tax_lc,
-      CASE WHEN x.account_key IN ('output', 'self_output') THEN 0 ELSE round(x.tax_lc * x.recoverable_pct / 100)::bigint END
+      CASE WHEN x.account_key IN ('output', 'self_output') THEN 0 ELSE x.tax_lc END
     FROM taxed x LEFT JOIN base b ON b.tax_code = x.code
     RETURNING 1
   )
@@ -138,7 +141,8 @@ RESET row_security;
 -- parallel ledger's has none): each tax code its lines carry that posts to
 -- an account has an item, the items are of its legal entity, and per
 -- account and code the lines on an item's account or on a component's
--- account add up to the items' tax, in transaction and local currency.
+-- account add up to what the items put there (output tax, or the input tax
+-- recovered), in transaction and local currency.
 -- Checked when the entry or an item is written, deferred like the balance.
 CREATE FUNCTION ledger.check_tax_items(t uuid, y smallint, e uuid) RETURNS void
 LANGUAGE plpgsql AS $$
@@ -177,7 +181,10 @@ BEGIN
     SELECT l.account_id, l.tax_code code, sum(l.amount_tc) tc, sum(l.amount_lc) lc FROM ledger.journal_line l
     WHERE l.tenant_id = t AND l.fiscal_year = y AND l.journal_entry_id = e AND l.tax_code IS NOT NULL GROUP BY 1, 2
   ), i AS (
-    SELECT i.account_id, i.code, sum(i.tax_tc) tc, sum(i.tax_lc) lc FROM ledger.tax_item i
+    -- What an item puts on its account: an output item its tax, an input
+    -- item the part recovered (the rest is on the expense, T61d).
+    SELECT i.account_id, i.code, sum(CASE WHEN i.account_key IN ('output', 'self_output') THEN i.tax_tc ELSE i.recoverable_tc END) tc,
+      sum(CASE WHEN i.account_key IN ('output', 'self_output') THEN i.tax_lc ELSE i.recoverable_lc END) lc FROM ledger.tax_item i
     WHERE i.tenant_id = t AND i.fiscal_year = y AND i.journal_entry_id = e AND i.account_id IS NOT NULL GROUP BY 1, 2
   ), k AS (
     SELECT account_id, code FROM i

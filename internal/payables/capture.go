@@ -103,10 +103,16 @@ func (e *Endpoints) capture(ctx context.Context, legalEntity uuid.UUID, document
 	if err != nil {
 		return operations.Operation{}, err
 	}
+	proposed, taxHeld, err := e.capturedTax(ctx, tx, &in, ext)
+	if err != nil {
+		return operations.Operation{}, err
+	}
+	held = strings.TrimSpace(held + " " + taxHeld)
 	if held, err = e.capturedExtensions(ctx, &in, held); err != nil {
 		return operations.Operation{}, err
 	}
 	status, reason, warnings := captureStatus(ext.Confidence, held)
+	warnings = append(warnings, proposed...)
 	v, err := e.insert(ctx, tx, p, newInvoice{Input: in, source: "capture", status: status, holdReason: reason, sha: sum[:], objectRef: objectRef})
 	if err != nil {
 		return operations.Operation{}, err

@@ -326,10 +326,11 @@ tax_codes:
   the diff; not built). **Accepted** (coordinator 2026-10-21): future-only rate
   changes stay tier 3. The payables simulation of rate changes (07, T22)
   compares the rate in force on each replayed invoice's date, per component.
-- Until T61d posts every component, supplier invoices and down payments take
-  only a code with one component on an account of its own, wholly recoverable
-  (422 `payables.tax_code_components`, `ledger.tax_code_components`), and an
-  input code (`payables.unknown_tax_code`, `procurement.unknown_tax_code` for
+- Until T61d posted every component, supplier invoices and down payments took
+  only a code with one component on an account of its own, wholly recoverable;
+  since T61d supplier invoices take every input code, and down payments still
+  take only such a code (422 `payables.tax_code_components`,
+  `ledger.tax_code_components`), and an input code (`payables.unknown_tax_code`, `procurement.unknown_tax_code` for
   an output code).
 - Country packs (ADR-0048, amended) write all their rates; the "later rates
   noted" note and the re-application after a change are gone. T62f (the UAE
@@ -475,6 +476,43 @@ commit-time check, like the balance trigger).
 - A recoverable share below 100% (meals 50%, blocked UAE input) splits each item
   into recoverable (on the tax account, in the return's input box) and
   non-recoverable (on the expense).
+- **As built (T61d, migration 000141):** payables calculates an invoice's tax
+  when it posts (`calculateTax`, `internal/tax`) per item code at the tax
+  date: `supplier_invoice.tax_date`, set by a person only (403
+  `payables.tax_date_human_only` for an agent), else the invoice date, else,
+  for a credit memo or subsequent debit or credit naming an invoice, that
+  invoice's, so it is calculated at its rates. One tax line per code and
+  component account carries the input tax recovered (or a self-assessed
+  output tax); a non-deductible component's tax and the part of a
+  component's tax not recovered go on the item's line (for an item on a
+  GR/IR order, into what it invoices, so onto the price difference). A
+  reverse charge code posts its self-assessed pair, the supplier owed the
+  base only. The supplier's stated tax is held to the calculated within
+  `companies[].invoice_tolerance.tax_units_per_code` minor units per code
+  that charges tax (default 1): within it the stated amount posts, its
+  difference shared out among the components posting to an account in
+  proportion to their tax (`money.Allocate`) and recovered in full; beyond
+  it, or with no such component, 422 `payables.tax_mismatch` names the
+  calculated tax per code. The ledger writes the calculated items as given
+  (`Posting.TaxItems`, with the component's account and the rate of the tax
+  date), and keeps the tax lines' local amounts at the tax date's rate
+  (`PostingLine.LC`): the other lines are converted at the posting date's
+  rate as ever, and what that leaves is an exchange difference on
+  `fx_gain`/`fx_loss`. The rate is the average rate of the tax date; the
+  authority's rate type a country pack would name is not yet in the pack
+  schema, nor its `rounding` (per document, the default). An invoice whose
+  items carry no code posts its stated tax on `input_tax` as before, without
+  items. What a tax line posts on its account is what the ledger's check
+  holds the items to: the output tax, or the input tax recovered (T61c's
+  derived items recover all their account's tax). The capture reads each
+  line's printed tax rate (`capture.Line.TaxRate`): a rate its order item's
+  code charges keeps it; a rate one input code charges on the tax date
+  proposes it (a warning in the operation's result); none, several or no
+  number hold the invoice for a person to choose; and a stated tax the
+  codes do not bear out holds it with the figures (eval suite capture,
+  version 3). **Not yet:** down payment requests' tax checked at the run
+  date's rate, and the documentary-requirement warnings for Canada and the
+  UAE (tracker, T61d follow-up).
 
 ### 7. Output tax and the pilot's sales
 The ERP issues no sales invoices until phase 3, so the pilot's output tax

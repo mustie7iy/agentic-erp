@@ -279,11 +279,21 @@ func (g grirPosting) lines(ctx context.Context, tx pgx.Tx) ([]Line, error) {
 		return nil, err
 	}
 	lines := make([]Line, 0, len(g.in.Lines)+2*len(g.in.GRIR)+2)
+	kept := make([]bool, 0, cap(lines))
 	for _, l := range g.in.Lines {
-		lines = append(lines, Line{AccountID: l.AccountID, TC: l.Amount, PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text,
-			SpecialGL: l.SpecialGL})
+		line := Line{AccountID: l.AccountID, TC: l.Amount, PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text,
+			SpecialGL: l.SpecialGL}
+		// A local amount the posting keeps (a tax line's at the tax date's
+		// rate), its group amount converted from it (keepLocal).
+		if l.LC != nil {
+			gc, err := convert(*l.LC, g.rates.toGC, g.rates.expLC, g.rates.expGC)
+			if err != nil {
+				return nil, err
+			}
+			line.LC, line.GC = *l.LC, gc
+		}
+		lines, kept = append(lines, line), append(kept, l.LC != nil)
 	}
-	kept := make([]bool, len(lines))
 	moved, keep, err := g.itemLines(pos, keys)
 	if err != nil {
 		return nil, err
@@ -391,7 +401,7 @@ func (p Postings) postGRIR(ctx context.Context, in Posting) (Entry, error) {
 	posted, err := e.post(ctx, tx, actor, draft{entity: g.le, documentType: in.DocumentType, documentDate: in.DocumentDate,
 		postingDate: in.PostingDate, taxDate: taxDate, currencyTC: in.Currency, currencyLC: g.le.LocalCurrency, currencyGC: g.group, rateTCLC: g.rates.toLC.shown,
 		rateLCGC: g.rates.toGC.shown, reference: in.Reference, headerText: in.HeaderText, sourceContext: in.SourceContext,
-		sourceDocumentID: &in.SourceDocumentID, lines: lines})
+		sourceDocumentID: &in.SourceDocumentID, lines: lines, givenItems: in.TaxItems})
 	if err != nil {
 		return Entry{}, err
 	}

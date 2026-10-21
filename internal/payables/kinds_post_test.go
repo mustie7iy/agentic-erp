@@ -58,15 +58,15 @@ func TestCreditMemosAndSubsequentDebitsPost(t *testing.T) {
 	if got := last["tax_amount"].(map[string]any)["amount"]; got != "-4.56" {
 		t.Errorf("SupplierInvoicePosted tax: got %v, want -4.56", got)
 	}
-	debit, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.document("subsequent_debit", "SD-1", "5.00", "0.00",
+	debit, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.document("subsequent_debit", "SD-1", "5.95", "0.95",
 		fmt.Sprintf(`, "purchase_order_id": %q`, po), poItem(po, 1, "0", "EA", "5.00")), "")
 	posted = e.posted(t, debit)
 	got = e.entryLines(t, posted["journal_entry_id"])
-	want = []line{{e.expense.String(), "5.00", nil}, {e.ap.String(), "-5.00", nil}}
+	want = []line{{e.expense.String(), "5.00", nil}, {e.tax.String(), "0.95", nil}, {e.ap.String(), "-5.95", nil}}
 	if fmt.Sprint(sorted(got)) != fmt.Sprint(sorted(want)) {
 		t.Errorf("subsequent debit lines: got %v, want %v", got, want)
 	}
-	credit, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.document("subsequent_credit", "SC-0", "2.00", "0.00",
+	credit, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.document("subsequent_credit", "SC-0", "2.38", "0.38",
 		fmt.Sprintf(`, "purchase_order_id": %q`, po), poItem(po, 1, "0", "EA", "2.00")), "")
 	posted = e.posted(t, credit)
 	je, _ = e.Must(200, "GET", fmt.Sprintf("/v1/journal-entries/%v", posted["journal_entry_id"]), "", "")
@@ -74,7 +74,7 @@ func TestCreditMemosAndSubsequentDebitsPost(t *testing.T) {
 		t.Errorf("subsequent credit document type: got %v, want KG", je["document_type"])
 	}
 	got = e.entryLines(t, posted["journal_entry_id"])
-	want = []line{{e.expense.String(), "-2.00", nil}, {e.ap.String(), "2.00", nil}}
+	want = []line{{e.expense.String(), "-2.00", nil}, {e.tax.String(), "-0.38", nil}, {e.ap.String(), "2.38", nil}}
 	if fmt.Sprint(sorted(got)) != fmt.Sprint(sorted(want)) {
 		t.Errorf("subsequent credit lines: got %v, want %v", got, want)
 	}
@@ -151,17 +151,17 @@ func TestCreditMemoOnGRIR(t *testing.T) {
 	if fmt.Sprint(sorted(got)) != fmt.Sprint(sorted(want)) {
 		t.Errorf("credit memo lines: got %v, want %v", got, want)
 	}
-	debit, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.document("subsequent_debit", "SD-1", "6.00", "0.00",
+	debit, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.document("subsequent_debit", "SD-1", "7.14", "1.14",
 		fmt.Sprintf(`, "purchase_order_id": %q`, po), poItem(po, 1, "0", "EA", "6.00")), "")
 	got = e.entryLines(t, e.posted(t, debit)["journal_entry_id"])
-	want = []line{{grir, "0.00", po.String()}, {diff, "6.00", nil}, {e.ap.String(), "-6.00", nil}}
+	want = []line{{grir, "0.00", po.String()}, {diff, "6.00", nil}, {e.tax.String(), "1.14", nil}, {e.ap.String(), "-7.14", nil}}
 	if fmt.Sprint(sorted(got)) != fmt.Sprint(sorted(want)) {
 		t.Errorf("subsequent debit lines: got %v, want %v", got, want)
 	}
-	credit, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.document("subsequent_credit", "SC-1", "4.00", "0.00",
+	credit, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.document("subsequent_credit", "SC-1", "4.76", "0.76",
 		fmt.Sprintf(`, "purchase_order_id": %q`, po), poItem(po, 1, "0", "EA", "4.00")), "")
 	got = e.entryLines(t, e.posted(t, credit)["journal_entry_id"])
-	want = []line{{grir, "0.00", po.String()}, {diff, "-4.00", nil}, {e.ap.String(), "4.00", nil}}
+	want = []line{{grir, "0.00", po.String()}, {diff, "-4.00", nil}, {e.tax.String(), "-0.76", nil}, {e.ap.String(), "4.76", nil}}
 	if fmt.Sprint(sorted(got)) != fmt.Sprint(sorted(want)) {
 		t.Errorf("subsequent credit lines: got %v, want %v", got, want)
 	}

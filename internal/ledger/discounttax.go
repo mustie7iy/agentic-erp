@@ -85,9 +85,10 @@ func discountTax(ctx context.Context, tx pgx.Tx, items []item, discounts []money
 	}
 	paid, taxes := map[entryKey]money.Minor{}, map[entryKey][]sourceItem{}
 	// One row per entry with what it owes the supplier (item 0), then one
-	// per tax item. What the entry withheld at invoice (T46f) counts as owed
-	// the supplier: the discount's tax share is of the gross, not of what
-	// is left after it.
+	// per tax item with what it put on its tax account (an input item the
+	// part recovered: the rest went to the expense, with the base). What the
+	// entry withheld at invoice (T46f) counts as owed the supplier: the
+	// discount's tax share is of the gross, not of what is left after it.
 	rows, _ := tx.Query(ctx, `SELECT l.fiscal_year, l.journal_entry_id, 0, '', '00000000-0000-0000-0000-000000000000'::uuid, '', 0, (-sum(l.amount_tc))::bigint
 		FROM ledger.journal_line l JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id
 		WHERE (l.fiscal_year, l.journal_entry_id) IN (SELECT * FROM unnest($1::smallint[], $2::uuid[])) AND a.reconciliation_kind = 'supplier'
@@ -98,7 +99,8 @@ func discountTax(ctx context.Context, tx pgx.Tx, items []item, discounts []money
 		WHERE (w.fiscal_year, w.journal_entry_id) IN (SELECT * FROM unnest($1::smallint[], $2::uuid[])) AND w.posting = 'invoice'
 		GROUP BY 1, 2
 		UNION ALL
-		SELECT i.fiscal_year, i.journal_entry_id, i.item_no, i.component, i.account_id, i.code, i.base_tc, i.tax_tc FROM ledger.tax_item i
+		SELECT i.fiscal_year, i.journal_entry_id, i.item_no, i.component, i.account_id, i.code, i.base_tc,
+			CASE WHEN i.account_key IN ('output', 'self_output') THEN i.tax_tc ELSE i.recoverable_tc END FROM ledger.tax_item i
 		WHERE (i.fiscal_year, i.journal_entry_id) IN (SELECT * FROM unnest($1::smallint[], $2::uuid[])) AND i.account_id IS NOT NULL`, years, entries)
 	var s sourceItem
 	var base, sum money.Minor

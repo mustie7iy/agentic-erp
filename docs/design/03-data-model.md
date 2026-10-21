@@ -391,7 +391,9 @@ requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
 in the currency of the requisition's company), the order release
 thresholds (`purchasing.order_release_approval[].up_to`, likewise in the
 order's company's currency, T47c), the invoice price tolerance
-(`invoice_tolerance.price_absolute`), the auto-post limit
+(`invoice_tolerance.price_absolute`; the tax tolerance,
+`invoice_tolerance.tax_units_per_code`, is in minor units of the invoice's
+currency per tax code, T61d), the auto-post limit
 (`auto_post_limit`) and the manual entry approval limit
 (`manual_entry_approval_limit`, T35: the largest manual journal entry, by
 its debits, that people post without approval; posting-relevant, so a
@@ -1221,6 +1223,12 @@ erDiagram
     int config_version
     int invoice_version }
 ```
+
+A supplier invoice's `tax_date` (migration 000141, T61d, ADR-0049 §4) is
+the date its codes' rates apply on and its tax is reported in, set by a
+person only; none: the invoice date, or for a correction naming an invoice
+that invoice's. Its tax is calculated per item code when it posts, held to
+the stated tax within `invoice_tolerance.tax_units_per_code` (ADR-0049 §6).
 
 A supplier invoice is of a `kind` (migration 000059, T34a), as SAP's MIRO
 transactions are: `invoice`, `credit_memo`, `subsequent_debit` or

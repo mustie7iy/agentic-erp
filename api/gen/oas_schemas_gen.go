@@ -35704,6 +35704,9 @@ type SupplierInvoice struct {
 	InvoiceDate time.Time `json:"invoice_date"`
 	// Posting date; set at the latest by `:post`.
 	PostingDate OptDate `json:"posting_date"`
+	// Tax date a person set (ADR-0049 §4, decision P6); absent: the invoice date, or for a correction the
+	// corrected invoice's tax date.
+	TaxDate OptDate `json:"tax_date"`
 	// Gross amount.
 	GrossAmount Money `json:"gross_amount"`
 	// Tax amount.
@@ -35806,6 +35809,11 @@ func (s *SupplierInvoice) GetInvoiceDate() time.Time {
 // GetPostingDate returns the value of PostingDate.
 func (s *SupplierInvoice) GetPostingDate() OptDate {
 	return s.PostingDate
+}
+
+// GetTaxDate returns the value of TaxDate.
+func (s *SupplierInvoice) GetTaxDate() OptDate {
+	return s.TaxDate
 }
 
 // GetGrossAmount returns the value of GrossAmount.
@@ -35943,6 +35951,11 @@ func (s *SupplierInvoice) SetPostingDate(val OptDate) {
 	s.PostingDate = val
 }
 
+// SetTaxDate sets the value of TaxDate.
+func (s *SupplierInvoice) SetTaxDate(val OptDate) {
+	s.TaxDate = val
+}
+
 // SetGrossAmount sets the value of GrossAmount.
 func (s *SupplierInvoice) SetGrossAmount(val Money) {
 	s.GrossAmount = val
@@ -36076,6 +36089,10 @@ type SupplierInvoiceCreate struct {
 	InvoiceDate time.Time `json:"invoice_date"`
 	// Posting date.
 	PostingDate OptDate `json:"posting_date"`
+	// Tax date: the date the items' tax codes' rates apply on and the tax is reported in (ADR-0049 §4,
+	// decision P6); defaults to the invoice date, or for a correction to the corrected invoice's tax date.
+	// Set by a person only: an agent's is 403 `payables.tax_date_human_only`.
+	TaxDate OptDate `json:"tax_date"`
 	// Gross amount; all amounts must share one currency.
 	GrossAmount Money `json:"gross_amount"`
 	// Tax amount.
@@ -36124,6 +36141,11 @@ func (s *SupplierInvoiceCreate) GetInvoiceDate() time.Time {
 // GetPostingDate returns the value of PostingDate.
 func (s *SupplierInvoiceCreate) GetPostingDate() OptDate {
 	return s.PostingDate
+}
+
+// GetTaxDate returns the value of TaxDate.
+func (s *SupplierInvoiceCreate) GetTaxDate() OptDate {
+	return s.TaxDate
 }
 
 // GetGrossAmount returns the value of GrossAmount.
@@ -36189,6 +36211,11 @@ func (s *SupplierInvoiceCreate) SetInvoiceDate(val time.Time) {
 // SetPostingDate sets the value of PostingDate.
 func (s *SupplierInvoiceCreate) SetPostingDate(val OptDate) {
 	s.PostingDate = val
+}
+
+// SetTaxDate sets the value of TaxDate.
+func (s *SupplierInvoiceCreate) SetTaxDate(val OptDate) {
+	s.TaxDate = val
 }
 
 // SetGrossAmount sets the value of GrossAmount.
@@ -36562,6 +36589,10 @@ type SupplierInvoiceUpdate struct {
 	InvoiceDate OptDate `json:"invoice_date"`
 	// Posting date. Send null to clear.
 	PostingDate OptNilDate `json:"posting_date"`
+	// Tax date: the date the items' tax codes' rates apply on and the tax is reported in (ADR-0049 §4,
+	// decision P6). Set by a person only: an agent's is 403 `payables.tax_date_human_only`. Send null to
+	// clear: the invoice date, or for a correction the corrected invoice's tax date.
+	TaxDate OptNilDate `json:"tax_date"`
 	// Gross amount.
 	GrossAmount OptMoney `json:"gross_amount"`
 	// Tax amount.
@@ -36589,6 +36620,11 @@ func (s *SupplierInvoiceUpdate) GetInvoiceDate() OptDate {
 // GetPostingDate returns the value of PostingDate.
 func (s *SupplierInvoiceUpdate) GetPostingDate() OptNilDate {
 	return s.PostingDate
+}
+
+// GetTaxDate returns the value of TaxDate.
+func (s *SupplierInvoiceUpdate) GetTaxDate() OptNilDate {
+	return s.TaxDate
 }
 
 // GetGrossAmount returns the value of GrossAmount.
@@ -36634,6 +36670,11 @@ func (s *SupplierInvoiceUpdate) SetInvoiceDate(val OptDate) {
 // SetPostingDate sets the value of PostingDate.
 func (s *SupplierInvoiceUpdate) SetPostingDate(val OptNilDate) {
 	s.PostingDate = val
+}
+
+// SetTaxDate sets the value of TaxDate.
+func (s *SupplierInvoiceUpdate) SetTaxDate(val OptNilDate) {
+	s.TaxDate = val
 }
 
 // SetGrossAmount sets the value of GrossAmount.

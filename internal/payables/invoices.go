@@ -63,10 +63,11 @@ func (e *Endpoints) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, i
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO payables.supplier_invoice (tenant_id, id, document_number, legal_entity_id, supplier_id, supplier_reference,
 			invoice_date, posting_date, currency, gross_amount, tax_amount, purchase_order_id, status, hold_reason, source, capture_object_ref,
-			capture_sha256, extensions, created_by, updated_by, kind, reference_invoice_id, extensions_schema)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19, $20, $21, $22)`,
+			capture_sha256, extensions, created_by, updated_by, kind, reference_invoice_id, extensions_schema, tax_date)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19, $20, $21, $22, $23)`,
 		p.TenantID, id, number, in.LegalEntityID, in.SupplierID, in.SupplierReference, in.InvoiceDate, in.PostingDate, c.currency, c.gross, c.tax,
-		c.purchaseOrder, in.status, in.holdReason, in.source, ref, in.sha, in.Extensions, p.ID, c.kind, in.ReferenceInvoiceID, c.extensionsSchema); err != nil {
+		c.purchaseOrder, in.status, in.holdReason, in.source, ref, in.sha, in.Extensions, p.ID, c.kind, in.ReferenceInvoiceID, c.extensionsSchema,
+		in.TaxDate); err != nil {
 		return Invoice{}, fmt.Errorf("payables: insert invoice %s: %w", id, err)
 	}
 	if err := putItems(ctx, tx, p.TenantID, id, c.items); err != nil {
@@ -135,6 +136,7 @@ type Change struct {
 	SupplierReference *string
 	InvoiceDate       *time.Time
 	PostingDate       **time.Time // set to nil to clear
+	TaxDate           **time.Time // set to nil to clear: the invoice date
 	Gross, Tax        *Amount
 	PurchaseOrderID   **uuid.UUID // set to nil to clear
 	// ReferenceInvoiceID names the invoice a correction corrects; set to nil
@@ -177,10 +179,10 @@ func (e *Endpoints) UpdateInvoice(ctx context.Context, id uuid.UUID, ifMatch fun
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET supplier_reference = $2, invoice_date = $3, posting_date = $4, currency = $5,
 			gross_amount = $6, tax_amount = $7, purchase_order_id = $8, extensions = $9, workflow_request_id = NULL, version = version + 1, updated_by = $10,
-			reference_invoice_id = $11, extensions_schema = $12
+			reference_invoice_id = $11, extensions_schema = $12, tax_date = $13
 		WHERE id = $1`,
 		id, in.SupplierReference, in.InvoiceDate, in.PostingDate, c.currency, c.gross, c.tax, c.purchaseOrder, in.Extensions, p.ID, in.ReferenceInvoiceID,
-		c.extensionsSchema); err != nil {
+		c.extensionsSchema, in.TaxDate); err != nil {
 		return Invoice{}, fmt.Errorf("payables: update invoice %s: %w", id, err)
 	}
 	if err := putItems(ctx, tx, p.TenantID, id, c.items); err != nil {
@@ -200,7 +202,7 @@ func (e *Endpoints) UpdateInvoice(ctx context.Context, id uuid.UUID, ifMatch fun
 // changed is the input of a parked invoice with a change applied.
 func changed(v Invoice, ch Change) Input {
 	in := Input{LegalEntityID: v.LegalEntityID, SupplierID: v.SupplierID, SupplierReference: v.SupplierReference, InvoiceDate: v.InvoiceDate,
-		PostingDate: v.PostingDate, Gross: amountInput(v.Gross, v.Currency, v.Exponent), Tax: amountInput(v.Tax, v.Currency, v.Exponent),
+		PostingDate: v.PostingDate, TaxDate: v.TaxDate, Gross: amountInput(v.Gross, v.Currency, v.Exponent), Tax: amountInput(v.Tax, v.Currency, v.Exponent),
 		PurchaseOrderID: v.PurchaseOrderID, Extensions: mergepatch.Apply(v.Extensions, ch.Extensions), Kind: v.Kind, ReferenceInvoiceID: v.ReferenceInvoiceID}
 	for _, it := range v.Items {
 		in.Items = append(in.Items, ItemInput{PurchaseOrderID: it.PurchaseOrderID, POItemNo: it.POItemNo, Description: it.Description,
@@ -214,6 +216,10 @@ func changed(v Invoice, ch Change) Input {
 	}
 	if ch.PostingDate != nil {
 		in.PostingDate = *ch.PostingDate
+	}
+	in.taxDateKept = ch.TaxDate == nil
+	if ch.TaxDate != nil {
+		in.TaxDate = *ch.TaxDate
 	}
 	if ch.Gross != nil {
 		in.Gross = *ch.Gross

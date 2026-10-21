@@ -42,6 +42,10 @@ type Line struct {
 	Quantity    string `json:"quantity"`
 	Amount      string `json:"amount"`
 	POLine      int    `json:"po_line"`
+	// TaxRate is the tax rate the document prints for the line, a percent
+	// as a decimal ("19", "5"), "" when it prints none: the payables
+	// context proposes a tax code from it (ADR-0049 §6, T61d).
+	TaxRate string `json:"tax_rate"`
 }
 
 // Extractor reads a document.
@@ -66,12 +70,13 @@ var schema = json.RawMessage(`{
     "currency": {"type": "string", "description": "ISO 4217 code"},
     "lines": {"type": "array", "items": {
       "type": "object", "additionalProperties": false,
-      "required": ["description","quantity","amount","po_line"],
+      "required": ["description","quantity","amount","po_line","tax_rate"],
       "properties": {
         "description": {"type": "string"},
         "quantity": {"type": "string", "description": "decimal, e.g. 12.5"},
         "amount": {"type": "string", "description": "line net amount as a decimal"},
-        "po_line": {"type": "integer", "description": "PO item number if printed, else 0"}
+        "po_line": {"type": "integer", "description": "PO item number if printed, else 0"},
+        "tax_rate": {"type": "string", "description": "the tax rate printed for the line as a percent decimal, e.g. 19 or 7.5, else empty"}
       }}},
     "tax_amount": {"type": "string"},
     "gross_amount": {"type": "string"},

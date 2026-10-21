@@ -1197,7 +1197,7 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Tax-rate check on captured invoices: the capture agent proposes tax codes and flags a stated tax that differs from the calculated (the earlier capture.checkTaxRate was removed with T7/T8)",
       "r": "ADR-0049 · T61d",
       "c": []
@@ -1256,9 +1256,15 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Input tax on supplier invoices: tax per item code at the tax date, one tax line per code and component account, non-deductible tax on the item's line, the supplier's tax within the company's tolerance else 422 payables.tax_mismatch (P5), credit memos at the invoice's tax date, capture proposes codes and flags mismatches",
-        "r": "T61d",
+        "r": "db/migrations/000141 · supplier_invoice.tax_date · payables.calculateTax · invoice_tolerance.tax_units_per_code · ledger.PostingTaxItem · PostingLine.LC · capture.Line.TaxRate · ADR-0049 · T61d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Input tax follow-up: down payment requests' tax checked at the run date's rate (left out with tax_code_invalid when it no longer matches); documentary-requirement warnings for CA ($100/$500 tiers) and the UAE (TRN above AED 10,000); the authority's rate type and rounding from the country pack",
+        "r": "ADR-0049 §4, §6, §8 · after T61d",
         "c": []
        },
        {

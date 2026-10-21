@@ -38,6 +38,22 @@ type PostingLine struct {
 	Quantity, Unit *string
 	Text           *string
 	SpecialGL      *string // A for a down payment on the down payment account (ADR-0037)
+	// LC is the line's local amount when it is not the posting date's
+	// conversion: a tax line's, converted at the rate of the tax date
+	// (ADR-0049 §8). Its group amount is the local one converted at the
+	// posting date's rate, and what kept amounts leave unbalanced is an
+	// exchange difference (fx_gain or fx_loss). nil: converted as usual.
+	LC *money.Minor
+}
+
+// PostingTaxItem is a tax item a context calculated (ADR-0049 §5, T61d):
+// a code's component with its base, tax and recoverable part in the
+// entry's currency and in local currency. The ledger writes it with the
+// component's account, jurisdiction and the rate of the tax date.
+type PostingTaxItem struct {
+	Code, Component              string
+	Base, Tax, Recoverable       money.Minor
+	BaseLC, TaxLC, RecoverableLC money.Minor
 }
 
 // Posting is an entry another context posts for one of its documents.
@@ -49,7 +65,10 @@ type Posting struct {
 	// TaxDate is the date the entry's tax codes' rates apply on and its
 	// tax is reported in (ADR-0049 §4): a supplier invoice's invoice date;
 	// nil: the posting date.
-	TaxDate          *time.Time
+	TaxDate *time.Time
+	// TaxItems are the entry's tax items as the context calculated them
+	// (T61d); nil: the ledger derives them from the lines (T61c).
+	TaxItems         []PostingTaxItem
 	Currency         string
 	Reference        *string
 	HeaderText       *string
@@ -199,10 +218,10 @@ func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
 	}
 	entry := NewEntry{LegalEntityID: in.LegalEntityID, DocumentType: in.DocumentType, DocumentDate: in.DocumentDate, PostingDate: in.PostingDate,
 		TaxDate: in.TaxDate, Currency: in.Currency, Reference: in.Reference, HeaderText: in.HeaderText, SourceContext: in.SourceContext,
-		SourceDocumentID: &in.SourceDocumentID, Lines: make([]NewLine, len(in.Lines))}
+		SourceDocumentID: &in.SourceDocumentID, Lines: make([]NewLine, len(in.Lines)), taxItems: in.TaxItems}
 	for i, l := range in.Lines {
 		entry.Lines[i] = NewLine{AccountID: l.AccountID, Amount: l.Amount.Plain(exps[in.Currency]), Currency: in.Currency,
-			PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text, SpecialGL: l.SpecialGL}
+			PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text, SpecialGL: l.SpecialGL, lc: l.LC}
 	}
 	posted, err := p.endpoints().postJournalEntry(ctx, entry)
 	if err != nil {
@@ -337,31 +356,49 @@ func (t TaxCode) Single() (TaxComponent, bool) {
 // TaxCode returns the legal entity's tax code valid on the date: one with a
 // rate in force then.
 func (Accounts) TaxCode(ctx context.Context, legalEntity uuid.UUID, code string, date time.Time) (TaxCode, bool, error) {
-	tx, _, err := reqctx.Request(ctx)
-	if err != nil {
+	codes, err := readTaxCodes(ctx, legalEntity, &code, date)
+	if err != nil || len(codes) == 0 {
 		return TaxCode{}, false, err
 	}
-	t := TaxCode{Code: code}
-	rows, _ := tx.Query(ctx, `SELECT d.direction, d.kind, coalesce(d.category, ''), c.component, coalesce(c.jurisdiction, ''), c.account_key,
+	return codes[0], true, nil
+}
+
+// TaxCodes returns the legal entity's tax codes valid on the date, by code:
+// what the capture agent proposes a code from (T61d).
+func (Accounts) TaxCodes(ctx context.Context, legalEntity uuid.UUID, date time.Time) ([]TaxCode, error) {
+	return readTaxCodes(ctx, legalEntity, nil, date)
+}
+
+// readTaxCodes reads the legal entity's codes valid on the date, the one named
+// or all, each with its components rated then.
+func readTaxCodes(ctx context.Context, legalEntity uuid.UUID, code *string, date time.Time) ([]TaxCode, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT d.code, d.direction, d.kind, coalesce(d.category, ''), c.component, coalesce(c.jurisdiction, ''), c.account_key,
 			trim_scale(c.recoverable_pct)::text, c.account_id, r.rate_pct::text
 		FROM ledger.tax_code_definition d
 		JOIN ledger.tax_component c ON c.tenant_id = d.tenant_id AND c.legal_entity_id = d.legal_entity_id AND c.code = d.code
 		JOIN ledger.tax_rate r ON r.tenant_id = c.tenant_id AND r.legal_entity_id = c.legal_entity_id AND r.code = c.code AND r.component = c.component
-		WHERE d.legal_entity_id = $1 AND d.code = $2 AND r.withdrawn_at IS NULL AND r.valid_from <= $3 AND (r.valid_to IS NULL OR r.valid_to > $3)
-		ORDER BY c.component`, legalEntity, code, date)
+		WHERE d.legal_entity_id = $1 AND ($2::text IS NULL OR d.code = $2) AND r.withdrawn_at IS NULL AND r.valid_from <= $3
+			AND (r.valid_to IS NULL OR r.valid_to > $3)
+		ORDER BY d.code, c.component`, legalEntity, code, date)
+	var out []TaxCode
+	var t TaxCode
 	var c TaxComponent
-	if _, err := pgx.ForEachRow(rows, []any{&t.Direction, &t.Kind, &t.Category, &c.Key, &c.Jurisdiction, &c.AccountKey, &c.RecoverablePct,
+	if _, err := pgx.ForEachRow(rows, []any{&t.Code, &t.Direction, &t.Kind, &t.Category, &c.Key, &c.Jurisdiction, &c.AccountKey, &c.RecoverablePct,
 		&c.AccountID, &c.RatePct}, func() error {
-		t.Components = append(t.Components, c)
+		if n := len(out); n == 0 || out[n-1].Code != t.Code {
+			out = append(out, TaxCode{Code: t.Code, Direction: t.Direction, Kind: t.Kind, Category: t.Category})
+		}
+		out[len(out)-1].Components = append(out[len(out)-1].Components, c)
 		c = TaxComponent{} // the next row's account is scanned into a new value, not this one's
 		return nil
 	}); err != nil {
-		return TaxCode{}, false, fmt.Errorf("ledger: tax code %s in %s: %w", code, legalEntity, err)
+		return nil, fmt.Errorf("ledger: tax codes of %s: %w", legalEntity, err)
 	}
-	if len(t.Components) == 0 {
-		return TaxCode{}, false, nil
-	}
-	return t, true, nil
+	return out, nil
 }
 
 // Calendar answers questions about legal entities' fiscal calendars.

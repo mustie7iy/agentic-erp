@@ -72,12 +72,12 @@ func TestCreditMemoExitCriterion(t *testing.T) {
 
 	debit, _ := e.Must(201, "POST", "/v1/supplier-invoices", fmt.Sprintf(`{"legal_entity_id": %q, "supplier_id": %q, "supplier_reference": "SD-1",
 		"invoice_date": "2026-03-14", "kind": "subsequent_debit", "reference_invoice_id": %q, "purchase_order_id": %q,
-		"gross_amount": {"amount": "5.00", "currency": "EUR"}, "tax_amount": {"amount": "0.00", "currency": "EUR"}, "items": [%s]}`,
+		"gross_amount": {"amount": "5.95", "currency": "EUR"}, "tax_amount": {"amount": "0.95", "currency": "EUR"}, "items": [%s]}`,
 		e.DE, e.Supplier, id(invoice), po, orderItem(po, "0", "5.00")), "")
 	posted = e.matchedAndPosted(t, debit, "2026-03-14")
-	e.entry(t, "subsequent debit", posted["journal_entry_id"], "KR", map[string]string{grir: "0.00", diff: "5.00", ap: "-5.00"})
+	e.entry(t, "subsequent debit", posted["journal_entry_id"], "KR", map[string]string{grir: "0.00", diff: "5.00", tax: "0.95", ap: "-5.95"})
 	reversal = e.reversed(t, posted, "2026-03-14")
-	e.entry(t, "subsequent debit reversal", reversal["reversal_entry_id"], "KR", map[string]string{grir: "0.00", diff: "-5.00", ap: "5.00"})
+	e.entry(t, "subsequent debit reversal", reversal["reversal_entry_id"], "KR", map[string]string{grir: "0.00", diff: "-5.00", tax: "-0.95", ap: "5.95"})
 
 	_, tag := e.Must(200, "GET", "/v1/supplier-invoices/"+id(invoice), "", "")
 	e.Problem(409, "payables.invoice_has_corrections", "POST", "/v1/supplier-invoices/"+id(invoice)+":reverse", `{"reason": "wrong"}`, tag)

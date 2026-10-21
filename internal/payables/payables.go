@@ -124,6 +124,7 @@ type Accounts interface {
 	Determination(ctx context.Context, legalEntity uuid.UUID, key string) (uuid.UUID, bool, error)
 	IsPostable(ctx context.Context, legalEntity, account uuid.UUID) (bool, error)
 	TaxCode(ctx context.Context, legalEntity uuid.UUID, code string, date time.Time) (ledger.TaxCode, bool, error)
+	TaxCodes(ctx context.Context, legalEntity uuid.UUID, date time.Time) ([]ledger.TaxCode, error)
 	WithholdingTaxCode(ctx context.Context, legalEntity uuid.UUID, code string) (ledger.WithholdingTaxCode, bool, error)
 }
 
@@ -210,6 +211,7 @@ type Invoice struct {
 	SupplierReference  string
 	InvoiceDate        time.Time
 	PostingDate        *time.Time
+	TaxDate            *time.Time // set by a person (P6); nil: the invoice date, or the corrected invoice's tax date (taxDateOf)
 	Currency           string
 	Exponent           int
 	Gross, Tax         money.Minor
@@ -241,6 +243,7 @@ type Invoice struct {
 const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.supplier_id, i.supplier_reference, i.invoice_date, i.posting_date,
 		i.currency, c.exponent, i.gross_amount, i.tax_amount, i.purchase_order_id, i.status, i.hold_reason, i.source, i.capture_sha256, i.capture_object_ref,
 		i.journal_entry_year, i.journal_entry_id, i.reversal_entry_year, i.reversal_entry_id, i.workflow_request_id, i.extensions, i.extensions_schema, i.kind, i.reference_invoice_id,
+		i.tax_date,
 		coalesce((SELECT json_agg(json_build_object('item_no', t.item_no, 'purchase_order_id', t.purchase_order_id, 'po_item_no', t.po_item_no,
 			'description', t.description, 'quantity', trim_scale(t.quantity)::text, 'unit', t.uom_code, 'amount', t.amount, 'tax_code', t.tax_code,
 			'account_id', t.account_id) ORDER BY t.item_no)
@@ -255,7 +258,7 @@ func scanInvoice(row pgx.Row) (Invoice, error) {
 	err := row.Scan(append(append([]any{&v.ID, &v.DocumentNumber, &v.LegalEntityID, &v.SupplierID, &v.SupplierReference, &v.InvoiceDate,
 		&v.PostingDate, &v.Currency, &v.Exponent, &v.Gross, &v.Tax, &v.PurchaseOrderID, &v.Status, &v.HoldReason, &v.Source, &v.CaptureSHA256,
 		&v.CaptureObjectRef, &v.JournalEntryYear, &v.JournalEntryID, &v.ReversalEntryYear, &v.ReversalEntryID, &v.WorkflowRequestID, &v.Extensions,
-		&v.ExtensionsSchema, &v.Kind, &v.ReferenceInvoiceID, &v.Items}, terms.fields()...), &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)...)
+		&v.ExtensionsSchema, &v.Kind, &v.ReferenceInvoiceID, &v.TaxDate, &v.Items}, terms.fields()...), &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)...)
 	v.Terms = terms.terms()
 	return v, errs.Wrapf(err, "scan invoice")
 }
@@ -323,10 +326,14 @@ type Input struct {
 	SupplierReference string
 	InvoiceDate       time.Time
 	PostingDate       *time.Time
-	Gross, Tax        Amount
-	PurchaseOrderID   *uuid.UUID
-	Items             []ItemInput
-	Extensions        map[string]any
+	// TaxDate is set by a person only (decision P6): an agent's is refused,
+	// but for one a change keeps (taxDateKept).
+	TaxDate         *time.Time
+	taxDateKept     bool
+	Gross, Tax      Amount
+	PurchaseOrderID *uuid.UUID
+	Items           []ItemInput
+	Extensions      map[string]any
 	// Kind is KindInvoice (also when empty), KindCreditMemo,
 	// KindSubsequentDebit or KindSubsequentCredit; ReferenceInvoiceID the
 	// posted invoice a correction names (T34).
@@ -444,6 +451,9 @@ func (e *Endpoints) validate(ctx context.Context, tx pgx.Tx, in Input) (checked,
 	if err := v.kind(); err != nil {
 		return checked{}, err
 	}
+	if v.taxDate, err = e.validTaxDate(ctx, tx, in); err != nil {
+		return checked{}, err
+	}
 	if c.purchaseOrder != nil {
 		if _, err := v.order(*c.purchaseOrder, "purchase_order_id"); err != nil {
 			return checked{}, err
@@ -522,6 +532,8 @@ type invoiceCheck struct {
 	exp    int
 	c      *checked
 	orders map[uuid.UUID]procurement.Order
+	// taxDate is the date the items' tax codes are checked on (taxDateOf).
+	taxDate time.Time
 }
 
 // parse reads an amount, which must be in the invoice currency with its
@@ -652,22 +664,20 @@ func (v *invoiceCheck) taxCode(field string, code *string) error {
 	if code == nil {
 		return nil
 	}
-	t, ok, err := v.e.Accounts.TaxCode(v.ctx, v.le.ID, *code, v.in.InvoiceDate)
+	t, ok, err := v.e.Accounts.TaxCode(v.ctx, v.le.ID, *code, v.taxDate)
 	if err != nil {
 		return err
 	}
 	if !ok || t.Direction != config.TaxInput {
-		return invalid("payables.unknown_tax_code", field+".tax_code", "Tax code "+*code+" is not an input tax code of the legal entity on the invoice date.")
-	}
-	if _, ok := t.Single(); !ok {
-		return componentsUnsupported(field+".tax_code", *code)
+		return invalid("payables.unknown_tax_code", field+".tax_code", "Tax code "+*code+" is not an input tax code of the legal entity on the tax date "+
+			v.taxDate.Format(time.DateOnly)+".")
 	}
 	return nil
 }
 
 // componentsUnsupported refuses a tax code with several components, a
-// non-deductible one or a partly recoverable one: supplier invoices and
-// down payments post one tax line on one account until T61d.
+// non-deductible one or a partly recoverable one: down payments post one
+// tax line on one account (their tax is a share of the amount paid).
 func componentsUnsupported(field, code string) error {
 	return invalid("payables.tax_code_components", field, "Tax code "+code+" has components an invoice or down payment cannot post yet "+
 		"(several, non-deductible or partly recoverable; T61d).")

@@ -38,7 +38,7 @@ func row(gross string) map[string]any {
 // the invoice (here none, which the rule accepts).
 func TestRulesSeeThePostingDateOfThePost(t *testing.T) {
 	e := setup(t)
-	inv, tag := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "DATED", "100.00", "0.00", accountItem(e.expense, "100.00")), "")
+	inv, tag := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "DATED", "100.00", "0.00", untaxedItem(e.expense, "100.00")), "")
 	dated := func(d string) map[string]any { r := row("1.00"); r["posting_date"] = d; return r }
 	fixture.ActivateRules(t, e.Tenant.ID, "supplier_invoice", map[string]rules.Rule{"march": {
 		Expression: `!row.posting_date.hasValue() || (row.posting_date.value() >= "2026-03-15" && row.posting_date.value() < "2026-04-01")`,
@@ -62,8 +62,8 @@ func TestRulesSeeThePostingDateOfThePost(t *testing.T) {
 // not: only the latter's next write is judged by the rules.
 func TestRuleSamplesHistorical(t *testing.T) {
 	e := setup(t)
-	parked, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "OPEN", "100.00", "0.00", accountItem(e.expense, "100.00")), "")
-	done, tag := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "DONE", "100.00", "0.00", accountItem(e.expense, "100.00")), "")
+	parked, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "OPEN", "100.00", "0.00", untaxedItem(e.expense, "100.00")), "")
+	done, tag := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "DONE", "100.00", "0.00", untaxedItem(e.expense, "100.00")), "")
 	e.Must(200, "POST", "/v1/supplier-invoices/"+id(done)+":post", `{"posting_date": "2026-03-21"}`, tag)
 	var got []rules.Sample
 	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {

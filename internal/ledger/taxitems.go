@@ -114,8 +114,9 @@ func (TaxItems) Dated(ctx context.Context, legalEntityID uuid.UUID, from, until 
 // sourcedTaxItem is an item written from an item of another entry: its
 // code, component, rate and the rest as there, with amounts of its own
 // (a reversal's negated, a cash discount's share). A nil recoverable part
-// is the source's share of the tax, rounded half away from zero; its tax
-// date is the source's when keepSourceDate, else the entry's.
+// is the whole tax, for an input item: a share of what the source posted
+// on its tax account, which is what it recovered; its tax date is the
+// source's when keepSourceDate, else the entry's.
 type sourcedTaxItem struct {
 	year           int16
 	entry          uuid.UUID
@@ -152,6 +153,9 @@ func negatedTaxItems(ctx context.Context, tx pgx.Tx, years []int16, entries []uu
 // lines carry, at its tax date (ledger.write_tax_items). The database
 // checks at commit that its tax lines and items agree (tax_item_lines).
 func writeTaxItems(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, year int16, id uuid.UUID, d draft) error {
+	if d.givenItems != nil {
+		return writeGivenItems(ctx, tx, tenant, year, id, d)
+	}
 	if d.sourcedItems == nil {
 		if !taxed(d.lines) {
 			return nil
@@ -174,9 +178,8 @@ func writeTaxItems(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, year int16,
 			base_lc, tax_lc, recoverable_lc)
 		SELECT $1, $2, $3, x.n, o.legal_entity_id, o.code, o.component, o.jurisdiction, o.direction, o.kind, o.account_key, o.account_id,
 			CASE WHEN x.keep THEN o.tax_date ELSE $4 END, o.tax_rate_id, o.rate_pct, o.recoverable_pct, x.btc, x.ttc,
-			coalesce(x.rtc, CASE WHEN o.account_key IN ('output', 'self_output') THEN 0 ELSE round(x.ttc * o.recoverable_pct / 100)::bigint END),
-			x.blc, x.tlc,
-			coalesce(x.rlc, CASE WHEN o.account_key IN ('output', 'self_output') THEN 0 ELSE round(x.tlc * o.recoverable_pct / 100)::bigint END)
+			coalesce(x.rtc, CASE WHEN o.account_key IN ('output', 'self_output') THEN 0 ELSE x.ttc END), x.blc, x.tlc,
+			coalesce(x.rlc, CASE WHEN o.account_key IN ('output', 'self_output') THEN 0 ELSE x.tlc END)
 		FROM unnest($5::smallint[], $6::uuid[], $7::int[], $8::bigint[], $9::bigint[], $10::bigint[], $11::bigint[], $12::bigint[], $13::bigint[],
 			$14::boolean[]) WITH ORDINALITY AS x(y, e, i, btc, ttc, blc, tlc, rtc, rlc, keep, n)
 		JOIN ledger.tax_item o ON o.fiscal_year = x.y AND o.journal_entry_id = x.e AND o.item_no = x.i`,
@@ -203,4 +206,67 @@ func (d draft) taxDay() time.Time {
 		return d.postingDate
 	}
 	return d.taxDate
+}
+
+// writeGivenItems writes the items a context calculated (T61d), each on
+// its component's account with the rate in force on the tax date, numbered
+// in order; the commit-time check holds them to the tax lines.
+func writeGivenItems(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, year int16, id uuid.UUID, d draft) error {
+	n := len(d.givenItems)
+	codes, components := make([]string, n), make([]string, n)
+	base, tax, rec, baseLC, taxLC, recLC := make([]money.Minor, n), make([]money.Minor, n), make([]money.Minor, n), make([]money.Minor, n),
+		make([]money.Minor, n), make([]money.Minor, n)
+	for i, t := range d.givenItems {
+		codes[i], components[i] = t.Code, t.Component
+		base[i], tax[i], rec[i], baseLC[i], taxLC[i], recLC[i] = t.Base, t.Tax, t.Recoverable, t.BaseLC, t.TaxLC, t.RecoverableLC
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO ledger.tax_item (tenant_id, fiscal_year, journal_entry_id, item_no, legal_entity_id, code, component,
+			jurisdiction, direction, kind, account_key, account_id, tax_date, tax_rate_id, rate_pct, recoverable_pct, base_tc, tax_tc, recoverable_tc,
+			base_lc, tax_lc, recoverable_lc)
+		SELECT $1, $2, $3, x.n, c.legal_entity_id, c.code, c.component, c.jurisdiction, d.direction, d.kind, c.account_key, c.account_id, $5, r.id,
+			r.rate_pct, c.recoverable_pct, x.b, x.t, x.r, x.bl, x.tl, x.rl
+		FROM unnest($6::text[], $7::text[], $8::bigint[], $9::bigint[], $10::bigint[], $11::bigint[], $12::bigint[], $13::bigint[])
+			WITH ORDINALITY AS x(code, component, b, t, r, bl, tl, rl, n)
+		JOIN ledger.tax_component c ON c.legal_entity_id = $4 AND c.code = x.code AND c.component = x.component
+		JOIN ledger.tax_code_definition d ON d.tenant_id = c.tenant_id AND d.legal_entity_id = c.legal_entity_id AND d.code = c.code
+		JOIN ledger.tax_rate r ON r.tenant_id = c.tenant_id AND r.legal_entity_id = c.legal_entity_id AND r.code = c.code AND r.component = c.component
+			AND r.withdrawn_at IS NULL AND r.valid_from <= $5 AND (r.valid_to IS NULL OR r.valid_to > $5)`,
+		tenant, year, id, d.entity.ID, d.taxDay(), codes, components, base, tax, rec, baseLC, taxLC, recLC); err != nil {
+		return fmt.Errorf("ledger: post entry %s: tax items: %w", id, err)
+	}
+	return nil
+}
+
+// keepLocal sets the local amounts the posting keeps (Line.keptLC) on the
+// converted lines, each with its group amount converted from it at the
+// posting date's rate, and books what that leaves unbalanced in local and
+// group currency as an exchange difference (fxLines): a tax line converted
+// at the tax date's rate (ADR-0049 §8). Lines without kept amounts are
+// returned as they are.
+func keepLocal(ctx context.Context, le uuid.UUID, lines []Line, rateGC exchange, expLC, expGC int, text *string) ([]Line, error) {
+	kept := false
+	lcs, gcs := make([]money.Minor, len(lines)), make([]money.Minor, len(lines))
+	for i := range lines {
+		if k := lines[i].keptLC; k != nil {
+			g, err := convert(*k, rateGC, expLC, expGC)
+			if err != nil {
+				return nil, err
+			}
+			lines[i].LC, lines[i].GC, kept = *k, g, true
+		}
+		lcs[i], gcs[i] = lines[i].LC, lines[i].GC
+	}
+	if !kept {
+		return lines, nil
+	}
+	lc, err := money.Sum(lcs...)
+	if err != nil {
+		return nil, errTotalTooLarge("lines")
+	}
+	gc, err := money.Sum(gcs...)
+	if err != nil {
+		return nil, errTotalTooLarge("lines")
+	}
+	fx, err := fxLines(ctx, le, -lc, -gc, text)
+	return append(lines, fx...), err
 }
