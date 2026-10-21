@@ -336,8 +336,8 @@ func TestRenewOnce(t *testing.T) {
 		if _, err := waiting.Renew(ctx, held, func(session.Secrets) bool { return false }, never); !errors.Is(err, session.ErrRenewing) {
 			t.Errorf("never released: got %v, want ErrRenewing", err)
 		}
-		patient := *st // its claim would last an hour: the request's deadline comes first
-		patient.RenewEvery = 10 * time.Millisecond
+		patient := *st // it would look again in an hour: the request's deadline comes first
+		patient.RenewEvery = time.Hour
 		cctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 		defer cancel()
 		if _, err := patient.Renew(cctx, held, func(session.Secrets) bool { return false }, never); !errors.Is(err, context.DeadlineExceeded) {

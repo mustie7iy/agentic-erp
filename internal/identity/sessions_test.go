@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -720,5 +721,14 @@ func TestSessionEndDatabaseFailures(t *testing.T) {
 		if !errors.Is(err, pgtest.ErrInjected) {
 			t.Fatalf("statement %d: got %v, want the injected failure", n, err)
 		}
+	}
+}
+
+// TestEndCurrentSessionOutsideARequest: the endpoint reports the missing
+// request rather than answering.
+func TestEndCurrentSessionOutsideARequest(t *testing.T) {
+	e := &identity.Endpoints{Sessions: &identity.Sessions{}}
+	if res, err := e.EndCurrentSession(context.Background(), gen.EndCurrentSessionParams{}); err == nil || res != nil {
+		t.Errorf("got %v, %v, want the missing request's error", res, err)
 	}
 }

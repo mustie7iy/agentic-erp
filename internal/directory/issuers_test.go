@@ -446,7 +446,8 @@ func TestWebClientClaims(t *testing.T) {
 	})
 	t.Run("a round projects and changes it", func(t *testing.T) {
 		a.Web = webClient("acme-2")
-		if _, err := dir.SyncIssuers(ctx, "eu-1", []directory.Issuer{a}); err != nil {
+		second := directory.Issuer{Issuer: "https://a2.example.com", Audience: "erp", TenantID: tenant, Cell: "eu-1", ProviderID: uuid.New(), Web: webClient("acme-1")}
+		if _, err := dir.SyncIssuers(ctx, "eu-1", []directory.Issuer{a, second}); err != nil {
 			t.Fatal(err)
 		}
 		if got := loginClients(t, dir); !slices.Contains(got, "acme-2 https://a.example.com") || slices.Contains(got, "acme https://a.example.com") {
