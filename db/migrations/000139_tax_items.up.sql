@@ -153,7 +153,7 @@ BEGIN
   -- Tax items are the leading ledger's (ADR-0045, ADR-0049 §5): returns are
   -- statutory and read it; a parallel ledger's copy carries the tax lines
   -- and no items, and an entry of a parallel ledger has none either.
-  IF NOT v_leading THEN
+  IF NOT coalesce(v_leading, true) THEN  -- the entry exists: the items' foreign key holds it
     IF EXISTS (SELECT FROM ledger.tax_item i WHERE i.tenant_id = t AND i.fiscal_year = y AND i.journal_entry_id = e) THEN
       RAISE EXCEPTION 'journal entry % is not the leading ledger''s: it has no tax items', e
         USING ERRCODE = 'check_violation', CONSTRAINT = 'tax_item_leading';

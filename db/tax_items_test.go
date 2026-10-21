@@ -296,14 +296,15 @@ func TestTaxItemRules(t *testing.T) {
 // TestTaxItemsBackfilled: 000139 writes the items of the entries posted
 // before, from their lines at their posting date: a tax line on a
 // component's former account is its tax as one on its current account is,
-// the code's other lines its base, once per component,
-// and an entry without codes has none; the rate check reads them.
+// the code's other lines its base, once per component; an entry without
+// codes has none, nor has a parallel ledger's (ADR-0045); the rate check
+// reads them.
 func TestTaxItemsBackfilled(t *testing.T) {
 	conn := emptyDatabase(t)
 	migrateBefore(t, conn, 139)
 	f := fixtureIDs()
 	rate := id()
-	var taxed, plain uuid.UUID
+	var taxed, plain, local uuid.UUID
 	inTenant(t, conn, f.tenant, func(tx pgx.Tx) (err error) {
 		if err := f.seed(tx); err != nil {
 			return err
@@ -337,7 +338,10 @@ func TestTaxItemsBackfilled(t *testing.T) {
 		if err := exec(tx, `UPDATE ledger.tax_component SET account_id = $2, version = version + 1 WHERE tenant_id = $1`, f.tenant, f.bank); err != nil {
 			return err
 		}
-		plain, err = f.entry(tx, 2, "2026-02-11", line{account: f.bank, amount: -5}, line{account: f.expense, amount: 5})
+		if plain, err = f.entry(tx, 2, "2026-02-11", line{account: f.bank, amount: -5}, line{account: f.expense, amount: 5}); err != nil {
+			return err
+		}
+		local, err = f.parallelTaxedEntry(tx)
 		return err
 	})
 	if _, err := Migrate(context.Background(), conn); err != nil {
@@ -348,8 +352,8 @@ func TestTaxItemsBackfilled(t *testing.T) {
 	if err := conn.QueryRow(context.Background(), `SELECT string_agg(code || '/' || component || ' ' || tax_date || ' ' || tax_tc || ' '
 			|| recoverable_tc || ' ' || (account_id = $2)::text || ' ' || (tax_rate_id = $3)::text, '; ' ORDER BY tax_tc DESC)
 			|| ', base ' || sum(base_tc) || ' on ' || count(*) FILTER (WHERE base_tc <> 0),
-			(SELECT count(*) FROM ledger.tax_item WHERE journal_entry_id = $4)
-		FROM ledger.tax_item WHERE journal_entry_id = $1`, taxed, f.tax, rate, plain).Scan(&got, &n); err != nil {
+			(SELECT count(*) FROM ledger.tax_item WHERE journal_entry_id IN ($4, $5))
+		FROM ledger.tax_item WHERE journal_entry_id = $1`, taxed, f.tax, rate, plain, local).Scan(&got, &n); err != nil {
 		t.Fatal(err)
 	}
 	// The tax on the current account (100000) is the component's too; the
@@ -358,7 +362,7 @@ func TestTaxItemsBackfilled(t *testing.T) {
 		t.Errorf("items of the taxed entry: got %s, want %s", got, want)
 	}
 	if n != 0 {
-		t.Errorf("items of an entry without codes: got %d, want none", n)
+		t.Errorf("items of an entry without codes and of a parallel ledger's: got %d, want none", n)
 	}
 	var posted bool
 	if err := conn.QueryRow(context.Background(), `SELECT ledger.tax_code_posted($1, $2, 'V1', '2026-02-01', '2026-03-01')`, f.tenant, f.entity).Scan(&posted); err != nil {
@@ -367,4 +371,32 @@ func TestTaxItemsBackfilled(t *testing.T) {
 	if !posted {
 		t.Error("the backfilled posting: got not posted, want the rate in use")
 	}
+}
+
+// parallelTaxedEntry gives the fixture's legal entity a parallel ledger 2L
+// beside 0L and posts there an entry with V1 lines, as a posting's copy
+// carries them.
+func (f fixture) parallelTaxedEntry(tx pgx.Tx) (uuid.UUID, error) {
+	local, je := id(), id()
+	err := all(tx, step(`INSERT INTO ledger.ledger (tenant_id, id, code, name, is_leading, accounting_principle, created_by)
+			VALUES ($1, $2, '2L', 'Local', false, 'HGB', $3)`, f.tenant, local, f.actor),
+		step(`INSERT INTO ledger.company_ledger (tenant_id, legal_entity_id, ledger_id, is_leading, created_by) VALUES ($1, $2, $3, true, $5), ($1, $2, $4, false, $5)`,
+			f.tenant, f.entity, f.ledger, local, f.actor),
+		step(`INSERT INTO ledger.period_status (tenant_id, id, legal_entity_id, ledger_id, calendar_id, fiscal_year, period, status, updated_by)
+			VALUES ($1, gen_random_uuid(), $2, $3, $4, 2026, 2, 'open', $5)`, f.tenant, f.entity, local, f.calendar, f.actor),
+		step(`INSERT INTO ledger.journal_entry (tenant_id, fiscal_year, id, legal_entity_id, ledger_id, fiscal_period, document_type, document_number,
+			document_date, posting_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc, source_context, posted_by)
+			VALUES ($1,2026,$2,$3,$4,2,'SA','LOCAL1','2026-02-12','2026-02-12','USD','USD','EUR',1,0.9,'ledger',$5)`, f.tenant, je, f.entity, local, f.actor))
+	for i, l := range []struct {
+		account uuid.UUID
+		amount  int64
+		code    *string
+	}{{f.bank, -120, nil}, {f.expense, 100, &[]string{"V1"}[0]}, {f.tax, 20, &[]string{"V1"}[0]}} {
+		if err == nil {
+			err = exec(tx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id, fiscal_period,
+				posting_date, account_id, amount_tc, amount_lc, amount_gc, tax_code) VALUES ($1,2026,$2,$3,$4,$5,2,'2026-02-12',$6,$7,$7,$8,$9)`,
+				f.tenant, je, i+1, f.entity, local, l.account, l.amount, l.amount*9/10, l.code)
+		}
+	}
+	return je, err
 }

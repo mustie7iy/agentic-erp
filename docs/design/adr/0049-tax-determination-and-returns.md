@@ -422,7 +422,13 @@ commit-time check, like the balance trigger).
   no items, which would count the tax twice, and an entry of a parallel
   ledger alone has none either. The commit-time check holds a parallel
   ledger's entry to having none (`tax_item_leading`), and the migration
-  writes items for the leading ledger's entries only.
+  writes items for the leading ledger's entries only. So the rate in-use
+  check (`tax_code_posted`) no longer sees a posting to a parallel ledger
+  alone, as T61a's line-based check did: such a posting's lines name a code,
+  not a rate, and no return reads them, so withdrawing or re-dating a rate
+  only they used re-rates nothing. Whether tax codes should be refused on
+  postings that leave out the leading ledger, as SAP is often configured,
+  is a question for the product owner.
   A tax line names its account and code, not its component, so the ledger
   refuses a code two of whose components with a rate on the tax date post
   to one account (422 `ledger.tax_code_components`; the database's

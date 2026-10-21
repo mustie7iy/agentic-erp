@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // taxItemsOf renders an entry's tax items, each as code/component tax
@@ -299,8 +300,9 @@ func (p parallelEnv) groupItems(t *testing.T, first string) string {
 // TestTaxItemsInParallelLedgers: in a company keeping 2L, a posting's tax
 // items are its leading ledger's entry's alone (ADR-0045, ADR-0049 §5):
 // returns are statutory and read the leading ledger, so its copy, which
-// carries the same tax lines, has none; so for a reversal and a cash
-// discount's correction; and an entry of 2L alone has none either.
+// carries the same tax lines, has none; so for a reversal, a cash
+// discount's correction, a down payment and its transfer; and an entry of
+// 2L alone has none either.
 func TestTaxItemsInParallelLedgers(t *testing.T) {
 	p := setupParallel(t)
 	je, tag := p.Must(201, "POST", "/v1/journal-entries", taxedEntry(t, p.env, "2026-03-10", ""), "")
@@ -333,5 +335,47 @@ func TestTaxItemsInParallelLedgers(t *testing.T) {
 	}
 	if got := p.groupItems(t, settled.ID.String()); got != "0L:1,2L:0" {
 		t.Errorf("settlement's items: got %s, want 0L's one alone", got)
+	}
+
+	doc := parallel(t)
+	de := doc.Company("2000")
+	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "159000", Name: "Down payments made", Type: config.Asset, VendorReconciliation: true})
+	de.AccountDetermination.DownPayment = "159000"
+	if err := apitest.Committed(t, p.ten, p.ten.Human, func(ctx context.Context) error {
+		return ledger.Setup{LegalEntities: tenancy.Directory{}}.Apply(ctx, doc)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	v1 := "V1"
+	var paid, transfer ledger.Entry
+	if err := apitest.Committed(t, p.ten, p.ten.Human, func(ctx context.Context) (err error) {
+		paid, err = postings().PayDownPayment(ctx, ledger.DownPaymentPayment{LegalEntityID: p.de, SupplierID: p.supplier,
+			BankAccountID: settleAccount(t, p.env, "2000", "100000"), DocumentType: "SA", PostingDate: date("2026-03-02"), Currency: "EUR", Amount: 11900,
+			TaxCode: &v1, Tax: 1900, SourceDocumentID: uuid.New()})
+		if err != nil {
+			return err
+		}
+		transfer, err = postings().ClearDownPayments(ctx, ledger.DownPaymentClearing{LegalEntityID: p.de, SupplierID: p.supplier,
+			APAccountID: settleAccount(t, p.env, "2000", "211000"), DocumentType: "SA", PostingDate: date("2026-03-20"), Currency: "EUR",
+			Items: []ledger.ItemRef{{FiscalYear: paid.FiscalYear, EntryID: paid.ID, LineNo: 1}}, SourceContext: "payables", SourceDocumentID: uuid.New()})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for name, c := range map[string]struct {
+		entry       ledger.Entry
+		items, want string
+	}{
+		"down payment": {paid, "0L:1,2L:0", "V1/tax 2026-03-02 10000 1900 1900 (10000 1900 1900) at 19"},
+		"transfer":     {transfer, "0L:1,2L:0", "V1/tax 2026-03-20 -10000 -1900 -1900 (-10000 -1900 -1900) at 19"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := p.groupItems(t, c.entry.ID.String()); got != c.items {
+				t.Errorf("items by ledger: got %s, want %s", got, c.items)
+			}
+			if got := taxItemsOf(t, p.env, c.entry.ID); got != c.want {
+				t.Errorf("leading items:\ngot  %s\nwant %s", got, c.want)
+			}
+		})
 	}
 }

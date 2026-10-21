@@ -1251,7 +1251,7 @@
        },
        {
         "s": "T",
-        "t": "Tax items catch-up: the next release's migration writes the items of the entries an instance of the previous release posted during T61c's rollout (no tax date, no items), so returns and the rate check see them",
+        "t": "Tax items catch-up: the next release's migration writes the items of the leading-ledger entries an instance of the previous release posted during T61c's rollout (no tax date, no items; their parallel-ledger copies keep none), so returns and the rate check see them",
         "r": "ledger.write_tax_items · ADR-0049 §5 · after T61c",
         "c": []
        },
