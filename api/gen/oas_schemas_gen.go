@@ -11436,8 +11436,10 @@ type CostCenterCreate struct {
 	ValidTo OptDate `json:"valid_to"`
 	// Leaf node of the tenant's standard hierarchy of this kind where the center is placed when its
 	// creation is approved (ADR-0050 §3: every active center sits in exactly one leaf of it); a node
-	// without child nodes (422 `ledger.hierarchy_change_invalid`).
-	StandardNodeID uuid.UUID `json:"standard_node_id"`
+	// without child nodes (422 `ledger.hierarchy_change_invalid`). Absent: the standard hierarchy's
+	// `UNASSIGNED` leaf, for a controller to place the center later; the standard hierarchy and that leaf
+	// are created when the tenant has none (product owner, 2026-10-21).
+	StandardNodeID OptUUID `json:"standard_node_id"`
 	// Why; shown to the approver and recorded in the audit trail.
 	Reason string `json:"reason"`
 }
@@ -11488,7 +11490,7 @@ func (s *CostCenterCreate) GetValidTo() OptDate {
 }
 
 // GetStandardNodeID returns the value of StandardNodeID.
-func (s *CostCenterCreate) GetStandardNodeID() uuid.UUID {
+func (s *CostCenterCreate) GetStandardNodeID() OptUUID {
 	return s.StandardNodeID
 }
 
@@ -11543,7 +11545,7 @@ func (s *CostCenterCreate) SetValidTo(val OptDate) {
 }
 
 // SetStandardNodeID sets the value of StandardNodeID.
-func (s *CostCenterCreate) SetStandardNodeID(val uuid.UUID) {
+func (s *CostCenterCreate) SetStandardNodeID(val OptUUID) {
 	s.StandardNodeID = val
 }
 
@@ -29276,8 +29278,10 @@ type ProfitCenterCreate struct {
 	ValidTo OptDate `json:"valid_to"`
 	// Leaf node of the tenant's standard hierarchy of this kind where the center is placed when its
 	// creation is approved (ADR-0050 §3: every active center sits in exactly one leaf of it); a node
-	// without child nodes (422 `ledger.hierarchy_change_invalid`).
-	StandardNodeID uuid.UUID `json:"standard_node_id"`
+	// without child nodes (422 `ledger.hierarchy_change_invalid`). Absent: the standard hierarchy's
+	// `UNASSIGNED` leaf, for a controller to place the center later; the standard hierarchy and that leaf
+	// are created when the tenant has none (product owner, 2026-10-21).
+	StandardNodeID OptUUID `json:"standard_node_id"`
 	// Why; shown to the approver and recorded in the audit trail.
 	Reason string `json:"reason"`
 }
@@ -29323,7 +29327,7 @@ func (s *ProfitCenterCreate) GetValidTo() OptDate {
 }
 
 // GetStandardNodeID returns the value of StandardNodeID.
-func (s *ProfitCenterCreate) GetStandardNodeID() uuid.UUID {
+func (s *ProfitCenterCreate) GetStandardNodeID() OptUUID {
 	return s.StandardNodeID
 }
 
@@ -29373,7 +29377,7 @@ func (s *ProfitCenterCreate) SetValidTo(val OptDate) {
 }
 
 // SetStandardNodeID sets the value of StandardNodeID.
-func (s *ProfitCenterCreate) SetStandardNodeID(val uuid.UUID) {
+func (s *ProfitCenterCreate) SetStandardNodeID(val OptUUID) {
 	s.StandardNodeID = val
 }
 

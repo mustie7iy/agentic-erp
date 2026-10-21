@@ -25,9 +25,7 @@ type centers struct {
 
 func setupCenters(t *testing.T) centers {
 	t.Helper()
-	e := setup(t)
-	pgtest.Exec(t, `INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1, gen_random_uuid(), $2, $2, 'active', $3, $3)`,
-		e.ten.ID, approvals.DefaultCenterChangeRole, e.ten.Human.ID)
+	e := withControllerRole(t, setup(t))
 	a := pgtest.Actor{ID: uuid.Must(uuid.NewV7()), Kind: "human"}
 	a.Subject = "human|" + a.ID.String()
 	pgtest.Exec(t, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, all_companies, status, created_by, updated_by)
@@ -41,6 +39,15 @@ func setupCenters(t *testing.T) centers {
 	c.ccTree, c.ccLeaf = c.standard(t, "cost_center")
 	c.pcTree, c.pcLeaf = c.standard(t, "profit_center")
 	return c
+}
+
+// withControllerRole gives the tenant the role center changes are
+// approved by.
+func withControllerRole(t *testing.T, e env) env {
+	t.Helper()
+	pgtest.Exec(t, `INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1, gen_random_uuid(), $2, $2, 'active', $3, $3)`,
+		e.ten.ID, approvals.DefaultCenterChangeRole, e.ten.Human.ID)
+	return e
 }
 
 // standard creates the standard hierarchy of a kind with one leaf, LEAF,

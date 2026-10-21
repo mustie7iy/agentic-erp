@@ -269,10 +269,21 @@ As built in T56a (migration 000128):
     tree feeds reports. Relaxing it is a policy step for the PO. Creating a
     hierarchy (empty, with its root) needs no approval.
   - **New centers.** `POST /v1/cost-centers` and `/v1/profit-centers` take
-    a required `standard_node_id`, a leaf of the tenant's standard
+    an optional `standard_node_id`, a leaf of the tenant's standard
     hierarchy of the kind, checked at the request and again at approval,
-    when the center is placed there; a tenant creates its standard
-    hierarchies before its first center. Centers that existed before
+    when the center is placed there. Without one (product owner
+    2026-10-21: no breaking change to the create operations) the center
+    is placed in the standard hierarchy's `UNASSIGNED` leaf, for a
+    controller to place later: the request adds that leaf below the root
+    when the tree has none, and creates the standard hierarchy with it
+    when the tenant has none, as 000139 does for older centers. Neither
+    needs an approval, as an empty node changes no center; the creation
+    itself is approved as before. An `UNASSIGNED` node with child nodes,
+    or a root that is still a leaf holding centers, refuses a create
+    without a node (422 `ledger.hierarchy_change_invalid`). Two first
+    centers created at once race on the standard hierarchy: the loser
+    gets 409 `ledger.standard_hierarchy_exists` and succeeds when retried.
+    Centers that existed before
     000139 (T56a was not released) were placed in a `STANDARD` hierarchy's
     `UNASSIGNED` leaf, created per tenant and kind; a create still pending
     then has no node and its approval is refused, so it is withdrawn and

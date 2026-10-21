@@ -350,6 +350,52 @@ func TestCentersCreatedInTheStandardHierarchy(t *testing.T) {
 	}
 }
 
+// TestCentersCreatedUnassigned: a new center that names no leaf is placed
+// in the standard hierarchy's UNASSIGNED leaf, for a controller to place
+// later (product owner, 2026-10-21): the leaf is added below the root the
+// first time and taken again after, and created with the standard
+// hierarchy when the tenant has none; an UNASSIGNED node with child nodes
+// refuses it.
+func TestCentersCreatedUnassigned(t *testing.T) {
+	c := setupCenters(t)
+	std := tree{c: c, path: "/v1/hierarchies/" + c.ccTree.String()}
+	body := func(code string) string {
+		return fmt.Sprintf(`{"legal_entity_id": %q, "code": %q, "name": "N", "responsible": "J", "category": "ADMIN", "valid_from": "2026-01-01",
+			"reason": "r"}`, c.de, code)
+	}
+	first, _ := c.Must(201, "POST", "/v1/cost-centers", body("U1"), "")
+	c.decide(t, first["pending_change_id"], "approve")
+	second, _ := c.Must(201, "POST", "/v1/cost-centers", body("U2"), "")
+	c.decide(t, second["pending_change_id"], "approve")
+	tr, _ := std.get(t)
+	if got, want := fmt.Sprint(outline(t, tr)), fmt.Sprintf("[STANDARD@1[] LEAF@2[] UNASSIGNED@2[%v %v]]", first["id"], second["id"]); got != want {
+		t.Errorf("standard tree: got %s, want %s", got, want)
+	}
+	if got := c.paths(t, first["id"].(string)); fmt.Sprint(got) != "[STANDARD:STANDARD/UNASSIGNED]" {
+		t.Errorf("paths: got %v, want [STANDARD:STANDARD/UNASSIGNED]", got)
+	}
+
+	pcs := tree{c: c, path: "/v1/hierarchies/" + c.pcTree.String()}
+	pr, _ := pcs.get(t)
+	pcs.add(t, pcs.add(t, pr["root_node_id"], "UNASSIGNED"), "BELOW")
+	p := c.Problem(422, "ledger.hierarchy_change_invalid", "POST", "/v1/profit-centers", fmt.Sprintf(`{"code": "PU", "name": "P", "responsible": "J",
+		"legal_entity_ids": [%q], "valid_from": "2026-01-01", "reason": "r"}`, c.de), "")
+	if errs := p["errors"].([]any); errs[0].(map[string]any)["field"] != "standard_node_id" || errs[0].(map[string]any)["code"] != "has_children" {
+		t.Errorf("an UNASSIGNED node with children: got %v, want standard_node_id has_children", errs)
+	}
+
+	e := withControllerRole(t, setup(t))
+	e.Must(201, "POST", "/v1/profit-centers", fmt.Sprintf(`{"code": "PC", "name": "P", "responsible": "J",
+		"legal_entity_ids": [%q], "valid_from": "2026-01-01", "reason": "r"}`, e.de), "")
+	var nodes string
+	pgtest.Scan(t, `SELECT string_agg(h.code || '/' || n.code, ' ' ORDER BY n.parent_id NULLS FIRST) FROM ledger.hierarchy h
+		JOIN ledger.hierarchy_node n ON n.tenant_id = h.tenant_id AND n.hierarchy_id = h.id WHERE h.tenant_id = $1 AND h.kind = 'profit_center' AND h.is_standard`,
+		[]any{e.ten.ID}, &nodes)
+	if nodes != "STANDARD/STANDARD STANDARD/UNASSIGNED" {
+		t.Errorf("a tenant's first center: got hierarchy %q, want STANDARD with its UNASSIGNED leaf", nodes)
+	}
+}
+
 // TestHierarchyChangesReplanned: changes planned against the same tree
 // are each planned again when approved, so the second of two that clash
 // is refused, also when both are approved at once.

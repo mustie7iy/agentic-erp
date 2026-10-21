@@ -19160,8 +19160,10 @@ func (s *CostCenterCreate) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
-		e.FieldStart("standard_node_id")
-		json.EncodeUUID(e, s.StandardNodeID)
+		if s.StandardNodeID.Set {
+			e.FieldStart("standard_node_id")
+			s.StandardNodeID.Encode(e)
+		}
 	}
 	{
 		e.FieldStart("reason")
@@ -19295,11 +19297,9 @@ func (s *CostCenterCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"valid_to\"")
 			}
 		case "standard_node_id":
-			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
-				v, err := json.DecodeUUID(d)
-				s.StandardNodeID = v
-				if err != nil {
+				s.StandardNodeID.Reset()
+				if err := s.StandardNodeID.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -19329,7 +19329,7 @@ func (s *CostCenterCreate) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b10110111,
-		0b00000110,
+		0b00000100,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -41748,8 +41748,10 @@ func (s *ProfitCenterCreate) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
-		e.FieldStart("standard_node_id")
-		json.EncodeUUID(e, s.StandardNodeID)
+		if s.StandardNodeID.Set {
+			e.FieldStart("standard_node_id")
+			s.StandardNodeID.Encode(e)
+		}
 	}
 	{
 		e.FieldStart("reason")
@@ -41878,11 +41880,9 @@ func (s *ProfitCenterCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"valid_to\"")
 			}
 		case "standard_node_id":
-			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
-				v, err := json.DecodeUUID(d)
-				s.StandardNodeID = v
-				if err != nil {
+				s.StandardNodeID.Reset()
+				if err := s.StandardNodeID.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -41912,7 +41912,7 @@ func (s *ProfitCenterCreate) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b01101011,
-		0b00000011,
+		0b00000010,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

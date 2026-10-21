@@ -12,9 +12,3 @@ POST /v1/payment-runs/{id}:release removed the success response with the status 
 GET /v1/payment-runs the response property `items/items/allOf[subschema #2]/house_bank_id` became optional for the status `200`
 GET /v1/payment-runs/{id} the response property `allOf[subschema #2]/house_bank_id` became optional for the status `200`
 POST /v1/payment-runs/{id}:reject the response property `allOf[subschema #2]/house_bank_id` became optional for the status `200`
-# A new cost or profit center is placed in its kind's standard hierarchy
-# when it is created; T56a's centers shipped one batch earlier and have no
-# consumer yet.
-# T56b (ADR-0050 §3 as built, pre-v1, no consumer): creation names a standard node.
-POST /v1/cost-centers added the new required request property `standard_node_id`
-POST /v1/profit-centers added the new required request property `standard_node_id`

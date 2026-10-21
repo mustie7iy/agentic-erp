@@ -261,6 +261,59 @@ func checkStandardNode(ctx context.Context, tx pgx.Tx, kind string, center, node
 	return t.planPlace("standard_node_id", center, &node)
 }
 
+// unassignedCode is the standard hierarchy's leaf a center created
+// without a node is placed at, for a controller to place later (product
+// owner, 2026-10-21), as migration 000139 placed the centers before T56b.
+const unassignedCode = "UNASSIGNED"
+
+// creationNode is the leaf a new center is placed at: the one its request
+// names, checked, or the standard hierarchy's UNASSIGNED leaf, which is
+// created, with the standard hierarchy when the tenant has none, so that
+// a center never waits on a tree being built first. Two first centers
+// created at once race on the standard hierarchy; the loser is refused
+// (409 ledger.standard_hierarchy_exists) and succeeds when retried.
+func creationNode(ctx context.Context, tx pgx.Tx, kind string, center uuid.UUID, node *uuid.UUID) (uuid.UUID, error) {
+	if node != nil {
+		return *node, checkStandardNode(ctx, tx, kind, center, *node)
+	}
+	t, err := loadTree(ctx, tx, `h.kind = $1 AND h.is_standard`, true, kind)
+	if err != nil && problem.From(err).Code == "request.not_found" {
+		if _, err := CreateHierarchy(ctx, NewHierarchy{Kind: kind, Code: "STANDARD", Name: "Standard hierarchy", IsStandard: true}); err != nil {
+			return uuid.Nil, err
+		}
+		t, err = loadTree(ctx, tx, `h.kind = $1 AND h.is_standard`, true, kind)
+	}
+	if err != nil {
+		return uuid.Nil, err
+	}
+	for id, n := range t.nodes {
+		if n.Code != unassignedCode {
+			continue
+		}
+		if len(t.children[id]) > 0 {
+			return uuid.Nil, invalidChange("standard_node_id", reasonHasChildren, "the standard hierarchy's UNASSIGNED node has child nodes; name a leaf")
+		}
+		return id, nil
+	}
+	return addUnassigned(ctx, tx, t)
+}
+
+// addUnassigned adds the UNASSIGNED leaf below the standard hierarchy's
+// root, as migration 000139 does: no change approves it, as none approves
+// the root, since a leaf without centers changes no center.
+func addUnassigned(ctx context.Context, tx pgx.Tx, t tree) (uuid.UUID, error) {
+	if len(t.nodes[t.RootID].Centers) > 0 {
+		return uuid.Nil, invalidChange("standard_node_id", reasonHasCenters, "centers sit at the standard hierarchy's root, which takes no child node; name a leaf")
+	}
+	id := uuid.Must(uuid.NewV7())
+	if _, err := tx.Exec(ctx, `INSERT INTO ledger.hierarchy_node (tenant_id, id, hierarchy_id, parent_id, code, name, position, created_by, updated_by)
+		SELECT tenant_id, $2, id, $3, $4, 'Unassigned', $5, $1, $1 FROM ledger.hierarchy WHERE id = $6`,
+		actor(ctx), id, t.RootID, unassignedCode, t.nextPosition(t.RootID), t.ID); err != nil {
+		return uuid.Nil, fmt.Errorf("ledger: add the UNASSIGNED leaf of hierarchy %s: %w", t.ID, err)
+	}
+	return id, touchTree(ctx, tx, t.ID, KindNodeCreate, nil, &id, nil)
+}
+
 // placeCreated places a center whose create was approved at the node its
 // request named, checked again against the standard tree as it now is.
 func placeCreated(ctx context.Context, tx pgx.Tx, kind string, center, change uuid.UUID, node *uuid.UUID) error {

@@ -108,7 +108,7 @@ func optBool(b gen.OptBool) *bool { return apitypes.Ptr[bool](b) }
 // CreateCostCenter implements POST /v1/cost-centers.
 func (e *Endpoints) CreateCostCenter(ctx context.Context, req *gen.CostCenterCreate, _ gen.CreateCostCenterParams) (gen.CreateCostCenterRes, error) {
 	c, err := e.RequestCostCenter(ctx, NewCostCenter{LegalEntityID: req.LegalEntityID, Code: req.Code, Texts: texts(req.Name, req.Responsible, req.Description),
-		Category: req.Category, ProfitCenterID: apitypes.Ptr[uuid.UUID](req.ProfitCenterID), StandardNodeID: req.StandardNodeID, ValidFrom: req.ValidFrom, ValidTo: dateOr(req.ValidTo), Reason: req.Reason})
+		Category: req.Category, ProfitCenterID: apitypes.Ptr[uuid.UUID](req.ProfitCenterID), StandardNodeID: apitypes.Ptr[uuid.UUID](req.StandardNodeID), ValidFrom: req.ValidFrom, ValidTo: dateOr(req.ValidTo), Reason: req.Reason})
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +226,7 @@ func (e *Endpoints) MoveCostCenter(ctx context.Context, req *gen.CostCenterMove,
 // CreateProfitCenter implements POST /v1/profit-centers.
 func (e *Endpoints) CreateProfitCenter(ctx context.Context, req *gen.ProfitCenterCreate, _ gen.CreateProfitCenterParams) (gen.CreateProfitCenterRes, error) {
 	c, err := e.RequestProfitCenter(ctx, NewProfitCenter{Code: req.Code, Texts: texts(req.Name, req.Responsible, req.Description),
-		SegmentID: apitypes.Ptr[uuid.UUID](req.SegmentID), LegalEntityIDs: req.LegalEntityIds, StandardNodeID: req.StandardNodeID, ValidFrom: req.ValidFrom, ValidTo: dateOr(req.ValidTo),
+		SegmentID: apitypes.Ptr[uuid.UUID](req.SegmentID), LegalEntityIDs: req.LegalEntityIds, StandardNodeID: apitypes.Ptr[uuid.UUID](req.StandardNodeID), ValidFrom: req.ValidFrom, ValidTo: dateOr(req.ValidTo),
 		Reason: req.Reason})
 	if err != nil {
 		return nil, err

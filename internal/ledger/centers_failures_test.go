@@ -74,10 +74,10 @@ func centerCalls(h *ledger.Endpoints, c centers, seg, pc, cc, change uuid.UUID) 
 	day := date("2026-05-01")
 	newCC := func(code string) *gen.CostCenterCreate {
 		return &gen.CostCenterCreate{LegalEntityID: c.de, Code: code, Name: "N", Responsible: "R", Category: "ADMIN",
-			ProfitCenterID: gen.NewOptUUID(pc), StandardNodeID: c.ccLeaf, ValidFrom: date("2026-01-01"), Reason: "r"}
+			ProfitCenterID: gen.NewOptUUID(pc), StandardNodeID: gen.NewOptUUID(c.ccLeaf), ValidFrom: date("2026-01-01"), Reason: "r"}
 	}
 	newPC := func(code string) *gen.ProfitCenterCreate {
-		return &gen.ProfitCenterCreate{Code: code, Name: "N", Responsible: "R", SegmentID: gen.NewOptUUID(seg), LegalEntityIds: []uuid.UUID{c.de}, StandardNodeID: c.pcLeaf,
+		return &gen.ProfitCenterCreate{Code: code, Name: "N", Responsible: "R", SegmentID: gen.NewOptUUID(seg), LegalEntityIds: []uuid.UUID{c.de}, StandardNodeID: gen.NewOptUUID(c.pcLeaf),
 			ValidFrom: date("2026-01-01"), Reason: "r"}
 	}
 	return map[string]func(ctx context.Context) error{
@@ -103,6 +103,12 @@ func centerCalls(h *ledger.Endpoints, c centers, seg, pc, cc, change uuid.UUID) 
 				return err
 			}
 			return created(ctx, h, res.(*gen.CostCenterHeaders).Response.PendingChangeID, "approve")
+		},
+		"create a cost center unassigned": func(ctx context.Context) error {
+			in := newCC("NEW3")
+			in.StandardNodeID = gen.OptUUID{}
+			_, err := h.CreateCostCenter(ctx, in, gen.CreateCostCenterParams{})
+			return err
 		},
 		"create and withdraw a cost center": func(ctx context.Context) error {
 			res, err := h.CreateCostCenter(ctx, newCC("NEW2"), gen.CreateCostCenterParams{})
@@ -184,4 +190,17 @@ func centerCalls(h *ledger.Endpoints, c centers, seg, pc, cc, change uuid.UUID) 
 			return err
 		},
 	}
+}
+
+// TestUnassignedDatabaseFailures: a tenant's first center that names no
+// leaf creates the standard hierarchy and its UNASSIGNED leaf, with each
+// statement failing in turn.
+func TestUnassignedDatabaseFailures(t *testing.T) {
+	e := withControllerRole(t, setup(t))
+	h := endpoints()
+	apitest.EveryFailure(t, e.ten, e.ten.Human, "first center", func(ctx context.Context) error {
+		_, err := h.CreateProfitCenter(ctx, &gen.ProfitCenterCreate{Code: "PC", Name: "N", Responsible: "R", LegalEntityIds: []uuid.UUID{e.de},
+			ValidFrom: date("2026-01-01"), Reason: "r"}, gen.CreateProfitCenterParams{})
+		return err
+	})
 }

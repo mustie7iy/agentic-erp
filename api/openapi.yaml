@@ -18474,7 +18474,6 @@ components:
         - responsible
         - category
         - valid_from
-        - standard_node_id
         - reason
       properties:
         legal_entity_id:
@@ -18519,7 +18518,7 @@ components:
         standard_node_id:
           type: string
           format: uuid
-          description: "Leaf node of the tenant's standard hierarchy of this kind where the center is placed when its creation is approved (ADR-0050 §3: every active center sits in exactly one leaf of it); a node without child nodes (422 `ledger.hierarchy_change_invalid`)."
+          description: "Leaf node of the tenant's standard hierarchy of this kind where the center is placed when its creation is approved (ADR-0050 §3: every active center sits in exactly one leaf of it); a node without child nodes (422 `ledger.hierarchy_change_invalid`). Absent: the standard hierarchy's `UNASSIGNED` leaf, for a controller to place the center later; the standard hierarchy and that leaf are created when the tenant has none (product owner, 2026-10-21)."
         reason:
           type: string
           minLength: 1
@@ -18809,7 +18808,6 @@ components:
         - responsible
         - legal_entity_ids
         - valid_from
-        - standard_node_id
         - reason
       properties:
         code:
@@ -18855,7 +18853,7 @@ components:
         standard_node_id:
           type: string
           format: uuid
-          description: "Leaf node of the tenant's standard hierarchy of this kind where the center is placed when its creation is approved (ADR-0050 §3: every active center sits in exactly one leaf of it); a node without child nodes (422 `ledger.hierarchy_change_invalid`)."
+          description: "Leaf node of the tenant's standard hierarchy of this kind where the center is placed when its creation is approved (ADR-0050 §3: every active center sits in exactly one leaf of it); a node without child nodes (422 `ledger.hierarchy_change_invalid`). Absent: the standard hierarchy's `UNASSIGNED` leaf, for a controller to place the center later; the standard hierarchy and that leaf are created when the tenant has none (product owner, 2026-10-21)."
         reason:
           type: string
           minLength: 1
