@@ -63,8 +63,8 @@ func TestReleasedPacksApply(t *testing.T) {
 	}
 }
 
-// The Canada pack writes the rates in force on the date of application,
-// Nova Scotia's lowered HST among them, and is not yet signed off.
+// The Canada pack brings the federal holidays and is not yet signed off;
+// its tax codes wait for ADR-0049's schema (T61a).
 func TestCanadaPack(t *testing.T) {
 	lib, err := LoadAll(packs.FS)
 	if err != nil {
@@ -74,21 +74,15 @@ func TestCanadaPack(t *testing.T) {
 	if ca == nil {
 		t.Fatal("Get(CA, 2026.1): got nil, want the Canada pack")
 	}
+	if n := len(ca.Tax.TaxCodes); n != 0 {
+		t.Errorf("tax codes: got %d, want none until T61a", n)
+	}
 	if ca.SignedOff() {
 		t.Error("SignedOff: got true, want false until the tax specialist signs it off")
 	}
 	draft, _, err := Apply(companyIn(t, "CA", "CAD"), ca, lib, Options{Company: "1000", On: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC), FiscalYear: 2026})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
-	}
-	rates := map[string]string{}
-	for _, tc := range draft.Company("1000").TaxCodes {
-		rates[tc.Code] = tc.RatePercent
-	}
-	for code, want := range map[string]string{"G5": "5", "HON": "13", "HNB": "15", "HNL": "15", "HNS": "14", "HPE": "15", "QST": "9.975", "PBC": "7", "PMB": "7", "PSK": "6"} {
-		if rates[code] != want {
-			t.Errorf("tax code %s: got rate %q, want %q", code, rates[code], want)
-		}
 	}
 	cal := draft.Calendar("1000")
 	if cal == nil {
@@ -100,7 +94,10 @@ func TestCanadaPack(t *testing.T) {
 	// The movable ones, which are computed: Easter, the Monday before May
 	// 25, the first Monday of September, the second Monday of October.
 	for _, day := range []string{"2026-04-03", "2027-03-26", "2026-05-18", "2027-05-24", "2026-09-07", "2027-09-06", "2026-10-12", "2027-10-11"} {
-		d, _ := time.Parse(time.DateOnly, day) // the list's dates are valid
+		d, err := time.Parse(time.DateOnly, day)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if _, ok := draft.Holiday("1000", d); !ok {
 			t.Errorf("holiday on %s: got none, want one", day)
 		}

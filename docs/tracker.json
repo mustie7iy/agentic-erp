@@ -3717,7 +3717,7 @@
        },
        {
         "s": "D",
-        "t": "Canada pack: starter chart with every account determination key, GST/HST by province (CRA rate table dates), QST and BC/MB/SK PST, number ranges for every numbered document type, net payment terms, Canada Labour Code general holidays 2026-2027; sources cited; no sign-off yet (production refuses it), open items for the tax specialist in ADR-0048",
+        "t": "Canada pack: starter chart with every account determination key, number ranges for every numbered document type, net payment terms, Canada Labour Code general holidays 2026-2027; sources cited; tax codes pending T61a (sourced GST/HST/QST/PST in packs/ca/TAX-PENDING-T61a.md); no sign-off yet (production refuses it)",
         "r": "packs/ca/2026.1 · packs/released.sha256 · ADR-0048 · T62e",
         "c": []
        },

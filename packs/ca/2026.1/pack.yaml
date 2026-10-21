@@ -1,8 +1,6 @@
-# Canada (ADR-0048, T62e). Federal GST and the HST of the participating
-# provinces are from the Canada Revenue Agency's rate table; the
-# provincial sales taxes from each province's own publication. What the
-# tax specialist must confirm before signing off is listed in ADR-0048
-# (Canada pack, T62e).
+# Canada (ADR-0048, T62e). The tax sources below back the codes pending
+# T61a (../TAX-PENDING-T61a.md); what the tax specialist must confirm
+# before signing off is listed in ADR-0048 (Canada pack, T62e).
 country: CA
 version: "2026.1"
 name: Canada
