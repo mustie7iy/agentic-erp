@@ -17,8 +17,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -106,27 +109,48 @@ func List[T any](ctx context.Context, c *Client, path string, query url.Values) 
 // when not empty, is sent as If-Match.
 func (c *Client) Do(ctx context.Context, method, path string, query url.Values, body any, ifMatch string) (Response, error) {
 	var reader io.Reader
+	contentType := ""
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
 			return Response{}, fmt.Errorf("apitools: body: %w", err)
 		}
-		reader = bytes.NewReader(b)
+		reader, contentType = bytes.NewReader(b), "application/json"
+		if method == http.MethodPatch {
+			contentType = "application/merge-patch+json"
+		}
 	}
 	u := strings.TrimRight(c.BaseURL, "/") + path
 	if len(query) > 0 {
 		u += "?" + query.Encode()
 	}
-	req, err := http.NewRequestWithContext(ctx, method, u, reader)
+	return c.send(ctx, method, u, contentType, reader, ifMatch)
+}
+
+// Form posts a multipart form of the values to path (an upload whose file
+// the contract takes as a string of bytes, such as a bank statement), in
+// the order of their names, with a fresh Idempotency-Key.
+func (c *Client) Form(ctx context.Context, path string, values map[string]string) (Response, error) {
+	var body bytes.Buffer
+	// The multipart writer writes to a bytes.Buffer, whose writes never
+	// fail, so none of these calls can return an error.
+	w := multipart.NewWriter(&body)
+	for _, k := range slices.Sorted(maps.Keys(values)) {
+		_ = w.WriteField(k, values[k])
+	}
+	_ = w.Close()
+	return c.send(ctx, http.MethodPost, strings.TrimRight(c.BaseURL, "/")+path, w.FormDataContentType(), &body, "")
+}
+
+// send makes the request with the client's token.
+func (c *Client) send(ctx context.Context, method, u, contentType string, body io.Reader, ifMatch string) (Response, error) {
+	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
 		return Response{}, fmt.Errorf("apitools: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-		if method == http.MethodPatch {
-			req.Header.Set("Content-Type", "application/merge-patch+json")
-		}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	if method != http.MethodGet {
 		req.Header.Set("Idempotency-Key", uuid.NewString())
@@ -140,12 +164,12 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 	}
 	resp, err := h.Do(req)
 	if err != nil {
-		return Response{}, fmt.Errorf("apitools: %s %s: %w", method, path, err)
+		return Response{}, fmt.Errorf("apitools: %s %s: %w", method, req.URL.Path, err)
 	}
 	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return Response{}, fmt.Errorf("apitools: %s %s: %w", method, path, err)
+		return Response{}, fmt.Errorf("apitools: %s %s: %w", method, req.URL.Path, err)
 	}
 	return Response{Status: resp.StatusCode, ETag: resp.Header.Get("ETag"), Body: b}, nil
 }

@@ -22,12 +22,13 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/delivery/testagent"
 	"github.com/mustie7iy/agentic-erp/internal/eval"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/reconagent"
 )
 
 // evalAgents are the adapters of the agents a suite may evaluate, by agent
 // type (ADR-0039).
 var evalAgents = map[string]eval.Agent{"analytics": analyticsEval, "ap_exceptions": apExceptions, "capture": captureEval,
-	"configuration": configurationEval, "migration": migrationEval, "test": testEval}
+	"configuration": configurationEval, "migration": migrationEval, "reconciliation": reconciliationEval, "test": testEval}
 
 // analyticsEval asks the task's question as erp ask does, its session
 // reading what the API gives the agent principal and no more. Its reply
@@ -132,6 +133,24 @@ func testEval(ctx context.Context, env eval.Env) error {
 	}
 	if _, err := (&testagent.Agent{LLM: env.LLM, API: env.Agent}).Review(ctx, t["change_request"]); err != nil {
 		return fmt.Errorf("test: %w", err)
+	}
+	return nil
+}
+
+// reconciliationEval has the agent propose for the task's statement as erp
+// agent reconcile does; a line it could not review fails the case, a line
+// it left to people does not (the checks judge that).
+func reconciliationEval(ctx context.Context, env eval.Env) error {
+	t, err := tasked(env, "statement")
+	if err != nil {
+		return err
+	}
+	res, err := (&reconagent.Agent{LLM: env.LLM, API: env.Agent}).Review(ctx, t["statement"])
+	if err != nil {
+		return fmt.Errorf("reconciliation: %w", err)
+	}
+	if len(res.Errors) > 0 {
+		return fmt.Errorf("reconciliation: %s", strings.Join(res.Errors, "; "))
 	}
 	return nil
 }

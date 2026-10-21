@@ -69,6 +69,7 @@ var allowed = map[string][]string{
 	"payments":                {"approvals", "bankfile", "bankstatement", "config", "ledger", "operations", "partner", "tenancy"},
 	"procurement":             {"approvals", "config", "ledger", "partner", "tenancy"},
 	"provisioning":            {"config", "configuration", "identity", "tenancy"},
+	"reconagent":              {"apitools", "llm"},
 	"router":                  {"directory"},
 	"workflows":               {"approvals", "configuration", "integration", "operations", "payments"},
 }

@@ -15,6 +15,26 @@ import (
 	"github.com/ogen-go/ogen/uri"
 )
 
+func encodeAcceptBankStatementLineProposalRequest(
+	req OptStatementLineProposalAccept,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	if !req.Set {
+		// Keep request with empty body if value is not set.
+		return nil
+	}
+	e := new(jx.Encoder)
+	{
+		if req.Set {
+			req.Encode(e)
+		}
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeApproveApprovalRequestRequest(
 	req OptDecisionInput,
 	r *http.Request,
@@ -839,6 +859,20 @@ func encodePostSupplierInvoiceRequest(
 	return nil
 }
 
+func encodeProposeBankStatementLineRequest(
+	req *StatementLineProposalInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeProposePaymentRunRequest(
 	req *PaymentRunPropose,
 	r *http.Request,
@@ -869,6 +903,20 @@ func encodeRecordAgentToolCallRequest(
 
 func encodeRejectApprovalRequestRequest(
 	req *CommentRequiredInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeRejectBankStatementLineProposalRequest(
+	req *ReasonInput,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"

@@ -274,6 +274,8 @@ channels:
       BankStatementLineMatched: {$ref: '#/components/messages/BankStatementLineMatched'}
       BankStatementLineExcluded: {$ref: '#/components/messages/BankStatementLineExcluded'}
       BankStatementLinePosted: {$ref: '#/components/messages/BankStatementLinePosted'}
+      BankStatementLineProposed: {$ref: '#/components/messages/BankStatementLineProposed'}
+      BankStatementLineProposalDecided: {$ref: '#/components/messages/BankStatementLineProposalDecided'}
   workflow:
     address: 'erp.{cell}.workflow.{tenant}.{event}'
     title: Workflow events
@@ -453,6 +455,8 @@ operations:
       - $ref: '#/channels/payments/messages/BankStatementLineMatched'
       - $ref: '#/channels/payments/messages/BankStatementLineExcluded'
       - $ref: '#/channels/payments/messages/BankStatementLinePosted'
+      - $ref: '#/channels/payments/messages/BankStatementLineProposed'
+      - $ref: '#/channels/payments/messages/BankStatementLineProposalDecided'
   publishWorkflowEvents:
     action: send
     title: Workflow publishes
@@ -1398,6 +1402,38 @@ components:
         - name: posted
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f9, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_line_posted.v1, subject: 0192a000-0000-7000-8000-000000000b40, time: '2026-10-20T11:10:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
           payload: {statement_match_id: 0192a000-0000-7000-8000-000000000b40, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, amount: {amount: '-100.00', currency: EUR}, posting_date: '2026-04-17', journal_entry_id: 0192a000-0000-7000-8000-000000000d01, journal_entry_year: 2026, document_number: '100000001', cleared_payments: 1, approval_request_id: 0192a000-0000-7000-8000-000000000901}
+    BankStatementLineProposed:
+      name: BankStatementLineProposed
+      title: Bank statement line proposed by the agent
+      summary: The reconciliation agent proposed a match or the exclusion of a statement line.
+      description: "Emitted when the reconciliation agent proposes, in one of its sessions, what a bank statement line the rules left unmatched or open clears (`match`, its candidate's targets) or that it clears nothing (`exclude`), with a reason (T49g, ADR-0047). The line is `proposed` until a person accepts, rejects or overrides the proposal; nothing is posted. Subject is the proposal (a match of kind agent)."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_statement_line_proposed.v1}
+      payload: {$ref: '#/components/schemas/BankStatementLineProposedV1'}
+      examples:
+        - name: proposed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000fa, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_line_proposed.v1, subject: 0192a000-0000-7000-8000-000000000b42, time: '2026-10-21T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000106}
+          payload: {statement_match_id: 0192a000-0000-7000-8000-000000000b42, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 4, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, kind: agent, rule: null, status: open, candidates: 1, session_id: 0192a000-0000-7000-8000-000000000a01, proposal: match}
+    BankStatementLineProposalDecided:
+      name: BankStatementLineProposalDecided
+      title: Agent's proposal for a statement line decided
+      summary: A person accepted, rejected or overrode the reconciliation agent's proposal for a statement line.
+      description: "Emitted when a person decides the reconciliation agent's proposal for a bank statement line (T49g, ADR-0047): `accepted` (the person's match or exclusion by it follows, as BankStatementLineMatched or BankStatementLineExcluded), `rejected` (the line is unmatched again), or `overridden` (the person matched or excluded the line otherwise). Subject is the proposal."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_statement_line_proposal_decided.v1}
+      payload: {$ref: '#/components/schemas/BankStatementLineProposalDecidedV1'}
+      examples:
+        - name: accepted
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000fb, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_line_proposal_decided.v1, subject: 0192a000-0000-7000-8000-000000000b42, time: '2026-10-21T09:30:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
+          payload: {statement_match_id: 0192a000-0000-7000-8000-000000000b42, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 4, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, session_id: 0192a000-0000-7000-8000-000000000a01, outcome: accepted}
     BankFileTransmitted:
       name: BankFileTransmitted
       title: Bank file transmitted
@@ -3786,6 +3822,32 @@ components:
         document_number: {"type": "string"}
         cleared_payments: {"type": "integer", "minimum": 0, "description": "How many payments' lines on the clearing account the posting cleared; 0 for a posting rule's line."}
         approval_request_id: {"$ref": "#/components/schemas/NullableUuid", "description": "The bank_clearing request that approved the posting; null when the tier had no steps."}
+    BankStatementLineProposedV1:
+      type: object
+      required: ["statement_match_id", "bank_statement_id", "line_no", "house_bank_id", "legal_entity_id", "kind", "rule", "status", "candidates", "session_id", "proposal"]
+      properties:
+        statement_match_id: {"$ref": "#/components/schemas/Uuid"}
+        bank_statement_id: {"$ref": "#/components/schemas/Uuid"}
+        line_no: {"type": "integer", "minimum": 1, "description": "The line's number in the statement."}
+        house_bank_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        kind: {"type": "string", "description": "agent."}
+        rule: {"type": "null", "description": "Always null: no rule made it."}
+        status: {"type": "string", "description": "open."}
+        candidates: {"type": "integer", "minimum": 0, "description": "1 for a proposed match, 0 for a proposed exclusion."}
+        session_id: {"$ref": "#/components/schemas/Uuid", "description": "The agent session that proposed it (agents context)."}
+        proposal: {"type": "string", "description": "Open enum: match, exclude."}
+    BankStatementLineProposalDecidedV1:
+      type: object
+      required: ["statement_match_id", "bank_statement_id", "line_no", "house_bank_id", "legal_entity_id", "session_id", "outcome"]
+      properties:
+        statement_match_id: {"$ref": "#/components/schemas/Uuid"}
+        bank_statement_id: {"$ref": "#/components/schemas/Uuid"}
+        line_no: {"type": "integer", "minimum": 1, "description": "The line's number in the statement."}
+        house_bank_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        session_id: {"$ref": "#/components/schemas/Uuid", "description": "The agent session that proposed it."}
+        outcome: {"type": "string", "description": "Open enum: accepted, rejected, overridden."}
     BankFileCreatedV1:
       type: object
       required: ["bank_file_id", "payment_run_id", "format", "sha256", "status"]

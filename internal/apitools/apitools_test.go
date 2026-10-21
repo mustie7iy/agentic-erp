@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
@@ -316,5 +317,28 @@ func TestRunOffersTheToolsOfTheLevel(t *testing.T) {
 				t.Errorf("offered: got %v, want %v", got, c.want)
 			}
 		})
+	}
+}
+
+// TestForm: a form posts its values as a multipart form, with the token
+// and a fresh Idempotency-Key; a server that cannot be reached is an error.
+func TestForm(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer t" || r.Header.Get("Idempotency-Key") == "" ||
+			!strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+			w.WriteHeader(400)
+			return
+		}
+		w.Header().Set("ETag", `"1"`)
+		w.WriteHeader(201)
+		_, _ = fmt.Fprintf(w, `{"format": %q, "file": %q}`, r.FormValue("format"), r.FormValue("file"))
+	}))
+	t.Cleanup(srv.Close)
+	resp, err := (&apitools.Client{BaseURL: srv.URL + "/", Token: "t"}).Form(context.Background(), "/v1/uploads", map[string]string{"format": "mt940", "file": ":20:X\n"})
+	if err != nil || resp.Status != 201 || resp.ETag != `"1"` || string(resp.Body) != `{"format": "mt940", "file": ":20:X\n"}` {
+		t.Errorf("form: got %+v, %v", resp, err)
+	}
+	if _, err := (&apitools.Client{BaseURL: "http://127.0.0.1:1", Token: "t"}).Form(context.Background(), "/v1/uploads", nil); err == nil {
+		t.Error("an unreachable server: got no error")
 	}
 }

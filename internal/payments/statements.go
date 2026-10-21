@@ -98,6 +98,15 @@ type LineDetail struct {
 	Remittance          string      `json:"remittance,omitempty"`
 }
 
+// counterpartyAccount is the other side's IBAN, or its account number
+// where it has none.
+func (d LineDetail) counterpartyAccount() string {
+	if d.CounterpartyIBAN != "" {
+		return d.CounterpartyIBAN
+	}
+	return d.CounterpartyAccount
+}
+
 // statementBank is what an import needs of its house bank.
 type statementBank struct {
 	ID, LegalEntityID uuid.UUID

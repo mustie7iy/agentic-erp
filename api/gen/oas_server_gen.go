@@ -8,6 +8,21 @@ import (
 
 // Handler handles operations described by OpenAPI v3 specification.
 type Handler interface {
+	// AcceptBankStatementLineProposal implements acceptBankStatementLineProposal operation.
+	//
+	// A person accepts the line's open proposal by the reconciliation agent (ADR-0047, T49g): the line is
+	// matched by hand to what it proposed, checked again as `:match` checks it (422
+	// `payments.statement_match_target` when a payment is no longer one the line may clear, or the posting
+	// rule is gone), or excluded with its reason. The proposal becomes `rejected` with outcome `accepted`,
+	// and the person's match (kind `manual`) is the line's, so the person posts it with `:post` and cannot
+	// approve its posting (segregation of duties). A line without an open proposal is 409
+	// `payments.statement_line_no_proposal`; one on its way to the ledger keeps its match (409
+	// `payments.statement_line_posting`). People only. Audited; published as
+	// BankStatementLineProposalDecided and BankStatementLineMatched (or BankStatementLineExcluded).
+	// If-Match is the statement's ETag; the response's is its new one.
+	//
+	// POST /v1/bank-statements/{id}/lines/{line_no}:acceptProposal
+	AcceptBankStatementLineProposal(ctx context.Context, req OptStatementLineProposalAccept, params AcceptBankStatementLineProposalParams) (AcceptBankStatementLineProposalRes, error)
 	// ActivateChangeRequest implements activateChangeRequest operation.
 	//
 	// Creates and activates a new configuration version from an approved change request; each context
@@ -483,6 +498,15 @@ type Handler interface {
 	//
 	// GET /v1/bank-statements/{id}/file
 	GetBankStatementFile(ctx context.Context, params GetBankStatementFileParams) (GetBankStatementFileRes, error)
+	// GetBankStatementRules implements getBankStatementRules operation.
+	//
+	// The posting rules and matching rules of the statement's company in the active configuration
+	// (`companies[].bank_statements`, ADR-0047): what the transaction codes post to, and how lines are
+	// matched, in the rules' order. Read by people and by the reconciliation agent, which proposes a
+	// posting rule by its transaction code. Empty lists for a company without them.
+	//
+	// GET /v1/bank-statements/{id}/rules
+	GetBankStatementRules(ctx context.Context, params GetBankStatementRulesParams) (GetBankStatementRulesRes, error)
 	// GetBusinessPartner implements getBusinessPartner operation.
 	//
 	// Returns one business partner.
@@ -863,6 +887,14 @@ type Handler interface {
 	//
 	// GET /v1/gr-ir-balances
 	ListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (ListGrIrBalancesRes, error)
+	// ListHouseBanks implements listHouseBanks operation.
+	//
+	// The house banks of the companies the caller may access, as the configuration names them
+	// (`companies[].house_bank(s)`), active and inactive, by legal entity and code: the id a statement
+	// import names. The account is shown by its last four characters only. Sortable by: `code`.
+	//
+	// GET /v1/house-banks
+	ListHouseBanks(ctx context.Context, params ListHouseBanksParams) (ListHouseBanksRes, error)
 	// ListJournalEntries implements listJournalEntries operation.
 	//
 	// Posted journal entries. Sortable by: `posting_date`, `document_number`.
@@ -1158,6 +1190,26 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices/{id}:post
 	PostSupplierInvoice(ctx context.Context, req OptSupplierInvoicePost, params PostSupplierInvoiceParams) (PostSupplierInvoiceRes, error)
+	// ProposeBankStatementLine implements proposeBankStatementLine operation.
+	//
+	// The reconciliation agent proposes (ADR-0047, T49g), for a line the rules left `unmatched` or open
+	// (`proposed` by a rule), the payments it clears, a posting rule of the company, or its exclusion,
+	// with a reason, in its running session (`session_id`; another's or an ended one is refused as
+	// `createRecommendation` refuses it). A person decides the proposal: `:acceptProposal` matches or
+	// excludes the line by it, `:rejectProposal` turns it down, and a person's own `:match` or `:exclude`
+	// overrides it. The proposal is a match of kind `agent` and status `open` naming its session and
+	// `proposal` (`match` or `exclude`); the line's open match by a rule is rejected, and the line is
+	// `proposed`. The rules never take a proposal up again. A proposal reserves no payment and never
+	// posts: each payment must be one the line may clear, as for a person's match (422
+	// `payments.statement_match_target`). A session proposes once per line: the same proposal again
+	// answers 200 with the first; another is 409 `payments.statement_line_proposed`, as is a proposal for
+	// a line with another session's proposal. A line matched, excluded, waiting for its posting's approval
+	// or posted takes no proposal (409 `payments.statement_line_not_open`). If-Match is the statement's
+	// ETag, as the agent read it (a proposal made before is answered whatever it is). Audited, and
+	// published as BankStatementLineProposed. The response's ETag is the statement's new one.
+	//
+	// POST /v1/bank-statements/{id}/lines/{line_no}:propose
+	ProposeBankStatementLine(ctx context.Context, req *StatementLineProposalInput, params ProposeBankStatementLineParams) (ProposeBankStatementLineRes, error)
 	// ProposePaymentRun implements proposePaymentRun operation.
 	//
 	// Creates a run in status `proposing` (the Operation's `resource` points to it from the start), then
@@ -1195,6 +1247,17 @@ type Handler interface {
 	//
 	// POST /v1/approval-requests/{id}:reject
 	RejectApprovalRequest(ctx context.Context, req *CommentRequiredInput, params RejectApprovalRequestParams) (RejectApprovalRequestRes, error)
+	// RejectBankStatementLineProposal implements rejectBankStatementLineProposal operation.
+	//
+	// A person rejects the line's open proposal by the reconciliation agent, with a reason (ADR-0047,
+	// T49g): the proposal becomes `rejected` with outcome `rejected`, and the line `unmatched`, for the
+	// rules' next run or a person. The reconciliation agent does not propose for the line again. A line
+	// without an open proposal is 409 `payments.statement_line_no_proposal`. People only. Audited, and
+	// published as BankStatementLineProposalDecided. If-Match is the statement's ETag; the response's is
+	// its new one.
+	//
+	// POST /v1/bank-statements/{id}/lines/{line_no}:rejectProposal
+	RejectBankStatementLineProposal(ctx context.Context, req *ReasonInput, params RejectBankStatementLineProposalParams) (RejectBankStatementLineProposalRes, error)
 	// RejectPaymentRun implements rejectPaymentRun operation.
 	//
 	// Rejects a proposed run and frees its open items for later runs. A direct human transition like
