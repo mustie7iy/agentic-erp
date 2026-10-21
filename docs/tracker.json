@@ -1183,15 +1183,15 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "The ledger's cash discount tax split (ledger.itemTaxShares, T36d) uses money.Allocate instead of its own largest-remainder loop",
+        "s": "D",
+        "t": "The ledger's cash discount tax split (ledger.itemTaxShares, T36d) uses money.Allocate instead of its own largest-remainder loop, over the paid entries' tax items",
         "r": "internal/ledger/discounttax.go · money.Allocate · with T61c",
         "c": []
        },
        {
-        "s": "T",
-        "t": "Tax items in the ledger: ledger.tax_item written by every posting path that carries a tax code, reversals negated, checked against the tax lines at commit; the tax date on the entry; the ledger.TaxItems port; the contract step dropping the former ledger.tax_code (copied by 000124, no longer read), and the in-use check (ledger.tax_code_posted) reading tax items",
-        "r": "T61c",
+        "s": "D",
+        "t": "Tax items in the ledger: ledger.tax_item written by every posting path that carries a tax code, reversals negated, checked against the tax lines at commit; the tax date on the entry; the ledger.TaxItems port; the contract step dropping the former ledger.tax_code (copied by 000124, no longer read), and the in-use check (ledger.tax_code_posted) reading tax items; internal/tax in the shared kernel",
+        "r": "db/migrations/000140-000141 · ledger.tax_item · ledger.write_tax_items · ledger.TaxItems · journal_entry.tax_date · internal/layout shared tax · ADR-0049 · T61c",
         "c": []
        },
        {

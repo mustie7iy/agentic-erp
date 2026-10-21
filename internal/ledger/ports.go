@@ -42,10 +42,14 @@ type PostingLine struct {
 
 // Posting is an entry another context posts for one of its documents.
 type Posting struct {
-	LegalEntityID    uuid.UUID
-	DocumentType     string
-	DocumentDate     time.Time
-	PostingDate      time.Time
+	LegalEntityID uuid.UUID
+	DocumentType  string
+	DocumentDate  time.Time
+	PostingDate   time.Time
+	// TaxDate is the date the entry's tax codes' rates apply on and its
+	// tax is reported in (ADR-0049 §4): a supplier invoice's invoice date;
+	// nil: the posting date.
+	TaxDate          *time.Time
 	Currency         string
 	Reference        *string
 	HeaderText       *string
@@ -173,7 +177,10 @@ type GRIRItem struct {
 	// line goes to the price_difference account.
 	OffsetAccountID *uuid.UUID
 	Invoiced        *money.Minor
-	Text            *string
+	// TaxCode is an invoiced item's tax code: its GR/IR and price
+	// difference lines are the code's base (ADR-0049 §5).
+	TaxCode *string
+	Text    *string
 }
 
 // Post posts the entry in the leading ledger; one with GR/IR items books
@@ -191,7 +198,7 @@ func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
 		return Entry{}, err
 	}
 	entry := NewEntry{LegalEntityID: in.LegalEntityID, DocumentType: in.DocumentType, DocumentDate: in.DocumentDate, PostingDate: in.PostingDate,
-		Currency: in.Currency, Reference: in.Reference, HeaderText: in.HeaderText, SourceContext: in.SourceContext,
+		TaxDate: in.TaxDate, Currency: in.Currency, Reference: in.Reference, HeaderText: in.HeaderText, SourceContext: in.SourceContext,
 		SourceDocumentID: &in.SourceDocumentID, Lines: make([]NewLine, len(in.Lines))}
 	for i, l := range in.Lines {
 		entry.Lines[i] = NewLine{AccountID: l.AccountID, Amount: l.Amount.Plain(exps[in.Currency]), Currency: in.Currency,

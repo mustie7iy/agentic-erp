@@ -36,6 +36,7 @@ type ParkedEntry struct {
 	DocumentType      string
 	DocumentDate      time.Time
 	PostingDate       time.Time
+	TaxDate           *time.Time // nil: the posting date
 	Currency          string
 	Exp               int // the currency's minor-unit digits
 	Reference         *string
@@ -55,7 +56,7 @@ type ParkedEntry struct {
 	UpdatedBy         uuid.UUID
 }
 
-const parkedSelect = `SELECT p.id, p.legal_entity_id, p.ledger_id, p.document_type, p.document_date, p.posting_date, p.currency, c.exponent,
+const parkedSelect = `SELECT p.id, p.legal_entity_id, p.ledger_id, p.document_type, p.document_date, p.posting_date, p.tax_date, p.currency, c.exponent,
 		p.reference, p.header_text, p.status, p.created_by_kind, p.owner_id, p.approval_request_id, p.journal_fiscal_year, p.journal_entry_id,
 		p.version, p.created_at, p.created_by, p.updated_at, p.updated_by,
 		coalesce((SELECT json_agg(json_build_object('line_no', l.line_no, 'account_id', l.account_id, 'tc', l.amount, 'lc', 0, 'gc', 0,
@@ -68,7 +69,7 @@ const parkedSelect = `SELECT p.id, p.legal_entity_id, p.ledger_id, p.document_ty
 
 func scanParked(row pgx.Row) (ParkedEntry, error) {
 	var pe ParkedEntry
-	err := row.Scan(&pe.ID, &pe.LegalEntityID, &pe.LedgerID, &pe.DocumentType, &pe.DocumentDate, &pe.PostingDate, &pe.Currency, &pe.Exp,
+	err := row.Scan(&pe.ID, &pe.LegalEntityID, &pe.LedgerID, &pe.DocumentType, &pe.DocumentDate, &pe.PostingDate, &pe.TaxDate, &pe.Currency, &pe.Exp,
 		&pe.Reference, &pe.HeaderText, &pe.Status, &pe.CreatedByKind, &pe.OwnerID, &pe.ApprovalRequestID, &pe.JournalFiscalYear, &pe.JournalEntryID,
 		&pe.Version, &pe.CreatedAt, &pe.CreatedBy, &pe.UpdatedAt, &pe.UpdatedBy, &pe.Lines, &pe.Debits)
 	return pe, errs.Wrapf(err, "scan parked entry")
@@ -118,10 +119,10 @@ func (e *Endpoints) parkEntry(ctx context.Context, in NewEntry) (ParkedEntry, er
 		owner = &p.ID
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.parked_entry (tenant_id, id, legal_entity_id, ledger_id, document_type, document_date, posting_date,
-			currency, reference, header_text, created_by_kind, owner_id, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)`,
+			currency, reference, header_text, created_by_kind, owner_id, created_by, updated_by, tax_date)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, $14)`,
 		p.TenantID, id, v.le.ID, v.ledger, in.DocumentType, in.DocumentDate, in.PostingDate, in.Currency, in.Reference, in.HeaderText,
-		p.Kind, owner, p.ID); err != nil {
+		p.Kind, owner, p.ID, in.TaxDate); err != nil {
 		return ParkedEntry{}, fmt.Errorf("ledger: park entry %s: %w", id, err)
 	}
 	if err := putParkedLines(ctx, tx, p.TenantID, id, v.lines); err != nil {
@@ -226,6 +227,7 @@ func parkedChanged(ctx context.Context, pe ParkedEntry, previous *string, action
 type EntryChange struct {
 	DocumentType              *string
 	DocumentDate, PostingDate *time.Time
+	TaxDate                   **time.Time // a nil *time.Time clears it: the posting date
 	Currency                  *string
 	Reference, HeaderText     **string
 	Lines                     []NewLine
@@ -280,7 +282,7 @@ func ownerAfter(pe ParkedEntry, p reqctx.Principal) (*uuid.UUID, error) {
 // changed is the parked entry as a manual entry with the change applied.
 func changed(pe ParkedEntry, ch EntryChange) NewEntry {
 	in := NewEntry{LegalEntityID: pe.LegalEntityID, LedgerID: &pe.LedgerID, DocumentType: pe.DocumentType, DocumentDate: pe.DocumentDate,
-		PostingDate: pe.PostingDate, Currency: pe.Currency, Reference: pe.Reference, HeaderText: pe.HeaderText, Lines: ch.Lines}
+		PostingDate: pe.PostingDate, TaxDate: pe.TaxDate, Currency: pe.Currency, Reference: pe.Reference, HeaderText: pe.HeaderText, Lines: ch.Lines}
 	if in.Lines == nil {
 		in.Lines = make([]NewLine, len(pe.Lines))
 		for i, l := range pe.Lines {
@@ -290,6 +292,7 @@ func changed(pe ParkedEntry, ch EntryChange) NewEntry {
 	}
 	in.DocumentType = deref(ch.DocumentType, in.DocumentType)
 	in.DocumentDate, in.PostingDate = deref(ch.DocumentDate, in.DocumentDate), deref(ch.PostingDate, in.PostingDate)
+	in.TaxDate = deref(ch.TaxDate, in.TaxDate)
 	in.Currency = deref(ch.Currency, in.Currency)
 	in.Reference, in.HeaderText = deref(ch.Reference, in.Reference), deref(ch.HeaderText, in.HeaderText)
 	return in
@@ -323,8 +326,8 @@ func (e *Endpoints) changeEntry(ctx context.Context, id uuid.UUID, ifMatch func(
 		return ParkedEntry{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE ledger.parked_entry SET ledger_id = $2, document_type = $3, document_date = $4, posting_date = $5, currency = $6,
-			reference = $7, header_text = $8, owner_id = $9, version = version + 1, updated_by = $10 WHERE id = $1`,
-		id, v.ledger, in.DocumentType, in.DocumentDate, in.PostingDate, in.Currency, in.Reference, in.HeaderText, owner, p.ID); err != nil {
+			reference = $7, header_text = $8, owner_id = $9, version = version + 1, updated_by = $10, tax_date = $11 WHERE id = $1`,
+		id, v.ledger, in.DocumentType, in.DocumentDate, in.PostingDate, in.Currency, in.Reference, in.HeaderText, owner, p.ID, in.TaxDate); err != nil {
 		return ParkedEntry{}, fmt.Errorf("ledger: change parked entry %s: %w", id, err)
 	}
 	if err := putParkedLines(ctx, tx, p.TenantID, id, v.lines); err != nil {
@@ -346,6 +349,7 @@ func (ch EntryChange) fields() []string {
 		name string
 		set  bool
 	}{{"document_type", ch.DocumentType != nil}, {"document_date", ch.DocumentDate != nil}, {"posting_date", ch.PostingDate != nil},
+		{"tax_date", ch.TaxDate != nil},
 		{"currency", ch.Currency != nil}, {"reference", ch.Reference != nil}, {"header_text", ch.HeaderText != nil}, {"lines", ch.Lines != nil}} {
 		if f.set {
 			out = append(out, f.name)

@@ -307,8 +307,14 @@ func (g grirPosting) itemLines(pos map[orderItem]*position, keys []orderItem) ([
 		if err != nil {
 			return nil, nil, err
 		}
+		// An invoiced item's lines are its tax code's base; a goods
+		// movement's carry none.
+		var code *string
+		if it.Invoiced != nil {
+			code = it.TaxCode
+		}
 		lines = append(lines, Line{AccountID: g.grir, TC: tc, LC: lc, GC: gc, Quantity: &g.in.GRIR[i].Quantity, Unit: &g.in.GRIR[i].Unit,
-			Text: it.Text, PurchaseOrderID: &g.in.GRIR[i].PurchaseOrderID, POItemNo: &g.in.GRIR[i].POItemNo})
+			Text: it.Text, PurchaseOrderID: &g.in.GRIR[i].PurchaseOrderID, POItemNo: &g.in.GRIR[i].POItemNo, TaxCode: code})
 		kept = append(kept, true)
 		switch {
 		case it.OffsetAccountID != nil && (tc != 0 || lc != 0 || gc != 0):
@@ -319,7 +325,7 @@ func (g grirPosting) itemLines(pos map[orderItem]*position, keys []orderItem) ([
 				return nil, nil, errTotalTooLarge("grir")
 			}
 			if diff != 0 {
-				lines, kept = append(lines, Line{AccountID: g.diff, TC: diff, Text: it.Text}), append(kept, false)
+				lines, kept = append(lines, Line{AccountID: g.diff, TC: diff, Text: it.Text, TaxCode: code}), append(kept, false)
 			}
 		}
 	}
@@ -379,11 +385,15 @@ func (p Postings) postGRIR(ctx context.Context, in Posting) (Entry, error) {
 	if err := e.checkAccounts(ctx, tx, g.le.ID, lines, true); err != nil {
 		return Entry{}, err
 	}
-	if err := checkTaxCodes(ctx, tx, g.le.ID, in.PostingDate, lines); err != nil {
+	taxDate := in.PostingDate
+	if in.TaxDate != nil {
+		taxDate = *in.TaxDate
+	}
+	if err := checkTaxCodes(ctx, tx, g.le.ID, taxDate, lines); err != nil {
 		return Entry{}, err
 	}
 	posted, err := e.post(ctx, tx, actor, draft{entity: g.le, ledgerID: g.ledgerID, documentType: in.DocumentType, documentDate: in.DocumentDate,
-		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: g.le.LocalCurrency, currencyGC: g.group, rateTCLC: g.rates.toLC.shown,
+		postingDate: in.PostingDate, taxDate: taxDate, currencyTC: in.Currency, currencyLC: g.le.LocalCurrency, currencyGC: g.group, rateTCLC: g.rates.toLC.shown,
 		rateLCGC: g.rates.toGC.shown, reference: in.Reference, headerText: in.HeaderText, sourceContext: in.SourceContext,
 		sourceDocumentID: &in.SourceDocumentID, lines: lines})
 	if err != nil {

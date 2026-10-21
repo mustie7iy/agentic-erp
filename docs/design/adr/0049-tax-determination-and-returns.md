@@ -279,7 +279,7 @@ tax_codes:
   code is valid on a date when one of its components has a rate then. The old
   `ledger.tax_code` (one row per validity, one rate and account) was copied
   into them, each code one component `tax`, and is no longer read or written;
-  a later release drops it (contract, with T61c). Rates in the future are
+  a later release drops it (contract, with T61c: dropped by 000141). Rates in the future are
   written when the configuration is activated, so a known change (NS HST 15%
   to 14%) is set up once, ahead. The "changed today" refusal goes: a rate's
   dates are explicit, a different rate is a new row (a rate's value and start
@@ -287,8 +287,8 @@ tax_codes:
   **database** refuses withdrawing a rate, or moving its end, past a posting
   of its code, and a new rate over dates already posted with its code (409
   `ledger.tax_rate_in_use`), so the past is never re-rated. Until T61c's tax
-  items name the rate they applied, "posted" is a journal line with the code
-  by posting date; every posting holds its codes' definitions `FOR KEY SHARE`
+  items named the rate they applied, "posted" was a journal line with the
+  code by posting date; since T61c it is a tax item of the code by tax date; every posting holds its codes' definitions `FOR KEY SHARE`
   and the setup locks them `FOR UPDATE` first, so a setup waits for postings
   in flight and then sees them, and a posting checks its codes' rates only
   after taking the lock. A tax amount a context worked out before posting
@@ -376,6 +376,53 @@ writes items too. A schema test enforces that every tax line has its item and
 that items balance with the tax lines per entry and account (the ledger's
 commit-time check, like the balance trigger).
 
+- **As built (T61c, migrations 000140-000141):** `ledger.tax_item`, keyed by
+  entry and item number, `tenant_id` first, RLS, fixed but for `reported_in`
+  (set once, `tax_item_fixed`; the application may update that column only).
+  An item names its code, component, jurisdiction, direction, kind, account
+  key, the tax line's account (instead of a line: a component's tax may be on
+  several lines, and a line carries one code), the tax date, the rate row
+  applied (`tax_rate_id`) and its percentage, the recoverable share, base,
+  tax and recoverable part in transaction and local currency; the
+  non-recoverable part is derived (`TaxItem.NonRecoverable`). **Written on
+  every posting path** in the posting's transaction, by the one insert all
+  paths share (`post`): from the entry's lines by default
+  (`ledger.write_tax_items`: per code its lines carry and per component with
+  a rate on the tax date, the tax the lines on the component's account, the
+  base the code's lines on no account of its components, once per
+  component); a reversal writes the original's items negated at their tax
+  date; a down payment transfer the down payments' items negated at its own
+  tax date; a cash discount's correction one item per item of the paid
+  entries with a share, at their codes and rates and the payment's tax date,
+  its local amounts the converted lines' shared out (`money.Allocate`). For
+  the base to be reported, a down payment's net and an invoice's GR/IR and
+  price difference lines now carry the code (as invoice expense lines did),
+  and the discount's net that is a code's base is posted on `cash_discount`
+  with the code, the untaxed rest without one. The cash discount split reads
+  the paid entries' items, so it needs no account history
+  (`former_account_ids` is read only by 000140's migration of the entries
+  posted before, which writes their items from their lines at their posting
+  date, former accounts included), and allocates with `money.Allocate`.
+  **Commit-time check** (`journal_entry_tax_items`, `tax_item_checked`,
+  deferred): each code the lines carry has an item (`tax_item_missing`),
+  items are of the entry's legal entity (`tax_item_entity`), and per account
+  and code the lines on an item's or a component's account add up to the
+  items' tax in both currencies (`tax_item_lines`). **The tax date** is on
+  the entry (`journal_entry.tax_date`, also on parked entries and in the API,
+  `tax_date`): a manual entry's as given, else its posting date; a supplier
+  invoice's its invoice date (P6; the code's validity and its tax account
+  are read on it); a reversal's the original's; other postings' their
+  posting date. Codes are validated on the tax date. The in-use check of
+  rates (`ledger.tax_code_posted`) reads items by tax date, and `ledger.tax_code`
+  and the index of lines by tax code are dropped (000141). `ledger.TaxItems`
+  is the port: `Of` an entry, `Dated` by legal entity and tax date range.
+  **Not yet:** a non-deductible component has no item (it has no line of
+  its own; T61d posts it); the partner's tax id fingerprint is added with
+  the returns that read it (T61g); local amounts are the lines', converted
+  at the posting date's average rate as every posting is, not yet at the
+  authority's rate type on the tax date (§8: T61d's calculation converts at
+  it).
+
 ### 6. Input tax (supplier invoices, capture, down payments)
 - Items may carry different codes; the invoice's tax is calculated per code
   (§8) and **posted as one tax line per code and component account**, replacing
@@ -422,7 +469,9 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   the tax date, of the rate type the country pack names (Bank of Canada; UAE
   Central Bank), rounded once per item; the ledger already stores the
   conversion (ADR-0005). Which rate type the ledger has for these authorities
-  is checked in T61c, with T48's document currency.
+  is checked in T61c, with T48's document currency: as built, an item's local
+  amounts are its lines', at the posting date's average rate; the
+  authority's rate on the tax date comes with T61d's calculation.
 - All amounts `money.Minor`; rates and percentages decimal strings as today.
 - **As built (T61b):** `internal/tax` (imports only `money`) holds the
   `Calculator` port and `BuiltIn`, which calls the pure `tax.Calculate`. A

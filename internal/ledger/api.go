@@ -40,6 +40,9 @@ func entryToAPI(e Entry) gen.JournalEntry {
 		line.SpecialGl = apitypes.OptString(l.SpecialGL)
 		out.Lines[i] = line
 	}
+	if e.TaxDate != nil {
+		out.TaxDate.SetTo(*e.TaxDate)
+	}
 	return out
 }
 
@@ -213,7 +216,8 @@ func (e *Endpoints) UnlockFiscalPeriod(ctx context.Context, req *gen.ReasonInput
 // newEntry is the manual entry a create request describes.
 func newEntry(req *gen.JournalEntryCreate) NewEntry {
 	in := NewEntry{LegalEntityID: req.LegalEntityID, LedgerID: apitypes.Ptr[uuid.UUID](req.LedgerID), DocumentType: req.DocumentType.Or("SA"),
-		DocumentDate: req.DocumentDate, PostingDate: req.PostingDate, Currency: req.Currency, Reference: apitypes.Ptr[string](req.Reference),
+		DocumentDate: req.DocumentDate, PostingDate: req.PostingDate, TaxDate: apitypes.Ptr[time.Time](req.TaxDate), Currency: req.Currency,
+		Reference:  apitypes.Ptr[string](req.Reference),
 		HeaderText: apitypes.Ptr[string](req.HeaderText), Lines: make([]NewLine, len(req.Lines))}
 	for i, l := range req.Lines {
 		line := NewLine{AccountID: l.AccountID, Amount: l.Amount.Amount, Currency: l.Amount.Currency, PartnerID: apitypes.Ptr[uuid.UUID](l.PartnerID),

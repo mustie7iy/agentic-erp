@@ -745,13 +745,30 @@ accounts) and `tax_rate` (a component's dated rates, a GiST exclusion over
 the live ones; a rate's value and start never change, a rate no posting
 used is withdrawn rather than deleted, and the database refuses withdrawing
 or re-dating a rate past a posting of its code or adding one over posted
-dates, `ledger.tax_rate_in_use`); the former `tax_code` (one rate and
-account per validity) is copied into them and dropped later, `withholding_tax_code` (T46e: the
+dates, `ledger.tax_rate_in_use`, read from the tax items by tax date since
+T61c); the former `tax_code` (one rate and account per validity) was copied
+into them and is dropped (000141, T61c), `withholding_tax_code` (T46e: the
 configuration's `companies[].withholding_tax_codes`, SAP T059P/T059Z, kept
 by the setup per legal entity: a rate above 0 and below 100% of the
 invoice's net, the default, or gross, deducted at invoice or at payment, to
 a liability that reconciles no supplier, the withholding tax payable; a code
 the document no longer has is deactivated).
+
+Tax items (T61c, ADR-0049 §5; migrations 000140-000141): `tax_item`, one per
+entry, tax code, component and tax line account, written with every entry
+that carries a tax code in its transaction (from its lines, or a reversal's
+and a down payment transfer's negated from the entries they reverse, a cash
+discount's from its items' at their rates): the tax date, the rate row and
+percentage applied, the recoverable share, base, tax and recoverable part in
+transaction and local currency, and `reported_in`, the return that reports
+it, set once (`tax_item_fixed`; nothing else changes and nothing is
+deleted). Output tax recovers nothing, input tax at most itself
+(`tax_item_recoverable`). When the entry commits, its tax lines and items
+agree (`tax_item_missing`, `tax_item_entity`, `tax_item_lines`, deferred
+like the balance). `journal_entry.tax_date` and `parked_entry.tax_date` are
+the entry's tax date, none on entries posted before, whose items carry their
+posting date. Indexed by legal entity, code and tax date, what a return and
+the rate check read.
 
 An open item on a supplier reconciliation account keeps the payment terms
 it was posted with (`open_item_terms`, migration 000068, T36b), as SAP

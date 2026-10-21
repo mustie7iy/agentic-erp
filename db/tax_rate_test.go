@@ -37,7 +37,7 @@ func newTaxScene(t *testing.T) taxScene {
 }
 
 // postTaxed posts an entry with a line of the code on the date (in an
-// open period of 2026).
+// open period of 2026), with its tax items at that tax date.
 func (s taxScene) postTaxed(t *testing.T, code, date string, period int) {
 	t.Helper()
 	mustApp(t, s.tenant, func(tx pgx.Tx) error {
@@ -45,9 +45,14 @@ func (s taxScene) postTaxed(t *testing.T, code, date string, period int) {
 		if err != nil {
 			return err
 		}
-		return exec(tx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id, fiscal_period,
+		if err := exec(tx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id, fiscal_period,
 			posting_date, account_id, amount_tc, amount_lc, amount_gc, tax_code) VALUES ($1,2026,$2,2,$3,$4,$5,$6,$7,100,100,90,$8)`,
-			s.tenant, je, s.entity, s.ledger, period, date, s.expense, code)
+			s.tenant, je, s.entity, s.ledger, period, date, s.expense, code); err != nil {
+			return err
+		}
+		// The items, as the ledger writes them (T61c): a posting is an item
+		// of the code with its tax date.
+		return exec(tx, `SELECT ledger.write_tax_items($1, 2026::smallint, $2, $3::date, false)`, s.tenant, je, date)
 	})
 }
 

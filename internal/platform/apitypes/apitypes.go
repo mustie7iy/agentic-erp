@@ -8,6 +8,7 @@ package apitypes
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/go-faster/jx"
 	"github.com/google/uuid"
@@ -49,6 +50,27 @@ func OptNilString(s gen.OptNilString) **string {
 		return nil
 	}
 	var v *string
+	if !s.Null {
+		v = &s.Value
+	}
+	return &v
+}
+
+// OptDate is an optional response date from a pointer: unset when nil.
+func OptDate(v *time.Time) gen.OptDate {
+	if v == nil {
+		return gen.OptDate{}
+	}
+	return gen.NewOptDate(*v)
+}
+
+// OptNilDate maps a merge-patch date: absent → nil, null → pointer to nil,
+// a value → pointer to a pointer to it.
+func OptNilDate(s gen.OptNilDate) **time.Time {
+	if !s.Set {
+		return nil
+	}
+	var v *time.Time
 	if !s.Null {
 		v = &s.Value
 	}

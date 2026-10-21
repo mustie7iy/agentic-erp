@@ -15911,6 +15911,11 @@ components:
           format: date
           description: Posting date.
           readOnly: true
+        tax_date:
+          type: string
+          format: date
+          description: "Tax date: the lines' tax codes' rates applied on it and its return reports their tax (ADR-0049 §4). Absent on entries posted before tax items (T61c), whose tax date is the posting date."
+          readOnly: true
         currency:
           type: string
           description: Transaction currency.
@@ -16096,6 +16101,10 @@ components:
           type: string
           format: date
           description: "Posting date; must fall in an open period."
+        tax_date:
+          type: string
+          format: date
+          description: "Tax date: the date the lines' tax codes must be valid on, whose rates apply and whose return reports their tax (ADR-0049 §4); defaults to the posting date."
         currency:
           type: string
           description: "Transaction currency; every line amount must use it."
@@ -16294,6 +16303,11 @@ components:
               format: date
               description: "Posting date; its period must be open when the entry is posted."
               readOnly: true
+            tax_date:
+              type: string
+              format: date
+              description: "Tax date the entry was parked with; absent: its posting date."
+              readOnly: true
             currency:
               type: string
               description: Transaction currency.
@@ -16392,6 +16406,12 @@ components:
           type: string
           format: date
           description: Posting date.
+        tax_date:
+          type:
+            - string
+            - "null"
+          format: date
+          description: "Tax date: the date the lines' tax codes' rates apply on and their tax is reported in (ADR-0049 §4). Send null to clear: the posting date then."
         currency:
           type: string
           description: "Transaction currency; every line amount must use it, so a change of currency comes with the lines."

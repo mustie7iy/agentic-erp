@@ -15004,6 +15004,9 @@ type JournalEntry struct {
 	DocumentDate time.Time `json:"document_date"`
 	// Posting date.
 	PostingDate time.Time `json:"posting_date"`
+	// Tax date: the lines' tax codes' rates applied on it and its return reports their tax (ADR-0049 §4).
+	// Absent on entries posted before tax items (T61c), whose tax date is the posting date.
+	TaxDate OptDate `json:"tax_date"`
 	// Transaction currency.
 	Currency string `json:"currency"`
 	// Local currency.
@@ -15083,6 +15086,11 @@ func (s *JournalEntry) GetDocumentDate() time.Time {
 // GetPostingDate returns the value of PostingDate.
 func (s *JournalEntry) GetPostingDate() time.Time {
 	return s.PostingDate
+}
+
+// GetTaxDate returns the value of TaxDate.
+func (s *JournalEntry) GetTaxDate() OptDate {
+	return s.TaxDate
 }
 
 // GetCurrency returns the value of Currency.
@@ -15205,6 +15213,11 @@ func (s *JournalEntry) SetPostingDate(val time.Time) {
 	s.PostingDate = val
 }
 
+// SetTaxDate sets the value of TaxDate.
+func (s *JournalEntry) SetTaxDate(val OptDate) {
+	s.TaxDate = val
+}
+
 // SetCurrency sets the value of Currency.
 func (s *JournalEntry) SetCurrency(val string) {
 	s.Currency = val
@@ -15289,6 +15302,9 @@ type JournalEntryCreate struct {
 	DocumentDate time.Time `json:"document_date"`
 	// Posting date; must fall in an open period.
 	PostingDate time.Time `json:"posting_date"`
+	// Tax date: the date the lines' tax codes must be valid on, whose rates apply and whose return reports
+	// their tax (ADR-0049 §4); defaults to the posting date.
+	TaxDate OptDate `json:"tax_date"`
 	// Transaction currency; every line amount must use it.
 	Currency string `json:"currency"`
 	// External reference.
@@ -15322,6 +15338,11 @@ func (s *JournalEntryCreate) GetDocumentDate() time.Time {
 // GetPostingDate returns the value of PostingDate.
 func (s *JournalEntryCreate) GetPostingDate() time.Time {
 	return s.PostingDate
+}
+
+// GetTaxDate returns the value of TaxDate.
+func (s *JournalEntryCreate) GetTaxDate() OptDate {
+	return s.TaxDate
 }
 
 // GetCurrency returns the value of Currency.
@@ -15367,6 +15388,11 @@ func (s *JournalEntryCreate) SetDocumentDate(val time.Time) {
 // SetPostingDate sets the value of PostingDate.
 func (s *JournalEntryCreate) SetPostingDate(val time.Time) {
 	s.PostingDate = val
+}
+
+// SetTaxDate sets the value of TaxDate.
+func (s *JournalEntryCreate) SetTaxDate(val OptDate) {
+	s.TaxDate = val
 }
 
 // SetCurrency sets the value of Currency.
@@ -20553,6 +20579,8 @@ type ParkedJournalEntry struct {
 	DocumentDate time.Time `json:"document_date"`
 	// Posting date; its period must be open when the entry is posted.
 	PostingDate time.Time `json:"posting_date"`
+	// Tax date the entry was parked with; absent: its posting date.
+	TaxDate OptDate `json:"tax_date"`
 	// Transaction currency.
 	Currency string `json:"currency"`
 	// External reference.
@@ -20632,6 +20660,11 @@ func (s *ParkedJournalEntry) GetDocumentDate() time.Time {
 // GetPostingDate returns the value of PostingDate.
 func (s *ParkedJournalEntry) GetPostingDate() time.Time {
 	return s.PostingDate
+}
+
+// GetTaxDate returns the value of TaxDate.
+func (s *ParkedJournalEntry) GetTaxDate() OptDate {
+	return s.TaxDate
 }
 
 // GetCurrency returns the value of Currency.
@@ -20737,6 +20770,11 @@ func (s *ParkedJournalEntry) SetDocumentDate(val time.Time) {
 // SetPostingDate sets the value of PostingDate.
 func (s *ParkedJournalEntry) SetPostingDate(val time.Time) {
 	s.PostingDate = val
+}
+
+// SetTaxDate sets the value of TaxDate.
+func (s *ParkedJournalEntry) SetTaxDate(val OptDate) {
+	s.TaxDate = val
 }
 
 // SetCurrency sets the value of Currency.
@@ -20960,6 +20998,9 @@ type ParkedJournalEntryUpdate struct {
 	DocumentDate OptDate `json:"document_date"`
 	// Posting date.
 	PostingDate OptDate `json:"posting_date"`
+	// Tax date: the date the lines' tax codes' rates apply on and their tax is reported in (ADR-0049 §4).
+	// Send null to clear: the posting date then.
+	TaxDate OptNilDate `json:"tax_date"`
 	// Transaction currency; every line amount must use it, so a change of currency comes with the lines.
 	Currency OptString `json:"currency"`
 	// External reference. Send null to clear.
@@ -20983,6 +21024,11 @@ func (s *ParkedJournalEntryUpdate) GetDocumentDate() OptDate {
 // GetPostingDate returns the value of PostingDate.
 func (s *ParkedJournalEntryUpdate) GetPostingDate() OptDate {
 	return s.PostingDate
+}
+
+// GetTaxDate returns the value of TaxDate.
+func (s *ParkedJournalEntryUpdate) GetTaxDate() OptNilDate {
+	return s.TaxDate
 }
 
 // GetCurrency returns the value of Currency.
@@ -21018,6 +21064,11 @@ func (s *ParkedJournalEntryUpdate) SetDocumentDate(val OptDate) {
 // SetPostingDate sets the value of PostingDate.
 func (s *ParkedJournalEntryUpdate) SetPostingDate(val OptDate) {
 	s.PostingDate = val
+}
+
+// SetTaxDate sets the value of TaxDate.
+func (s *ParkedJournalEntryUpdate) SetTaxDate(val OptNilDate) {
+	s.TaxDate = val
 }
 
 // SetCurrency sets the value of Currency.

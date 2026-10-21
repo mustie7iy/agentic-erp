@@ -16,8 +16,11 @@ import (
 
 const module = "github.com/mustie7iy/agentic-erp/internal/"
 
-// shared are packages every context may import: the shared kernel (§6.7).
-var shared = map[string]bool{"money": true}
+// shared are packages every context may import: the shared kernel (§6.7):
+// money, and tax, the pure tax calculator (ADR-0049 §2, §8), a library of
+// rules on amounts that the ledger and payables (T61d) call, which holds
+// no state and owns no data. A shared package imports only shared ones.
+var shared = map[string]bool{"money": true, "tax": true}
 
 // platformUsers are the platform packages allowed to import contexts: only
 // test support that builds a configured tenant. Every other platform
@@ -150,7 +153,8 @@ func walk(root, prefix string, out map[string]map[string]bool) error {
 }
 
 // TestImportRules: production code (internal/ and cmd/) imports no test
-// support, platform packages (other than platformUsers) import no context,
+// support, a shared package imports only shared ones, platform packages
+// (other than platformUsers) import no context,
 // the composition root and commands import any, and a context imports
 // another only where allowed says so.
 func TestImportRules(t *testing.T) {
@@ -164,6 +168,8 @@ func TestImportRules(t *testing.T) {
 				continue
 			}
 			switch {
+			case shared[from] && from != to && !shared[to]:
+				t.Errorf("%s imports %s: a shared package imports only shared ones", pkg, dep)
 			case from == to, strings.HasPrefix(to, "platform/"), shared[to]:
 			case strings.HasPrefix(from, "cmd/"), pkg == compositionRoot: // a command and the composition root wire contexts together
 			case strings.HasPrefix(from, "platform/"):

@@ -107,6 +107,19 @@ func TestInvoiceClearsGRIR(t *testing.T) {
 	if got := position(); got != "0" {
 		t.Errorf("position after the invoice: got %s, want 0", got)
 	}
+	t.Run("tax items", func(t *testing.T) {
+		// Item 1's GR/IR line and the fees are V1's base (item 2, whose
+		// price difference this is, has no code), at the invoice date, the
+		// tax date (T61c).
+		var items string
+		if err := pgtest.Admin(t).QueryRow(t.Context(), `SELECT string_agg(code || ' ' || base_tc || ' ' || tax_tc || ' ' || tax_date, '; ')
+			FROM ledger.tax_item WHERE journal_entry_id = $1`, posted["journal_entry_id"]).Scan(&items); err != nil {
+			t.Fatal(err)
+		}
+		if want := fmt.Sprintf("V1 12500 2375 %v", inv["invoice_date"]); items != want {
+			t.Errorf("items: got %s, want %s", items, want)
+		}
+	})
 	e.act(t, 200, id(inv), "reverse", `{"reason": "wrong"}`)
 	if got := position(); got != "-13500" {
 		t.Errorf("position after the reversal: got %s, want -13500", got)

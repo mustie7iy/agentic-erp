@@ -68,8 +68,12 @@ func (p Postings) ClearDownPayments(ctx context.Context, in DownPaymentClearing)
 	if err := e.checkAccounts(ctx, tx, le.ID, lines, false); err != nil {
 		return Entry{}, err
 	}
+	taxItems, err := downPaymentTaxItems(ctx, tx, items)
+	if err != nil {
+		return Entry{}, err
+	}
 	entry, err := e.post(ctx, tx, actor, draft{entity: le, ledgerID: items[0].ledger, documentType: in.DocumentType, documentDate: in.PostingDate,
-		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: items[0].currencyLC, currencyGC: items[0].currencyGC,
+		postingDate: in.PostingDate, sourcedItems: taxItems, currencyTC: in.Currency, currencyLC: items[0].currencyLC, currencyGC: items[0].currencyGC,
 		rateTCLC: items[0].rateTCLC, rateLCGC: items[0].rateLCGC, reference: in.Reference, headerText: in.HeaderText,
 		sourceContext: in.SourceContext, sourceDocumentID: &in.SourceDocumentID, lines: lines})
 	if err != nil {
@@ -119,6 +123,21 @@ func transferLines(ctx context.Context, tx pgx.Tx, in DownPaymentClearing, items
 	}
 	debit, err := payablesDebit(lines, in)
 	return append(lines, debit), err
+}
+
+// downPaymentTaxItems are the tax items of the down payments' entries
+// negated, each entry's once, on the transfer's tax date: the invoice
+// claims the whole tax, so the transfer takes back what the down payment
+// claimed, base and tax, at its rate (ADR-0049 §4).
+func downPaymentTaxItems(ctx context.Context, tx pgx.Tx, items []item) ([]sourcedTaxItem, error) {
+	var years []int16
+	var entries []uuid.UUID
+	for _, it := range items {
+		if !slices.Contains(entries, it.ref.EntryID) {
+			years, entries = append(years, it.ref.FiscalYear), append(entries, it.ref.EntryID)
+		}
+	}
+	return negatedTaxItems(ctx, tx, years, entries, false)
 }
 
 // payablesDebit is the transfer's payables line: the supplier debited with
