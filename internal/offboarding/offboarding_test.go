@@ -142,6 +142,14 @@ func (sc *lifecycleScenario) activeTenantIsLeftAlone(t *testing.T) {
 	if err := sc.store.Put(sc.ctx, sc.prefix+"audit/anchors/000000000001.json", []byte("{}"), blobstore.PutOptions{ContentType: "application/json", RetainUntil: sc.clock.Add(24 * time.Hour)}); err != nil {
 		t.Fatalf("store an anchor: %v", err)
 	}
+	// Its analytical store: a file, and the pointer and superseded rows (ADR-0044).
+	analytics := "analytics/v1/tenant=" + sc.tenant.String() + "/"
+	if err := sc.store.Put(sc.ctx, analytics+"manifest-00000000000000000007.json", []byte("{}"), blobstore.PutOptions{ContentType: "application/json"}); err != nil {
+		t.Fatalf("store a manifest: %v", err)
+	}
+	pgtest.Exec(t, `INSERT INTO analytics.snapshot (tenant_id, manifest_key, watermark, as_of) VALUES ($1, $2, '7', now())`,
+		sc.tenant, analytics+"manifest-00000000000000000007.json")
+	pgtest.Exec(t, `INSERT INTO analytics.superseded (tenant_id, manifest_key) VALUES ($1, $2)`, sc.tenant, analytics+"manifest-00000000000000000006.json")
 	// Nothing to do while the tenant is active; an active tenant is not exported or erased on request either.
 	round(t, sc.w, "active", 0, 0)
 	if _, err := sc.w.Export(sc.ctx, sc.tenant); problem.From(err).Code != "tenancy.invalid_transition" {
@@ -304,6 +312,12 @@ func (sc *lifecycleScenario) erasureAfterTheGracePeriod(t *testing.T) {
 	}
 	if n := count(t, `SELECT count(*) FROM identity.principal WHERE tenant_id = $1`, sc.other.Tenant.ID); n == 0 {
 		t.Fatal("the other tenant lost its principals")
+	}
+	if left, _ := sc.store.List(sc.ctx, "analytics/v1/tenant="+sc.tenant.String()+"/"); len(left) != 0 {
+		t.Errorf("analytical store: got %v left, want nothing", left)
+	}
+	if n := count(t, `SELECT (SELECT count(*) FROM analytics.snapshot WHERE tenant_id = $1) + (SELECT count(*) FROM analytics.superseded WHERE tenant_id = $1)`, sc.tenant); n != 0 {
+		t.Errorf("analytical store pointer rows: got %d, want 0", n)
 	}
 }
 

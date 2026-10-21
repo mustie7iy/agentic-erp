@@ -643,6 +643,20 @@ func (UnimplementedHandler) GetAiUsage(ctx context.Context, params GetAiUsagePar
 	return r, ht.ErrNotImplemented
 }
 
+// GetAnalyticsModel implements getAnalyticsModel operation.
+//
+// The governed metrics, their dimensions, the fiscal calendar and what everyday words mean, as
+// runAnalyticsQuery answers them: the active configuration version's `analytics` section
+// (`semantic.yaml` until a change request adds one), or `config_version`'s. Agents and the CLI
+// describe metrics from it, so a metric a change request added is offered and a changed definition
+// described as it now is (ADR-0044). A tenant without a configuration is 409
+// `config.not_bootstrapped`; an unknown version is 422 `config.unknown_version`.
+//
+// GET /v1/analytics-model
+func (UnimplementedHandler) GetAnalyticsModel(ctx context.Context, params GetAnalyticsModelParams) (r GetAnalyticsModelRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetApprovalRequest implements getApprovalRequest operation.
 //
 // Returns one approval request with steps and decisions.
@@ -1926,6 +1940,26 @@ func (UnimplementedHandler) ReverseSupplierInvoice(ctx context.Context, req *Sup
 //
 // POST /v1/webhook-subscriptions/{id}:rotateSecret
 func (UnimplementedHandler) RotateWebhookSubscriptionSecret(ctx context.Context, params RotateWebhookSubscriptionSecretParams) (r RotateWebhookSubscriptionSecretRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// RunAnalyticsQuery implements runAnalyticsQuery operation.
+//
+// Answers governed metrics (the semantic model in the active configuration version's `analytics`
+// section, `semantic.yaml` until a change request adds one; metric definitions change only through
+// change requests), broken down by its dimensions and filtered on them, for the companies the
+// principal may read. A query names metrics and dimensions, never SQL. It is answered from the
+// analytical store when the tenant's store was found current within the freshness target and no
+// earlier than `as_of`, else from the database; `source` and `as_of` say which (ADR-0044). The
+// database answers through the API's own reads as the caller, so a metric over data the caller may not
+// read is 403 as that read is, and the store answers only a caller who holds the permissions of those
+// reads. A tenant without a configuration is 409 `config.not_bootstrapped`. A query the semantic layer
+// refuses (an unknown metric or dimension, a filter it cannot apply, amounts of two currencies summed)
+// is 422 `analytics.invalid_query`; too many queries answering at once on the server is 503
+// `analytics.busy` with `Retry-After`. Changes nothing: agents of any autonomy level may run it.
+//
+// POST /v1/analytics-queries
+func (UnimplementedHandler) RunAnalyticsQuery(ctx context.Context, req *AnalyticsQuery, params RunAnalyticsQueryParams) (r RunAnalyticsQueryRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

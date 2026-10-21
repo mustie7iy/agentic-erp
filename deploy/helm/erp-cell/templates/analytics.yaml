@@ -1,0 +1,133 @@
+# erp-analytics (ADR-0044): DuckDB over the tenants' Parquet snapshots in
+# the cell's bucket, answering the cell's erp-server alone over mTLS
+# (ADR-0033: it admits the peer spiffe://<domain>/<cell>/erp-server and
+# serves as .../erp-analytics). It reads analytics/ in the bucket as its own
+# IRSA role, which may read nothing else and write nothing
+# (cell.workload_role_arns.analytics), and holds no database credential.
+# The listener demands a client certificate, which kubelet's probes do not
+# have, so they check the port alone. Verified files are cached in an
+# emptyDir, which is also the working directory DuckDB may spill to.
+{{- $endpoints := .Values.server.awsEndpoints }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: erp-analytics
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-analytics") | nindent 4 }}
+  annotations:
+    eks.amazonaws.com/role-arn: {{ required "analytics.roleArn is required: cell.workload_role_arns.analytics" .Values.analytics.roleArn | quote }}
+automountServiceAccountToken: false
+---
+{{ include "erp-cell.certificate" (dict "root" . "name" "erp-analytics-tls" "component" "erp-analytics" "service" "erp-analytics" "usages" (list "digital signature" "server auth")) }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: erp-analytics
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-analytics") | nindent 4 }}
+spec:
+  replicas: {{ .Values.analytics.replicas }}
+  revisionHistoryLimit: 5
+  strategy:
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels:
+      {{- include "erp-cell.selector" (dict "root" . "component" "erp-analytics") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "erp-cell.labels" (dict "root" . "component" "erp-analytics") | nindent 8 }}
+    spec:
+      serviceAccountName: erp-analytics
+      enableServiceLinks: false
+      # IRSA's token is projected by EKS; the Kubernetes API is not called.
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        {{- include "erp-cell.podSecurity" (dict "uid" 65532) | nindent 8 }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "erp-cell.selector" (dict "root" . "component" "erp-analytics") | nindent 14 }}
+      containers:
+        - name: analytics
+          image: {{ include "erp-cell.image" (dict "root" . "name" "analytics") }}
+          workingDir: /var/lib/erp-analytics
+          ports:
+            - {name: query, containerPort: 8443}
+          env:
+            - {name: ERP_CELL, value: {{ include "erp-cell.cell" . | quote }}}
+            - {name: ERP_TRUST_DOMAIN, value: {{ required "trustDomain is required" .Values.trustDomain | quote }}}
+            - {name: ERP_ANALYTICS_ADDR, value: ":8443"}
+            - {name: ERP_ANALYTICS_CACHE, value: /var/lib/erp-analytics/cache}
+            - {name: ERP_LOG_LEVEL, value: {{ .Values.analytics.logLevel | quote }}}
+            - {name: ERP_TLS_CA, value: file:/etc/erp/trust/ca.crt}
+            - {name: ERP_TLS_CERT, value: file:/etc/erp/tls/tls.crt}
+            - {name: ERP_TLS_KEY, value: file:/etc/erp/tls/tls.key}
+            - {name: ERP_OBJECT_S3_ENDPOINT, value: {{ required "server.awsEndpoints.s3 is required: cell.aws_endpoints.s3" $endpoints.s3 | quote }}}
+            - {name: ERP_OBJECT_S3_BUCKET, value: {{ required "server.objectBucket is required: cell.object_bucket" .Values.server.objectBucket | quote }}}
+            - {name: ERP_OBJECT_S3_REGION, value: {{ required "region is required" .Values.region | quote }}}
+            # The VPC endpoint's private DNS answers for the regional name
+            # only; the global default would leave through the NAT gateway.
+            - {name: ERP_AWS_STS_ENDPOINT, value: {{ required "server.awsEndpoints.sts is required: cell.aws_endpoints.sts" $endpoints.sts | quote }}}
+            {{- range $name, $value := .Values.analytics.extraEnv }}
+            - {name: {{ $name }}, value: {{ $value | quote }}}
+            {{- end }}
+          readinessProbe:
+            tcpSocket: {port: query}
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket: {port: query}
+            periodSeconds: 10
+            failureThreshold: 6
+          securityContext:
+            {{- include "erp-cell.containerSecurity" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.analytics.resources | nindent 12 }}
+          volumeMounts:
+            - {name: trust, mountPath: /etc/erp/trust, readOnly: true}
+            - {name: tls, mountPath: /etc/erp/tls, readOnly: true}
+            - {name: work, mountPath: /var/lib/erp-analytics}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: trust
+          configMap:
+            name: erp-trust
+        - name: tls
+          secret:
+            secretName: erp-analytics-tls
+        - name: work
+          emptyDir:
+            sizeLimit: {{ .Values.analytics.cacheSize }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: erp-analytics
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-analytics") | nindent 4 }}
+spec:
+  selector:
+    {{- include "erp-cell.selector" (dict "root" . "component" "erp-analytics") | nindent 4 }}
+  ports:
+    - {name: query, port: 8443, targetPort: query}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: erp-analytics
+  labels:
+    {{- include "erp-cell.labels" (dict "root" . "component" "erp-analytics") | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "erp-cell.selector" (dict "root" . "component" "erp-analytics") | nindent 6 }}

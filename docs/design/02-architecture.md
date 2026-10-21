@@ -47,7 +47,7 @@ pointing its schema at a separate database. Callers do not change.
 | **workflow** | Approval requests, steps, decisions | `ApprovalCompleted` |
 | **audit** | Audit events (hash-chained) | — (consumes everything) |
 | **integration** | Connectors, inbound/outbound messages, SAP extracts, migration runs | `MigrationRunCompleted` |
-| **analytics** | Read models, semantic layer, saved reports | — (consumes events) |
+| **analytics** | Read models, semantic layer, saved reports, dataset contracts (ADR-0044) | — (consumes events) |
 | **agents** | Agent sessions, tool calls, recommendations, costs | `RecommendationMade` |
 
 Later phases add `sales`, `receivables`, `inventory`, `manufacturing`,
@@ -179,5 +179,5 @@ failure isolation; the global directory and `erp-router` map tenants to cells
 |---|---|
 | One context dominates load or release cadence | Extract it to its own service (rules in 2.1 make this mechanical) |
 | Largest tenant exceeds one database's write capacity | Distribute that cell with Citus on `tenant_id` (keys already lead with it) |
-| Read models lag or analytics queries hurt OLTP | Move read models to a columnar store fed by CDC |
+| Read models lag or analytics queries hurt OLTP | Move analytics to the columnar store of ADR-0044: DuckDB in `erp-analytics` over per-tenant Parquet, fed by incremental extracts under RLS on the replica, not CDC |
 | Cross-region tenants | Per-region cells with tenant pinning; no cross-region writes |

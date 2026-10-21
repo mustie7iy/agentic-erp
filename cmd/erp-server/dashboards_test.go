@@ -94,7 +94,7 @@ func TestDashboardsUseCatalog(t *testing.T) {
 	if len(files) != 8 {
 		t.Errorf("dashboards: got %d, want 8 (overview, SLOs, five contexts and agents)", len(files))
 	}
-	series := newMetrics(pgtest.Pool(t), config.Config{}, quiet()).Series()
+	series := newMetrics(pgtest.Pool(t), config.Config{}, quiet(), true).Series()
 	maps.Copy(series, stackSeries)
 	for _, name := range recorded(t) {
 		series[name] = nil // a recorded series: its labels are checked against the catalog

@@ -49,6 +49,8 @@ jobs:
           go-version-file: go.mod
       - name: Free disk for the image builds
         run: ./scripts/free-disk.sh
+      - name: A buildx builder that exports OCI archives (erp-analytics)
+        run: docker buildx create --use --name erp-images --driver docker-container
       - name: Container images, built twice and compared
         run: |
           make images-reproducible

@@ -88,6 +88,7 @@ type Dependencies struct {
 	// RuleSamplers read each entity's recent rows, on which a simulation
 	// replays proposed validation rules (ADR-0046), by entity.
 	RuleSamplers map[string]rules.Sampler
+	Disclosures  []Disclosure // what a reader is shown of evidence (the analytics context's metric values)
 }
 
 // Actors reads who deferred work acts as: the person who queued it
@@ -437,7 +438,7 @@ func SubmitChangeRequest(ctx context.Context, deps Dependencies, id uuid.UUID, i
 	}
 	status := AwaitingEvidence
 	var request *uuid.UUID
-	if len(config.RequiredEvidence(tier)) == 0 {
+	if len(config.Evidence(changes)) == 0 {
 		if status, request, err = route(ctx, deps, c, tier); err != nil {
 			return ChangeRequest{}, err
 		}

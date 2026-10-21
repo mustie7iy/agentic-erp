@@ -78,20 +78,8 @@ while read -r -u 3 name source tag digest; do
   ref="$target@$digest"
   sbom="$OUT/sbom/erp-$name.spdx.json"
   "$SYFT" scan "registry:$ref" -q -o "spdx-json=$sbom.raw"
-  # The image itself first, named by its digest: sign-images.sh finds an
-  # image's SBOM by .packages[0].name, as ko writes them.
-  python3 - "$sbom.raw" "$sbom" "$digest" "$source:$tag" <<'PY'
-import json, sys
-raw, out, digest, origin = sys.argv[1:]
-doc = json.load(open(raw))
-roots = [p for p in doc["packages"] if p.get("primaryPackagePurpose") == "CONTAINER"]
-if len(roots) != 1:
-    sys.exit("mirror-images: %s: %d container packages in the SBOM, want 1" % (origin, len(roots)))
-root = roots[0]
-root["name"], root["sourceInfo"] = digest, "copied from %s@%s" % (origin, digest)
-doc["packages"] = [root] + [p for p in doc["packages"] if p is not root]
-json.dump(doc, open(out, "w"))
-PY
+  # The image itself first, named by its digest (scripts/lib/sbom-root.py).
+  python3 "$(dirname "$0")/lib/sbom-root.py" "$sbom.raw" "$sbom" "$digest" "copied from $source:$tag@$digest"
   rm -f "$sbom.raw"
   mkdir -p "$OUT/provenance"
   python3 - "$OUT/provenance/erp-$name.json" "$source" "$tag" "$digest" "$ref" <<'PY'

@@ -37,6 +37,10 @@ images:
   temporal:
     repository: ""
     digest: ""
+  # erp-analytics (deploy/images/erp-analytics.Dockerfile: cgo, not ko's).
+  analytics:
+    repository: ""
+    digest: ""
 
 # The environment's trust anchor (envs/<env> subordinate_ca_certificate,
 # PEM): the subordinate CA, not the root (ADR-0035, Revocation).
@@ -75,6 +79,24 @@ server:
     requests: {cpu: 500m, memory: 512Mi}
     limits: {memory: 1Gi}
   # Further settings, by name.
+  extraEnv: {}
+
+# erp-analytics (ADR-0044): every cell runs it; erp-server reaches it at
+# erp-analytics:8443 (ERP_ANALYTICS_URL). It reads the bucket and the AWS
+# endpoints named under server.
+analytics:
+  replicas: 2
+  # IRSA role (cell.workload_role_arns.analytics): analytics/ read only.
+  roleArn: ""
+  # The verified files' cache and DuckDB's spill space, per Pod.
+  cacheSize: 8Gi
+  logLevel: info
+  # DuckDB's per-query memory_limit (ERP_ANALYTICS_MEMORY_LIMIT) times the
+  # concurrent queries (ERP_ANALYTICS_MAX_QUERIES) must fit the limit.
+  resources:
+    requests: {cpu: "1", memory: 2Gi}
+    limits: {memory: 4Gi}
+  # Further settings, by name (ERP_ANALYTICS_THREADS and the like).
   extraEnv: {}
 
 database:

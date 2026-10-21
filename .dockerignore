@@ -1,0 +1,13 @@
+# The build context of deploy/images/erp-analytics.Dockerfile: the Go
+# module's sources only, so nothing local (binaries, images, caches, git)
+# reaches the image or changes its digest.
+*
+!go.mod
+!go.sum
+!analytics
+!api
+!cmd
+!db
+!internal
+**/*_test.go
+**/testdata

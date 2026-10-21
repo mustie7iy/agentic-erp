@@ -44,6 +44,12 @@ type Relay struct {
 	Interval  time.Duration // idle wait between rounds; default 1s
 	Log       *slog.Logger
 	Counter   Counter // nil counts nothing
+	// Relayed, when set, is given each published batch's context and the
+	// tenant of each event, in the transaction that marks the batch
+	// published: what it records commits with the publication or not at
+	// all. The analytical store's scheduler marks the tenants changed with
+	// it (ADR-0044).
+	Relayed func(ctx context.Context, tx pgx.Tx, schema string, tenants []uuid.UUID) error
 }
 
 // RunOnce relays one batch from every context and returns how many events
@@ -103,6 +109,11 @@ func (r *Relay) relay(ctx context.Context, schema string) (int, error) {
 		if _, err := tx.Exec(ctx, `UPDATE `+table+` SET published_at = now()
 			WHERE (tenant_id, id) IN (SELECT * FROM unnest($1::uuid[], $2::uuid[]))`, tenants, ids); err != nil {
 			return fmt.Errorf("mark %d events published: %w", len(rs), err)
+		}
+		if r.Relayed != nil {
+			if err := r.Relayed(ctx, tx, schema, tenants); err != nil {
+				return fmt.Errorf("after %d events: %w", len(rs), err)
+			}
 		}
 		published = rs
 		return nil

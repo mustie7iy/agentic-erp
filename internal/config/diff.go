@@ -86,6 +86,12 @@ var tierRules = []struct {
 	{rx(`^number_ranges`), TierCosmetic},
 	// A rule refuses writes: tier 3, with :simulate evidence (ADR-0046).
 	{rx(`^rules\.`), TierPostingRelated},
+	// A metric's or dimension's words change no value; its definition
+	// changes every report computing it, so it is simulated (Evidence)
+	// and its owner approves it.
+	{rx(`^analytics\.metrics\[\*\]\.(label|description|synonyms)`), TierCosmetic},
+	{rx(`^analytics\.dimensions\[\*\]\.(label|description)$`), TierCosmetic},
+	{rx(`^analytics(\.|$)`), TierOperational},
 }
 
 func rx(s string) *regexp.Regexp { return regexp.MustCompile(s) }
@@ -112,6 +118,9 @@ var listKeys = map[string]string{
 	"accounts":      "account",
 	"payment_terms": "key",
 	"number_ranges": "company,document_type,fiscal_year",
+	// The analytics section's; a metric's own dimensions are names, listed
+	// by position.
+	"metrics": "name", "dimensions": "name",
 }
 
 // Diff lists every setting that differs from old to new, with its tier.

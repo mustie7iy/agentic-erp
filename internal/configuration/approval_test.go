@@ -220,6 +220,7 @@ func TestSettings(t *testing.T) {
 		_, err := configuration.Settings{}.Rules(ctx, "purchase_order")
 		return err
 	})
+	t.Run("version", func(t *testing.T) { settingsVersion(t, f) })
 	ranges, _ := f.Must(200, "GET", "/v1/number-ranges", "", "")
 	items, _ := ranges["items"].([]any)
 	if len(items) == 0 {

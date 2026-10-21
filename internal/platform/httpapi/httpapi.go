@@ -69,6 +69,9 @@ type Pipeline struct {
 	// Agents admits an agent's request in its transaction (uow.Middleware's
 	// Agents: the tenant's AI kill switch); nil admits every agent.
 	Agents func(ctx context.Context, tx pgx.Tx) error
+	// Loopback, when set, is given the unit of work around the generated
+	// server, so handlers can read the API in-process as their caller.
+	Loopback *Loopback
 	// Model is the model gateway (api/model.yaml, ADR-0036), served at its
 	// contract's route behind authentication but outside the unit of work:
 	// no transaction is held while a model works. Nil answers 503.
@@ -98,6 +101,9 @@ func New(h gen.Handler, p Pipeline) (http.Handler, error) {
 	unit := &uow.Middleware{Pool: p.Pool, Role: p.AppRole, Log: p.Log, Now: p.Now, Sessions: p.Sessions, RequireBoundAgents: p.RequireBoundAgents,
 		Agents: p.Agents}
 	chain := unit.Wrap(srv)
+	if p.Loopback != nil {
+		p.Loopback.handler = chain
+	}
 	if p.Limits != nil {
 		chain = p.Limits.Middleware(chain)
 	}

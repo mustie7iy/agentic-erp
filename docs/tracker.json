@@ -3369,9 +3369,9 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "Metric changes through the configuration approval loop",
-      "r": "T55",
+      "s": "D",
+      "t": "Metric changes through the configuration approval loop: the semantic model is the configuration document's analytics section (semantic.yaml the seed until a change adds it), checked on submission (no metric derived from itself); words tier 1, definitions tier 2 with a simulation of the affected metrics (config.Evidence) by company and fiscal year before and after, read from the store as the requester (a store that cannot answer fails the simulation), each reader of the change request shown the values of their own companies alone and the summary's counts over those alone, the summary recorded with no count (configuration.Disclosure, fail closed); the endpoint answers under the active version and names it (config_version), or under an earlier version when asked (audit); agents propose, never activate",
+      "r": "config.Analytics · analytics.FromConfig · analytics.Affected · endpoint.Section · endpoint.Simulation · configuration.Simulators · configuration.Disclosure · endpoint.Disclosure · configuration.Settings.Version · api/openapi.yaml AnalyticsQuery.config_version · ADR-0044 · T55g",
       "c": []
      }
     ]
@@ -3394,10 +3394,101 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "Columnar store (DuckDB over Parquet via CDC)",
-      "r": "T55",
-      "c": []
+      "s": "P",
+      "t": "Columnar store (DuckDB over Parquet from per-tenant extracts)",
+      "r": "ADR-0044 · T55",
+      "c": [
+       {
+        "s": "D",
+        "t": "Analytical store decided: per-tenant incremental extracts under RLS on the read replica (not CDC), DuckDB in a separate cgo erp-analytics binary (ADR-0032 amended), Parquet layout, manifest and pointer-swap publication, three-layer isolation, PostgreSQL fallback with lineage; versioned dataset contract checked against semantic.yaml",
+        "r": "ADR-0044 · analytics/datasets/v1 · internal/analytics/datasets_test.go · T55a",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Snapshot pointer (one row per tenant, RLS, manifest named by its watermark) and journal posted_xid (expand); per-tenant extractor of gl_lines in one REPEATABLE READ transaction under the tenant's RLS, appending by xid8 watermark, Parquet (parquet-go, no cgo) per posting month through blobstore, write-once files and manifest, guarded pointer swap; run twice writes nothing",
+        "r": "migration 000114 · internal/analytics/extract · db/analytics_snapshot_test.go · ADR-0044 · T55b",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Remaining datasets (po_lines, ap_invoices, open_items, accounts, vendors) in the journal's REPEATABLE READ run, as BuildFacts derives them, masked fields never read; every dataset streamed per month (bounded memory over any backlog); snapshot files named by content and kept when unchanged; manifests named by cutoff and digest; checked_at on the pointer (a run with nothing new records only it; entries pending above the cutoff hold it back); relay hook marks changed tenants once per batch; scheduler claims with FOR UPDATE SKIP LOCKED at most every 5 minutes per tenant",
+        "r": "migration 000115 · internal/analytics/extract · outbox.Relay.Relayed · db/analytics_snapshot_test.go · ADR-0044 · T55c",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "erp-analytics (cmd/erp-analytics, the one cgo binary; static binaries checked by internal/layout TestStaticBinaries): mTLS listener admitting the cell's erp-server alone; reader of semantic query plans (contract columns only, values as parameters) over a tenant's manifest: anchored path guard (FuzzManifestPath in make fuzz), files verified by size and SHA-256 into a digest-named cache, a fresh in-memory DuckDB per query with autoload off, allowed_paths, external access off and configuration locked, views of contract columns filtered by tenant_id and the principal's companies, fact types checked; pre-aggregated rows, exponents checked; refusals 422 for the fallback. Dataset vendors became partners (every partner, supplier and customer flags) so customer lines match BuildFacts",
+        "r": "internal/analytics/reader · cmd/erp-analytics · analytics/datasets · ADR-0044 · T55d",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "erp-analytics image and deployment: pinned multi-stage Dockerfile (Go 1.26.2 bookworm builder cross-compiling with Debian's cross gcc, DuckDB static from duckdb-go-bindings, glibc dynamic on distroless cc-debian12:nonroot, both bases by digest; -trimpath, no build id or VCS stamp, layers at SOURCE_DATE_EPOCH: two clean builds matched per platform), make image-analytics; erp-cell chart: Deployment, Service, PDB, certificate as .../erp-analytics, non-root and read-only with an emptyDir cache, TCP probes, NetworkPolicy admitting erp-server alone on 8443 and egress 443 only, ERP_ANALYTICS_URL and egress on erp-server; Terraform: IRSA role reading analytics/ alone (GetObject, prefixed ListBucket, data key via S3), ECR repository erp-analytics; images.analytics required in release.json (promotion-checks) and in the admission checks",
+        "r": "deploy/images/erp-analytics.Dockerfile · .dockerignore · deploy/helm/erp-cell/templates/analytics.yaml · modules/cell irsa.tf · modules/ecr · scripts/promotion-checks.sh · ADR-0044 · ADR-0032 · T55h",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "erp-analytics image in the ADR-0032 pipeline: scripts/images.sh builds it after ko's images (buildx one platform at a time, OCI archives dated at the epoch without buildx attestations, joined into an OCI index written by the script, pushed with crane under each tag and refused unless the pushed digest is the one built) into images.txt; its SBOMs (syft: Go modules, DuckDB, the cc base's Debian packages; the index's naming its images) in sign-images.sh's convention (scripts/lib/sbom-root.py, shared with mirror-images.sh); images-reproducible.sh gives each build a buildx builder of its own, removed with its cache; image-scan.sh scans its SBOMs and the cc base; base-image-current.sh checks the builder and the cc base besides ko's; the provenance names them; CI, weekly and the release create a docker-container builder; the release pushes, signs and verifies it, so release.json takes images.analytics from the release's images.txt; scripts/test-images.sh checks the scripts with fake tools; make image-analytics gone",
+        "r": "scripts/images.sh · images-reproducible.sh · image-scan.sh · base-image-current.sh · provenance.sh · lib/sbom-root.py · test-images.sh · ci-changes.sh · ci.yml · weekly.yml · release.yml · ADR-0032 · ADR-0044 · T55p",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Semantic layer reads the store (internal/analytics/store): pointer, leading ledger and freshness rule (checked_at within 15 minutes and no entry posted longer ago at or above the watermark) read under RLS in the request; one reader plan per base metric (fiscal periods from the date and the calendar, cleared from open_items, ledger required for gl_lines: the leading one unless the query names another, in both paths, with JournalEntry.leading_ledger in the API); pre-aggregated groups folded in by Execute; falls back to the database on no or stale snapshot, older than asked, a refusal, the reader busy (503 analytics.busy at its concurrent-query cap) or failing; lineage source and as_of on every result; cgo-free wire package; per-query DuckDB threads and memory_limit; mTLS client; parity test over every metric of semantic.yaml; erp-server starts the extract scheduler and sets the relay hook (primary until T55f)",
+        "r": "internal/analytics/store · internal/analytics/wire · internal/analytics/reader · cmd/erp-analytics · cmd/erp-server · api/openapi.yaml JournalEntry.leading_ledger · ADR-0044 · T55e",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Lifecycle: publications list the manifest they replace (analytics.superseded) and a lost run its own; after each run the scheduler collects, past 7 days, what each supersession dropped (recorded with it; one manifest read per collection) but what the current manifest or a later supersession lists, then (as erp_worker) the row; a month's journal parts merged at 8 into one file named by the interval they cover; erasure deletes analytics/v1/tenant=<id>/ with the tenant's objects (blobstore.TenantPrefixes); a run behind its watermark rebuilds the store when the primary is behind it too (restore) and is retried when only the replica lags; erp-server dr reconcile rebuilds every store ahead of the restored database; the claim records the primary's WAL position and the run reads the replica (DATABASE_REPLICA_URL) only once it has replayed past it, else the primary; hourly sweep of active tenants not found current; gauges erp_analytics_lag_seconds and erp_analytics_stale_tenants in a cell that extracts; claims of active tenants only. The dedicated test database was dropped: each package has one, and the snapshot horizon is the cluster's. erp-server answers POST /v1/analytics-queries (runAnalyticsQuery: metric names, breakdowns, filters, as_of, optional ledger and companies, never SQL; analytics.query.run, x-autonomy read) with the store Source and its database fallback (building only the fact tables the query needs; one the caller's permissions do not read is 403 on either path), the database path reading the API in-process as the caller (httpapi.Loopback), at most 2 answering at once per replica (503 analytics.busy), with lineage (source, as_of, data_through of the datasets read); erp query, ask and report and the agent's run_query call it (analytics.Remote). Parity data without customer journal lines accepted for now (coordinator, 2026-10-20). A store answer requires the permissions of the database path's reads (analytics.Source.Permissions: tenancy.org.read, partner.supplier.read, ledger.account.read for journal and order metrics, and each fact type's), checked before any dimension is named and refused with the same 403; parity test for a person lacking each (no customer read permission exists)",
+        "r": "migration 000116 · internal/analytics/extract lifecycle.go · offboarding.eraseObjects · drverify.Reconciler.Analytics · erp-server DATABASE_REPLICA_URL, ERP_ANALYTICS_URL · api/openapi.yaml runAnalyticsQuery · internal/analytics/endpoint · httpapi.Loopback · analytics.Remote · ADR-0044 · T55f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Reconciliation per tenant and month with the sweep (rows and the sum of amount_minor against the database, as ADR-0030's fingerprint), re-extracting a month that disagrees",
+        "r": "T55i",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Freshness alert rules on erp_analytics_lag_seconds (p95 target 15 minutes) and erp_analytics_stale_tenants in the cell's Prometheus rules, once T54's rules (T54e) are on main; the gauges move to cmd/erp-server/gauges.go with T54b's",
+        "r": "T55j",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The analytics agent's run_query takes an optional ledger (a ledger id from GET /v1/ledgers) once T52a is on main; the endpoint already accepts it",
+        "r": "T55k",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The loopback's in-process reads (the endpoint's database path) counted against the caller's quota and traced as spans of the request",
+        "r": "T55l",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The evaluation harness exercises POST /v1/analytics-queries instead of reading the facts itself",
+        "r": "T55m",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "The analytics agent's tool descriptions and erp metrics, query, ask and report describe the tenant's active metrics instead of the built-in defaults, read through GET /v1/analytics-model (getAnalyticsModel, analytics.query.run: the active configuration version's analytics section, or config_version's; analytics.Remote.Model), so a metric a change request added is offered and a changed definition described as it now is",
+        "r": "api/openapi.yaml getAnalyticsModel · endpoint.GetAnalyticsModel · analytics.Remote.Model · cmd/erp analytics.go · ADR-0044 · T55n",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Decided (coordinator, 2026-10-20): a metric-change simulation reads the analytical store alone; every cell runs erp-analytics (T55h), so no database path for a queued simulation is built",
+        "r": "ADR-0044 · T55o",
+        "c": []
+       }
+      ]
      }
     ]
    },

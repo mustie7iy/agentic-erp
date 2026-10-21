@@ -1,14 +1,23 @@
-.PHONY: temporal-checks generate run-server build images images-reproducible image-scan signing-roundtrip test-release-scripts lint lint-all test test-short ci-local db-up test-db coverage fuzz perf load soak resilience failover restore-drill demo clean
+.PHONY: temporal-checks generate run-server build images images-reproducible image-scan test-image-scripts signing-roundtrip test-release-scripts lint lint-all test test-short ci-local db-up test-db coverage fuzz perf load soak resilience failover restore-drill demo clean
 
 build:
 	go build -o bin/erp ./cmd/erp
 	go build -o bin/erp-server ./cmd/erp-server
 	go build -o bin/erp-router ./cmd/erp-router
+	# erp-analytics links DuckDB through cgo (ADR-0044): built with the host's
+	# C toolchain; its image is built with the others (make images).
+	CGO_ENABLED=1 go build -o bin/erp-analytics ./cmd/erp-analytics
 
-# Container images of the three binaries with ko (.ko.yaml, ADR-0032), not
-# pushed: digests in dist/images/images.txt, SBOMs in dist/images/sbom.
-# images-reproducible builds twice with private caches and fails unless the
-# digests match (CI's gate); image-scan runs grype on the SBOMs and the base.
+# Container images of the four binaries (ADR-0032), not pushed: digests in
+# dist/images/images.txt, SBOMs in dist/images/sbom. ko builds erp-server,
+# erp-router and erp (.ko.yaml); docker buildx builds erp-analytics (cgo,
+# DuckDB: not ko's, ADR-0044) from deploy/images/erp-analytics.Dockerfile,
+# one platform at a time, since each compiles api/gen in a few GB of the
+# Docker VM's memory (KO_PLATFORMS=linux/arm64 builds one platform of
+# every image). images-reproducible builds twice with private caches and
+# builders and fails unless the digests match (CI's gate); image-scan runs
+# grype on the SBOMs and the bases; test-image-scripts checks the scripts
+# with fake tools.
 images:
 	./scripts/images.sh dist/images
 
@@ -17,6 +26,9 @@ images-reproducible:
 
 image-scan:
 	./scripts/image-scan.sh dist/images
+
+test-image-scripts:
+	./scripts/test-images.sh
 
 # Signing round trip against a throwaway registry (SIGNING_REGISTRY): push,
 # sign and attest with a key pair made for the run, verify, and check the
@@ -93,7 +105,7 @@ coverage:
 	DATABASE_URL="$(DATABASE_URL)" ./scripts/coverage.sh
 
 FUZZTIME ?= 15s
-FUZZ_TARGETS = money:FuzzParseDecimal money:FuzzConvert config:FuzzParseValidateDiff analytics:FuzzNarrative \
+FUZZ_TARGETS = analytics/reader:FuzzManifestPath money:FuzzParseDecimal money:FuzzConvert config:FuzzParseValidateDiff analytics:FuzzNarrative \
 	bankfile:FuzzPain001Text bankfile:FuzzValidIBAN sap:FuzzODataValue sap:FuzzODataString \
 	platform/redact:FuzzText platform/webhook:FuzzVerify platform/extensions:FuzzCompile platform/rules:FuzzCompile
 

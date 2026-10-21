@@ -88,6 +88,17 @@ const (
 // Prefix is the first segment of every key.
 const Prefix = "tenants"
 
+// AnalyticsPrefix is the analytical store's layout (ADR-0044): derived
+// data, rebuilt from the database, outside the tenant's own objects.
+const AnalyticsPrefix = "analytics/v1"
+
+// TenantPrefixes are the key prefixes of everything a tenant has in the
+// store, its own objects and its analytical store, which an erasure deletes
+// (ADR-0021).
+func TenantPrefixes(tenant uuid.UUID) []string {
+	return []string{Prefix + "/" + tenant.String() + "/", AnalyticsPrefix + "/tenant=" + tenant.String() + "/"}
+}
+
 // Key names an object of a tenant: tenants/<tenant id>/<kind>/<name>.
 func Key(tenant uuid.UUID, kind, name string) string {
 	return Prefix + "/" + tenant.String() + "/" + kind + "/" + name
@@ -97,7 +108,8 @@ func Key(tenant uuid.UUID, kind, name string) string {
 // (rather than a bare content hash recorded before object storage existed).
 func IsKey(ref string) bool { return strings.HasPrefix(ref, Prefix+"/") }
 
-var keyPattern = regexp.MustCompile(`^[A-Za-z0-9_.~/-]+$`)
+// "=" names a Hive-style partition (analytics/v1/tenant=<id>/..., ADR-0044).
+var keyPattern = regexp.MustCompile(`^[A-Za-z0-9_.~/=-]+$`)
 
 // checkKey refuses keys that could escape a directory or confuse a URL.
 func checkKey(key string) error {

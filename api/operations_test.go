@@ -36,7 +36,8 @@ func TestOperationsFromTheContract(t *testing.T) {
 		"submitRequisition": true, "cancelRequisition": true, "createPurchaseOrder": true, "updatePurchaseOrder": true,
 		"createSupplierInvoice": true, "updateSupplierInvoice": true, "cancelApprovalRequest": true,
 		"createDownPaymentRequest": true, "cancelDownPaymentRequest": true, "clearSupplierInvoiceDownPayments": false,
-		"postSupplierInvoice": false, "releasePurchaseOrder": false, "cancelPurchaseOrder": false, "proposePaymentRun": false, "verifyAuditChain": false} {
+		"postSupplierInvoice": false, "releasePurchaseOrder": false, "cancelPurchaseOrder": false, "proposePaymentRun": false, "verifyAuditChain": false,
+		"runAnalyticsQuery": false} {
 		if got := ops[id].Proposes; got != want {
 			t.Errorf("%s proposes: got %v, want %v", id, got, want)
 		}
@@ -45,7 +46,7 @@ func TestOperationsFromTheContract(t *testing.T) {
 		if op.Proposes && op.Method == "GET" {
 			t.Errorf("%s: a read marked x-autonomy: propose", id)
 		}
-		if op.Reads != (id == "verifyAuditChain" || id == "previewRevaluation") {
+		if op.Reads != (id == "verifyAuditChain" || id == "previewRevaluation" || id == "runAnalyticsQuery") {
 			t.Errorf("%s reads: got %v", id, op.Reads)
 		}
 	}

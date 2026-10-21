@@ -28,6 +28,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/api"
 	"github.com/mustie7iy/agentic-erp/db"
 	"github.com/mustie7iy/agentic-erp/internal/agents"
+	"github.com/mustie7iy/agentic-erp/internal/analytics/extract"
+	"github.com/mustie7iy/agentic-erp/internal/analytics/store"
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/audit"
 	"github.com/mustie7iy/agentic-erp/internal/capture"
@@ -134,10 +136,11 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	// spans the last export loses are reported through otel's error handler.
 	defer func() { _ = tp.Shutdown(context.WithoutCancel(ctx)) }()
 	s := &server{cfg: cfg, log: log, tp: tp, tls: cfg.TLSMaterial, failed: make(chan struct{})}
-	if s.pool, err = openPool(ctx, cfg); err != nil {
+	closePools, err := s.openPools(ctx)
+	if err != nil {
 		return err
 	}
-	defer s.pool.Close()
+	defer closePools()
 	if err := s.prepare(ctx); err != nil {
 		return err
 	}
@@ -216,6 +219,9 @@ type server struct {
 	log  *slog.Logger
 	tp   *sdktrace.TracerProvider
 	pool *database.Pool
+	// replica is the cell's read replica, which the analytics extract
+	// reads (DATABASE_REPLICA_URL); nil: the primary.
+	replica *database.Pool
 
 	static       []authn.Static
 	dev          *authn.DevIssuer
@@ -257,6 +263,41 @@ func openPool(ctx context.Context, cfg config.Config) (*database.Pool, error) {
 	settings := database.DefaultSettings
 	settings.MaxConns = cfg.DBMaxConns
 	return database.Open(ctx, cfg.DatabaseURL, settings)
+}
+
+// openPools opens the primary's pool and, when the cell extracts, the
+// read replica's; the function returned closes both.
+func (s *server) openPools(ctx context.Context) (func(), error) {
+	var err error
+	if s.pool, err = openPool(ctx, s.cfg); err != nil {
+		return nil, err
+	}
+	if s.replica, err = openReplica(ctx, s.cfg, s.cfg.Objects.Enabled()); err != nil {
+		s.pool.Close()
+		return nil, err
+	}
+	return func() {
+		if s.replica != nil {
+			s.replica.Close()
+		}
+		s.pool.Close()
+	}, nil
+}
+
+// openReplica opens the read replica's pool when one is configured and
+// the cell extracts (an object store configured), sized for the extract
+// alone: one tenant's run at a time per replica.
+func openReplica(ctx context.Context, cfg config.Config, extracts bool) (*database.Pool, error) {
+	if cfg.DatabaseReplicaURL == "" || !extracts {
+		return nil, nil
+	}
+	settings := database.DefaultSettings
+	settings.MaxConns = 2
+	pool, err := database.Open(ctx, cfg.DatabaseReplicaURL, settings)
+	if err != nil {
+		return nil, fmt.Errorf("the read replica: %w", err)
+	}
+	return pool, nil
 }
 
 // prepareSchema migrates when configured to, and creates the partitions
@@ -474,7 +515,7 @@ func modelClient(cfg config.Config) *http.Client {
 // collaborators sets up the optional outside services (document extraction,
 // the bank connector) and the metrics with the queues' backlogs.
 func (s *server) collaborators() {
-	s.metrics = newMetrics(s.pool, s.cfg, s.log) // first: the gateway counts its calls in them
+	s.metrics = newMetrics(s.pool, s.cfg, s.log, s.store != nil) // first: the gateway counts its calls in them
 	if s.cfg.Model.Enabled() {
 		s.gateway = &agents.Gateway{Provider: agents.Anthropic{Endpoint: s.cfg.Model.Endpoint, Key: s.cfg.Model.APIKey, Client: modelClient(s.cfg)},
 			Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log, Timeout: modelTimeout, AgentBudget: identity.AgentBudget, AgentKind: identity.AgentKind, Metrics: s.metrics,
@@ -489,12 +530,16 @@ func (s *server) collaborators() {
 }
 
 // newMetrics registers the cell's metrics, all of them held to the catalog
-// of ADR-0043 by its test.
-func newMetrics(pool *database.Pool, cfg config.Config, log *slog.Logger) *telemetry.Metrics {
+// of ADR-0043 by its test; analytics adds the analytical store's gauges,
+// for a cell with an object store (ADR-0044).
+func newMetrics(pool *database.Pool, cfg config.Config, log *slog.Logger, analytics bool) *telemetry.Metrics {
 	m := telemetry.NewMetrics()
 	m.Counter(rules.Unevaluable, rules.UnevaluableName, rules.UnevaluableHelp, rules.UnevaluableLabel)
 	backlogs(pool, cfg, m)
 	businessGauges(pool, cfg, m)
+	if analytics {
+		analyticsGauges(pool, cfg, m)
+	}
 	horizonGauges(pool, cfg, m, time.Now)
 	atRest(cfg.AtRest, m, log)
 	operationClasses(m)
@@ -556,6 +601,10 @@ func (s *server) dialEngine(ctx context.Context) (*workflow.Temporal, error) {
 	return engine, nil
 }
 
+// analyticsTimeout bounds a call to erp-analytics; past it the query is
+// answered from the database.
+const analyticsTimeout = 30 * time.Second
+
 // newAPI builds the public API's handler.
 func (s *server) newAPI() error {
 	cfg := s.cfg
@@ -569,6 +618,12 @@ func (s *server) newAPI() error {
 	}
 	if s.gateway != nil {
 		s.apiCfg.Model = s.gateway
+	}
+	if cfg.AnalyticsURL != "" {
+		// erp-analytics over mTLS as its SPIFFE identity (ADR-0044);
+		// config.Load requires the trust domain, and so the TLS material.
+		s.apiCfg.Analytics = &store.Client{URL: cfg.AnalyticsURL, Peer: tlsconf.ID(cfg.TrustDomain, cfg.Cell, "erp-analytics"),
+			HTTP: s.tls.InternalClient(analyticsTimeout)}
 	}
 	var err error
 	if s.apiHandler, err = app.New(s.apiCfg); err != nil {
@@ -589,6 +644,7 @@ func (s *server) startWorkers(runCtx context.Context) {
 	s.startMaintenance(runCtx)
 	s.startAudit(runCtx)
 	s.startWebhooks(runCtx)
+	s.startAnalytics(runCtx)
 }
 
 // startWebhooks starts the webhook dispatcher (ADR-0041): it delivers what
@@ -600,6 +656,24 @@ func (s *server) startWebhooks(runCtx context.Context) {
 	client, _ := egress.New()
 	dispatcher := &integration.Dispatcher{Pool: s.pool, AppRole: s.cfg.AppRole, WorkerRole: s.cfg.WorkerRole, Keys: s.keys, Client: client, Log: s.log}
 	s.spawn("webhook dispatcher", func() { dispatcher.Run(runCtx) })
+}
+
+// startAnalytics starts, with an object store, the analytical store's
+// extract scheduler (ADR-0044): the extract reads on the read replica once
+// it has replayed past the change, on the primary until then and without
+// a replica; it collects superseded files, rebuilds a store the database
+// is behind, and sweeps stale tenants hourly.
+func (s *server) startAnalytics(runCtx context.Context) {
+	if s.store == nil {
+		return
+	}
+	replica := s.pool.Begin
+	if s.replica != nil {
+		replica = s.replica.Begin
+	}
+	scheduler := &extract.Scheduler{Extractor: extract.Extractor{Replica: replica, Primary: s.pool.Begin, Role: s.cfg.AppRole, WorkerRole: s.cfg.WorkerRole, Store: s.store},
+		Begin: s.pool.Begin, WorkerRole: s.cfg.WorkerRole, Log: s.log}
+	s.spawn("analytics extract", func() { scheduler.Run(runCtx) })
 }
 
 // startProjections starts the balance projector and, without a workflow
@@ -715,6 +789,11 @@ func (s *server) startRelay(ctx, runCtx context.Context, bus *natsbus.Bus) error
 		return err
 	}
 	relay := &outbox.Relay{Pool: s.pool, Role: s.cfg.RelayRole, Publisher: bus, Cell: s.cfg.Cell, Log: s.log, Counter: s.metrics}
+	if s.store != nil {
+		// A published batch marks its tenants due an extract, once per
+		// batch and never in the posting transactions (ADR-0044).
+		relay.Relayed = extract.MarkChanged
+	}
 	s.spawn("relay", func() { relay.Run(runCtx) })
 	// Events offered to webhooks become deliveries (ADR-0041), each in its
 	// tenant's transaction, so the fan-out needs no role beyond the app's.
@@ -973,6 +1052,27 @@ func maintain(ctx context.Context, interval time.Duration, job func(context.Cont
 			worker.Report(ctx, log, "partition maintenance failed", err)
 		}
 	}
+}
+
+// analyticsGauges expose the analytical store's freshness (ADR-0044),
+// which its alert watches, in a cell that extracts (an object store
+// configured): the age of the oldest journal entry of an active tenant not
+// yet in its store (the target is p95 of fifteen minutes from posting),
+// one index range per tenant above its watermark, or for a tenant not yet
+// extracted, how long its first change has waited; and the tenants whose
+// store is not found current within the target, answered from the
+// database.
+func analyticsGauges(pool *database.Pool, cfg config.Config, m *telemetry.Metrics) {
+	count := reader(pool)
+	m.Gauge("erp_analytics_lag_seconds", "Age of the oldest change of an active tenant not yet in its analytical store.",
+		count(cfg.WorkerRole, `SELECT coalesce(extract(epoch FROM now() - least(
+			(SELECT min(e.posted_at) FROM analytics.snapshot s JOIN tenancy.tenant t ON t.id = s.tenant_id AND t.status = 'active'
+				JOIN ledger.journal_entry e ON e.tenant_id = s.tenant_id AND e.posted_xid >= s.watermark),
+			(SELECT min(d.changed_at) FROM analytics.extract_due d JOIN tenancy.tenant t ON t.id = d.tenant_id AND t.status = 'active'
+				WHERE d.changed_at > coalesce(d.done_at, '-infinity') AND NOT EXISTS (SELECT FROM analytics.snapshot s WHERE s.tenant_id = d.tenant_id)))), 0)::float8`))
+	m.Gauge("erp_analytics_stale_tenants", "Active tenants whose analytical store was not found current within 15 minutes.",
+		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM tenancy.tenant t WHERE t.status = 'active'
+			AND NOT EXISTS (SELECT FROM analytics.snapshot s WHERE s.tenant_id = t.id AND s.checked_at >= now() - interval '15 minutes')`))
 }
 
 // backlogs exposes the queues the workers drain (05-scalability §5.7:

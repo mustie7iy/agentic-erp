@@ -165,7 +165,7 @@ func TestFiscalCalendar(t *testing.T) {
 // Revenue from the semantic layer must equal the ledger's revenue account.
 func TestRevenueMatchesLedger(t *testing.T) {
 	s := session(t, us)
-	r, err := s.Run(Query{Measures: []string{"revenue"}, By: []string{"fiscal_year"}})
+	r, err := s.Run(context.Background(), Query{Measures: []string{"revenue"}, By: []string{"fiscal_year"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestRevenueMatchesLedger(t *testing.T) {
 
 func TestFiltersOrderingAndLimit(t *testing.T) {
 	s := session(t, us)
-	r, err := s.Run(Query{
+	r, err := s.Run(context.Background(), Query{
 		Measures: []string{"revenue"}, By: []string{"fiscal_year", "fiscal_month"},
 		Where:   []Filter{{Dim: "fiscal_month", Op: "between", Values: []string{"7", "9"}}},
 		OrderBy: "revenue", Desc: true, Limit: 2,
@@ -222,19 +222,19 @@ func TestQueryGuardrails(t *testing.T) {
 	}
 	for name, q := range cases {
 		t.Run(name, func(t *testing.T) {
-			if _, err := all.Run(q); err == nil {
+			if _, err := all.Run(context.Background(), q); err == nil {
 				t.Error("got no error, want the query refused")
 			}
 		})
 	}
-	if _, err := all.Run(Query{Measures: []string{"revenue"}, By: []string{"company"}}); err != nil {
+	if _, err := all.Run(context.Background(), Query{Measures: []string{"revenue"}, By: []string{"company"}}); err != nil {
 		t.Errorf("breaking down by company should resolve the currency mix: %v", err)
 	}
 }
 
 func TestRowLevelSecurity(t *testing.T) {
 	de := session(t, Principal{ID: "user:de", Companies: []string{"2000"}})
-	r, err := de.Run(Query{Measures: []string{"revenue"}, By: []string{"company"}})
+	r, err := de.Run(context.Background(), Query{Measures: []string{"revenue"}, By: []string{"company"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +309,7 @@ func TestAggregateOutOfRange(t *testing.T) {
 
 func TestDerivedMetrics(t *testing.T) {
 	s := session(t, us)
-	r, err := s.Run(Query{Measures: []string{"revenue", "expenses", "operating_profit", "operating_margin"}, By: []string{"fiscal_year"}})
+	r, err := s.Run(context.Background(), Query{Measures: []string{"revenue", "expenses", "operating_profit", "operating_margin"}, By: []string{"fiscal_year"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +388,7 @@ func salesQuery() Query {
 
 func TestBuildRenderAndRerun(t *testing.T) {
 	s := session(t, us)
-	r, err := s.Run(salesQuery())
+	r, err := s.Run(context.Background(), salesQuery())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -434,7 +434,7 @@ func TestBuildRenderAndRerun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fresh, results, err := s.Rerun(loaded)
+	fresh, results, err := s.Rerun(context.Background(), loaded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,7 +448,7 @@ func TestBuildRenderAndRerun(t *testing.T) {
 	// A stale commentary (figures no longer in the data) is dropped on rerun.
 	stale := *loaded
 	stale.Spec.Commentary = "Revenue was $1.11M."
-	fresh, _, err = s.Rerun(&stale)
+	fresh, _, err = s.Rerun(context.Background(), &stale)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -463,7 +463,7 @@ func TestBuildRenderAndRerun(t *testing.T) {
 func TestHandWrittenReportRemapsQueryIDs(t *testing.T) {
 	s := session(t, us)
 	rep := &Report{Spec: salesSpec("monthly"), Queries: map[string]Query{"monthly": salesQuery()}}
-	fresh, results, err := s.Rerun(rep)
+	fresh, results, err := s.Rerun(context.Background(), rep)
 	if err != nil {
 		t.Fatal(err)
 	}

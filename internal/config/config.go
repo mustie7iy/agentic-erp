@@ -30,6 +30,9 @@ type Config struct {
 	Extensions map[string]extensions.Schema `yaml:"extensions,omitempty" json:"extensions,omitempty"`
 	// Rules are the tenant's validation rules by entity and name (ADR-0046).
 	Rules map[string]map[string]rules.Rule `yaml:"rules,omitempty" json:"rules,omitempty"`
+	// Analytics is the semantic layer's governed model; nil: the seed
+	// (internal/analytics/semantic.yaml) until a change request adds it.
+	Analytics *Analytics `yaml:"analytics,omitempty" json:"analytics,omitempty"`
 }
 
 // NumberRange is a document number interval for one company, document type

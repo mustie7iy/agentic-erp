@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel/metric/noop"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 
+	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
@@ -85,5 +87,15 @@ func TestQuotasAndDeadlines(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "platform.unavailable") {
 		t.Errorf("expired body: got %s, want platform.unavailable", rec.Body)
+	}
+}
+
+// TestNewWithoutModel: an unreadable governed model stops the API's
+// construction rather than failing its first analytics query.
+func TestNewWithoutModel(t *testing.T) {
+	governedModel = func() (*analytics.Model, error) { return nil, errors.New("model unreadable") }
+	t.Cleanup(func() { governedModel = analytics.DefaultModel })
+	if _, err := New(Config{}); err == nil || err.Error() != "model unreadable" {
+		t.Errorf("got %v, want the model's error", err)
 	}
 }

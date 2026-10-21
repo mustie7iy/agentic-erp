@@ -1,5 +1,10 @@
 package config
 
+import (
+	"slices"
+	"strings"
+)
+
 // ApprovalSteps for a configuration change of the given tier. Tier 1 needs
 // no approval; higher tiers need more, and more senior, approvers. The
 // roles are identity roles with these codes.
@@ -24,6 +29,23 @@ func RequiredEvidence(t Tier) []string {
 		return []string{"simulation", "regression"}
 	}
 	return nil
+}
+
+// Evidence is what a change set needs before approval: its tier's
+// (RequiredEvidence), and a simulation when it changes what a metric
+// means, which shows the approvers the affected metrics' values before
+// and after on recent data (ADR-0044, T55g).
+func Evidence(changes []Change) []string {
+	out := RequiredEvidence(MaxTier(changes))
+	if slices.Contains(out, "simulation") {
+		return out
+	}
+	for _, c := range changes {
+		if strings.HasPrefix(c.Path, "analytics.") && c.Tier > TierCosmetic {
+			return append(out, "simulation")
+		}
+	}
+	return out
 }
 
 // RoleNames are the roles the document's approval policies name, which

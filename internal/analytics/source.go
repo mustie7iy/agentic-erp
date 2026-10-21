@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,45 @@ import (
 // Read models behind an analytics API replace it at scale.
 type Source struct {
 	API *apitools.Client
+	// Datasets are the fact tables to build (gl_lines, po_lines,
+	// ap_invoices): a query needs only its metrics', and reads nothing it
+	// does not need, so a permission another fact type needs does not
+	// refuse it. Nil builds every one.
+	Datasets []string
+}
+
+// Permissions are those the reads of Facts need, in the order it reads,
+// for the fact tables it builds: the API refuses a read without its
+// permission, and with it the whole answer. The store's answer is held to
+// them too (store.Source.Requires), so that it names no account or vendor
+// the database path could not read (ADR-0044).
+func (s Source) Permissions() []string {
+	out := []string{"tenancy.org.read", "partner.supplier.read"}
+	if s.builds("gl_lines") || s.builds("po_lines") {
+		out = append(out, "ledger.account.read")
+	}
+	for _, d := range FactDatasets {
+		if s.builds(d.Dataset) {
+			out = append(out, d.Permission)
+		}
+	}
+	return out
+}
+
+// FactDataset is a fact table and the permission that reads it.
+type FactDataset struct{ Dataset, Permission string }
+
+// FactDatasets are the fact tables a metric reads, in the order Facts
+// builds them, and the permission that reads each through the API: the
+// endpoint refuses a query over one the caller does not read, and a
+// governed model names no other (FromConfig).
+var FactDatasets = []FactDataset{
+	{"gl_lines", "ledger.entry.read"}, {"po_lines", "procurement.order.read"}, {"ap_invoices", "payables.invoice.read"},
+}
+
+// builds reports whether the source builds a fact table.
+func (s Source) builds(dataset string) bool {
+	return s.Datasets == nil || slices.Contains(s.Datasets, dataset)
 }
 
 type amount struct {
@@ -57,10 +97,12 @@ type account struct {
 }
 
 type journalEntry struct {
-	ID           string
-	DocumentType string `json:"document_type"`
-	PostingDate  string `json:"posting_date"`
-	Lines        []struct {
+	ID            string
+	LedgerID      string `json:"ledger_id"`
+	LeadingLedger bool   `json:"leading_ledger"`
+	DocumentType  string `json:"document_type"`
+	PostingDate   string `json:"posting_date"`
+	Lines         []struct {
 		LineNo    int    `json:"line_no"`
 		AccountID string `json:"account_id"`
 		AmountLC  amount `json:"amount_lc"`
@@ -108,7 +150,7 @@ func (s Source) Facts(ctx context.Context, m *Model, asOf time.Time) (*Facts, er
 		return nil, err
 	}
 	b := &factBuilder{
-		f:          &Facts{Tables: map[string][]Fact{}, Companies: map[string]string{}, Exponents: map[string]int{}, AsOf: asOf},
+		f:          &Facts{Tables: map[string][]Fact{}, Companies: map[string]string{}, Exponents: map[string]int{}, Source: SourceDatabase, AsOf: asOf},
 		startMonth: m.Calendar.FiscalYearStartMonth,
 		vendors:    map[string]partner{},
 	}
@@ -146,23 +188,28 @@ func (b *factBuilder) calendar(dims map[string]string, date string) error {
 }
 
 // addEntity reads one legal entity's ledger, purchase orders and supplier
-// invoices into the fact tables.
+// invoices into the fact tables, those it builds.
 func (s Source) addEntity(ctx context.Context, b *factBuilder, le legalEntity) error {
 	b.f.Companies[le.Code] = le.LocalCurrency
 	byLE := url.Values{"legal_entity_id": {le.ID}}
-	accounts, err := apitools.List[account](ctx, s.API, "/v1/accounts", byLE)
-	if err != nil {
-		return err
+	if s.builds("gl_lines") || s.builds("po_lines") {
+		accounts, err := apitools.List[account](ctx, s.API, "/v1/accounts", byLE)
+		if err != nil {
+			return err
+		}
+		chart := map[string]account{}
+		for _, a := range accounts {
+			chart[a.ID] = a
+		}
+		if err := s.addJournal(ctx, b, le, byLE, chart); err != nil {
+			return err
+		}
+		if err := s.addOrders(ctx, b, le, byLE, chart); err != nil {
+			return err
+		}
 	}
-	chart := map[string]account{}
-	for _, a := range accounts {
-		chart[a.ID] = a
-	}
-	if err := s.addJournal(ctx, b, le, byLE, chart); err != nil {
-		return err
-	}
-	if err := s.addOrders(ctx, b, le, byLE, chart); err != nil {
-		return err
+	if !s.builds("ap_invoices") {
+		return nil
 	}
 	return s.addInvoices(ctx, b, le, byLE)
 }
@@ -170,6 +217,9 @@ func (s Source) addEntity(ctx context.Context, b *factBuilder, le legalEntity) e
 // addJournal adds one fact per journal line to gl_lines; a supplier line
 // counts as cleared when it is no longer an open item.
 func (s Source) addJournal(ctx context.Context, b *factBuilder, le legalEntity, byLE url.Values, chart map[string]account) error {
+	if !s.builds("gl_lines") {
+		return nil
+	}
 	open, err := apitools.List[openItem](ctx, s.API, "/v1/open-items", byLE)
 	if err != nil {
 		return err
@@ -205,7 +255,8 @@ func (b *factBuilder) addEntry(le legalEntity, je journalEntry, chart map[string
 		if err != nil {
 			return fmt.Errorf("journal entry %s: %w", je.ID, err)
 		}
-		b.f.Tables["gl_lines"] = append(b.f.Tables["gl_lines"], Fact{ID: je.ID, Dims: dims, Amount: amt, Currency: l.AmountLC.Currency})
+		b.f.Tables["gl_lines"] = append(b.f.Tables["gl_lines"], Fact{ID: je.ID, Dims: dims, Amount: amt, Currency: l.AmountLC.Currency,
+			Ledger: je.LedgerID, Leading: je.LeadingLedger})
 	}
 	return nil
 }
@@ -213,6 +264,9 @@ func (b *factBuilder) addEntry(le legalEntity, je journalEntry, chart map[string
 // addOrders adds one fact per purchase order item to po_lines, valued at
 // quantity times unit price per price unit.
 func (s Source) addOrders(ctx context.Context, b *factBuilder, le legalEntity, byLE url.Values, chart map[string]account) error {
+	if !s.builds("po_lines") {
+		return nil
+	}
 	orders, err := apitools.List[order](ctx, s.API, "/v1/purchase-orders", byLE)
 	if err != nil {
 		return err

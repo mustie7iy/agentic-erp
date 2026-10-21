@@ -237,6 +237,10 @@ type GetAiUsageRes interface {
 	getAiUsageRes()
 }
 
+type GetAnalyticsModelRes interface {
+	getAnalyticsModelRes()
+}
+
 type GetApprovalRequestRes interface {
 	getApprovalRequestRes()
 }
@@ -727,6 +731,10 @@ type ReverseSupplierInvoiceRes interface {
 
 type RotateWebhookSubscriptionSecretRes interface {
 	rotateWebhookSubscriptionSecretRes()
+}
+
+type RunAnalyticsQueryRes interface {
+	runAnalyticsQueryRes()
 }
 
 type SimulateChangeRequestRes interface {

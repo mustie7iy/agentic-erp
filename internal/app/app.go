@@ -7,16 +7,21 @@
 package app
 
 import (
+	"context"
 	"log/slog"
 	"net"
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/agents"
+	"github.com/mustie7iy/agentic-erp/internal/analytics"
+	"github.com/mustie7iy/agentic-erp/internal/analytics/endpoint"
+	"github.com/mustie7iy/agentic-erp/internal/analytics/store"
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/audit"
 	"github.com/mustie7iy/agentic-erp/internal/capture"
@@ -63,6 +68,7 @@ type (
 	auditAPI       = audit.Endpoints
 	integrationAPI = integration.Endpoints
 	agentsAPI      = agents.Endpoints
+	analyticsAPI   = endpoint.Endpoints
 )
 
 // handler is the generated Handler: one embedded endpoint set per context.
@@ -81,6 +87,7 @@ type handler struct {
 	*auditAPI
 	*integrationAPI
 	*agentsAPI
+	*analyticsAPI
 }
 
 // Config is what the API needs.
@@ -116,6 +123,10 @@ type Config struct {
 	RefuseEBICS bool
 	// Model is the model gateway (agents.Gateway, ADR-0036); nil answers 503.
 	Model http.Handler
+	// Analytics is erp-analytics, which answers semantic queries from the
+	// analytical store (store.Client, ADR-0044); nil answers them from the
+	// database.
+	Analytics store.Querier
 	// EvalCell lifts the bound of agents' autonomy by their type's
 	// certification, on a cell that runs live evaluations (ERP_EVAL_CELL,
 	// ADR-0039): a type's first run needs agents at its suite's levels.
@@ -131,6 +142,12 @@ func certifications(cfg Config) agents.Certifications {
 // New builds the public API handler.
 func New(cfg Config) (http.Handler, error) {
 	upload := uploads(cfg)
+	loopback := &httpapi.Loopback{}
+	// The seed of every tenant's semantic model until a change request
+	// gives it its own: unreadable, the API does not start.
+	if _, err := governedModel(); err != nil {
+		return nil, err
+	}
 	h := handler{
 		operationsAPI: &operations.Endpoints{Pages: cfg.Pages, Workflows: cfg.Workflows, Log: cfg.Log},
 		tenancyAPI:    &tenancy.Endpoints{Pages: cfg.Pages},
@@ -156,6 +173,7 @@ func New(cfg Config) (http.Handler, error) {
 		auditAPI:       &audit.Endpoints{Pages: cfg.Pages, Anchors: cfg.Objects},
 		integrationAPI: Integration(cfg),
 		agentsAPI:      &agents.Endpoints{Pages: cfg.Pages, Countries: tenancy.Countries, Certifications: certifications(cfg)},
+		analyticsAPI:   analyticsEndpoints(cfg, loopback).Init(),
 	}
 	return httpapi.New(h, httpapi.Pipeline{
 		Pool: cfg.Pool, AppRole: cfg.AppRole, Verifier: cfg.Verifier, Limits: cfg.Limits, RequestTimeout: cfg.RequestTimeout,
@@ -170,7 +188,28 @@ func New(cfg Config) (http.Handler, error) {
 		RequireBoundAgents: cfg.RequireBoundAgents,
 		Agents:             agents.Admit,
 		Model:              cfg.Model,
+		Loopback:           loopback,
 	})
+}
+
+// analyticsEndpoints is the analytics context as the API and the
+// simulation worker wire it: the semantic model read from the tenant's
+// configuration (ADR-0044, T55g).
+func analyticsEndpoints(cfg Config, loopback http.RoundTripper) *endpoint.Endpoints {
+	return &endpoint.Endpoints{Configs: configuration.Settings{}, Companies: companyCodes{}, Reader: cfg.Analytics, Loopback: loopback,
+		Log: cfg.Log, Now: cfg.Now}
+}
+
+// governedModel is the semantic layer's seed model, built in; tests
+// replace it.
+var governedModel = analytics.DefaultModel
+
+// companyCodes names legal entities by their company codes for analytics.
+type companyCodes struct{}
+
+func (companyCodes) CompanyCode(ctx context.Context, id uuid.UUID) (string, bool, error) {
+	le, ok, err := tenancy.Directory{}.Entity(ctx, id)
+	return le.Code, ok, err
 }
 
 // Configuration is the configuration context's dependencies as the API
@@ -181,13 +220,15 @@ func Configuration(cfg Config) configuration.Dependencies {
 		Sections: []configuration.Section{ledger.Setup{LegalEntities: tenancy.Directory{}}, partner.PaymentTerms{}, partner.WithholdingCodes{LegalEntities: tenancy.Directory{}},
 			partner.PaymentMethodCodes{LegalEntities: tenancy.Directory{}},
 			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Channels: integration.BankChannels{}, Keys: cfg.FieldKeys},
-			payments.PaymentMethods{LegalEntities: tenancy.Directory{}}},
+			payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, endpoint.Section{}},
 		Approvals: opener(),
-		Simulator: payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
+		Simulator: configuration.Simulators{payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
+			endpoint.Simulation{Endpoints: analyticsEndpoints(cfg, nil), Now: cfg.Now}},
 		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
 		Actors:    identity.Actors{},
 		RuleSamplers: map[string]rules.Sampler{"supplier_invoice": payables.RuleSamples{}, "purchase_order": procurement.RuleSamples{},
 			"business_partner": partner.RuleSamples{}},
+		Disclosures: []configuration.Disclosure{endpoint.Disclosure{Endpoints: analyticsEndpoints(cfg, nil)}},
 	}
 }
 
