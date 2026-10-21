@@ -239,8 +239,8 @@ func (st *Store) Renew(ctx context.Context, s Session, fresh func(Secrets) bool,
 		case err != nil:
 			return Session{}, err
 		case fresh(cur.Secrets):
-			if claim != nil {
-				return cur, st.release(ctx, s.ID, *claim)
+			if claim != nil { // given up even when the client has gone
+				return cur, st.release(context.WithoutCancel(ctx), s.ID, *claim)
 			}
 			return cur, nil
 		case claim != nil:
@@ -317,7 +317,10 @@ func (st *Store) renewClaimed(ctx context.Context, s Session, claim time.Time, r
 	return s, nil
 }
 
-// writeRenewed stores renewed secrets under the request's claim.
+// writeRenewed stores renewed secrets under the request's claim. A holder
+// whose claim lapsed would lose what it renewed; the provider's call
+// (renewTimeout, 15 s) and this write (writeTimeout) end within the claim
+// (RenewClaim, 30 s), so only a process stalled for longer can.
 func (st *Store) writeRenewed(ctx context.Context, s Session, claim time.Time, sec Secrets) error {
 	ctx, cancel := context.WithTimeout(ctx, writeTimeout)
 	defer cancel()
