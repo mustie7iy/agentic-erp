@@ -1688,6 +1688,30 @@ Lock-contention relief (a large proposal holds most of its tenant's buckets; a
 period close can be starved) is tracked but has no step: it is taken up only if
 real load shows it.
 
+### Pilot readiness (T72)
+
+The product owner's triage of the open Phase 1 items for the Canada and UAE
+pilot (2026-10-21) found these blockers: the pilot does not go live without
+them. The tracker holds them under Migration from SAP, Pilot readiness, and
+each original item names its step. What waits on people or outside parties
+is marked "waits on" there, and what the pilot does not need "post-pilot".
+They are Phase 1 work and run alongside phase 2, in the lanes their code
+falls in (§7.7).
+
+| Step | Work | Exit criterion |
+|---|---|---|
+| T72a | **Three-way match race** | Two invoices matched against one order item cannot both post past its received quantity: `:post` re-checks the quantities under the order's lock, and matching and posting read received quantities `FOR SHARE` |
+| T72b | **SAP credit memos by kind** | A parked SAP credit memo or subsequent debit/credit (RBKP XRECH/TBTKZ) loads as its kind, never as a positive invoice that gets paid |
+| T72c | **SAP open down payments** | Open SAP down payments (BSIK UMSKZ A) load on the down payment account with their special G/L indicator: a payment run never nets them and their input tax can be reversed (needed if the pilot has open down payments) |
+| T72d | **SAP Canadian bank accounts** | Canadian vendor bank accounts (LFBK) load as scheme ca with institution and transit numbers, and Canadian house banks (T012K) load without an IBAN, so migrated Canadian suppliers can be paid |
+| T72e | **GR/IR maintenance (MR11)** | Residual GR/IR positions of closed orders can be cleared (SAP MR11) through the API, approved and audited, before the first month-end close |
+| T72f | **SAP open GR/IR positions** | Open GR/IR positions migrate with their order item (ACDOCA EBELN/EBELP): an invoice after cutover for goods received in SAP clears the GR/IR credit instead of booking the expense again; optionally, open direct-valued orders can be moved onto GR/IR |
+| T72g | **Purchase order output** | A purchase order document (a text/PDF form) is produced for the supplier through the API; email and EDI transmission stay post-pilot |
+| T72h | **Directory logins of their own** | The router and the cells connect to the directory with logins of their own and least privilege, never as the RDS master user `erp_admin` |
+| T72i | **Mirrored images signed in the release** | The release mirrors the PgBouncer and NATS images (`scripts/mirror-images.sh`) before signing, with copy provenance, so Kyverno's `erp-release-signed` admits them in production |
+| T72j | **Pilot light runnable** | The pilot light is runnable (DR node group, IRSA trust of the DR cluster's OIDC provider, Argo CD in Terraform), so the region failover rehearsal (T41g) can run; its confirmation needs AWS staging |
+| T72k | **Web UI for pilot finance users** | Proposal pending (PO 2026-10-21: needed for the pilot) |
+
 ### Phase 2 (T48–T71)
 
 Phase 2 completes finance and controlling for the pilot, adds the platform it
@@ -1732,28 +1756,6 @@ phase 9. Agent autonomy thresholds are those set in T43. SAP data access at the
 pilot is still to be confirmed (T69). Sales, inventory and HR metrics move to
 phases 3, 4 and 8, as those modules land; full profitability segments move to
 phase 3.
-
-### Pilot readiness (T72)
-
-The product owner's triage of the open Phase 1 items for the Canada and UAE
-pilot (2026-10-21) found these blockers: the pilot does not go live without
-them. The tracker holds them under Migration from SAP, Pilot readiness, and
-each original item names its step. What waits on people or outside parties
-is marked "waits on" there, and what the pilot does not need "post-pilot".
-
-| Step | Work | Exit criterion |
-|---|---|---|
-| T72a | **Three-way match race** | Two invoices matched against one order item cannot both post past its received quantity: :post re-checks the quantities under the order's lock, and matching and posting read received quantities FOR SHARE |
-| T72b | **SAP credit memos by kind** | A parked SAP credit memo or subsequent debit/credit (RBKP XRECH/TBTKZ) loads as its kind, never as a positive invoice that gets paid |
-| T72c | **SAP open down payments** | Open SAP down payments (BSIK UMSKZ A) load on the down payment account with their special G/L indicator: a payment run never nets them and their input tax can be reversed (needed if the pilot has open down payments) |
-| T72d | **SAP Canadian bank accounts** | Canadian vendor bank accounts (LFBK) load as scheme ca with institution and transit numbers, and Canadian house banks (T012K) load without an IBAN, so migrated Canadian suppliers can be paid |
-| T72e | **GR/IR maintenance (MR11)** | Residual GR/IR positions of closed orders can be cleared (SAP MR11) through the API, approved and audited, before the first month-end close |
-| T72f | **SAP open GR/IR positions** | Open GR/IR positions migrate with their order item (ACDOCA EBELN/EBELP): an invoice after cutover for goods received in SAP clears the GR/IR credit instead of booking the expense again; optionally, open direct-valued orders can be moved onto GR/IR |
-| T72g | **Purchase order output** | A purchase order document (a text/PDF form) is produced for the supplier through the API; email and EDI transmission stay post-pilot |
-| T72h | **Directory logins of their own** | The router and the cells connect to the directory with logins of their own and least privilege, never as the RDS master user erp_admin |
-| T72i | **Mirrored images signed in the release** | The release mirrors the PgBouncer and NATS images (scripts/mirror-images.sh) before signing, with copy provenance, so Kyverno's erp-release-signed admits them in production |
-| T72j | **Pilot light runnable** | The pilot light is runnable (DR node group, IRSA trust of the DR cluster's OIDC provider, Argo CD in Terraform), so the region failover rehearsal (T41g) can run; its confirmation needs AWS staging |
-| T72k | **Web UI for pilot finance users** | Proposal pending (PO 2026-10-21: needed for the pilot) |
 
 **After phase 2.** Phases 3–10 follow in this order: sales and receivables (3),
 supply chain (4), manufacturing (5), assets, service and EHS (6), projects (7),
