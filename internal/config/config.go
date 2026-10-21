@@ -349,6 +349,11 @@ type HouseBank struct {
 	// receivable clears them (ADR-0047); a bank without one leaves them
 	// unposted.
 	IncomingGLAccount string `yaml:"incoming_gl_account,omitempty" json:"incoming_gl_account,omitempty"`
+	// Currency is the account's currency (ISO 4217); empty is the
+	// company's. A bank in another currency (ADR-0051 §3, T53a) pays runs
+	// and takes statements in it, and its accounts are revalued at period
+	// end (ADR-0042). It never changes under the bank's name.
+	Currency string `yaml:"currency,omitempty" json:"currency,omitempty"`
 }
 
 // Canadian reports whether the house bank names a Canadian account
@@ -375,6 +380,15 @@ func (hb HouseBank) Routing() (institution, transit string) {
 // AllHouseBanks is the main house bank followed by the further ones.
 func (c *Company) AllHouseBanks() []HouseBank {
 	return append([]HouseBank{c.HouseBank}, c.HouseBanks...)
+}
+
+// HouseBankCurrency is the house bank's currency: its own, or the
+// company's.
+func (c *Company) HouseBankCurrency(hb HouseBank) string {
+	if hb.Currency == "" {
+		return c.Currency
+	}
+	return hb.Currency
 }
 
 // HouseBankAccount is the number of the house bank's ledger account: its

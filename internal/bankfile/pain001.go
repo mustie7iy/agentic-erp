@@ -42,11 +42,16 @@ type Batch struct {
 	// account, whose number DebtorAccount is, in place of DebtorIBAN.
 	DebtorClearingID string
 	DebtorAccount    string
-	Currency         string
-	Decimals         int    // minor-unit digits of Currency
-	ExecutionDate    string // YYYY-MM-DD
-	Created          time.Time
-	Payments         []Payment
+	// DebtorCurrency is the debtor account's currency, given for an account
+	// in another currency than its company's (ADR-0051 §3), so a bank that
+	// keeps several currencies under one account number debits the right
+	// one; "" leaves it out, as files to local-currency accounts always did.
+	DebtorCurrency string
+	Currency       string
+	Decimals       int    // minor-unit digits of Currency
+	ExecutionDate  string // YYYY-MM-DD
+	Created        time.Time
+	Payments       []Payment
 }
 
 // ValidIBAN checks an IBAN with the ISO 13616 mod-97 algorithm
@@ -113,12 +118,13 @@ func Pain001(b Batch) ([]byte, error) {
 	return append([]byte(xml.Header), out...), nil
 }
 
-// debtorAccount is the debtor's IBAN, or its Canadian account number.
+// debtorAccount is the debtor's IBAN, or its Canadian account number,
+// with its currency when the batch names one.
 func (b Batch) debtorAccount() cashAccount {
 	if b.DebtorClearingID != "" {
-		return cashAccount{ID: account{Othr: &other{ID: b.DebtorAccount}}}
+		return cashAccount{ID: account{Othr: &other{ID: b.DebtorAccount}}, Ccy: b.DebtorCurrency}
 	}
-	return cashAccount{ID: account{IBAN: strings.ReplaceAll(b.DebtorIBAN, " ", "")}}
+	return cashAccount{ID: account{IBAN: strings.ReplaceAll(b.DebtorIBAN, " ", "")}, Ccy: b.DebtorCurrency}
 }
 
 // canadian names a bank by its member id of the Canadian Payments
@@ -214,7 +220,8 @@ type party struct {
 }
 
 type cashAccount struct {
-	ID account `xml:"Id"`
+	ID  account `xml:"Id"`
+	Ccy string  `xml:"Ccy,omitempty"` // after Id, as CashAccount16 orders it
 }
 
 type account struct {

@@ -773,6 +773,9 @@ func (e *Endpoints) render(ctx context.Context, tenant uuid.UUID, r Run, g fileG
 	if hb.Institution != "" { // a Canadian house bank (T45d)
 		b.DebtorIBAN, b.DebtorAccount, b.DebtorClearingID = "", account, cabank.MemberID(hb.Institution, hb.Transit)
 	}
+	if hb.Currency != le.LocalCurrency { // a foreign-currency account (T53a)
+		b.DebtorCurrency = hb.Currency
+	}
 	for _, pay := range pays {
 		remittance, err := e.remittance(ctx, pay, refs)
 		if err != nil {

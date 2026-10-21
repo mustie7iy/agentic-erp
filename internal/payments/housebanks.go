@@ -19,13 +19,15 @@ import (
 // HouseBanks is the configuration document's house banks (SAP T012K): each
 // company's main house_bank and further house_banks, kept in
 // payments.house_bank with their IBANs, or a Canadian bank's account
-// number beside its institution and transit numbers (T45d), sealed. A bank's name is its code
-// within the legal entity, its currency the company's and its ledger
-// account its own bank clearing account, or for a main bank without one the
-// account determination's bank account (ADR-0038). An IBAN or BIC never
-// changes under the same name, so files already produced stay
-// reproducible: a new bank account gets a new name, and a house bank the
-// document no longer lists becomes inactive.
+// number beside its institution and transit numbers (T45d), sealed. A
+// bank's name is its code within the legal entity, its currency its own or
+// the company's (ADR-0051 §3, T53a) and its ledger account its own bank
+// clearing account, or for a main bank without one the account
+// determination's bank account (ADR-0038). An IBAN, BIC or currency never
+// changes under the same name, so files already produced stay reproducible
+// and a bank's statements and balances stay in one currency: a new bank
+// account gets a new name, and a house bank the document no longer lists
+// becomes inactive.
 type HouseBanks struct {
 	LegalEntities interface {
 		EntityByCode(ctx context.Context, code string) (tenancy.Entity, bool, error)
@@ -47,9 +49,9 @@ func init() {
 
 var houseBankCode = regexp.MustCompile(`^[A-Z0-9]{1,5}$`)
 
-// Check refuses names that are not house bank codes, new bank details
-// under the name of an existing house bank, and a connector that is not a
-// bank channel.
+// Check refuses names that are not house bank codes, new bank details or
+// another currency under the name of an existing house bank, and a
+// connector that is not a bank channel.
 func (h HouseBanks) Check(ctx context.Context, _, proposed *config.Config) ([]config.Finding, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -90,13 +92,13 @@ func (h HouseBanks) checkCompany(ctx context.Context, tx pgx.Tx, tenant uuid.UUI
 		if !ok { // the ledger section reports companies without a legal entity
 			continue
 		}
-		same, err := h.sameDetails(ctx, tx, tenant, le, hb)
+		changed, err := h.changed(ctx, tx, tenant, le, co.HouseBankCurrency(hb), hb)
 		if err != nil {
 			return nil, fmt.Errorf("payments: house bank %s of legal entity %s: %w", hb.Name, co.Code, err)
 		}
-		if !same {
+		if changed != "" {
 			out = append(out, config.Finding{Severity: config.SevError, Path: path,
-				Message: fmt.Sprintf("house bank %s already has other bank details; give the new bank account a new name", hb.Name)})
+				Message: fmt.Sprintf("house bank %s already has %s; give the new bank account a new name", hb.Name, changed)})
 		}
 	}
 	return out, nil
@@ -114,25 +116,32 @@ func (h HouseBanks) checkChannel(ctx context.Context, path string, hb config.Hou
 		Message: fmt.Sprintf("no bank channel connector (bank_sftp) is named %s", hb.Connector)}}, nil
 }
 
-// sameDetails reports whether the legal entity's house bank of that name,
-// if there is one, has the bank details given.
-func (h HouseBanks) sameDetails(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, le tenancy.Entity, hb config.HouseBank) (bool, error) {
+// changed says what the legal entity's house bank of that name, if there
+// is one, has other than the bank details and currency given: "" nothing,
+// else "other bank details" or "another currency, <code>".
+func (h HouseBanks) changed(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, le tenancy.Entity, currency string, hb config.HouseBank) (string, error) {
 	var sealed []byte
-	var bic, institution, transit string
-	err := tx.QueryRow(ctx, `SELECT iban_cipher, bic, coalesce(institution_number, ''), coalesce(transit_number, '')
-		FROM payments.house_bank WHERE legal_entity_id = $1 AND code = $2`, le.ID, hb.Name).Scan(&sealed, &bic, &institution, &transit)
+	var bic, institution, transit, was string
+	err := tx.QueryRow(ctx, `SELECT iban_cipher, bic, coalesce(institution_number, ''), coalesce(transit_number, ''), currency
+		FROM payments.house_bank WHERE legal_entity_id = $1 AND code = $2`, le.ID, hb.Name).Scan(&sealed, &bic, &institution, &transit, &was)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return true, nil
+		return "", nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("read: %w", err)
+		return "", fmt.Errorf("read: %w", err)
 	}
 	account, err := h.Keys.Open(ctx, tenant, sealed)
 	if err != nil {
-		return false, err
+		return "", err
 	}
 	wantInstitution, wantTransit := hb.Routing()
-	return account == fieldcrypt.Normalize(hb.Account()) && bic == hb.BIC && institution == wantInstitution && transit == wantTransit, nil
+	switch {
+	case account != fieldcrypt.Normalize(hb.Account()) || bic != hb.BIC || institution != wantInstitution || transit != wantTransit:
+		return "other bank details", nil
+	case was != currency:
+		return "another currency, " + was, nil
+	}
+	return "", nil
 }
 
 // Apply makes the house banks the document no longer lists inactive, then
@@ -171,7 +180,7 @@ func (h HouseBanks) Apply(ctx context.Context, doc *config.Config) error {
 			if err != nil {
 				return err
 			}
-			if err := h.upsert(ctx, tx, p, le.ID, co.Currency, hb, accounts); err != nil {
+			if err := h.upsert(ctx, tx, p, le.ID, co.HouseBankCurrency(hb), hb, accounts); err != nil {
 				return fmt.Errorf("payments: apply house bank %s of legal entity %s: %w", hb.Name, co.Code, err)
 			}
 		}
@@ -210,8 +219,9 @@ func bankAccounts(chart map[string]ledger.ChartAccount, co *config.Company, hb c
 	return out, nil
 }
 
-// upsert creates the house bank active on the accounts and channel, or
-// reactivates it and moves it to them.
+// upsert creates the house bank active on the accounts and channel in its
+// currency, or reactivates it and moves it to them; its currency, as its
+// account, never changes (Check refuses another).
 func (h HouseBanks) upsert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le uuid.UUID, currency string, hb config.HouseBank, accounts houseBankAccounts) error {
 	sealed, err := h.Keys.Seal(ctx, p.TenantID, hb.Account())
 	if err != nil {

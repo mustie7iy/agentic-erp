@@ -614,10 +614,12 @@ type Invoker interface {
 	// match (kind, rule, posting) and the outcome of the latest agent proposal a person decided,
 	// optionally only the lines of one status (`line_status`). `summary` is the period's, on its last
 	// closing date. A statement becomes `reconciled` once nothing is in transit or unexplained on its
-	// closing date. The ledger's balances are in the legal entity's local currency, which is a house
-	// bank's currency; a house bank without a main bank account has no ledger balance, nor anything
-	// unexplained. The report names no account numbers, so agents read it as people do. Paged by
-	// statement, by closing date. Sortable by: `closing_date`.
+	// closing date. Everything is in the house bank's currency (ADR-0051, T53a): the ledger's balance of a
+	// bank in the legal entity's local currency is its local amounts, and of a bank in another currency
+	// the transaction amounts of the entries in that currency, so exchange differences and period-end
+	// valuations in local currency never show as unexplained; a house bank without a main bank account has
+	// no ledger balance, nor anything unexplained. The report names no account numbers, so agents read it
+	// as people do. Paged by statement, by closing date. Sortable by: `closing_date`.
 	//
 	// GET /v1/house-banks/{id}/reconciliation
 	GetBankReconciliation(ctx context.Context, params GetBankReconciliationParams) (GetBankReconciliationRes, error)
@@ -12582,10 +12584,12 @@ func (c *Client) sendGetBankFileContent(ctx context.Context, params GetBankFileC
 // match (kind, rule, posting) and the outcome of the latest agent proposal a person decided,
 // optionally only the lines of one status (`line_status`). `summary` is the period's, on its last
 // closing date. A statement becomes `reconciled` once nothing is in transit or unexplained on its
-// closing date. The ledger's balances are in the legal entity's local currency, which is a house
-// bank's currency; a house bank without a main bank account has no ledger balance, nor anything
-// unexplained. The report names no account numbers, so agents read it as people do. Paged by
-// statement, by closing date. Sortable by: `closing_date`.
+// closing date. Everything is in the house bank's currency (ADR-0051, T53a): the ledger's balance of a
+// bank in the legal entity's local currency is its local amounts, and of a bank in another currency
+// the transaction amounts of the entries in that currency, so exchange differences and period-end
+// valuations in local currency never show as unexplained; a house bank without a main bank account has
+// no ledger balance, nor anything unexplained. The report names no account numbers, so agents read it
+// as people do. Paged by statement, by closing date. Sortable by: `closing_date`.
 //
 // GET /v1/house-banks/{id}/reconciliation
 func (c *Client) GetBankReconciliation(ctx context.Context, params GetBankReconciliationParams) (GetBankReconciliationRes, error) {

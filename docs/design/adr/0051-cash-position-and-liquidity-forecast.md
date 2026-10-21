@@ -225,6 +225,14 @@ T49f built. Without this step a pilot's foreign-currency accounts are
 outside the cash position, which is why it comes first (facts at the
 end).
 
+As built (T53a): no migration (the column existed); the currency never
+changes under a code, checked as the IBAN is; the bank file names the
+debtor account's currency (`DbtrAcct/Ccy`) for a foreign-currency bank;
+the reconciliation report (T49h) compares the statement with the
+ledger's balance of the bank account in the bank's currency (the
+transaction amounts of the entries in it), so exchange differences and
+valuations are not unexplained. ADR-0038's amendment has the details.
+
 ### 4. The flow model: sources, certainty, liquidity items
 Every figure is a sum of **flows**: (company, house bank or none,
 currency, value date, signed amount in minor units of the currency

@@ -30,8 +30,12 @@ import (
 // nothing is in transit or unexplained on its closing date, which also
 // means every line of it is posted or excluded: once, audited and
 // published, and never undone by the server, so its lines are then decided
-// for good. The house banks' currency is their company's, the legal
-// entity's local currency, in which the ledger's balances are read.
+// for good. Everything is compared in the house bank's currency (ADR-0051
+// §3, T53a): the statements' amounts, and the ledger's balance of the main
+// bank account in it, its local amounts for a bank in the legal entity's
+// currency and the transaction amounts of the entries in the bank's
+// currency for a foreign-currency bank, whose exchange differences and
+// valuations then never show as unexplained.
 
 // Figures are a closing balance compared with the ledger on its date.
 // Ledger is nil when the house bank has no main bank account.
@@ -100,7 +104,7 @@ func (e *Endpoints) figures(ctx context.Context, tx pgx.Tx, b reconBank, dates [
 	if b.Main == nil {
 		return figs, nil
 	}
-	ledger, err := e.Accounts.Balances(ctx, b.LegalEntityID, *b.Main, dates)
+	ledger, err := e.Accounts.Balances(ctx, b.LegalEntityID, *b.Main, b.Currency, dates)
 	if err != nil {
 		return nil, fmt.Errorf("payments: ledger balances of house bank %s: %w", b.ID, err)
 	}
