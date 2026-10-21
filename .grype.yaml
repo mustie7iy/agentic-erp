@@ -2,5 +2,37 @@
 # Each entry names the vulnerability and the package, says why it is
 # accepted and until when; an expired entry is removed, not extended
 # without a new reason. grype does not read the expiry: review does.
-# None today.
-ignore: []
+ignore:
+  # libssl3 3.0.20-1~deb12u2 in gcr.io/distroless/cc-debian12:nonroot,
+  # erp-analytics's runtime base (deploy/images/erp-analytics.Dockerfile),
+  # whose current digest (sha256:9dac0a79...) still carries it; Debian's
+  # fix is 3.0.22-1~deb12u1. Accepted because nothing in the image loads
+  # it: erp-analytics needs only libc, libm, libgcc_s and libstdc++
+  # (readelf -d, 2026-10-21), uses Go's TLS, and distroless has no other
+  # program. Pinned to this version, so a base carrying another is scanned
+  # afresh. Until 2026-11-20, or sooner once base-image-current.sh reports
+  # a new digest to bump to.
+  - vulnerability: CVE-2026-63076
+    package:
+      name: libssl3
+      version: 3.0.20-1~deb12u2
+  - vulnerability: CVE-2026-63072
+    package:
+      name: libssl3
+      version: 3.0.20-1~deb12u2
+  - vulnerability: CVE-2026-54874
+    package:
+      name: libssl3
+      version: 3.0.20-1~deb12u2
+  - vulnerability: CVE-2026-75803
+    package:
+      name: libssl3
+      version: 3.0.20-1~deb12u2
+  - vulnerability: CVE-2026-63074
+    package:
+      name: libssl3
+      version: 3.0.20-1~deb12u2
+  - vulnerability: CVE-2026-42767
+    package:
+      name: libssl3
+      version: 3.0.20-1~deb12u2

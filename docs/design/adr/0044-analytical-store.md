@@ -280,8 +280,10 @@ both platforms, through the ADR-0032 gates) is T55h, since ko does not
 cross-compile cgo.
 
 **The image and its deployment (T55h).** `deploy/images/erp-analytics.Dockerfile`
-builds the image with docker buildx (`scripts/images.sh`, T55p): a Go 1.26.2
-Debian 12 builder on the build machine's platform cross-compiles with
+builds the image with docker buildx (`scripts/images.sh`, T55p): a Go 1.26.10
+Debian 12 builder (the toolchain go.mod names: the golang image builds
+with `GOTOOLCHAIN=local`, so its version is the standard library the
+binary carries, and is bumped with go.mod's) on the build machine's platform cross-compiles with
 Debian's cross gcc (no emulation), DuckDB coming prebuilt and static from
 duckdb-go-bindings; glibc stays dynamic, on
 `gcr.io/distroless/cc-debian12:nonroot` (glibc, libgcc, libstdc++, no

@@ -101,8 +101,11 @@ try:
     s = ctx.wrap_socket(raw, server_hostname="localhost")
     s.sendall(b'CONNECT {"verbose":true,"pedantic":false,"tls_required":true}\r\n' +
               b"".join(l.encode() + b"\r\n" for l in lines) + b"PING\r\n")
+    # Read to the PONG, which the server sends after answering every line
+    # before it, or until it closes the connection (an identity it refuses):
+    # stopping at the first -ERR would miss the refusals that follow it.
     out, deadline = b"", time.time() + 5
-    while b"PONG" not in out and b"-ERR" not in out and time.time() < deadline:
+    while b"PONG" not in out and time.time() < deadline:
         chunk = s.recv(65536)
         if not chunk:
             break
