@@ -49,7 +49,7 @@ func (UnimplementedHandler) ActivateOrgUnit(ctx context.Context, params Activate
 // change request is submitted, simulated, approved and activated like any other. In production a pack
 // no tax specialist has signed off is refused (409 `config.pack_not_signed_off`); elsewhere it is
 // applied with a note, so packs can be tried before sign-off. The company's legal entity must be
-// active.
+// active (422 `config.legal_entity_not_active`).
 //
 // POST /v1/country-pack-applications
 func (UnimplementedHandler) ApplyCountryPack(ctx context.Context, req *CountryPackApplication, params ApplyCountryPackParams) (r ApplyCountryPackRes, _ error) {

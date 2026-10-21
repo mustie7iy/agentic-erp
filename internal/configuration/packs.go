@@ -146,7 +146,7 @@ func applicable(lib *countrypack.Library, in PackApplication) (*countrypack.Pack
 		return nil, problem.NotFoundOf("country pack")
 	case in.RequireSignOff && !pack.SignedOff():
 		return nil, problem.Conflict("config.pack_not_signed_off", fmt.Sprintf(
-			"No tax specialist has signed off the %s country pack %s; it cannot be applied in production until one has.", pack.Manifest.Country, pack.Manifest.Version))
+			"No tax specialist has signed off the %s country pack %s; it cannot be applied until one has.", pack.Manifest.Country, pack.Manifest.Version))
 	}
 	return pack, nil
 }
