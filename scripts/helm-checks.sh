@@ -503,15 +503,20 @@ gates = [g["conditionType"] for g in router["spec"]["template"]["spec"].get("rea
 if gates != ["target-health.elbv2.k8s.aws/erp-router"]:
     sys.exit("helm-checks: erp-global's router is ready before the load balancer finds it healthy (readiness gate %r)" % gates)
 # The web workspace (ADR-0052): its own balancer's subnets alone, in
-# production on its https hostname, reaching the router's public listener
-# and nothing else, with no SPIFFE certificate.
+# production on its https hostname, reaching the router's public listener,
+# the directory database (its sessions, over verified TLS) and the
+# identity providers on 443, nothing else, with no SPIFFE certificate.
 web = next(d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"] == "erp-web")
 pod = web["spec"]["template"]["spec"]
 env = {e["name"]: e.get("value") for e in pod["containers"][0]["env"]}
 for name, value in {"ERP_ENV": "production", "ERP_WEB_PROXY_FROM": ",".join(want), "ERP_WEB_PUBLIC_URL": "https://app.dev.erp.example",
-                    "ERP_WEB_API_URL": "https://api.dev.erp.example", "ERP_WEB_API_DIAL": "erp-router.erp-global.svc.cluster.local:8081"}.items():
+                    "ERP_WEB_API_URL": "https://api.dev.erp.example", "ERP_WEB_API_DIAL": "erp-router.erp-global.svc.cluster.local:8081",
+                    "ERP_WEB_DIRECTORY_PASSWORD": "file:/etc/erp/secrets/directory-password", "ERP_WEB_SESSION_KEY": "file:/etc/erp/secrets/session-key",
+                    "ERP_WEB_CLIENT_CREDENTIALS": "file:/etc/erp/web-clients/"}.items():
     if env.get(name) != value:
         sys.exit("helm-checks: erp-web's %s is %r, want %r" % (name, env.get(name), value))
+if "sslmode=verify-full&sslrootcert=/etc/erp/trust/rds-ca.pem" not in (env.get("ERP_WEB_DIRECTORY_URL") or ""):
+    sys.exit("helm-checks: erp-web's ERP_WEB_DIRECTORY_URL %r does not verify the directory's certificate" % env.get("ERP_WEB_DIRECTORY_URL"))
 if [g["conditionType"] for g in pod.get("readinessGates", [])] != ["target-health.elbv2.k8s.aws/erp-web"]:
     sys.exit("helm-checks: erp-web is ready before its load balancer finds it healthy")
 if pod.get("automountServiceAccountToken") is not False:
@@ -520,10 +525,10 @@ policy = next(d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"][
 sources = [p["ipBlock"]["cidr"] for rule in policy["spec"]["ingress"] for p in rule["from"]]
 if sources != want:
     sys.exit("helm-checks: erp-web's public listener takes %r, want its load balancer's subnets alone" % sources)
-egress = [(p.get("podSelector", {}).get("matchLabels", {}).get("app.kubernetes.io/name"), [x["port"] for x in rule["ports"]])
-          for rule in policy["spec"]["egress"] for p in rule["to"]]
-if egress != [("erp-router", [8081])]:
-    sys.exit("helm-checks: erp-web reaches %r, want the router's public listener alone" % egress)
+egress = [([p.get("podSelector", {}).get("matchLabels", {}).get("app.kubernetes.io/name") or p.get("ipBlock", {}).get("cidr") for p in rule.get("to", [])],
+           [x["port"] for x in rule["ports"]]) for rule in policy["spec"]["egress"]]
+if egress != [(["erp-router"], [8081]), (["10.16.0.0/16"], [5432]), ([], [443])]:
+    sys.exit("helm-checks: erp-web reaches %r, want the router's public listener, the directory in the VPC and the identity providers alone" % egress)
 into = next(d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == "erp-router-from-web")
 if [p["podSelector"]["matchLabels"]["app.kubernetes.io/name"] for rule in into["spec"]["ingress"] for p in rule["from"]] != ["erp-web"]:
     sys.exit("helm-checks: the router's listener is opened to more than erp-web")
