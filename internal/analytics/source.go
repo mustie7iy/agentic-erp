@@ -92,7 +92,7 @@ type legalEntity struct {
 
 // ledgerOf is a ledger and the legal entities keeping it (ADR-0045).
 type ledgerOf struct {
-	ID             string
+	ID             string   `json:"id"`
 	IsLeading      bool     `json:"is_leading"`
 	LegalEntityIDs []string `json:"legal_entity_ids"`
 }

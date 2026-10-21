@@ -14,9 +14,10 @@ var rateTypes = []string{"average", "bank_buying", "bank_selling", "planning"}
 // flagged accounts that are assets or liabilities (equity is non-monetary,
 // IAS 21.16), reconcile no supplier and are not the GR/IR account, each
 // with a valuation; and one valuation per account, of a vendor
-// reconciliation account other than the down payment account (special G/L items are not revalued) or of a
-// flagged account, with a balance-sheet adjustment account exactly for a
-// reconciliation account, a revenue gain and an expense loss.
+// reconciliation account other than the down payment account (special G/L
+// items are not revalued) or of a flagged account, with a balance-sheet
+// adjustment account exactly for a reconciliation account, a revenue gain
+// and an expense loss.
 func (v *validator) fxValuation(p string, co *Company) {
 	fp := p + ".fx_valuation"
 	if !slices.Contains(rateTypes, co.FXValuation.RateTypeOrAverage()) {
