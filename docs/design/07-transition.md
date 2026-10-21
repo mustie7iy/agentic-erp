@@ -1710,7 +1710,7 @@ falls in (§7.7).
 | T72h | **Directory logins of their own** | The router and the cells connect to the directory with logins of their own and least privilege, never as the RDS master user `erp_admin` |
 | T72i | **Mirrored images signed in the release** | The release mirrors the PgBouncer and NATS images (`scripts/mirror-images.sh`) before signing, with copy provenance, so Kyverno's `erp-release-signed` admits them in production |
 | T72j | **Pilot light runnable** | The pilot light is runnable (DR node group, IRSA trust of the DR cluster's OIDC provider, Argo CD in Terraform), so the region failover rehearsal (T41g) can run; its confirmation needs AWS staging |
-| T72k | **Web UI for pilot finance users** | Proposal pending (PO 2026-10-21: needed for the pilot) |
+| T72k | **Web UI for pilot finance users** | Built by T73a–T73m (ADR-0052, accepted 2026-10-21): the web workspace pilot finance users work in (PO 2026-10-21: needed for the pilot) |
 
 ### Phase 2 (T48–T71)
 

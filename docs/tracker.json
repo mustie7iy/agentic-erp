@@ -6900,8 +6900,8 @@
      },
      {
       "s": "T",
-      "t": "Web UI for pilot finance users — proposal pending (PO 2026-10-21: needed for the pilot)",
-      "r": "Phase 1 triage (PO 2026-10-21) · \"Server-rendered web workspaces (templ + HTMX)\" (Platform / User interface) · T72k",
+      "t": "Web UI for pilot finance users (PO 2026-10-21: needed for the pilot): the web workspace of ADR-0052",
+      "r": "Phase 1 triage (PO 2026-10-21) · \"Server-rendered web workspaces (templ + HTMX)\" (Platform / User interface) · built by T73a–T73m, ADR-0052 · T72k",
       "c": []
      }
     ]
