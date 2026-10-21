@@ -90,6 +90,10 @@ func (v *validator) accounts(a *Accounts) {
 		if !slices.Contains([]config.AccountType{config.Asset, config.Liability, config.Equity, config.Revenue, config.Expense}, acc.Type) {
 			v.err(p+".type", "type %q must be asset, liability, equity, revenue or expense", acc.Type)
 		}
+		// A pack sets none for the accounts it does not control (ADR-0050 §4).
+		if msg := acc.CostElementProblem(); msg != "" {
+			v.err(p+".cost_element", "%s", msg)
+		}
 	}
 	ad := determination(&a.AccountDetermination)
 	for _, field := range slices.Sorted(maps.Keys(ad)) {

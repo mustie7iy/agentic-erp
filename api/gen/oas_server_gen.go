@@ -27,7 +27,10 @@ type Handler interface {
 	//
 	// Creates and activates a new configuration version from an approved change request; each context
 	// applies its part. Human-only. Requires status `approved`; a change of validation rules also needs a
-	// passed simulation of this exact proposal (409 `config.rules_not_simulated`).
+	// passed simulation of this exact proposal (409 `config.rules_not_simulated`). The ledger checks the
+	// controlling rules again against its data, which may have changed since submission (a default cost or
+	// profit center no longer usable, postings in the year a center accounting switch turns on, a removed
+	// cost center category in use): 409 `ledger.controlling_invalid`, naming each finding (ADR-0050 §4).
 	//
 	// POST /v1/change-requests/{id}:activate
 	ActivateChangeRequest(ctx context.Context, params ActivateChangeRequestParams) (ActivateChangeRequestRes, error)
@@ -43,6 +46,18 @@ type Handler interface {
 	//
 	// POST /v1/org-units/{id}:activate
 	ActivateOrgUnit(ctx context.Context, params ActivateOrgUnitParams) (ActivateOrgUnitRes, error)
+	// AddHierarchyNode implements addHierarchyNode operation.
+	//
+	// Adds a node below the node, which must hold no centers (centers sit at leaves), at most 12 levels
+	// deep; the code is unique in the hierarchy (409 `ledger.hierarchy_node_exists`). Opens a pending
+	// center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a
+	// controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the
+	// change is planned again and applied when the request is approved, and refused then if the tree no
+	// longer allows it. `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is
+	// applied.
+	//
+	// POST /v1/hierarchies/{id}/nodes/{node_id}:add
+	AddHierarchyNode(ctx context.Context, req *HierarchyNodeAdd, params AddHierarchyNodeParams) (AddHierarchyNodeRes, error)
 	// ApplyCountryPack implements applyCountryPack operation.
 	//
 	// Merges a country pack version into the active configuration for one company (ADR-0048: three-way,
@@ -276,7 +291,10 @@ type Handler interface {
 	// that change's `center_change` approval request; it becomes `active`, with its first period, when a
 	// controller approves (ADR-0050 §11). A code is unique per legal entity among centers not rejected
 	// (409 `ledger.cost_center_exists`). The profit center, if given, must be active, assigned to the
-	// legal entity and valid over the whole validity (422 `ledger.profit_center_invalid`).
+	// legal entity and valid over the whole validity (422 `ledger.profit_center_invalid`). The category
+	// must be one of the configuration's active `controlling.cost_center_categories` (422
+	// `ledger.cost_center_category_invalid`). Its first period starts with the category's locks
+	// (`lock_actual_cost`, `lock_actual_revenue`, `lock_plan`).
 	//
 	// POST /v1/cost-centers
 	CreateCostCenter(ctx context.Context, req *CostCenterCreate, params CreateCostCenterParams) (CreateCostCenterRes, error)
@@ -296,6 +314,16 @@ type Handler interface {
 	//
 	// POST /v1/exchange-rates
 	CreateExchangeRate(ctx context.Context, req *ExchangeRateCreate, params CreateExchangeRateParams) (CreateExchangeRateRes, error)
+	// CreateHierarchy implements createHierarchy operation.
+	//
+	// Creates an empty hierarchy of cost or profit centers with its root node, which takes the hierarchy's
+	// code and name. A tenant has at most one standard hierarchy per kind (409
+	// `ledger.standard_hierarchy_exists`), and a code is unique per kind (409 `ledger.hierarchy_exists`).
+	// An empty tree changes no center; its nodes and centers are added through center changes (ADR-0050
+	// §11).
+	//
+	// POST /v1/hierarchies
+	CreateHierarchy(ctx context.Context, req *HierarchyCreate, params CreateHierarchyParams) (CreateHierarchyRes, error)
 	// CreateLegalEntity implements createLegalEntity operation.
 	//
 	// Creates a legal entity in status `inactive`.
@@ -593,10 +621,12 @@ type Handler interface {
 	// match (kind, rule, posting) and the outcome of the latest agent proposal a person decided,
 	// optionally only the lines of one status (`line_status`). `summary` is the period's, on its last
 	// closing date. A statement becomes `reconciled` once nothing is in transit or unexplained on its
-	// closing date. The ledger's balances are in the legal entity's local currency, which is a house
-	// bank's currency; a house bank without a main bank account has no ledger balance, nor anything
-	// unexplained. The report names no account numbers, so agents read it as people do. Paged by
-	// statement, by closing date. Sortable by: `closing_date`.
+	// closing date. Everything is in the house bank's currency (ADR-0051, T53a): the ledger's balance of a
+	// bank in the legal entity's local currency is its local amounts, and of a bank in another currency
+	// the transaction amounts of the entries in that currency, so exchange differences and period-end
+	// valuations in local currency never show as unexplained; a house bank without a main bank account has
+	// no ledger balance, nor anything unexplained. The report names no account numbers, so agents read it
+	// as people do. Paged by statement, by closing date. Sortable by: `closing_date`.
 	//
 	// GET /v1/house-banks/{id}/reconciliation
 	GetBankReconciliation(ctx context.Context, params GetBankReconciliationParams) (GetBankReconciliationRes, error)
@@ -703,6 +733,21 @@ type Handler interface {
 	//
 	// GET /v1/goods-receipts/{id}
 	GetGoodsReceipt(ctx context.Context, params GetGoodsReceiptParams) (GetGoodsReceiptRes, error)
+	// GetHierarchy implements getHierarchy operation.
+	//
+	// Returns the hierarchy with its whole tree: its nodes in tree order (each after its parent, siblings
+	// by position and code), each with the centers placed at it. Hierarchies are not time-dependent
+	// (decision P7): reports read history under this tree.
+	//
+	// GET /v1/hierarchies/{id}
+	GetHierarchy(ctx context.Context, params GetHierarchyParams) (GetHierarchyRes, error)
+	// GetHierarchyNode implements getHierarchyNode operation.
+	//
+	// Returns the hierarchy with the subtree below the node, the node first, in tree order, each node with
+	// the centers placed at it.
+	//
+	// GET /v1/hierarchies/{id}/nodes/{node_id}
+	GetHierarchyNode(ctx context.Context, params GetHierarchyNodeParams) (GetHierarchyNodeRes, error)
 	// GetJournalEntry implements getJournalEntry operation.
 	//
 	// Returns one journal entry with its lines.
@@ -1031,6 +1076,14 @@ type Handler interface {
 	//
 	// GET /v1/contracts
 	ListContracts(ctx context.Context, params ListContractsParams) (ListContractsRes, error)
+	// ListCostCenterPaths implements listCostCenterPaths operation.
+	//
+	// Where the cost center sits in each hierarchy that holds it, the standard one included: the nodes
+	// from the root to its leaf. A cost center outside the legal entities the caller may act in is not
+	// found. Sortable by: `code` (the hierarchy's).
+	//
+	// GET /v1/cost-centers/{id}/hierarchy-paths
+	ListCostCenterPaths(ctx context.Context, params ListCostCenterPathsParams) (ListCostCenterPathsRes, error)
 	// ListCostCenters implements listCostCenters operation.
 	//
 	// Cost centers of the legal entities the caller may act in, with their active periods. Sortable by:
@@ -1081,6 +1134,13 @@ type Handler interface {
 	//
 	// GET /v1/gr-ir-balances
 	ListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (ListGrIrBalancesRes, error)
+	// ListHierarchies implements listHierarchies operation.
+	//
+	// Standard and alternative hierarchies of cost and profit centers (ADR-0050 §3), without their trees.
+	// Sortable by: `code`.
+	//
+	// GET /v1/hierarchies
+	ListHierarchies(ctx context.Context, params ListHierarchiesParams) (ListHierarchiesRes, error)
 	// ListHouseBanks implements listHouseBanks operation.
 	//
 	// The house banks of the companies the caller may access, as the configuration names them
@@ -1216,6 +1276,13 @@ type Handler interface {
 	//
 	// GET /v1/principals
 	ListPrincipals(ctx context.Context, params ListPrincipalsParams) (ListPrincipalsRes, error)
+	// ListProfitCenterPaths implements listProfitCenterPaths operation.
+	//
+	// Where the profit center sits in each hierarchy that holds it, the standard one included: the nodes
+	// from the root to its leaf. Sortable by: `code` (the hierarchy's).
+	//
+	// GET /v1/profit-centers/{id}/hierarchy-paths
+	ListProfitCenterPaths(ctx context.Context, params ListProfitCenterPathsParams) (ListProfitCenterPathsRes, error)
 	// ListProfitCenters implements listProfitCenters operation.
 	//
 	// Profit centers of the tenant with their companies and active periods. Sortable by: `code`.
@@ -1316,11 +1383,13 @@ type Handler interface {
 	// Sets or clears the cost center's locks for actual primary costs, actual revenue and plan from
 	// `valid_from` to `valid_to` (exclusive; absent: to the end of its validity), within its validity (422
 	// `ledger.invalid_validity`). Locking and unlocking are people's decisions: agents may not request
-	// them. Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval
-	// request, which a controller holding `ledger.cost_center.approve` decides, never its requester and
-	// never an agent; the change is applied when the request is approved. One pending change per center
-	// (409 `ledger.center_change_pending`). The center must be `active` (409
-	// `ledger.invalid_center_status`).
+	// them. A cost center that is a company's default cost center for accounts (the configuration's
+	// `default_assignments`, ADR-0050 §4) must stay valid from today with no end and unlocked for actual
+	// costs, so automatic postings can use it (409 `ledger.default_center_in_use`). Opens a pending center
+	// change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller
+	// holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is
+	// applied when the request is approved. One pending change per center (409
+	// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
 	//
 	// POST /v1/cost-centers/{id}:lock
 	LockCostCenter(ctx context.Context, req *CostCenterLock, params LockCostCenterParams) (LockCostCenterRes, error)
@@ -1336,7 +1405,9 @@ type Handler interface {
 	//
 	// Sets or clears the profit center's lock from `valid_from` to `valid_to` (exclusive; absent: to the
 	// end of its validity), within its validity (422 `ledger.invalid_validity`). Locking and unlocking are
-	// people's decisions: agents may not request them. Opens a pending center change
+	// people's decisions: agents may not request them. A company's default profit center (the
+	// configuration's `default_profit_center`, ADR-0050 §4) must stay valid from today with no end and
+	// unlocked (409 `ledger.default_center_in_use`). Opens a pending center change
 	// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
 	// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
 	// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
@@ -1395,14 +1466,28 @@ type Handler interface {
 	// Assigns the cost center to another profit center (`null`: none, so its lines take the company's
 	// default) or category from `valid_from` to the end of its validity, as a new period (ADR-0050 §3).
 	// The profit center must be active, assigned to the cost center's legal entity and valid from
-	// `valid_from` to the end of the cost center's validity (422 `ledger.profit_center_invalid`). Opens a
-	// pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request,
-	// which a controller holding `ledger.cost_center.approve` decides, never its requester and never an
-	// agent; the change is applied when the request is approved. One pending change per center (409
-	// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
+	// `valid_from` to the end of the cost center's validity (422 `ledger.profit_center_invalid`). The
+	// category must be one of the configuration's active `controlling.cost_center_categories` (422
+	// `ledger.cost_center_category_invalid`). Opens a pending center change
+	// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+	// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
+	// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
+	// The center must be `active` (409 `ledger.invalid_center_status`).
 	//
 	// POST /v1/cost-centers/{id}:move
 	MoveCostCenter(ctx context.Context, req *CostCenterMove, params MoveCostCenterParams) (MoveCostCenterRes, error)
+	// MoveHierarchyNode implements moveHierarchyNode operation.
+	//
+	// Moves the node, with its subtree, below another node of the hierarchy that holds no centers; refused
+	// when the new parent is the node or below it (a cycle) or when the subtree would end deeper than 12
+	// levels (422 `ledger.hierarchy_change_invalid`). The root is not moved. Opens a pending center change
+	// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+	// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is planned
+	// again and applied when the request is approved, and refused then if the tree no longer allows it.
+	// `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is applied.
+	//
+	// POST /v1/hierarchies/{id}/nodes/{node_id}:move
+	MoveHierarchyNode(ctx context.Context, req *HierarchyNodeMove, params MoveHierarchyNodeParams) (MoveHierarchyNodeRes, error)
 	// MoveProfitCenter implements moveProfitCenter operation.
 	//
 	// Assigns the profit center to another segment (`null`: none). Once lines carry the profit center
@@ -1455,6 +1540,20 @@ type Handler interface {
 	//
 	// POST /v1/webhook-subscriptions/{id}:ping
 	PingWebhookSubscription(ctx context.Context, params PingWebhookSubscriptionParams) (PingWebhookSubscriptionRes, error)
+	// PlaceInHierarchy implements placeInHierarchy operation.
+	//
+	// Places an active center of the hierarchy's kind at a leaf node (one without child nodes), or moves
+	// it there from its node; `node_id` null removes it from an alternative hierarchy. A center is at most
+	// once in a hierarchy, and in exactly one leaf of the standard one, which it cannot leave (422
+	// `ledger.hierarchy_change_invalid`). One pending change per center (409
+	// `ledger.center_change_pending`). Opens a pending center change (`GET /v1/center-changes/{id}`) and
+	// its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
+	// decides, never its requester and never an agent; the change is planned again and applied when the
+	// request is approved, and refused then if the tree no longer allows it. `If-Match` is the hierarchy's
+	// ETag, which moves on when a change to its tree is applied.
+	//
+	// POST /v1/hierarchies/{id}:place
+	PlaceInHierarchy(ctx context.Context, req *HierarchyPlace, params PlaceInHierarchyParams) (PlaceInHierarchyRes, error)
 	// PostBankStatementLine implements postBankStatementLine operation.
 	//
 	// Posts a `matched` line (ADR-0047) to the house bank's main bank account (`main_gl_account`) against
@@ -1555,7 +1654,11 @@ type Handler interface {
 	// status `parked`, a clean latest match of the invoice as it now stands for PO-based invoices (or an
 	// exception approved at the invoice's current version; 409 `payables.match_required` otherwise: an
 	// invoice changed after its match, including a hold and release by hand, is matched again, and an edit
-	// unlinks an approved exception), an open period and an unblocked supplier.
+	// unlinks an approved exception), an open period and an unblocked supplier. The invoice is matched
+	// again under its order items' locks: 409 `payables.match_outdated`, the invoice left parked, when
+	// documents posted on the order since (another invoice past the received quantity, a credit memo past
+	// the invoiced one), a change of the order or of the tolerances leave it with an issue its clean
+	// match, or the match its exception was approved on, did not have.
 	//
 	// POST /v1/supplier-invoices/{id}:post
 	PostSupplierInvoice(ctx context.Context, req OptSupplierInvoicePost, params PostSupplierInvoiceParams) (PostSupplierInvoiceRes, error)
@@ -1635,11 +1738,14 @@ type Handler interface {
 	// RedateCostCenter implements redateCostCenter operation.
 	//
 	// Extends or ends the cost center's validity: the first period starts at `valid_from`, the last ends
-	// at `valid_to` (exclusive; `null` open-ended). Opens a pending center change
-	// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
-	// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
-	// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
-	// The center must be `active` (409 `ledger.invalid_center_status`).
+	// at `valid_to` (exclusive; `null` open-ended). A cost center that is a company's default cost center
+	// for accounts (the configuration's `default_assignments`, ADR-0050 §4) must stay valid from today
+	// with no end and unlocked for actual costs, so automatic postings can use it (409
+	// `ledger.default_center_in_use`). Opens a pending center change (`GET /v1/center-changes/{id}`) and
+	// its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
+	// decides, never its requester and never an agent; the change is applied when the request is approved.
+	// One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409
+	// `ledger.invalid_center_status`).
 	//
 	// POST /v1/cost-centers/{id}:redate
 	RedateCostCenter(ctx context.Context, req *CenterRedate, params RedateCostCenterParams) (RedateCostCenterRes, error)
@@ -1647,11 +1753,13 @@ type Handler interface {
 	//
 	// Extends or ends the profit center's validity: the first period starts at `valid_from`, the last ends
 	// at `valid_to` (exclusive; `null` open-ended). A validity that no longer covers an active cost center
-	// period naming the profit center is refused (409 `ledger.profit_center_in_use`). Opens a pending
-	// center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a
-	// controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the
-	// change is applied when the request is approved. One pending change per center (409
-	// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
+	// period naming the profit center is refused (409 `ledger.profit_center_in_use`). A company's default
+	// profit center (the configuration's `default_profit_center`, ADR-0050 §4) must stay valid from today
+	// with no end and unlocked (409 `ledger.default_center_in_use`). Opens a pending center change
+	// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+	// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
+	// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
+	// The center must be `active` (409 `ledger.invalid_center_status`).
 	//
 	// POST /v1/profit-centers/{id}:redate
 	RedateProfitCenter(ctx context.Context, req *CenterRedate, params RedateProfitCenterParams) (RedateProfitCenterRes, error)
@@ -1739,6 +1847,28 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices/{id}:release
 	ReleaseSupplierInvoice(ctx context.Context, req OptDecisionInput, params ReleaseSupplierInvoiceParams) (ReleaseSupplierInvoiceRes, error)
+	// RemoveHierarchyNode implements removeHierarchyNode operation.
+	//
+	// Removes a node without child nodes or centers; the root is not removed (422
+	// `ledger.hierarchy_change_invalid`). Nothing is deleted: the node is kept as removed by the change.
+	// Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval
+	// request, which a controller holding `ledger.cost_center.approve` decides, never its requester and
+	// never an agent; the change is planned again and applied when the request is approved, and refused
+	// then if the tree no longer allows it. `If-Match` is the hierarchy's ETag, which moves on when a
+	// change to its tree is applied.
+	//
+	// POST /v1/hierarchies/{id}/nodes/{node_id}:remove
+	RemoveHierarchyNode(ctx context.Context, req *HierarchyNodeRemove, params RemoveHierarchyNodeParams) (RemoveHierarchyNodeRes, error)
+	// RenameHierarchyNode implements renameHierarchyNode operation.
+	//
+	// Renames the node; its code is fixed. Opens a pending center change (`GET /v1/center-changes/{id}`)
+	// and its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
+	// decides, never its requester and never an agent; the change is planned again and applied when the
+	// request is approved, and refused then if the tree no longer allows it. `If-Match` is the hierarchy's
+	// ETag, which moves on when a change to its tree is applied.
+	//
+	// POST /v1/hierarchies/{id}/nodes/{node_id}:rename
+	RenameHierarchyNode(ctx context.Context, req *HierarchyNodeRename, params RenameHierarchyNodeParams) (RenameHierarchyNodeRes, error)
 	// RenewContract implements renewContract operation.
 	//
 	// Creates a draft successor of an `active` or `expired` contract (409 `procurement.invalid_status`

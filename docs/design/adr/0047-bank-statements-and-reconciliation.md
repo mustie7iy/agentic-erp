@@ -408,8 +408,10 @@ Canadian bank may only offer BAI2.
   receivable (Phase 3).
 - Reconciliation (T49h, 000129-000131): on a statement's closing date the
   bank's closing balance and the ledger's balance of the main bank account
-  (the leading ledger, in the legal entity's local currency, which is the
-  house bank's; `ledger.Accounts.Balances`) differ by the lines of the
+  (the leading ledger, in the house bank's currency: its local amounts
+  for a bank in the legal entity's currency, the transaction amounts of
+  the entries in the bank's currency for a foreign-currency bank, T53a and
+  ADR-0038's amendment; `ledger.Accounts.Balances`) differ by the lines of the
   bank's statements up to that date the ledger does not hold yet: those
   `excluded`, those `in_transit` (unmatched, proposed, matched or waiting
   for approval) and those `posted_later` (on a date a person gave after the

@@ -541,6 +541,15 @@ erDiagram
   cost_center ||--o{ cost_center_period : "valid in"
   profit_center ||--o{ cost_center_period : "of"
   center_change ||--o{ cost_center_period : writes
+  hierarchy ||--|{ hierarchy_node : "tree of"
+  hierarchy_node ||--o{ hierarchy_node : parent
+  hierarchy_node ||--o{ hierarchy_member : holds
+  cost_center ||--o{ hierarchy_member : "placed as"
+  profit_center ||--o{ hierarchy_member : "placed as"
+  cost_center_category ||--o{ cost_center_period : "category of"
+  profit_center_company ||--o| company_controlling : "default of"
+  company_account ||--o| default_assignment : "defaults"
+  cost_center ||--o{ default_assignment : "default for"
   journal_entry { uuid id PK
     uuid legal_entity_id
     uuid ledger_id
@@ -969,6 +978,45 @@ stay per legal entity: the ledgers keep their amounts apart on them. A run's
 ledger is one its legal entity keeps (`revaluation_run_ledger_kept`,
 migration 000138, checked on insert).
 
+Hierarchies of cost and profit centers (T56b, migration 000139) are trees
+not dated (decision P7). `hierarchy` has a kind, a code unique per kind
+(`hierarchy_code_once`) and at most one standard per kind
+(`hierarchy_one_standard`), all fixed (`check_hierarchy_fixed`).
+`hierarchy_node` has one root per hierarchy (`hierarchy_one_root`,
+never moved or removed: `hierarchy_node_root_kept`), a parent in the same
+hierarchy (`hierarchy_node_parent`) and a code unique among its nodes
+(`hierarchy_node_code_once`); `check_hierarchy_node` locks the hierarchy
+and refuses a cycle, more than 12 levels, a parent holding centers or
+removed, and removing a node with children or centers. `hierarchy_member`
+places a center of the hierarchy's kind (`hierarchy_member_kind`,
+`hierarchy_member_center`) once per hierarchy (`hierarchy_member_once`) at
+a leaf not removed (`check_hierarchy_member`); a move changes `node_id`.
+Nodes and places are not deleted but removed by the change that removes
+them (`removed_by_change_id`). Every active center is in the standard
+hierarchy of its kind at commit (`check_center_placed`, deferred).
+`center_change` gains `hierarchy_id` and the kinds `node_create`,
+`node_rename`, `node_move`, `node_remove` (no center) and `place` (a center
+and a hierarchy): `center_change_one_center`, `center_change_hierarchy`.
+
+The configuration's controlling rules (T56c, ADR-0050 §4, migration 000140)
+are kept by the ledger's setup. `gl_account.cost_element` is the account's
+cost element category: `none`, `primary_cost` only on an expense, `revenue`
+only on a revenue (`gl_account_cost_element`); accounts set up before took
+their type's default. `cost_center_category` (code as a period's category,
+name, `revenue_allowed`, the lock defaults of a new cost center,
+`is_active`) is the tenant's categories, deactivated rather than deleted;
+a cost center period's category is one of them
+(`cost_center_period_category`). `company_controlling` is per legal entity
+the fiscal year cost and profit center accounting apply from (NULL off;
+once set fixed: `company_controlling_stays_on`) and the default profit
+center, assigned to the legal entity
+(`company_controlling_default_profit_center`), required with profit center
+accounting (`company_controlling_needs_default`). `default_assignment` is
+the cost center lines on an account take when none is given (SAP OKB9),
+per legal entity and account set up there, a cost center of that legal
+entity (`default_assignment_cost_center_company`), deactivated when the
+configuration drops it.
+
 ## 3.8 Procurement (`procurement`)
 
 ```mermaid
@@ -1345,6 +1393,49 @@ step of 06 §6.4 (nullable, its positive check `NOT VALID`, no backfill:
 nothing records which version an old match evaluated); 000044 validates the
 check (T31).
 
+A clean match holds only for the documents posted on the order before it,
+so `:post` matches an invoice again, as `:match` would match it now (the
+order, its receipts, the documents posted on it and the active
+tolerances), under the locks of the order items it names
+(`procurement.Orders.LockItems`: `FOR UPDATE` in item order, after the
+invoice's row and before the ledger's GR/IR lock, as goods movements take
+them before it), and refuses it with 409 `payables.match_outdated`, leaving
+it parked, if that finds an issue its basis did not show: on a clean match
+any issue; on an approved exception an issue the approvers did not see, one
+not in the latest match before `exception_version` with the same message
+(its figures: the quantities invoiced and received, the amounts and the
+tolerance), as they decided on those issues and not on documents posted
+since (F16 authorises the invoice's version, not the
+order's later state). Two invoices on one order item, each matched clean
+before either posted, would otherwise both post past the received quantity
+(two credit memos past the invoiced quantity, a subsequent debit matched
+before its invoice was reversed), and an order change, an order closed, or
+tolerances tightened since would go unseen. The second posting waits for
+the first's locks and then reads it posted; a goods receipt, return or
+reversal on the items waits too, so the received quantities and the other
+postings the check read hold until the posting commits. An approved issue
+that has grown since (more invoiced past the same receipt) counts as new, as
+does one whose figures moved otherwise (more received); `:match` then holds
+the invoice for a new exception request rather than leaving it parked on
+the approval (F18 holds only while the issues are those approved). The
+issue messages are therefore part of what an approval covers: rewording
+one makes invoices approved before it count as having new issues (refused
+at `:post`, held again at `:match`), which fails safe but is a change to
+roll out with care. `:match` takes no lock: its
+verdict is advice the posting checks again under the lock, so reading the
+received quantities `FOR SHARE` there would only make receipts wait for
+matches.
+
+Reversals are not checked against quantities and take no item lock on the
+invoice side: a goods receipt's reversal (or a return) after an invoice
+posted, or a credit memo's reversal, can leave an order item invoiced past
+what was received; an invoice's reversal can leave a credit memo or
+subsequent debit that names no invoice crediting or revaluing what is no
+longer invoiced (one naming it is refused, `payables.invoice_has_corrections`).
+On an order valued through GR/IR the position then shows the difference
+(open in `/v1/gr-ir-balances`); on a directly valued one nothing shows it.
+The tracker holds checking quantities on reversal.
+
 The invoice likewise records the version the approval of its exception left
 it at (`exception_version`, migration 000041, F16), and the linked approved
 request authorises posting only that version. The unlinking edit is not
@@ -1354,7 +1445,8 @@ would post on an approval of different amounts. An invoice changed after
 its approval is matched clean, or held and approved again, before it posts.
 Approvals before 000041, or by the previous release, have no version and
 count for none. A match of an invoice parked on an approval of its current
-version leaves it parked rather than holding it for a new request (F18).
+version leaves it parked rather than holding it for a new request (F18),
+while its issues are those the approvers saw (below).
 The column is again the expand step (nullable, its check of
 `0 < exception_version <= version` `NOT VALID`, validated by 000044, no
 backfill); it is not tied
@@ -1501,6 +1593,7 @@ erDiagram
     text bic
     text institution_number "Canadian bank: 3 digits; null for an IBAN"
     text transit_number "Canadian bank: 5 digits; null for an IBAN"
+    char currency "the account's; its company's unless configured (T53a), never changed"
     uuid gl_account_id
     uuid active_gl_account_id "gl_account_id while active; unique per legal entity"
     uuid connector_id "its channel, an integration connector; null: the server's directory (T44b)"

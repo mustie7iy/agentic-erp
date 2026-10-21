@@ -196,8 +196,8 @@ As built in T56a (migration 000128):
   center's new validity still covers the cost center periods naming it
   (409 `ledger.profit_center_in_use`); the cost center change reads the
   profit center `FOR SHARE`, its redate takes it `FOR UPDATE`.
-- **Categories** are a code (`^[0-9A-Z_]{1,10}$`) until T56c checks them
-  against `controlling.cost_center_categories`.
+- **Categories** are a code (`^[0-9A-Z_]{1,10}$`), checked since T56c
+  against `controlling.cost_center_categories` (§4 as built).
 - **In use.** The refusals that need postings (`cost_center_period_in_use`,
   `cost_center_posted_after`, `segment_in_use`) come with T56d, when lines
   carry the centers; until then no center is in use.
@@ -238,6 +238,76 @@ As built in T56a (migration 000128):
   once each. Nodes form a tree (no cycles, checked on write; depth at most
   12). Hierarchies are not time-dependent: reports show history under
   today's tree, as SAP does (decision P7).
+
+  As built in T56b (migration 000139):
+  - **Tables.** `hierarchy` (kind, code `^[0-9A-Z_-]{1,15}$` unique per
+    kind, `is_standard` with at most one standard per kind, all three
+    fixed), `hierarchy_node` (parent in the same hierarchy by foreign key,
+    code unique among the hierarchy's nodes, `position` among siblings) and
+    `hierarchy_member` (the center by kind: the member names its hierarchy
+    with its kind, so a cost center cannot sit in a profit center tree).
+    Nothing is deleted (000011): a removed node or place carries
+    `removed_by_change_id`, and is then fixed.
+  - **Database rules.** Triggers lock the hierarchy row and refuse a
+    cycle, a 13th level, a node below a node holding centers, a center at
+    a node with children or at a removed node, removing a node with
+    children or centers, moving or removing the root, and changing a
+    place's center or hierarchy. A deferred constraint trigger checks at
+    commit that every active center sits in the standard hierarchy of its
+    kind (on the center becoming active and on a standard place moving or
+    being removed). Schema tests for each (`db/hierarchies_test.go`).
+  - **Change control.** Every change to a tree (`node_create`,
+    `node_rename`, `node_move`, `node_remove`, `place`) is a
+    `center_change` naming the hierarchy (and, for `place`, the center: one
+    pending change per center still holds), with the same approval request,
+    controller and re-planning at approval as T56a's changes; the
+    hierarchy row is locked from planning to writing, after the center, in
+    both the request and the decision. This includes alternative
+    hierarchies, which §11's table lists as needing no approval: one path
+    for every tree change lets every such operation be `x-autonomy:
+    propose` (agents propose, never change a tree), and an alternative
+    tree feeds reports. Relaxing it is a policy step for the PO. Creating a
+    hierarchy (empty, with its root) needs no approval.
+  - **New centers.** `POST /v1/cost-centers` and `/v1/profit-centers` take
+    an optional `standard_node_id`, a leaf of the tenant's standard
+    hierarchy of the kind, checked at the request and again at approval,
+    when the center is placed there. Without one (product owner
+    2026-10-21: no breaking change to the create operations) the center
+    is placed, when its creation is approved, in the standard hierarchy's
+    `UNASSIGNED` leaf, for a controller to place later: the approval adds
+    that leaf below the root when the tree has none, and creates the
+    standard hierarchy with it when the tenant has none, as 000139 does
+    for older centers. Proposing a center (`x-autonomy: propose`) so
+    changes no tree; the approver's decision does, and an empty node
+    changes no center. Approvals of two first centers are serialized per
+    tenant and kind (an advisory lock): the second finds the hierarchy
+    and leaf the first created; a standard hierarchy created through `POST
+    /v1/hierarchies` at the same moment can still win, and the approval
+    then gets 409 `ledger.standard_hierarchy_exists` and succeeds when
+    approved again. An `UNASSIGNED` node with child nodes, a root that is
+    still a leaf holding centers or is itself coded `UNASSIGNED`, or
+    another hierarchy of the kind coded `STANDARD` where the tenant has no
+    standard one refuses the approval (422
+    `ledger.hierarchy_change_invalid`); the approver fixes the tree first,
+    or rejects the creation for it to be requested again with
+    `standard_node_id`.
+    Centers that existed before
+    000139 (T56a was not released) were placed in a `STANDARD` hierarchy's
+    `UNASSIGNED` leaf, created per tenant and kind; a create still pending
+    then has no node, and its approval places it in that leaf too.
+  - **API.** `GET|POST /v1/hierarchies`, `GET /v1/hierarchies/{id}` (the
+    tree in order, each node with its level and centers; the ETag is the
+    hierarchy's version, moved on by each applied change), `GET
+    /v1/hierarchies/{id}/nodes/{node_id}` (a subtree), `POST
+    /v1/hierarchies/{id}/nodes/{node_id}:add|:rename|:move|:remove`,
+    `POST /v1/hierarchies/{id}:place` (`node_id` null takes a center out of
+    an alternative hierarchy), and `GET /v1/cost-centers/{id}/hierarchy-paths`,
+    `/v1/profit-centers/{id}/hierarchy-paths` (root to leaf per
+    hierarchy). Hierarchies are addressed by id rather than
+    `{kind}/{code}`, as every other resource; the list filters by kind and
+    code. A tree lists only the cost centers of companies the caller may act in, as every cost center read; its nodes are tenant-wide. The ETag is the tree's version, so two callers with different access may get different bodies under one ETag: harmless for If-Match (changes are planned against the whole tree), but a shared cache must vary by principal. `/v1/center-changes` filters by `hierarchy_id`. Event
+    `HierarchyChanged` says what changed, not the tree; audit
+    `ledger.hierarchy.create|request|node_create|node_rename|node_move|node_remove|place`.
 - **Default profit center** per company (SAP's dummy profit center), a real
   profit center flagged `is_default`, collects P&L lines nothing else
   derives. Its balance is a close task (T64): it should be empty or
@@ -285,6 +355,94 @@ companies:
   company is structural (4) and allowed only from a fiscal year start or
   for a company with no postings yet in the open year, so a year's P&L by
   profit center is complete.
+
+As built in T56c (migration 000140):
+- **Document.** `controlling.cost_center_categories` (`code` as a period's
+  category, `name`, `revenue_allowed`, and `lock_actual_cost`,
+  `lock_actual_revenue`, `lock_plan`: the locks a new cost center of the
+  category starts with, SAP's category defaults); per account
+  `cost_element` (`none`, `primary_cost` on an expense only, `revenue` on a
+  revenue only; `secondary` is refused until T60; empty takes the type's
+  default, `config.Account.CostElementOrDefault`); per company
+  `cost_center_accounting`, `profit_center_accounting`,
+  `default_profit_center` and `default_assignments` (`{account,
+  cost_center}`, one per account, only for an account that needs a cost
+  center; by account only: amount ranges, document types or a business
+  area are not built).
+- **`cost_center_accounting`** is a company switch this section did not
+  name: P6's "every `primary_cost` line has a cost center" applies, and
+  the activation check below runs, only once it is on, from a fiscal year
+  like `profit_center_accounting`. Without it a tenant's first document
+  could not activate (a default needs a cost center, a cost center needs a
+  category from the document), and every existing document with an
+  expense FX loss or price difference account would be refused at its next
+  change. PO to confirm.
+- **Activation check** (`config.Validate`): with cost center accounting on,
+  every account the company's automatic postings use
+  (`config.Company.AutomaticAccounts`: the account determination with
+  payables, bank, FX gains and losses, GR/IR, price differences, cash
+  discount and down payments; tax and withholding tax codes; the
+  revaluation's adjustment, unrealised gain and loss accounts; the house
+  banks' accounts; the bank statement posting rules) whose cost element is
+  `primary_cost` needs a default assignment: one error per account at
+  `companies[X].default_assignments[ACCOUNT]`, naming every setting that
+  posts to it. Price differences are included although T56e derives the
+  order item's cost center first: the default is the fallback when an item
+  has none. The default profit center is required with profit center
+  accounting and allowed only with it.
+- **Ledger** (`ledger.Setup`). `gl_account.cost_element` (accounts set up
+  before took their type's default); `cost_center_category`, deactivated
+  rather than deleted, the category of every cost center period by foreign
+  key, and removing one an active period has is refused;
+  `company_controlling` keeps the fiscal year each switch applies from
+  (NULL off) and the
+  default profit center (a foreign key to `profit_center_company`);
+  `default_assignment` the default cost center by legal entity and account
+  (a foreign key to the company's cost center). Check and Apply read the
+  same rules (`readControlling`): a switch is turned on only while the
+  company has no postings in the fiscal year of today (`Setup.Now`) or
+  later, and applies from that year; it is never turned off (a finding,
+  and the trigger `company_controlling_stays_on`); a default cost or profit
+  center must be active (the profit center assigned to the company), valid
+  from today with no end and not locked (for actual costs; the profit
+  center at all) on any day from today. Activation does not re-run Check,
+  so Apply refuses a document that no longer fits (409
+  `ledger.controlling_invalid`, naming each finding) and locks the
+  company's period statuses from the current year when it turns a switch
+  on, so postings under way finish first.
+- **Center changes.** A create or move names an active category, read for
+  share (422 `ledger.cost_center_category_invalid`); a new cost center's
+  first period takes the category's locks. A lock or redate that would
+  leave a default cost center or profit center unusable from today is
+  refused (409 `ledger.default_center_in_use`), so automatic postings
+  never meet a default they cannot use.
+- **Tiers.** A category's name is cosmetic (1); adding or removing a
+  category and its `revenue_allowed` and locks, `cost_element`,
+  `default_assignments` and `default_profit_center` are posting-related
+  (3); `cost_center_accounting` and `profit_center_accounting` are
+  structural (4). This follows §11's table ("tier 3 or 4") rather than the
+  bullet above for categories: `revenue_allowed` and the lock defaults
+  decide what is posted.
+- **Simulation** (`ledger.AssignmentSimulation`, with
+  `ledger.AssignmentDisclosure`): for each company, the P&L accounts whose
+  assignment the proposal changes, with the leading ledger's lines and
+  entries of the last 90 days on each, how a line is assigned before and
+  after ("cost center required", "default cost center 1000", "default
+  profit center DUMMY"...) and whether lines without a cost center would
+  now be refused; recorded by company, shown to each reader for the
+  companies they may access, as payables' invoice replay is. It records
+  nothing when no assignment changes. Lines carry no center until T56d, so
+  every line on a newly refused account counts. The ledger now imports
+  configuration's published `Simulator` and `Evidence`, as payables does
+  (no cycle: configuration does not import the ledger).
+- **Packs.** A pack's accounts may carry `cost_element`, checked by the
+  pack validator (`config.Account.CostElementProblem`) and merged with the
+  account. The released `ca/2026.1` pack is unchanged: its 5100 price
+  differences and 6900 FX losses are expenses the system posts to, so a
+  Canadian company turning cost center accounting on needs default
+  assignments for them or sets them to `none`; 2026.2 (T62g) should decide
+  whether the pack sets `none` for FX gains and losses (4900, 6900), which
+  many controllers keep out of cost centers.
 
 ### 5. Account assignment on the journal line
 Expand migration (T56d): `cost_center_id uuid`, `profit_center_id uuid`,
@@ -470,10 +628,10 @@ master data with change documents, not customizing. Changes are
 kind, payload, status, workflow request, as `partner.partner_change`):
 | Change | Approval |
 |---|---|
-| Texts, description, person responsible, alternative hierarchy membership; creating a segment or changing its texts (T56a: a segment changes nothing until a profit center names it) | none (audited) |
+| Texts, description, person responsible, alternative hierarchy membership (T56b: approved like every tree change, see §3 as built; PO to confirm); creating a segment or changing its texts (T56a: a segment changes nothing until a profit center names it) | none (audited) |
 | Create a cost or profit center; new validity period (profit center reassignment, category); extend or end validity; standard hierarchy move; profit center company assignment; a profit center's segment; set or clear a lock | one approver with `ledger.cost_center.approve` (controller, `approvals.DefaultCenterChangeRole`), not the requester, never an agent (T56a: `center_change` approval requests) |
 | Segment of a posted profit center; company of a cost center; delete | refused (reorganisation or a new center) |
-| Categories, `cost_element`, default assignments, PCA activation | configuration change request, tier 3 or 4 (§4) |
+| Categories, `cost_element`, default assignments, PCA activation | configuration change request, tier 3 or 4 (§4; a category's name tier 1, cost and profit center accounting tier 4, as built in T56c) |
 Every change writes an audit record (ADR-0011: `ledger.cost_center.request`
 when asked for, `ledger.cost_center.create|redate|lock|move|reject` when
 decided, `ledger.cost_center.texts` (which texts, not their values); the same for
@@ -562,8 +720,8 @@ coverage 100%, reviewer). Lane F (ledger), after T52 for T56d.
 | Step | Work | Acceptance criteria |
 |---|---|---|
 | T56a | **Center master data** (ledger) | `cost_center`, `cost_center_period`, `profit_center`, `profit_center_period`, `profit_center_company`, `segment` with RLS, `tenant_id` first, `center_change`, EXCLUDE on validity, periods written once; codes, company rules (the in-use refusals need postings and move to T56d); `/v1/cost-centers`, `/v1/profit-centers`, `/v1/segments`, `/v1/center-changes` (contract first; list, read, create, texts, redate, lock, move, assign; creation and every period, segment or company change as a `center_change` approval request with the approval table of §11); audit and events; `FailingTx` tests on every path; schema tests per database rule |
-| T56b | **Hierarchies** | Standard and alternative hierarchies per kind; one leaf per center in the standard (commit-time check), no cycles, depth ≤ 12; node moves as change requests; `GET /v1/hierarchies/{kind}/{code}` with members; schema tests |
-| T56c | **Configuration rules** | `controlling.cost_center_categories`, `cost_element` per account (defaults by type), `default_assignments`, `profit_center_accounting`, `default_profit_center`; tiers as §4; activation refuses an automatically posted account needing a cost object without a default; packs (ADR-0048) set `cost_element` for their accounts; simulation lists lines that would be refused or reassigned |
+| T56b | **Hierarchies** (done; as built in §3) | Standard and alternative hierarchies per kind; one leaf per center in the standard (commit-time check), no cycles, depth ≤ 12; node moves as change requests; `GET /v1/hierarchies/{id}` with members; schema tests |
+| T56c | **Configuration rules** (done; as built in §4) | `controlling.cost_center_categories`, `cost_element` per account (defaults by type), `default_assignments`, `profit_center_accounting`, `default_profit_center`; tiers as §4; activation refuses an automatically posted account needing a cost object without a default; packs (ADR-0048) set `cost_element` for their accounts; simulation lists lines that would be refused or reassigned |
 | T56d | **Assignment on the journal** | The in-use refusals T56a leaves out: `ledger.cost_center_period_in_use` (a change whose periods would differ from what posted lines read), `ledger.cost_center_posted_after` (validity ended before a posting), `ledger.segment_in_use` (a posted profit center's segment); expand migration (columns, FKs NOT VALID then validated per partition, partial indexes concurrently); derivation and validation in every posting path incl. parked and `Postings`; commit-time check of §5's table; reversals copy; T52 copies carry the same; errors and constraint mappings as §5; journal API, list filters and event fields (additive); `FOR SHARE` on center periods with a race test against a lock |
 | T56e | **Procurement and payables** | `account_assignment` and `cost_center_id` on requisition and PO items (validated at release), GR and price-difference lines with the item's center; invoice items' `cost_center_id`/`profit_center_id`; capture agent proposals with eval cases; the free-text custom field in fixtures replaced; ADR-0034 note |
 | T56f | **Actual reports** | `ledger.assignment_balance` maintained by the projector (exactly once, run-twice test); `GET /v1/cost-center-balances`, `/v1/profit-center-balances` (by center, node, segment, account, period; exact at the read); schema test that assignment balances add up to `period_balance` on P&L accounts; drill-down via journal filters |
@@ -603,6 +761,10 @@ All eight as recommended:
 - **P7** (a): one current hierarchy; reports restate history under it.
 - **P8** (a): company-level access as today; per-center access is a later
   step if the pilot asks.
+- **No breaking change** (product owner, 2026-10-21, after T56b): creating
+  a center does not require a standard hierarchy node; one created without
+  goes to the standard hierarchy's `UNASSIGNED` leaf when its creation is
+  approved (§3 as built).
 
 The options as proposed:
 

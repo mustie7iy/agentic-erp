@@ -360,7 +360,7 @@ func TestReconciliationDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"balances": func(ctx context.Context) error {
-			_, err := ledger.Accounts{}.Balances(ctx, e.DE, e.Account(t, "2000", "101000"), []time.Time{date("2026-04-17")})
+			_, err := ledger.Accounts{}.Balances(ctx, e.DE, e.Account(t, "2000", "101000"), "EUR", []time.Time{date("2026-04-17")})
 			return err
 		},
 	} {

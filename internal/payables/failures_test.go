@@ -26,7 +26,12 @@ func TestDatabaseFailures(t *testing.T) {
 	e.receive(t, po, 1, "10")
 	e.receive(t, po, 2, "5")
 	parked := e.clean(t, po, "P-1")
-	matched := e.clean(t, po, "P-2")
+	// On an order of its own: one P-3 invoices in full would leave it past
+	// the received quantities when it posts (a match again at :post).
+	other := e.order(t, e.Supplier, "PO-2")
+	e.receive(t, other, 1, "10")
+	e.receive(t, other, 2, "5")
+	matched := e.clean(t, other, "P-2")
 	e.act(t, 200, id(matched), "match", "")
 	posted := e.clean(t, po, "P-3")
 	e.act(t, 200, id(posted), "match", "")

@@ -1,9 +1,10 @@
 // Package fixture builds a configured tenant for tests of the business
-// contexts: two legal entities, a bootstrapped configuration with number
-// ranges for every document type, open 2026 periods, approvers holding every
-// role the configuration names, and two active suppliers, so application
-// tests run on real PostgreSQL (06-engineering-process §6.6). It is test
-// support and is excluded from the coverage figure.
+// contexts: two legal entities (more with NewWith), a bootstrapped
+// configuration with number ranges for every document type, open 2026
+// periods, approvers holding every role the configuration names, and two
+// active suppliers, so application tests run on real PostgreSQL
+// (06-engineering-process §6.6). It is test support and is excluded from
+// the coverage figure.
 package fixture
 
 import (
@@ -115,11 +116,12 @@ func Deps() configuration.Dependencies {
 			partner.PaymentMethodCodes{LegalEntities: tenancy.Directory{}},
 			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Channels: integration.BankChannels{}, Keys: apitest.FieldKeys()},
 			payments.PaymentMethods{LegalEntities: tenancy.Directory{}}},
-		Simulator: payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates},
+		Simulator: configuration.Simulators{payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates},
+			ledger.AssignmentSimulation{LegalEntities: tenancy.Directory{}}},
 		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates}, Actors: identity.Actors{},
 		RuleSamplers: map[string]rules.Sampler{"supplier_invoice": payables.RuleSamples{}, "purchase_order": procurement.RuleSamples{},
 			"business_partner": partner.RuleSamples{}},
-		Disclosures: []configuration.Disclosure{payables.Disclosure{}}}
+		Disclosures: []configuration.Disclosure{payables.Disclosure{}, ledger.AssignmentDisclosure{}}}
 }
 
 // Env is a configured tenant.
@@ -135,13 +137,18 @@ type Env struct {
 // ApprovalPermissions. Tenant.Human requests; the approvers decide.
 func New(tb testing.TB, permissions ...string) Env {
 	tb.Helper()
-	return NewWith(tb, Document(tb), permissions...)
+	return NewWith(tb, nil, nil, permissions...)
 }
 
-// NewWith is New with doc, a variant of Document, as the tenant's first
-// configuration: one with parallel ledgers (ADR-0045), say, which a later
-// change request cannot add without its evidence.
-func NewWith(tb testing.TB, doc *config.Config, permissions ...string) Env {
+// Company is a further legal entity of a tenant NewWith creates.
+type Company struct{ Code, Name, Country, Currency string }
+
+// NewWith is New with further companies: their legal entities, number
+// ranges for every document type in Years, and the configuration document
+// changed by extend (which adds the companies, or parallel ledgers a later
+// change request could not add without its evidence, ADR-0045) before it
+// is bootstrapped.
+func NewWith(tb testing.TB, companies []Company, extend func(*config.Config), permissions ...string) Env {
 	tb.Helper()
 	ten := pgtest.NewTenant(tb, append(permissions, ApprovalPermissions...)...)
 	ten.AllCompanies(tb, ten.Human)
@@ -150,6 +157,20 @@ func NewWith(tb testing.TB, doc *config.Config, permissions ...string) Env {
 	pgtest.Exec(tb, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
 		VALUES ($1, $2, '1000', 'Acme Corp US', 'US', 'USD', gen_random_uuid(), 'active', $4, $4),
 		       ($1, $3, '2000', 'Acme GmbH', 'DE', 'EUR', gen_random_uuid(), 'active', $4, $4)`, ten.ID, e.US, e.DE, ten.Human.ID)
+	doc := Document(tb)
+	for _, co := range companies {
+		pgtest.Exec(tb, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
+			VALUES ($1, gen_random_uuid(), $2, $3, $4, $5, gen_random_uuid(), 'active', $6, $6)`, ten.ID, co.Code, co.Name, co.Country, co.Currency, ten.Human.ID)
+		for _, y := range Years() {
+			for dt, prefix := range DocumentTypes {
+				doc.NumberRanges = append(doc.NumberRanges, config.NumberRange{Company: co.Code, DocumentType: dt, FiscalYear: y, Prefix: prefix,
+					First: 100000, Last: 999999})
+			}
+		}
+	}
+	if extend != nil {
+		extend(doc)
+	}
 	for _, r := range doc.RoleNames() {
 		pgtest.Exec(tb, `INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by) VALUES ($1, gen_random_uuid(), $2, $2, 'active', $3, $3)`,
 			ten.ID, r, ten.Human.ID)
