@@ -858,7 +858,7 @@
     "ph": 2,
     "c": [
      {
-      "s": "D",
+      "s": "P",
       "t": "Bank statement import (camt.053, MT940)",
       "r": "ADR-0047 · T49 (split T49a-T49h) · also the phase 1 Integrations item \"Statement import (camt.053, MT940)\" (triage, PO 2026-10-21)",
       "c": [
@@ -4076,7 +4076,7 @@
     "ph": 2,
     "c": [
      {
-      "s": "P",
+      "s": "D",
       "t": "Custom fields",
       "r": "ADR-0046 · T58",
       "c": [
@@ -4982,7 +4982,7 @@
         ]
        },
        {
-        "s": "P",
+        "s": "D",
         "t": "Encryption at rest (database, files, backups)",
         "r": "ADR-0033 · T38e · backups and PostgreSQL/JetStream checks in T40",
         "c": [
@@ -5047,7 +5047,7 @@
       ]
      },
      {
-      "s": "P",
+      "s": "D",
       "t": "Supply-chain security",
       "r": "",
       "c": [
@@ -5845,7 +5845,7 @@
       "c": []
      },
      {
-      "s": "P",
+      "s": "D",
       "t": "Backups and point-in-time recovery",
       "r": "ADR-0040 · T41",
       "c": [
