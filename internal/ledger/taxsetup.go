@@ -46,11 +46,66 @@ func taxCodes(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, calendar, 
 	if err := requireTaxCodesFixed(ctx, tx, le, co); err != nil {
 		return err
 	}
-	have, err := loadTaxRates(ctx, tx, le, calendar)
+	have, err := loadTaxRates(ctx, tx, le, calendar, true)
 	if err != nil {
 		return err
 	}
 	return have.apply(ctx, tx, p, le, have.plan(co))
+}
+
+// checkTaxRatesUnposted reports, on submission, the rate changes the
+// activation would refuse with 409 ledger.tax_rate_in_use (T61a): it plans
+// the change as the activation does, today, and finds the planned steps
+// that would move a posting of the code into or out of a rate, so a change
+// request that re-rates the past is refused before two approvers approve
+// it. A posting or a later day of activation can still make the activation
+// refuse what passed here; the database stays the rule.
+func checkTaxRatesUnposted(ctx context.Context, tx pgx.Tx, p string, le, calendar uuid.UUID, co config.Company, out *findings) error {
+	have, err := loadTaxRates(ctx, tx, le, calendar, false)
+	if err != nil {
+		return err
+	}
+	touched := have.plan(co).touched
+	codes, keys, los, his := make([]string, len(touched)), make([]string, len(touched)), make([]time.Time, len(touched)), make([]*time.Time, len(touched))
+	for i, s := range touched {
+		codes[i], keys[i], los[i], his[i] = s.code, s.key, s.lo, s.hi
+	}
+	// The predicate is the trigger's (ledger.check_tax_rate); the last
+	// posting tells the user which day a change may start after.
+	rows, _ := tx.Query(ctx, `SELECT DISTINCT x.code, x.component, (SELECT max(l.posting_date) FROM ledger.journal_line l
+			WHERE l.legal_entity_id = $1 AND l.tax_code = x.code)
+		FROM unnest($2::text[], $3::text[], $4::date[], $5::date[]) AS x(code, component, lo, hi)
+		JOIN ledger.tax_code_definition d ON d.legal_entity_id = $1 AND d.code = x.code
+		WHERE ledger.tax_code_posted(d.tenant_id, $1, x.code, x.lo, x.hi)
+		ORDER BY 1, 2`, le, codes, keys, los, his)
+	type used struct {
+		Code, Key string
+		Last      time.Time
+	}
+	found, err := pgx.CollectRows(rows, pgx.RowToStructByPos[used])
+	if err != nil {
+		return fmt.Errorf("ledger: check company %s: tax rates in use: %w", co.Code, err)
+	}
+	for _, u := range found {
+		out.add(ratePath(p, co, u.Code, u.Key), "the change would re-rate postings of tax code %s (its last posting is dated %s): "+
+			"a rate postings used never changes, is withdrawn or ends before them, and no new rate covers posted dates; date the change after "+
+			"the last posting (a code in the single-rate form, or one removed, changes on the day of activation: submit it on a day after the "+
+			"last posting)", u.Code, u.Last.Format(time.DateOnly))
+	}
+	return nil
+}
+
+// ratePath is where a rate finding points: the component's rates, or the
+// code or the list when the document no longer has the component or code.
+func ratePath(p string, co config.Company, code, key string) string {
+	i := slices.IndexFunc(co.TaxCodes, func(t config.TaxCode) bool { return t.Code == code })
+	switch {
+	case i < 0:
+		return p + ".tax_codes"
+	case !slices.ContainsFunc(co.TaxCodes[i].Parts(), func(c config.TaxComponent) bool { return c.Key == key }):
+		return p + ".tax_codes[" + code + "].components"
+	}
+	return p + ".tax_codes[" + code + "].components[" + key + "].rates"
 }
 
 // taxDefinitions inserts or updates the codes' definitions and components.
@@ -169,15 +224,26 @@ type taxRates struct {
 	first   time.Time // the company's first fiscal period, else today
 }
 
-// loadTaxRates reads the legal entity's rates, locking the live ones.
-func loadTaxRates(ctx context.Context, tx pgx.Tx, le, calendar uuid.UUID) (taxRates, error) {
+const (
+	taxRatesQuery = `SELECT id, code, component, valid_from, valid_to, rate_pct::text, withdrawn_at IS NOT NULL FROM ledger.tax_rate
+		WHERE legal_entity_id = $1 ORDER BY code, component, valid_from`
+	taxRatesForUpdate = taxRatesQuery + ` FOR UPDATE`
+)
+
+// loadTaxRates reads the legal entity's rates, locking them for an
+// activation (lock); a submission's check reads them without holding up
+// the postings.
+func loadTaxRates(ctx context.Context, tx pgx.Tx, le, calendar uuid.UUID, lock bool) (taxRates, error) {
 	h := taxRates{byKey: map[[2]string][]taxRate{}, started: map[string]bool{}}
 	if err := tx.QueryRow(ctx, `SELECT current_date, coalesce((SELECT min(start_date) FROM ledger.fiscal_period WHERE calendar_id = $1), current_date)`,
 		calendar).Scan(&h.today, &h.first); err != nil {
 		return h, fmt.Errorf("ledger: tax rates of %s: today: %w", le, err)
 	}
-	rows, _ := tx.Query(ctx, `SELECT id, code, component, valid_from, valid_to, rate_pct::text, withdrawn_at IS NOT NULL FROM ledger.tax_rate
-		WHERE legal_entity_id = $1 ORDER BY code, component, valid_from FOR UPDATE`, le)
+	query := taxRatesQuery
+	if lock {
+		query = taxRatesForUpdate
+	}
+	rows, _ := tx.Query(ctx, query, le)
 	var r taxRate
 	var withdrawn bool
 	_, err := pgx.ForEachRow(rows, []any{&r.id, &r.code, &r.key, &r.from, &r.to, &r.rate, &withdrawn}, func() error {
@@ -202,6 +268,17 @@ type ratePlan struct {
 	withdraw []uuid.UUID
 	ends     []taxRate // id and the new end
 	insert   []taxRate
+	// touched are the dates each step moves into or out of a rate: a
+	// posting of the code in one is what the database refuses (409
+	// ledger.tax_rate_in_use), which checkTaxRatesUnposted predicts.
+	touched []rateSpan
+}
+
+// rateSpan is a component's dates [lo, hi), hi nil when open.
+type rateSpan struct {
+	code, key string
+	lo        time.Time
+	hi        *time.Time
 }
 
 // plan compares the live rates with the document's.
@@ -294,23 +371,39 @@ func (p *ratePlan) add(have, want []taxRate) {
 	for _, w := range want {
 		i := slices.IndexFunc(have, func(r taxRate) bool { return r.from.Equal(w.from) })
 		switch {
-		case i < 0:
+		case i < 0, !sameRate(have[i].rate, w.rate):
 			p.insert = append(p.insert, w)
-		case !sameRate(have[i].rate, w.rate):
-			p.insert = append(p.insert, w)
+			p.touched = append(p.touched, rateSpan{w.code, w.key, w.from, w.to})
 		default:
 			kept[w.from.Format(time.DateOnly)] = true
 			if !sameEnd(have[i].to, w.to) {
 				end := have[i]
 				end.to = w.to
 				p.ends = append(p.ends, end)
+				p.touched = append(p.touched, between(end, have[i].to, w.to))
 			}
 		}
 	}
 	for _, r := range have {
 		if !kept[r.from.Format(time.DateOnly)] {
 			p.withdraw = append(p.withdraw, r.id)
+			p.touched = append(p.touched, rateSpan{r.code, r.key, r.from, r.to})
 		}
+	}
+}
+
+// between are the dates a rate's end moving from was to now passes over:
+// from the earlier end to the later, open when either is (they differ).
+func between(r taxRate, was, now *time.Time) rateSpan {
+	switch {
+	case was == nil:
+		return rateSpan{r.code, r.key, *now, nil}
+	case now == nil:
+		return rateSpan{r.code, r.key, *was, nil}
+	case now.Before(*was):
+		return rateSpan{r.code, r.key, *now, was}
+	default:
+		return rateSpan{r.code, r.key, *was, now}
 	}
 }
 

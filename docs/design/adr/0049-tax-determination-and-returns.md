@@ -301,10 +301,30 @@ tax_codes:
   day or later (it would re-rate it), where it used to pass. Codes copied
   from `ledger.tax_code` have the component `tax`: moving one to the dated
   form keeps that key, since another key would add rates over posted dates.
+  **Submission predicts the refusal** (T61a follow-up): `ledger.Setup.Check`
+  plans the change as the activation would, on the day of submission, and
+  reports each component whose planned withdrawal, moved end or new rate
+  covers a posting of its code (422 finding on
+  `companies[…].tax_codes[…].components[…].rates`, or on the code's
+  components or the list when the proposal removes the component or code,
+  naming the code's last posting), so a change request that would fail with
+  409 at activation is refused before two approvers approve it. A change in
+  the single-rate form, or a removal, starts "today", so one refused for a
+  posting dated today passes when submitted after it. A posting made, or a
+  later day of activation, between submission and activation can still make
+  the activation refuse what passed; the database stays the rule.
+- **Operational constraint (accepted, coordinator 2026-10-21):** a tax code
+  change is activated only after a rolling upgrade to T61a has completed on
+  every instance. Until then an instance of the previous release still reads
+  and writes `ledger.tax_code`, which T61a no longer maintains, so a rate
+  activated meanwhile would be invisible to it (it would post with the old
+  rate) and its setup would not write `ledger.tax_rate`. The runbook for the
+  release says so; no code enforces it.
 - A rate change is **posting-relevant** (tier 3, two approvers), as rate
   changes were: the diff carries no date, so a change only of future rates is
   not told apart (a lower tier for those would need the date of activation in
-  the diff; not built). The payables simulation of rate changes (07, T22)
+  the diff; not built). **Accepted** (coordinator 2026-10-21): future-only rate
+  changes stay tier 3. The payables simulation of rate changes (07, T22)
   compares the rate in force on each replayed invoice's date, per component.
 - Until T61d posts every component, supplier invoices and down payments take
   only a code with one component on an account of its own, wholly recoverable

@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -191,8 +192,16 @@ func TestTaxRatesInUse(t *testing.T) {
 	added.Components = append(added.Components, config.TaxComponent{Key: "extra", AccountKey: config.KeyInput, Account: "140000",
 		Rates: []config.TaxRate{{RatePercent: "1", ValidFrom: "2026-01-01"}}})
 	refused["a new component over posted dates"] = added
+	wantPath := map[string]string{"a new component over posted dates": "companies[2000].tax_codes[I5].components[extra].rates"}
 	for name, code := range refused {
 		t.Run(name, func(t *testing.T) {
+			want, ok := wantPath[name]
+			if !ok {
+				want = "companies[2000].tax_codes[I5].components[gst].rates"
+			}
+			if got := e.checkTax(t, withCodes(t, code)); got != want+": 2026-03-15" {
+				t.Errorf("submission: got %q, want %q", got, want+": 2026-03-15")
+			}
 			err := e.applyTax(t, withCodes(t, code))
 			if got := problem.From(err); got.Status != 409 || got.Code != "ledger.tax_rate_in_use" {
 				t.Errorf("activation: got %v, want 409 ledger.tax_rate_in_use", err)
@@ -203,11 +212,82 @@ func TestTaxRatesInUse(t *testing.T) {
 		t.Errorf("after the refusals: got %s, want %s", got, want)
 	}
 	future := bc(config.TaxRate{RatePercent: "5", ValidFrom: "2026-01-01", ValidTo: "2027-06-30"}, config.TaxRate{RatePercent: "3.5", ValidFrom: "2027-07-01"})
+	if got := e.checkTax(t, withCodes(t, future)); got != "" {
+		t.Errorf("submission of a future change: got %q, want no finding", got)
+	}
 	if err := e.applyTax(t, withCodes(t, future)); err != nil {
 		t.Fatalf("a future rate changed: %v", err)
 	}
 	if got, want := e.taxRates(t, "I5"), "I5 gst 5 2026-01-01 2027-07-01, I5 gst 3.5 2027-07-01 open, I5 pst_bc 7 2026-01-01 open"; got != want {
 		t.Errorf("future rate moved: got %s, want %s", got, want)
+	}
+	reopened := bc(config.TaxRate{RatePercent: "5", ValidFrom: "2026-01-01"})
+	if got := e.checkTax(t, withCodes(t, reopened)); got != "" {
+		t.Errorf("submission of a future rate taken back: got %q, want no finding", got)
+	}
+	if err := e.applyTax(t, withCodes(t, reopened)); err != nil {
+		t.Fatalf("a future rate taken back: %v", err)
+	}
+	if got, want := e.taxRates(t, "I5"), "I5 gst 5 2026-01-01 open, I5 pst_bc 7 2026-01-01 open"; got != want {
+		t.Errorf("future rate taken back: got %s, want %s", got, want)
+	}
+}
+
+// checkTax runs the ledger's submission check of doc on top of the test
+// document and lists the tax rate findings as "path: last posting".
+// Findings without a last posting are other checks'.
+func (e env) checkTax(tb testing.TB, doc *config.Config) string {
+	tb.Helper()
+	var got []string
+	if err := apitest.InRequest(tb, e.ten, e.ten.Human, func(ctx context.Context) error {
+		fs, err := ledger.Setup{LegalEntities: tenancy.Directory{}}.Check(ctx, document(tb), doc)
+		for _, f := range fs {
+			_, last, ok := strings.Cut(f.Message, "last posting is dated ")
+			if !ok {
+				continue
+			}
+			if len(last) < len(time.DateOnly) {
+				tb.Fatalf("finding %s: got %q, want the last posting's date", f.Path, f.Message)
+			}
+			got = append(got, f.Path+": "+last[:len(time.DateOnly)])
+		}
+		return err
+	}); err != nil {
+		tb.Fatal(err)
+	}
+	return strings.Join(got, ", ")
+}
+
+// TestTaxRatesInUseSingleRate: a single-rate code's change starts on the
+// day of activation, so a posting dated today or later makes submission
+// report it and activation refuse it; with postings only before today it
+// passes both.
+func TestTaxRatesInUseSingleRate(t *testing.T) {
+	e := setup(t)
+	var today string // the database's day, which the setup starts a change on
+	pgtest.Scan(t, `SELECT current_date::text`, nil, &today)
+	changed := document(t)
+	changed.Companies[1].TaxCodes[0].RatePercent = "16"
+	e.postTaxed(t, "V1", "2026-01-15")
+	if got := e.checkTax(t, changed); got != "" {
+		t.Errorf("submission, postings before today: got %q, want no finding", got)
+	}
+	e.postTaxed(t, "V1", today)
+	if got, want := e.checkTax(t, changed), "companies[2000].tax_codes[V1].components[tax].rates: "+today; got != want {
+		t.Errorf("submission, a posting today: got %q, want %q", got, want)
+	}
+	if got := problem.From(e.applyTax(t, changed)); got.Status != 409 || got.Code != "ledger.tax_rate_in_use" {
+		t.Errorf("activation: got %v, want 409 ledger.tax_rate_in_use", got)
+	}
+	removed := document(t)
+	removed.Companies[1].TaxCodes = removed.Companies[1].TaxCodes[1:] // V1 removed: its rate would end today
+	if got, want := e.checkTax(t, removed), "companies[2000].tax_codes: "+today; got != want {
+		t.Errorf("submission, the code removed: got %q, want %q", got, want)
+	}
+	component := withCodes(t, config.TaxCode{Code: "V1", Description: "Input tax", Components: []config.TaxComponent{
+		{Key: "other", AccountKey: config.KeyInput, Account: "140000", Rates: []config.TaxRate{{RatePercent: "19", ValidFrom: "2027-01-01"}}}}})
+	if got, want := e.checkTax(t, component), "companies[2000].tax_codes[V1].components: "+today; got != want {
+		t.Errorf("submission, the component removed: got %q, want %q", got, want)
 	}
 }
 
