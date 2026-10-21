@@ -24,6 +24,13 @@ func TestStatedTaxRefusals(t *testing.T) {
 	if got := problem.From(err); got == nil || got.Code != "payables.tax_mismatch" {
 		t.Errorf("recovering more than the tax: got %v, want payables.tax_mismatch", err)
 	}
+	large := money.Minor(1) << 62
+	apart := []tax.ComponentTax{{Code: "V1", Key: "tax", AccountKey: tax.KeyInput, Amounts: tax.Amounts{Tax: large, Recoverable: large}},
+		{Code: "V7", Key: "tax", AccountKey: tax.KeyInput, Amounts: tax.Amounts{Tax: large, Recoverable: large}}}
+	_, _, err = statedTax(Invoice{Currency: "EUR", Exponent: 2}, apart, 1, one)
+	if got := problem.From(err); got == nil || got.Code != "payables.amount_too_large" {
+		t.Errorf("a charged total out of range: got %v, want payables.amount_too_large", err)
+	}
 	huge := money.Minor(1) << 60
 	whole := []tax.ComponentTax{{Code: "V1", Key: "tax", AccountKey: tax.KeyInput, Amounts: tax.Amounts{Base: huge, Tax: huge, Recoverable: huge}}}
 	_, _, err = statedTax(Invoice{Currency: "EUR", Exponent: 2, Tax: huge + 1}, whole, 1, ledger.Conversion{Rate: "100", FromExp: 2, ToExp: 2})

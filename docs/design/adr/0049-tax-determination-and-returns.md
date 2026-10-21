@@ -497,7 +497,7 @@ commit-time check, like the balance trigger).
   that charges tax (default 1): within it the stated amount posts, its
   difference shared out (`money.Allocate`) among the components putting
   tax on an account, in proportion to what they put there (an input
-  component's recovered part, an output one's tax), and recovered; with
+  component's recovered part), and recovered; with
   none, among those whose tax is a cost (non-deductible, or recovering
   none), onto their items' lines (a BC PST invoice's stated PST is its
   cost). Beyond the tolerance, with no component to take it, or where it

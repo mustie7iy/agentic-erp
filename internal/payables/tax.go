@@ -242,8 +242,10 @@ func takers(items []tax.ComponentTax) ([]money.Minor, bool) {
 // payables.tax_mismatch names each code's calculated tax. It returns the
 // components and each one's share that is a cost on its items' lines.
 func statedTax(v Invoice, items []tax.ComponentTax, units int, conv ledger.Conversion) ([]tax.ComponentTax, []money.Minor, error) {
-	charged, codes := chargedTax(items)
-	diff := v.Tax - charged // both in range
+	charged, diff, codes, err := chargedTax(v.Tax, items)
+	if err != nil {
+		return nil, nil, err
+	}
 	if diff == 0 {
 		return items, make([]money.Minor, len(items)), nil
 	}
@@ -266,20 +268,28 @@ func statedTax(v Invoice, items []tax.ComponentTax, units int, conv ledger.Conve
 }
 
 // chargedTax is the tax the supplier charges by the calculation (the
-// self-assessed aside) and the number of codes charging some.
-func chargedTax(items []tax.ComponentTax) (money.Minor, int) {
-	var charged money.Minor
-	codes := map[string]bool{}
+// self-assessed aside), its difference to the stated tax and the number
+// of codes charging some; out of range (items of both signs), too large.
+func chargedTax(stated money.Minor, items []tax.ComponentTax) (charged, diff money.Minor, codes int, err error) {
+	var taxes []money.Minor
+	charging := map[string]bool{}
 	for _, c := range items {
 		if c.AccountKey == tax.KeySelfInput || c.AccountKey == tax.KeySelfOutput {
 			continue
 		}
-		charged += c.Tax // the calculator's results are in range, and so their sum
+		taxes = append(taxes, c.Tax)
 		if c.Tax != 0 {
-			codes[c.Code] = true
+			charging[c.Code] = true
 		}
 	}
-	return charged, len(codes)
+	charged, err = money.Sum(taxes...)
+	if err == nil {
+		diff, err = money.Diff(stated, charged)
+	}
+	if err != nil {
+		return 0, 0, 0, errTaxTooLarge
+	}
+	return charged, diff, len(charging), nil
 }
 
 // shareOut shares a difference out in proportion to the weights' size,
