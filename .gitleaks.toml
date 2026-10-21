@@ -10,6 +10,10 @@ description = "Documentation examples and test-only credentials"
 regexTarget = "line"
 regexes = [
   '''next_page_token: "[A-Za-z0-9._=-]+"''',
+  # The generated API code reads the field CounterpartyAccountLast4 (T49g)
+  # through the receiver s; "s." and 24 characters is the shape of a legacy
+  # Vault service token, so that selector matches the rule.
+  '''\bs\.CounterpartyAccountLast4\b''',
   # A certificate authority's key algorithm in Terraform (AWS Private CA)
   # names a curve, not a key: "EC_prime256v1", "EC_secp384r1".
   '''key_algorithm\s*==?\s*"(EC_prime256v1|EC_secp384r1|RSA_2048|RSA_4096)"''',
