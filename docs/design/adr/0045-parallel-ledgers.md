@@ -114,19 +114,18 @@ tenant's entry buckets taken first, the run read `FOR UPDATE` to cancel,
 audit and `RevaluationRunPosted`/`Cancelled` naming the ledger. The
 valuation area: a parallel ledger may value at a rate type of its own
 (`companies[].fx_valuation.ledgers`, code and rate type;
-`ledger.fx_valuation_ledger`, posting-related), else at the legal entity's,
-as the leading ledger always does; the valuation accounts are the legal
-entity's for every ledger, since each run posts in its own ledger. A
-run's ledger is one its legal entity keeps, which the database holds too
-(`revaluation_run_ledger_kept`, T52f). Out of scope until a pilot needs
-them (coordinator, 2026-10-21: the pilots, Canada and the UAE, report
-under IFRS alone): valuation accounts per ledger, and valuation methods per
-accounting principle beyond the rate type, such as HGB's imparity
-principle valuing only losses. A ledger assigned to a
-company later holds no copies of the items posted before, so its runs
-value what was posted to it since, its opening balances included.
-Depreciation runs per
-depreciation area, each posting to its ledger (T57).
+`ledger.fx_valuation_ledger`, posting-related), else at the legal
+entity's, as the leading ledger always does; the valuation accounts are
+the legal entity's for every ledger, since each run posts in its own
+ledger. A run's ledger is one its legal entity keeps, which the database
+holds too (`revaluation_run_ledger_kept`, T52f). Out of scope until a
+pilot needs them (coordinator, 2026-10-21: the pilots, Canada and the UAE,
+report under IFRS alone): valuation accounts per ledger, and valuation
+methods per accounting principle beyond the rate type, such as HGB's
+imparity principle valuing only losses. A ledger assigned to a company
+later holds no copies of the items posted before, so its runs value what
+was posted to it since, its opening balances included. Depreciation runs
+per depreciation area, each posting to its ledger (T57).
 
 **Reconciliation (T52e).** `GET /v1/ledger-reconciliation` compares two
 ledgers a company keeps per account and transaction currency, over a

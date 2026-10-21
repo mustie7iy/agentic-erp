@@ -849,7 +849,7 @@ entries through the ledger's reversal path (`ledger.reversal`) and sets
 `cancelled`, under the entries' bucket locks and the run read `FOR UPDATE`;
 the key date is then free for another posted run.
 
-Revaluation per ledger (T52f, ADR-0045, migration 000132). A run values its
+Revaluation per ledger (T52f, ADR-0045, migrations 000132-000133). A run values its
 ledger's own lines (a parallel ledger's copies of the open items, which
 T52c clears with the leading ledger's, and its ledger-specific postings)
 and posts and reverses its entries in that ledger alone; the posted-run
