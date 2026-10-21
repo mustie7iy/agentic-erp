@@ -53,6 +53,7 @@ var allowed = map[string][]string{
 	"capture":                 {"llm"},
 	"config":                  {"bankfile"},
 	"configuration":           {"approvals", "config", "operations"},
+	"countrypack":             {"config"},
 	"controlplane":            {"agents", "audit", "config", "directory", "identity", "offboarding", "provisioning", "tenancy"},
 	"delivery/configagent":    {"apitools", "llm"},
 	"delivery/migrationagent": {"apitools", "llm"},

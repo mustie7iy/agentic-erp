@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/bankfile"
 	"github.com/mustie7iy/agentic-erp/internal/money"
@@ -26,6 +27,16 @@ type Finding struct {
 }
 
 func (f Finding) String() string { return fmt.Sprintf("[%s] %s: %s", f.Severity, f.Path, f.Message) }
+
+// Note explains a generated setting reviewers should look at: what a
+// draft document generated from SAP (delivery/sapconfig) or a country pack
+// (countrypack) chose and why.
+type Note struct {
+	Path    string `json:"path"`
+	Message string `json:"message"`
+}
+
+func (n Note) String() string { return n.Path + ": " + n.Message }
 
 func HasErrors(fs []Finding) bool {
 	return slices.ContainsFunc(fs, func(f Finding) bool { return f.Severity == SevError })
@@ -73,6 +84,7 @@ func Validate(c *Config, exponents currency.Exponents) []Finding {
 	v.journalRanges(c)
 	v.extensions(c)
 	v.rules(c)
+	v.packs(c)
 	switch c.Output.PurchaseOrderChannel {
 	case "email", "edi", "print":
 	default:
@@ -114,6 +126,33 @@ func (v *validator) numberRanges(c *Config) {
 		}
 		if n.Last < n.First {
 			v.err(p+".last", "the last number must not be below the first")
+		}
+	}
+}
+
+var packVersionRe = regexp.MustCompile(`^[0-9]{4}\.[1-9][0-9]*$`)
+
+// packs checks the provenance of adopted country packs (ADR-0048): one per
+// company, of the company's country.
+func (v *validator) packs(c *Config) {
+	seen := map[string]bool{}
+	for _, a := range c.Packs {
+		p := "packs[" + a.Company + "]"
+		if seen[a.Company] {
+			v.err(p, "duplicate pack adoption")
+		}
+		seen[a.Company] = true
+		switch co := c.Company(a.Company); {
+		case co == nil:
+			v.err(p+".company", "company %q is not in the document", a.Company)
+		case co.Country != a.Country:
+			v.err(p+".country", "the pack of %s does not fit the company in %s", a.Country, co.Country)
+		}
+		if !packVersionRe.MatchString(a.Version) {
+			v.err(p+".version", "version %q must be YYYY.N", a.Version)
+		}
+		if _, err := time.Parse(time.DateOnly, a.AppliedOn); err != nil {
+			v.err(p+".applied_on", "%q is not a date (YYYY-MM-DD)", a.AppliedOn)
 		}
 	}
 }

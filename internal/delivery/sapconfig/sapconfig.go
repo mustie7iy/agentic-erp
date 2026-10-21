@@ -72,12 +72,7 @@ func (o Options) accountType(number string) (config.AccountType, error) {
 }
 
 // Note explains a generated setting reviewers should look at.
-type Note struct {
-	Path    string `json:"path"`
-	Message string `json:"message"`
-}
-
-func (n Note) String() string { return n.Path + ": " + n.Message }
+type Note = config.Note
 
 // documentTypes get number ranges in every company and fiscal year of the
 // extract, besides one journal range per SAP document type it holds.
@@ -116,7 +111,7 @@ type gen struct {
 	notes []Note
 }
 
-func (g *gen) note(path, msg string) { g.notes = append(g.notes, Note{path, msg}) }
+func (g *gen) note(path, msg string) { g.notes = append(g.notes, Note{Path: path, Message: msg}) }
 
 // unknownDays marks a payment term whose SAP days could not be read. Any
 // guess would be wrong in a way that pays early or late (0 days would

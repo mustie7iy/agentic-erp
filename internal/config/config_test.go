@@ -62,6 +62,11 @@ func TestValidationRules(t *testing.T) {
 		path   string
 	}{
 		{"version", func(c *Config) { c.Version = 2 }, "version"},
+		{"pack of no company", adopt(PackAdoption{Company: "9000"}), "packs[9000].company"},
+		{"pack of another country", adopt(PackAdoption{Country: "CA"}), "packs[1000].country"},
+		{"pack version", adopt(PackAdoption{Version: "2026"}), "packs[1000].version"},
+		{"pack applied on", adopt(PackAdoption{AppliedOn: "2026-1-5"}), "packs[1000].applied_on"},
+		{"pack adopted twice", func(c *Config) { adopt(PackAdoption{})(c); c.Packs = append(c.Packs, c.Packs[0]) }, "packs[1000]"},
 		{"no companies", func(c *Config) { c.Companies = nil }, "companies"},
 		{"duplicate company", func(c *Config) { c.Companies = append(c.Companies, c.Companies[0]) }, "companies[1000]"},
 		{"empty code", func(c *Config) { c.Companies[0].Code = "" }, "companies[0].code"},
@@ -212,6 +217,46 @@ func TestValidationRules(t *testing.T) {
 func furtherBank(account string) func(c *Config) {
 	return func(c *Config) {
 		c.Companies[1].HouseBanks = []HouseBank{{Name: "DB", IBAN: "DE02120300000000202051", BIC: "DEUTDEFFXXX", GLAccount: account}}
+	}
+}
+
+// adopt records company 1000's adoption of the US pack 2026.1, with the
+// fields of a that are set instead.
+func adopt(a PackAdoption) func(c *Config) {
+	return func(c *Config) {
+		p := PackAdoption{Company: "1000", Country: "US", Version: "2026.1", AppliedOn: "2026-10-20"}
+		for _, f := range []struct {
+			to   *string
+			from string
+		}{{&p.Company, a.Company}, {&p.Country, a.Country}, {&p.Version, a.Version}, {&p.AppliedOn, a.AppliedOn}} {
+			if f.from != "" {
+				*f.to = f.from
+			}
+		}
+		c.Packs = []PackAdoption{p}
+	}
+}
+
+// A company's pack adoption is valid provenance, found by company, and
+// changing it is operational (ADR-0048).
+func TestPackAdoption(t *testing.T) {
+	c := fixture(t)
+	adopt(PackAdoption{})(c)
+	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
+		t.Errorf("Validate: got %v, want no errors", fs)
+	}
+	if a := c.Pack("1000"); a == nil || a.Version != "2026.1" {
+		t.Errorf("Pack(1000): got %+v, want version 2026.1", a)
+	}
+	if a := c.Pack("2000"); a != nil {
+		t.Errorf("Pack(2000): got %+v, want nil", a)
+	}
+	changes, _ := Diff(fixture(t), c) // Diff never fails
+	if len(changes) != 1 || changes[0].Path != "packs[1000]" || changes[0].Tier != TierOperational {
+		t.Errorf("Diff: got %v, want packs[1000] added at tier 2", changes)
+	}
+	if n := (Note{Path: "packs[1000]", Message: "adopted"}); n.String() != "packs[1000]: adopted" {
+		t.Errorf("Note.String: got %q", n.String())
 	}
 }
 

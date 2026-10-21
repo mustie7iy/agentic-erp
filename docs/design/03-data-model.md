@@ -330,6 +330,14 @@ activation, each owning context applies its part to its own relational tables
 to `partner`...). Domain tables are therefore always typed and constrained,
 and every change to them traces back to an approved change request.
 
+Country packs (ADR-0048) enter the document the same way: applying one
+(`internal/countrypack`) yields a draft document and notes for a change
+request, merged three-way from the version the company adopted. The
+document's `packs` section records, per company, the country, the pack
+version and the date it was applied on (`packs[company]`, an operational-
+tier change); validation requires a company of that country, one adoption
+per company, a `YYYY.N` version and a date.
+
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
 in the currency of the requisition's company), the order release

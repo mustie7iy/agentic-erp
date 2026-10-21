@@ -105,7 +105,7 @@ coverage:
 	DATABASE_URL="$(DATABASE_URL)" ./scripts/coverage.sh
 
 FUZZTIME ?= 15s
-FUZZ_TARGETS = analytics/reader:FuzzManifestPath money:FuzzParseDecimal money:FuzzConvert config:FuzzParseValidateDiff analytics:FuzzNarrative \
+FUZZ_TARGETS = analytics/reader:FuzzManifestPath money:FuzzParseDecimal money:FuzzConvert config:FuzzParseValidateDiff countrypack:FuzzParseValidate analytics:FuzzNarrative \
 	bankfile:FuzzPain001Text bankfile:FuzzValidIBAN sap:FuzzODataValue sap:FuzzODataString \
 	platform/redact:FuzzText platform/webhook:FuzzVerify platform/extensions:FuzzCompile platform/rules:FuzzCompile
 

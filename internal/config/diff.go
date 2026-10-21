@@ -92,6 +92,10 @@ var tierRules = []struct {
 	{rx(`^analytics\.metrics\[\*\]\.(label|description|synonyms)`), TierCosmetic},
 	{rx(`^analytics\.dimensions\[\*\]\.(label|description)$`), TierCosmetic},
 	{rx(`^analytics(\.|$)`), TierOperational},
+	// Which pack version a company adopted posts nothing itself; the
+	// settings applying it changes carry their own tiers. It decides what
+	// the next upgrade merges from, so it is not cosmetic (ADR-0048).
+	{rx(`^packs`), TierOperational},
 }
 
 func rx(s string) *regexp.Regexp { return regexp.MustCompile(s) }
@@ -121,6 +125,7 @@ var listKeys = map[string]string{
 	// The analytics section's; a metric's own dimensions are names, listed
 	// by position.
 	"metrics": "name", "dimensions": "name",
+	"packs": "company",
 }
 
 // Diff lists every setting that differs from old to new, with its tier.
