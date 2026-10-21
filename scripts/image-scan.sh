@@ -10,7 +10,9 @@
 # Exceptions go in .grype.yaml, each with a reason and an expiry date.
 set -euo pipefail
 OUT="${1:-dist/images}"
-GRYPE="${GRYPE:-go run github.com/anchore/grype/cmd/grype@v0.120.1}"
+# grype comes from scripts/ci-tools.sh, which pins its version, caches the
+# binary and retries a failed build, rather than from `go run` on every scan.
+GRYPE="${GRYPE:-$(./scripts/ci-tools.sh)/grype}"
 args=(--fail-on high --only-fixed --config .grype.yaml)
 shopt -s nullglob
 sboms=("$OUT"/sbom/*-linux-*.spdx.json)
