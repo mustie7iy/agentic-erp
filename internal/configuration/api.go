@@ -140,10 +140,8 @@ func (e *Endpoints) ListChangeRequests(ctx context.Context, params gen.ListChang
 	if err != nil {
 		return nil, fmt.Errorf("configuration: list change requests: %w", err)
 	}
-	for i := range crs {
-		if crs[i], err = e.disclosed(ctx, crs[i]); err != nil {
-			return nil, err
-		}
+	if crs, err = e.disclosedAll(ctx, crs); err != nil {
+		return nil, err
 	}
 	items, next := apitypes.PageOf(ks, crs, func(c ChangeRequest) (string, uuid.UUID) { return c.CreatedAt.UTC().Format(time.RFC3339Nano), c.ID }, crToAPI)
 	return &gen.ChangeRequestPageHeaders{Response: gen.ChangeRequestPage{Items: items, NextPageToken: next}}, nil

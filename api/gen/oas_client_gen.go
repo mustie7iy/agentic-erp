@@ -319,8 +319,9 @@ type Invoker interface {
 	// the active configuration version: a stratified sample (every decision, every match issue kind,
 	// invoices near the auto-post limit, then more) with the decision each case got. The simulation of a
 	// change request then replays the latest suite of its base version and records `regression` evidence:
-	// a case outside the companies the change touches that is decided differently fails it. 422
-	// `config.no_cases` when the window has no invoices to capture.
+	// a case outside the companies the change touches that is decided differently fails it. The capture
+	// samples the invoices of every company; the suite returned shows the cases of the companies the
+	// caller may access alone. 422 `config.no_cases` when the window has no invoices to capture.
 	//
 	// POST /v1/regression-suites
 	CreateRegressionSuite(ctx context.Context, request *RegressionSuiteCreate, params CreateRegressionSuiteParams) (CreateRegressionSuiteRes, error)
@@ -629,7 +630,8 @@ type Invoker interface {
 	GetRecommendation(ctx context.Context, params GetRecommendationParams) (GetRecommendationRes, error)
 	// GetRegressionSuite invokes getRegressionSuite operation.
 	//
-	// Returns one regression suite with its cases.
+	// Returns one regression suite with the cases of the companies the reader may access alone
+	// (`RegressionSuite`).
 	//
 	// GET /v1/regression-suites/{id}
 	GetRegressionSuite(ctx context.Context, params GetRegressionSuiteParams) (GetRegressionSuiteRes, error)
@@ -931,7 +933,8 @@ type Invoker interface {
 	ListRecommendations(ctx context.Context, params ListRecommendationsParams) (ListRecommendationsRes, error)
 	// ListRegressionSuites invokes listRegressionSuites operation.
 	//
-	// Regression suites captured for this tenant, newest first. Sortable by: `captured_at`.
+	// Regression suites captured for this tenant, newest first, each with the cases of the companies the
+	// reader may access alone (`RegressionSuite`). Sortable by: `captured_at`.
 	//
 	// GET /v1/regression-suites
 	ListRegressionSuites(ctx context.Context, params ListRegressionSuitesParams) (ListRegressionSuitesRes, error)
@@ -6968,8 +6971,9 @@ func (c *Client) sendCreateRecommendation(ctx context.Context, request *Recommen
 // the active configuration version: a stratified sample (every decision, every match issue kind,
 // invoices near the auto-post limit, then more) with the decision each case got. The simulation of a
 // change request then replays the latest suite of its base version and records `regression` evidence:
-// a case outside the companies the change touches that is decided differently fails it. 422
-// `config.no_cases` when the window has no invoices to capture.
+// a case outside the companies the change touches that is decided differently fails it. The capture
+// samples the invoices of every company; the suite returned shows the cases of the companies the
+// caller may access alone. 422 `config.no_cases` when the window has no invoices to capture.
 //
 // POST /v1/regression-suites
 func (c *Client) CreateRegressionSuite(ctx context.Context, request *RegressionSuiteCreate, params CreateRegressionSuiteParams) (CreateRegressionSuiteRes, error) {
@@ -13573,7 +13577,8 @@ func (c *Client) sendGetRecommendation(ctx context.Context, params GetRecommenda
 
 // GetRegressionSuite invokes getRegressionSuite operation.
 //
-// Returns one regression suite with its cases.
+// Returns one regression suite with the cases of the companies the reader may access alone
+// (`RegressionSuite`).
 //
 // GET /v1/regression-suites/{id}
 func (c *Client) GetRegressionSuite(ctx context.Context, params GetRegressionSuiteParams) (GetRegressionSuiteRes, error) {
@@ -23661,7 +23666,8 @@ func (c *Client) sendListRecommendations(ctx context.Context, params ListRecomme
 
 // ListRegressionSuites invokes listRegressionSuites operation.
 //
-// Regression suites captured for this tenant, newest first. Sortable by: `captured_at`.
+// Regression suites captured for this tenant, newest first, each with the cases of the companies the
+// reader may access alone (`RegressionSuite`). Sortable by: `captured_at`.
 //
 // GET /v1/regression-suites
 func (c *Client) ListRegressionSuites(ctx context.Context, params ListRegressionSuitesParams) (ListRegressionSuitesRes, error) {

@@ -41,32 +41,6 @@ type Simulator interface {
 	Simulate(ctx context.Context, base, proposed *config.Config) (Simulation, error)
 }
 
-// Disclosure limits what the reader of a change request is shown of its
-// evidence: a context whose simulation records values the reader may not
-// see (the payables context's invoices of companies they may not access)
-// withholds them, in the reader's request, and so does any count over them
-// in the summary. It returns the evidence to show; an error fails the read
-// rather than show the evidence whole.
-type Disclosure interface {
-	Disclose(ctx context.Context, e Evidence) (Evidence, error)
-}
-
-// disclosed is the change request as its reader is shown it.
-func (d Dependencies) disclosed(ctx context.Context, c ChangeRequest) (ChangeRequest, error) {
-	evidence := slices.Clone(c.Evidence)
-	for i := range evidence {
-		for _, dis := range d.Disclosures {
-			shown, err := dis.Disclose(ctx, evidence[i])
-			if err != nil {
-				return ChangeRequest{}, fmt.Errorf("configuration: the %s evidence of change request %s: %w", evidence[i].Kind, c.ID, err)
-			}
-			evidence[i] = shown
-		}
-	}
-	c.Evidence = evidence
-	return c, nil
-}
-
 // SimulationWorker runs queued config.simulate operations (ADR-0012): it
 // finds them across tenants as WorkerRole, and runs each in one
 // transaction of its tenant as AppRole, acting as the person who asked for

@@ -2425,7 +2425,7 @@ paths:
       tags:
         - configuration
       summary: List regression suites
-      description: "Regression suites captured for this tenant, newest first. Sortable by: `captured_at`."
+      description: "Regression suites captured for this tenant, newest first, each with the cases of the companies the reader may access alone (`RegressionSuite`). Sortable by: `captured_at`."
       x-permission: config.change.read
       parameters:
         - name: config_version
@@ -2467,7 +2467,7 @@ paths:
       tags:
         - configuration
       summary: Capture a regression suite
-      description: "Captures a regression suite from the supplier invoices on purchase orders of the recent window under the active configuration version: a stratified sample (every decision, every match issue kind, invoices near the auto-post limit, then more) with the decision each case got. The simulation of a change request then replays the latest suite of its base version and records `regression` evidence: a case outside the companies the change touches that is decided differently fails it. 422 `config.no_cases` when the window has no invoices to capture."
+      description: "Captures a regression suite from the supplier invoices on purchase orders of the recent window under the active configuration version: a stratified sample (every decision, every match issue kind, invoices near the auto-post limit, then more) with the decision each case got. The simulation of a change request then replays the latest suite of its base version and records `regression` evidence: a case outside the companies the change touches that is decided differently fails it. The capture samples the invoices of every company; the suite returned shows the cases of the companies the caller may access alone. 422 `config.no_cases` when the window has no invoices to capture."
       x-permission: config.regression.manage
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -2518,7 +2518,7 @@ paths:
       tags:
         - configuration
       summary: Get a regression suite
-      description: Returns one regression suite with its cases.
+      description: "Returns one regression suite with the cases of the companies the reader may access alone (`RegressionSuite`)."
       x-permission: config.change.read
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -12367,12 +12367,12 @@ components:
           readOnly: true
         summary:
           type: string
-          description: "Summary of the result. For `simulation` evidence its counts are over the companies the reader may access alone."
+          description: "Summary of the result. For `simulation` and `regression` evidence its counts are over the companies the reader may access alone."
           readOnly: true
         detail:
           type: object
           additionalProperties: true
-          description: "Detailed result. For `simulation` evidence, the replayed invoices, decisions and posting rules of the companies the reader may access alone, counted over those: a reader of no company is shown none and counts of zero. The verdict (`passed`) is over every company the change touches."
+          description: "Detailed result. For `simulation` evidence, the replayed invoices, decisions and posting rules of the companies the reader may access alone, counted over those: a reader of no company is shown none and counts of zero. For `regression` evidence, likewise the suite's cases of those companies (`cases`, their count; `changed`, `regressions`, or `stale` when the suite no longer matches its version). The verdict (`passed`) is over every company the change touches."
           readOnly: true
         recorded_at:
           type: string
@@ -12406,7 +12406,7 @@ components:
         case_no:
           type: integer
           format: int32
-          description: Position in the suite.
+          description: "Position among the suite's cases the reader is shown: a reader of every company is shown the suite's own numbering; any other reader the cases of their companies numbered from 1, so that the numbers tell nothing of other companies' cases. It is therefore not a stable identifier (it changes with the reader's company access); `supplier_invoice_id` is."
           minimum: 1
           readOnly: true
         supplier_invoice_id:
@@ -12450,7 +12450,7 @@ components:
           expected_decision: exception
           expected_issues: [price_variance]
     RegressionSuite:
-      description: A regression suite captured under a configuration version, replayed by simulations of changes based on that version.
+      description: "A regression suite captured under a configuration version, replayed by simulations of changes based on that version. It samples the invoices of every company; each reader is shown the cases of the companies they may access alone, with their count and strata (a case of no legal entity only to a reader of every company)."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
@@ -12486,20 +12486,20 @@ components:
             case_count:
               type: integer
               format: int32
-              description: Number of cases.
+              description: "Number of cases shown: those of the companies the reader may access."
               minimum: 0
               readOnly: true
             strata:
               type: array
               items:
                 type: string
-              description: The reasons cases were selected, in order.
+              description: "The reasons the cases shown were selected, in order."
               readOnly: true
             cases:
               type: array
               items:
                 $ref: "#/components/schemas/RegressionCase"
-              description: The cases.
+              description: "The cases of the companies the reader may access alone: a reader of no company is shown none."
               readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e00"

@@ -12,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -58,7 +59,8 @@ func (e env) simulated(tb testing.TB, s payables.Simulation, from, to *config.Co
 		if err != nil {
 			return err
 		}
-		shown, err = payables.Disclosure{}.Disclose(ctx, configuration.Evidence{Kind: "simulation", Passed: sim.Passed, Summary: sim.Summary, Detail: detail})
+		shown, err = payables.Disclosure{}.Disclose(ctx, configuration.Evidence{Kind: "simulation", Passed: sim.Passed, Summary: sim.Summary, Detail: detail},
+			authz.Access{All: true})
 		return err
 	})
 	if err != nil {

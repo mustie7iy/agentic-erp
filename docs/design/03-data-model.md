@@ -340,9 +340,31 @@ of no company is shown no invoice and counts of zero, and a replay of no
 legal entity is shown only to a reader of every company. A simulation
 recorded before this rule, with counts over every company, is shown only
 to readers of every company. The verdict (`passed`) is the change's and is
-shown to every reader, as the request's status shows it anyway. Regression
-evidence and suites' cases are not yet limited this way (tracker follow-up
-under Regression suites).
+shown to every reader, as the request's status shows it anyway.
+
+Regression suites and regression evidence are limited the same way. A
+suite samples the invoices of every company; each reader of
+`/v1/regression-suites` is shown the cases of the companies they may
+access alone, with their count (`case_count`) and the strata that selected
+them, numbered among those (`case_no` from 1, in the suite's order, so that
+gaps tell nothing of other companies' cases; the regression evidence numbers
+them the same way), and a case of no legal entity only to a reader of every
+company. The
+regression evidence is recorded by company (`cases_by_company`: each
+company's number of cases and its cases decided differently, `stale`,
+`changed` or `regressions`) with a summary that carries no count, as it
+too reaches the operation's result (`regression_summary`) and the audit
+trail; the capture's audit entry counts no cases either. Each reader of the
+change request is shown the cases of their companies and the summary's
+counts over those (`configuration.regressionShown`), failing closed as the
+simulation does. The verdict stays the change's, over every company: a
+reader of one company may see a failed regression with no case of theirs
+decided differently, since the request's status would show the verdict
+anyway. Regression evidence recorded before this rule, with counts over
+every company, is shown whole only to readers of every company, and to any
+other reader without its cases. The reader's company access is read once
+per request, however many change requests and pieces of evidence it
+returns.
 
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
