@@ -83,6 +83,9 @@ const (
 	KindUploads   = "uploads"    // documents clients upload directly, named by upload id; copied under their hash when used
 	KindAnchors   = "audit/anchors"
 	KindExports   = "exports" // the export of an offboarded tenant, one directory per export, locked
+	// KindStatements are bank statement files as imported, named by sha256
+	// and locked: accounting evidence (ADR-0047).
+	KindStatements = "bank-statements"
 )
 
 // Prefix is the first segment of every key.

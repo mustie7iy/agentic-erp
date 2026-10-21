@@ -101,7 +101,8 @@ type Config struct {
 	Connector  payments.Connector  // transmits bank files; nil: transmission answers 503
 	Workflows  workflow.Client     // the workflow engine behind operations (ADR-0012); nil: none
 	ExtractDir string              // sap_file connectors read extracts below it; empty: they answer 503
-	Objects    blobstore.Store     // documents, bank files and audit anchors; nil: documents and files are not kept
+	Objects    blobstore.Store     // documents, bank files, statement files and audit anchors; nil: documents and files are not kept, statements not imported
+	Retention  time.Duration       // how long statement files are locked (ERP_OBJECT_RETENTION); 0: not locked
 	UploadKey  []byte              // signs the API's own upload URLs (directory store); the same on every replica
 	PublicURL  string              // the API's public base URL, making the API's own upload URLs absolute; empty: paths
 	Secrets    secrets.Resolver    // resolves connectors' secret_ref; nil: env: and file: references on this replica
@@ -239,7 +240,7 @@ func Payments(cfg Config) *payments.Endpoints {
 		Postings: postings(),
 		Payees:   partner.Payees{Keys: cfg.FieldKeys}, Numbers: configuration.Numbers{}, Calendar: calendar(),
 		Settings: configuration.Settings{}, Actors: identity.Actors{}, Keys: cfg.FieldKeys, Connector: cfg.Connector, Objects: cfg.Objects,
-		Channels: integration.BankChannels{Secrets: resolver(cfg.Secrets)},
+		Retention: cfg.Retention, Channels: integration.BankChannels{Secrets: resolver(cfg.Secrets)},
 		Accounts: ledger.Accounts{}, DownPayments: downPayments{}, Now: cfg.Now}
 }
 

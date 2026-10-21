@@ -277,6 +277,13 @@ channels:
       BankFileCreated: {$ref: '#/components/messages/BankFileCreated'}
       BankFileAcknowledged: {$ref: '#/components/messages/BankFileAcknowledged'}
       BankFileRejected: {$ref: '#/components/messages/BankFileRejected'}
+      BankStatementImported: {$ref: '#/components/messages/BankStatementImported'}
+      BankStatementGapClosed: {$ref: '#/components/messages/BankStatementGapClosed'}
+      BankStatementGapFound: {$ref: '#/components/messages/BankStatementGapFound'}
+      BankStatementFileRefused: {$ref: '#/components/messages/BankStatementFileRefused'}
+      BankStatementFileChanged: {$ref: '#/components/messages/BankStatementFileChanged'}
+      BankStatementLineMatched: {$ref: '#/components/messages/BankStatementLineMatched'}
+      BankStatementLineExcluded: {$ref: '#/components/messages/BankStatementLineExcluded'}
   workflow:
     address: 'erp.{cell}.workflow.{tenant}.{event}'
     title: Workflow events
@@ -450,6 +457,13 @@ operations:
       - $ref: '#/channels/payments/messages/BankFileCreated'
       - $ref: '#/channels/payments/messages/BankFileAcknowledged'
       - $ref: '#/channels/payments/messages/BankFileRejected'
+      - $ref: '#/channels/payments/messages/BankStatementImported'
+      - $ref: '#/channels/payments/messages/BankStatementGapClosed'
+      - $ref: '#/channels/payments/messages/BankStatementGapFound'
+      - $ref: '#/channels/payments/messages/BankStatementFileRefused'
+      - $ref: '#/channels/payments/messages/BankStatementFileChanged'
+      - $ref: '#/channels/payments/messages/BankStatementLineMatched'
+      - $ref: '#/channels/payments/messages/BankStatementLineExcluded'
   publishWorkflowEvents:
     action: send
     title: Workflow publishes
@@ -1301,6 +1315,118 @@ components:
         - name: dropped
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000081, source: /erp/eu-1/payments, type: com.example.erp.payments.payment_excluded.v1, subject: 0192a000-0000-7000-8000-000000000801, time: '2026-10-19T11:02:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
           payload: {payment_run_id: 0192a000-0000-7000-8000-000000000801, document_number: PR-2026-0042, legal_entity_id: 0192a000-0000-7000-8000-000000000201, payment_id: 0192a000-0000-7000-8000-000000000806, supplier_id: 0192a000-0000-7000-8000-000000000301, reason_code: item_reversed, amount: {amount: '40.00', currency: EUR}, released_item_count: 1, status: releasing}
+    BankStatementImported:
+      name: BankStatementImported
+      title: Bank statement imported
+      summary: A bank account statement was imported for a house bank.
+      description: "Emitted for each statement of a bank's file imported by `POST /v1/bank-statements` (ADR-0047, T49c), in the file's order. `status` is `gap` when its opening balance is not the closing balance of the house bank's statement before it (`previous_statement_id`); automatic posting then stops for the bank until the missing statement arrives (`BankStatementGapClosed`). The same file imported again publishes nothing. Subject is the bank statement id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_statement_imported.v1}
+      payload: {$ref: '#/components/schemas/BankStatementImportedV1'}
+      examples:
+        - name: mt940
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f2, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_imported.v1, subject: 0192a000-0000-7000-8000-000000000b20, time: '2026-10-20T08:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
+          payload: {bank_statement_id: 0192a000-0000-7000-8000-000000000b20, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, format: mt940, file_sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9, statement_ref: STMT20261020, sequence: 00293/001, line_count: 4, opening_balance: {amount: '120000.00', currency: AED}, closing_balance: {amount: '93196.75', currency: AED}, previous_statement_id: 0192a000-0000-7000-8000-000000000b19, status: imported}
+    BankStatementGapClosed:
+      name: BankStatementGapClosed
+      title: Bank statement gap closed
+      summary: The statement missing before a statement in gap arrived.
+      description: "Emitted when a statement imported between two of the house bank's statements (the missing one) has as closing balance the opening balance of the next, which was in status `gap`: that statement moves to `imported`, with the new statement as its previous one (ADR-0047, T49c). Subject is the bank statement whose gap closed."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_statement_gap_closed.v1}
+      payload: {$ref: '#/components/schemas/BankStatementGapClosedV1'}
+      examples:
+        - name: closed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f3, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_gap_closed.v1, subject: 0192a000-0000-7000-8000-000000000b21, time: '2026-10-20T08:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
+          payload: {bank_statement_id: 0192a000-0000-7000-8000-000000000b21, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, previous_statement_id: 0192a000-0000-7000-8000-000000000b20, status: imported}
+    BankStatementGapFound:
+      name: BankStatementGapFound
+      title: Bank statement gap found
+      summary: A statement imported before another does not lead to it.
+      description: "Emitted when a statement imported between two of the house bank's statements (an older statement imported later) has a closing balance that is not the opening balance of the next, which was `imported`: that statement moves to `gap`, with the new statement as its previous one, and automatic posting stops for the bank (ADR-0047, T49c). Subject is the bank statement now in gap."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_statement_gap_found.v1}
+      payload: {$ref: '#/components/schemas/BankStatementGapClosedV1'}
+      examples:
+        - name: found
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f4, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_gap_found.v1, subject: 0192a000-0000-7000-8000-000000000b21, time: '2026-10-20T08:06:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
+          payload: {bank_statement_id: 0192a000-0000-7000-8000-000000000b21, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, previous_statement_id: 0192a000-0000-7000-8000-000000000b20, status: gap}
+    BankStatementFileRefused:
+      name: BankStatementFileRefused
+      title: Bank statement file refused
+      summary: A statement file fetched from the bank's channel was not imported.
+      description: "Emitted once per house bank and file content when a statement file fetched from the house bank's SFTP channel (T49d) is refused by the import (unreadable, too large, a statement already imported from another file, a statement of an account no house bank on the channel has: payments.statement_of_no_bank): the file is left in the bank's statements directory for a person to take up with the bank, and later fetches skip it. A file of the account of another house bank on the same channel is left for that bank and not refused. Subject is the fetch record (payments.statement_fetch)."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_statement_file_refused.v1}
+      payload: {$ref: '#/components/schemas/BankStatementFileRefusedV1'}
+      examples:
+        - name: unreadable
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f5, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_file_refused.v1, subject: 0192a000-0000-7000-8000-000000000b30, time: '2026-10-20T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
+          payload: {statement_fetch_id: 0192a000-0000-7000-8000-000000000b30, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, file_name: STMT20261020.sta, file_sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9, code: payments.statement_unreadable, reason: "line 4: the opening balance is not an amount"}
+    BankStatementFileChanged:
+      name: BankStatementFileChanged
+      title: Bank statement file changed after its import
+      summary: A statement file imported from the bank's channel holds other content now.
+      description: "Emitted once per house bank and file content when a statement file fetched from the house bank's SFTP channel (T49d), read again before its move to the archive directory, no longer holds the content imported: the file is not archived, the fetch record moves to `changed_after_import`, and the next fetch imports the new content as a new file. The statement imported from the earlier content stays. Subject is the fetch record (payments.statement_fetch)."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_statement_file_changed.v1}
+      payload: {$ref: '#/components/schemas/BankStatementFileChangedV1'}
+      examples:
+        - name: changed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f6, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_file_changed.v1, subject: 0192a000-0000-7000-8000-000000000b31, time: '2026-10-20T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
+          payload: {statement_fetch_id: 0192a000-0000-7000-8000-000000000b31, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, file_name: STMT20261020.sta, file_sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9, current_sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}
+    BankStatementLineMatched:
+      name: BankStatementLineMatched
+      title: Bank statement line matched
+      summary: A statement line was matched, or left with candidates for a person.
+      description: "Emitted when a bank statement line gets a match (T49e, ADR-0047): by a matching rule of the company, on import or when the statement is matched again, either `matched` (exactly one candidate, paying the line) or `open` (several candidates, or payments that do not pay the line, for a person to choose from); or by a person by hand (`manual`, `matched`), which rejects the line's match before. Subject is the match."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_statement_line_matched.v1}
+      payload: {$ref: '#/components/schemas/BankStatementLineMatchedV1'}
+      examples:
+        - name: matched
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f7, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_line_matched.v1, subject: 0192a000-0000-7000-8000-000000000b40, time: '2026-10-20T11:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
+          payload: {statement_match_id: 0192a000-0000-7000-8000-000000000b40, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, kind: rule, rule: end_to_end_id, status: matched, candidates: 1}
+    BankStatementLineExcluded:
+      name: BankStatementLineExcluded
+      title: Bank statement line excluded
+      summary: A person excluded a statement line from reconciliation.
+      description: "Emitted when a person excludes a bank statement line, with a reason (T49e, ADR-0047): the booking clears nothing the ledger holds, and the line's match before is rejected. Subject is the match that excludes it."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_statement_line_excluded.v1}
+      payload: {$ref: '#/components/schemas/BankStatementLineMatchedV1'}
+      examples:
+        - name: excluded
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f8, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_line_excluded.v1, subject: 0192a000-0000-7000-8000-000000000b41, time: '2026-10-20T11:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
+          payload: {statement_match_id: 0192a000-0000-7000-8000-000000000b41, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 2, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, kind: manual, rule: null, status: excluded, candidates: 0}
     BankFileTransmitted:
       name: BankFileTransmitted
       x-webhook: true
@@ -3740,6 +3866,65 @@ components:
         workflow_request_id: {"$ref": "#/components/schemas/NullableUuid"}
         previous_status: {"type": "string", "description": "Open enum: parked, on_hold."}
         status: {"type": "string", "description": "Open enum; rejected in v1."}
+    BankStatementImportedV1:
+      type: object
+      required: ["bank_statement_id", "house_bank_id", "legal_entity_id", "format", "file_sha256", "statement_ref", "sequence", "line_count", "opening_balance", "closing_balance", "previous_statement_id", "status"]
+      properties:
+        bank_statement_id: {"$ref": "#/components/schemas/Uuid"}
+        house_bank_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        format: {"type": "string", "description": "Open enum: camt.053.001.02, camt.053.001.08, mt940."}
+        file_sha256: {"$ref": "#/components/schemas/Sha256Hex"}
+        statement_ref: {"type": "string", "description": "The bank's statement id: camt.053 Stmt/Id, MT940 field 20."}
+        sequence: {"type": "string", "description": "The statement's number in the account's series."}
+        line_count: {"type": "integer", "minimum": 0}
+        opening_balance: {"$ref": "#/components/schemas/Money"}
+        closing_balance: {"$ref": "#/components/schemas/Money"}
+        previous_statement_id: {"type": ["string", "null"], "format": "uuid", "description": "The house bank's statement before it; null for the bank's first."}
+        status: {"type": "string", "description": "Open enum: imported, gap."}
+    BankStatementGapClosedV1:
+      type: object
+      required: ["bank_statement_id", "house_bank_id", "legal_entity_id", "previous_statement_id", "status"]
+      properties:
+        bank_statement_id: {"$ref": "#/components/schemas/Uuid"}
+        house_bank_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        previous_statement_id: {"$ref": "#/components/schemas/Uuid"}
+        status: {"type": "string", "description": "Open enum: imported (BankStatementGapClosed), gap (BankStatementGapFound)."}
+    BankStatementFileRefusedV1:
+      type: object
+      required: ["statement_fetch_id", "house_bank_id", "legal_entity_id", "file_name", "file_sha256", "code", "reason"]
+      properties:
+        statement_fetch_id: {"$ref": "#/components/schemas/Uuid"}
+        house_bank_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        file_name: {"type": "string", "description": "The file's name in the bank's statements directory."}
+        file_sha256: {"$ref": "#/components/schemas/Sha256Hex"}
+        code: {"type": "string", "description": "The import's problem code, such as payments.statement_unreadable or payments.statement_conflict."}
+        reason: {"type": "string", "description": "What the import said, with the line of the file where reading failed."}
+    BankStatementFileChangedV1:
+      type: object
+      required: ["statement_fetch_id", "house_bank_id", "legal_entity_id", "file_name", "file_sha256", "current_sha256"]
+      properties:
+        statement_fetch_id: {"$ref": "#/components/schemas/Uuid"}
+        house_bank_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        file_name: {"type": "string", "description": "The file's name in the bank's statements directory."}
+        file_sha256: {"$ref": "#/components/schemas/Sha256Hex", "description": "The content imported."}
+        current_sha256: {"$ref": "#/components/schemas/Sha256Hex", "description": "The content the file holds now, imported by the next fetch."}
+    BankStatementLineMatchedV1:
+      type: object
+      required: ["statement_match_id", "bank_statement_id", "line_no", "house_bank_id", "legal_entity_id", "kind", "rule", "status", "candidates"]
+      properties:
+        statement_match_id: {"$ref": "#/components/schemas/Uuid"}
+        bank_statement_id: {"$ref": "#/components/schemas/Uuid"}
+        line_no: {"type": "integer", "minimum": 1, "description": "The line's number in the statement."}
+        house_bank_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        kind: {"type": "string", "description": "Open enum: rule, manual, agent."}
+        rule: {"type": ["string", "null"], "description": "Open enum: end_to_end_id, batch_id, transaction_code, amount; null unless kind is rule."}
+        status: {"type": "string", "description": "Open enum: open, matched (BankStatementLineMatched), excluded (BankStatementLineExcluded)."}
+        candidates: {"type": "integer", "minimum": 0, "description": "How many candidates the match lists: 1 when matched, 0 when excluded."}
     BankFileCreatedV1:
       type: object
       required: ["bank_file_id", "payment_run_id", "format", "sha256", "status"]

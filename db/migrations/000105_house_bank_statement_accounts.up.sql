@@ -1,0 +1,11 @@
+-- A house bank's statement accounts (T49a; ADR-0047; 03-data-model §3.10):
+-- the main bank account the statement's lines post to while they clear the
+-- bank clearing account (gl_account_id), and the clearing account its
+-- incoming payments post to until accounts receivable clears them. Both
+-- are the ledger context's accounts, so no foreign key holds them
+-- (03-data-model §3.1), as for gl_account_id. Nullable without a default,
+-- so adding them rewrites nothing (06 §6.4): a bank without a main account
+-- has its statements imported but never posted, and the previous version
+-- neither reads nor writes them, so a configuration naming them waits until
+-- the upgrade completes, as configuration changes do.
+ALTER TABLE payments.house_bank ADD COLUMN main_gl_account_id uuid, ADD COLUMN incoming_gl_account_id uuid;

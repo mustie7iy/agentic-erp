@@ -68,6 +68,7 @@ var tierRules = []struct {
 	{rx(`^companies\[\*\]\.tax_codes\[\*\]\.description$`), TierCosmetic},
 	{rx(`^companies\[\*\]\.withholding_tax_codes\[\*\]\.description$`), TierCosmetic},
 	{rx(`^companies\[\*\]\.payment_methods\[\*\]\.description$`), TierCosmetic},
+	{rx(`^companies\[\*\]\.bank_statements\.posting_rules\[\*\]\.description$`), TierCosmetic},
 	{rx(`^companies\[\*\]\.withholding_tax_codes`), TierPostingRelated},
 	{rx(`^companies\[\*\]\.(account_determination|tax_codes|auto_post_limit|manual_entry_approval_limit|house_bank)`), TierPostingRelated},
 	{rx(`^companies\[\*\]\.(invoice_tolerance|gr_over_delivery_percent)`), TierOperational},
@@ -120,6 +121,7 @@ var listKeys = map[string]string{
 	// Keys are list names wherever the list is: "accounts" is today only
 	// fx_valuation.accounts, and a list of that name elsewhere shares it.
 	"accounts":      "account",
+	"posting_rules": "transaction_code", "matching_rules": "kind",
 	"payment_terms": "key",
 	"number_ranges": "company,document_type,fiscal_year",
 	// The analytics section's; a metric's own dimensions are names, listed

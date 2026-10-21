@@ -24,6 +24,10 @@
 // clears the items, then writes the pain.001 bank file. :reject frees the
 // items. Bank files are rebuilt from the run when transmitted and checked
 // against the hash stored at release, until object storage exists.
+//
+// Bank statements (ADR-0047) are imported from the bank's camt.053 or MT940
+// file per house bank, once per file and statement, each compared with the
+// bank's statement before it (statements.go).
 package payments
 
 import (
@@ -153,7 +157,8 @@ type Endpoints struct {
 	Keys          *fieldcrypt.Keyring // opens house bank IBANs
 	Connector     Connector           // transmits the files of house banks without a channel; nil: those answer 503
 	Channels      BankChannels        // house banks' own channels (T44b)
-	Objects       blobstore.Store     // keeps bank files as written at release; nil: files are rendered again when needed
+	Objects       blobstore.Store     // keeps bank files as written at release (nil: rendered again when needed) and statement files (nil: none imported)
+	Retention     time.Duration       // how long statement files are locked against deletion (ERP_OBJECT_RETENTION); 0: not locked
 	Accounts      Accounts            // the cash discount account a run with discounts posts to
 	DownPayments  DownPayments        // the down payment requests runs pay (T46c)
 	Now           func() time.Time    // the release's day; nil: time.Now

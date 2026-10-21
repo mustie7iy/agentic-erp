@@ -69,7 +69,7 @@ var allowed = map[string][]string{
 	"offboarding":             {"tenancy"},
 	"partner":                 {"approvals", "bankfile", "config", "tenancy"},
 	"payables":                {"approvals", "capture", "config", "configuration", "ledger", "operations", "partner", "procurement", "tenancy"},
-	"payments":                {"bankfile", "config", "ledger", "operations", "partner", "tenancy"},
+	"payments":                {"bankfile", "bankstatement", "config", "ledger", "operations", "partner", "tenancy"},
 	"procurement":             {"approvals", "config", "ledger", "partner", "tenancy"},
 	"provisioning":            {"config", "configuration", "identity", "tenancy"},
 	"router":                  {"directory"},

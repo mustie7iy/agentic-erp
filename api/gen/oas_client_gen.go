@@ -451,6 +451,16 @@ type Invoker interface {
 	//
 	// POST /v1/sod-rules/{id}:end
 	EndSodRule(ctx context.Context, request *EndInput, params EndSodRuleParams) (EndSodRuleRes, error)
+	// ExcludeBankStatementLine invokes excludeBankStatementLine operation.
+	//
+	// A person excludes the line from reconciliation, with a reason: the bank's booking clears nothing the
+	// ledger holds. The line's live match becomes `rejected` and the new one `excluded` (kind `manual`),
+	// with no targets; the line is `excluded`. People only; a line on its way to the ledger keeps its
+	// match (409 `payments.statement_line_posting`). Audited, and published as BankStatementLineExcluded.
+	// The response's ETag is the statement's new one, the If-Match of the next decision on its lines.
+	//
+	// POST /v1/bank-statements/{id}/lines/{line_no}:exclude
+	ExcludeBankStatementLine(ctx context.Context, request *ReasonInput, params ExcludeBankStatementLineParams) (ExcludeBankStatementLineRes, error)
 	// GetAccount invokes getAccount operation.
 	//
 	// Returns one general ledger account.
@@ -520,6 +530,21 @@ type Invoker interface {
 	//
 	// GET /v1/bank-files/{id}/content
 	GetBankFileContent(ctx context.Context, params GetBankFileContentParams) (GetBankFileContentRes, error)
+	// GetBankStatement invokes getBankStatement operation.
+	//
+	// Returns one bank statement with its lines.
+	//
+	// GET /v1/bank-statements/{id}
+	GetBankStatement(ctx context.Context, params GetBankStatementParams) (GetBankStatementRes, error)
+	// GetBankStatementFile invokes getBankStatementFile operation.
+	//
+	// The file a bank statement was imported from, byte for byte as the bank sent it (camt.053 XML or
+	// MT940 text): kept as accounting evidence in object storage, written once, encrypted and locked for
+	// the retention of financial records (ADR-0047). The statements of one file share it. 503 while the
+	// server has no object storage or the store does not answer.
+	//
+	// GET /v1/bank-statements/{id}/file
+	GetBankStatementFile(ctx context.Context, params GetBankStatementFileParams) (GetBankStatementFileRes, error)
 	// GetBusinessPartner invokes getBusinessPartner operation.
 	//
 	// Returns one business partner.
@@ -768,6 +793,25 @@ type Invoker interface {
 	//
 	// POST /v1/supplier-invoices/{id}:hold
 	HoldSupplierInvoice(ctx context.Context, request *ReasonInput, params HoldSupplierInvoiceParams) (HoldSupplierInvoiceRes, error)
+	// ImportBankStatements invokes importBankStatements operation.
+	//
+	// Imports the statements of a bank's file (ADR-0047) for one house bank: camt.053 (.001.02 or .001.08)
+	// or MT940, read as UTF-8, at most 4 MB. Each statement must be of the house bank's account and
+	// currency, and its entries must take its opening balance to its closing balance. The same file again
+	// for the house bank (by its SHA-256) answers 200 with the statements it imported; another file with a
+	// statement already imported (the same statement id, account and sequence) is refused with 409
+	// `payments.statement_conflict`. A statement whose opening balance is not the closing balance of the
+	// house bank's statement before it is imported in status `gap`, and automatic posting stops for the
+	// bank; a statement imported between two others becomes the next one's previous statement, whose
+	// status follows the comparison again. A file that cannot be read is refused with 422
+	// `payments.statement_unreadable`, naming the line where what is wrong starts. Imports are made by
+	// people and integrations; agents read statements, and an agent's import is refused with 403
+	// `identity.agent_not_allowed`. The file is kept as accounting evidence in object storage
+	// (`GET /v1/bank-statements/{id}/file`), so without object storage, or when the store does not take
+	// it, nothing is imported (503).
+	//
+	// POST /v1/bank-statements
+	ImportBankStatements(ctx context.Context, request *BankStatementUploadMultipart, params ImportBankStatementsParams) (ImportBankStatementsRes, error)
 	// ListAccounts invokes listAccounts operation.
 	//
 	// General ledger accounts. Sortable by: `number`.
@@ -817,6 +861,20 @@ type Invoker interface {
 	//
 	// GET /v1/bank-files
 	ListBankFiles(ctx context.Context, params ListBankFilesParams) (ListBankFilesRes, error)
+	// ListBankStatementMatches invokes listBankStatementMatches operation.
+	//
+	// The matches of the statement's lines, by line and in the order they were made: the live one of each
+	// line (`open`, `matched` or `excluded`) and those a person's decision replaced (`rejected`).
+	//
+	// GET /v1/bank-statements/{id}/matches
+	ListBankStatementMatches(ctx context.Context, params ListBankStatementMatchesParams) (ListBankStatementMatchesRes, error)
+	// ListBankStatements invokes listBankStatements operation.
+	//
+	// Bank statements imported for the house banks of the companies the caller may access, without their
+	// lines (`GET /v1/bank-statements/{id}` has them). Sortable by: `closing_date`.
+	//
+	// GET /v1/bank-statements
+	ListBankStatements(ctx context.Context, params ListBankStatementsParams) (ListBankStatementsRes, error)
 	// ListBusinessPartners invokes listBusinessPartners operation.
 	//
 	// Business partners. Filter by `number` or `name_prefix` to look one up. Sortable by: `number`,
@@ -1072,6 +1130,36 @@ type Invoker interface {
 	//
 	// POST /v1/fiscal-periods/{id}:lock
 	LockFiscalPeriod(ctx context.Context, params LockFiscalPeriodParams) (LockFiscalPeriodRes, error)
+	// MatchBankStatement invokes matchBankStatement operation.
+	//
+	// Runs the company's matching rules (`companies[].bank_statements.matching_rules`, ADR-0047) on the
+	// statement's unmatched lines, and again on the lines a rule left open, as the import does: in the
+	// rules' order, the first rule that finds candidates decides. A rule that finds exactly one candidate,
+	// whose payments pay the line's amount, matches the line (`matched`); one that finds several, or
+	// payments that do not pay it, leaves an open match listing them for a person (`proposed`). The rules
+	// on payments read debits, never reversals; a payment another line's match holds settles no line: the
+	// id rules leave the line open for a person, and the amount rule skips it. A line a rule left open is
+	// compared with what the rules find now: the same candidates leave it as it is, others reject its open
+	// match and record the new one (or make it unmatched again). Lines matched or excluded, and an agent's
+	// proposals, are never touched, so running it twice changes nothing the second time. Agents may call
+	// it: it only applies the rules, and what they cannot decide stays open for a person. If-Match is the
+	// statement's ETag; a run that matches or leaves open a line, and a person's match or exclusion, move
+	// it on. Returns the statement with its lines; `GET /v1/bank-statements/{id}/matches` has the matches.
+	//
+	// POST /v1/bank-statements/{id}:match
+	MatchBankStatement(ctx context.Context, params MatchBankStatementParams) (MatchBankStatementRes, error)
+	// MatchBankStatementLine invokes matchBankStatementLine operation.
+	//
+	// A person matches the line to the payments it clears or to a posting rule of the company (charges,
+	// interest), with a reason, whatever the rules found: the line's live match becomes `rejected` and the
+	// new one `matched` (kind `manual`). Each payment must be posted, from the statement's house bank, in
+	// its currency and matched to no other line (422 `payments.statement_match_target`). People only; a
+	// line on its way to the ledger keeps its match (409 `payments.statement_line_posting`). Audited, and
+	// published as BankStatementLineMatched. The response's ETag is the statement's new one, the If-Match
+	// of the next decision on its lines.
+	//
+	// POST /v1/bank-statements/{id}/lines/{line_no}:match
+	MatchBankStatementLine(ctx context.Context, request *StatementLineMatchInput, params MatchBankStatementLineParams) (MatchBankStatementLineRes, error)
 	// MatchSupplierInvoice invokes matchSupplierInvoice operation.
 	//
 	// Evaluates the invoice against its purchase order and goods receipts with the active tolerances and
@@ -9866,6 +9954,189 @@ func (c *Client) sendEndSodRule(ctx context.Context, request *EndInput, params E
 	return result, nil
 }
 
+// ExcludeBankStatementLine invokes excludeBankStatementLine operation.
+//
+// A person excludes the line from reconciliation, with a reason: the bank's booking clears nothing the
+// ledger holds. The line's live match becomes `rejected` and the new one `excluded` (kind `manual`),
+// with no targets; the line is `excluded`. People only; a line on its way to the ledger keeps its
+// match (409 `payments.statement_line_posting`). Audited, and published as BankStatementLineExcluded.
+// The response's ETag is the statement's new one, the If-Match of the next decision on its lines.
+//
+// POST /v1/bank-statements/{id}/lines/{line_no}:exclude
+func (c *Client) ExcludeBankStatementLine(ctx context.Context, request *ReasonInput, params ExcludeBankStatementLineParams) (ExcludeBankStatementLineRes, error) {
+	res, err := c.sendExcludeBankStatementLine(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendExcludeBankStatementLine(ctx context.Context, request *ReasonInput, params ExcludeBankStatementLineParams) (res ExcludeBankStatementLineRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("excludeBankStatementLine"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/bank-statements/{id}/lines/{line_no}:exclude"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ExcludeBankStatementLineOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/bank-statements/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/lines/"
+	{
+		// Encode "line_no" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "line_no",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.Int32ToString(params.LineNo))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":exclude"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeExcludeBankStatementLineRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ExcludeBankStatementLineOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeExcludeBankStatementLineResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetAccount invokes getAccount operation.
 //
 // Returns one general ledger account.
@@ -11061,6 +11332,272 @@ func (c *Client) sendGetBankFileContent(ctx context.Context, params GetBankFileC
 
 	stage = "DecodeResponse"
 	result, err := decodeGetBankFileContentResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetBankStatement invokes getBankStatement operation.
+//
+// Returns one bank statement with its lines.
+//
+// GET /v1/bank-statements/{id}
+func (c *Client) GetBankStatement(ctx context.Context, params GetBankStatementParams) (GetBankStatementRes, error) {
+	res, err := c.sendGetBankStatement(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetBankStatement(ctx context.Context, params GetBankStatementParams) (res GetBankStatementRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getBankStatement"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/bank-statements/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetBankStatementOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/bank-statements/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetBankStatementOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetBankStatementResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetBankStatementFile invokes getBankStatementFile operation.
+//
+// The file a bank statement was imported from, byte for byte as the bank sent it (camt.053 XML or
+// MT940 text): kept as accounting evidence in object storage, written once, encrypted and locked for
+// the retention of financial records (ADR-0047). The statements of one file share it. 503 while the
+// server has no object storage or the store does not answer.
+//
+// GET /v1/bank-statements/{id}/file
+func (c *Client) GetBankStatementFile(ctx context.Context, params GetBankStatementFileParams) (GetBankStatementFileRes, error) {
+	res, err := c.sendGetBankStatementFile(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetBankStatementFile(ctx context.Context, params GetBankStatementFileParams) (res GetBankStatementFileRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getBankStatementFile"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/bank-statements/{id}/file"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetBankStatementFileOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/bank-statements/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/file"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetBankStatementFileOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetBankStatementFileResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -16528,6 +17065,149 @@ func (c *Client) sendHoldSupplierInvoice(ctx context.Context, request *ReasonInp
 	return result, nil
 }
 
+// ImportBankStatements invokes importBankStatements operation.
+//
+// Imports the statements of a bank's file (ADR-0047) for one house bank: camt.053 (.001.02 or .001.08)
+// or MT940, read as UTF-8, at most 4 MB. Each statement must be of the house bank's account and
+// currency, and its entries must take its opening balance to its closing balance. The same file again
+// for the house bank (by its SHA-256) answers 200 with the statements it imported; another file with a
+// statement already imported (the same statement id, account and sequence) is refused with 409
+// `payments.statement_conflict`. A statement whose opening balance is not the closing balance of the
+// house bank's statement before it is imported in status `gap`, and automatic posting stops for the
+// bank; a statement imported between two others becomes the next one's previous statement, whose
+// status follows the comparison again. A file that cannot be read is refused with 422
+// `payments.statement_unreadable`, naming the line where what is wrong starts. Imports are made by
+// people and integrations; agents read statements, and an agent's import is refused with 403
+// `identity.agent_not_allowed`. The file is kept as accounting evidence in object storage
+// (`GET /v1/bank-statements/{id}/file`), so without object storage, or when the store does not take
+// it, nothing is imported (503).
+//
+// POST /v1/bank-statements
+func (c *Client) ImportBankStatements(ctx context.Context, request *BankStatementUploadMultipart, params ImportBankStatementsParams) (ImportBankStatementsRes, error) {
+	res, err := c.sendImportBankStatements(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendImportBankStatements(ctx context.Context, request *BankStatementUploadMultipart, params ImportBankStatementsParams) (res ImportBankStatementsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("importBankStatements"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/bank-statements"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ImportBankStatementsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/bank-statements"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeImportBankStatementsRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ImportBankStatementsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeImportBankStatementsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListAccounts invokes listAccounts operation.
 //
 // General ledger accounts. Sortable by: `number`.
@@ -18323,6 +19003,397 @@ func (c *Client) sendListBankFiles(ctx context.Context, params ListBankFilesPara
 
 	stage = "DecodeResponse"
 	result, err := decodeListBankFilesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListBankStatementMatches invokes listBankStatementMatches operation.
+//
+// The matches of the statement's lines, by line and in the order they were made: the live one of each
+// line (`open`, `matched` or `excluded`) and those a person's decision replaced (`rejected`).
+//
+// GET /v1/bank-statements/{id}/matches
+func (c *Client) ListBankStatementMatches(ctx context.Context, params ListBankStatementMatchesParams) (ListBankStatementMatchesRes, error) {
+	res, err := c.sendListBankStatementMatches(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListBankStatementMatches(ctx context.Context, params ListBankStatementMatchesParams) (res ListBankStatementMatchesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listBankStatementMatches"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/bank-statements/{id}/matches"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListBankStatementMatchesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/bank-statements/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/matches"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "line_no" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "line_no",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LineNo.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListBankStatementMatchesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListBankStatementMatchesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListBankStatements invokes listBankStatements operation.
+//
+// Bank statements imported for the house banks of the companies the caller may access, without their
+// lines (`GET /v1/bank-statements/{id}` has them). Sortable by: `closing_date`.
+//
+// GET /v1/bank-statements
+func (c *Client) ListBankStatements(ctx context.Context, params ListBankStatementsParams) (ListBankStatementsRes, error) {
+	res, err := c.sendListBankStatements(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListBankStatements(ctx context.Context, params ListBankStatementsParams) (res ListBankStatementsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listBankStatements"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/bank-statements"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListBankStatementsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/bank-statements"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "house_bank_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "house_bank_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.HouseBankID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Include.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListBankStatementsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListBankStatementsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -27463,6 +28534,360 @@ func (c *Client) sendLockFiscalPeriod(ctx context.Context, params LockFiscalPeri
 
 	stage = "DecodeResponse"
 	result, err := decodeLockFiscalPeriodResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// MatchBankStatement invokes matchBankStatement operation.
+//
+// Runs the company's matching rules (`companies[].bank_statements.matching_rules`, ADR-0047) on the
+// statement's unmatched lines, and again on the lines a rule left open, as the import does: in the
+// rules' order, the first rule that finds candidates decides. A rule that finds exactly one candidate,
+// whose payments pay the line's amount, matches the line (`matched`); one that finds several, or
+// payments that do not pay it, leaves an open match listing them for a person (`proposed`). The rules
+// on payments read debits, never reversals; a payment another line's match holds settles no line: the
+// id rules leave the line open for a person, and the amount rule skips it. A line a rule left open is
+// compared with what the rules find now: the same candidates leave it as it is, others reject its open
+// match and record the new one (or make it unmatched again). Lines matched or excluded, and an agent's
+// proposals, are never touched, so running it twice changes nothing the second time. Agents may call
+// it: it only applies the rules, and what they cannot decide stays open for a person. If-Match is the
+// statement's ETag; a run that matches or leaves open a line, and a person's match or exclusion, move
+// it on. Returns the statement with its lines; `GET /v1/bank-statements/{id}/matches` has the matches.
+//
+// POST /v1/bank-statements/{id}:match
+func (c *Client) MatchBankStatement(ctx context.Context, params MatchBankStatementParams) (MatchBankStatementRes, error) {
+	res, err := c.sendMatchBankStatement(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendMatchBankStatement(ctx context.Context, params MatchBankStatementParams) (res MatchBankStatementRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("matchBankStatement"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/bank-statements/{id}:match"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, MatchBankStatementOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/bank-statements/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":match"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, MatchBankStatementOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeMatchBankStatementResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// MatchBankStatementLine invokes matchBankStatementLine operation.
+//
+// A person matches the line to the payments it clears or to a posting rule of the company (charges,
+// interest), with a reason, whatever the rules found: the line's live match becomes `rejected` and the
+// new one `matched` (kind `manual`). Each payment must be posted, from the statement's house bank, in
+// its currency and matched to no other line (422 `payments.statement_match_target`). People only; a
+// line on its way to the ledger keeps its match (409 `payments.statement_line_posting`). Audited, and
+// published as BankStatementLineMatched. The response's ETag is the statement's new one, the If-Match
+// of the next decision on its lines.
+//
+// POST /v1/bank-statements/{id}/lines/{line_no}:match
+func (c *Client) MatchBankStatementLine(ctx context.Context, request *StatementLineMatchInput, params MatchBankStatementLineParams) (MatchBankStatementLineRes, error) {
+	res, err := c.sendMatchBankStatementLine(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendMatchBankStatementLine(ctx context.Context, request *StatementLineMatchInput, params MatchBankStatementLineParams) (res MatchBankStatementLineRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("matchBankStatementLine"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/bank-statements/{id}/lines/{line_no}:match"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, MatchBankStatementLineOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/bank-statements/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/lines/"
+	{
+		// Encode "line_no" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "line_no",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.Int32ToString(params.LineNo))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":match"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeMatchBankStatementLineRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, MatchBankStatementLineOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeMatchBankStatementLineResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

@@ -1291,6 +1291,9 @@ erDiagram
   payment ||--|{ payment_item : settles
   payment_run ||--o{ payment_exclusion : excludes
   payment_run ||--o{ bank_file : produces
+  house_bank ||--o{ bank_statement : "statements of its account"
+  bank_statement ||--|{ bank_statement_line : books
+  bank_statement_line ||--o{ statement_match : "cleared by"
   payment_method ||--o{ bank_ranking : "ranks banks per currency"
   payment_method { uuid legal_entity_id PK
     text code PK "one character; T45b"
@@ -1335,11 +1338,43 @@ erDiagram
     text transit_number "Canadian bank: 5 digits; null for an IBAN"
     uuid gl_account_id
     uuid active_gl_account_id "gl_account_id while active; unique per legal entity"
-    uuid connector_id "its channel, an integration connector; null: the server's directory (T44b)" }
+    uuid connector_id "its channel, an integration connector; null: the server's directory (T44b)"
+    uuid main_gl_account_id "the main bank account statements post to; null: not posted (ADR-0047)"
+    uuid incoming_gl_account_id "incoming payments clearing (ADR-0047)" }
   sent_bank_file { uuid house_bank_id PK
     bytea sha256 PK
     uuid bank_file_id
     uuid connector_id "null: the server's directory" }
+  bank_statement { uuid id PK
+    uuid house_bank_id "unique with statement_key, and with file_sha256 and file_position"
+    text format "camt.053.001.02 | camt.053.001.08 | mt940"
+    bytea file_sha256
+    text file_ref "the file in the object store, kept as evidence"
+    text statement_key "statement id, account, sequence"
+    bigint opening_balance
+    bigint closing_balance
+    uuid previous_statement_id "the bank's statement before; null for its first"
+    text status "imported | gap | reconciled" }
+  bank_statement_line { uuid statement_id PK
+    int line_no PK
+    bigint amount "signed: credit positive"
+    text transaction_code
+    jsonb details "the transactions: references, counterparty"
+    text status "unmatched | proposed | matched | excluded | pending_approval | posted" }
+  statement_match { uuid id PK
+    uuid statement_id
+    int line_no "one live match per line"
+    text kind "rule | manual | agent"
+    text rule "the matching rule, of kind rule"
+    text reason
+    text status "open | matched | excluded | rejected" }
+  statement_match ||--o{ statement_match_target : clears
+  statement_match_target { uuid match_id PK
+    smallint candidate PK
+    smallint target_no PK
+    uuid payment_id
+    uuid bank_file_id "of a batch booking"
+    text posting_rule }
   bank_file { uuid id PK
     uuid payment_run_id "unique per run, house bank and method"
     uuid house_bank_id "null: the run's (T45c)"
@@ -1374,6 +1409,36 @@ in production until EBICS is certified with a bank (T44d): the control role
 `erp_control` reads every tenant's connectors' kind and status, never their
 settings or secret reference (000101), and a production cell refuses to
 start while one is active; disabling it is the remedy.
+
+Bank statements (ADR-0047, T49c, 000106) are imported per house bank from
+the bank's camt.053 or MT940 file: `payments.bank_statement` once per
+house bank and statement key (`bank_statement_key_once`) and once per file
+hash and position (`bank_statement_file_once`), so the same file again is
+the first import; its lines (`bank_statement_line`, signed minor units,
+the transactions in `details`) and the lines' matches
+(`statement_match`, T49e, 000109: one live match per line, made by a rule
+(naming it), a person or an agent, `open` with candidates for a person or
+`matched`, `excluded` only by a person, `rejected` when a person's decision
+replaces it; its targets in `statement_match_target`, per candidate a
+payment, with the bank file of a batch booking, or a posting rule). A bank
+file records its pain.001 message id (`bank_file.message_id`, 000109), which
+a batch booking carries. A
+statement whose opening balance is not the closing balance of the bank's
+statement before it (`previous_statement_id`) is in `gap`; a statement
+imported between two others becomes the next one's previous statement,
+which is compared again (its gap closes, or one opens). The file itself is
+accounting evidence: it is kept in the object store under the tenant and
+its hash (`file_ref`, `tenants/<id>/bank-statements/<sha256>`), written
+once, encrypted by the store and locked for the retention of financial
+records.
+Statement files fetched from a house bank's SFTP channel (T49d, 000107,
+000108) are recorded once per house bank and content
+(`payments.statement_fetch`, `statement_fetch_file_once`): `imported`, then
+`archived` once moved to the archive directory, `refused` with the
+import's reason, or `changed_after_import` with the content the file holds
+now when it was rewritten before its move (`statement_fetch_reason`: a
+reason exactly for these two), so a fetch cut short never imports a file
+twice and a refused or changed file is reported once.
 
 A company's payment methods (`payments.payment_method`, SAP T042Z) rank,
 per currency, the house banks that pay with them, first preferred

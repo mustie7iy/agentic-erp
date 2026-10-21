@@ -8328,6 +8328,421 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/bank-statements:
+    get:
+      operationId: listBankStatements
+      tags:
+        - payments
+      summary: List bank statements
+      description: "Bank statements imported for the house banks of the companies the caller may access, without their lines (`GET /v1/bank-statements/{id}` has them). Sortable by: `closing_date`."
+      x-permission: payments.statement.read
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: house_bank_id
+          in: query
+          required: false
+          description: Only statements of this house bank.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only statements in this status.
+          schema:
+            type: string
+            description: "Bank statement status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - imported
+              - gap
+              - reconciled
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of bank statements.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankStatementPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: importBankStatements
+      tags:
+        - payments
+      summary: Import a bank statement file
+      description: "Imports the statements of a bank's file (ADR-0047) for one house bank: camt.053 (.001.02 or .001.08) or MT940, read as UTF-8, at most 4 MB. Each statement must be of the house bank's account and currency, and its entries must take its opening balance to its closing balance. The same file again for the house bank (by its SHA-256) answers 200 with the statements it imported; another file with a statement already imported (the same statement id, account and sequence) is refused with 409 `payments.statement_conflict`. A statement whose opening balance is not the closing balance of the house bank's statement before it is imported in status `gap`, and automatic posting stops for the bank; a statement imported between two others becomes the next one's previous statement, whose status follows the comparison again. A file that cannot be read is refused with 422 `payments.statement_unreadable`, naming the line where what is wrong starts. Imports are made by people and integrations; agents read statements, and an agent's import is refused with 403 `identity.agent_not_allowed`. The file is kept as accounting evidence in object storage (`GET /v1/bank-statements/{id}/file`), so without object storage, or when the store does not take it, nothing is imported (503)."
+      x-permission: payments.statement.import
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of importBankStatements.
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/BankStatementUpload"
+      responses:
+        "201":
+          description: The statements of the file, imported.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankStatementImport"
+        "200":
+          description: The file was imported before; its statements as they are now.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankStatementImport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/bank-statements/{id}":
+    get:
+      operationId: getBankStatement
+      tags:
+        - payments
+      summary: Get a bank statement
+      description: Returns one bank statement with its lines.
+      x-permission: payments.statement.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The bank statement.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankStatement"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/bank-statements/{id}/file":
+    get:
+      operationId: getBankStatementFile
+      tags:
+        - payments
+      summary: Download a bank statement's file
+      description: "The file a bank statement was imported from, byte for byte as the bank sent it (camt.053 XML or MT940 text): kept as accounting evidence in object storage, written once, encrypted and locked for the retention of financial records (ADR-0047). The statements of one file share it. 503 while the server has no object storage or the store does not answer."
+      x-permission: payments.statement.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The statement file.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+                description: The file's bytes.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/bank-statements/{id}:match":
+    post:
+      operationId: matchBankStatement
+      tags:
+        - payments
+      summary: Match a bank statement's lines
+      description: "Runs the company's matching rules (`companies[].bank_statements.matching_rules`, ADR-0047) on the statement's unmatched lines, and again on the lines a rule left open, as the import does: in the rules' order, the first rule that finds candidates decides. A rule that finds exactly one candidate, whose payments pay the line's amount, matches the line (`matched`); one that finds several, or payments that do not pay it, leaves an open match listing them for a person (`proposed`). The rules on payments read debits, never reversals; a payment another line's match holds settles no line: the id rules leave the line open for a person, and the amount rule skips it. A line a rule left open is compared with what the rules find now: the same candidates leave it as it is, others reject its open match and record the new one (or make it unmatched again). Lines matched or excluded, and an agent's proposals, are never touched, so running it twice changes nothing the second time. Agents may call it: it only applies the rules, and what they cannot decide stays open for a person. If-Match is the statement's ETag; a run that matches or leaves open a line, and a person's match or exclusion, move it on. Returns the statement with its lines; `GET /v1/bank-statements/{id}/matches` has the matches."
+      x-permission: payments.statement.match
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The bank statement, its lines matched.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankStatement"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/bank-statements/{id}/matches":
+    get:
+      operationId: listBankStatementMatches
+      tags:
+        - payments
+      summary: List a bank statement's matches
+      description: "The matches of the statement's lines, by line and in the order they were made: the live one of each line (`open`, `matched` or `excluded`) and those a person's decision replaced (`rejected`)."
+      x-permission: payments.statement.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: line_no
+          in: query
+          required: false
+          description: Only the matches of this line.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+      responses:
+        "200":
+          description: The statement's matches.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementMatchList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/bank-statements/{id}/lines/{line_no}:match":
+    post:
+      operationId: matchBankStatementLine
+      tags:
+        - payments
+      summary: Match a bank statement line by hand
+      description: "A person matches the line to the payments it clears or to a posting rule of the company (charges, interest), with a reason, whatever the rules found: the line's live match becomes `rejected` and the new one `matched` (kind `manual`). Each payment must be posted, from the statement's house bank, in its currency and matched to no other line (422 `payments.statement_match_target`). People only; a line on its way to the ledger keeps its match (409 `payments.statement_line_posting`). Audited, and published as BankStatementLineMatched. The response's ETag is the statement's new one, the If-Match of the next decision on its lines."
+      x-permission: payments.statement.match
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: line_no
+          in: path
+          required: true
+          description: The line's number in the statement, from 1.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of matchBankStatementLine.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatementLineMatchInput"
+      responses:
+        "201":
+          description: The line's new match.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementMatch"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/bank-statements/{id}/lines/{line_no}:exclude":
+    post:
+      operationId: excludeBankStatementLine
+      tags:
+        - payments
+      summary: Exclude a bank statement line
+      description: "A person excludes the line from reconciliation, with a reason: the bank's booking clears nothing the ledger holds. The line's live match becomes `rejected` and the new one `excluded` (kind `manual`), with no targets; the line is `excluded`. People only; a line on its way to the ledger keeps its match (409 `payments.statement_line_posting`). Audited, and published as BankStatementLineExcluded. The response's ETag is the statement's new one, the If-Match of the next decision on its lines."
+      x-permission: payments.statement.match
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: line_no
+          in: path
+          required: true
+          description: The line's number in the statement, from 1.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of excludeBankStatementLine.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonInput"
+      responses:
+        "201":
+          description: The line's new match, excluding it.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementMatch"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   "/v1/bank-files/{id}":
     get:
       operationId: getBankFile
@@ -19828,6 +20243,408 @@ components:
               amount:
                 amount: "1080.00"
                 currency: EUR
+    BankStatementUpload:
+      type: object
+      description: "A bank's statement file to import for a house bank."
+      required:
+        - house_bank_id
+        - format
+        - file
+      properties:
+        house_bank_id:
+          type: string
+          format: uuid
+          description: House bank whose account the statements are of.
+        format:
+          type: string
+          description: "The file's format; the camt.053 version is the one the document declares. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - camt.053
+            - mt940
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          description: "The bank's file, byte for byte, at most 4 MB, in UTF-8."
+      examples:
+        - house_bank_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d60"
+          format: mt940
+          file: OjIwOlNUTVQyMDI2MTAyMAo=
+    BankStatementImport:
+      type: object
+      description: The statements a file holds, in the file's order.
+      required:
+        - file_sha256
+        - statements
+      properties:
+        file_sha256:
+          type: string
+          description: The file's SHA-256, in hexadecimal.
+          pattern: "^[0-9a-f]{64}$"
+          readOnly: true
+        statements:
+          type: array
+          items:
+            $ref: "#/components/schemas/BankStatement"
+          description: The file's statements, each with its lines.
+          readOnly: true
+      examples:
+        - file_sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9
+          statements:
+            - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e20"
+              version: 1
+              created_at: "2026-10-20T08:00:00Z"
+              created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
+              updated_at: "2026-10-20T08:00:00Z"
+              house_bank_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d60"
+              legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+              format: mt940
+              file_sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9
+              file_position: 1
+              statement_ref: STMT20261020
+              sequence: 00293/001
+              account: AE070331234567890123456
+              opening_balance: {amount: "120000.00", currency: AED}
+              opening_date: "2026-10-19"
+              closing_balance: {amount: "119947.50", currency: AED}
+              closing_date: "2026-10-20"
+              line_count: 1
+              status: imported
+              lines:
+                - line_no: 1
+                  amount: {amount: "-52.50", currency: AED}
+                  is_reversal: false
+                  booking_date: "2026-10-20"
+                  value_date: "2026-10-20"
+                  transaction_code: NCHG
+                  bank_reference: EB26102000124
+                  owner_reference: NONREF
+                  text: TRANSFER CHARGES
+                  status: unmatched
+                  transactions: []
+    BankStatement:
+      description: "A bank account statement imported for a house bank (ADR-0047). Amounts are signed: a credit to the account is positive."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - house_bank_id
+            - legal_entity_id
+            - format
+            - file_sha256
+            - file_position
+            - statement_ref
+            - sequence
+            - account
+            - opening_balance
+            - opening_date
+            - closing_balance
+            - closing_date
+            - line_count
+            - status
+          properties:
+            house_bank_id:
+              type: string
+              format: uuid
+              description: House bank whose account the statement is of.
+              readOnly: true
+            legal_entity_id:
+              type: string
+              format: uuid
+              description: The house bank's legal entity.
+              readOnly: true
+            format:
+              type: string
+              description: "The file's format and version. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - camt.053.001.02
+                - camt.053.001.08
+                - mt940
+              readOnly: true
+            file_sha256:
+              type: string
+              description: SHA-256 of the file it was imported from, in hexadecimal.
+              pattern: "^[0-9a-f]{64}$"
+              readOnly: true
+            file_position:
+              type: integer
+              format: int32
+              description: The statement's place in its file, from 1.
+              minimum: 1
+              readOnly: true
+            message_id:
+              type: string
+              description: "The camt.053 message id; absent in MT940."
+              readOnly: true
+            statement_ref:
+              type: string
+              description: "The bank's statement id: camt.053 Stmt/Id, MT940 field 20."
+              readOnly: true
+            sequence:
+              type: string
+              description: "The statement's number in the account's series: camt.053 ElctrncSeqNb (or LglSeqNb), MT940 field 28C."
+              readOnly: true
+            account:
+              type: string
+              description: "The account's IBAN, or the bank's account number where it has none."
+              readOnly: true
+            opening_balance:
+              $ref: "#/components/schemas/Money"
+            opening_date:
+              type: string
+              format: date
+              description: Date of the opening balance.
+              readOnly: true
+            closing_balance:
+              $ref: "#/components/schemas/Money"
+            closing_date:
+              type: string
+              format: date
+              description: Date of the closing balance.
+              readOnly: true
+            line_count:
+              type: integer
+              format: int32
+              description: Number of booked entries.
+              minimum: 0
+              readOnly: true
+            previous_statement_id:
+              type: string
+              format: uuid
+              description: "The house bank's statement before it, whose closing balance its opening balance was compared with; absent for the bank's first."
+              readOnly: true
+            status:
+              type: string
+              description: "`imported`; `gap` when its opening balance is not the previous statement's closing balance (automatic posting stops for the bank); `reconciled`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - imported
+                - gap
+                - reconciled
+              readOnly: true
+            lines:
+              type: array
+              items:
+                $ref: "#/components/schemas/BankStatementLine"
+              description: "The booked entries, in the bank's order; absent in lists."
+              readOnly: true
+    StatementMatch:
+      description: "What a bank statement line clears (ADR-0047): found by a matching rule, decided by a person, or (later) proposed by the reconciliation agent."
+      examples:
+        - {id: 0192a000-0000-7000-8000-000000000b40, version: 1, created_at: "2026-10-20T11:00:00Z", created_by: 0192a000-0000-7000-8000-000000000105, updated_at: "2026-10-20T11:00:00Z", updated_by: 0192a000-0000-7000-8000-000000000105, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, kind: rule, rule: end_to_end_id, reason: "End-to-end ids 2000-PR100000-000001: 1 of 1 are payments, paying 100.00 of 100.00.", status: matched, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c01}]}
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [bank_statement_id, line_no, kind, reason, status, targets]
+          properties:
+            bank_statement_id: {type: string, format: uuid, description: The bank statement of the line., readOnly: true}
+            line_no: {type: integer, format: int32, minimum: 1, description: "The line's number in the statement.", readOnly: true}
+            kind:
+              type: string
+              description: "Who made it. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [rule, manual, agent]
+              readOnly: true
+            rule:
+              type: string
+              description: "The matching rule of a rule's match. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [end_to_end_id, batch_id, transaction_code, amount]
+              readOnly: true
+            reason: {type: string, description: "What the rule found, or the person's reason.", readOnly: true}
+            status:
+              type: string
+              description: "open: candidates for a person to choose from; matched: the targets decided; excluded: the line clears nothing; rejected: replaced by a person's decision. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [open, matched, excluded, rejected]
+              readOnly: true
+            targets:
+              type: array
+              items: {$ref: "#/components/schemas/StatementMatchTarget"}
+              description: "What it clears: of an open match, each candidate's targets under its number; of a match decided, candidate 1's; none when excluded."
+              readOnly: true
+    StatementMatchTarget:
+      type: object
+      description: "A payment, with the bank file of a batch booking, or a posting rule."
+      required: [candidate]
+      properties:
+        candidate: {type: integer, format: int32, minimum: 1, description: "The candidate it belongs to.", readOnly: true}
+        payment_id: {type: string, format: uuid, description: The payment cleared., readOnly: true}
+        bank_file_id: {type: string, format: uuid, description: "The bank file of a batch booking the payment was in.", readOnly: true}
+        posting_rule: {type: string, description: "The transaction code of the company's posting rule.", readOnly: true}
+    StatementMatchList:
+      type: object
+      description: A bank statement's matches.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/StatementMatch"}
+          examples:
+            - [{id: 0192a000-0000-7000-8000-000000000b40, version: 1, created_at: "2026-10-20T11:00:00Z", created_by: 0192a000-0000-7000-8000-000000000105, updated_at: "2026-10-20T11:00:00Z", updated_by: 0192a000-0000-7000-8000-000000000105, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, kind: rule, rule: end_to_end_id, reason: "End-to-end ids 2000-PR100000-000001: 1 of 1 are payments, paying 100.00 of 100.00.", status: matched, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c01}]}]
+      examples:
+        - {items: [{id: 0192a000-0000-7000-8000-000000000b40, version: 1, created_at: "2026-10-20T11:00:00Z", created_by: 0192a000-0000-7000-8000-000000000105, updated_at: "2026-10-20T11:00:00Z", updated_by: 0192a000-0000-7000-8000-000000000105, bank_statement_id: 0192a000-0000-7000-8000-000000000b20, line_no: 1, kind: rule, rule: end_to_end_id, reason: "End-to-end ids 2000-PR100000-000001: 1 of 1 are payments, paying 100.00 of 100.00.", status: matched, targets: [{candidate: 1, payment_id: 0192a000-0000-7000-8000-000000000c01}]}]}
+    StatementLineMatchInput:
+      type: object
+      description: "A person's match of a line: the payments it clears or a posting rule, not both, and why."
+      required: [reason]
+      properties:
+        payment_ids:
+          type: array
+          items: {type: string, format: uuid}
+          minItems: 1
+          maxItems: 1000
+          uniqueItems: true
+          description: The payments the line clears.
+          examples:
+            - [0192a000-0000-7000-8000-000000000c01]
+        posting_rule:
+          type: string
+          minLength: 1
+          maxLength: 35
+          description: The transaction code of the company's posting rule that posts the line.
+        reason:
+          type: string
+          description: "Why; recorded in the audit trail and on the resulting event."
+          minLength: 1
+          maxLength: 2000
+      additionalProperties: false
+      examples:
+        - {payment_ids: [0192a000-0000-7000-8000-000000000c01], reason: "The remittance names INV-3."}
+    BankStatementLine:
+      type: object
+      description: One booking on the account.
+      required:
+        - line_no
+        - amount
+        - is_reversal
+        - booking_date
+        - value_date
+        - transaction_code
+        - bank_reference
+        - owner_reference
+        - text
+        - status
+        - transactions
+      properties:
+        line_no:
+          type: integer
+          format: int32
+          description: The line's number in the statement, from 1.
+          minimum: 1
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+        is_reversal:
+          type: boolean
+          description: The booking reverses an earlier one.
+          readOnly: true
+        booking_date:
+          type: string
+          format: date
+          description: Booking date.
+          readOnly: true
+        value_date:
+          type: string
+          format: date
+          description: Value date.
+          readOnly: true
+        transaction_code:
+          type: string
+          description: "The bank transaction code: ISO 20022 domain, family and sub-family (PMNT-ICDT-ESCT), the bank's proprietary code, or the MT940 type (NTRF)."
+          readOnly: true
+        bank_reference:
+          type: string
+          description: The bank's reference.
+          readOnly: true
+        owner_reference:
+          type: string
+          description: The reference for the account owner.
+          readOnly: true
+        text:
+          type: string
+          description: The bank's text for the booking.
+          readOnly: true
+        status:
+          type: string
+          description: "Reconciliation status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - unmatched
+            - proposed
+            - matched
+            - excluded
+            - pending_approval
+            - posted
+          readOnly: true
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/BankStatementTransaction"
+          description: "The transactions the booking holds: one for a single payment, several for a batch booking, none where the bank gives none."
+          readOnly: true
+    BankStatementTransaction:
+      type: object
+      description: One transaction within a booking.
+      required:
+        - amount
+      properties:
+        amount:
+          $ref: "#/components/schemas/Money"
+        message_id:
+          type: string
+          description: The payment message id.
+          readOnly: true
+        payment_information_id:
+          type: string
+          description: The payment information (batch) id.
+          readOnly: true
+        instruction_id:
+          type: string
+          description: The instruction id.
+          readOnly: true
+        end_to_end_id:
+          type: string
+          description: The end-to-end id.
+          readOnly: true
+        transaction_code:
+          type: string
+          description: The transaction's bank transaction code.
+          readOnly: true
+        counterparty_name:
+          type: string
+          description: "The other side: the creditor of a debit, the debtor of a credit."
+          readOnly: true
+        counterparty_iban:
+          type: string
+          description: The other side's IBAN.
+          readOnly: true
+        counterparty_account:
+          type: string
+          description: "The other side's account number, where it has no IBAN."
+          readOnly: true
+        counterparty_bic:
+          type: string
+          description: The other side's bank.
+          readOnly: true
+        remittance:
+          type: string
+          description: The remittance information.
+          readOnly: true
+    BankStatementPage:
+      type: object
+      description: One page of bank statements.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BankStatement"
+          description: The bank statements on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
     BankFile:
       description: A payment file produced by a released run, stored in object storage.
       allOf:
@@ -20889,7 +21706,7 @@ components:
             settings:
               type: object
               additionalProperties: true
-              description: "Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory` (absolute); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`."
+              description: "Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`."
             secret_ref:
               type: string
               description: Vault path of the credentials.
@@ -20939,7 +21756,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory` (absolute); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`."
+          description: "Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`."
         secret_ref:
           type: string
           description: Vault path of the credentials.
@@ -20961,7 +21778,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory` (absolute); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`."
+          description: "Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`."
         secret_ref:
           type:
             - string

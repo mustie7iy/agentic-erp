@@ -600,6 +600,19 @@ func (UnimplementedHandler) EndSodRule(ctx context.Context, req *EndInput, param
 	return r, ht.ErrNotImplemented
 }
 
+// ExcludeBankStatementLine implements excludeBankStatementLine operation.
+//
+// A person excludes the line from reconciliation, with a reason: the bank's booking clears nothing the
+// ledger holds. The line's live match becomes `rejected` and the new one `excluded` (kind `manual`),
+// with no targets; the line is `excluded`. People only; a line on its way to the ledger keeps its
+// match (409 `payments.statement_line_posting`). Audited, and published as BankStatementLineExcluded.
+// The response's ETag is the statement's new one, the If-Match of the next decision on its lines.
+//
+// POST /v1/bank-statements/{id}/lines/{line_no}:exclude
+func (UnimplementedHandler) ExcludeBankStatementLine(ctx context.Context, req *ReasonInput, params ExcludeBankStatementLineParams) (r ExcludeBankStatementLineRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetAccount implements getAccount operation.
 //
 // Returns one general ledger account.
@@ -693,6 +706,27 @@ func (UnimplementedHandler) GetBankFile(ctx context.Context, params GetBankFileP
 //
 // GET /v1/bank-files/{id}/content
 func (UnimplementedHandler) GetBankFileContent(ctx context.Context, params GetBankFileContentParams) (r GetBankFileContentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetBankStatement implements getBankStatement operation.
+//
+// Returns one bank statement with its lines.
+//
+// GET /v1/bank-statements/{id}
+func (UnimplementedHandler) GetBankStatement(ctx context.Context, params GetBankStatementParams) (r GetBankStatementRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetBankStatementFile implements getBankStatementFile operation.
+//
+// The file a bank statement was imported from, byte for byte as the bank sent it (camt.053 XML or
+// MT940 text): kept as accounting evidence in object storage, written once, encrypted and locked for
+// the retention of financial records (ADR-0047). The statements of one file share it. 503 while the
+// server has no object storage or the store does not answer.
+//
+// GET /v1/bank-statements/{id}/file
+func (UnimplementedHandler) GetBankStatementFile(ctx context.Context, params GetBankStatementFileParams) (r GetBankStatementFileRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1064,6 +1098,28 @@ func (UnimplementedHandler) HoldSupplierInvoice(ctx context.Context, req *Reason
 	return r, ht.ErrNotImplemented
 }
 
+// ImportBankStatements implements importBankStatements operation.
+//
+// Imports the statements of a bank's file (ADR-0047) for one house bank: camt.053 (.001.02 or .001.08)
+// or MT940, read as UTF-8, at most 4 MB. Each statement must be of the house bank's account and
+// currency, and its entries must take its opening balance to its closing balance. The same file again
+// for the house bank (by its SHA-256) answers 200 with the statements it imported; another file with a
+// statement already imported (the same statement id, account and sequence) is refused with 409
+// `payments.statement_conflict`. A statement whose opening balance is not the closing balance of the
+// house bank's statement before it is imported in status `gap`, and automatic posting stops for the
+// bank; a statement imported between two others becomes the next one's previous statement, whose
+// status follows the comparison again. A file that cannot be read is refused with 422
+// `payments.statement_unreadable`, naming the line where what is wrong starts. Imports are made by
+// people and integrations; agents read statements, and an agent's import is refused with 403
+// `identity.agent_not_allowed`. The file is kept as accounting evidence in object storage
+// (`GET /v1/bank-statements/{id}/file`), so without object storage, or when the store does not take
+// it, nothing is imported (503).
+//
+// POST /v1/bank-statements
+func (UnimplementedHandler) ImportBankStatements(ctx context.Context, req *BankStatementUploadMultipart, params ImportBankStatementsParams) (r ImportBankStatementsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListAccounts implements listAccounts operation.
 //
 // General ledger accounts. Sortable by: `number`.
@@ -1134,6 +1190,26 @@ func (UnimplementedHandler) ListBankAccounts(ctx context.Context, params ListBan
 //
 // GET /v1/bank-files
 func (UnimplementedHandler) ListBankFiles(ctx context.Context, params ListBankFilesParams) (r ListBankFilesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListBankStatementMatches implements listBankStatementMatches operation.
+//
+// The matches of the statement's lines, by line and in the order they were made: the live one of each
+// line (`open`, `matched` or `excluded`) and those a person's decision replaced (`rejected`).
+//
+// GET /v1/bank-statements/{id}/matches
+func (UnimplementedHandler) ListBankStatementMatches(ctx context.Context, params ListBankStatementMatchesParams) (r ListBankStatementMatchesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListBankStatements implements listBankStatements operation.
+//
+// Bank statements imported for the house banks of the companies the caller may access, without their
+// lines (`GET /v1/bank-statements/{id}` has them). Sortable by: `closing_date`.
+//
+// GET /v1/bank-statements
+func (UnimplementedHandler) ListBankStatements(ctx context.Context, params ListBankStatementsParams) (r ListBankStatementsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1509,6 +1585,42 @@ func (UnimplementedHandler) ListWebhookSubscriptions(ctx context.Context, params
 //
 // POST /v1/fiscal-periods/{id}:lock
 func (UnimplementedHandler) LockFiscalPeriod(ctx context.Context, params LockFiscalPeriodParams) (r LockFiscalPeriodRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// MatchBankStatement implements matchBankStatement operation.
+//
+// Runs the company's matching rules (`companies[].bank_statements.matching_rules`, ADR-0047) on the
+// statement's unmatched lines, and again on the lines a rule left open, as the import does: in the
+// rules' order, the first rule that finds candidates decides. A rule that finds exactly one candidate,
+// whose payments pay the line's amount, matches the line (`matched`); one that finds several, or
+// payments that do not pay it, leaves an open match listing them for a person (`proposed`). The rules
+// on payments read debits, never reversals; a payment another line's match holds settles no line: the
+// id rules leave the line open for a person, and the amount rule skips it. A line a rule left open is
+// compared with what the rules find now: the same candidates leave it as it is, others reject its open
+// match and record the new one (or make it unmatched again). Lines matched or excluded, and an agent's
+// proposals, are never touched, so running it twice changes nothing the second time. Agents may call
+// it: it only applies the rules, and what they cannot decide stays open for a person. If-Match is the
+// statement's ETag; a run that matches or leaves open a line, and a person's match or exclusion, move
+// it on. Returns the statement with its lines; `GET /v1/bank-statements/{id}/matches` has the matches.
+//
+// POST /v1/bank-statements/{id}:match
+func (UnimplementedHandler) MatchBankStatement(ctx context.Context, params MatchBankStatementParams) (r MatchBankStatementRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// MatchBankStatementLine implements matchBankStatementLine operation.
+//
+// A person matches the line to the payments it clears or to a posting rule of the company (charges,
+// interest), with a reason, whatever the rules found: the line's live match becomes `rejected` and the
+// new one `matched` (kind `manual`). Each payment must be posted, from the statement's house bank, in
+// its currency and matched to no other line (422 `payments.statement_match_target`). People only; a
+// line on its way to the ledger keeps its match (409 `payments.statement_line_posting`). Audited, and
+// published as BankStatementLineMatched. The response's ETag is the statement's new one, the If-Match
+// of the next decision on its lines.
+//
+// POST /v1/bank-statements/{id}/lines/{line_no}:match
+func (UnimplementedHandler) MatchBankStatementLine(ctx context.Context, req *StatementLineMatchInput, params MatchBankStatementLineParams) (r MatchBankStatementLineRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

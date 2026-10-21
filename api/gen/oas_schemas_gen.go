@@ -3357,6 +3357,7 @@ func (*BadRequestHeaders) endCompanyAccessRes()                 {}
 func (*BadRequestHeaders) endRoleAssignmentRes()                {}
 func (*BadRequestHeaders) endRolePermissionRes()                {}
 func (*BadRequestHeaders) endSodRuleRes()                       {}
+func (*BadRequestHeaders) excludeBankStatementLineRes()         {}
 func (*BadRequestHeaders) getAccountRes()                       {}
 func (*BadRequestHeaders) getAgentSessionRes()                  {}
 func (*BadRequestHeaders) getAiPolicyRes()                      {}
@@ -3366,6 +3367,8 @@ func (*BadRequestHeaders) getApprovalRequestRes()               {}
 func (*BadRequestHeaders) getBankAccountRes()                   {}
 func (*BadRequestHeaders) getBankFileContentRes()               {}
 func (*BadRequestHeaders) getBankFileRes()                      {}
+func (*BadRequestHeaders) getBankStatementFileRes()             {}
+func (*BadRequestHeaders) getBankStatementRes()                 {}
 func (*BadRequestHeaders) getBusinessPartnerRes()               {}
 func (*BadRequestHeaders) getChangeRequestRes()                 {}
 func (*BadRequestHeaders) getClearingRes()                      {}
@@ -3406,6 +3409,7 @@ func (*BadRequestHeaders) getWebhookDeliveryRes()               {}
 func (*BadRequestHeaders) getWebhookSubscriptionRes()           {}
 func (*BadRequestHeaders) grantRolePermissionRes()              {}
 func (*BadRequestHeaders) holdSupplierInvoiceRes()              {}
+func (*BadRequestHeaders) importBankStatementsRes()             {}
 func (*BadRequestHeaders) listAccountsRes()                     {}
 func (*BadRequestHeaders) listAgentSessionsRes()                {}
 func (*BadRequestHeaders) listAgentToolCallsRes()               {}
@@ -3414,6 +3418,8 @@ func (*BadRequestHeaders) listAuditEventsRes()                  {}
 func (*BadRequestHeaders) listBalancesRes()                     {}
 func (*BadRequestHeaders) listBankAccountsRes()                 {}
 func (*BadRequestHeaders) listBankFilesRes()                    {}
+func (*BadRequestHeaders) listBankStatementMatchesRes()         {}
+func (*BadRequestHeaders) listBankStatementsRes()               {}
 func (*BadRequestHeaders) listBusinessPartnersRes()             {}
 func (*BadRequestHeaders) listChangeRequestsRes()               {}
 func (*BadRequestHeaders) listClearingsRes()                    {}
@@ -3454,6 +3460,8 @@ func (*BadRequestHeaders) listSupplierInvoicesRes()             {}
 func (*BadRequestHeaders) listWebhookDeliveriesRes()            {}
 func (*BadRequestHeaders) listWebhookSubscriptionsRes()         {}
 func (*BadRequestHeaders) lockFiscalPeriodRes()                 {}
+func (*BadRequestHeaders) matchBankStatementLineRes()           {}
+func (*BadRequestHeaders) matchBankStatementRes()               {}
 func (*BadRequestHeaders) matchSupplierInvoiceRes()             {}
 func (*BadRequestHeaders) openFiscalPeriodRes()                 {}
 func (*BadRequestHeaders) parkJournalEntryRes()                 {}
@@ -4701,6 +4709,848 @@ func (s *BankFilePageHeaders) SetResponse(val BankFilePage) {
 }
 
 func (*BankFilePageHeaders) listBankFilesRes() {}
+
+// Merged schema.
+// Ref: #/components/schemas/BankStatement
+type BankStatement struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// House bank whose account the statement is of.
+	HouseBankID uuid.UUID `json:"house_bank_id"`
+	// The house bank's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The file's format and version. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Format string `json:"format"`
+	// SHA-256 of the file it was imported from, in hexadecimal.
+	FileSHA256 string `json:"file_sha256"`
+	// The statement's place in its file, from 1.
+	FilePosition int32 `json:"file_position"`
+	// The camt.053 message id; absent in MT940.
+	MessageID OptString `json:"message_id"`
+	// The bank's statement id: camt.053 Stmt/Id, MT940 field 20.
+	StatementRef string `json:"statement_ref"`
+	// The statement's number in the account's series: camt.053 ElctrncSeqNb (or LglSeqNb), MT940 field
+	// 28C.
+	Sequence string `json:"sequence"`
+	// The account's IBAN, or the bank's account number where it has none.
+	Account        string `json:"account"`
+	OpeningBalance Money  `json:"opening_balance"`
+	// Date of the opening balance.
+	OpeningDate    time.Time `json:"opening_date"`
+	ClosingBalance Money     `json:"closing_balance"`
+	// Date of the closing balance.
+	ClosingDate time.Time `json:"closing_date"`
+	// Number of booked entries.
+	LineCount int32 `json:"line_count"`
+	// The house bank's statement before it, whose closing balance its opening balance was compared with;
+	// absent for the bank's first.
+	PreviousStatementID OptUUID `json:"previous_statement_id"`
+	// `imported`; `gap` when its opening balance is not the previous statement's closing balance
+	// (automatic posting stops for the bank); `reconciled`. Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The booked entries, in the bank's order; absent in lists.
+	Lines []BankStatementLine `json:"lines"`
+}
+
+// GetID returns the value of ID.
+func (s *BankStatement) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *BankStatement) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *BankStatement) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *BankStatement) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *BankStatement) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *BankStatement) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetHouseBankID returns the value of HouseBankID.
+func (s *BankStatement) GetHouseBankID() uuid.UUID {
+	return s.HouseBankID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *BankStatement) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFormat returns the value of Format.
+func (s *BankStatement) GetFormat() string {
+	return s.Format
+}
+
+// GetFileSHA256 returns the value of FileSHA256.
+func (s *BankStatement) GetFileSHA256() string {
+	return s.FileSHA256
+}
+
+// GetFilePosition returns the value of FilePosition.
+func (s *BankStatement) GetFilePosition() int32 {
+	return s.FilePosition
+}
+
+// GetMessageID returns the value of MessageID.
+func (s *BankStatement) GetMessageID() OptString {
+	return s.MessageID
+}
+
+// GetStatementRef returns the value of StatementRef.
+func (s *BankStatement) GetStatementRef() string {
+	return s.StatementRef
+}
+
+// GetSequence returns the value of Sequence.
+func (s *BankStatement) GetSequence() string {
+	return s.Sequence
+}
+
+// GetAccount returns the value of Account.
+func (s *BankStatement) GetAccount() string {
+	return s.Account
+}
+
+// GetOpeningBalance returns the value of OpeningBalance.
+func (s *BankStatement) GetOpeningBalance() Money {
+	return s.OpeningBalance
+}
+
+// GetOpeningDate returns the value of OpeningDate.
+func (s *BankStatement) GetOpeningDate() time.Time {
+	return s.OpeningDate
+}
+
+// GetClosingBalance returns the value of ClosingBalance.
+func (s *BankStatement) GetClosingBalance() Money {
+	return s.ClosingBalance
+}
+
+// GetClosingDate returns the value of ClosingDate.
+func (s *BankStatement) GetClosingDate() time.Time {
+	return s.ClosingDate
+}
+
+// GetLineCount returns the value of LineCount.
+func (s *BankStatement) GetLineCount() int32 {
+	return s.LineCount
+}
+
+// GetPreviousStatementID returns the value of PreviousStatementID.
+func (s *BankStatement) GetPreviousStatementID() OptUUID {
+	return s.PreviousStatementID
+}
+
+// GetStatus returns the value of Status.
+func (s *BankStatement) GetStatus() string {
+	return s.Status
+}
+
+// GetLines returns the value of Lines.
+func (s *BankStatement) GetLines() []BankStatementLine {
+	return s.Lines
+}
+
+// SetID sets the value of ID.
+func (s *BankStatement) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *BankStatement) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *BankStatement) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *BankStatement) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *BankStatement) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *BankStatement) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetHouseBankID sets the value of HouseBankID.
+func (s *BankStatement) SetHouseBankID(val uuid.UUID) {
+	s.HouseBankID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *BankStatement) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFormat sets the value of Format.
+func (s *BankStatement) SetFormat(val string) {
+	s.Format = val
+}
+
+// SetFileSHA256 sets the value of FileSHA256.
+func (s *BankStatement) SetFileSHA256(val string) {
+	s.FileSHA256 = val
+}
+
+// SetFilePosition sets the value of FilePosition.
+func (s *BankStatement) SetFilePosition(val int32) {
+	s.FilePosition = val
+}
+
+// SetMessageID sets the value of MessageID.
+func (s *BankStatement) SetMessageID(val OptString) {
+	s.MessageID = val
+}
+
+// SetStatementRef sets the value of StatementRef.
+func (s *BankStatement) SetStatementRef(val string) {
+	s.StatementRef = val
+}
+
+// SetSequence sets the value of Sequence.
+func (s *BankStatement) SetSequence(val string) {
+	s.Sequence = val
+}
+
+// SetAccount sets the value of Account.
+func (s *BankStatement) SetAccount(val string) {
+	s.Account = val
+}
+
+// SetOpeningBalance sets the value of OpeningBalance.
+func (s *BankStatement) SetOpeningBalance(val Money) {
+	s.OpeningBalance = val
+}
+
+// SetOpeningDate sets the value of OpeningDate.
+func (s *BankStatement) SetOpeningDate(val time.Time) {
+	s.OpeningDate = val
+}
+
+// SetClosingBalance sets the value of ClosingBalance.
+func (s *BankStatement) SetClosingBalance(val Money) {
+	s.ClosingBalance = val
+}
+
+// SetClosingDate sets the value of ClosingDate.
+func (s *BankStatement) SetClosingDate(val time.Time) {
+	s.ClosingDate = val
+}
+
+// SetLineCount sets the value of LineCount.
+func (s *BankStatement) SetLineCount(val int32) {
+	s.LineCount = val
+}
+
+// SetPreviousStatementID sets the value of PreviousStatementID.
+func (s *BankStatement) SetPreviousStatementID(val OptUUID) {
+	s.PreviousStatementID = val
+}
+
+// SetStatus sets the value of Status.
+func (s *BankStatement) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetLines sets the value of Lines.
+func (s *BankStatement) SetLines(val []BankStatementLine) {
+	s.Lines = val
+}
+
+// BankStatementHeaders wraps BankStatement with response headers.
+type BankStatementHeaders struct {
+	ETag               OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           BankStatement
+}
+
+// GetETag returns the value of ETag.
+func (s *BankStatementHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *BankStatementHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *BankStatementHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *BankStatementHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *BankStatementHeaders) GetResponse() BankStatement {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *BankStatementHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *BankStatementHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *BankStatementHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *BankStatementHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *BankStatementHeaders) SetResponse(val BankStatement) {
+	s.Response = val
+}
+
+func (*BankStatementHeaders) getBankStatementRes() {}
+
+// The statements a file holds, in the file's order.
+// Ref: #/components/schemas/BankStatementImport
+type BankStatementImport struct {
+	// The file's SHA-256, in hexadecimal.
+	FileSHA256 string `json:"file_sha256"`
+	// The file's statements, each with its lines.
+	Statements []BankStatement `json:"statements"`
+}
+
+// GetFileSHA256 returns the value of FileSHA256.
+func (s *BankStatementImport) GetFileSHA256() string {
+	return s.FileSHA256
+}
+
+// GetStatements returns the value of Statements.
+func (s *BankStatementImport) GetStatements() []BankStatement {
+	return s.Statements
+}
+
+// SetFileSHA256 sets the value of FileSHA256.
+func (s *BankStatementImport) SetFileSHA256(val string) {
+	s.FileSHA256 = val
+}
+
+// SetStatements sets the value of Statements.
+func (s *BankStatementImport) SetStatements(val []BankStatement) {
+	s.Statements = val
+}
+
+// BankStatementImportHeaders wraps BankStatementImport with response headers.
+type BankStatementImportHeaders struct {
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           BankStatementImport
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *BankStatementImportHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *BankStatementImportHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *BankStatementImportHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *BankStatementImportHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *BankStatementImportHeaders) GetResponse() BankStatementImport {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *BankStatementImportHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *BankStatementImportHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *BankStatementImportHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *BankStatementImportHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *BankStatementImportHeaders) SetResponse(val BankStatementImport) {
+	s.Response = val
+}
+
+// One booking on the account.
+// Ref: #/components/schemas/BankStatementLine
+type BankStatementLine struct {
+	// The line's number in the statement, from 1.
+	LineNo int32 `json:"line_no"`
+	Amount Money `json:"amount"`
+	// The booking reverses an earlier one.
+	IsReversal bool `json:"is_reversal"`
+	// Booking date.
+	BookingDate time.Time `json:"booking_date"`
+	// Value date.
+	ValueDate time.Time `json:"value_date"`
+	// The bank transaction code: ISO 20022 domain, family and sub-family (PMNT-ICDT-ESCT), the bank's
+	// proprietary code, or the MT940 type (NTRF).
+	TransactionCode string `json:"transaction_code"`
+	// The bank's reference.
+	BankReference string `json:"bank_reference"`
+	// The reference for the account owner.
+	OwnerReference string `json:"owner_reference"`
+	// The bank's text for the booking.
+	Text string `json:"text"`
+	// Reconciliation status. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Status string `json:"status"`
+	// The transactions the booking holds: one for a single payment, several for a batch booking, none
+	// where the bank gives none.
+	Transactions []BankStatementTransaction `json:"transactions"`
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *BankStatementLine) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetAmount returns the value of Amount.
+func (s *BankStatementLine) GetAmount() Money {
+	return s.Amount
+}
+
+// GetIsReversal returns the value of IsReversal.
+func (s *BankStatementLine) GetIsReversal() bool {
+	return s.IsReversal
+}
+
+// GetBookingDate returns the value of BookingDate.
+func (s *BankStatementLine) GetBookingDate() time.Time {
+	return s.BookingDate
+}
+
+// GetValueDate returns the value of ValueDate.
+func (s *BankStatementLine) GetValueDate() time.Time {
+	return s.ValueDate
+}
+
+// GetTransactionCode returns the value of TransactionCode.
+func (s *BankStatementLine) GetTransactionCode() string {
+	return s.TransactionCode
+}
+
+// GetBankReference returns the value of BankReference.
+func (s *BankStatementLine) GetBankReference() string {
+	return s.BankReference
+}
+
+// GetOwnerReference returns the value of OwnerReference.
+func (s *BankStatementLine) GetOwnerReference() string {
+	return s.OwnerReference
+}
+
+// GetText returns the value of Text.
+func (s *BankStatementLine) GetText() string {
+	return s.Text
+}
+
+// GetStatus returns the value of Status.
+func (s *BankStatementLine) GetStatus() string {
+	return s.Status
+}
+
+// GetTransactions returns the value of Transactions.
+func (s *BankStatementLine) GetTransactions() []BankStatementTransaction {
+	return s.Transactions
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *BankStatementLine) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *BankStatementLine) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetIsReversal sets the value of IsReversal.
+func (s *BankStatementLine) SetIsReversal(val bool) {
+	s.IsReversal = val
+}
+
+// SetBookingDate sets the value of BookingDate.
+func (s *BankStatementLine) SetBookingDate(val time.Time) {
+	s.BookingDate = val
+}
+
+// SetValueDate sets the value of ValueDate.
+func (s *BankStatementLine) SetValueDate(val time.Time) {
+	s.ValueDate = val
+}
+
+// SetTransactionCode sets the value of TransactionCode.
+func (s *BankStatementLine) SetTransactionCode(val string) {
+	s.TransactionCode = val
+}
+
+// SetBankReference sets the value of BankReference.
+func (s *BankStatementLine) SetBankReference(val string) {
+	s.BankReference = val
+}
+
+// SetOwnerReference sets the value of OwnerReference.
+func (s *BankStatementLine) SetOwnerReference(val string) {
+	s.OwnerReference = val
+}
+
+// SetText sets the value of Text.
+func (s *BankStatementLine) SetText(val string) {
+	s.Text = val
+}
+
+// SetStatus sets the value of Status.
+func (s *BankStatementLine) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetTransactions sets the value of Transactions.
+func (s *BankStatementLine) SetTransactions(val []BankStatementTransaction) {
+	s.Transactions = val
+}
+
+// One page of bank statements.
+// Ref: #/components/schemas/BankStatementPage
+type BankStatementPage struct {
+	// The bank statements on this page.
+	Items []BankStatement `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *BankStatementPage) GetItems() []BankStatement {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *BankStatementPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *BankStatementPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *BankStatementPage) SetItems(val []BankStatement) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *BankStatementPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *BankStatementPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+// BankStatementPageHeaders wraps BankStatementPage with response headers.
+type BankStatementPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           BankStatementPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *BankStatementPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *BankStatementPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *BankStatementPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *BankStatementPageHeaders) GetResponse() BankStatementPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *BankStatementPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *BankStatementPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *BankStatementPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *BankStatementPageHeaders) SetResponse(val BankStatementPage) {
+	s.Response = val
+}
+
+func (*BankStatementPageHeaders) listBankStatementsRes() {}
+
+// One transaction within a booking.
+// Ref: #/components/schemas/BankStatementTransaction
+type BankStatementTransaction struct {
+	Amount Money `json:"amount"`
+	// The payment message id.
+	MessageID OptString `json:"message_id"`
+	// The payment information (batch) id.
+	PaymentInformationID OptString `json:"payment_information_id"`
+	// The instruction id.
+	InstructionID OptString `json:"instruction_id"`
+	// The end-to-end id.
+	EndToEndID OptString `json:"end_to_end_id"`
+	// The transaction's bank transaction code.
+	TransactionCode OptString `json:"transaction_code"`
+	// The other side: the creditor of a debit, the debtor of a credit.
+	CounterpartyName OptString `json:"counterparty_name"`
+	// The other side's IBAN.
+	CounterpartyIban OptString `json:"counterparty_iban"`
+	// The other side's account number, where it has no IBAN.
+	CounterpartyAccount OptString `json:"counterparty_account"`
+	// The other side's bank.
+	CounterpartyBic OptString `json:"counterparty_bic"`
+	// The remittance information.
+	Remittance OptString `json:"remittance"`
+}
+
+// GetAmount returns the value of Amount.
+func (s *BankStatementTransaction) GetAmount() Money {
+	return s.Amount
+}
+
+// GetMessageID returns the value of MessageID.
+func (s *BankStatementTransaction) GetMessageID() OptString {
+	return s.MessageID
+}
+
+// GetPaymentInformationID returns the value of PaymentInformationID.
+func (s *BankStatementTransaction) GetPaymentInformationID() OptString {
+	return s.PaymentInformationID
+}
+
+// GetInstructionID returns the value of InstructionID.
+func (s *BankStatementTransaction) GetInstructionID() OptString {
+	return s.InstructionID
+}
+
+// GetEndToEndID returns the value of EndToEndID.
+func (s *BankStatementTransaction) GetEndToEndID() OptString {
+	return s.EndToEndID
+}
+
+// GetTransactionCode returns the value of TransactionCode.
+func (s *BankStatementTransaction) GetTransactionCode() OptString {
+	return s.TransactionCode
+}
+
+// GetCounterpartyName returns the value of CounterpartyName.
+func (s *BankStatementTransaction) GetCounterpartyName() OptString {
+	return s.CounterpartyName
+}
+
+// GetCounterpartyIban returns the value of CounterpartyIban.
+func (s *BankStatementTransaction) GetCounterpartyIban() OptString {
+	return s.CounterpartyIban
+}
+
+// GetCounterpartyAccount returns the value of CounterpartyAccount.
+func (s *BankStatementTransaction) GetCounterpartyAccount() OptString {
+	return s.CounterpartyAccount
+}
+
+// GetCounterpartyBic returns the value of CounterpartyBic.
+func (s *BankStatementTransaction) GetCounterpartyBic() OptString {
+	return s.CounterpartyBic
+}
+
+// GetRemittance returns the value of Remittance.
+func (s *BankStatementTransaction) GetRemittance() OptString {
+	return s.Remittance
+}
+
+// SetAmount sets the value of Amount.
+func (s *BankStatementTransaction) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetMessageID sets the value of MessageID.
+func (s *BankStatementTransaction) SetMessageID(val OptString) {
+	s.MessageID = val
+}
+
+// SetPaymentInformationID sets the value of PaymentInformationID.
+func (s *BankStatementTransaction) SetPaymentInformationID(val OptString) {
+	s.PaymentInformationID = val
+}
+
+// SetInstructionID sets the value of InstructionID.
+func (s *BankStatementTransaction) SetInstructionID(val OptString) {
+	s.InstructionID = val
+}
+
+// SetEndToEndID sets the value of EndToEndID.
+func (s *BankStatementTransaction) SetEndToEndID(val OptString) {
+	s.EndToEndID = val
+}
+
+// SetTransactionCode sets the value of TransactionCode.
+func (s *BankStatementTransaction) SetTransactionCode(val OptString) {
+	s.TransactionCode = val
+}
+
+// SetCounterpartyName sets the value of CounterpartyName.
+func (s *BankStatementTransaction) SetCounterpartyName(val OptString) {
+	s.CounterpartyName = val
+}
+
+// SetCounterpartyIban sets the value of CounterpartyIban.
+func (s *BankStatementTransaction) SetCounterpartyIban(val OptString) {
+	s.CounterpartyIban = val
+}
+
+// SetCounterpartyAccount sets the value of CounterpartyAccount.
+func (s *BankStatementTransaction) SetCounterpartyAccount(val OptString) {
+	s.CounterpartyAccount = val
+}
+
+// SetCounterpartyBic sets the value of CounterpartyBic.
+func (s *BankStatementTransaction) SetCounterpartyBic(val OptString) {
+	s.CounterpartyBic = val
+}
+
+// SetRemittance sets the value of Remittance.
+func (s *BankStatementTransaction) SetRemittance(val OptString) {
+	s.Remittance = val
+}
+
+// A bank's statement file to import for a house bank.
+// Ref: #/components/schemas/BankStatementUpload
+type BankStatementUploadMultipart struct {
+	// House bank whose account the statements are of.
+	HouseBankID uuid.UUID `json:"house_bank_id"`
+	// The file's format; the camt.053 version is the one the document declares. Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	Format string `json:"format"`
+	// The bank's file, byte for byte, at most 4 MB, in UTF-8.
+	File string `json:"file"`
+}
+
+// GetHouseBankID returns the value of HouseBankID.
+func (s *BankStatementUploadMultipart) GetHouseBankID() uuid.UUID {
+	return s.HouseBankID
+}
+
+// GetFormat returns the value of Format.
+func (s *BankStatementUploadMultipart) GetFormat() string {
+	return s.Format
+}
+
+// GetFile returns the value of File.
+func (s *BankStatementUploadMultipart) GetFile() string {
+	return s.File
+}
+
+// SetHouseBankID sets the value of HouseBankID.
+func (s *BankStatementUploadMultipart) SetHouseBankID(val uuid.UUID) {
+	s.HouseBankID = val
+}
+
+// SetFormat sets the value of Format.
+func (s *BankStatementUploadMultipart) SetFormat(val string) {
+	s.Format = val
+}
+
+// SetFile sets the value of File.
+func (s *BankStatementUploadMultipart) SetFile(val string) {
+	s.File = val
+}
 
 // What the bank's status report (pain.002, camt.054) says about a transmitted file.
 // Ref: #/components/schemas/BankStatusReport
@@ -7458,11 +8308,15 @@ func (*ConflictHeaders) endCompanyAccessRes()                 {}
 func (*ConflictHeaders) endRoleAssignmentRes()                {}
 func (*ConflictHeaders) endRolePermissionRes()                {}
 func (*ConflictHeaders) endSodRuleRes()                       {}
+func (*ConflictHeaders) excludeBankStatementLineRes()         {}
 func (*ConflictHeaders) getAnalyticsModelRes()                {}
 func (*ConflictHeaders) getBankFileContentRes()               {}
 func (*ConflictHeaders) grantRolePermissionRes()              {}
 func (*ConflictHeaders) holdSupplierInvoiceRes()              {}
+func (*ConflictHeaders) importBankStatementsRes()             {}
 func (*ConflictHeaders) lockFiscalPeriodRes()                 {}
+func (*ConflictHeaders) matchBankStatementLineRes()           {}
+func (*ConflictHeaders) matchBankStatementRes()               {}
 func (*ConflictHeaders) matchSupplierInvoiceRes()             {}
 func (*ConflictHeaders) openFiscalPeriodRes()                 {}
 func (*ConflictHeaders) parkJournalEntryRes()                 {}
@@ -7545,12 +8399,14 @@ type Connector struct {
 	// Name, unique per tenant.
 	Name string `json:"name"`
 	// Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port`
-	// (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory`
-	// (absolute); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A
-	// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
-	// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
-	// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
-	// `integration.ebics_not_certified`.
+	// (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory`
+	// (absolute) and, for a bank that leaves statements there, `statements_directory` and
+	// `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first
+	// and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there
+	// are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https),
+	// `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys.
+	// EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics`
+	// connector there answers 422 `integration.ebics_not_certified`.
 	Settings ConnectorSettings `json:"settings"`
 	// Vault path of the credentials.
 	SecretRef OptString `json:"secret_ref"`
@@ -7678,11 +8534,13 @@ type ConnectorCreate struct {
 	// Name, unique per tenant.
 	Name string `json:"name"`
 	// Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22),
-	// `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory` (absolute);
-	// its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics`
-	// connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS
-	// 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified
-	// with a bank: creating or enabling a `bank_ebics` connector there answers 422
+	// `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and,
+	// for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute,
+	// both or neither, not the same: statements are fetched from the first and moved to the second once
+	// imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A
+	// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
+	// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
+	// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
 	// `integration.ebics_not_certified`.
 	Settings ConnectorCreateSettings `json:"settings"`
 	// Vault path of the credentials.
@@ -7730,11 +8588,13 @@ func (s *ConnectorCreate) SetSecretRef(val OptString) {
 }
 
 // Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22),
-// `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory` (absolute);
-// its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics`
-// connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS
-// 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified
-// with a bank: creating or enabling a `bank_ebics` connector there answers 422
+// `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and,
+// for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute,
+// both or neither, not the same: statements are fetched from the first and moved to the second once
+// imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A
+// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
+// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
+// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
 // `integration.ebics_not_certified`.
 type ConnectorCreateSettings map[string]jx.Raw
 
@@ -7923,12 +8783,14 @@ func (s *ConnectorPageHeaders) SetResponse(val ConnectorPage) {
 func (*ConnectorPageHeaders) listConnectorsRes() {}
 
 // Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port`
-// (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory`
-// (absolute); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A
-// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
-// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
-// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
-// `integration.ebics_not_certified`.
+// (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory`
+// (absolute) and, for a bank that leaves statements there, `statements_directory` and
+// `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first
+// and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there
+// are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https),
+// `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys.
+// EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics`
+// connector there answers 422 `integration.ebics_not_certified`.
 type ConnectorSettings map[string]jx.Raw
 
 func (s *ConnectorSettings) init() ConnectorSettings {
@@ -7946,11 +8808,13 @@ type ConnectorUpdate struct {
 	// Name.
 	Name OptString `json:"name"`
 	// Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22),
-	// `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory` (absolute);
-	// its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics`
-	// connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS
-	// 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified
-	// with a bank: creating or enabling a `bank_ebics` connector there answers 422
+	// `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and,
+	// for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute,
+	// both or neither, not the same: statements are fetched from the first and moved to the second once
+	// imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A
+	// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
+	// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
+	// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
 	// `integration.ebics_not_certified`.
 	Settings OptConnectorUpdateSettings `json:"settings"`
 	// Vault path of the credentials. Send null to clear.
@@ -7988,11 +8852,13 @@ func (s *ConnectorUpdate) SetSecretRef(val OptNilString) {
 }
 
 // Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22),
-// `user`, `host_key` (the server's key in authorized_keys form, pinned) and `directory` (absolute);
-// its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics`
-// connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS
-// 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified
-// with a bank: creating or enabling a `bank_ebics` connector there answers 422
+// `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and,
+// for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute,
+// both or neither, not the same: statements are fetched from the first and moved to the second once
+// imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A
+// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
+// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
+// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
 // `integration.ebics_not_certified`.
 type ConnectorUpdateSettings map[string]jx.Raw
 
@@ -10954,6 +11820,7 @@ func (*ForbiddenHeaders) endCompanyAccessRes()                 {}
 func (*ForbiddenHeaders) endRoleAssignmentRes()                {}
 func (*ForbiddenHeaders) endRolePermissionRes()                {}
 func (*ForbiddenHeaders) endSodRuleRes()                       {}
+func (*ForbiddenHeaders) excludeBankStatementLineRes()         {}
 func (*ForbiddenHeaders) getAccountRes()                       {}
 func (*ForbiddenHeaders) getAgentSessionRes()                  {}
 func (*ForbiddenHeaders) getAiPolicyRes()                      {}
@@ -10963,6 +11830,8 @@ func (*ForbiddenHeaders) getApprovalRequestRes()               {}
 func (*ForbiddenHeaders) getBankAccountRes()                   {}
 func (*ForbiddenHeaders) getBankFileContentRes()               {}
 func (*ForbiddenHeaders) getBankFileRes()                      {}
+func (*ForbiddenHeaders) getBankStatementFileRes()             {}
+func (*ForbiddenHeaders) getBankStatementRes()                 {}
 func (*ForbiddenHeaders) getBusinessPartnerRes()               {}
 func (*ForbiddenHeaders) getChangeRequestRes()                 {}
 func (*ForbiddenHeaders) getClearingRes()                      {}
@@ -11003,6 +11872,7 @@ func (*ForbiddenHeaders) getWebhookDeliveryRes()               {}
 func (*ForbiddenHeaders) getWebhookSubscriptionRes()           {}
 func (*ForbiddenHeaders) grantRolePermissionRes()              {}
 func (*ForbiddenHeaders) holdSupplierInvoiceRes()              {}
+func (*ForbiddenHeaders) importBankStatementsRes()             {}
 func (*ForbiddenHeaders) listAccountsRes()                     {}
 func (*ForbiddenHeaders) listAgentSessionsRes()                {}
 func (*ForbiddenHeaders) listAgentToolCallsRes()               {}
@@ -11011,6 +11881,8 @@ func (*ForbiddenHeaders) listAuditEventsRes()                  {}
 func (*ForbiddenHeaders) listBalancesRes()                     {}
 func (*ForbiddenHeaders) listBankAccountsRes()                 {}
 func (*ForbiddenHeaders) listBankFilesRes()                    {}
+func (*ForbiddenHeaders) listBankStatementMatchesRes()         {}
+func (*ForbiddenHeaders) listBankStatementsRes()               {}
 func (*ForbiddenHeaders) listBusinessPartnersRes()             {}
 func (*ForbiddenHeaders) listChangeRequestsRes()               {}
 func (*ForbiddenHeaders) listClearingsRes()                    {}
@@ -11051,6 +11923,8 @@ func (*ForbiddenHeaders) listSupplierInvoicesRes()             {}
 func (*ForbiddenHeaders) listWebhookDeliveriesRes()            {}
 func (*ForbiddenHeaders) listWebhookSubscriptionsRes()         {}
 func (*ForbiddenHeaders) lockFiscalPeriodRes()                 {}
+func (*ForbiddenHeaders) matchBankStatementLineRes()           {}
+func (*ForbiddenHeaders) matchBankStatementRes()               {}
 func (*ForbiddenHeaders) matchSupplierInvoiceRes()             {}
 func (*ForbiddenHeaders) openFiscalPeriodRes()                 {}
 func (*ForbiddenHeaders) parkJournalEntryRes()                 {}
@@ -11237,6 +12111,71 @@ func (s *GetBankFileContentOKHeaders) SetResponse(val GetBankFileContentOK) {
 }
 
 func (*GetBankFileContentOKHeaders) getBankFileContentRes() {}
+
+// The file's bytes.
+type GetBankStatementFileOK struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s GetBankStatementFileOK) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+// GetBankStatementFileOKHeaders wraps GetBankStatementFileOK with response headers.
+type GetBankStatementFileOKHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           GetBankStatementFileOK
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *GetBankStatementFileOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *GetBankStatementFileOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *GetBankStatementFileOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *GetBankStatementFileOKHeaders) GetResponse() GetBankStatementFileOK {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *GetBankStatementFileOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *GetBankStatementFileOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *GetBankStatementFileOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetBankStatementFileOKHeaders) SetResponse(val GetBankStatementFileOK) {
+	s.Response = val
+}
+
+func (*GetBankStatementFileOKHeaders) getBankStatementFileRes() {}
 
 // GetBusinessPartnerOKHeaders wraps BusinessPartner with response headers.
 type GetBusinessPartnerOKHeaders struct {
@@ -13978,6 +14917,14 @@ func (s *GrIrBalancePageHeaders) SetResponse(val GrIrBalancePage) {
 
 func (*GrIrBalancePageHeaders) listGrIrBalancesRes() {}
 
+type ImportBankStatementsCreated BankStatementImportHeaders
+
+func (*ImportBankStatementsCreated) importBankStatementsRes() {}
+
+type ImportBankStatementsOK BankStatementImportHeaders
+
+func (*ImportBankStatementsOK) importBankStatementsRes() {}
+
 // Payment terms frozen when a document posted (T36b), as SAP keeps ZTERM, ZFBDT and ZBD1T..ZBD3T: a
 // later change to the payment term changes neither the net due date nor the discounts.
 // Ref: #/components/schemas/ItemPaymentTerms
@@ -15319,6 +16266,78 @@ func (s *LegalEntityUpdate) SetExtensions(val OptExtensions) {
 	s.Extensions = val
 }
 
+// MatchBankStatementOKHeaders wraps BankStatement with response headers.
+type MatchBankStatementOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           BankStatement
+}
+
+// GetETag returns the value of ETag.
+func (s *MatchBankStatementOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *MatchBankStatementOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *MatchBankStatementOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *MatchBankStatementOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *MatchBankStatementOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *MatchBankStatementOKHeaders) GetResponse() BankStatement {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *MatchBankStatementOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *MatchBankStatementOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *MatchBankStatementOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *MatchBankStatementOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *MatchBankStatementOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *MatchBankStatementOKHeaders) SetResponse(val BankStatement) {
+	s.Response = val
+}
+
+func (*MatchBankStatementOKHeaders) matchBankStatementRes() {}
+
 // Whether a matched invoice is posted automatically: its gross amount, converted into the company's
 // currency at the average rate of its invoice date, compared exactly with the company's
 // `auto_post_limit`.
@@ -16398,12 +17417,15 @@ func (*NotFoundHeaders) endCompanyAccessRes()                 {}
 func (*NotFoundHeaders) endRoleAssignmentRes()                {}
 func (*NotFoundHeaders) endRolePermissionRes()                {}
 func (*NotFoundHeaders) endSodRuleRes()                       {}
+func (*NotFoundHeaders) excludeBankStatementLineRes()         {}
 func (*NotFoundHeaders) getAccountRes()                       {}
 func (*NotFoundHeaders) getAgentSessionRes()                  {}
 func (*NotFoundHeaders) getApprovalRequestRes()               {}
 func (*NotFoundHeaders) getBankAccountRes()                   {}
 func (*NotFoundHeaders) getBankFileContentRes()               {}
 func (*NotFoundHeaders) getBankFileRes()                      {}
+func (*NotFoundHeaders) getBankStatementFileRes()             {}
+func (*NotFoundHeaders) getBankStatementRes()                 {}
 func (*NotFoundHeaders) getBusinessPartnerRes()               {}
 func (*NotFoundHeaders) getChangeRequestRes()                 {}
 func (*NotFoundHeaders) getClearingRes()                      {}
@@ -16446,6 +17468,7 @@ func (*NotFoundHeaders) grantRolePermissionRes()              {}
 func (*NotFoundHeaders) holdSupplierInvoiceRes()              {}
 func (*NotFoundHeaders) listAgentToolCallsRes()               {}
 func (*NotFoundHeaders) listBankAccountsRes()                 {}
+func (*NotFoundHeaders) listBankStatementMatchesRes()         {}
 func (*NotFoundHeaders) listMatchResultsRes()                 {}
 func (*NotFoundHeaders) listPaymentExclusionsRes()            {}
 func (*NotFoundHeaders) listPaymentsRes()                     {}
@@ -16453,6 +17476,8 @@ func (*NotFoundHeaders) listPurchaseOrderChangesRes()         {}
 func (*NotFoundHeaders) listRolePermissionsRes()              {}
 func (*NotFoundHeaders) listWebhookDeliveriesRes()            {}
 func (*NotFoundHeaders) lockFiscalPeriodRes()                 {}
+func (*NotFoundHeaders) matchBankStatementLineRes()           {}
+func (*NotFoundHeaders) matchBankStatementRes()               {}
 func (*NotFoundHeaders) matchSupplierInvoiceRes()             {}
 func (*NotFoundHeaders) openFiscalPeriodRes()                 {}
 func (*NotFoundHeaders) pauseWebhookSubscriptionRes()         {}
@@ -21736,8 +22761,11 @@ func (*PreconditionFailedHeaders) endCompanyAccessRes()                 {}
 func (*PreconditionFailedHeaders) endRoleAssignmentRes()                {}
 func (*PreconditionFailedHeaders) endRolePermissionRes()                {}
 func (*PreconditionFailedHeaders) endSodRuleRes()                       {}
+func (*PreconditionFailedHeaders) excludeBankStatementLineRes()         {}
 func (*PreconditionFailedHeaders) holdSupplierInvoiceRes()              {}
 func (*PreconditionFailedHeaders) lockFiscalPeriodRes()                 {}
+func (*PreconditionFailedHeaders) matchBankStatementLineRes()           {}
+func (*PreconditionFailedHeaders) matchBankStatementRes()               {}
 func (*PreconditionFailedHeaders) matchSupplierInvoiceRes()             {}
 func (*PreconditionFailedHeaders) openFiscalPeriodRes()                 {}
 func (*PreconditionFailedHeaders) pauseWebhookSubscriptionRes()         {}
@@ -21890,9 +22918,13 @@ func (*PreconditionRequiredHeaders) endCompanyAccessRes()                 {}
 func (*PreconditionRequiredHeaders) endRoleAssignmentRes()                {}
 func (*PreconditionRequiredHeaders) endRolePermissionRes()                {}
 func (*PreconditionRequiredHeaders) endSodRuleRes()                       {}
+func (*PreconditionRequiredHeaders) excludeBankStatementLineRes()         {}
 func (*PreconditionRequiredHeaders) grantRolePermissionRes()              {}
 func (*PreconditionRequiredHeaders) holdSupplierInvoiceRes()              {}
+func (*PreconditionRequiredHeaders) importBankStatementsRes()             {}
 func (*PreconditionRequiredHeaders) lockFiscalPeriodRes()                 {}
+func (*PreconditionRequiredHeaders) matchBankStatementLineRes()           {}
+func (*PreconditionRequiredHeaders) matchBankStatementRes()               {}
 func (*PreconditionRequiredHeaders) matchSupplierInvoiceRes()             {}
 func (*PreconditionRequiredHeaders) openFiscalPeriodRes()                 {}
 func (*PreconditionRequiredHeaders) parkJournalEntryRes()                 {}
@@ -27990,10 +29022,15 @@ func (*ServiceUnavailableHeaders) endCompanyAccessRes()                 {}
 func (*ServiceUnavailableHeaders) endRoleAssignmentRes()                {}
 func (*ServiceUnavailableHeaders) endRolePermissionRes()                {}
 func (*ServiceUnavailableHeaders) endSodRuleRes()                       {}
+func (*ServiceUnavailableHeaders) excludeBankStatementLineRes()         {}
+func (*ServiceUnavailableHeaders) getBankStatementFileRes()             {}
 func (*ServiceUnavailableHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*ServiceUnavailableHeaders) grantRolePermissionRes()              {}
 func (*ServiceUnavailableHeaders) holdSupplierInvoiceRes()              {}
+func (*ServiceUnavailableHeaders) importBankStatementsRes()             {}
 func (*ServiceUnavailableHeaders) lockFiscalPeriodRes()                 {}
+func (*ServiceUnavailableHeaders) matchBankStatementLineRes()           {}
+func (*ServiceUnavailableHeaders) matchBankStatementRes()               {}
 func (*ServiceUnavailableHeaders) matchSupplierInvoiceRes()             {}
 func (*ServiceUnavailableHeaders) openFiscalPeriodRes()                 {}
 func (*ServiceUnavailableHeaders) parkJournalEntryRes()                 {}
@@ -28419,6 +29456,405 @@ func (s *SodRulePageHeaders) SetResponse(val SodRulePage) {
 }
 
 func (*SodRulePageHeaders) listSodRulesRes() {}
+
+// A person's match of a line: the payments it clears or a posting rule, not both, and why.
+// Ref: #/components/schemas/StatementLineMatchInput
+type StatementLineMatchInput struct {
+	// The payments the line clears.
+	PaymentIds []uuid.UUID `json:"payment_ids"`
+	// The transaction code of the company's posting rule that posts the line.
+	PostingRule OptString `json:"posting_rule"`
+	// Why; recorded in the audit trail and on the resulting event.
+	Reason string `json:"reason"`
+}
+
+// GetPaymentIds returns the value of PaymentIds.
+func (s *StatementLineMatchInput) GetPaymentIds() []uuid.UUID {
+	return s.PaymentIds
+}
+
+// GetPostingRule returns the value of PostingRule.
+func (s *StatementLineMatchInput) GetPostingRule() OptString {
+	return s.PostingRule
+}
+
+// GetReason returns the value of Reason.
+func (s *StatementLineMatchInput) GetReason() string {
+	return s.Reason
+}
+
+// SetPaymentIds sets the value of PaymentIds.
+func (s *StatementLineMatchInput) SetPaymentIds(val []uuid.UUID) {
+	s.PaymentIds = val
+}
+
+// SetPostingRule sets the value of PostingRule.
+func (s *StatementLineMatchInput) SetPostingRule(val OptString) {
+	s.PostingRule = val
+}
+
+// SetReason sets the value of Reason.
+func (s *StatementLineMatchInput) SetReason(val string) {
+	s.Reason = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/StatementMatch
+type StatementMatch struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The bank statement of the line.
+	BankStatementID uuid.UUID `json:"bank_statement_id"`
+	// The line's number in the statement.
+	LineNo int32 `json:"line_no"`
+	// Who made it. Open enumeration: clients must accept and preserve values not listed here; values may
+	// be added within /v1.
+	Kind string `json:"kind"`
+	// The matching rule of a rule's match. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Rule OptString `json:"rule"`
+	// What the rule found, or the person's reason.
+	Reason string `json:"reason"`
+	// Open: candidates for a person to choose from; matched: the targets decided; excluded: the line
+	// clears nothing; rejected: replaced by a person's decision. Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// What it clears: of an open match, each candidate's targets under its number; of a match decided,
+	// candidate 1's; none when excluded.
+	Targets []StatementMatchTarget `json:"targets"`
+}
+
+// GetID returns the value of ID.
+func (s *StatementMatch) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *StatementMatch) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *StatementMatch) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *StatementMatch) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *StatementMatch) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *StatementMatch) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetBankStatementID returns the value of BankStatementID.
+func (s *StatementMatch) GetBankStatementID() uuid.UUID {
+	return s.BankStatementID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *StatementMatch) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetKind returns the value of Kind.
+func (s *StatementMatch) GetKind() string {
+	return s.Kind
+}
+
+// GetRule returns the value of Rule.
+func (s *StatementMatch) GetRule() OptString {
+	return s.Rule
+}
+
+// GetReason returns the value of Reason.
+func (s *StatementMatch) GetReason() string {
+	return s.Reason
+}
+
+// GetStatus returns the value of Status.
+func (s *StatementMatch) GetStatus() string {
+	return s.Status
+}
+
+// GetTargets returns the value of Targets.
+func (s *StatementMatch) GetTargets() []StatementMatchTarget {
+	return s.Targets
+}
+
+// SetID sets the value of ID.
+func (s *StatementMatch) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *StatementMatch) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *StatementMatch) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *StatementMatch) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *StatementMatch) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *StatementMatch) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetBankStatementID sets the value of BankStatementID.
+func (s *StatementMatch) SetBankStatementID(val uuid.UUID) {
+	s.BankStatementID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *StatementMatch) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetKind sets the value of Kind.
+func (s *StatementMatch) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetRule sets the value of Rule.
+func (s *StatementMatch) SetRule(val OptString) {
+	s.Rule = val
+}
+
+// SetReason sets the value of Reason.
+func (s *StatementMatch) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetStatus sets the value of Status.
+func (s *StatementMatch) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetTargets sets the value of Targets.
+func (s *StatementMatch) SetTargets(val []StatementMatchTarget) {
+	s.Targets = val
+}
+
+// StatementMatchHeaders wraps StatementMatch with response headers.
+type StatementMatchHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           StatementMatch
+}
+
+// GetETag returns the value of ETag.
+func (s *StatementMatchHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *StatementMatchHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *StatementMatchHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *StatementMatchHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *StatementMatchHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *StatementMatchHeaders) GetResponse() StatementMatch {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *StatementMatchHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *StatementMatchHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *StatementMatchHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *StatementMatchHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *StatementMatchHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *StatementMatchHeaders) SetResponse(val StatementMatch) {
+	s.Response = val
+}
+
+func (*StatementMatchHeaders) excludeBankStatementLineRes() {}
+func (*StatementMatchHeaders) matchBankStatementLineRes()   {}
+
+// A bank statement's matches.
+// Ref: #/components/schemas/StatementMatchList
+type StatementMatchList struct {
+	Items []StatementMatch `json:"items"`
+}
+
+// GetItems returns the value of Items.
+func (s *StatementMatchList) GetItems() []StatementMatch {
+	return s.Items
+}
+
+// SetItems sets the value of Items.
+func (s *StatementMatchList) SetItems(val []StatementMatch) {
+	s.Items = val
+}
+
+// StatementMatchListHeaders wraps StatementMatchList with response headers.
+type StatementMatchListHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           StatementMatchList
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *StatementMatchListHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *StatementMatchListHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *StatementMatchListHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *StatementMatchListHeaders) GetResponse() StatementMatchList {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *StatementMatchListHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *StatementMatchListHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *StatementMatchListHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *StatementMatchListHeaders) SetResponse(val StatementMatchList) {
+	s.Response = val
+}
+
+func (*StatementMatchListHeaders) listBankStatementMatchesRes() {}
+
+// A payment, with the bank file of a batch booking, or a posting rule.
+// Ref: #/components/schemas/StatementMatchTarget
+type StatementMatchTarget struct {
+	// The candidate it belongs to.
+	Candidate int32 `json:"candidate"`
+	// The payment cleared.
+	PaymentID OptUUID `json:"payment_id"`
+	// The bank file of a batch booking the payment was in.
+	BankFileID OptUUID `json:"bank_file_id"`
+	// The transaction code of the company's posting rule.
+	PostingRule OptString `json:"posting_rule"`
+}
+
+// GetCandidate returns the value of Candidate.
+func (s *StatementMatchTarget) GetCandidate() int32 {
+	return s.Candidate
+}
+
+// GetPaymentID returns the value of PaymentID.
+func (s *StatementMatchTarget) GetPaymentID() OptUUID {
+	return s.PaymentID
+}
+
+// GetBankFileID returns the value of BankFileID.
+func (s *StatementMatchTarget) GetBankFileID() OptUUID {
+	return s.BankFileID
+}
+
+// GetPostingRule returns the value of PostingRule.
+func (s *StatementMatchTarget) GetPostingRule() OptString {
+	return s.PostingRule
+}
+
+// SetCandidate sets the value of Candidate.
+func (s *StatementMatchTarget) SetCandidate(val int32) {
+	s.Candidate = val
+}
+
+// SetPaymentID sets the value of PaymentID.
+func (s *StatementMatchTarget) SetPaymentID(val OptUUID) {
+	s.PaymentID = val
+}
+
+// SetBankFileID sets the value of BankFileID.
+func (s *StatementMatchTarget) SetBankFileID(val OptUUID) {
+	s.BankFileID = val
+}
+
+// SetPostingRule sets the value of PostingRule.
+func (s *StatementMatchTarget) SetPostingRule(val OptString) {
+	s.PostingRule = val
+}
 
 // Company-specific supplier data.
 // Ref: #/components/schemas/SupplierCompany
@@ -29743,6 +31179,7 @@ func (*TooManyRequestsHeaders) endCompanyAccessRes()                 {}
 func (*TooManyRequestsHeaders) endRoleAssignmentRes()                {}
 func (*TooManyRequestsHeaders) endRolePermissionRes()                {}
 func (*TooManyRequestsHeaders) endSodRuleRes()                       {}
+func (*TooManyRequestsHeaders) excludeBankStatementLineRes()         {}
 func (*TooManyRequestsHeaders) getAccountRes()                       {}
 func (*TooManyRequestsHeaders) getAgentSessionRes()                  {}
 func (*TooManyRequestsHeaders) getAiPolicyRes()                      {}
@@ -29752,6 +31189,8 @@ func (*TooManyRequestsHeaders) getApprovalRequestRes()               {}
 func (*TooManyRequestsHeaders) getBankAccountRes()                   {}
 func (*TooManyRequestsHeaders) getBankFileContentRes()               {}
 func (*TooManyRequestsHeaders) getBankFileRes()                      {}
+func (*TooManyRequestsHeaders) getBankStatementFileRes()             {}
+func (*TooManyRequestsHeaders) getBankStatementRes()                 {}
 func (*TooManyRequestsHeaders) getBusinessPartnerRes()               {}
 func (*TooManyRequestsHeaders) getChangeRequestRes()                 {}
 func (*TooManyRequestsHeaders) getClearingRes()                      {}
@@ -29792,6 +31231,7 @@ func (*TooManyRequestsHeaders) getWebhookDeliveryRes()               {}
 func (*TooManyRequestsHeaders) getWebhookSubscriptionRes()           {}
 func (*TooManyRequestsHeaders) grantRolePermissionRes()              {}
 func (*TooManyRequestsHeaders) holdSupplierInvoiceRes()              {}
+func (*TooManyRequestsHeaders) importBankStatementsRes()             {}
 func (*TooManyRequestsHeaders) listAccountsRes()                     {}
 func (*TooManyRequestsHeaders) listAgentSessionsRes()                {}
 func (*TooManyRequestsHeaders) listAgentToolCallsRes()               {}
@@ -29800,6 +31240,8 @@ func (*TooManyRequestsHeaders) listAuditEventsRes()                  {}
 func (*TooManyRequestsHeaders) listBalancesRes()                     {}
 func (*TooManyRequestsHeaders) listBankAccountsRes()                 {}
 func (*TooManyRequestsHeaders) listBankFilesRes()                    {}
+func (*TooManyRequestsHeaders) listBankStatementMatchesRes()         {}
+func (*TooManyRequestsHeaders) listBankStatementsRes()               {}
 func (*TooManyRequestsHeaders) listBusinessPartnersRes()             {}
 func (*TooManyRequestsHeaders) listChangeRequestsRes()               {}
 func (*TooManyRequestsHeaders) listClearingsRes()                    {}
@@ -29840,6 +31282,8 @@ func (*TooManyRequestsHeaders) listSupplierInvoicesRes()             {}
 func (*TooManyRequestsHeaders) listWebhookDeliveriesRes()            {}
 func (*TooManyRequestsHeaders) listWebhookSubscriptionsRes()         {}
 func (*TooManyRequestsHeaders) lockFiscalPeriodRes()                 {}
+func (*TooManyRequestsHeaders) matchBankStatementLineRes()           {}
+func (*TooManyRequestsHeaders) matchBankStatementRes()               {}
 func (*TooManyRequestsHeaders) matchSupplierInvoiceRes()             {}
 func (*TooManyRequestsHeaders) openFiscalPeriodRes()                 {}
 func (*TooManyRequestsHeaders) parkJournalEntryRes()                 {}
@@ -30015,6 +31459,7 @@ func (*UnauthorizedHeaders) endCompanyAccessRes()                 {}
 func (*UnauthorizedHeaders) endRoleAssignmentRes()                {}
 func (*UnauthorizedHeaders) endRolePermissionRes()                {}
 func (*UnauthorizedHeaders) endSodRuleRes()                       {}
+func (*UnauthorizedHeaders) excludeBankStatementLineRes()         {}
 func (*UnauthorizedHeaders) getAccountRes()                       {}
 func (*UnauthorizedHeaders) getAgentSessionRes()                  {}
 func (*UnauthorizedHeaders) getAiPolicyRes()                      {}
@@ -30024,6 +31469,8 @@ func (*UnauthorizedHeaders) getApprovalRequestRes()               {}
 func (*UnauthorizedHeaders) getBankAccountRes()                   {}
 func (*UnauthorizedHeaders) getBankFileContentRes()               {}
 func (*UnauthorizedHeaders) getBankFileRes()                      {}
+func (*UnauthorizedHeaders) getBankStatementFileRes()             {}
+func (*UnauthorizedHeaders) getBankStatementRes()                 {}
 func (*UnauthorizedHeaders) getBusinessPartnerRes()               {}
 func (*UnauthorizedHeaders) getChangeRequestRes()                 {}
 func (*UnauthorizedHeaders) getClearingRes()                      {}
@@ -30064,6 +31511,7 @@ func (*UnauthorizedHeaders) getWebhookDeliveryRes()               {}
 func (*UnauthorizedHeaders) getWebhookSubscriptionRes()           {}
 func (*UnauthorizedHeaders) grantRolePermissionRes()              {}
 func (*UnauthorizedHeaders) holdSupplierInvoiceRes()              {}
+func (*UnauthorizedHeaders) importBankStatementsRes()             {}
 func (*UnauthorizedHeaders) listAccountsRes()                     {}
 func (*UnauthorizedHeaders) listAgentSessionsRes()                {}
 func (*UnauthorizedHeaders) listAgentToolCallsRes()               {}
@@ -30072,6 +31520,8 @@ func (*UnauthorizedHeaders) listAuditEventsRes()                  {}
 func (*UnauthorizedHeaders) listBalancesRes()                     {}
 func (*UnauthorizedHeaders) listBankAccountsRes()                 {}
 func (*UnauthorizedHeaders) listBankFilesRes()                    {}
+func (*UnauthorizedHeaders) listBankStatementMatchesRes()         {}
+func (*UnauthorizedHeaders) listBankStatementsRes()               {}
 func (*UnauthorizedHeaders) listBusinessPartnersRes()             {}
 func (*UnauthorizedHeaders) listChangeRequestsRes()               {}
 func (*UnauthorizedHeaders) listClearingsRes()                    {}
@@ -30112,6 +31562,8 @@ func (*UnauthorizedHeaders) listSupplierInvoicesRes()             {}
 func (*UnauthorizedHeaders) listWebhookDeliveriesRes()            {}
 func (*UnauthorizedHeaders) listWebhookSubscriptionsRes()         {}
 func (*UnauthorizedHeaders) lockFiscalPeriodRes()                 {}
+func (*UnauthorizedHeaders) matchBankStatementLineRes()           {}
+func (*UnauthorizedHeaders) matchBankStatementRes()               {}
 func (*UnauthorizedHeaders) matchSupplierInvoiceRes()             {}
 func (*UnauthorizedHeaders) openFiscalPeriodRes()                 {}
 func (*UnauthorizedHeaders) parkJournalEntryRes()                 {}
@@ -30276,10 +31728,14 @@ func (*UnprocessableHeaders) endCompanyAccessRes()                 {}
 func (*UnprocessableHeaders) endRoleAssignmentRes()                {}
 func (*UnprocessableHeaders) endRolePermissionRes()                {}
 func (*UnprocessableHeaders) endSodRuleRes()                       {}
+func (*UnprocessableHeaders) excludeBankStatementLineRes()         {}
 func (*UnprocessableHeaders) getAnalyticsModelRes()                {}
 func (*UnprocessableHeaders) grantRolePermissionRes()              {}
 func (*UnprocessableHeaders) holdSupplierInvoiceRes()              {}
+func (*UnprocessableHeaders) importBankStatementsRes()             {}
 func (*UnprocessableHeaders) lockFiscalPeriodRes()                 {}
+func (*UnprocessableHeaders) matchBankStatementLineRes()           {}
+func (*UnprocessableHeaders) matchBankStatementRes()               {}
 func (*UnprocessableHeaders) matchSupplierInvoiceRes()             {}
 func (*UnprocessableHeaders) openFiscalPeriodRes()                 {}
 func (*UnprocessableHeaders) parkJournalEntryRes()                 {}

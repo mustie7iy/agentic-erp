@@ -135,3 +135,84 @@ func TestParse(t *testing.T) {
 		}
 	})
 }
+
+// TestFetch: the bank's statements are listed in name order without hidden
+// files or directories, read whole or cut past the limit, and moved once:
+// a move whose acknowledgement was lost, or of the same file delivered
+// again, ends with the file at its target once.
+func TestFetch(t *testing.T) {
+	client := sftptest.Signer(t)
+	b := sftptest.NewServer(t, client.PublicKey(), func(*sftptest.Server) {})
+	b.Mkdir(t, "/in")
+	b.Mkdir(t, "/in/sub")
+	b.Mkdir(t, "/archive")
+	b.Put(t, "/in/b.sta", "second")
+	b.Put(t, "/in/a.sta", "first")
+	b.Put(t, "/in/.partial-c.sta", "still coming")
+	e, ctx := b.Endpoint(client), context.Background()
+	names, err := e.List(ctx, "/in")
+	if err != nil || strings.Join(names, ",") != "a.sta,b.sta" {
+		t.Fatalf("List: got %v %v, want a.sta,b.sta", names, err)
+	}
+	t.Run("read", func(t *testing.T) {
+		for limit, want := range map[int64]string{5: "first", 3: "firs"} {
+			if got, err := e.Read(ctx, "/in", "a.sta", limit); err != nil || string(got) != want {
+				t.Errorf("Read with limit %d: got %q %v, want %q", limit, got, err, want)
+			}
+		}
+	})
+	t.Run("move", func(t *testing.T) {
+		if err := e.Move(ctx, "/in/a.sta", "/archive/a.sta"); err != nil {
+			t.Fatalf("Move: %v", err)
+		}
+		if err := e.Move(ctx, "/in/a.sta", "/archive/a.sta"); err != nil {
+			t.Errorf("Move again: got %v, want it moved before", err)
+		}
+		b.Put(t, "/in/a.sta", "first")
+		if err := e.Move(ctx, "/in/a.sta", "/archive/a.sta"); err != nil {
+			t.Errorf("Move of the same file again: got %v, want it removed", err)
+		}
+		if _, ok := b.Read(t, "/in/a.sta"); ok {
+			t.Error("the same file again: got it left in place, want it removed")
+		}
+		if got, _ := b.Read(t, "/archive/a.sta"); got != "first" {
+			t.Errorf("archived: got %q, want first", got)
+		}
+	})
+}
+
+func TestFetchFailures(t *testing.T) {
+	client := sftptest.Signer(t)
+	setup := func(t *testing.T, configure func(*sftptest.Server)) (sftpclient.Endpoint, *sftptest.Server) {
+		t.Helper()
+		b := sftptest.NewServer(t, client.PublicKey(), configure)
+		b.Put(t, "/a.sta", "first")
+		b.Put(t, "/done", "first")
+		return b.Endpoint(client), b
+	}
+	ctx := context.Background()
+	for name, c := range map[string]struct {
+		configure func(*sftptest.Server)
+		call      func(e sftpclient.Endpoint) error
+		want      string
+	}{
+		"list refused":  {func(b *sftptest.Server) { b.FailList = true }, func(e sftpclient.Endpoint) error { _, err := e.List(ctx, "/"); return err }, "list /"},
+		"no directory":  {func(*sftptest.Server) {}, func(e sftpclient.Endpoint) error { _, err := e.List(ctx, "/none"); return err }, "list /none"},
+		"list no key":   {func(*sftptest.Server) {}, func(e sftpclient.Endpoint) error { e.Signer = nil; _, err := e.List(ctx, "/"); return err }, "no client key"},
+		"read refused":  {func(b *sftptest.Server) { b.FailRead = true }, func(e sftpclient.Endpoint) error { _, err := e.Read(ctx, "/", "a.sta", 9); return err }, "read /a.sta"},
+		"no such file":  {func(*sftptest.Server) {}, func(e sftpclient.Endpoint) error { _, err := e.Read(ctx, "/", "b.sta", 9); return err }, "open /b.sta"},
+		"read a path":   {func(*sftptest.Server) {}, func(e sftpclient.Endpoint) error { _, err := e.Read(ctx, "/", "../a.sta", 9); return err }, "not a file name"},
+		"read a folder": {func(b *sftptest.Server) { b.Mkdir(t, "/d") }, func(e sftpclient.Endpoint) error { _, err := e.Read(ctx, "/", "d", 9); return err }, "/d"},
+		"rename refused, nothing at the target": {func(b *sftptest.Server) { b.FailRename = true },
+			func(e sftpclient.Endpoint) error { return e.Move(ctx, "/a.sta", "/b.sta") }, "rename /a.sta to /b.sta"},
+		"remove refused": {func(b *sftptest.Server) { b.FailRemove = true },
+			func(e sftpclient.Endpoint) error { return e.Move(ctx, "/a.sta", "/done") }, "remove /a.sta, already at /done"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e, _ := setup(t, c.configure)
+			if err := c.call(e); err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("got %v, want an error naming %s", err, c.want)
+			}
+		})
+	}
+}

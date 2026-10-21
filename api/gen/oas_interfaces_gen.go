@@ -221,6 +221,10 @@ type EndSodRuleRes interface {
 	endSodRuleRes()
 }
 
+type ExcludeBankStatementLineRes interface {
+	excludeBankStatementLineRes()
+}
+
 type GetAccountRes interface {
 	getAccountRes()
 }
@@ -255,6 +259,14 @@ type GetBankFileContentRes interface {
 
 type GetBankFileRes interface {
 	getBankFileRes()
+}
+
+type GetBankStatementFileRes interface {
+	getBankStatementFileRes()
+}
+
+type GetBankStatementRes interface {
+	getBankStatementRes()
 }
 
 type GetBusinessPartnerRes interface {
@@ -417,6 +429,10 @@ type HoldSupplierInvoiceRes interface {
 	holdSupplierInvoiceRes()
 }
 
+type ImportBankStatementsRes interface {
+	importBankStatementsRes()
+}
+
 type ListAccountsRes interface {
 	listAccountsRes()
 }
@@ -447,6 +463,14 @@ type ListBankAccountsRes interface {
 
 type ListBankFilesRes interface {
 	listBankFilesRes()
+}
+
+type ListBankStatementMatchesRes interface {
+	listBankStatementMatchesRes()
+}
+
+type ListBankStatementsRes interface {
+	listBankStatementsRes()
 }
 
 type ListBusinessPartnersRes interface {
@@ -607,6 +631,14 @@ type ListWebhookSubscriptionsRes interface {
 
 type LockFiscalPeriodRes interface {
 	lockFiscalPeriodRes()
+}
+
+type MatchBankStatementLineRes interface {
+	matchBankStatementLineRes()
+}
+
+type MatchBankStatementRes interface {
+	matchBankStatementRes()
 }
 
 type MatchSupplierInvoiceRes interface {
