@@ -228,7 +228,7 @@ func Configuration(cfg Config) configuration.Dependencies {
 		Actors:    identity.Actors{},
 		RuleSamplers: map[string]rules.Sampler{"supplier_invoice": payables.RuleSamples{}, "purchase_order": procurement.RuleSamples{},
 			"business_partner": partner.RuleSamples{}},
-		Disclosures: []configuration.Disclosure{endpoint.Disclosure{Endpoints: analyticsEndpoints(cfg, nil)}},
+		Disclosures: []configuration.Disclosure{payables.Disclosure{}, endpoint.Disclosure{Endpoints: analyticsEndpoints(cfg, nil)}},
 	}
 }
 

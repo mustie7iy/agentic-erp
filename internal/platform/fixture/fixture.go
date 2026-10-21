@@ -116,7 +116,8 @@ func Deps() configuration.Dependencies {
 		Simulator: payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates},
 		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates}, Actors: identity.Actors{},
 		RuleSamplers: map[string]rules.Sampler{"supplier_invoice": payables.RuleSamples{}, "purchase_order": procurement.RuleSamples{},
-			"business_partner": partner.RuleSamples{}}}
+			"business_partner": partner.RuleSamples{}},
+		Disclosures: []configuration.Disclosure{payables.Disclosure{}}}
 }
 
 // Env is a configured tenant.

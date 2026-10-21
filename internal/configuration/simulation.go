@@ -45,10 +45,11 @@ type Simulator interface {
 
 // Disclosure limits what the reader of a change request is shown of its
 // evidence: a context whose simulation records values the reader may not
-// see (the analytics context's metric values of companies they may not
-// access) withholds them, in the reader's request, and so does any count
-// over them in the summary. It returns the evidence to show; an error
-// fails the read rather than show the evidence whole.
+// see (the payables context's invoices and the analytics context's metric
+// values of companies they may not access) withholds them, in the reader's
+// request, and so does any count over them in the summary. It returns the
+// evidence to show; an error fails the read rather than show the evidence
+// whole.
 type Disclosure interface {
 	Disclose(ctx context.Context, e Evidence) (Evidence, error)
 }

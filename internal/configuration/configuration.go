@@ -88,7 +88,7 @@ type Dependencies struct {
 	// RuleSamplers read each entity's recent rows, on which a simulation
 	// replays proposed validation rules (ADR-0046), by entity.
 	RuleSamplers map[string]rules.Sampler
-	Disclosures  []Disclosure // what a reader is shown of evidence (the analytics context's metric values)
+	Disclosures  []Disclosure // what a reader is shown of evidence (the payables context's invoices by company, the analytics context's metric values)
 }
 
 // Actors reads who deferred work acts as: the person who queued it
