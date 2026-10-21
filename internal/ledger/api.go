@@ -38,6 +38,10 @@ func entryToAPI(e Entry) gen.JournalEntry {
 			line.PoItemNo.SetTo(*l.POItemNo)
 		}
 		line.SpecialGl = apitypes.OptString(l.SpecialGL)
+		if l.TaxBase != nil {
+			line.TaxBase.SetTo(apitypes.Money(*l.TaxBase, e.CurrencyTC, e.ExpTC))
+			line.TaxBaseLc.SetTo(apitypes.Money(*l.TaxBaseLC, e.CurrencyLC, e.ExpLC))
+		}
 		out.Lines[i] = line
 	}
 	if e.TaxDate != nil {
@@ -224,6 +228,9 @@ func newEntry(req *gen.JournalEntryCreate) NewEntry {
 			TaxCode: apitypes.Ptr[string](l.TaxCode), Text: apitypes.Ptr[string](l.LineText)}
 		if q, ok := l.Quantity.Get(); ok {
 			line.Quantity, line.Unit = &q.Value, &q.Unit
+		}
+		if b, ok := l.TaxBase.Get(); ok {
+			line.TaxBase, line.TaxBaseCurrency = &b.Amount, b.Currency
 		}
 		in.Lines[i] = line
 	}

@@ -34,6 +34,9 @@ func parkedToAPI(pe ParkedEntry) gen.ParkedJournalEntry {
 		if l.Quantity != nil {
 			line.Quantity.SetTo(gen.Quantity{Value: *l.Quantity, Unit: *l.Unit})
 		}
+		if l.TaxBase != nil {
+			line.TaxBase.SetTo(apitypes.Money(*l.TaxBase, pe.Currency, pe.Exp))
+		}
 		out.Lines[i] = line
 	}
 	return out

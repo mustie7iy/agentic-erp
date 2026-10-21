@@ -830,6 +830,15 @@ invoice's net, the default, or gross, deducted at invoice or at payment, to
 a liability that reconciles no supplier, the withholding tax payable; a code
 the document no longer has is deactivated).
 
+A journal line may declare a tax base (`tax_base_tc`, `tax_base_lc`;
+migration 000144, T61e, ADR-0049 §9): a tax line of an `import` code posted
+from a customs declaration, whose base, the declared value, no line of the
+entry carries; both or neither, only with a tax code
+(`journal_line_tax_base`), only on a component's account of an import code
+(trigger `journal_line_tax_base_import`); the component's item takes it. A
+parked line keeps it as `parked_entry_line.tax_base`
+(`parked_entry_line_tax_base`).
+
 Tax items (T61c, ADR-0049 §5; migrations 000141-000142): `tax_item`, one per
 entry of the leading ledger (a parallel ledger's copies and entries have
 none, `tax_item_leading`; a parallel ledger's entry that is no copy of a

@@ -18671,6 +18671,12 @@ type JournalLine struct {
 	// payment account. Absent on ordinary lines. Open enumeration: clients must accept and preserve values
 	// not listed here; values may be added within /v1.
 	SpecialGl OptString `json:"special_gl"`
+	// A tax line's declared base (ADR-0049 §9): the declared value an import's tax from a customs
+	// declaration is on, which no line of the entry carries; its code's tax item takes it as its base.
+	// Absent on other lines.
+	TaxBase OptMoney `json:"tax_base"`
+	// The declared base in local currency, converted with the entry's rate; set with `tax_base`.
+	TaxBaseLc OptMoney `json:"tax_base_lc"`
 	// Line text.
 	LineText OptString `json:"line_text"`
 }
@@ -18728,6 +18734,16 @@ func (s *JournalLine) GetPoItemNo() OptInt32 {
 // GetSpecialGl returns the value of SpecialGl.
 func (s *JournalLine) GetSpecialGl() OptString {
 	return s.SpecialGl
+}
+
+// GetTaxBase returns the value of TaxBase.
+func (s *JournalLine) GetTaxBase() OptMoney {
+	return s.TaxBase
+}
+
+// GetTaxBaseLc returns the value of TaxBaseLc.
+func (s *JournalLine) GetTaxBaseLc() OptMoney {
+	return s.TaxBaseLc
 }
 
 // GetLineText returns the value of LineText.
@@ -18790,6 +18806,16 @@ func (s *JournalLine) SetSpecialGl(val OptString) {
 	s.SpecialGl = val
 }
 
+// SetTaxBase sets the value of TaxBase.
+func (s *JournalLine) SetTaxBase(val OptMoney) {
+	s.TaxBase = val
+}
+
+// SetTaxBaseLc sets the value of TaxBaseLc.
+func (s *JournalLine) SetTaxBaseLc(val OptMoney) {
+	s.TaxBaseLc = val
+}
+
 // SetLineText sets the value of LineText.
 func (s *JournalLine) SetLineText(val OptString) {
 	s.LineText = val
@@ -18806,6 +18832,13 @@ type JournalLineInput struct {
 	PartnerID OptUUID `json:"partner_id"`
 	// Tax code.
 	TaxCode OptString `json:"tax_code"`
+	// Declared tax base of a tax line of an `import` code (ADR-0049 §9): the import's tax posted from the
+	// customs declaration, as tax lines alone, on the declared value no line of the entry carries. Only on
+	// a line with an import code on one of its components' accounts (422 `ledger.tax_base_not_import`),
+	// never zero (422 `ledger.zero_tax_base`); the line's amount is the tax at the component's rate on the
+	// tax date (the part recovered, or the self-assessed output tax), within one minor unit (422
+	// `ledger.tax_base_mismatch`). The component's tax item takes it as its base.
+	TaxBase OptMoney `json:"tax_base"`
 	// Quantity.
 	Quantity OptQuantity `json:"quantity"`
 	// Line text.
@@ -18830,6 +18863,11 @@ func (s *JournalLineInput) GetPartnerID() OptUUID {
 // GetTaxCode returns the value of TaxCode.
 func (s *JournalLineInput) GetTaxCode() OptString {
 	return s.TaxCode
+}
+
+// GetTaxBase returns the value of TaxBase.
+func (s *JournalLineInput) GetTaxBase() OptMoney {
+	return s.TaxBase
 }
 
 // GetQuantity returns the value of Quantity.
@@ -18860,6 +18898,11 @@ func (s *JournalLineInput) SetPartnerID(val OptUUID) {
 // SetTaxCode sets the value of TaxCode.
 func (s *JournalLineInput) SetTaxCode(val OptString) {
 	s.TaxCode = val
+}
+
+// SetTaxBase sets the value of TaxBase.
+func (s *JournalLineInput) SetTaxBase(val OptMoney) {
+	s.TaxBase = val
 }
 
 // SetQuantity sets the value of Quantity.
@@ -25394,6 +25437,8 @@ type ParkedJournalLine struct {
 	PartnerID OptUUID `json:"partner_id"`
 	// Tax code.
 	TaxCode OptString `json:"tax_code"`
+	// The line's declared tax base (JournalLineInput `tax_base`), absent when it declares none.
+	TaxBase OptMoney `json:"tax_base"`
 	// Quantity, where relevant.
 	Quantity OptQuantity `json:"quantity"`
 	// Line text.
@@ -25423,6 +25468,11 @@ func (s *ParkedJournalLine) GetPartnerID() OptUUID {
 // GetTaxCode returns the value of TaxCode.
 func (s *ParkedJournalLine) GetTaxCode() OptString {
 	return s.TaxCode
+}
+
+// GetTaxBase returns the value of TaxBase.
+func (s *ParkedJournalLine) GetTaxBase() OptMoney {
+	return s.TaxBase
 }
 
 // GetQuantity returns the value of Quantity.
@@ -25458,6 +25508,11 @@ func (s *ParkedJournalLine) SetPartnerID(val OptUUID) {
 // SetTaxCode sets the value of TaxCode.
 func (s *ParkedJournalLine) SetTaxCode(val OptString) {
 	s.TaxCode = val
+}
+
+// SetTaxBase sets the value of TaxBase.
+func (s *ParkedJournalLine) SetTaxBase(val OptMoney) {
+	s.TaxBase = val
 }
 
 // SetQuantity sets the value of Quantity.

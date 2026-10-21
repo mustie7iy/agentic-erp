@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/tax"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -351,6 +352,17 @@ func (t TaxCode) Single() (TaxComponent, bool) {
 	c := t.Components[0]
 	ok := (c.AccountKey == "input" || c.AccountKey == "output") && c.AccountID != nil && c.RecoverablePct == "100"
 	return c, ok
+}
+
+// Calculable is the code as the calculator takes it (tax.Code), with each
+// component's rate on the date it was read on.
+func (t TaxCode) Calculable() tax.Code {
+	c := tax.Code{Code: t.Code, Kind: t.Kind}
+	for _, k := range t.Components {
+		c.Components = append(c.Components, tax.Component{Key: k.Key, Jurisdiction: k.Jurisdiction, AccountKey: k.AccountKey,
+			RecoverablePct: k.RecoverablePct, Rates: []tax.Rate{{Pct: k.RatePct}}})
+	}
+	return c
 }
 
 // TaxCode returns the legal entity's tax code valid on the date: one with a

@@ -66,7 +66,8 @@ const parkedSelect = `SELECT p.id, p.legal_entity_id, p.ledger_id, p.document_ty
 		p.version, p.created_at, p.created_by, p.updated_at, p.updated_by, p.ledger_specific,
 		(SELECT g.code FROM ledger.ledger_group g WHERE g.tenant_id = p.tenant_id AND g.id = p.ledger_group_id),
 		coalesce((SELECT json_agg(json_build_object('line_no', l.line_no, 'account_id', l.account_id, 'tc', l.amount, 'lc', 0, 'gc', 0,
-			'partner_id', l.partner_id, 'tax_code', l.tax_code, 'quantity', trim_scale(l.quantity)::text, 'unit', l.uom_code, 'text', l.line_text)
+			'partner_id', l.partner_id, 'tax_code', l.tax_code, 'quantity', trim_scale(l.quantity)::text, 'unit', l.uom_code, 'text', l.line_text,
+			'tax_base_tc', l.tax_base)
 			ORDER BY l.line_no)
 		 FROM ledger.parked_entry_line l WHERE l.tenant_id = p.tenant_id AND l.parked_entry_id = p.id AND NOT l.is_removed), '[]'),
 		(SELECT coalesce(sum(l.amount) FILTER (WHERE l.amount > 0), 0)::bigint
@@ -176,18 +177,20 @@ func putParkedLines(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, lines 
 	n := len(lines)
 	nos, accounts, partners, amounts := make([]int32, n), make([]uuid.UUID, n), make([]*uuid.UUID, n), make([]money.Minor, n)
 	taxes, quantities, units, texts := make([]*string, n), make([]*string, n), make([]*string, n), make([]*string, n)
+	bases := make([]*money.Minor, n)
 	for i, l := range lines {
 		nos[i], accounts[i], partners[i], amounts[i] = int32(i+1), l.AccountID, l.PartnerID, l.TC
-		taxes[i], quantities[i], units[i], texts[i] = l.TaxCode, l.Quantity, l.Unit, l.Text
+		taxes[i], quantities[i], units[i], texts[i], bases[i] = l.TaxCode, l.Quantity, l.Unit, l.Text, l.TaxBase
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.parked_entry_line (tenant_id, parked_entry_id, line_no, account_id, amount, partner_id,
-			tax_code, quantity, uom_code, line_text)
-		SELECT $1, $2, n, a, m, pa, tx, q::numeric, u, t
-		FROM unnest($3::int[], $4::uuid[], $5::bigint[], $6::uuid[], $7::text[], $8::text[], $9::text[], $10::text[]) AS x(n, a, m, pa, tx, q, u, t)
+			tax_code, quantity, uom_code, line_text, tax_base)
+		SELECT $1, $2, n, a, m, pa, tx, q::numeric, u, t, b
+		FROM unnest($3::int[], $4::uuid[], $5::bigint[], $6::uuid[], $7::text[], $8::text[], $9::text[], $10::text[], $11::bigint[])
+			AS x(n, a, m, pa, tx, q, u, t, b)
 		ON CONFLICT (tenant_id, parked_entry_id, line_no) DO UPDATE SET account_id = EXCLUDED.account_id, amount = EXCLUDED.amount,
 			partner_id = EXCLUDED.partner_id, tax_code = EXCLUDED.tax_code, quantity = EXCLUDED.quantity, uom_code = EXCLUDED.uom_code,
-			line_text = EXCLUDED.line_text, is_removed = false`,
-		tenant, id, nos, accounts, amounts, partners, taxes, quantities, units, texts); err != nil {
+			line_text = EXCLUDED.line_text, tax_base = EXCLUDED.tax_base, is_removed = false`,
+		tenant, id, nos, accounts, amounts, partners, taxes, quantities, units, texts, bases); err != nil {
 		return fmt.Errorf("ledger: write lines of parked entry %s: %w", id, err)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE ledger.parked_entry_line SET is_removed = true WHERE parked_entry_id = $1 AND line_no > $2 AND NOT is_removed`,
@@ -296,7 +299,11 @@ func changed(pe ParkedEntry, ch EntryChange) NewEntry {
 		in.Lines = make([]NewLine, len(pe.Lines))
 		for i, l := range pe.Lines {
 			in.Lines[i] = NewLine{AccountID: l.AccountID, Amount: l.TC.Plain(pe.Exp), Currency: pe.Currency, PartnerID: l.PartnerID, TaxCode: l.TaxCode,
-				Quantity: l.Quantity, Unit: l.Unit, Text: l.Text}
+				Quantity: l.Quantity, Unit: l.Unit, Text: l.Text, TaxBaseCurrency: pe.Currency}
+			if l.TaxBase != nil {
+				b := l.TaxBase.Plain(pe.Exp)
+				in.Lines[i].TaxBase = &b
+			}
 		}
 	}
 	in.DocumentType = deref(ch.DocumentType, in.DocumentType)

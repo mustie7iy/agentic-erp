@@ -26503,6 +26503,18 @@ func (s *JournalLine) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.TaxBase.Set {
+			e.FieldStart("tax_base")
+			s.TaxBase.Encode(e)
+		}
+	}
+	{
+		if s.TaxBaseLc.Set {
+			e.FieldStart("tax_base_lc")
+			s.TaxBaseLc.Encode(e)
+		}
+	}
+	{
 		if s.LineText.Set {
 			e.FieldStart("line_text")
 			s.LineText.Encode(e)
@@ -26510,7 +26522,7 @@ func (s *JournalLine) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfJournalLine = [12]string{
+var jsonFieldsNameOfJournalLine = [14]string{
 	0:  "line_no",
 	1:  "account_id",
 	2:  "amount",
@@ -26522,7 +26534,9 @@ var jsonFieldsNameOfJournalLine = [12]string{
 	8:  "purchase_order_id",
 	9:  "po_item_no",
 	10: "special_gl",
-	11: "line_text",
+	11: "tax_base",
+	12: "tax_base_lc",
+	13: "line_text",
 }
 
 // Decode decodes JournalLine from json.
@@ -26648,6 +26662,26 @@ func (s *JournalLine) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"special_gl\"")
 			}
+		case "tax_base":
+			if err := func() error {
+				s.TaxBase.Reset()
+				if err := s.TaxBase.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"tax_base\"")
+			}
+		case "tax_base_lc":
+			if err := func() error {
+				s.TaxBaseLc.Reset()
+				if err := s.TaxBaseLc.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"tax_base_lc\"")
+			}
 		case "line_text":
 			if err := func() error {
 				s.LineText.Reset()
@@ -26745,6 +26779,12 @@ func (s *JournalLineInput) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.TaxBase.Set {
+			e.FieldStart("tax_base")
+			s.TaxBase.Encode(e)
+		}
+	}
+	{
 		if s.Quantity.Set {
 			e.FieldStart("quantity")
 			s.Quantity.Encode(e)
@@ -26758,13 +26798,14 @@ func (s *JournalLineInput) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfJournalLineInput = [6]string{
+var jsonFieldsNameOfJournalLineInput = [7]string{
 	0: "account_id",
 	1: "amount",
 	2: "partner_id",
 	3: "tax_code",
-	4: "quantity",
-	5: "line_text",
+	4: "tax_base",
+	5: "quantity",
+	6: "line_text",
 }
 
 // Decode decodes JournalLineInput from json.
@@ -26817,6 +26858,16 @@ func (s *JournalLineInput) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tax_code\"")
+			}
+		case "tax_base":
+			if err := func() error {
+				s.TaxBase.Reset()
+				if err := s.TaxBase.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"tax_base\"")
 			}
 		case "quantity":
 			if err := func() error {
@@ -35286,6 +35337,12 @@ func (s *ParkedJournalLine) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.TaxBase.Set {
+			e.FieldStart("tax_base")
+			s.TaxBase.Encode(e)
+		}
+	}
+	{
 		if s.Quantity.Set {
 			e.FieldStart("quantity")
 			s.Quantity.Encode(e)
@@ -35299,14 +35356,15 @@ func (s *ParkedJournalLine) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfParkedJournalLine = [7]string{
+var jsonFieldsNameOfParkedJournalLine = [8]string{
 	0: "line_no",
 	1: "account_id",
 	2: "amount",
 	3: "partner_id",
 	4: "tax_code",
-	5: "quantity",
-	6: "line_text",
+	5: "tax_base",
+	6: "quantity",
+	7: "line_text",
 }
 
 // Decode decodes ParkedJournalLine from json.
@@ -35371,6 +35429,16 @@ func (s *ParkedJournalLine) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tax_code\"")
+			}
+		case "tax_base":
+			if err := func() error {
+				s.TaxBase.Reset()
+				if err := s.TaxBase.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"tax_base\"")
 			}
 		case "quantity":
 			if err := func() error {

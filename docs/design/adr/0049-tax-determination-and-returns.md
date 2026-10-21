@@ -609,6 +609,41 @@ broker or authority with an `import` input code, its base the declared value:
 the UAE's Box 6 for registrants who account for import VAT in the return
 (output and input), Canada's ITC on 106. From 2026 the UAE needs no self-invoice
 (Federal Decree-Law No. 16 of 2025), so none is generated.
+- **As built (T61e, migration 000144):** reverse charge and self-assessment
+  post from supplier invoices of `reverse_charge` codes as T61d built them:
+  the supplier is owed the base, the `self_output` tax is owed on its
+  account and the `self_input` part recovered on its own, two items, and the
+  part not recovered is a cost on the item's line. Worked cases (payables
+  `TestSelfAssessment`): Canada line 405, imported services used 60% in
+  commercial activities, HST 13% on 1,000.00: 130.00 owed, 78.00 recovered
+  (line 106), 52.00 on the expense; BC PST self-assessed where the vendor
+  charged none, 7% recovering nothing: 70.00 owed and expensed; the UAE's
+  imported services and its domestic reverse charge, 5% on AED 4,000.00:
+  200.00 owed (box 3) and recovered (box 10), netting to zero. The domestic
+  reverse charge is a code the clerk chooses; the buyer's declaration is
+  kept as the invoice's document, as any evidence is (no field of its own).
+  **Import tax from a customs declaration** is a journal entry of tax lines
+  alone (`POST /v1/journal-entries`, or parked first): each line of an
+  `import` code on one of its components' accounts names the declared value
+  as its `tax_base`, which no line of the entry carries
+  (`journal_line.tax_base_tc`/`tax_base_lc`, the local base at the entry's
+  rate; `parked_entry_line.tax_base`). The ledger refuses a base on any
+  other line (422 `ledger.tax_base_not_import`, database trigger
+  `journal_line_tax_base_import`), a zero one, and a line whose amount is
+  not the tax on the base at the component's rate on the tax date (the
+  part recovered, or the self-assessed output tax) within one minor unit
+  (422 `ledger.tax_base_mismatch`). The component's item takes the base.
+  Worked cases (ledger `TestImportFromCustomsDeclaration`): the UAE's box 6,
+  AED 10,000.00 declared, 500.00 self-assessed on 240000 and recovered on
+  140000; Canada's GST paid to the CBSA through a broker, CAD 13,000.00
+  value for duty, 650.00 claimed (line 106) against the customs clearing
+  account. A partly recovered import posts the part recovered on the input
+  account and the rest on an expense line without a code; the claim item's
+  tax is then the part recovered (an item derived from lines has the tax
+  its account carries), which is what box 10 and line 106 read. A reversal
+  negates the bases with the lines. **Not yet:** the base on the posted
+  event (`journal_entry_posted` lines), and a customs declaration as a
+  document of its own (GTS, phase 4).
 
 ### 10. Tax registrations and periods
 A company has **tax registrations** in the configuration (T61h): authority

@@ -1274,9 +1274,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Reverse charge, self-assessment and import tax: output and input pairs from supplier invoices of reverse charge codes with the part not recovered on the expense; worked cases for Canada line 405, BC PST self-assessment, the UAE's imported services and domestic reverse charge; import tax from customs declarations as journal entries of tax lines declaring the base (tax_base), checked against the code's rate; UAE box 6 and Canada's CBSA GST cases",
+        "r": "db/migrations/000144 · journal_line.tax_base_tc · ledger.checkTaxBases · ledger.write_tax_items · payables TestSelfAssessment · ADR-0049 §9 · T61e",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Reverse charge, self-assessment and import tax: output and input pairs, import tax from customs declaration entries, UAE domestic reverse charge, Canada line 405, PST self-assessment",
-        "r": "T61e",
+        "t": "Import tax follow-up: the declared tax base on the journal_entry_posted event's lines (asyncapi), so analytics sees import bases",
+        "r": "ADR-0049 §9 · after T61e",
         "c": []
        },
        {

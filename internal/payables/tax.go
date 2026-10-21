@@ -172,12 +172,7 @@ func (e *Endpoints) taxDocument(ctx context.Context, v Invoice, local string, ta
 			return tax.Document{}, ledger.Conversion{}, invalid("payables.unknown_tax_code", fmt.Sprintf("items[%d].tax_code", i),
 				"Tax code "+code+" is not an input tax code of the legal entity on the tax date "+taxDate.Format(time.DateOnly)+".")
 		}
-		c := tax.Code{Code: code, Kind: t.Kind}
-		for _, k := range t.Components {
-			c.Components = append(c.Components, tax.Component{Key: k.Key, Jurisdiction: k.Jurisdiction, AccountKey: k.AccountKey,
-				RecoverablePct: k.RecoverablePct, Rates: []tax.Rate{{Pct: k.RatePct}}})
-		}
-		doc.Codes[code] = c
+		doc.Codes[code] = t.Calculable()
 	}
 	conv, err := e.Rates.Conversion(ctx, v.Currency, local, taxDate)
 	if err != nil {

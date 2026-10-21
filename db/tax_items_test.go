@@ -431,3 +431,68 @@ func (f fixture) parallelTaxedEntry(tx pgx.Tx) (uuid.UUID, error) {
 	}
 	return je, err
 }
+
+// TestTaxBaseRules: a line's declared base (000144, T61e) is in both
+// currencies or neither, on a line with a tax code, a tax line of an
+// import code; the component's item takes it as its base; a parked line
+// declares one only with a code.
+func TestTaxBaseRules(t *testing.T) {
+	need(t)
+	s := newTaxScene(t)
+	mustApp(t, s.tenant, func(tx pgx.Tx) error {
+		return all(tx, step(`INSERT INTO ledger.tax_code_definition (tenant_id, legal_entity_id, code, description, direction, kind, created_by, updated_by)
+				VALUES ($1, $2, 'IC5', 'Import GST', 'input', 'import', $3, $3)`, s.tenant, s.entity, s.actor),
+			step(`INSERT INTO ledger.tax_component (tenant_id, legal_entity_id, code, component, account_key, recoverable_pct, account_id, created_by, updated_by)
+				VALUES ($1, $2, 'IC5', 'gst', 'input', 100, $3, $4, $4)`, s.tenant, s.entity, s.tax, s.actor),
+			step(`INSERT INTO ledger.tax_rate (tenant_id, id, legal_entity_id, code, component, valid_from, rate_pct, created_by)
+				VALUES ($1, gen_random_uuid(), $2, 'IC5', 'gst', '2026-01-01', 5, $3)`, s.tenant, s.entity, s.actor))
+	})
+	based := func(account uuid.UUID, code string, tc, lc *int64) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			je, err := s.header(tx, true)
+			if err == nil {
+				err = s.taxLine(tx, je, 1, s.bank, -500, "")
+			}
+			if err == nil {
+				err = exec(tx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id, fiscal_period,
+					posting_date, account_id, amount_tc, amount_lc, amount_gc, tax_code, tax_base_tc, tax_base_lc)
+					VALUES ($1,2026,$2,2,$3,$4,3,'2026-03-10',$5,500,500,450,nullif($6, ''),$7,$8)`, s.tenant, je, s.entity, s.ledger, account, code, tc, lc)
+			}
+			if err == nil {
+				err = exec(tx, `SELECT ledger.write_tax_items($1, 2026::smallint, $2, '2026-03-10'::date, false)`, s.tenant, je)
+			}
+			return err
+		}
+	}
+	base, baseLC := int64(10000), int64(9000)
+	var got string
+	mustApp(t, s.tenant, func(tx pgx.Tx) error {
+		if err := based(s.tax, "IC5", &base, &baseLC)(tx); err != nil {
+			return err
+		}
+		return tx.QueryRow(context.Background(), `SELECT string_agg(code || ' ' || base_tc || '/' || base_lc || ' ' || tax_tc, '; ') FROM ledger.tax_item
+			WHERE code = 'IC5'`).Scan(&got)
+	})
+	if want := "IC5 10000/9000 500"; got != want {
+		t.Errorf("items: got %s, want %s", got, want)
+	}
+	for name, c := range map[string]struct {
+		write func(tx pgx.Tx) error
+		fails string
+	}{
+		"in one currency only": {based(s.tax, "IC5", &base, nil), "journal_line_tax_base"},
+		"without a tax code":   {based(s.tax, "", &base, &baseLC), "journal_line_tax_base_import"},
+		"not an import code":   {based(s.tax, "I5", &base, &baseLC), "journal_line_tax_base_import"},
+		"not a tax line":       {based(s.expense, "IC5", &base, &baseLC), "journal_line_tax_base_import"},
+		"a parked line without a code": {func(tx pgx.Tx) error {
+			pe := id()
+			return all(tx, step(`INSERT INTO ledger.parked_entry (tenant_id, id, legal_entity_id, ledger_id, document_type, document_date, posting_date,
+					currency, created_by_kind, owner_id, created_by, updated_by) VALUES ($1, $2, $3, $4, 'SA', '2026-03-10', '2026-03-10', 'USD', 'human', $5, $5, $5)`,
+				s.tenant, pe, s.entity, s.ledger, s.actor),
+				step(`INSERT INTO ledger.parked_entry_line (tenant_id, parked_entry_id, line_no, account_id, amount, tax_base) VALUES ($1, $2, 1, $3, 500, 10000)`,
+					s.tenant, pe, s.tax))
+		}, "parked_entry_line_tax_base"},
+	} {
+		t.Run(name, func(t *testing.T) { failsOn(t, asApp(t, s.tenant, c.write), c.fails) })
+	}
+}

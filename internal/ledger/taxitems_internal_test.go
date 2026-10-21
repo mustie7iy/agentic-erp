@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -43,5 +44,24 @@ func TestGRIRKeptLocalOutOfRange(t *testing.T) {
 	_, err := g.lines(context.Background(), nil)
 	if got := problem.From(err); got == nil || got.Code != "ledger.amount_too_large" {
 		t.Errorf("got %v, want ledger.amount_too_large", err)
+	}
+}
+
+// TestTaxBaseOutOfRange: a declared base whose local amount is out of
+// range is refused with 422 ledger.amount_too_large.
+func TestTaxBaseOutOfRange(t *testing.T) {
+	huge := money.Minor(math.MaxInt64 / 2)
+	err := convertLines([]Line{{TC: 1, TaxBase: &huge}, {TC: -1}}, exchange{exact: big.NewRat(3, 1), shown: "3"}, one, 2, 2, 2)
+	if got := problem.From(err); got == nil || got.Code != "ledger.amount_too_large" {
+		t.Errorf("got %v, want ledger.amount_too_large", err)
+	}
+}
+
+// TestOnAccountInvalidCode: a code the calculator cannot rate is the
+// calculator's error, wrapped.
+func TestOnAccountInvalidCode(t *testing.T) {
+	code := TaxCode{Code: "IC5", Kind: "import", Components: []TaxComponent{{Key: "gst", AccountKey: "input", RecoverablePct: "100", RatePct: "abc"}}}
+	if _, err := onAccount(code, 0, 100, time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)); err == nil {
+		t.Error("got nil error, want the calculator's")
 	}
 }

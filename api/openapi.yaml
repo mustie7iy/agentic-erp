@@ -19047,6 +19047,14 @@ components:
           x-extensible-enum:
             - A
           readOnly: true
+        tax_base:
+          $ref: "#/components/schemas/Money"
+          description: "A tax line's declared base (ADR-0049 §9): the declared value an import's tax from a customs declaration is on, which no line of the entry carries; its code's tax item takes it as its base. Absent on other lines."
+          readOnly: true
+        tax_base_lc:
+          $ref: "#/components/schemas/Money"
+          description: "The declared base in local currency, converted with the entry's rate; set with `tax_base`."
+          readOnly: true
         line_text:
           type: string
           description: Line text.
@@ -19295,6 +19303,9 @@ components:
           type: string
           description: Tax code.
           pattern: "^[A-Z0-9]{1,4}$"
+        tax_base:
+          $ref: "#/components/schemas/Money"
+          description: "Declared tax base of a tax line of an `import` code (ADR-0049 §9): the import's tax posted from the customs declaration, as tax lines alone, on the declared value no line of the entry carries. Only on a line with an import code on one of its components' accounts (422 `ledger.tax_base_not_import`), never zero (422 `ledger.zero_tax_base`); the line's amount is the tax at the component's rate on the tax date (the part recovered, or the self-assessed output tax), within one minor unit (422 `ledger.tax_base_mismatch`). The component's tax item takes it as its base."
         quantity:
           $ref: "#/components/schemas/Quantity"
           description: Quantity.
@@ -19490,6 +19501,10 @@ components:
         tax_code:
           type: string
           description: Tax code.
+          readOnly: true
+        tax_base:
+          $ref: "#/components/schemas/Money"
+          description: "The line's declared tax base (JournalLineInput `tax_base`), absent when it declares none."
           readOnly: true
         quantity:
           $ref: "#/components/schemas/Quantity"
