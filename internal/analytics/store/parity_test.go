@@ -21,6 +21,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
@@ -91,21 +92,28 @@ func (p parity) invoice(t *testing.T, le, supplier uuid.UUID, cur, date, status 
 		p.Tenant.ID, id, id.String()[:10], le, supplier, date, cur, gross, status, p.Tenant.Human.ID)
 }
 
+// parityDoc is the fixture's document with a local-GAAP ledger 2L kept
+// by company 2000 (ADR-0045).
+func parityDoc(t *testing.T) *config.Config {
+	t.Helper()
+	doc := fixture.Document(t)
+	doc.Ledgers = []config.Ledger{{Code: "0L", Name: "Leading ledger", AccountingPrinciple: "IFRS"}, {Code: "2L", Name: "Local GAAP", AccountingPrinciple: "HGB"}}
+	doc.Company("2000").Ledgers = []string{"0L", "2L"}
+	return doc
+}
+
 // setupParity seeds the tenant: revenue, expenses and supplier items in
 // both companies, one item cleared by a reversal, a parallel ledger's
 // entry, a customer, orders and invoices; then extracts its store.
 func setupParity(t *testing.T) parity {
 	t.Helper()
-	p := parity{Env: fixture.New(t, parityPerms...), parallel: uuid.New()}
+	// Company 2000 keeps a local-GAAP ledger 2L beside 0L (ADR-0045), its
+	// periods opened with 0L's: every posting of 2000 is copied into it.
+	p := parity{Env: fixture.NewWith(t, parityDoc(t), parityPerms...)}
 	ten := p.Tenant
 	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
 		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2025-01-01', 0.9, 'ECB', $2)`, ten.ID, ten.Human.ID)
-	pgtest.Exec(t, `INSERT INTO ledger.ledger (tenant_id, id, code, name, is_leading, accounting_principle, created_by) VALUES ($1, $2, '2L', 'Local GAAP', false, 'HGB', $3)`,
-		ten.ID, p.parallel, ten.Human.ID)
-	pgtest.Exec(t, `INSERT INTO ledger.period_status (tenant_id, id, legal_entity_id, ledger_id, calendar_id, fiscal_year, period, status, updated_by)
-		SELECT s.tenant_id, gen_random_uuid(), s.legal_entity_id, $2, s.calendar_id, s.fiscal_year, s.period, s.status, s.updated_by
-		FROM ledger.period_status s JOIN ledger.ledger l ON l.tenant_id = s.tenant_id AND l.id = s.ledger_id AND l.is_leading WHERE s.tenant_id = $1`,
-		ten.ID, p.parallel)
+	pgtest.Scan(t, `SELECT id FROM ledger.ledger WHERE tenant_id = $1 AND code = '2L'`, []any{ten.ID}, &p.parallel)
 	customer := uuid.New()
 	pgtest.Exec(t, `INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, country_code, status, created_by, updated_by)
 		VALUES ($1, $2, 'BP80000001', 'organization', 'A Customer', 'DE', 'active', $3, $3)`, ten.ID, customer, ten.Human.ID)
@@ -118,7 +126,7 @@ func setupParity(t *testing.T) parity {
 	p.Must(200, "POST", "/v1/journal-entries/"+id+":reverse", `{"posting_date": "2026-05-03"}`, tag)
 	p.post(t, p.US, "1000", "USD", "2026-08-10", "510000", "211000", "45.50", &p.Supplier, nil)
 	p.post(t, p.US, "1000", "USD", "2026-02-11", "100000", "400000", "800.00", nil, nil)
-	p.post(t, p.DE, "2000", "EUR", "2026-03-05", "610000", "211000", "999.00", &p.Supplier, &p.parallel)
+	p.post(t, p.DE, "2000", "EUR", "2026-03-05", "610000", "100000", "999.00", nil, &p.parallel)
 	p.order(t, p.DE, p.Supplier, "2000", "EUR", "2026-03-01", "2.5", 1234)
 	p.order(t, p.DE, p.Vendor, "2000", "EUR", "2026-09-15", "1", 10000)
 	p.order(t, p.US, p.Supplier, "1000", "USD", "2026-04-04", "0.333333", 999)
@@ -229,7 +237,7 @@ func TestParity(t *testing.T) {
 				t.Errorf("%s by company: got %v, %v; want a row for each company", met.Name, res, err)
 			}
 		}
-		for ledger, want := range map[string]string{"": "120.00", p.parallel.String(): "999.00"} {
+		for ledger, want := range map[string]string{"": "120.00", p.parallel.String(): "1119.00"} {
 			res, err := analytics.Execute(m, dbFacts, analytics.Principal{Companies: []string{"2000"}}, analytics.Query{Measures: []string{"expenses"}, Ledger: ledger})
 			if err != nil || len(res.Rows) != 1 || fmt.Sprint(res.Rows[0][0]) != want {
 				t.Errorf("expenses of 2000 in ledger %q: got %v, %v; want %s", ledger, res, err, want)

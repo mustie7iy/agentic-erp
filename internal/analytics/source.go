@@ -90,6 +90,13 @@ type legalEntity struct {
 	LocalCurrency string `json:"local_currency"`
 }
 
+// ledgerOf is a ledger and the legal entities keeping it (ADR-0045).
+type ledgerOf struct {
+	ID             string
+	IsLeading      bool     `json:"is_leading"`
+	LegalEntityIDs []string `json:"legal_entity_ids"`
+}
+
 type account struct {
 	ID, Number, Name   string
 	AccountType        string `json:"account_type"`
@@ -153,6 +160,20 @@ func (s Source) Facts(ctx context.Context, m *Model, asOf time.Time) (*Facts, er
 		f:          &Facts{Tables: map[string][]Fact{}, Companies: map[string]string{}, Exponents: map[string]int{}, Source: SourceDatabase, AsOf: asOf},
 		startMonth: m.Calendar.FiscalYearStartMonth,
 		vendors:    map[string]partner{},
+		parallel:   map[string][]string{},
+	}
+	if s.builds("gl_lines") {
+		ledgers, err := apitools.List[ledgerOf](ctx, s.API, "/v1/ledgers", nil)
+		if err != nil {
+			return nil, err
+		}
+		for _, l := range ledgers {
+			for _, le := range l.LegalEntityIDs {
+				if !l.IsLeading {
+					b.parallel[le] = append(b.parallel[le], l.ID)
+				}
+			}
+		}
 	}
 	for _, p := range partners {
 		b.vendors[p.ID] = p
@@ -170,6 +191,9 @@ type factBuilder struct {
 	f          *Facts
 	startMonth int
 	vendors    map[string]partner
+	// parallel is each legal entity's non-leading ledgers: the journal
+	// list reads one ledger, the leading one by default (ADR-0045).
+	parallel map[string][]string
 }
 
 // calendar adds the posting date and its fiscal year, month and quarter to
@@ -214,8 +238,9 @@ func (s Source) addEntity(ctx context.Context, b *factBuilder, le legalEntity) e
 	return s.addInvoices(ctx, b, le, byLE)
 }
 
-// addJournal adds one fact per journal line to gl_lines; a supplier line
-// counts as cleared when it is no longer an open item.
+// addJournal adds one fact per journal line of each ledger the legal
+// entity keeps to gl_lines, the leading ledger's and each parallel one's;
+// a supplier line counts as cleared when it is no longer an open item.
 func (s Source) addJournal(ctx context.Context, b *factBuilder, le legalEntity, byLE url.Values, chart map[string]account) error {
 	if !s.builds("gl_lines") {
 		return nil
@@ -228,13 +253,19 @@ func (s Source) addJournal(ctx context.Context, b *factBuilder, le legalEntity, 
 	for _, o := range open {
 		isOpen[o.JournalEntryID+"/"+strconv.Itoa(o.LineNo)] = true
 	}
-	entries, err := apitools.List[journalEntry](ctx, s.API, "/v1/journal-entries", byLE)
-	if err != nil {
-		return err
-	}
-	for _, je := range entries {
-		if err := b.addEntry(le, je, chart, isOpen); err != nil {
+	for _, ledger := range append([]string{""}, b.parallel[le.ID]...) {
+		q := url.Values{"legal_entity_id": byLE["legal_entity_id"]}
+		if ledger != "" {
+			q.Set("ledger_id", ledger)
+		}
+		entries, err := apitools.List[journalEntry](ctx, s.API, "/v1/journal-entries", q)
+		if err != nil {
 			return err
+		}
+		for _, je := range entries {
+			if err := b.addEntry(le, je, chart, isOpen); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
