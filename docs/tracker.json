@@ -2367,8 +2367,8 @@
      },
      {
       "s": "T",
-      "t": "Governance for materials and customers",
-      "r": "(post-pilot, PO 2026-10-21; moved from phase 1 Master data / Master data governance workflows: customers with the customer master (phase 3); materials with the material master (phase 4))",
+      "t": "Governance for customers",
+      "r": "(post-pilot, PO 2026-10-21; moved from phase 1 Master data / Master data governance workflows: customers with the customer master (phase 3); split from \"Governance for materials and customers\")",
       "c": []
      }
     ]
@@ -2570,6 +2570,12 @@
       "s": "T",
       "t": "Units of measure",
       "r": "",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Governance for materials",
+      "r": "(post-pilot, PO 2026-10-21; moved from phase 1 Master data / Master data governance workflows: materials with the material master (phase 4); split from \"Governance for materials and customers\")",
       "c": []
      }
     ]
