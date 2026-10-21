@@ -1303,6 +1303,42 @@ step of 06 §6.4 (nullable, its positive check `NOT VALID`, no backfill:
 nothing records which version an old match evaluated); 000044 validates the
 check (T31).
 
+A clean match holds only for the documents posted on the order before it,
+so `:post` matches an invoice again, as `:match` would match it now (the
+order, its receipts, the documents posted on it and the active
+tolerances), under the locks of the order items it names
+(`procurement.Orders.LockItems`: `FOR UPDATE` in item order, after the
+invoice's row and before the ledger's GR/IR lock, as goods movements take
+them before it), and refuses it with 409 `payables.match_outdated`, leaving
+it parked, if that finds an issue its basis did not show: on a clean match
+any issue; on an approved exception an issue, by code and item, that the
+match the approval was asked on (the latest before `exception_version`)
+did not have, as the approvers decided on those issues and not on
+documents posted since (F16 authorises the invoice's version, not the
+order's later state). Two invoices on one order item, each matched clean
+before either posted, would otherwise both post past the received quantity
+(two credit memos past the invoiced quantity, a subsequent debit matched
+before its invoice was reversed), and an order change, an order closed, or
+tolerances tightened since would go unseen. The second posting waits for
+the first's locks and then reads it posted; a goods receipt, return or
+reversal on the items waits too, so the received quantities and the other
+postings the check read hold until the posting commits. An issue the
+approvers saw that has grown since (more invoiced past the same receipt) is
+not told apart from the one they approved. `:match` takes no lock: its
+verdict is advice the posting checks again under the lock, so reading the
+received quantities `FOR SHARE` there would only make receipts wait for
+matches.
+
+Reversals are not checked against quantities and take no item lock on the
+invoice side: a goods receipt's reversal (or a return) after an invoice
+posted, or a credit memo's reversal, can leave an order item invoiced past
+what was received; an invoice's reversal can leave a credit memo or
+subsequent debit that names no invoice crediting or revaluing what is no
+longer invoiced (one naming it is refused, `payables.invoice_has_corrections`).
+On an order valued through GR/IR the position then shows the difference
+(open in `/v1/gr-ir-balances`); on a directly valued one nothing shows it.
+The tracker holds checking quantities on reversal.
+
 The invoice likewise records the version the approval of its exception left
 it at (`exception_version`, migration 000041, F16), and the linked approved
 request authorises posting only that version. The unlinking edit is not

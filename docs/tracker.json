@@ -397,9 +397,9 @@
       ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Quantity re-checked at :post under the order's lock (invoices and credit memos)",
-      "r": "",
+      "r": "payables.lockedOrder · procurement.Orders.LockItems · 409 payables.match_outdated, approved exceptions on new issues too · TestPostRechecksTheMatch · TestConcurrentPostsSerialize · 03 §3.9",
       "c": []
      },
      {
@@ -501,9 +501,21 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Payables reads received quantities FOR SHARE when matching and posting",
-      "r": "",
+      "r": "read FOR UPDATE at :post (lockedOrder); :match needs no lock, its verdict is checked again under it (03 §3.9)",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Quantities checked on reversal: goods receipt and credit memo reversals past the invoiced quantity, invoice reversals under credit memos or subsequent debits naming none",
+      "r": "follow-up of the overpayment fix · 03 §3.9",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Index payables.supplier_invoice_item (tenant_id, purchase_order_id, po_item_no) for the invoiced quantities read at :match and under the item locks at :post",
+      "r": "follow-up of the overpayment fix · invoicedQuantities",
       "c": []
      }
     ]

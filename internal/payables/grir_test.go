@@ -182,7 +182,8 @@ func TestForeignInvoiceClearsGRIR(t *testing.T) {
 
 // TestInvoiceOnARemovedOrderItem: an invoice item whose order item the
 // order no longer has cannot clear GR/IR, so the invoice is refused rather
-// than posted on another account.
+// than posted on another account: matched again at :post, its clean match
+// is outdated, the item missing.
 func TestInvoiceOnARemovedOrderItem(t *testing.T) {
 	e := setup(t)
 	e.GRIR(t)
@@ -203,7 +204,10 @@ func TestInvoiceOnARemovedOrderItem(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("remove the order item: %v", err)
 	}
-	e.Problem(422, "payables.order_item_missing", "POST", "/v1/supplier-invoices/"+id(inv)+":post", "", e.tag(t, id(inv)))
+	m := e.Problem(409, "payables.match_outdated", "POST", "/v1/supplier-invoices/"+id(inv)+":post", "", e.tag(t, id(inv)))
+	if detail, _ := m["detail"].(string); !strings.Contains(detail, "order item 2 is not on purchase order PO-1") {
+		t.Errorf("refusal: got %q, want it to name the missing order item", detail)
+	}
 }
 
 // TestInvoiceAtTheValuationPrice: an invoice clears GR/IR at the price the

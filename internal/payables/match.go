@@ -303,46 +303,67 @@ func (e *Endpoints) MatchInvoice(ctx context.Context, id uuid.UUID, ifMatch func
 	if v.PurchaseOrderID == nil {
 		return Match{}, noPurchaseOrder()
 	}
-	doc, version, err := e.Settings.Document(ctx)
+	j, err := e.judge(ctx, tx, v)
 	if err != nil {
 		return Match{}, err
 	}
-	// The inputs and the decision are those a simulation or regression
-	// suite replays, but a missing rate refuses the match (422
-	// ledger.no_exchange_rate) rather than recording one.
-	r, err := replay(ctx, tx, sources{e.LegalEntities, e.Orders, e.Rates}, v, newReplayCache())
-	if err != nil {
-		return Match{}, err
-	}
-	if r.noRate != nil {
-		return Match{}, r.noRate
-	}
-	lim, err := companyLimits(doc.Company(r.Company))
-	if err != nil {
-		return Match{}, err
-	}
-	decision, issues := decide(lim, r)
 	// The hold or release the match causes comes first, so the result
 	// records the version the invoice is left at: the one it lets post.
-	after, followUp, err := e.applyMatch(ctx, tx, p, v, len(issues))
+	after, followUp, err := e.applyMatch(ctx, tx, p, v, len(j.issues))
 	if err != nil {
 		return Match{}, err
 	}
 	m, err := scanMatch(tx.QueryRow(ctx, `INSERT INTO payables.match_result (tenant_id, id, supplier_invoice_id, evaluated_at, is_clean, issues,
 		config_version, evaluated_by, invoice_version) VALUES ($1, $2, $3, clock_timestamp(), $4, $5, $6, $7, $8) RETURNING `+matchColumns,
-		p.TenantID, uuid.Must(uuid.NewV7()), id, len(issues) == 0, issues, version, p.ID, after.Version))
+		p.TenantID, uuid.Must(uuid.NewV7()), id, len(j.issues) == 0, j.issues, j.version, p.ID, after.Version))
 	if err != nil {
 		return Match{}, fmt.Errorf("payables: record the match of invoice %s: %w", id, err)
 	}
 	events := append([]outbox.Event{{Context: "payables", Name: "supplier_invoice_matched", AggregateType: "payables.match_result", AggregateID: m.ID,
 		Payload: map[string]any{"match_result_id": m.ID, "supplier_invoice_id": id, "evaluated_at": m.EvaluatedAt.UTC().Format(time.RFC3339Nano),
-			"is_clean": m.IsClean, "config_version": version, "invoice_version": m.InvoiceVersion, "issues": issues}}}, followUp...)
-	detail := map[string]any{"match_result_id": m.ID, "issues": len(issues)}
+			"is_clean": m.IsClean, "config_version": j.version, "invoice_version": m.InvoiceVersion, "issues": j.issues}}}, followUp...)
+	detail := map[string]any{"match_result_id": m.ID, "issues": len(j.issues)}
 	if m.IsClean {
-		m.Decision = &decision
-		detail["decision"] = decision.Outcome
+		m.Decision = &j.decision
+		detail["decision"] = j.decision.Outcome
 	}
 	return m, record(ctx, "payables.supplier_invoice.match", id, detail, events...)
+}
+
+// judgement is the three-way match of an invoice as it stands: its
+// inputs, the configuration version it was judged under, and the decision
+// with its issues.
+type judgement struct {
+	r        replayed
+	version  int32
+	decision Verdict
+	issues   []Issue
+}
+
+// judge matches a PO-based invoice against its order, its receipts and
+// the documents posted on it before, with the active tolerances, for
+// :match and again at :post (lockedOrder). The inputs and the decision are
+// those a simulation or regression suite replays, but a missing rate
+// refuses the match (422 ledger.no_exchange_rate) rather than recording
+// one.
+func (e *Endpoints) judge(ctx context.Context, tx pgx.Tx, v Invoice) (judgement, error) {
+	doc, version, err := e.Settings.Document(ctx)
+	if err != nil {
+		return judgement{}, err
+	}
+	r, err := replay(ctx, tx, sources{e.LegalEntities, e.Orders, e.Rates}, v, newReplayCache())
+	if err != nil {
+		return judgement{}, err
+	}
+	if r.noRate != nil {
+		return judgement{}, r.noRate
+	}
+	lim, err := companyLimits(doc.Company(r.Company))
+	if err != nil {
+		return judgement{}, err
+	}
+	decision, issues := decide(lim, r)
+	return judgement{r: r, version: version, decision: decision, issues: issues}, nil
 }
 
 // applyMatch acts on a match with issueCount issues: issues hold the

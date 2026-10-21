@@ -2148,7 +2148,11 @@ func (UnimplementedHandler) PostRevaluationRun(ctx context.Context, req *Revalua
 // status `parked`, a clean latest match of the invoice as it now stands for PO-based invoices (or an
 // exception approved at the invoice's current version; 409 `payables.match_required` otherwise: an
 // invoice changed after its match, including a hold and release by hand, is matched again, and an edit
-// unlinks an approved exception), an open period and an unblocked supplier.
+// unlinks an approved exception), an open period and an unblocked supplier. The invoice is matched
+// again under its order items' locks: 409 `payables.match_outdated`, the invoice left parked, when
+// documents posted on the order since (another invoice past the received quantity, a credit memo past
+// the invoiced one), a change of the order or of the tolerances leave it with an issue its clean
+// match, or the match its exception was approved on, did not have.
 //
 // POST /v1/supplier-invoices/{id}:post
 func (UnimplementedHandler) PostSupplierInvoice(ctx context.Context, req OptSupplierInvoicePost, params PostSupplierInvoiceParams) (r PostSupplierInvoiceRes, _ error) {

@@ -2,7 +2,9 @@ package payables
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -56,7 +58,8 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err := e.postable(ctx, v, date); err != nil {
 		return Invoice{}, err
 	}
-	if err := requireCleanMatch(ctx, tx, v); err != nil {
+	order, err := e.lockedOrder(ctx, tx, v)
+	if err != nil {
 		return Invoice{}, err
 	}
 	if totalMismatch(v, money.Minor.String) != "" {
@@ -66,7 +69,7 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Invoice{}, err
 	}
-	in, terms, err := e.posting(ctx, tx, v, sup, *date)
+	in, terms, err := e.posting(ctx, tx, v, sup, *date, order)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -98,15 +101,13 @@ func (e *Endpoints) postable(ctx context.Context, v Invoice, date *time.Time) er
 	return e.ruleWrites().Check(ctx, storedRuleWrite("payables.supplier_invoice.post", v, Change{PostingDate: &date}))
 }
 
-// posting is the entry an invoice posts, with the payment terms it posts
-// with (invoiceTerms) and its supplier's withholding taxes (withholding),
-// which the ledger keeps with its open item; what is withheld at invoice
-// is credited to the codes' accounts instead of the supplier.
-func (e *Endpoints) posting(ctx context.Context, tx pgx.Tx, v Invoice, sup partner.Supplier, date time.Time) (ledger.Posting, *ledger.ItemTerms, error) {
-	order, err := e.orderOf(ctx, v)
-	if err != nil {
-		return ledger.Posting{}, nil, err
-	}
+// posting is the entry an invoice on order (nil without one) posts, with
+// the payment terms it posts with (invoiceTerms) and its supplier's
+// withholding taxes (withholding), which the ledger keeps with its open
+// item; what is withheld at invoice is credited to the codes' accounts
+// instead of the supplier.
+func (e *Endpoints) posting(ctx context.Context, tx pgx.Tx, v Invoice, sup partner.Supplier, date time.Time, order *procurement.Order) (ledger.Posting,
+	*ledger.ItemTerms, error) {
 	lines, grir, err := e.invoiceLines(ctx, v, sup, date, grirOnly(order))
 	if err != nil {
 		return ledger.Posting{}, nil, err
@@ -233,9 +234,111 @@ func (e *Endpoints) postableSupplier(ctx context.Context, v Invoice) (partner.Su
 	return sup, nil
 }
 
+// lockedOrder is the order an invoice posts on, nil without one, read
+// under the locks of the order items it names (Orders.LockItems) once the
+// invoice may post on its match or approval (requireCleanMatch).
+//
+// The invoice is matched again there, as :match would match it now, and
+// refused (409 payables.match_outdated, left parked) if that finds an
+// issue its basis did not show: on a clean match, any; on an approved
+// exception, one (by code and item) the match the approval was asked on
+// did not have, as the approvers decided on those issues (F16) and not on
+// documents posted since. A match is clean only for the documents posted
+// on the order before it: two invoices matched clean before either posts
+// would otherwise both post, together invoicing more than was received
+// (two credit memos crediting more than was invoiced, a subsequent debit
+// matched before its invoice was reversed), and an order change or a
+// change of the tolerances since may put an item outside them. The locks
+// make another posting on the items, and a goods movement on them, wait
+// for this one, so what the check read of them holds until it commits;
+// reversals of invoices and credit memos take no item lock and are not
+// checked (03 §3.9).
+func (e *Endpoints) lockedOrder(ctx context.Context, tx pgx.Tx, v Invoice) (*procurement.Order, error) {
+	approved, err := requireCleanMatch(ctx, tx, v)
+	if err != nil || v.PurchaseOrderID == nil {
+		return nil, err
+	}
+	if nos := orderItemNos(v); len(nos) > 0 {
+		if err := e.Orders.LockItems(ctx, *v.PurchaseOrderID, nos); err != nil {
+			return nil, err
+		}
+	}
+	j, err := e.judge(ctx, tx, v)
+	if err != nil {
+		return nil, err
+	}
+	issues := j.issues
+	if approved && len(issues) > 0 {
+		if issues, err = newSinceApproval(ctx, tx, v, issues); err != nil {
+			return nil, err
+		}
+	}
+	if len(issues) > 0 {
+		return nil, matchOutdated(issues)
+	}
+	return &j.r.Order, nil
+}
+
+// newSinceApproval are the issues an invoice posting on its approved
+// exception has now that the match its approval was asked on did not:
+// the latest match before the approval moved the invoice to the version
+// it was approved at (exception_version, v.Version here). Issues are
+// compared by code and item; one the approvers saw that has grown since
+// (more invoiced past the same receipt) is not told apart.
+func newSinceApproval(ctx context.Context, tx pgx.Tx, v Invoice, issues []Issue) ([]Issue, error) {
+	var seen []Issue
+	err := tx.QueryRow(ctx, `SELECT issues FROM payables.match_result WHERE supplier_invoice_id = $1 AND invoice_version < $2
+		ORDER BY evaluated_at DESC LIMIT 1`, v.ID, v.Version).Scan(&seen)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("payables: read the match invoice %s was approved on: %w", v.ID, err)
+	}
+	key := func(is Issue) string {
+		if is.ItemNo == nil {
+			return is.Code
+		}
+		return fmt.Sprintf("%s/%d", is.Code, *is.ItemNo)
+	}
+	approved := map[string]bool{}
+	for _, is := range seen {
+		approved[key(is)] = true
+	}
+	var out []Issue
+	for _, is := range issues {
+		if !approved[key(is)] {
+			out = append(out, is)
+		}
+	}
+	return out, nil
+}
+
+// orderItemNos are the order items the invoice's items name, ascending
+// and once each, the order Orders.LockItems locks them in.
+func orderItemNos(v Invoice) []int32 {
+	var nos []int32
+	for _, it := range v.Items {
+		if it.POItemNo != nil {
+			nos = append(nos, *it.POItemNo)
+		}
+	}
+	slices.Sort(nos)
+	return slices.Compact(nos)
+}
+
+// matchOutdated refuses to post an invoice on a clean match that a match
+// now would not find clean, with the issues it would find.
+func matchOutdated(issues []Issue) error {
+	why := make([]string, len(issues))
+	for i, is := range issues {
+		why[i] = is.Message
+	}
+	return problem.Conflict("payables.match_outdated", "The invoice no longer matches its order as it did when it was matched: "+strings.Join(why, "; ")+
+		". Documents posted on the order since its match or approval, a change of the order, or of the tolerances, leave it with issues; match it again.")
+}
+
 // requireCleanMatch lets an invoice on a purchase order post only after a
 // clean latest match of its current version (F13), or with an approved
-// exception request linked that was approved at its current version (F16).
+// exception request linked that was approved at its current version (F16);
+// it returns true when the approval is what lets it post.
 // v is read FOR UPDATE, and a match and an approval lock the invoice too,
 // so none lands between this check and the posting. Any change of the
 // invoice since the match or the approval (an edit, a hold or release by
@@ -243,33 +346,33 @@ func (e *Endpoints) postableSupplier(ctx context.Context, v Invoice) (partner.Su
 // request linked, as the previous release's edit does. A match or approval
 // recorded without a version (before migration 000040 or 000041, or by the
 // previous release) counts for none.
-func requireCleanMatch(ctx context.Context, tx pgx.Tx, v Invoice) error {
+func requireCleanMatch(ctx context.Context, tx pgx.Tx, v Invoice) (bool, error) {
 	if v.PurchaseOrderID == nil {
-		return nil
+		return false, nil
 	}
-	var approved, matched *int32
+	var exception, matched *int32
 	var clean bool
 	// The invoice row always exists (v was just read under lock); the
 	// lateral match is NULL when there is none.
 	if err := tx.QueryRow(ctx, `SELECT i.exception_version, coalesce(m.is_clean, false), m.invoice_version FROM payables.supplier_invoice i
 		LEFT JOIN LATERAL (SELECT is_clean, invoice_version FROM payables.match_result WHERE tenant_id = i.tenant_id AND supplier_invoice_id = i.id
 			ORDER BY evaluated_at DESC LIMIT 1) m ON true
-		WHERE i.id = $1`, v.ID).Scan(&approved, &clean, &matched); err != nil {
-		return fmt.Errorf("payables: read the approval and latest match of invoice %s: %w", v.ID, err)
+		WHERE i.id = $1`, v.ID).Scan(&exception, &clean, &matched); err != nil {
+		return false, fmt.Errorf("payables: read the approval and latest match of invoice %s: %w", v.ID, err)
 	}
 	switch {
-	case approvedAsIs(v, approved):
-		return nil
+	case approvedAsIs(v, exception):
+		return true, nil
 	case clean && matched != nil && *matched == v.Version:
-		return nil
+		return false, nil
 	case v.WorkflowRequestID != nil:
-		return problem.Conflict("payables.match_required",
+		return false, problem.Conflict("payables.match_required",
 			"The approved exception does not cover the invoice as it now stands (it changed since, or was approved by an earlier release); match it again, and have a new exception approved if it has issues.")
 	case !clean:
-		return problem.Conflict("payables.match_required",
+		return false, problem.Conflict("payables.match_required",
 			"An invoice on a purchase order is posted after a clean match or an approved exception; match it first.")
 	default:
-		return problem.Conflict("payables.match_required",
+		return false, problem.Conflict("payables.match_required",
 			"The invoice changed after its last clean match; match it again before it is posted.")
 	}
 }
