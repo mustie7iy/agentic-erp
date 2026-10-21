@@ -1551,6 +1551,7 @@ erDiagram
     text bic
     text institution_number "Canadian bank: 3 digits; null for an IBAN"
     text transit_number "Canadian bank: 5 digits; null for an IBAN"
+    char currency "the account's; its company's unless configured (T53a), never changed"
     uuid gl_account_id
     uuid active_gl_account_id "gl_account_id while active; unique per legal entity"
     uuid connector_id "its channel, an integration connector; null: the server's directory (T44b)"

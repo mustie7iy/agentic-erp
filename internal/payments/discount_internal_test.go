@@ -107,7 +107,7 @@ func (failingAccounts) Chart(context.Context, uuid.UUID) (map[string]ledger.Char
 	return nil, errors.New("ledger unavailable")
 }
 
-func (failingAccounts) Balances(context.Context, uuid.UUID, uuid.UUID, []time.Time) ([]money.Minor, error) {
+func (failingAccounts) Balances(context.Context, uuid.UUID, uuid.UUID, string, []time.Time) ([]money.Minor, error) {
 	return nil, errors.New("ledger unavailable")
 }
 

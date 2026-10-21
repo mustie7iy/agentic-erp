@@ -18829,7 +18829,9 @@ type HouseBank struct {
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// The bank's name in the configuration, unique within the legal entity.
 	Code string `json:"code"`
-	// The account's currency (ISO 4217).
+	// The account's currency (ISO 4217): the configuration's `currency` of the house bank, or its
+	// company's. A bank in another currency than its company's pays runs and takes statements only in it
+	// (ADR-0051, T53a).
 	Currency string `json:"currency"`
 	// The last up to four characters of the account's IBAN.
 	AccountLast4 string `json:"account_last4"`

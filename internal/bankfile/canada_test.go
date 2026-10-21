@@ -101,3 +101,42 @@ func TestPain001CanadianValidation(t *testing.T) {
 		})
 	}
 }
+
+// TestPain001DebtorCurrency: a batch from a foreign-currency account names
+// the account's currency after its id, an IBAN's or a Canadian account's;
+// one without leaves it out, so files to local-currency accounts are as
+// before (ADR-0051 §3, T53a).
+func TestPain001DebtorCurrency(t *testing.T) {
+	for name, c := range map[string]struct {
+		batch      Batch
+		currency   string
+		debtorTag  string
+		currencyIn bool
+	}{
+		"IBAN, local":       {batch(), "", "<IBAN>GB33BUKB20201555555555</IBAN>", false},
+		"IBAN, foreign":     {func() Batch { b := batch(); b.DebtorCurrency = "USD"; return b }(), "USD", "<IBAN>GB33BUKB20201555555555</IBAN>", true},
+		"Canadian, foreign": {func() Batch { b := canadianBatch(); b.DebtorCurrency = "USD"; return b }(), "USD", "<Id>1000001</Id>", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, err := Pain001(c.batch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var doc struct {
+				Ccy string `xml:"CstmrCdtTrfInitn>PmtInf>DbtrAcct>Ccy"`
+			}
+			if err := xml.Unmarshal(out, &doc); err != nil {
+				t.Fatalf("not valid XML: %v", err)
+			}
+			if doc.Ccy != c.currency {
+				t.Errorf("debtor account currency: got %q, want %q", doc.Ccy, c.currency)
+			}
+			if got := strings.Contains(string(out), "<Ccy>"); got != c.currencyIn {
+				t.Errorf("a Ccy element in the file: got %v, want %v", got, c.currencyIn)
+			}
+			if !strings.Contains(string(out), c.debtorTag) {
+				t.Errorf("file: got\n%s\nwant the debtor account %s", out, c.debtorTag)
+			}
+		})
+	}
+}

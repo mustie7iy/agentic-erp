@@ -67,7 +67,12 @@ func setup(t *testing.T) env {
 // setupWith is setup with more permissions and API wiring.
 func setupWith(t *testing.T, more []string, configure func(*app.Config)) env {
 	t.Helper()
-	f := fixture.New(t, append(append([]string{}, perms...), more...)...)
+	return setupIn(t, fixture.New(t, append(append([]string{}, perms...), more...)...), configure)
+}
+
+// setupIn is setupWith on the tenant f.
+func setupIn(t *testing.T, f fixture.Env, configure func(*app.Config)) env {
+	t.Helper()
 	c := &connector{}
 	f.API = apitest.NewWith(t, func(cfg *app.Config) {
 		cfg.Connector = c
