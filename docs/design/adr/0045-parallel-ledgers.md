@@ -99,11 +99,26 @@ show only when their ledger is asked for and readers that sum the list
 with a ledger or group, is how they propose.
 
 **Revaluation and depreciation.** Foreign-currency revaluation runs per
-ledger (`fx_valuation` keyed by `ledger_id`, T52d): each run posts into its
-own ledger alone, which the rule above allows because its lines are on the
-valuation and unrealised gain/loss accounts, a reconciliation account's
-valuation on its adjustment account (ADR-0042), never on the
-reconciliation account itself. Depreciation runs per
+ledger (T52d, as built): a run names its ledger (`ledger_id`, the leading
+ledger by default, one the company keeps or 422 `ledger.ledger_not_kept`),
+values that ledger's own lines (in a parallel ledger the copies of the
+open items, cleared with the leading ledger's, and its ledger-specific
+postings) and posts its valuation and reset entries in that ledger alone,
+which the rule above allows because its lines are on the valuation and
+unrealised gain/loss accounts, a reconciliation account's valuation on its
+adjustment account (ADR-0042), never on the reconciliation account itself.
+Cancelling reverses them in that ledger alone. Everything else is T48's
+per ledger: one posted run per legal entity, ledger and key date (409
+`ledger.revaluation_exists`), both periods open in the run's ledger, the
+tenant's entry buckets taken first, the run read `FOR UPDATE` to cancel,
+audit and `RevaluationRunPosted`/`Cancelled` naming the ledger. The
+valuation area: a parallel ledger may value at a rate type of its own
+(`companies[].fx_valuation.ledgers`, code and rate type;
+`ledger.fx_valuation_ledger`, posting-related), else at the legal entity's,
+as the leading ledger always does; the valuation accounts are the legal
+entity's for every ledger, since each run posts in its own ledger. Valuation
+methods per accounting principle beyond the rate type (HGB's imparity
+principle, valuing only losses) are not built. Depreciation runs per
 depreciation area, each posting to its ledger (T57).
 
 **Reconciliation (T52e).** `GET /v1/ledger-reconciliation` compares two

@@ -74,3 +74,45 @@ func TestFXValuationSetup(t *testing.T) {
 		check(t, "average", "", "")
 	})
 }
+
+// TestFXValuationLedgerSetup: the setup keeps the rate types of the
+// parallel ledgers that value at their own (T52d, ADR-0045), changes them
+// with the document and deactivates what it no longer names; and each of
+// its statements fails in turn.
+func TestFXValuationLedgerSetup(t *testing.T) {
+	p := setupParallel(t)
+	apply := func(t *testing.T, rateType string) {
+		t.Helper()
+		doc := revaluationDoc(parallel(t), true)
+		if rateType != "" {
+			doc.Company("2000").FXValuation.Ledgers = []config.FXValuationLedger{{Code: "2L", RateType: rateType}}
+		}
+		applyRevaluation(t, p.env, doc)
+	}
+	check := func(t *testing.T, want string) {
+		t.Helper()
+		var got string
+		pgtest.Scan(t, `SELECT coalesce(string_agg(l.code || ':' || v.rate_type || ':' || v.is_active, ','), '') FROM ledger.fx_valuation_ledger v
+			JOIN ledger.ledger l ON l.id = v.ledger_id WHERE v.tenant_id = $1 AND v.legal_entity_id = $2`, []any{p.ten.ID, p.de}, &got)
+		if got != want {
+			t.Errorf("ledgers' rate types: got %q, want %q", got, want)
+		}
+	}
+	for _, c := range []struct{ name, rateType, want string }{
+		{"configured", "bank_buying", "2L:bank_buying:true"},
+		{"unchanged", "bank_buying", "2L:bank_buying:true"},
+		{"changed", "planning", "2L:planning:true"},
+		{"removed", "", "2L:planning:false"},
+		{"named again", "average", "2L:average:true"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			apply(t, c.rateType)
+			check(t, c.want)
+		})
+	}
+	doc := revaluationDoc(parallel(t), true)
+	doc.Company("2000").FXValuation.Ledgers = []config.FXValuationLedger{{Code: "2L", RateType: "bank_selling"}}
+	apitest.EveryFailure(t, p.ten, p.ten.Human, "setup apply FX valuation per ledger", func(ctx context.Context) error {
+		return ledger.Setup{LegalEntities: tenancy.Directory{}}.Apply(ctx, doc)
+	})
+}

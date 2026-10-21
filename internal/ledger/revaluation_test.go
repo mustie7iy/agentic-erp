@@ -26,7 +26,11 @@ import (
 // down payment account 159000. Without payables, 211000 has no valuation.
 func revaluationSetup(t *testing.T, e env, payables bool) {
 	t.Helper()
-	doc := document(t)
+	applyRevaluation(t, e, revaluationDoc(document(t), payables))
+}
+
+// revaluationDoc adds revaluationSetup's valuation to a document.
+func revaluationDoc(doc *config.Config, payables bool) *config.Config {
 	for _, code := range []string{"1000", "2000"} {
 		co := doc.Company(code)
 		co.ChartOfAccounts = append(co.ChartOfAccounts, config.Account{Number: "211099", Name: "Payables valuation", Type: config.Liability})
@@ -41,6 +45,12 @@ func revaluationSetup(t *testing.T, e env, payables bool) {
 	de.AccountDetermination.DownPayment = "159000"
 	de.Account("100000").RevalueForeignCurrency = true
 	de.FXValuation.Accounts = append(de.FXValuation.Accounts, config.FXValuationAccount{Account: "100000", UnrealisedGain: "400000", UnrealisedLoss: "610000"})
+	return doc
+}
+
+// applyRevaluation applies a document as its activation would.
+func applyRevaluation(t *testing.T, e env, doc *config.Config) {
+	t.Helper()
 	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error {
 		return ledger.Setup{LegalEntities: tenancy.Directory{}}.Apply(ctx, doc)
 	}); err != nil {

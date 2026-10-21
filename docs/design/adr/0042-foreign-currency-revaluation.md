@@ -150,7 +150,9 @@ posting.
 - Rate feeds (ECB and others); rates are loaded by operators.
 - Balance sheet regrouping of receivables and payables by sign (SAP F101).
 - Translation for consolidation (group currency financial statements).
-- Valuation areas per accounting principle, until parallel ledgers (T52).
+- Valuation areas per accounting principle beyond a rate type of their own
+  (T52d gives a parallel ledger its own rate type and runs per ledger,
+  ADR-0045; an imparity method valuing only losses is not built).
 - Batching large runs as Temporal workflows (ADR-0012); a run is one
   transaction until volumes need otherwise.
 

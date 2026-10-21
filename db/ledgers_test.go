@@ -102,6 +102,58 @@ func TestParallelLedgerRules(t *testing.T) {
 	}
 }
 
+// A parallel ledger's own rate type (T52d, migration 000132): of a ledger
+// its legal entity keeps, never the leading one, at a known rate type.
+func TestFXValuationLedgerRules(t *testing.T) {
+	need(t)
+	const (
+		local  = `INSERT INTO ledger.ledger (tenant_id, id, code, name, is_leading, accounting_principle, created_by) VALUES ($1, $2, '2L', 'Local', false, 'HGB', $3)`
+		assign = `INSERT INTO ledger.company_ledger (tenant_id, legal_entity_id, ledger_id, is_leading, created_by) VALUES ($1, $2, $3, $4, $5)`
+		valued = `INSERT INTO ledger.fx_valuation_ledger (tenant_id, legal_entity_id, ledger_id, is_leading, rate_type, created_by, updated_by)
+			VALUES ($1, $2, $3, $4, $5, $6, $6)`
+	)
+	// keep gives the fixture's legal entity 0L and a parallel ledger l.
+	keep := func(f fixture, l any) []stmt {
+		return []stmt{step(local, f.tenant, l, f.actor), step(assign, f.tenant, f.entity, f.ledger, true, f.actor), step(assign, f.tenant, f.entity, l, false, f.actor)}
+	}
+	for _, c := range []struct {
+		name string
+		run  func(tx pgx.Tx, f fixture) error
+		want string // empty: allowed
+	}{
+		{"a parallel ledger kept", func(tx pgx.Tx, f fixture) error {
+			l := id()
+			return all(tx, append(keep(f, l), step(valued, f.tenant, f.entity, l, false, "bank_buying", f.actor))...)
+		}, ""},
+		{"a ledger not kept", func(tx pgx.Tx, f fixture) error {
+			l := id()
+			return all(tx, step(local, f.tenant, l, f.actor), step(valued, f.tenant, f.entity, l, false, "bank_buying", f.actor))
+		}, "fx_valuation_ledger_tenant_id_legal_entity_id_ledger_id_fkey"},
+		{"the leading ledger", func(tx pgx.Tx, f fixture) error {
+			return all(tx, step(assign, f.tenant, f.entity, f.ledger, true, f.actor), step(valued, f.tenant, f.entity, f.ledger, false, "bank_buying", f.actor))
+		}, "fx_valuation_ledger_tenant_id_ledger_id_is_leading_fkey"},
+		{"marked leading", func(tx pgx.Tx, f fixture) error {
+			return all(tx, step(assign, f.tenant, f.entity, f.ledger, true, f.actor), step(valued, f.tenant, f.entity, f.ledger, true, "bank_buying", f.actor))
+		}, "fx_valuation_ledger_is_leading_check"},
+		{"an unknown rate type", func(tx pgx.Tx, f fixture) error {
+			l := id()
+			return all(tx, append(keep(f, l), step(valued, f.tenant, f.entity, l, false, "spot", f.actor))...)
+		}, "fx_valuation_ledger_rate_type_check"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFixture(t)
+			err := asApp(t, f.tenant, func(tx pgx.Tx) error { return c.run(tx, f) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
 type stmt struct {
 	sql  string
 	args []any

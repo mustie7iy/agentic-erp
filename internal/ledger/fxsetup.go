@@ -59,5 +59,30 @@ func fxValuation(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, chart u
 		p.TenantID, le, chart, p.ID, accounts, adjustments, gains, losses); err != nil {
 		return fmt.Errorf("ledger: FX valuation accounts of %s: %w", co.Code, err)
 	}
+	return fxValuationLedgers(ctx, tx, p, le, co)
+}
+
+// fxValuationLedgers makes the rate types the company's parallel ledgers
+// value at of their own the document's (T52d, ADR-0045): one the document
+// no longer names is deactivated, and its ledger values at the legal
+// entity's again.
+func fxValuationLedgers(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le uuid.UUID, co config.Company) error {
+	n := len(co.FXValuation.Ledgers)
+	codes, rateTypes := make([]string, n), make([]string, n)
+	for i, l := range co.FXValuation.Ledgers {
+		codes[i], rateTypes[i] = l.Code, l.RateType
+	}
+	if _, err := tx.Exec(ctx, `UPDATE ledger.fx_valuation_ledger v SET is_active = false, version = v.version + 1, updated_by = $3
+		FROM ledger.ledger l WHERE v.legal_entity_id = $1 AND v.is_active AND l.tenant_id = v.tenant_id AND l.id = v.ledger_id AND l.code <> ALL($2)`,
+		le, codes, p.ID); err != nil {
+		return fmt.Errorf("ledger: FX valuation of %s: ledgers no longer valued on their own: %w", co.Code, err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO ledger.fx_valuation_ledger AS v (tenant_id, legal_entity_id, ledger_id, rate_type, created_by, updated_by)
+		SELECT $1, $2, l.id, d.rate_type, $3, $3 FROM unnest($4::text[], $5::text[]) AS d(code, rate_type) JOIN ledger.ledger l ON l.code = d.code
+		ON CONFLICT (tenant_id, legal_entity_id, ledger_id) DO UPDATE SET rate_type = EXCLUDED.rate_type, is_active = true, version = v.version + 1,
+			updated_by = $3
+		WHERE (v.rate_type, v.is_active) IS DISTINCT FROM (EXCLUDED.rate_type, true)`, p.TenantID, le, p.ID, codes, rateTypes); err != nil {
+		return fmt.Errorf("ledger: FX valuation of %s: ledgers' rate types: %w", co.Code, err)
+	}
 	return nil
 }

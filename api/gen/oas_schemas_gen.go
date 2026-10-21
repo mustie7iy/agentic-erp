@@ -28180,7 +28180,8 @@ func (*RevaluationPreviewHeaders) previewRevaluationRes() {}
 type RevaluationPreviewRequest struct {
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// Ledger (default the leading ledger).
+	// Ledger valued and posted to (default the leading ledger), one the legal entity keeps (422
+	// `ledger.ledger_not_kept`).
 	LedgerID OptUUID `json:"ledger_id"`
 	// Key date: the last day of a posting period.
 	KeyDate time.Time `json:"key_date"`

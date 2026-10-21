@@ -25,14 +25,27 @@ func withFXValuation(t *testing.T) *Config {
 	return c
 }
 
+// withLedgerValuation is withFXValuation with the local-GAAP ledger 2L
+// kept by company 1000 and valued at its own rate type (T52d).
+func withLedgerValuation(t *testing.T) *Config {
+	t.Helper()
+	c := withFXValuation(t)
+	c.Ledgers = []Ledger{{Code: LeadingLedger, Name: "Leading ledger", AccountingPrinciple: "IFRS"}, {Code: "2L", Name: "HGB", AccountingPrinciple: "HGB"}}
+	c.Companies[0].Ledgers = []string{LeadingLedger, "2L"}
+	c.Companies[0].FXValuation.Ledgers = []FXValuationLedger{{Code: "2L", RateType: "bank_buying"}}
+	return c
+}
+
 // TestFXValuation: a company values at one known rate type, average by
 // default; a flagged account is a balance-sheet account that reconciles no
 // supplier, is not the GR/IR account and has a valuation; a valuation is
 // of a vendor reconciliation account other than the down payment account,
 // with a balance-sheet adjustment account that reconciles nothing, or of a
-// flagged account without one, with a revenue gain and an expense loss.
+// flagged account without one, with a revenue gain and an expense loss; a
+// parallel ledger the company keeps may value at a known rate type of its
+// own, the leading ledger at the company's.
 func TestFXValuation(t *testing.T) {
-	c := withFXValuation(t)
+	c := withLedgerValuation(t)
 	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
 		t.Fatalf("FX valuation configured: got %v, want no errors", fs)
 	}
@@ -81,10 +94,17 @@ func TestFXValuation(t *testing.T) {
 		{"a gain that is no revenue", func(c *Config) { at(0)(c).UnrealisedGain = "610000" }, fx + ".accounts[100000].unrealised_gain"},
 		{"a gain not in the chart", func(c *Config) { at(0)(c).UnrealisedGain = "999999" }, fx + ".accounts[100000].unrealised_gain"},
 		{"a loss that is no expense", func(c *Config) { at(0)(c).UnrealisedLoss = "400000" }, fx + ".accounts[100000].unrealised_loss"},
+		{"a ledger twice", func(c *Config) {
+			c.Companies[0].FXValuation.Ledgers = append(c.Companies[0].FXValuation.Ledgers, c.Companies[0].FXValuation.Ledgers[0])
+		}, fx + ".ledgers[2L]"},
+		{"the leading ledger", func(c *Config) { c.Companies[0].FXValuation.Ledgers[0].Code = "0L" }, fx + ".ledgers[0L]"},
+		{"a ledger the company does not keep", func(c *Config) { c.Companies[0].Ledgers = nil }, fx + ".ledgers[2L]"},
+		{"a ledger's unknown rate type", func(c *Config) { c.Companies[0].FXValuation.Ledgers[0].RateType = "spot" }, fx + ".ledgers[2L].rate_type"},
+		{"a ledger without a rate type", func(c *Config) { c.Companies[0].FXValuation.Ledgers[0].RateType = "" }, fx + ".ledgers[2L].rate_type"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			c := withFXValuation(t)
+			c := withLedgerValuation(t)
 			tc.mutate(c)
 			fs := Validate(c, currency.Seeded())
 			if !slices.ContainsFunc(fs, func(f Finding) bool { return f.Severity == SevError && f.Path == tc.path }) {
@@ -94,10 +114,11 @@ func TestFXValuation(t *testing.T) {
 	}
 }
 
-// TestFXValuationDiff: valuation accounts are compared by account, and a
-// change to them is posting-related.
+// TestFXValuationDiff: valuation accounts are compared by account and
+// ledgers' rate types by ledger, and a change to them is posting-related.
 func TestFXValuationDiff(t *testing.T) {
-	base, changed := withFXValuation(t), withFXValuation(t)
+	base, changed := withLedgerValuation(t), withLedgerValuation(t)
+	changed.Companies[0].FXValuation.Ledgers[0].RateType = "planning"
 	changed.Companies[0].FXValuation.Accounts = changed.Companies[0].FXValuation.Accounts[1:]
 	changed.Companies[0].FXValuation.Accounts[0].UnrealisedLoss = "520000"
 	changed.Companies[0].ChartOfAccounts[0].RevalueForeignCurrency = false
@@ -110,7 +131,7 @@ func TestFXValuationDiff(t *testing.T) {
 		tiers[ch.Path] = ch.Tier
 	}
 	for _, path := range []string{"companies[1000].fx_valuation.accounts[100000]", "companies[1000].fx_valuation.accounts[211000].unrealised_loss",
-		"companies[1000].chart_of_accounts[100000].revalue_foreign_currency"} {
+		"companies[1000].chart_of_accounts[100000].revalue_foreign_currency", "companies[1000].fx_valuation.ledgers[2L].rate_type"} {
 		if got, ok := tiers[path]; !ok || got != TierPostingRelated {
 			t.Errorf("change %s: got %v (%v), want %v; all %v", path, got, ok, TierPostingRelated, tiers)
 		}

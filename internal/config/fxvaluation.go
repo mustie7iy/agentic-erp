@@ -10,7 +10,7 @@ import (
 var rateTypes = []string{"average", "bank_buying", "bank_selling", "planning"}
 
 // fxValuation checks the company's foreign-currency valuation (ADR-0042):
-// a known rate type; flagged accounts that are assets or liabilities
+// a known rate type, and one per parallel ledger that has its own (T52d); flagged accounts that are assets or liabilities
 // (equity is non-monetary, IAS 21.16), reconcile no supplier and are not
 // the GR/IR account, each with a valuation; and one valuation per account, of a vendor reconciliation account other than
 // the down payment account (special G/L items are not revalued) or of a
@@ -21,6 +21,7 @@ func (v *validator) fxValuation(p string, co *Company) {
 	if !slices.Contains(rateTypes, co.FXValuation.RateTypeOrAverage()) {
 		v.err(fp+".rate_type", "rate type %q must be average, bank_buying, bank_selling or planning", co.FXValuation.RateType)
 	}
+	v.fxValuationLedgers(fp, co)
 	valued := map[string]bool{}
 	for _, f := range co.FXValuation.Accounts {
 		ap := fmt.Sprintf("%s.accounts[%s]", fp, f.Account)
@@ -40,6 +41,28 @@ func (v *validator) fxValuation(p string, co *Company) {
 			v.err(ap, "only an asset or liability that reconciles no supplier and is not the GR/IR account is revalued as a balance")
 		case !valued[a.Number]:
 			v.err(ap, "account %s is revalued: add it to fx_valuation.accounts with its unrealised gain and loss", a.Number)
+		}
+	}
+}
+
+// fxValuationLedgers checks the parallel ledgers' rate types: each of a
+// ledger the company keeps other than the leading one, which values at
+// the company's rate type, named once, and a known rate type.
+func (v *validator) fxValuationLedgers(fp string, co *Company) {
+	seen := map[string]bool{}
+	for _, l := range co.FXValuation.Ledgers {
+		lp := fmt.Sprintf("%s.ledgers[%s]", fp, l.Code)
+		switch {
+		case seen[l.Code]:
+			v.err(lp, "duplicate ledger")
+		case l.Code == LeadingLedger:
+			v.err(lp, "the leading ledger values at fx_valuation.rate_type")
+		case !slices.Contains(co.LedgerCodes(), l.Code):
+			v.err(lp, "the company does not keep ledger %s", l.Code)
+		}
+		seen[l.Code] = true
+		if !slices.Contains(rateTypes, l.RateType) {
+			v.err(lp+".rate_type", "rate type %q must be average, bank_buying, bank_selling or planning", l.RateType)
 		}
 	}
 }

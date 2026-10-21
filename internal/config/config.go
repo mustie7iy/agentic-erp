@@ -161,10 +161,21 @@ type Company struct {
 
 // FXValuation is the company's foreign-currency valuation (ADR-0042): the
 // one rate type it values at, average when none is given, and where the
-// valuation of each revalued account posts.
+// valuation of each revalued account posts. Ledgers are the parallel
+// ledgers that value at a rate type of their own, their valuation area's
+// (T52d, ADR-0045); the leading ledger and any other values at RateType,
+// and every ledger posts to the same valuation accounts.
 type FXValuation struct {
 	RateType string               `yaml:"rate_type,omitempty" json:"rate_type,omitempty"`
 	Accounts []FXValuationAccount `yaml:"accounts,omitempty" json:"accounts,omitempty"`
+	Ledgers  []FXValuationLedger  `yaml:"ledgers,omitempty" json:"ledgers,omitempty"`
+}
+
+// FXValuationLedger is the rate type a parallel ledger the company keeps
+// values at (SAP valuation area per accounting principle).
+type FXValuationLedger struct {
+	Code     string `yaml:"code" json:"code"`
+	RateType string `yaml:"rate_type" json:"rate_type"`
 }
 
 // RateTypeOrAverage is the rate type the company values at, average when

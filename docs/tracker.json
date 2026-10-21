@@ -1066,9 +1066,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Revaluation per ledger and valuation area (fx_valuation keyed by ledger); waits for T48 on main",
-        "r": "T52d",
+        "s": "D",
+        "t": "Revaluation per ledger: a run values its ledger's own lines and posts and reverses in that ledger alone, one posted run per key date and ledger; a parallel ledger's own rate type (valuation area) from companies[].fx_valuation.ledgers",
+        "r": "db/migrations/000132 · fx_valuation_ledger · revaluationTarget · TestRevaluationPerLedger · ADR-0045 · ADR-0042 · T52d",
         "c": []
        },
        {
