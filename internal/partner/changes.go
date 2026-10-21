@@ -48,6 +48,10 @@ type SupplierCompanyInput struct {
 	// legal entity, in order (SAP LFB1-ZWELS; ADR-0038), methods of its
 	// company.
 	PaymentMethods []string `json:"payment_methods,omitempty"`
+	// PlanningGroup is the supplier's planning group in the legal entity
+	// (SAP LFB1-FDGRV; ADR-0051 §4), a code of the configuration's
+	// cash.planning_groups; empty for none.
+	PlanningGroup string `json:"planning_group,omitempty"`
 }
 
 // AddressInput is an address to add.
@@ -234,30 +238,45 @@ func checkCompanies(ctx context.Context, tx pgx.Tx, ports Ports, supplier bool, 
 	return nil
 }
 
-// checkCompanyCodes checks the supplier's withholding tax codes and payment
-// methods in the company.
+// checkCompanyCodes checks the supplier's withholding tax codes, payment
+// methods and planning group in the company.
 func checkCompanyCodes(ctx context.Context, ports Ports, f string, s SupplierCompanyInput) error {
 	if err := checkCodes(ctx, withholdingCodes, f, s.LegalEntityID, s.WithholdingTaxCodes, ports.Accounts.IsWithholdingTaxCode); err != nil {
 		return err
 	}
-	return checkCodes(ctx, paymentMethodCodes, f, s.LegalEntityID, s.PaymentMethods, ports.PaymentMethods.IsPaymentMethod)
+	if err := checkCodes(ctx, paymentMethodCodes, f, s.LegalEntityID, s.PaymentMethods, ports.PaymentMethods.IsPaymentMethod); err != nil {
+		return err
+	}
+	if s.PlanningGroup == "" {
+		return nil
+	}
+	ok, err := ports.PlanningGroups.IsPlanningGroup(ctx, s.PlanningGroup)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return invalid("partner.unknown_planning_group", f+".planning_group", "a planning group of the configuration (cash.planning_groups)")
+	}
+	return nil
 }
 
 // lockGiven takes, for each kind of code the companies give, the kind's
 // lock, so a configuration taking a code away waits for the change and
-// then sees it pending (WithholdingCodes, PaymentMethodCodes). The locks
-// are taken in the order an activation takes them, withholding first, so
-// the two never wait on each other in a cycle.
+// then sees it pending (WithholdingCodes, PaymentMethodCodes,
+// PlanningGroupCodes). The locks are taken in the order an activation
+// takes them, withholding first and planning groups last, so the two never
+// wait on each other in a cycle.
 func lockGiven(ctx context.Context, tx pgx.Tx, in []SupplierCompanyInput) error {
-	var withholding, methods bool
+	var withholding, methods, groups bool
 	for _, s := range in {
 		withholding = withholding || len(s.WithholdingTaxCodes) > 0
 		methods = methods || len(s.PaymentMethods) > 0
+		groups = groups || s.PlanningGroup != ""
 	}
 	for _, k := range []struct {
 		given bool
 		kind  supplierCodes
-	}{{withholding, withholdingCodes}, {methods, paymentMethodCodes}} {
+	}{{withholding, withholdingCodes}, {methods, paymentMethodCodes}, {groups, planningGroupCodes}} {
 		if !k.given {
 			continue
 		}
@@ -485,19 +504,21 @@ func addRoles(ctx context.Context, tx pgx.Tx, p reqctx.Principal, partnerID uuid
 
 func putCompanies(ctx context.Context, tx pgx.Tx, p reqctx.Principal, partnerID uuid.UUID, in []SupplierCompanyInput) error {
 	var les, accounts []uuid.UUID
-	var terms, methods []string
+	var terms, methods, groups []string
 	for _, s := range in {
 		les, accounts, terms = append(les, s.LegalEntityID), append(accounts, s.ReconciliationAccountID), append(terms, s.PaymentTermCode)
 		// A method is one letter or digit, so a comma separates them
 		// unambiguously; string_to_array makes '' the empty list.
-		methods = append(methods, strings.Join(s.PaymentMethods, ","))
+		methods, groups = append(methods, strings.Join(s.PaymentMethods, ",")), append(groups, s.PlanningGroup)
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO partner.supplier_company AS s (tenant_id, partner_id, legal_entity_id, reconciliation_account_id,
-			payment_term_code, payment_methods, created_by, updated_by)
-		SELECT $1, $2, le, a, t, string_to_array(m, ','), $3, $3 FROM unnest($4::uuid[], $5::uuid[], $6::text[], $7::text[]) AS x(le, a, t, m)
+			payment_term_code, payment_methods, planning_group, created_by, updated_by)
+		SELECT $1, $2, le, a, t, string_to_array(m, ','), nullif(g, ''), $3, $3
+		FROM unnest($4::uuid[], $5::uuid[], $6::text[], $7::text[], $8::text[]) AS x(le, a, t, m, g)
 		ON CONFLICT (tenant_id, partner_id, legal_entity_id) DO UPDATE SET reconciliation_account_id = EXCLUDED.reconciliation_account_id,
-			payment_term_code = EXCLUDED.payment_term_code, payment_methods = EXCLUDED.payment_methods, version = s.version + 1, updated_by = $3`,
-		p.TenantID, partnerID, p.ID, les, accounts, terms, methods)
+			payment_term_code = EXCLUDED.payment_term_code, payment_methods = EXCLUDED.payment_methods, planning_group = EXCLUDED.planning_group,
+			version = s.version + 1, updated_by = $3`,
+		p.TenantID, partnerID, p.ID, les, accounts, terms, methods, groups)
 	if err != nil {
 		return fmt.Errorf("partner: put supplier companies of business partner %s: %w", partnerID, err)
 	}

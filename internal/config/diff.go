@@ -108,6 +108,13 @@ var tierRules = []struct {
 	// (due dates, payment runs), as payment terms' days do (ADR-0048).
 	{rx(`^calendars\[\*\]\.holidays\[\*\]\.name$`), TierCosmetic},
 	{rx(`^calendars`), TierOperational},
+	// Cash settings post nothing (ADR-0051 §4): names and the hierarchy
+	// are cosmetic; items, rules and a company's settings change how cash
+	// is classified and forecast, as payment terms' days do.
+	{rx(`^cash\.liquidity_items\[\*\]\.(name|parent)$`), TierCosmetic},
+	{rx(`^cash\.planning_groups\[\*\]\.name$`), TierCosmetic},
+	{rx(`^cash(\.|$)`), TierOperational},
+	{rx(`^companies\[\*\]\.cash(\.|$)`), TierOperational},
 }
 
 func rx(s string) *regexp.Regexp { return regexp.MustCompile(s) }
@@ -144,6 +151,20 @@ var listKeys = map[string]string{
 	"packs":     "company",
 	"calendars": "company",
 	"holidays":  "date",
+	// Cash (ADR-0051): items and groups by code; a company's value days by
+	// bank and method, its credit lines by bank.
+	"liquidity_items": "code", "planning_groups": "code",
+	"value_days": "house_bank,method", "credit_lines": "house_bank",
+}
+
+// pathKeys override listKeys for a list at one path, where its name is
+// another list's: the derivation's account rules by position, since the
+// first covering rule wins and their order is a setting, and its planning
+// group and posting rule rules by what they match.
+var pathKeys = map[string]string{
+	"cash.derivation.accounts":        "",
+	"cash.derivation.planning_groups": "group",
+	"cash.derivation.posting_rules":   "rule",
 }
 
 // Diff lists every setting that differs from old to new, with its tier.
@@ -269,7 +290,10 @@ func walk(path, field string, v any, out map[string]string) {
 			walk(p, k, x[k], out)
 		}
 	case []any:
-		key := listKeys[field]
+		key, ok := pathKeys[path]
+		if !ok {
+			key = listKeys[field]
+		}
 		for i, item := range x {
 			id := itemID(key, i, item)
 			walk(fmt.Sprintf("%s[%s]", path, id), "", item, out)

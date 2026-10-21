@@ -30,6 +30,7 @@ func Validate(p *Pack) []config.Finding {
 	v.holidays(p.Calendar.Holidays)
 	v.numberRanges(p.Numbering.NumberRanges)
 	v.paymentTerms(p.Payments.PaymentTerms)
+	v.out = append(v.out, config.CheckLiquidityItems("cash.yaml: liquidity_items", p.Cash.LiquidityItems)...)
 	return v.out
 }
 

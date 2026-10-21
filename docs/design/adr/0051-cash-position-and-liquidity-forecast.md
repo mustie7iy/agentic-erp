@@ -312,6 +312,58 @@ cash:
   were taken with; a rule change does not restate history (as P7 of
   ADR-0050).
 
+As built (T53b):
+- **Context and imports.** `internal/cash` imports only `config` (and the
+  platform and `money`); `internal/layout` lists it with `config` and adds
+  a rule that no context imports a **leaf** (`cash`), whatever the
+  allowlist says. Its ports into the ledger, payments, payables and
+  procurement are interfaces it declares and the composition root wires
+  (T53c, T53e add them), so the four contexts gain no import either. The
+  one question another context asks it, whether a planning group exists,
+  goes through a port partner declares (`partner.PlanningGroups`,
+  implemented by `cash.PlanningGroups`, wired in `app`), the way partner
+  asks payments about payment methods: no context imports `cash`.
+- **Stored or read.** Migration 000141 creates the `cash` schema (RLS,
+  `tenant_id` first) with `liquidity_item` (code, name, direction, parent
+  of the tenant) and `planning_group`, kept from the document by
+  `cash.Setup` (inactive when dropped, never deleted). The derivation
+  rules and the companies' settings are not copied: position, forecast and
+  the snapshot workflow read them from the active document, as payments
+  reads `bank_statements`.
+- **Document.** `cash` at the top level (`liquidity_items`,
+  `planning_groups`, `derivation` with `accounts` in order, then
+  `planning_groups`, `posting_rules` naming a company's posting rule by
+  its transaction code, and `defaults`) and `companies[].cash`
+  (`take_discounts` default true, `payment_days` mon-sun, `value_days`
+  per house bank and optional method 0-30, `buckets` of `day` (≤ 92),
+  `week` (≤ 104) and `month` (≤ 36) in that order, default 14 days, 11
+  weeks and 9 months, `rate_type` default `planning`, `rate_max_age_days`
+  1-365 default 7, `order_lead_days` 0-365 default 30, `credit_lines` a
+  positive amount in the bank's currency, `snapshot_time` HH:MM default
+  07:00). Account ranges compare as SAP's ALPHA conversion keeps numbers
+  (all-digit numbers zero-padded to ten). Rules name items without
+  children; a default names an item of its direction or of both; missing
+  defaults are a warning (a flow no rule assigns then has no item, shown
+  unclassified), so a pack can bring a tree alone. The account rules are
+  diffed by position, their order being a setting.
+- **Derivation.** `cash.Derive` gives each offsetting line the first
+  covering account rule's item, else the fallback (planning group, then
+  posting rule, then default), and shares the amount out over the items
+  by the lines' sizes with `money.Allocate`.
+- **Partner.** `planning_group` on supplier company data (migrations
+  000142-000143, `SupplierCompany(Input).planning_group` in the contract,
+  `partner.Supplier.PlanningGroup` in the port), checked against active
+  groups (422 `partner.unknown_planning_group`); a document dropping a
+  group a supplier has, or a pending change gives, is refused
+  (`partner.PlanningGroupCodes`, 409 `partner.planning_group_in_use`).
+- **Packs.** A pack may carry an optional `cash.yaml` of liquidity items,
+  merged into the tenant's by code; the Canada pack 2026.2 (2026.1 plus
+  that file and IAS 7 as a source) suggests OPERATING, INVESTING and
+  FINANCING, each for both directions.
+- **Deferred to T53e:** the derivation simulation (the open flows whose
+  item a rule change moves) needs the flow readers T53e builds; until then
+  a rule change is approved on its diff alone, at tier 2.
+
 ### 5. Dates and amounts of document flows
 **Supplier open items** (decision P5). The expected payment date of an
 item is:

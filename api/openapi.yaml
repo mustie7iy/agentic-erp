@@ -16708,6 +16708,11 @@ components:
           items:
             type: string
             pattern: "^[A-Z0-9]$"
+        planning_group:
+          type: string
+          description: "The supplier's planning group in this legal entity (SAP LFB1-FDGRV; ADR-0051 §4): a code of the configuration's `cash.planning_groups`, which gives the supplier's cash flows a liquidity item when no account rule does. Absent for none."
+          pattern: "^[A-Z][A-Z0-9_]{0,29}$"
+          example: TAX_AUTHORITY
       examples:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
           reconciliation_account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dca"
@@ -16749,6 +16754,11 @@ components:
           items:
             type: string
             pattern: "^[A-Z0-9]$"
+        planning_group:
+          type: string
+          description: "The supplier's planning group in this legal entity (ADR-0051 §4): an active code of the configuration's `cash.planning_groups` (422 `partner.unknown_planning_group` otherwise). Like the other company data it is replaced: leaving it out takes the supplier's group off it there."
+          pattern: "^[A-Z][A-Z0-9_]{0,29}$"
+          example: TAX_AUTHORITY
       additionalProperties: false
       examples:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"

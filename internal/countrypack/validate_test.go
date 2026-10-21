@@ -57,6 +57,9 @@ func TestValidate(t *testing.T) {
 		{"prefix", func(p *Pack) { p.Numbering.NumberRanges[0].Prefix = "si" }, "numbering.yaml: number_ranges[supplier_invoice].prefix"},
 		{"range bounds", func(p *Pack) { p.Numbering.NumberRanges[0].Last = 0 }, "numbering.yaml: number_ranges[supplier_invoice]"},
 		{"duplicate payment term", func(p *Pack) { p.Payments.PaymentTerms = append(p.Payments.PaymentTerms, p.Payments.PaymentTerms[0]) }, "payments.yaml: payment_terms[NET30]"},
+		{"liquidity item's parent", func(p *Pack) {
+			p.Cash.LiquidityItems = []config.LiquidityItem{{Code: "OP", Name: "Op", Direction: config.DirectionBoth, Parent: "TOP"}}
+		}, "cash.yaml: liquidity_items[OP].parent"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -108,6 +111,7 @@ func TestParse(t *testing.T) {
 		{"unknown file", func(m map[string][]byte) { m["vat.yaml"] = nil }, "unknown file vat.yaml"},
 		{"missing file", func(m map[string][]byte) { delete(m, "tax.yaml") }, "missing file tax.yaml"},
 		{"unknown field", func(m map[string][]byte) { m["tax.yaml"] = []byte("tax_code: []\n") }, "tax.yaml"},
+		{"unknown field in an optional file", func(m map[string][]byte) { m["cash.yaml"] = []byte("liquidity_item: []\n") }, "cash.yaml"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

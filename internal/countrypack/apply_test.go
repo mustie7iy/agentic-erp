@@ -162,6 +162,8 @@ func TestUpgrade(t *testing.T) {
 		{"conflict noted", hasNote(notes, "companies[C1].chart_of_accounts[6000]", "conflict"), true},
 		{"drop noted", hasNote(notes, "companies[C1].tax_codes[V0]", "no longer has"), true},
 		{"base named", hasNote(notes, "packs[C1]", "upgrading from 2026.1"), true},
+		{"the suggested liquidity items", len(got.Cash.LiquidityItems), 3},
+		{"the tenant's item kept", doc.Cash.LiquidityItems == nil, true},
 	}
 	for _, c := range checks {
 		t.Run(c.name, func(t *testing.T) {

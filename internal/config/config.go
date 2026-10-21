@@ -45,6 +45,9 @@ type Config struct {
 	// Calendars are the companies' holidays (ADR-0048), one calendar per
 	// company: the days, besides weekends, on which it does no business.
 	Calendars []Calendar `yaml:"calendars,omitempty" json:"calendars,omitempty"`
+	// Cash is the tenant's liquidity items, planning groups and the rules
+	// assigning flows their items (ADR-0051 §4).
+	Cash Cash `yaml:"cash,omitempty" json:"cash,omitzero"`
 }
 
 // Calendar is a company's holidays, each date once.
@@ -200,6 +203,9 @@ type Company struct {
 	// Ledgers are the codes of the ledgers the company keeps (SAP ledger
 	// assignment), the leading ledger 0L among them; none means 0L alone.
 	Ledgers []string `yaml:"ledgers,omitempty" json:"ledgers,omitempty"`
+	// Cash is how the company's cash position and liquidity forecast are
+	// computed (ADR-0051 §5, §8-§10).
+	Cash CompanyCash `yaml:"cash,omitempty" json:"cash,omitzero"`
 }
 
 // FXValuation is the company's foreign-currency valuation (ADR-0042): the

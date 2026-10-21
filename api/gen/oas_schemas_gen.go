@@ -35485,6 +35485,10 @@ type SupplierCompany struct {
 	// The methods the supplier may be paid by in this legal entity, in order of preference (SAP
 	// LFB1-ZWELS; ADR-0038): codes of the company's `payment_methods` in the configuration.
 	PaymentMethods []string `json:"payment_methods"`
+	// The supplier's planning group in this legal entity (SAP LFB1-FDGRV; ADR-0051 §4): a code of the
+	// configuration's `cash.planning_groups`, which gives the supplier's cash flows a liquidity item when
+	// no account rule does. Absent for none.
+	PlanningGroup OptString `json:"planning_group"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -35522,6 +35526,11 @@ func (s *SupplierCompany) GetPaymentMethods() []string {
 	return s.PaymentMethods
 }
 
+// GetPlanningGroup returns the value of PlanningGroup.
+func (s *SupplierCompany) GetPlanningGroup() OptString {
+	return s.PlanningGroup
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *SupplierCompany) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -35557,6 +35566,11 @@ func (s *SupplierCompany) SetPaymentMethods(val []string) {
 	s.PaymentMethods = val
 }
 
+// SetPlanningGroup sets the value of PlanningGroup.
+func (s *SupplierCompany) SetPlanningGroup(val OptString) {
+	s.PlanningGroup = val
+}
+
 // Company-specific supplier data to set up.
 // Ref: #/components/schemas/SupplierCompanyInput
 type SupplierCompanyInput struct {
@@ -35576,6 +35590,10 @@ type SupplierCompanyInput struct {
 	// methods in the legal entity: leaving it out takes every method off the supplier there, as the other
 	// company data is replaced too.
 	PaymentMethods []string `json:"payment_methods"`
+	// The supplier's planning group in this legal entity (ADR-0051 §4): an active code of the
+	// configuration's `cash.planning_groups` (422 `partner.unknown_planning_group` otherwise). Like the
+	// other company data it is replaced: leaving it out takes the supplier's group off it there.
+	PlanningGroup OptString `json:"planning_group"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -35603,6 +35621,11 @@ func (s *SupplierCompanyInput) GetPaymentMethods() []string {
 	return s.PaymentMethods
 }
 
+// GetPlanningGroup returns the value of PlanningGroup.
+func (s *SupplierCompanyInput) GetPlanningGroup() OptString {
+	return s.PlanningGroup
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *SupplierCompanyInput) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -35626,6 +35649,11 @@ func (s *SupplierCompanyInput) SetWithholdingTaxCodes(val []string) {
 // SetPaymentMethods sets the value of PaymentMethods.
 func (s *SupplierCompanyInput) SetPaymentMethods(val []string) {
 	s.PaymentMethods = val
+}
+
+// SetPlanningGroup sets the value of PlanningGroup.
+func (s *SupplierCompanyInput) SetPlanningGroup(val OptString) {
+	s.PlanningGroup = val
 }
 
 // Merged schema.

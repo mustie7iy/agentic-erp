@@ -9,7 +9,7 @@ types. Both are reviewed together.
 ### Schemas and ownership
 - One PostgreSQL schema per bounded context (`tenancy`, `identity`, `config`,
   `partner`, `ledger`, `procurement`, `payables`, `payments`, `workflow`,
-  `audit`, `integration`, `agents`, `analytics`), plus:
+  `audit`, `integration`, `agents`, `analytics`, `cash`), plus:
   - `ref`: global reference data (currencies, countries, units, permissions),
     identical in every cell, read-only to the application;
   - `platform`: per-cell infrastructure (idempotency keys, operations).
@@ -456,7 +456,8 @@ erDiagram
     text payment_term_code
     bool is_posting_blocked
     bool is_payment_blocked
-    text_array payment_methods "in order; T45b" }
+    text_array payment_methods "in order; T45b"
+    text planning_group "cash.planning_groups; T53b" }
   bank_account { uuid id PK
     uuid partner_id
     bytea account_cipher
@@ -516,6 +517,14 @@ the legal entity's `ledger.withholding_tax_code`, each once, replaced as a
 whole by a partner change (codes taken off are deactivated, never deleted).
 A configuration that takes a code away from a company while a supplier has
 it is refused (`partner.WithholdingCodes`).
+
+A supplier's company data may name its planning group (`planning_group`,
+SAP LFB1-FDGRV; migrations 000142-000143, T53b): an active code of the
+configuration's `cash.planning_groups`, which the cash context keeps and
+partner asks about through its own port (`partner.PlanningGroups`, wired by
+the composition root, §3.18). A configuration taking away a group a
+supplier has, or a pending change gives, is refused
+(`partner.PlanningGroupCodes`, under the planning group lock).
 
 ## 3.7 General ledger (`ledger`)
 
@@ -2050,6 +2059,7 @@ line or reservation. An agent's budget is identity's
 | ACDOCA | `ledger.journal_entry` + `ledger.journal_line` (TC/LC/GC amounts) |
 | BSEG clearing (AUGBL) | `ledger.clearing` + `ledger.clearing_item` |
 | LFA1/LFB1/LFBK, BUT000 | `partner.business_partner`, `supplier_company`, `bank_account`, `tax_identifier` |
+| FLQLITEM/FLQLITEMT liquidity items, T035 planning groups, LFB1-FDGRV | `cash.liquidity_item`, `cash.planning_group`, `supplier_company.planning_group` (T53b) |
 | EBAN | `procurement.requisition` |
 | EKKO/EKPO | `procurement.purchase_order` + items |
 | Outline agreements (EKKO BSTYP K) | `procurement.contract` |
@@ -2067,3 +2077,41 @@ line or reservation. An agent's budget is identity's
 | T030 | `ledger.account_determination` (VST, BNK, WRX, PRD, SKE) |
 | AGR_* | `identity.role`, `role_permission`, `principal_role` |
 | NRIV | `config.number_range` |
+
+## 3.18 Cash management (`cash`)
+
+A leaf context (ADR-0051 §2): it reads the ledger, payments, payables and
+procurement through ports they publish and owns only what it adds; no
+context imports it (`internal/layout`). Migration 000141 (T53b) creates the
+schema with the configuration it keeps; memo records, snapshots and
+variance comments follow in T53d and T53f.
+
+```mermaid
+erDiagram
+  liquidity_item ||--o{ liquidity_item : "parent of"
+  liquidity_item { text code PK
+    text name
+    text direction "inflow | outflow | both"
+    text parent_code
+    bool is_active }
+  planning_group { text code PK
+    text name
+    bool is_active }
+```
+
+| Table | Purpose |
+|---|---|
+| `cash.liquidity_item` | The configuration's `cash.liquidity_items` (SAP FLQLITEM), kept by `cash.Setup`: cash by purpose in one tree, a code of upper-case letters, digits and underscores, a direction, a parent of the tenant (never itself). One the document drops becomes inactive, never deleted, since memo records and snapshots name items; the configuration's validation keeps the tree acyclic, at most four levels, children of their parent's direction or of one for both |
+| `cash.planning_group` | The configuration's `cash.planning_groups` (SAP T035), kept by `cash.Setup`, inactive once dropped; suppliers name one per company (`partner.supplier_company.planning_group`, §3.6) |
+
+What is not stored, and read from the active document when a position or
+forecast is computed: the derivation rules (`cash.derivation`: account
+ranges first, compared as SAP's ALPHA conversion keeps numbers and split in
+proportion over a document's offsetting lines, then planning groups, then
+posting rules by transaction code, then a default per direction;
+`cash.Derive`) and each company's `cash` settings (`take_discounts`,
+`payment_days`, `value_days` per house bank and method, `buckets`,
+`rate_type` default `planning`, `rate_max_age_days`, `order_lead_days`,
+`credit_lines` in the bank's currency, `snapshot_time`). All of them post
+nothing: names and the hierarchy are tier 1, the rest tier 2.
+
