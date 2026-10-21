@@ -43,6 +43,9 @@ func taxBase(l NewLine, i, expTC int) (*money.Minor, error) {
 // minor unit (422 ledger.tax_base_mismatch): the input part recovered, or
 // the self-assessed output tax.
 func checkTaxBases(ctx context.Context, le uuid.UUID, date time.Time, lines []Line, expTC int) error {
+	if err := sameBases(lines); err != nil {
+		return err
+	}
 	for i, l := range lines {
 		if l.TaxBase == nil {
 			continue
@@ -56,17 +59,47 @@ func checkTaxBases(ctx context.Context, le uuid.UUID, date time.Time, lines []Li
 				"code (one on a component's account) does: an import's tax posted from the customs declaration.", i+1),
 				problem.FieldError{Field: fmt.Sprintf("lines[%d].tax_base", i), Code: "not_import", Message: "a tax line of an import code"})
 		}
-		want, err := onAccount(t, k, *l.TaxBase, date)
-		if err != nil {
-			return err
-		}
-		if d := l.TC - want; d > 1 || d < -1 {
-			return problem.Unprocessable("ledger.tax_base_mismatch", fmt.Sprintf("Line %d posts %s of %s tax on its declared base; the rate gives %s.",
-				i+1, l.TC.Plain(expTC), t.Code, want.Plain(expTC)),
-				problem.FieldError{Field: fmt.Sprintf("lines[%d].amount", i), Code: "tax_base_mismatch", Message: "the tax on the declared base"})
+		if want, err := onAccount(t, k, *l.TaxBase, date); err != nil || want-l.TC > 1 || l.TC-want > 1 {
+			return baseMismatch(err, i, l.TC, want, t.Code, expTC)
 		}
 	}
 	return nil
+}
+
+// sameBases holds an entry's declared bases together: a code one line
+// declares a base for has it on every line carrying the code (each of its
+// tax lines, and no base line beside it, which would count the base twice),
+// the same base (422 ledger.tax_base_inconsistent).
+func sameBases(lines []Line) error {
+	declared := map[string]money.Minor{}
+	for _, l := range lines {
+		if l.TaxBase != nil && l.TaxCode != nil {
+			declared[*l.TaxCode] = *l.TaxBase
+		}
+	}
+	for i, l := range lines {
+		if l.TaxCode == nil {
+			continue
+		}
+		base, ok := declared[*l.TaxCode]
+		if ok && (l.TaxBase == nil || *l.TaxBase != base) {
+			return problem.Unprocessable("ledger.tax_base_inconsistent", fmt.Sprintf("Line %d carries tax code %s, whose tax lines declare a base: "+
+				"every line with the code declares the same one, and the code is on no other line.", i+1, *l.TaxCode),
+				problem.FieldError{Field: fmt.Sprintf("lines[%d].tax_base", i), Code: "inconsistent", Message: "the code's declared base"})
+		}
+	}
+	return nil
+}
+
+// baseMismatch refuses a line whose tax is not the tax on its declared base
+// (422 ledger.tax_base_mismatch), or is the calculator's error.
+func baseMismatch(err error, i int, tc, want money.Minor, code string, expTC int) error {
+	if err != nil {
+		return err
+	}
+	return problem.Unprocessable("ledger.tax_base_mismatch", fmt.Sprintf("Line %d posts %s of %s tax on its declared base; the rate gives %s.",
+		i+1, tc.Plain(expTC), code, want.Plain(expTC)),
+		problem.FieldError{Field: fmt.Sprintf("lines[%d].amount", i), Code: "tax_base_mismatch", Message: "the tax on the declared base"})
 }
 
 // importComponent is the import code a line carries, with the index of

@@ -14,14 +14,15 @@ ALTER TABLE ledger.parked_entry_line ADD COLUMN tax_base bigint;
 ALTER TABLE ledger.parked_entry_line ADD CONSTRAINT parked_entry_line_tax_base CHECK (tax_base IS NULL OR tax_code IS NOT NULL);
 
 -- A declared base is on a tax line of an import code: the line's account is
--- one of the code's components' (current) accounts.
+-- one of the code's components' accounts, current or former (a reversal or
+-- copy repeats the original's account after the component moved on).
 CREATE FUNCTION ledger.check_tax_base_line() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
   IF NOT EXISTS (SELECT FROM ledger.tax_component c
       JOIN ledger.tax_code_definition d ON d.tenant_id = c.tenant_id AND d.legal_entity_id = c.legal_entity_id AND d.code = c.code
-      WHERE c.tenant_id = NEW.tenant_id AND c.legal_entity_id = NEW.legal_entity_id AND c.code = NEW.tax_code AND c.account_id = NEW.account_id
-        AND d.kind = 'import') THEN
+      WHERE c.tenant_id = NEW.tenant_id AND c.legal_entity_id = NEW.legal_entity_id AND c.code = NEW.tax_code
+        AND (c.account_id = NEW.account_id OR NEW.account_id = ANY(c.former_account_ids)) AND d.kind = 'import') THEN
     RAISE EXCEPTION 'line % of entry % declares a tax base, which only a tax line of an import code does', NEW.line_no, NEW.journal_entry_id
       USING ERRCODE = 'check_violation', CONSTRAINT = 'journal_line_tax_base_import';
   END IF;

@@ -19,8 +19,9 @@ import (
 // the UAE's import VAT accounted for in the return (VAT 201 box 6, its
 // recovery box 10), self-assessed on 240000 and recovered on 140000; IC5,
 // Canada's GST paid to the CBSA on an import, an input tax credit (GST34
-// line 106); IH5, an import whose VAT is half recovered.
-func importCodes(t *testing.T, e env) {
+// line 106); IH5, an import whose VAT is half recovered. It returns the
+// configuration for a test to change.
+func importCodes(t *testing.T, e env) *config.Config {
 	t.Helper()
 	doc := document(t)
 	co := doc.Company("2000")
@@ -36,6 +37,7 @@ func importCodes(t *testing.T, e env) {
 		config.TaxCode{Code: "IH5", Description: "Import VAT, half recovered", Kind: config.TaxImport, Components: []config.TaxComponent{
 			{Key: "due", AccountKey: config.KeySelfOutput, Account: "240000", Rates: five},
 			{Key: "claim", AccountKey: config.KeySelfInput, Account: "140000", RecoverablePercent: "50", Rates: five}}})
+	return doc
 }
 
 // importLine is a line of an import entry body; base, when set, is its
@@ -106,6 +108,23 @@ func TestImportFromCustomsDeclaration(t *testing.T) {
 	}
 }
 
+// TestImportReversedAfterAccountChange: an import entry is reversed on its
+// own accounts after its component moved to another account.
+func TestImportReversedAfterAccountChange(t *testing.T) {
+	e := setup(t)
+	doc := importCodes(t, e)
+	je, tag := e.Must(201, "POST", "/v1/journal-entries", importEntry(t, e, "EUR", importLine{"140000", "5.00", "IC5", "100.00"},
+		importLine{"219500", "-5.00", "", ""}), "")
+	co := doc.Company("2000")
+	co.ChartOfAccounts = append(co.ChartOfAccounts, config.Account{Number: "141000", Name: "Import GST", Type: config.Asset})
+	fixture.TaxCodes(t, e.ten, doc, config.TaxCode{Code: "IC5", Description: "GST on imports (CBSA)", Kind: config.TaxImport, Components: []config.TaxComponent{
+		{Key: "gst", AccountKey: config.KeyInput, Account: "141000", Rates: []config.TaxRate{{RatePercent: "5", ValidFrom: "2026-01-01"}}}}})
+	rev, _ := e.Must(200, "POST", "/v1/journal-entries/"+apitest.String(t, je, "id")+":reverse", "", tag)
+	if got := taxItemsOf(t, e, uuid.MustParse(apitest.String(t, rev, "id"))); !strings.HasPrefix(got, "IC5/gst 2026-03-10 -10000 -500 -500") {
+		t.Errorf("reversal's items: got %s, want the original's negated", got)
+	}
+}
+
 // TestTaxBaseRefused: a declared base is only on a tax line of an import
 // code, never zero, in the entry's currency, and its line's amount is the
 // tax on it.
@@ -128,6 +147,12 @@ func TestTaxBaseRefused(t *testing.T) {
 			"ledger.zero_tax_base", 422},
 		"not an amount": {importEntry(t, e, "EUR", importLine{"140000", "5.00", "IC5", "1.234"}, importLine{"219500", "-5.00", "", ""}),
 			"request.invalid_amount", 400},
+		"a line without the base": {importEntry(t, e, "AED", importLine{"140000", "500.00", "IM5", "10000.00"}, importLine{"240000", "-500.00", "IM5", ""}),
+			"ledger.tax_base_inconsistent", 422},
+		"two bases": {importEntry(t, e, "AED", importLine{"140000", "500.00", "IM5", "10000.00"}, importLine{"240000", "-505.00", "IM5", "10100.00"},
+			importLine{"520000", "5.00", "", ""}), "ledger.tax_base_inconsistent", 422},
+		"a base line beside it": {importEntry(t, e, "EUR", importLine{"520000", "100.00", "IC5", ""}, importLine{"140000", "5.00", "IC5", "100.00"},
+			importLine{"219500", "-105.00", "", ""}), "ledger.tax_base_inconsistent", 422},
 		"another currency": {strings.Replace(importEntry(t, e, "EUR", importLine{"140000", "5.00", "IC5", "100.00"}, importLine{"219500", "-5.00", "", ""}),
 			`"amount": "100.00", "currency": "EUR"`, `"amount": "100.00", "currency": "USD"`, 1), "ledger.currency_mismatch", 422},
 	} {

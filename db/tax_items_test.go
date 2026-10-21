@@ -495,4 +495,12 @@ func TestTaxBaseRules(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) { failsOn(t, asApp(t, s.tenant, c.write), c.fails) })
 	}
+	// A reversal or copy repeats the original's account after the
+	// component moved on: a former account takes the base too.
+	mustApp(t, s.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, `UPDATE ledger.tax_component SET account_id = $1, version = version + 1 WHERE code = 'IC5'`, s.bank); err != nil {
+			return err
+		}
+		return based(s.tax, "IC5", &base, &baseLC)(tx)
+	})
 }

@@ -431,8 +431,9 @@ commit-time check, like the balance trigger).
   parallel ledger's entry with tax codes that is no copy of a leading
   ledger's entry in its posting group (`tax_code_off_leading`). A ledger's
   difference on tax is posted without a code. Entries posted to a parallel
-  ledger alone before the rule keep their codes; reversing one is refused
-  the same way (none exist before the pilot).
+  ledger alone before the rule keep their codes; reversing one fails the
+  commit-time check (409 `request.rule_violated`; none exist before the
+  pilot).
   A tax line names its account and code, not its component, so the ledger
   refuses on a posting that derives its items from its lines a code two
   of whose components with a rate on the tax date post to one account (422
@@ -632,7 +633,12 @@ the UAE's Box 6 for registrants who account for import VAT in the return
   `journal_line_tax_base_import`), a zero one, and a line whose amount is
   not the tax on the base at the component's rate on the tax date (the
   part recovered, or the self-assessed output tax) within one minor unit
-  (422 `ledger.tax_base_mismatch`). The component's item takes the base.
+  (422 `ledger.tax_base_mismatch`); a code one line declares a base for
+  has the same base on every line carrying it, and no base line beside it,
+  which would count the base twice (422 `ledger.tax_base_inconsistent`).
+  The component's item takes the base; a reversal or a parallel ledger's
+  copy repeats it on the original's account, which the trigger accepts as
+  a component's former account after the component moved on.
   Worked cases (ledger `TestImportFromCustomsDeclaration`): the UAE's box 6,
   AED 10,000.00 declared, 500.00 self-assessed on 240000 and recovered on
   140000; Canada's GST paid to the CBSA through a broker, CAD 13,000.00
@@ -641,7 +647,20 @@ the UAE's Box 6 for registrants who account for import VAT in the return
   account and the rest on an expense line without a code; the claim item's
   tax is then the part recovered (an item derived from lines has the tax
   its account carries), which is what box 10 and line 106 read. A reversal
-  negates the bases with the lines. **Not yet:** the base on the posted
+  negates the bases with the lines. **Rolling upgrade (06 §6.4):** 000144
+  adds nullable columns and keeps `write_tax_items`' signature (a null
+  base counts as none), so it runs ahead of the code; an instance of the
+  previous release neither writes nor resets the bases: an edit of a parked
+  import line there keeps its stale base, posting a parked import entry
+  there drops the base (its items' base 0), and its reversals of new
+  import entries leave the lines' bases out (their items, negated from the
+  original's, are right). Import entries are not entered while the rollout
+  is under way (runbook). **Open (tax specialist and product owner):** a
+  partly recovered import's claim item carries the part recovered as its
+  tax, where a supplier invoice's self-assessed claim carries the whole tax
+  with its recovered part; the returns read the same, but the item's tax
+  means two things by its path. Giving the calculator's items for import
+  entries, as supplier invoices do, would align them. **Not yet:** the base on the posted
   event (`journal_entry_posted` lines), and a customs declaration as a
   document of its own (GTS, phase 4).
 
