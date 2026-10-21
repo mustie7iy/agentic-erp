@@ -202,7 +202,7 @@ channels:
   ledger:
     address: 'erp.{cell}.ledger.{tenant}.{event}'
     title: General ledger events
-    description: Journal entries, clearing and posting periods.
+    description: Journal entries, clearing, posting periods, and cost centers, profit centers and segments.
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
@@ -213,6 +213,9 @@ channels:
       PeriodClosed: {$ref: '#/components/messages/PeriodClosed'}
       PeriodLocked: {$ref: '#/components/messages/PeriodLocked'}
       PeriodUnlocked: {$ref: '#/components/messages/PeriodUnlocked'}
+      CostCenterChanged: {$ref: '#/components/messages/CostCenterChanged'}
+      ProfitCenterChanged: {$ref: '#/components/messages/ProfitCenterChanged'}
+      SegmentChanged: {$ref: '#/components/messages/SegmentChanged'}
       ParkedJournalEntryChanged: {$ref: '#/components/messages/ParkedJournalEntryChanged'}
       ExchangeRateMaintained: {$ref: '#/components/messages/ExchangeRateMaintained'}
       RevaluationRunPosted: {$ref: '#/components/messages/RevaluationRunPosted'}
@@ -399,6 +402,9 @@ operations:
       - $ref: '#/channels/ledger/messages/PeriodClosed'
       - $ref: '#/channels/ledger/messages/PeriodLocked'
       - $ref: '#/channels/ledger/messages/PeriodUnlocked'
+      - $ref: '#/channels/ledger/messages/CostCenterChanged'
+      - $ref: '#/channels/ledger/messages/ProfitCenterChanged'
+      - $ref: '#/channels/ledger/messages/SegmentChanged'
       - $ref: '#/channels/ledger/messages/ParkedJournalEntryChanged'
       - $ref: '#/channels/ledger/messages/ExchangeRateMaintained'
       - $ref: '#/channels/ledger/messages/RevaluationRunPosted'
@@ -887,6 +893,73 @@ components:
         - name: sep-2026
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000083, source: /erp/eu-1/ledger, type: com.example.erp.ledger.period_unlocked.v1, subject: 0192a000-0000-7000-8000-000000000205, time: '2026-10-22T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
           payload: {period_id: 0192a000-0000-7000-8000-000000000205, legal_entity_id: 0192a000-0000-7000-8000-000000000201, ledger_id: 0192a000-0000-7000-8000-000000000202, calendar_id: 0192a000-0000-7000-8000-000000000203, fiscal_year: 2026, period: 9, start_date: '2026-09-01', end_date: '2026-09-30', status: closed, previous_status: locked}
+    CostCenterChanged:
+      name: CostCenterChanged
+      x-webhook: true
+      title: Cost center changed
+      summary: A cost center was created, rejected, given a new validity, locks, profit center or category, or new texts.
+      description: |
+        Emitted when a `center_change` approval request on a cost center is
+        approved (`approval-requests/{id}:approve`, in the same transaction
+        as the decision: `change` created, redated, locked or moved), when a
+        create change is rejected or withdrawn (`rejected`), and when its
+        texts change (`cost-centers/{id}` PATCH: `texts`). Carries the cost
+        center's active periods after the change (ADR-0050 §3). The person
+        responsible is left out (personal data). Subject is the cost center
+        id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.ledger.cost_center_changed.v1}
+      payload: {$ref: '#/components/schemas/CostCenterChangedV1'}
+      examples:
+        - name: locked
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000091, source: /erp/eu-1/ledger, type: com.example.erp.ledger.cost_center_changed.v1, subject: 0192a000-0000-7000-8000-000000000304, time: '2026-10-21T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
+          payload: {cost_center_id: 0192a000-0000-7000-8000-000000000304, legal_entity_id: 0192a000-0000-7000-8000-000000000201, code: '1000', name: Administration, status: active, change: locked, center_change_id: 0192a000-0000-7000-8000-000000000306, valid_from: '2026-01-01', valid_to: null, periods: [{valid_from: '2026-01-01', valid_to: '2026-11-01', category: ADMIN, profit_center_id: 0192a000-0000-7000-8000-000000000302, lock_actual_cost: false, lock_actual_revenue: false, lock_plan: false}, {valid_from: '2026-11-01', valid_to: null, category: ADMIN, profit_center_id: 0192a000-0000-7000-8000-000000000302, lock_actual_cost: true, lock_actual_revenue: false, lock_plan: false}]}
+    ProfitCenterChanged:
+      name: ProfitCenterChanged
+      x-webhook: true
+      title: Profit center changed
+      summary: A profit center was created, rejected, given a new validity, lock, segment, companies or texts.
+      description: |
+        Emitted when a `center_change` approval request on a profit center
+        is approved (in the deciding transaction: `change` created, redated,
+        locked, moved to another segment or assigned to more companies),
+        when a create change is rejected or withdrawn (`rejected`), and when
+        its texts change (`texts`). Carries its companies and active periods
+        after the change. Subject is the profit center id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.ledger.profit_center_changed.v1}
+      payload: {$ref: '#/components/schemas/ProfitCenterChangedV1'}
+      examples:
+        - name: created
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000092, source: /erp/eu-1/ledger, type: com.example.erp.ledger.profit_center_changed.v1, subject: 0192a000-0000-7000-8000-000000000302, time: '2026-10-21T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
+          payload: {profit_center_id: 0192a000-0000-7000-8000-000000000302, code: CA-SALES, name: Sales Canada, status: active, segment_id: null, legal_entity_ids: [0192a000-0000-7000-8000-000000000201], change: created, center_change_id: 0192a000-0000-7000-8000-000000000307, valid_from: '2026-01-01', valid_to: null, periods: [{valid_from: '2026-01-01', valid_to: null, locked: false}]}
+    SegmentChanged:
+      name: SegmentChanged
+      x-webhook: true
+      title: Segment changed
+      summary: A segment was created or its texts changed.
+      description: |
+        Emitted by `segments` (POST, `change` created) and `segments/{id}`
+        (PATCH, `updated`). Subject is the segment id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.ledger.segment_changed.v1}
+      payload: {$ref: '#/components/schemas/SegmentChangedV1'}
+      examples:
+        - name: created
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000093, source: /erp/eu-1/ledger, type: com.example.erp.ledger.segment_changed.v1, subject: 0192a000-0000-7000-8000-000000000303, time: '2026-10-21T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {segment_id: 0192a000-0000-7000-8000-000000000303, code: RETAIL, name: Retail, change: created}
     ParkedJournalEntryChanged:
       name: ParkedJournalEntryChanged
       x-webhook: true
@@ -2855,6 +2928,65 @@ components:
         end_date: {$ref: '#/components/schemas/Date'}
         status: {type: string, description: 'Open enum: open, closed, locked.'}
         previous_status: {type: [string, 'null'], description: Null when the period status row was created by this change.}
+    CostCenterChangedV1:
+      type: object
+      required: [cost_center_id, legal_entity_id, code, name, status, change, center_change_id, valid_from, valid_to, periods]
+      properties:
+        cost_center_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.cost_center.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        code: {type: string}
+        name: {type: string}
+        status: {type: string, description: 'Open enum: pending, active, rejected.'}
+        change: {type: string, description: 'Open enum: created, rejected, redated, locked, moved, texts.'}
+        center_change_id: {$ref: '#/components/schemas/NullableUuid', description: The applied or closed center change; null for a change of texts.}
+        valid_from: {$ref: '#/components/schemas/NullableDate', description: Start of validity; null while not active.}
+        valid_to: {$ref: '#/components/schemas/NullableDate', description: End of validity (exclusive); null when open-ended or not active.}
+        periods:
+          type: array
+          description: Active periods in date order.
+          items:
+            type: object
+            required: [valid_from, valid_to, category, profit_center_id, lock_actual_cost, lock_actual_revenue, lock_plan]
+            properties:
+              valid_from: {$ref: '#/components/schemas/Date'}
+              valid_to: {$ref: '#/components/schemas/NullableDate', description: Exclusive; null when open-ended.}
+              category: {type: string}
+              profit_center_id: {$ref: '#/components/schemas/NullableUuid'}
+              lock_actual_cost: {type: boolean}
+              lock_actual_revenue: {type: boolean}
+              lock_plan: {type: boolean}
+    ProfitCenterChangedV1:
+      type: object
+      required: [profit_center_id, code, name, status, segment_id, legal_entity_ids, change, center_change_id, valid_from, valid_to, periods]
+      properties:
+        profit_center_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.profit_center.id`.'}
+        code: {type: string}
+        name: {type: string}
+        status: {type: string, description: 'Open enum: pending, active, rejected.'}
+        segment_id: {$ref: '#/components/schemas/NullableUuid'}
+        legal_entity_ids: {type: array, items: {$ref: '#/components/schemas/Uuid'}}
+        change: {type: string, description: 'Open enum: created, rejected, redated, locked, moved, assigned, texts.'}
+        center_change_id: {$ref: '#/components/schemas/NullableUuid', description: The applied or closed center change; null for a change of texts.}
+        valid_from: {$ref: '#/components/schemas/NullableDate'}
+        valid_to: {$ref: '#/components/schemas/NullableDate'}
+        periods:
+          type: array
+          description: Active periods in date order.
+          items:
+            type: object
+            required: [valid_from, valid_to, locked]
+            properties:
+              valid_from: {$ref: '#/components/schemas/Date'}
+              valid_to: {$ref: '#/components/schemas/NullableDate'}
+              locked: {type: boolean}
+    SegmentChangedV1:
+      type: object
+      required: [segment_id, code, name, change]
+      properties:
+        segment_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.segment.id`.'}
+        code: {type: string}
+        name: {type: string}
+        change: {type: string, description: 'Open enum: created, updated.'}
     ParkedJournalEntryChangedV1:
       type: object
       required: [parked_entry_id, legal_entity_id, posting_date, amount, status, previous_status, created_by_kind, owner_id, approval_request_id, journal_entry_id]
@@ -3255,7 +3387,7 @@ components:
       required: [approval_request_id, object_type, object_id, current_step, escalations, pending_since]
       properties:
         approval_request_id: {$ref: '#/components/schemas/Uuid'}
-        object_type: {type: string, description: 'Open enum: requisition, partner_change, config_change, invoice_exception, period_unlock, manual_entry, purchase_order, order_change.'}
+        object_type: {type: string, description: 'Open enum: requisition, partner_change, config_change, invoice_exception, period_unlock, manual_entry, purchase_order, order_change, center_change.'}
         object_id: {$ref: '#/components/schemas/Uuid'}
         current_step: {type: integer, minimum: 1, description: The step waiting for a decision.}
         escalations: {type: integer, minimum: 1, description: How often the request has now been escalated.}
@@ -3265,7 +3397,7 @@ components:
       required: [approval_request_id, object_type, object_id, title, requester_id, steps]
       properties:
         approval_request_id: {$ref: '#/components/schemas/Uuid'}
-        object_type: {type: string, description: 'Open enum: requisition, partner_change, config_change, invoice_exception, period_unlock, manual_entry, purchase_order, order_change.'}
+        object_type: {type: string, description: 'Open enum: requisition, partner_change, config_change, invoice_exception, period_unlock, manual_entry, purchase_order, order_change, center_change.'}
         object_id: {$ref: '#/components/schemas/Uuid'}
         title: {type: string}
         requester_id: {$ref: '#/components/schemas/Uuid', description: 'Principal that raised the request: human, agent or service.'}

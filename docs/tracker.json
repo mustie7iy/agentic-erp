@@ -1353,9 +1353,9 @@
       "r": "ADR-0050 · T56 (split T56a-T56l)",
       "c": [
        {
-        "s": "T",
-        "t": "Center master data (ledger): cost_center, cost_center_period, profit_center, profit_center_period, profit_center_company, segment with RLS, tenant_id first, EXCLUDE on validity; codes, company rules, segment-in-use and period-in-use refusals; /v1/cost-centers, /v1/profit-centers, /v1/segments (contract first; list, read, create, change, lock, end as change requests with ADR-0050 §11's approval table; agents propose, never approve); audit and events; FailingTx tests on every path; schema tests per database rule",
-        "r": "T56a",
+        "s": "D",
+        "t": "Center master data (ledger): segment, profit_center (+ profit_center_company, insert-only), cost_center of one legal entity, their effective-dated periods (category, profit center, locks; valid_to exclusive) written once and retired by the change that replaces them, EXCLUDE on active validity, a cost center period's profit center assigned to its company (FK), RLS, tenant_id first, schema tests per rule; texts change at once (audited by field name); creating a center and every validity, lock, profit center/category, segment or company change is a center_change on a center_change approval request decided by the controller (ledger.cost_center.approve, never the requester, never an agent; locks x-agent: false, the rest x-autonomy: propose), planned and checked at request and again at approval; /v1/cost-centers, /v1/profit-centers, /v1/segments, /v1/center-changes with ETag/If-Match and Idempotency-Key; CostCenterChanged, ProfitCenterChanged, SegmentChanged; the in-use refusals that need postings move to T56d",
+        "r": "migration 000125 · internal/ledger centers.go, costcenters.go, profitcenters.go, centerchange.go · approvals.CenterChange · api/openapi.yaml · api/asyncapi.yaml · ADR-0050 · T56a",
         "c": []
        },
        {
@@ -1372,7 +1372,7 @@
        },
        {
         "s": "T",
-        "t": "Assignment on the journal: expand migration (cost_center_id, profit_center_id, segment_id; FKs NOT VALID then validated per partition, partial indexes concurrently); derivation and validation in every posting path incl. parked and Postings; commit-time check of ADR-0050 §5's table; reversals copy; T52 copies carry the same; journal API, list filters and event fields (additive); FOR SHARE on center periods with a race test against a lock. After T52's posting steps are in main",
+        "t": "Assignment on the journal: the in-use refusals T56a leaves out (ledger.cost_center_period_in_use, ledger.cost_center_posted_after, ledger.segment_in_use); expand migration (cost_center_id, profit_center_id, segment_id; FKs NOT VALID then validated per partition, partial indexes concurrently); derivation and validation in every posting path incl. parked and Postings; commit-time check of ADR-0050 §5's table; reversals copy; T52 copies carry the same; journal API, list filters and event fields (additive); FOR SHARE on center periods with a race test against a lock. After T52's posting steps are in main",
         "r": "T56d",
         "c": []
        },

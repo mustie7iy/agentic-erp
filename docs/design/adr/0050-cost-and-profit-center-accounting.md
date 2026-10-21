@@ -153,18 +153,55 @@ Reasons:
 
 ### 3. Master data
 ```
-ledger.cost_center        (tenant_id, id, legal_entity_id, code, created_*)       UNIQUE (tenant_id, legal_entity_id, code)
-ledger.cost_center_period (tenant_id, cost_center_id, valid_from, valid_to,
-                           name, description, category, profit_center_id,
-                           responsible_principal_id | responsible_name,
-                           lock_actual_cost, lock_actual_revenue, lock_plan,
-                           version)                                               EXCLUDE overlapping validity
-ledger.profit_center      (tenant_id, id, code, segment_id, created_*)            UNIQUE (tenant_id, code)
-ledger.profit_center_period (tenant_id, profit_center_id, valid_from, valid_to,
-                           name, responsible, locked, version)                    EXCLUDE overlapping validity
-ledger.profit_center_company (tenant_id, profit_center_id, legal_entity_id)
-ledger.segment            (tenant_id, id, code, name)
+ledger.segment              (tenant_id, id, code, name, description)                  UNIQUE (tenant_id, code)
+ledger.profit_center        (tenant_id, id, code, segment_id, name, description,
+                             responsible, status)                                    UNIQUE (tenant_id, code) unless rejected
+ledger.profit_center_company (tenant_id, profit_center_id, legal_entity_id)           insert-only
+ledger.profit_center_period (tenant_id, id, profit_center_id, valid_from, valid_to,
+                             locked, change_id, retired_by_change_id)                EXCLUDE overlapping active validity
+ledger.cost_center          (tenant_id, id, legal_entity_id, code, name, description,
+                             responsible, status)                                    UNIQUE (tenant_id, legal_entity_id, code) unless rejected
+ledger.cost_center_period   (tenant_id, id, cost_center_id, legal_entity_id, valid_from, valid_to,
+                             category, profit_center_id, lock_actual_cost,
+                             lock_actual_revenue, lock_plan, change_id,
+                             retired_by_change_id)                                   EXCLUDE overlapping active validity
+ledger.center_change        (tenant_id, id, cost_center_id | profit_center_id, kind,
+                             payload, reason, status, workflow_request_id, ...)     one pending per center
 ```
+As built in T56a (migration 000125):
+- **Texts on the center, attributes in periods.** Name, description and
+  person responsible are on the center and change at once without approval
+  (decision P1), their history in the audit trail; what a posting reads
+  (category, profit center, locks; a profit center's lock) is in the
+  effective-dated periods. `valid_to` is exclusive and NULL open-ended, as
+  everywhere (03 §3.1). The person responsible is a name (SAP `VERAK`), not
+  a principal; a principal reference can be added when per-person access
+  (P8 b) is wanted.
+- **Periods are written once.** A change computes the center's periods
+  after it, retires (`retired_by_change_id`) the periods that are not kept
+  and inserts the new ones; a trigger refuses any other update of a
+  period. So a period a posting read is never edited, every earlier state
+  is kept, and the posting's `FOR SHARE` on the period it reads (T56d)
+  meets the change's update of the same row.
+- **Statuses.** A center is `pending` from its create request, `active`
+  when a controller approves it, `rejected` when the create is rejected or
+  withdrawn (its code is then free); a trigger allows nothing else, and
+  keeps code and a cost center's company fixed.
+- **Database rules.** A cost center period names the cost center with its
+  legal entity (foreign key to `(tenant_id, id, legal_entity_id)`) and a
+  profit center assigned to that legal entity (foreign key to
+  `profit_center_company`); assignments are never removed. Application
+  checks add that the profit center is active and valid over the period
+  (422 `ledger.profit_center_invalid` with the reason), and that a profit
+  center's new validity still covers the cost center periods naming it
+  (409 `ledger.profit_center_in_use`); the cost center change reads the
+  profit center `FOR SHARE`, its redate takes it `FOR UPDATE`.
+- **Categories** are a code (`^[0-9A-Z_]{1,10}$`) until T56c checks them
+  against `controlling.cost_center_categories`.
+- **In use.** The refusals that need postings (`cost_center_period_in_use`,
+  `cost_center_posted_after`, `segment_in_use`) come with T56d, when lines
+  carry the centers; until then no center is in use.
+
 - **Codes**: `^[0-9A-Z_-]{1,10}$`, as SAP's `KOSTL`/`PRCTR` (10 characters,
   migrated with leading zeros stripped by the existing ALPHA rule).
 - **Company assignment.** A cost center belongs to one company, fixed
@@ -429,13 +466,18 @@ master data with change documents, not customizing. Changes are
 kind, payload, status, workflow request, as `partner.partner_change`):
 | Change | Approval |
 |---|---|
-| Texts, description, person responsible, alternative hierarchy membership | none (audited) |
-| Create a cost or profit center; new validity period (profit center reassignment, category); extend or end validity; standard hierarchy move; profit center company assignment; set or clear a lock | one approver with `ledger.cost_center.approve` (controller), not the requester |
+| Texts, description, person responsible, alternative hierarchy membership; creating a segment or changing its texts (T56a: a segment changes nothing until a profit center names it) | none (audited) |
+| Create a cost or profit center; new validity period (profit center reassignment, category); extend or end validity; standard hierarchy move; profit center company assignment; a profit center's segment; set or clear a lock | one approver with `ledger.cost_center.approve` (controller, `approvals.DefaultCenterChangeRole`), not the requester, never an agent (T56a: `center_change` approval requests) |
 | Segment of a posted profit center; company of a cost center; delete | refused (reorganisation or a new center) |
 | Categories, `cost_element`, default assignments, PCA activation | configuration change request, tier 3 or 4 (§4) |
-Every change writes an audit record (`ledger.cost_center.create|change|lock|end`,
-ADR-0011) and an event (`CostCenterChanged`, `ProfitCenterChanged`) through
-the outbox.
+Every change writes an audit record (ADR-0011: `ledger.cost_center.request`
+when asked for, `ledger.cost_center.create|redate|lock|move|reject` when
+decided, `ledger.cost_center.texts` (which texts, not their values); the same for
+`ledger.profit_center` with `assign`; `ledger.center_change.reject|cancel`;
+`ledger.segment.create|update`) and an event through the outbox
+(`CostCenterChanged`, `ProfitCenterChanged`, `SegmentChanged`; the person
+responsible is left out of events). Locking and unlocking are `x-agent:
+false`; the other change requests are `x-autonomy: propose`.
 
 ### 12. Agents
 Agents may propose: a cost center on captured invoices and parked entries;
@@ -515,10 +557,10 @@ coverage 100%, reviewer). Lane F (ledger), after T52 for T56d.
 
 | Step | Work | Acceptance criteria |
 |---|---|---|
-| T56a | **Center master data** (ledger) | `cost_center`, `cost_center_period`, `profit_center`, `profit_center_period`, `profit_center_company`, `segment` with RLS, `tenant_id` first, EXCLUDE on validity; codes, company rules, segment-in-use and period-in-use refusals; `/v1/cost-centers`, `/v1/profit-centers`, `/v1/segments` (contract first; list, read, create, change, lock, end as change requests with the approval table of §11); audit and events; `FailingTx` tests on every path; schema tests per database rule |
+| T56a | **Center master data** (ledger) | `cost_center`, `cost_center_period`, `profit_center`, `profit_center_period`, `profit_center_company`, `segment` with RLS, `tenant_id` first, `center_change`, EXCLUDE on validity, periods written once; codes, company rules (the in-use refusals need postings and move to T56d); `/v1/cost-centers`, `/v1/profit-centers`, `/v1/segments`, `/v1/center-changes` (contract first; list, read, create, texts, redate, lock, move, assign; creation and every period, segment or company change as a `center_change` approval request with the approval table of §11); audit and events; `FailingTx` tests on every path; schema tests per database rule |
 | T56b | **Hierarchies** | Standard and alternative hierarchies per kind; one leaf per center in the standard (commit-time check), no cycles, depth ≤ 12; node moves as change requests; `GET /v1/hierarchies/{kind}/{code}` with members; schema tests |
 | T56c | **Configuration rules** | `controlling.cost_center_categories`, `cost_element` per account (defaults by type), `default_assignments`, `profit_center_accounting`, `default_profit_center`; tiers as §4; activation refuses an automatically posted account needing a cost object without a default; packs (ADR-0048) set `cost_element` for their accounts; simulation lists lines that would be refused or reassigned |
-| T56d | **Assignment on the journal** | Expand migration (columns, FKs NOT VALID then validated per partition, partial indexes concurrently); derivation and validation in every posting path incl. parked and `Postings`; commit-time check of §5's table; reversals copy; T52 copies carry the same; errors and constraint mappings as §5; journal API, list filters and event fields (additive); `FOR SHARE` on center periods with a race test against a lock |
+| T56d | **Assignment on the journal** | The in-use refusals T56a leaves out: `ledger.cost_center_period_in_use` (a change whose periods would differ from what posted lines read), `ledger.cost_center_posted_after` (validity ended before a posting), `ledger.segment_in_use` (a posted profit center's segment); expand migration (columns, FKs NOT VALID then validated per partition, partial indexes concurrently); derivation and validation in every posting path incl. parked and `Postings`; commit-time check of §5's table; reversals copy; T52 copies carry the same; errors and constraint mappings as §5; journal API, list filters and event fields (additive); `FOR SHARE` on center periods with a race test against a lock |
 | T56e | **Procurement and payables** | `account_assignment` and `cost_center_id` on requisition and PO items (validated at release), GR and price-difference lines with the item's center; invoice items' `cost_center_id`/`profit_center_id`; capture agent proposals with eval cases; the free-text custom field in fixtures replaced; ADR-0034 note |
 | T56f | **Actual reports** | `ledger.assignment_balance` maintained by the projector (exactly once, run-twice test); `GET /v1/cost-center-balances`, `/v1/profit-center-balances` (by center, node, segment, account, period; exact at the read); schema test that assignment balances add up to `period_balance` on P&L accounts; drill-down via journal filters |
 | T56g | **Plan and plan/actual** (P5) | `controlling` context and schema; plan categories with a human-only lock; plan lines by upload and API, idempotent by batch; `GET /v1/cost-center-plan-actual`; actuals through `ledger.AssignmentBalances` |

@@ -500,6 +500,12 @@ erDiagram
   ledger ||--o{ journal_entry : in
   parked_entry ||--|{ parked_entry_line : contains
   parked_entry |o--o| journal_entry : "posted as"
+  segment ||--o{ profit_center : groups
+  profit_center ||--|{ profit_center_company : "posted in"
+  profit_center ||--o{ profit_center_period : "valid in"
+  cost_center ||--o{ cost_center_period : "valid in"
+  profit_center ||--o{ cost_center_period : "of"
+  center_change ||--o{ cost_center_period : writes
   journal_entry { uuid id PK
     uuid legal_entity_id
     uuid ledger_id
@@ -813,6 +819,31 @@ any rate, so it is valued without rates, every other item with both
 entries through the ledger's reversal path (`ledger.reversal`) and sets
 `cancelled`, under the entries' bucket locks and the run read `FOR UPDATE`;
 the key date is then free for another posted run.
+
+Cost centers, profit centers and segments (T56a, ADR-0050, migration
+000125) are the ledger's master data, which journal lines carry from T56d.
+`segment` (IFRS 8) and `profit_center` are tenant-wide, `cost_center`
+belongs to one legal entity, fixed; codes are SAP's (`^[0-9A-Z_-]{1,10}$`),
+unique per tenant (per legal entity for cost centers) among centers not
+rejected. `profit_center_company` assigns a profit center to the legal
+entities it may be posted in, insert-only. A center's texts (name,
+description, person responsible) are on it and change without approval;
+what postings read is in effective-dated periods (`valid_to` exclusive,
+NULL open): `cost_center_period` (category, profit center, locks for actual
+costs, actual revenue and plan) and `profit_center_period` (lock), whose
+active periods never overlap (`*_period_overlap`, EXCLUDE where not
+retired). A cost center period names the cost center with its legal entity
+(`cost_center_period_company`) and a profit center assigned to it
+(`cost_center_period_profit_center_company`). Periods are written once: a
+change retires the periods it replaces (`retired_by_change_id`, once) and
+inserts new ones (`check_center_period_fixed`). `center_change` is a
+requested change of one center (`center_change_one_center`; `assign` only
+for a profit center): create, redate, lock, move, assign, with its payload
+fixed, decided once from `pending` on its `center_change` approval request
+(`check_center_change_decision`), one pending per center
+(`center_change_one_pending`). A center goes `pending` to `active` or
+`rejected` only, its code and a cost center's legal entity fixed
+(`check_center_change`).
 
 ## 3.8 Procurement (`procurement`)
 
@@ -1773,6 +1804,11 @@ within the limit the policy has no steps and the entry posts at once
 for direct posts). A company without a limit has a limit of 0. Above it,
 one approval by the role `controller` with `ledger.entry.approve`, whatever
 the configuration says, as for period unlocks.
+
+A change of a cost or profit center (object type `center_change`, T56a,
+ADR-0050 §11) needs one approval by the role `controller` with
+`ledger.cost_center.approve`, whatever the configuration says; the ledger
+applies, rejects or cancels the change in the deciding transaction.
 
 The release of a purchase order without an approved requisition (object
 type `purchase_order`) and a change that raises a released order's total

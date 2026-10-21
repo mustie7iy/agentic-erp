@@ -167,6 +167,7 @@ func New(cfg Config) (http.Handler, error) {
 			approvals.ManualEntry:      ledger.ManualEntries{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}},
 			approvals.PurchaseOrder:    procurement.OrderReleases{Endpoints: procurementEndpoints(cfg)},
 			approvals.OrderChange:      procurement.OrderChanges{Endpoints: procurementEndpoints(cfg)},
+			approvals.CenterChange:     ledger.CenterChanges{},
 		}}},
 		procurementAPI: procurementEndpoints(cfg),
 		payablesAPI:    payablesEndpoints(cfg, upload),
