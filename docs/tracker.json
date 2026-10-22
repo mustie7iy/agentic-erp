@@ -1003,9 +1003,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Memo records: table, API (create, change with If-Match, cancel, realise by a statement line, list), recurrence expanded at read with overrides, expiry, upload idempotent by batch key, agent proposals not counted until accepted; audit and events; schema tests for each database rule",
-        "r": "T53d",
+        "s": "D",
+        "t": "Memo records: table, API (create, change with If-Match, cancel, realise by a statement line, list), recurrence expanded at read with overrides, expiry, upload idempotent by batch key, agent proposals not counted until accepted; audit and events; schema tests for each database rule; memo records on a house bank a source of the cash position; no approval (ADR-0051 §7: they post nothing; large amounts are the PO's to revisit)",
+        "r": "cash.memo_record (migration 000151, integration renumbers: cash outbox, cash.check_memo_item, cash.memo.read|write|propose) · GET/POST /v1/memo-records, GET/PATCH /v1/memo-records/{id}, :cancel, :realise, :acceptProposal, :rejectProposal, POST /v1/memo-record-proposals (x-autonomy: propose), POST /v1/memo-record-uploads (CSV by batch key) · MemoRecordChanged (cash channel, outbox.Contexts) · cash.Endpoints memo flows in GET /v1/cash-position (source memo) · cash.Setup refuses taking away an item open records name (409 cash.liquidity_item_in_use) · payments.CashPosition.HouseBanks, StatementLine · agents.Sessions wired · db/cash_test.go TestMemoRecordRules · internal/cash memo*_test.go · ADR-0051 (as built, T53d) · 03-data-model §3.18 · 04-api-design · T53d",
         "c": []
        },
        {
@@ -7005,6 +7005,12 @@
       "s": "T",
       "t": "Web UI for pilot finance users (PO 2026-10-21: needed for the pilot): the web workspace of ADR-0052",
       "r": "Phase 1 triage (PO 2026-10-21) · \"Server-rendered web workspaces (templ + HTMX)\" (Platform / User interface) · built by T73a–T73m, ADR-0052 · T72k",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Company time zone: business dates (statement staleness, value dates, 'today' in cash, close calendars) in the company's time zone, not UTC (found in T53c)",
+      "r": "found in T53c (ADR-0051 as built: the cash position's read date is the clock's date in UTC; a Canadian or UAE company's evening is the next UTC day) · T72l",
       "c": []
      }
     ]

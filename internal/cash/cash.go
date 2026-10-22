@@ -10,7 +10,10 @@
 // of the document, kept in the cash schema by Setup, and the derivation of
 // a flow's liquidity item (Derive). The rules and each company's cash
 // settings are read from the active document when a position or forecast
-// is computed (T53c, T53e).
+// is computed (T53c, T53e). T53d adds memo records (ADR-0051 §7): expected
+// receipts and payments entered, uploaded by batch or proposed by an agent
+// for a person to accept, one-off or a series expanded at read time, which
+// count in the position on their house bank until they expire.
 package cash
 
 import (
@@ -20,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -27,19 +31,39 @@ import (
 // document's liquidity items and planning groups in cash.liquidity_item
 // and cash.planning_group. One the document no longer has becomes
 // inactive, never deleted, since memo records and snapshots name items
-// (T53d, T53f); the partner context refuses taking away a planning group a
-// supplier has (partner.PlanningGroupCodes).
+// (T53d, T53f); an item an open memo record names is not taken away, and
+// the partner context refuses taking away a planning group a supplier has
+// (partner.PlanningGroupCodes).
 type Setup struct{}
 
-// Check has nothing to check against the tenant's data: the document's
-// validation covers the items, groups and rules, and nothing the cash
-// context stores names an item yet.
-func (Setup) Check(context.Context, *config.Config, *config.Config) ([]config.Finding, error) {
-	return nil, nil
+// Check reports each liquidity item the proposed document no longer has
+// that an open memo record (proposed or active, expired or not) names.
+func (Setup) Check(ctx context.Context, base, proposed *config.Config) ([]config.Finding, error) {
+	if base == nil {
+		return nil, nil
+	}
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	used, err := itemsInUse(ctx, tx, proposed.Cash.LiquidityItems)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]config.Finding, len(used))
+	for i, code := range used {
+		out[i] = config.Finding{Severity: config.SevError, Path: "cash.liquidity_items[" + code + "]",
+			Message: "open memo records name this liquidity item; move them to another item, or cancel them, first"}
+	}
+	return out, nil
 }
 
 // Apply makes the tenant's liquidity items and planning groups the
-// document's.
+// document's, refusing a document that takes away an item an open memo
+// record names (409 cash.liquidity_item_in_use): the activation rolls
+// back. The items are deactivated first, so a memo record written at the
+// same time waits for the activation (cash.check_memo_item locks the
+// item) and then finds it inactive.
 func (Setup) Apply(ctx context.Context, doc *config.Config) error {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -48,10 +72,34 @@ func (Setup) Apply(ctx context.Context, doc *config.Config) error {
 	if err := applyItems(ctx, tx, p, doc.Cash.LiquidityItems); err != nil {
 		return fmt.Errorf("cash: liquidity items: %w", err)
 	}
+	used, err := itemsInUse(ctx, tx, doc.Cash.LiquidityItems)
+	if err != nil {
+		return err
+	}
+	if len(used) > 0 {
+		return problem.Conflict("cash.liquidity_item_in_use", "Open memo records name liquidity item "+used[0]+
+			", which the configuration no longer has; move them to another item, or cancel them, first.")
+	}
 	if err := applyGroups(ctx, tx, p, doc.Cash.PlanningGroups); err != nil {
 		return fmt.Errorf("cash: planning groups: %w", err)
 	}
 	return nil
+}
+
+// itemsInUse are the codes open memo records name that items does not
+// have, in order.
+func itemsInUse(ctx context.Context, tx pgx.Tx, items []config.LiquidityItem) ([]string, error) {
+	codes := []string{}
+	for _, it := range items {
+		codes = append(codes, it.Code)
+	}
+	rows, _ := tx.Query(ctx, `SELECT DISTINCT liquidity_item FROM cash.memo_record WHERE status IN ('proposed', 'active') AND liquidity_item <> ALL($1)
+		ORDER BY liquidity_item`, codes)
+	used, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("cash: liquidity items in use: %w", err)
+	}
+	return used, nil
 }
 
 // applyItems deactivates the items not given, then inserts, updates or

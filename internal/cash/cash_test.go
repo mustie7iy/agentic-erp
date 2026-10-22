@@ -121,7 +121,7 @@ func TestSetup(t *testing.T) {
 		t.Errorf("versions after the same document again: got %d, want %d (nothing changed)", again, versions)
 	}
 
-	t.Run("nothing to check against the tenant's data", func(t *testing.T) {
+	t.Run("nothing to check against a tenant's first document", func(t *testing.T) {
 		fs, err := cash.Setup{}.Check(context.Background(), nil, withCash(t))
 		if err != nil || fs != nil {
 			t.Errorf("Check: got %v, %v, want none", fs, err)
@@ -172,6 +172,10 @@ func TestDatabaseFailures(t *testing.T) {
 	f := fixture.NewWith(t, nil, setCash)
 	for name, call := range map[string]func(ctx context.Context) error{
 		"apply": func(ctx context.Context) error { return cash.Setup{}.Apply(ctx, withCash(t)) },
+		"check": func(ctx context.Context) error {
+			_, err := cash.Setup{}.Check(ctx, withCash(t), withCash(t))
+			return err
+		},
 		"planning group": func(ctx context.Context) error {
 			_, err := cash.PlanningGroups{}.IsPlanningGroup(ctx, "TAX_AUTHORITY")
 			return err

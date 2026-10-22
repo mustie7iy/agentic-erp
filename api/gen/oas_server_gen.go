@@ -23,6 +23,14 @@ type Handler interface {
 	//
 	// POST /v1/bank-statements/{id}/lines/{line_no}:acceptProposal
 	AcceptBankStatementLineProposal(ctx context.Context, req OptStatementLineProposalAccept, params AcceptBankStatementLineProposalParams) (AcceptBankStatementLineProposalRes, error)
+	// AcceptMemoRecordProposal implements acceptMemoRecordProposal operation.
+	//
+	// A person accepts an agent's `proposed` memo record (409 `cash.memo_record_not_proposed` otherwise):
+	// it becomes `active` and counts. Its liquidity item and house bank are checked again (422). Audited,
+	// and published as MemoRecordChanged.
+	//
+	// POST /v1/memo-records/{id}:acceptProposal
+	AcceptMemoRecordProposal(ctx context.Context, req OptMemoRecordAccept, params AcceptMemoRecordProposalParams) (AcceptMemoRecordProposalRes, error)
 	// ActivateChangeRequest implements activateChangeRequest operation.
 	//
 	// Creates and activates a new configuration version from an approved change request; each context
@@ -145,6 +153,17 @@ type Handler interface {
 	//
 	// POST /v1/down-payment-requests/{id}:cancel
 	CancelDownPaymentRequest(ctx context.Context, req *ReasonInput, params CancelDownPaymentRequestParams) (CancelDownPaymentRequestRes, error)
+	// CancelMemoRecord implements cancelMemoRecord operation.
+	//
+	// Cancels an `active` or `expired` memo record (409 `cash.memo_record_closed`; an agent's proposal is
+	// accepted or rejected instead, 409 `cash.memo_record_proposed`): it stops counting. On a series,
+	// `occurrence_date` cancels that occurrence only (a skipped occurrence: a `cancelled` override of it,
+	// returned with status 201), or the whole series without it. An occurrence with an override is acted
+	// on through the override (409 `cash.occurrence_overridden`). Audited, and published as
+	// MemoRecordChanged.
+	//
+	// POST /v1/memo-records/{id}:cancel
+	CancelMemoRecord(ctx context.Context, req OptMemoRecordCancel, params CancelMemoRecordParams) (CancelMemoRecordRes, error)
 	// CancelOperation implements cancelOperation operation.
 	//
 	// Requests cancellation where the operation supports it (409 otherwise). Work already committed stays
@@ -330,6 +349,29 @@ type Handler interface {
 	//
 	// POST /v1/legal-entities
 	CreateLegalEntity(ctx context.Context, req *LegalEntityCreate, params CreateLegalEntityParams) (CreateLegalEntityRes, error)
+	// CreateMemoRecord implements createMemoRecord operation.
+	//
+	// Creates an `active` memo record (ADR-0051 §7, T53d): an expected receipt (positive amount) or
+	// payment (negative), one-off or recurring (`recurrence`: `weekly`, `monthly` on the value date's day,
+	// the month's last day when shorter, or `quarterly`, ending `until` a day or after `count`
+	// occurrences, or open-ended), with its liquidity item, certainty (`confirmed`, `expected` default,
+	// `planned`) and expiry date (default the value date plus 7 days; for a series each occurrence expires
+	// as many days after its own date). A memo record counts in the cash position
+	// (`GET /v1/cash-position`, source `memo`, its own certainty) when it is `active` and names a house
+	// bank, on its value date moved to the next working day of the company's calendar; one dated before
+	// the read date and not expired is `late`, expected the working day after the read date, as a late
+	// payment is; without a house bank it is for the liquidity forecast only (T53e). The house bank, if
+	// given, must be an active house bank of the legal entity in the record's currency (422
+	// `cash.house_bank_invalid`); the liquidity item an active one whose direction fits the amount's sign
+	// (422 `cash.liquidity_item_invalid`). With `recurrence_of` and `occurrence_date` the record overrides
+	// one occurrence of an active series of the same legal entity and currency (422
+	// `cash.occurrence_invalid`), once per occurrence (409 `cash.occurrence_overridden`). No approval: a
+	// memo record posts nothing (ADR-0051 §7). People and integrations create them; an agent proposes
+	// (`:propose`). A legal entity the caller cannot act in is 404. Audited, and published as
+	// MemoRecordChanged.
+	//
+	// POST /v1/memo-records
+	CreateMemoRecord(ctx context.Context, req *MemoRecordCreate, params CreateMemoRecordParams) (CreateMemoRecordRes, error)
 	// CreateMigrationRun implements createMigrationRun operation.
 	//
 	// Creates a migration run in status `queued`.
@@ -676,19 +718,21 @@ type Handler interface {
 	// matches (a revaluation's valuation and reset lines on the account are not payments and never count),
 	// and `payment_run`, the payments of runs `proposed` or `releasing` not posted yet, both `confirmed`,
 	// each dated its run date plus the bank's `cash.value_days` (by method), moved to the next working
-	// day; one dated before the read date is expected the working day after it and marked `late`.
-	// `book_balance` checks the opening statement against the ledger as the reconciliation report does
-	// (`GET /v1/house-banks/{id}/reconciliation`: the main bank account's balance on the statement's date,
-	// in the bank's currency, and what the statement lines explain of the difference), with the payments
-	// in transit, posted and not yet at the bank. A bank's `cash.credit_lines` amount is shown, and added
-	// to its closing balance as `available`; no limit is enforced. `currencies` sums the banks of each
-	// currency. `converted` totals every currency in `display_currency` (default the company's currency)
-	// at the latest rate of the company's `cash.rate_type` (default `planning`; with no planning rate,
-	// `average`) valid on the read date, one rate for every day; a rate valid from more than
-	// `cash.rate_max_age_days` (default 7) before the read date is used and marked `stale`, and a currency
-	// without a rate is left out of the total and listed in `incomplete_currencies`. Bank accounts appear
-	// by house bank code and last four characters, so agents read the position as people do. A legal
-	// entity the caller cannot act in is 404.
+	// day; one dated before the read date is expected the working day after it and marked `late`; and
+	// `memo`, the `active` memo records on the bank not expired at the read (`GET /v1/memo-records`), at
+	// their own certainty, each occurrence of a series once, on its value date moved to the next working
+	// day, late as a payment is. `book_balance` checks the opening statement against the ledger as the
+	// reconciliation report does (`GET /v1/house-banks/{id}/reconciliation`: the main bank account's
+	// balance on the statement's date, in the bank's currency, and what the statement lines explain of the
+	// difference), with the payments in transit, posted and not yet at the bank. A bank's
+	// `cash.credit_lines` amount is shown, and added to its closing balance as `available`; no limit is
+	// enforced. `currencies` sums the banks of each currency. `converted` totals every currency in
+	// `display_currency` (default the company's currency) at the latest rate of the company's
+	// `cash.rate_type` (default `planning`; with no planning rate, `average`) valid on the read date, one
+	// rate for every day; a rate valid from more than `cash.rate_max_age_days` (default 7) before the read
+	// date is used and marked `stale`, and a currency without a rate is left out of the total and listed
+	// in `incomplete_currencies`. Bank accounts appear by house bank code and last four characters, so
+	// agents read the position as people do. A legal entity the caller cannot act in is 404.
 	//
 	// GET /v1/cash-position
 	GetCashPosition(ctx context.Context, params GetCashPositionParams) (GetCashPositionRes, error)
@@ -797,6 +841,13 @@ type Handler interface {
 	//
 	// GET /v1/match-results/{id}
 	GetMatchResult(ctx context.Context, params GetMatchResultParams) (GetMatchResultRes, error)
+	// GetMemoRecord implements getMemoRecord operation.
+	//
+	// One memo record, with its status as of the read date. A memo record of a legal entity the caller
+	// cannot act in is not found.
+	//
+	// GET /v1/memo-records/{id}
+	GetMemoRecord(ctx context.Context, params GetMemoRecordParams) (GetMemoRecordRes, error)
 	// GetMigrationRun implements getMigrationRun operation.
 	//
 	// Returns one migration run.
@@ -1238,6 +1289,16 @@ type Handler interface {
 	//
 	// GET /v1/supplier-invoices/{id}/match-results
 	ListMatchResults(ctx context.Context, params ListMatchResultsParams) (ListMatchResultsRes, error)
+	// ListMemoRecords implements listMemoRecords operation.
+	//
+	// The memo records of the legal entities the caller may act in (ADR-0051 §7, T53d): expected receipts
+	// and payments entered by people, uploaded, or proposed by an agent. `status` is the record's as of
+	// the read date: an `active` record whose last occurrence's expiry date has passed is `expired` (it no
+	// longer counts until a person moves, extends or cancels it). Sortable by: `value_date` (default),
+	// `created_at`.
+	//
+	// GET /v1/memo-records
+	ListMemoRecords(ctx context.Context, params ListMemoRecordsParams) (ListMemoRecordsRes, error)
 	// ListMigrationRuns implements listMigrationRuns operation.
 	//
 	// Migration runs and rehearsals. Sortable by: `created_at`.
@@ -1737,6 +1798,19 @@ type Handler interface {
 	//
 	// POST /v1/bank-statements/{id}/lines/{line_no}:propose
 	ProposeBankStatementLine(ctx context.Context, req *StatementLineProposalInput, params ProposeBankStatementLineParams) (ProposeBankStatementLineRes, error)
+	// ProposeMemoRecord implements proposeMemoRecord operation.
+	//
+	// An agent proposes a memo record in its running session (`session_id`; another's or an ended one is
+	// refused as `createRecommendation` refuses it), with the reason and the bank statement lines that are
+	// its evidence (each a line of the legal entity, 422 `cash.statement_line_invalid`): an expected flow
+	// it sees in history and not in the forecast, such as a monthly receipt or a quarterly tax instalment
+	// (ADR-0051 §13). The record is `proposed`, checked as `createMemoRecord` checks one, and counts
+	// nowhere until a person accepts it (`:acceptProposal`); a person may change it first (`PATCH`) or
+	// reject it (`:rejectProposal`). Agents never create, change, accept or close a memo record otherwise.
+	// Audited, and published as MemoRecordChanged.
+	//
+	// POST /v1/memo-record-proposals
+	ProposeMemoRecord(ctx context.Context, req *MemoRecordProposal, params ProposeMemoRecordParams) (ProposeMemoRecordRes, error)
 	// ProposePaymentRun implements proposePaymentRun operation.
 	//
 	// Creates a run in status `proposing` (the Operation's `resource` points to it from the start), then
@@ -1749,6 +1823,18 @@ type Handler interface {
 	//
 	// POST /v1/payment-runs:propose
 	ProposePaymentRun(ctx context.Context, req *PaymentRunPropose, params ProposePaymentRunParams) (ProposePaymentRunRes, error)
+	// RealiseMemoRecord implements realiseMemoRecord operation.
+	//
+	// Marks an `active` or `expired` memo record `realised` (409 `cash.memo_record_closed`; an agent's
+	// proposal is accepted or rejected instead, 409 `cash.memo_record_proposed`): the expected flow
+	// happened, so it stops counting at once. With `statement_id` and `line_no` it is realised by that
+	// bank statement line, which must be of the record's legal entity, currency and house bank if it names
+	// one, in the amount's direction (422 `cash.statement_line_invalid`); without them a person closes it
+	// as realised. On a series, `occurrence_date` is required (422) and realises that occurrence: a
+	// `realised` override of it, returned with status 201. Audited, and published as MemoRecordChanged.
+	//
+	// POST /v1/memo-records/{id}:realise
+	RealiseMemoRecord(ctx context.Context, req OptMemoRecordRealise, params RealiseMemoRecordParams) (RealiseMemoRecordRes, error)
 	// ReconcileMigrationRun implements reconcileMigrationRun operation.
 	//
 	// Compares migrated totals with the source system and writes the report; status becomes `reconciled`
@@ -1823,6 +1909,14 @@ type Handler interface {
 	//
 	// POST /v1/bank-statements/{id}/lines/{line_no}:rejectProposal
 	RejectBankStatementLineProposal(ctx context.Context, req *ReasonInput, params RejectBankStatementLineProposalParams) (RejectBankStatementLineProposalRes, error)
+	// RejectMemoRecordProposal implements rejectMemoRecordProposal operation.
+	//
+	// A person rejects an agent's `proposed` memo record, with a reason (409
+	// `cash.memo_record_not_proposed` otherwise): it becomes `rejected` and never counts. Audited, and
+	// published as MemoRecordChanged.
+	//
+	// POST /v1/memo-records/{id}:rejectProposal
+	RejectMemoRecordProposal(ctx context.Context, req *ReasonInput, params RejectMemoRecordProposalParams) (RejectMemoRecordProposalRes, error)
 	// RejectPaymentRun implements rejectPaymentRun operation.
 	//
 	// Rejects a proposed run and frees its open items for later runs. A direct human transition like
@@ -2173,6 +2267,17 @@ type Handler interface {
 	//
 	// PATCH /v1/legal-entities/{id}
 	UpdateLegalEntity(ctx context.Context, req *LegalEntityUpdate, params UpdateLegalEntityParams) (UpdateLegalEntityRes, error)
+	// UpdateMemoRecord implements updateMemoRecord operation.
+	//
+	// Changes a memo record that is `proposed`, `active` or `expired` (409 `cash.memo_record_closed`
+	// otherwise), checked as a new one is: confirm or move an expected flow (a new `value_date` without
+	// `expires_on` keeps the days between them), change its amount, item, certainty, bank or texts, or a
+	// series' `recurrence`. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears the
+	// house bank, description or reference. A series stays a series, a one-off a one-off. Audited, and
+	// published as MemoRecordChanged.
+	//
+	// PATCH /v1/memo-records/{id}
+	UpdateMemoRecord(ctx context.Context, req *MemoRecordUpdate, params UpdateMemoRecordParams) (UpdateMemoRecordRes, error)
 	// UpdateOrgUnit implements updateOrgUnit operation.
 	//
 	// Changes master data of an org unit. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null`
@@ -2260,6 +2365,27 @@ type Handler interface {
 	//
 	// PATCH /v1/webhook-subscriptions/{id}
 	UpdateWebhookSubscription(ctx context.Context, req *WebhookSubscriptionUpdate, params UpdateWebhookSubscriptionParams) (UpdateWebhookSubscriptionRes, error)
+	// UploadMemoRecords implements uploadMemoRecords operation.
+	//
+	// Uploads a batch of memo records for a legal entity from a CSV file (ADR-0051 §7, T53d), such as the
+	// expected receipts of the system that issues the company's invoices until receivables exist. The file
+	// is UTF-8, at most 1 MB and 5,000 rows, with a header row naming its columns in any order:
+	// `reference` (required, unique in the file, at most 100 characters), `value_date` (YYYY-MM-DD),
+	// `amount` (signed decimal with the currency's minor-unit digits: a receipt positive, a payment
+	// negative), `currency`, `liquidity_item`, and optionally `certainty` (default `expected`),
+	// `house_bank` (a house bank code of the legal entity), `expires_on` and `description`; another column
+	// is refused. Each row is checked as `createMemoRecord` checks a record; if any row is wrong nothing
+	// is written and the 422 `cash.memo_upload_invalid` names every wrong field as `rows[N].column`, N the
+	// file's line number (at most 100 of them). Idempotent by `batch_key`: a batch replaces the records of
+	// its key and legal entity that are not realised, by reference: a reference new to the key is created,
+	// one whose record differs is changed (and becomes `active` again if it was cancelled), one that is
+	// the same is left as it is, a realised one is kept as it is, and an `active` record of the key whose
+	// reference the file no longer has is cancelled. The same file again changes nothing and publishes
+	// nothing. Uploaded records are `active` with origin `upload`. Audited per record, and published as
+	// MemoRecordChanged per record written.
+	//
+	// POST /v1/memo-record-uploads
+	UploadMemoRecords(ctx context.Context, req *MemoRecordUploadMultipart, params UploadMemoRecordsParams) (UploadMemoRecordsRes, error)
 	// VerifyAuditChain implements verifyAuditChain operation.
 	//
 	// Recomputes the tenant's hash chain over a range and compares it with the stored hashes and the

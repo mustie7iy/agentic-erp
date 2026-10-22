@@ -489,6 +489,79 @@ batch_key NULL, version, created_by, ...)`:
 - Permissions: `cash.memo.write` (people, integrations), `cash.memo.propose`
   (agents, `x-autonomy: propose`), `cash.memo.read`.
 
+As built (T53d):
+- **Table.** Migration 000151 (integration renumbers) creates
+  `cash.memo_record` with the columns above, and `cash.outbox`/`inbox`
+  (`cash` joins `outbox.Contexts`, a NATS stream and the event contract's
+  `cash` channel). `expired` is never stored: an `active` record whose
+  `counts_until` (its last occurrence's expiry; a one-off record's
+  `expires_on`; null for a series without end) is before the read date is
+  shown and listed `expired`, and counts nowhere until a person moves,
+  extends or cancels it. `rejected` is the status of a proposal a person
+  turned down. The database checks every rule of the table
+  (`TestMemoRecordRules`), and a trigger (`cash.check_memo_item`) that the
+  item is active and of the amount's direction when the item or amount is
+  written; the item's row is locked, so a configuration deactivating it
+  waits, and `cash.Setup` refuses a document that takes away an item an
+  open (proposed or active) record names (finding, 409
+  `cash.liquidity_item_in_use`). No foreign key crosses a schema: the legal
+  entity, house bank, statement lines and session are checked through
+  ports (`Payments.HouseBanks`, `Payments.StatementLine` adapted from
+  `payments.CashPosition`, `agents.Sessions`), and a record's house bank is
+  an active one of its company in the record's currency.
+- **Series.** `recurrence` is `weekly`, `monthly` on the value date's day
+  (the month's last day when shorter: 31 January, 28 February, 31 March) or
+  `quarterly`, until a day or for 2-520 occurrences, or neither (expanded
+  at most 1,040 occurrences). Each occurrence expires as many days after
+  its own date as the first after the value date. An override is a one-off
+  record naming the series and occurrence (`POST /v1/memo-records` with
+  `recurrence_of`, `occurrence_date`), once per occurrence; `:cancel` or
+  `:realise` with `occurrence_date` closes one occurrence by such an
+  override (201), and a series is realised only that way.
+- **Operations.** `listMemoRecords` (filters legal entity, status as of the
+  read date, house bank, batch key, value dates; sorted by `value_date` or
+  `created_at`), `createMemoRecord`, `getMemoRecord`, `updateMemoRecord`
+  (merge patch on a proposed or active record, checked as a new one; a new
+  value date keeps the days to the expiry), `cancelMemoRecord`,
+  `realiseMemoRecord` (by a statement line of the record's company,
+  currency, bank if any, and direction, or by the person),
+  `proposeMemoRecord` (`POST /v1/memo-record-proposals`, `x-autonomy:
+  propose`, in the agent's running session as T49g's proposals, with its
+  reason and up to 50 statement lines of the company as evidence),
+  `acceptMemoRecordProposal` (checked again) and `rejectMemoRecordProposal`
+  (with a reason), and `uploadMemoRecords` (`POST /v1/memo-record-uploads`).
+  Every write but the proposal is `x-agent: false`: an agent never creates,
+  changes, accepts or closes a memo record. Writes take If-Match on a
+  record (ADR-0008, rows read `FOR UPDATE`) and an Idempotency-Key, are
+  audited (`cash.memo_record.<verb>`) and publish `MemoRecordChanged`
+  (`created`, `proposed`, `updated`, `accepted`, `rejected`, `realised`,
+  `cancelled`). A legal entity the caller cannot act in is 404 (fail
+  closed). The contract's collection custom methods start operations
+  (202), so the proposal and the upload are collections of their own
+  rather than `:propose`/`:upload`.
+- **Upload.** A UTF-8 CSV of at most 1 MB and 5,000 rows with a header row
+  (`reference`, `value_date`, `amount` signed with the currency's digits,
+  `currency`, `liquidity_item`; optional `certainty`, `house_bank` by code,
+  `expires_on`, `description`), by legal entity and `batch_key`, under the
+  key's lock. Every row is checked before anything is written; one wrong
+  row refuses the batch (422 `cash.memo_upload_invalid`, each wrong field
+  as `rows[N].column`, N the file's line, at most 100). A reference new to
+  the key is created, one whose record differs is changed (a cancelled one
+  made active again), one the same is left, a realised one kept, and an
+  active record of the key whose reference the file no longer has is
+  cancelled, so the same file again writes and publishes nothing. XLSX and
+  T63's import channel are T63's.
+- **Position.** `GET /v1/cash-position` adds source `memo` at each record's
+  certainty: the active records on the company's banks not expired at the
+  read, each occurrence up to the last day once (an occurrence an override
+  replaces left to the override, whatever its status), on its value date
+  moved to the next working day; one dated before the read date is `late`,
+  on the working day after it, as a late payment is. Records without a
+  bank are the forecast's (T53e).
+- **Approval.** None, as above: a memo record posts nothing. Whether large
+  memo records should need approval stays the product owner's question
+  (facts); the conservative default the ADR states is none.
+
 ### 8. Cash position (the daily view)
 `GET /v1/cash-position?company=…&from=…&days=…` (`cash.position.read`;
 days ≤ 31, default 14):
@@ -514,7 +587,8 @@ As built (T53c):
   (`cash.position.read`, migration 000150; `x-slo-class: report`; agents
   read it as people do, banks by code and last four characters). `from`
   defaults to the read date, the clock's date in UTC (the companies have no
-  time zone yet), and is never before it (422): past days are actuals,
+  time zone yet: business dates in the company's time zone are T72l in
+  Pilot readiness), and is never before it (422): past days are actuals,
   whose balances come from the statements of those days (T53f), not from
   what is open now, `days` 1-31 default 14, the display currency the
   company's. A legal entity the caller cannot act in is 404 (fail closed).
@@ -577,9 +651,9 @@ As built (T53c):
   0.5 s median, 0.9 s p95 on a laptop. The open-line read scans the
   clearing accounts' history (index `journal_line_account`); a partial
   index of open lines, or the flow table of §6, is the path if it grows.
-- **Not yet.** Bank memo records (T53d) and, with `include_forecast`, the
-  forecast's flows assigned to a bank (T53e) join the days as further
-  sources; drill-down to the payments of a day is through payments' own
+- **Not yet.** With `include_forecast`, the forecast's flows assigned to a
+  bank (T53e) join the days as a further source (memo records on a bank
+  did in T53d, §7); drill-down to the payments of a day is through payments' own
   API (`GET /v1/payment-runs`).
 
 ### 9. Liquidity forecast

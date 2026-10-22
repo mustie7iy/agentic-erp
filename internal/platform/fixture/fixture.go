@@ -160,6 +160,8 @@ func NewWith(tb testing.TB, companies []Company, extend func(*config.Config), pe
 		       ($1, $3, '2000', 'Acme GmbH', 'DE', 'EUR', gen_random_uuid(), 'active', $4, $4)`, ten.ID, e.US, e.DE, ten.Human.ID)
 	doc := Document(tb)
 	for _, co := range companies {
+		pgtest.Exec(tb, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
+			VALUES ($1, gen_random_uuid(), $2, $3, $4, $5, gen_random_uuid(), 'active', $6, $6)`, ten.ID, co.Code, co.Name, co.Country, co.Currency, ten.Human.ID)
 		for _, y := range Years() {
 			for dt, prefix := range DocumentTypes {
 				doc.NumberRanges = append(doc.NumberRanges, config.NumberRange{Company: co.Code, DocumentType: dt, FiscalYear: y, Prefix: prefix,
