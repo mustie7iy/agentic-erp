@@ -1722,6 +1722,8 @@ falls in (§7.7).
 - **`erp call` sends multipart and prints files.** It sent every body as JSON and printed only JSON answers (a pain.001 file came out as `null`). A multipart operation's body is now sent as a form (`apitools.Multipart`, the field of text as it is, any other value as its JSON); `-file field=@path` adds a file's bytes as a field; the answer is printed as it came unless it is JSON, which is indented, or written to `-out`. `erp call` prints the answer whole, no longer cut at an agent tool's size limit.
 - **Revenue is sales; cash discounts and exchange gains are income.** The seed's `revenue` summed every revenue account, the Canada pack's 4800 Purchase discounts received included. Accounts now carry the account determination keys that name them (the `accounts` dataset's `determination`, the API's `determination_keys`), `revenue` takes the revenue accounts no key names, and a new `income` metric keeps every revenue account so that `operating_profit` (`income` minus `expenses`) does not move (ADR-0044, T72l note).
 
+Left for later, tracked under Pilot readiness: a release by more than one person (a product owner decision), a Canadian company in the mock SAP extract, and simulation evidence over the regression suite's window instead of a fixed 90 days.
+
 ### Phase 2 (T48–T71)
 
 Phase 2 completes finance and controlling for the pilot, adds the platform it
