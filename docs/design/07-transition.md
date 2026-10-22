@@ -1711,6 +1711,11 @@ falls in (§7.7).
 | T72i | **Mirrored images signed in the release** | The release mirrors the PgBouncer and NATS images (`scripts/mirror-images.sh`) before signing, with copy provenance, so Kyverno's `erp-release-signed` admits them in production |
 | T72j | **Pilot light runnable** | The pilot light is runnable (DR node group, IRSA trust of the DR cluster's OIDC provider, Argo CD in Terraform), so the region failover rehearsal (T41g) can run; its confirmation needs AWS staging |
 | T72k | **Web UI for pilot finance users** | Built by T73a–T73m (ADR-0052, accepted 2026-10-21): the web workspace pilot finance users work in (PO 2026-10-21: needed for the pilot) |
+| T72l | **Defects the pilot walkthrough found** | `make walkthrough` runs the pilot story on the documented paths: the payment release settings enforced, a fresh tenant's tier 3–4 change activated on explicit no-case evidence, revenue without cash discounts and exchange gains, months ordered as numbers, bank statements uploaded as file parts and `erp call` sending multipart and printing files |
+
+### T72l decisions
+
+- **The release step is the release role's** (walkthrough 2026-10-22: `payments.release_role` and `payments.release_approvals` were validated but never enforced). `:release` and `:reject` need, besides the permission and segregation from the proposer, the active configuration's `payments.release_role` held today (403 `payments.release_role_missing`; 422 `workflow.unknown_role` when the role is not active). A release by more than one person is not built: 04 §4.3 makes the release a single human step, not an approval request. So validation now refuses `release_approvals` above 1, and a document activated earlier with more refuses the release (422 `payments.release_approvals_unsupported`) rather than letting one person release it; how several releasers would sign (the approvals mechanism or signatures on the run) is a decision for the product owner, tracked under Pilot readiness.
 
 ### Phase 2 (T48–T71)
 

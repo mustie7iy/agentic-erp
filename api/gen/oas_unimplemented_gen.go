@@ -2500,8 +2500,10 @@ func (UnimplementedHandler) RejectBankStatementLineProposal(ctx context.Context,
 //
 // Rejects a proposed run and frees its open items for later runs. A direct human transition like
 // `:release`. Segregation of duties: the proposer can never reject the run (403
-// `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). Sets
-// `decided_by` and `decided_at`. Requires status `proposed`.
+// `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). The decider
+// holds the active configuration's `payments.release_role` today, as for `:release` (403
+// `payments.release_role_missing`, 422 `workflow.unknown_role`). Sets `decided_by` and `decided_at`.
+// Requires status `proposed`.
 //
 // POST /v1/payment-runs/{id}:reject
 func (UnimplementedHandler) RejectPaymentRun(ctx context.Context, req *ReasonInput, params RejectPaymentRunParams) (r RejectPaymentRunRes, _ error) {
@@ -2529,12 +2531,16 @@ func (UnimplementedHandler) ReleaseContract(ctx context.Context, params ReleaseC
 // total no longer counts it, `PaymentExcluded` is published) and goes on with the others; a release
 // that drops every payment fails with `payments.nothing_to_pay` and returns the run to `proposed`, to
 // be rejected. Human-only. Segregation of duties: the proposer can never release or reject the run
-// (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). Sets
-// `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a failed release
-// operation, which resumes it. 409 `payments.discount_lapsed` when a payment takes a cash discount
-// whose last day has passed (T36d): reject the run and propose again. 409 `ledger.withholding_changed`
-// when an item would withhold another amount than its payment deducted (T46f); the payment is not
-// posted.
+// (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). The
+// releaser holds the active configuration's `payments.release_role` today (403
+// `payments.release_role_missing`; 422 `workflow.unknown_role` when it names no active role). A
+// configuration asking for more than one releaser (`payments.release_approvals` above 1, which
+// validation now refuses) refuses the release with 422 `payments.release_approvals_unsupported` rather
+// than letting one person release. Sets `decided_by` and `decided_at`. Requires status `proposed`, or
+// `releasing` after a failed release operation, which resumes it. 409 `payments.discount_lapsed` when
+// a payment takes a cash discount whose last day has passed (T36d): reject the run and propose again.
+// 409 `ledger.withholding_changed` when an item would withhold another amount than its payment
+// deducted (T46f); the payment is not posted.
 //
 // POST /v1/payment-runs/{id}:release
 func (UnimplementedHandler) ReleasePaymentRun(ctx context.Context, req OptDecisionInput, params ReleasePaymentRunParams) (r ReleasePaymentRunRes, _ error) {

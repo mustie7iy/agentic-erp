@@ -851,8 +851,13 @@ func (v *validator) payments(c *Config) {
 			v.err("payments."+field, "the role is required")
 		}
 	}
-	if c.Payments.ReleaseApprovals < 1 {
+	// A release by several people is not built (T72): a document asking
+	// for it is refused, so the control is never activated unenforced.
+	switch n := c.Payments.ReleaseApprovals; {
+	case n < 1:
 		v.err("payments.release_approvals", "must be at least 1")
+	case n > 1:
+		v.err("payments.release_approvals", "must be 1: a release by more than one person is not supported yet")
 	}
 	if c.Payments.BankChangeHoldDays < 0 {
 		v.err("payments.bank_change_hold_days", "must not be negative")
