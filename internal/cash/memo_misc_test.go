@@ -85,7 +85,7 @@ func TestLiquidityItemInUse(t *testing.T) {
 		}
 		return fs
 	}
-	want(t, "check", fmt.Sprint(check()), "[[error] cash.liquidity_items[TAX]: open memo records name this liquidity item, of a direction it would no longer have; move them to another item, or cancel them, first]")
+	want(t, "check", fmt.Sprint(check()), "[[error] cash.liquidity_items[TAX]: open memo records name this liquidity item, which the document no longer has, or no longer has for their direction; move them to another item, or cancel them, first]")
 	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error { return cash.Setup{}.Apply(ctx, without) })
 	pgtest.WantErr(t, err, "cash.liquidity_item_in_use")
 	flipped := withCash(t)
@@ -144,6 +144,10 @@ func TestMemoFailures(t *testing.T) {
 		},
 		"update": func(ctx context.Context) error {
 			_, err := endpoints.UpdateMemo(ctx, uid(one), anyVersion, cash.MemoPatch{Amount: new("2.00")})
+			return err
+		},
+		"update a series": func(ctx context.Context) error {
+			_, err := endpoints.UpdateMemo(ctx, uid(series), anyVersion, cash.MemoPatch{ValueDate: new(day.AddDate(0, 0, -20))})
 			return err
 		},
 		"realise": func(ctx context.Context) error {

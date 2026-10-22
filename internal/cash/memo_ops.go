@@ -209,7 +209,7 @@ func (e *Endpoints) UpdateMemo(ctx context.Context, id uuid.UUID, ifMatch func(i
 	if err != nil {
 		return MemoRecord{}, err
 	}
-	if err := keepsOccurrences(ctx, tx, m, v); err != nil {
+	if err := keepsIdentity(ctx, tx, m, v); err != nil {
 		return MemoRecord{}, err
 	}
 	if err := updateValues(ctx, tx, p, id, v, false); err != nil {
@@ -218,13 +218,13 @@ func (e *Endpoints) UpdateMemo(ctx context.Context, id uuid.UUID, ifMatch func(i
 	return written(ctx, tx, id, "update", "updated")
 }
 
-// keepsOccurrences refuses a change that would part a series' occurrences
+// keepsIdentity refuses a change that would part a series' occurrences
 // from their overrides (its value date, rule or currency, while it has
 // overrides: the override's occurrence would no longer be one, and both
 // would count), an override from its series' currency, and an uploaded
 // record's reference, by which its batch knows it. The series is locked,
 // so no override is created meanwhile.
-func keepsOccurrences(ctx context.Context, tx pgx.Tx, m MemoRecord, v memoValues) error {
+func keepsIdentity(ctx context.Context, tx pgx.Tx, m MemoRecord, v memoValues) error {
 	switch {
 	case m.RecurrenceOf != nil && v.currency != m.Currency:
 		return occurrenceInvalid("An override keeps its series' currency.")

@@ -31,7 +31,8 @@ import (
 // document's liquidity items and planning groups in cash.liquidity_item
 // and cash.planning_group. One the document no longer has becomes
 // inactive, never deleted, since memo records and snapshots name items
-// (T53d, T53f); an item an open memo record names is not taken away, and
+// (T53d, T53f); an item an open memo record names is not taken away nor
+// turned against the record's direction, and
 // the partner context refuses taking away a planning group a supplier has
 // (partner.PlanningGroupCodes).
 type Setup struct{}
@@ -54,14 +55,15 @@ func (Setup) Check(ctx context.Context, base, proposed *config.Config) ([]config
 	out := make([]config.Finding, len(used))
 	for i, code := range used {
 		out[i] = config.Finding{Severity: config.SevError, Path: "cash.liquidity_items[" + code + "]",
-			Message: "open memo records name this liquidity item, of a direction it would no longer have; move them to another item, or cancel them, first"}
+			Message: "open memo records name this liquidity item, which the document no longer has, or no longer has for their direction; move them to another item, or cancel them, first"}
 	}
 	return out, nil
 }
 
 // Apply makes the tenant's liquidity items and planning groups the
 // document's, refusing a document that takes away an item an open memo
-// record names (409 cash.liquidity_item_in_use): the activation rolls
+// record names, or turns it against the record's direction (409
+// cash.liquidity_item_in_use): the activation rolls
 // back. The items are deactivated first, so a memo record written at the
 // same time waits for the activation (cash.check_memo_item locks the
 // item) and then finds it inactive.
