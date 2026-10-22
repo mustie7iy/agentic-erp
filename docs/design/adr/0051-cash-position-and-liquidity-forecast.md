@@ -511,7 +511,7 @@ days ≤ 31, default 14):
 
 As built (T53c):
 - **Request.** `GET /v1/cash-position?legal_entity_id=…&from=…&days=…&display_currency=…`
-  (`cash.position.read`, migration 000150; `x-slo-class: report`; agents
+  (`cash.position.read`, migration 000149; `x-slo-class: report`; agents
   read it as people do, banks by code and last four characters). `from`
   defaults to the read date, the clock's date in UTC (the companies have no
   time zone yet), and is never before it (422): past days are actuals,

@@ -110,7 +110,7 @@ func TestCashParentIsTheTenants(t *testing.T) {
 }
 
 // TestCashPositionPermission: the cash position's read permission is
-// seeded and is no approval permission (T53c, 000150).
+// seeded and is no approval permission (T53c, 000149).
 func TestCashPositionPermission(t *testing.T) {
 	var approval bool
 	if err := testDB.QueryRow(context.Background(), `SELECT is_approval FROM ref.permission WHERE code = 'cash.position.read'`).Scan(&approval); err != nil {

@@ -2278,6 +2278,6 @@ open, and unposted ones of runs `proposed` or `releasing`), and from the
 ledger's open lines on the clearing accounts (`ledger.Accounts.OpenLines`,
 leading ledger, neither cleared nor reversed; only lines an entry posted
 for a payment count, never a revaluation's) and rates of a type
-(`ledger.Rates.OfType`). Migration 000150 seeds its permission,
+(`ledger.Rates.OfType`). Migration 000149 seeds its permission,
 `cash.position.read`.
 
