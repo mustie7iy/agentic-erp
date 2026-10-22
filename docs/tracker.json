@@ -1319,7 +1319,7 @@
      },
      {
       "s": "P",
-      "t": "Tax determination, calculation and returns (T61), split T61a-T61m; PO decisions P1-P8 2026-10-20",
+      "t": "Tax determination, calculation and returns (T61), split T61a-T61n; PO decisions P1-P8 2026-10-20",
       "r": "ADR-0049 · T61",
       "c": [
        {
@@ -1384,7 +1384,7 @@
        },
        {
         "s": "D",
-        "t": "Output tax from the pilot's sales: output codes on manual and integration journal entries, per sales invoice or summary per code and jurisdiction (P2), each code's tax lines checked against its base lines within a minor unit per component (ledger.output_tax_mismatch), the jurisdiction on lines where a component levies its lines' subdivision (UAE emirates), items per jurisdiction, zero-rated and exempt bases recorded at rate 0",
+        "t": "Output tax from the pilot's sales: output codes on manual and integration journal entries, per sales invoice or summary per code and jurisdiction (P2), each code's tax lines checked against its base lines within a minor unit per component (ledger.output_tax_mismatch), the jurisdiction on lines where a component levies its lines' subdivision (UAE emirates), items per jurisdiction, zero-rated and exempt bases recorded at rate 0; a billing system's tax summary carries a base line per invoice it sums, the tolerance staying one minor unit per base line (product owner 2026-10-22)",
         "r": "db/migrations/000150 · ledger.checkOutputTax · journal_line.tax_jurisdiction · tax_component.jurisdiction_on_line · ADR-0049 §7 · T61f",
         "c": []
        },
@@ -1428,6 +1428,12 @@
         "s": "T",
         "t": "Engine connector port (deferred, P1): quote stored on parked documents, posting uses the stored quote, commit through the outbox; provider chosen when a country needs one",
         "r": "T61m · also the phase 1 Integrations item \"Tax engine (Avalara, Vertex)\" (triage, PO 2026-10-21)",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Service principals' posting limit: a per-company limit for entries a service principal (an integration such as the pilot's billing system) posts, separate from the manual entry approval limit for people; an entry above it is parked for a person's approval instead of refused with 409 ledger.approval_required (product owner 2026-10-22; finance lane)",
+        "r": "T61n · ADR-0049 §7 · after T61f",
         "c": []
        }
       ]

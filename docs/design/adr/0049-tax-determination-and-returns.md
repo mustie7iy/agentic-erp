@@ -557,11 +557,13 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   within one minor unit per base line (422 `ledger.output_tax_mismatch`
   with the figures): a billing system rounds each invoice or line it sums,
   the calculator the sum once, so four invoices of 100.10 at 5% post 20.04
-  where the sum gives 20.02 (proposed; **for the product owner and the tax
-  specialist:** a summary carrying one base line per code and jurisdiction
-  for many invoices needs a base line per invoice, or a count of the
-  invoices it sums, for its rounding to pass); a code with tax lines and no base line is an adjustment of tax
-  alone, recorded as posted (base 0). Where a component levies its lines'
+  where the sum gives 20.02. **Decided (product owner, 2026-10-22):** a
+  tax summary from a billing system carries a base line per invoice it
+  sums, and the tolerance stays one minor unit per base line; a summary
+  of many invoices on one base line is refused when its rounding exceeds
+  that (the pilot's billing integration is built to it, no count of
+  invoices is added to the contract). A code with tax lines and no base
+  line is an adjustment of tax alone, recorded as posted (base 0). Where a component levies its lines'
   subdivision (`jurisdiction_on_line`, its jurisdiction the country: one
   UAE code for every emirate, VAT 201 boxes 1a-1g), every line with the
   code names it (`tax_jurisdiction`, ISO 3166-2, 422
@@ -586,12 +588,13 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   line upserts leave `tax_jurisdiction` as it was, so
   `jurisdiction_on_line` is configured only once the rollout is complete,
   and an entry parked before T61f with output tax lines off its base is
-  refused when approved (release notes). **For the
-  product owner:** an integration posting sales entries is held to the
-  company's manual entry approval limit like a person (409
-  `ledger.approval_required` above it), which a billing system cannot
-  answer; whether a service principal's entries are exempt, or have a limit
-  of their own, is open.
+  refused when approved (release notes). An integration posting sales
+  entries is held to the company's manual entry approval limit like a
+  person today (409 `ledger.approval_required` above it), which a billing
+  system cannot answer. **Decided (product owner, 2026-10-22), planned as
+  T61n:** service principals get a posting limit of their own per
+  company, and an entry above it is parked for a person's approval
+  rather than refused.
 
 ### 8. Calculation and rounding
 - Base × rate is exact (`big.Rat`, as `money.Convert`), rounded **once per
