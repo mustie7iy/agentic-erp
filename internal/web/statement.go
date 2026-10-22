@@ -94,7 +94,7 @@ func (s *Server) showStatement(w http.ResponseWriter, r *http.Request, p *person
 		sp.DoneLine = int32(n)
 	}
 	c := lineContext{m: m, p: p, base: statementPath(id), tag: got.ETag.Or(etag.Format(st.Version)), rules: rules, names: names, sent: d,
-		open: st.Status != "reconciled"}
+		open: st.Status != "reconciled", gap: st.Status == "gap"}
 	sp.Lines = lineViews(st.Lines, matches.Response.Items, c)
 	sp.Why = linesWhy(st, sp.Lines, m)
 	s.render(w, r, status, ui.Statement(s.page(i18n.StatementTitle, ui.BankPath, p, m), sp))
@@ -171,6 +171,7 @@ type lineContext struct {
 	names map[uuid.UUID]ui.Name
 	sent  decision
 	open  bool
+	gap   bool // the statement is in gap: nothing posts for the bank
 }
 
 // lineViews are a statement's lines, each with its live match, the
@@ -270,11 +271,13 @@ func ruleText(rules []gen.BankStatementRulesPostingRulesItem, code string) strin
 // status (ADR-0047), each by the operation's x-permission (advisory,
 // ADR-0052 §7): a line not matched is matched by hand or excluded, an
 // agent's open proposal accepted or rejected too, and a matched line
-// posted (or matched again). A line on its way to the ledger, posted or
-// excluded takes none.
+// posted (or matched again), unless the statement is in gap, which the
+// API refuses to post (the page's gap notice says why); an excluded line
+// may be matched by hand after all. A line on its way to the ledger or
+// posted takes none.
 func lineForms(v *ui.LineView, l gen.BankStatementLine, live *gen.StatementMatch, c lineContext) {
 	switch l.Status {
-	case "unmatched", "proposed", "matched":
+	case "unmatched", "proposed", "matched", "excluded":
 	default:
 		return
 	}
@@ -289,9 +292,11 @@ func lineForms(v *ui.LineView, l gen.BankStatementLine, live *gen.StatementMatch
 			}
 			v.Manual = f
 		}
-		v.Exclude = c.form(ui.LineExclude, l.LineNo)
+		if l.Status != "excluded" {
+			v.Exclude = c.form(ui.LineExclude, l.LineNo)
+		}
 	}
-	if l.Status == "matched" && c.m.may(permPostLines) {
+	if l.Status == "matched" && !c.gap && c.m.may(permPostLines) {
 		v.Post = c.form(ui.LinePost, l.LineNo)
 	}
 }
@@ -355,7 +360,7 @@ func linesWhy(st gen.BankStatement, lines []ui.LineView, m me) i18n.Key {
 	}
 	for _, l := range lines {
 		switch l.Status.Raw {
-		case "unmatched", "proposed", "matched":
+		case "unmatched", "proposed", "matched", "excluded":
 			return i18n.LinesNotYours
 		}
 	}

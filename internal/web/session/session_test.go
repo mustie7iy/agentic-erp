@@ -163,7 +163,10 @@ func TestSessions(t *testing.T) {
 		if _, err := st.Sealer.Open(session.Hash(s.ID), stored); err != nil {
 			t.Errorf("the store's key: got %v, want it opened", err)
 		}
-		other, _ := session.NewSealer(secretB)
+		other, err := session.NewSealer(secretB)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if _, err := other.Open(session.Hash(s.ID), stored); !errors.Is(err, session.ErrUnsealed) {
 			t.Errorf("another key: got %v, want ErrUnsealed", err)
 		}

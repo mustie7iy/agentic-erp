@@ -196,7 +196,7 @@ func TestBankChoices(t *testing.T) {
 		want   i18n.Key
 	}{
 		"open lines":    {"imported", []string{"posted", "unmatched"}, i18n.LinesNotYours},
-		"decided lines": {"imported", []string{"posted", "excluded"}, ""},
+		"decided lines": {"imported", []string{"posted", "pending_approval"}, ""},
 		"reconciled":    {"reconciled", nil, i18n.StatementReconciledWhy},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -238,14 +238,14 @@ func TestBankUnavailable(t *testing.T) {
 		"statement: the matches 503": {map[string]http.HandlerFunc{"GET /v1/me": me, "GET /v1/bank-statements/" + id.String() + "/matches": unavailable, "GET /v1/bank-statements/": statement}, http.MethodGet, path, http.StatusServiceUnavailable, ""},
 		"statement: the matches refused": {map[string]http.HandlerFunc{"GET /v1/me": me, "GET /v1/bank-statements/" + id.String() + "/matches": answer(403, problemJSON(403, "identity.permission_missing")),
 			"GET /v1/bank-statements/": statement}, http.MethodGet, path, http.StatusForbidden, ""},
-		"statement: gone":              {map[string]http.HandlerFunc{"GET /v1/me": me, "GET /v1/bank-statements/" + id.String() + "/matches": answer(404, problemJSON(404, "request.not_found")), "GET /v1/bank-statements/": statement}, http.MethodGet, path, http.StatusNotFound, ""},
-		"decision: who am I, 401":      {map[string]http.HandlerFunc{"GET /v1/me": challenge}, http.MethodPost, path + "/exclude", http.StatusSeeOther, "return=%2Fbank%2Fstatements%2F" + id.String()},
-		"decision: rate limited":       {map[string]http.HandlerFunc{"GET /v1/me": me, "POST /v1/bank-statements/": answer(429, problemJSON(429, "request.rate_limited"))}, http.MethodPost, path + "/exclude", http.StatusServiceUnavailable, ""},
-		"report: who am I, 401":        {map[string]http.HandlerFunc{"GET /v1/me": challenge}, http.MethodGet, reportPath(id), http.StatusSeeOther, "return=%2Fbank%2Fhouse-banks%2F" + id.String() + "%2Freconciliation"},
-		"report: unavailable":          {map[string]http.HandlerFunc{"GET /v1/me": me, "GET /v1/house-banks": answer(200, `{"items":[]}`), "GET /v1/house-banks/": unavailable}, http.MethodGet, reportPath(id), http.StatusServiceUnavailable, ""},
-		"upload: who am I, 401":        {map[string]http.HandlerFunc{"GET /v1/me": challenge}, http.MethodPost, "/bank/statements", http.StatusSeeOther, "return=%2Fbank"},
-		"upload: unavailable":          {map[string]http.HandlerFunc{"GET /v1/me": me, "POST /v1/bank-statements": unavailable}, http.MethodPost, "/bank/statements", http.StatusServiceUnavailable, ""},
-		"upload's list: who am I, 401": {map[string]http.HandlerFunc{"GET /v1/me": challenge}, http.MethodPost, "/bank/statements?large", http.StatusSeeOther, "return=%2Fbank"},
+		"statement: gone":           {map[string]http.HandlerFunc{"GET /v1/me": me, "GET /v1/bank-statements/" + id.String() + "/matches": answer(404, problemJSON(404, "request.not_found")), "GET /v1/bank-statements/": statement}, http.MethodGet, path, http.StatusNotFound, ""},
+		"decision: who am I, 401":   {map[string]http.HandlerFunc{"GET /v1/me": challenge}, http.MethodPost, path + "/exclude", http.StatusSeeOther, "return=%2Fbank%2Fstatements%2F" + id.String()},
+		"decision: rate limited":    {map[string]http.HandlerFunc{"GET /v1/me": me, "POST /v1/bank-statements/": answer(429, problemJSON(429, "request.rate_limited"))}, http.MethodPost, path + "/exclude", http.StatusServiceUnavailable, ""},
+		"report: who am I, 401":     {map[string]http.HandlerFunc{"GET /v1/me": challenge}, http.MethodGet, reportPath(id), http.StatusSeeOther, "return=%2Fbank%2Fhouse-banks%2F" + id.String() + "%2Freconciliation"},
+		"report: unavailable":       {map[string]http.HandlerFunc{"GET /v1/me": me, "GET /v1/house-banks": answer(200, `{"items":[]}`), "GET /v1/house-banks/": unavailable}, http.MethodGet, reportPath(id), http.StatusServiceUnavailable, ""},
+		"upload: who am I, 401":     {map[string]http.HandlerFunc{"GET /v1/me": challenge}, http.MethodPost, "/bank/statements", http.StatusSeeOther, "return=%2Fbank"},
+		"upload: unavailable":       {map[string]http.HandlerFunc{"GET /v1/me": me, "POST /v1/bank-statements": unavailable}, http.MethodPost, "/bank/statements", http.StatusServiceUnavailable, ""},
+		"upload too large: no call": {map[string]http.HandlerFunc{}, http.MethodPost, "/bank/statements?large", http.StatusRequestEntityTooLarge, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, b, token := stubStack(t, &stubbed{routes: tc.routes})

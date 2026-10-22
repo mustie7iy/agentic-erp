@@ -239,16 +239,15 @@ func uploadForm(p *person, banks map[uuid.UUID]gen.HouseBank, up uploaded) *ui.U
 
 // csrfUpload is csrf for the upload's multipart form: its body is read
 // up to the largest file the API takes, in memory, and the token is
-// checked as csrf checks it. A body too large changes nothing: the list
-// says so, the token unchecked.
+// checked as csrf checks it. A body too large is answered at once, with
+// no API call: nothing is acted on before the token is checked.
 func (s *Server) csrfUpload(next func(http.ResponseWriter, *http.Request, *person)) func(http.ResponseWriter, *http.Request, *person) {
 	return func(w http.ResponseWriter, r *http.Request, p *person) {
 		r.Body = http.MaxBytesReader(w, r.Body, maxUploadBody)
 		var tooLarge *http.MaxBytesError
 		if err := r.ParseMultipartForm(maxUploadBody); errors.As(err, &tooLarge) {
-			if m, ok := s.whoami(w, r, p); ok {
-				s.showStatements(w, r, p, m, http.StatusRequestEntityTooLarge, uploaded{fileErr: i18n.UploadFileTooLarge, sent: true})
-			}
+			s.render(w, r, http.StatusRequestEntityTooLarge, ui.Problem(s.shell(i18n.UploadRefusedTitle, ""), i18n.UploadRefusedTitle,
+				i18n.UploadFileTooLarge, ui.BankPath, i18n.StatementBack))
 			return
 		}
 		if !tokenOK(r.PostForm.Get(ui.CSRFField), p) {

@@ -176,6 +176,8 @@ func bankComponents() map[string]templ.Component {
 		"Statement":                Statement(signedIn(), statementPage(true)),
 		"statement plain":          statementContent(statementPage(false)),
 		"statement no lines":       statementContent(StatementPage{Why: i18n.StatementReconciledWhy}),
+		"doneMessage":              doneMessage(i18n.LineDonePosted, 2),
+		"done without a line":      doneMessage(i18n.LineDonePosted, 0),
 		"LineCard":                 LineCard(lineView(true)),
 		"line decided":             LineCard(lineView(false)),
 		"LineStatusTag":            LineStatusTag(Label{Key: i18n.LineStatusPosted}),

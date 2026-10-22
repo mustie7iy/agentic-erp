@@ -213,7 +213,7 @@ func TestStatementList(t *testing.T) {
 	holds(t, "French", fr, "1 000,00 EUR", "Relevés bancaires", "Importé")
 	t.Run("a gap", func(t *testing.T) {
 		r := upload(b, map[string]string{"house_bank_id": d.bank.String(), "format": "mt940"},
-			[]byte(fixture.MT940("S3", "3", "900,00", "260419", "900,00", "260420")))
+			[]byte(fixture.MT940("S3", "3", "900,00", "260419", "890,00", "260420", ":61:2604200420D10,00NCHGNONREF//G1\n")))
 		status(t, "the gap's import", r, http.StatusSeeOther)
 		gap := uuid.MustParse(strings.TrimPrefix(strings.TrimSuffix(r.location(), "?done=imported"), "/bank/statements/"))
 		g := b.get("/bank?status=gap").page(t)
@@ -222,8 +222,12 @@ func TestStatementList(t *testing.T) {
 			t.Fatalf("the gap tab: got %d statements, want S3", len(cards))
 		}
 		holds(t, "the gap", text(cards[0]), "Gap before it", "Its opening balance is not the closing balance of the statement before it.")
-		holds(t, "the gap's page", b.get(statementPath(gap)).page(t).mainText(), "A statement is missing before this one",
-			"Previous statement Open the previous statement")
+		gp := b.get(statementPath(gap)).page(t)
+		holds(t, "the gap's page", gp.mainText(), "A statement is missing before this one", "Previous statement Open the previous statement")
+		holds(t, "the gap's line", lineCard(gp, 1), "Status Matched")
+		if lineForm(gp, gap, 1, "post") != nil {
+			t.Error("a statement in gap offers its matched line's posting")
+		}
 	})
 }
 
@@ -340,6 +344,9 @@ func TestLineDecisions(t *testing.T) {
 		t.Fatalf("lines: got %q", got)
 	}
 	p := b.get(statementPath(d.statement)).page(t)
+	if lineForm(p, d.statement, 3, "match") == nil || lineForm(p, d.statement, 3, "exclude") != nil {
+		t.Error("line 3, excluded: want a match by hand offered, and no exclusion again")
+	}
 	holds(t, "line 5", lineCard(p, 5), "Agent's last proposal: Rejected", "Posting date 2026-04-18", "Why on that date Booked a day late.")
 	holds(t, "line 4", lineCard(p, 4), "Agent's last proposal: Accepted", "Matched by hand", "Post the line")
 	other := s.as(s.f.Approver2)
@@ -483,8 +490,8 @@ func TestStatementUpload(t *testing.T) {
 	}
 	holds(t, "the new statement", b.get(r.location()).page(t).mainText(), "The file is imported.", "Bank statement S2", "Status Imported")
 	again := upload(b, fields, s2)
-	if !strings.HasSuffix(again.location(), "?done=reimported") || strings.TrimSuffix(again.location(), "?done=reimported") != strings.TrimSuffix(r.location(), "?done=imported") {
-		t.Errorf("the same file again: got %d to %q", again.status, again.location())
+	if got, want := again.location(), strings.TrimSuffix(r.location(), "?done=imported")+"?done=reimported"; got != want {
+		t.Errorf("the same file again: got %d to %q, want %q", again.status, got, want)
 	}
 	holds(t, "the same file again", b.get(again.location()).page(t).mainText(), "This file was imported before.")
 	for name, tc := range map[string]struct {

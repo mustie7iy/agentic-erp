@@ -1489,7 +1489,10 @@ and where it departs from the step as first written:
   the statement's ETag as If-Match and a fresh idempotency key, offered
   by the line's status and the operation's `x-permission`, inside a
   `<details>` that a refusal opens with what was typed. All five are
-  `x-agent: false` and marked human-only. Done, the page says so with a
+  `x-agent: false` and marked human-only. An excluded line may be
+  matched by hand again until the statement is reconciled, as the API
+  allows; a matched line of a statement in `gap` is not offered its
+  posting (the API refuses it, the gap notice says why). Done, the page says so with a
   link to the line (no fragment: a fragment would scroll the notice out
   of view and move the tab order); a posting that waits says it waits
   for its approval. Segregation of duties is the API's: whoever matched
@@ -1503,7 +1506,12 @@ and where it departs from the step as first written:
   merged; the ogen client sends a field either way). One statement goes
   to its page, several to the bank's statements; the same file again
   says it was imported before. A refused import keeps the bank and
-  format, and asks for the file again (a browser never refills a file).
+  format, and asks for the file again (a browser never refills a file). A
+  body larger than that is answered at once with a page of its own and
+  no API call, before the token is checked. An upload is held three
+  times in memory (the form's buffer, the read, the client's string),
+  some 12 MB at most each, with no limit on uploads at once: enough for
+  the pilot, to bound before load tests.
 - **Calls.** The list makes four (`getCurrentPrincipal`,
   `listHouseBanks`, `listLegalEntities`, `listBankStatements`), a
   statement six (`getBankStatement`, `listBankStatementMatches`,
