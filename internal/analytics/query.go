@@ -332,14 +332,10 @@ func describeColumns(m *Model, q Query, res *Result) map[string]int {
 	return measureCol
 }
 
-// fillRows builds one row per group in key order, then labels each money
+// fillRows builds one row per group in the order of its values (byValues), then labels each money
 // column with its currency when exactly one currency contributed to it.
 func fillRows(m *Model, q Query, agg *aggregation, res *Result, measureCol map[string]int) error {
-	keys := make([]string, 0, len(agg.groups))
-	for k := range agg.groups {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := slices.SortedFunc(maps.Keys(agg.groups), agg.byValues)
 	colCurrency := map[string]map[string]bool{}
 	for _, key := range keys {
 		row := make(Row, len(res.Columns))
@@ -471,6 +467,19 @@ func (ev *cellEval) derived(d *Derived) (*big.Rat, bool) {
 		r = new(big.Rat)
 	}
 	return new(big.Rat).Sub(l, r), true
+}
+
+// byValues orders groups by their dimension values, each compared as
+// compareValues does, so months run 1, 2, … 10, not 1, 10, 2; the keys
+// break ties between values that compare equal ("01" and "1").
+func (agg *aggregation) byValues(a, b string) int {
+	va, vb := agg.groups[a], agg.groups[b]
+	for i := range va {
+		if c := compareValues(va[i], vb[i]); c != 0 {
+			return c
+		}
+	}
+	return strings.Compare(a, b)
 }
 
 // orderRows sorts stably by the order_by column, so ties keep group order.
