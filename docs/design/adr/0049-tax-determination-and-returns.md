@@ -644,9 +644,12 @@ the UAE's Box 6 for registrants who account for import VAT in the return
   140000; Canada's GST paid to the CBSA through a broker, CAD 13,000.00
   value for duty, 650.00 claimed (line 106) against the customs clearing
   account. A partly recovered import posts the part recovered on the input
-  account and the rest on an expense line without a code; the claim item's
-  tax is then the part recovered (an item derived from lines has the tax
-  its account carries), which is what box 10 and line 106 read. A reversal
+  account and the rest on an expense line without a code; the entry's items
+  are given (`importItems`, as a supplier invoice's are), so the claim item
+  carries the whole tax at the rate and the part recovered, as a supplier
+  invoice's self-assessed claim does: one meaning for an item on every path
+  (product owner, 2026-10-21). An entry declaring bases carries its import
+  codes alone (422 `ledger.tax_base_inconsistent`). A reversal
   negates the bases with the lines. **Rolling upgrade (06 §6.4):** 000147
   adds nullable columns and keeps `write_tax_items`' signature (a null
   base counts as none), so it runs ahead of the code; an instance of the
@@ -655,12 +658,7 @@ the UAE's Box 6 for registrants who account for import VAT in the return
   there drops the base (its items' base 0), and its reversals of new
   import entries leave the lines' bases out (their items, negated from the
   original's, are right). Import entries are not entered while the rollout
-  is under way (a step for the release notes; no release runbook exists yet). **Open (tax specialist and product owner):** a
-  partly recovered import's claim item carries the part recovered as its
-  tax, where a supplier invoice's self-assessed claim carries the whole tax
-  with its recovered part; the returns read the same, but the item's tax
-  means two things by its path. Giving the calculator's items for import
-  entries, as supplier invoices do, would align them. **Not yet:** the base on the posted
+  is under way (a step for the release notes; no release runbook exists yet). **Not yet:** the base on the posted
   event (`journal_entry_posted` lines), and a customs declaration as a
   document of its own (GTS, phase 4).
 

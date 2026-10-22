@@ -117,6 +117,12 @@ type Line struct {
 	// keptLC is a local amount the posting keeps rather than converts
 	// (PostingLine.LC).
 	keptLC *money.Minor
+	// A line declaring a tax base: its component, whether it is the
+	// self-assessed output, and the tax not recovered beside an input
+	// line's (checkTaxBases, importItems).
+	component    string
+	output       bool
+	notRecovered money.Minor
 }
 
 const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id,
@@ -968,6 +974,9 @@ func (e *Endpoints) postPrepared(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 		if err := check(ctx, tx, v, in); err != nil {
 			return Entry{}, err
 		}
+	}
+	if items := importItems(v.lines, rateLC, v.expTC, v.exps[v.le.LocalCurrency]); items != nil {
+		in.taxItems = items
 	}
 	posted, err := e.post(ctx, tx, p, draft{entity: v.le, ledgers: v.choice.ledgers, ledgerGroup: v.choice.group, documentType: in.DocumentType, documentDate: in.DocumentDate,
 		postingDate: in.PostingDate, taxDate: in.taxDay(), currencyTC: in.Currency, currencyLC: v.le.LocalCurrency, currencyGC: v.group, rateTCLC: rateLC.shown,
