@@ -714,10 +714,10 @@ func (Approvals) Acknowledgement(ctx context.Context, id uuid.UUID) (string, err
 	if err != nil {
 		return "", err
 	}
-	var suite string
+	var suite, window string
 	var none bool
-	err = tx.QueryRow(ctx, `SELECT coalesce(detail->>'number', ''), coalesce((detail->>'`+noCasesKey+`')::boolean, false) FROM config.evidence
-		WHERE change_request_id = $1 AND kind = 'regression' ORDER BY recorded_at DESC LIMIT 1`, id).Scan(&suite, &none)
+	err = tx.QueryRow(ctx, `SELECT coalesce(detail->>'number', ''), coalesce(detail->>'window_days', '?'), coalesce((detail->>'`+noCasesKey+`')::boolean, false) FROM config.evidence
+		WHERE change_request_id = $1 AND kind = 'regression' ORDER BY recorded_at DESC LIMIT 1`, id).Scan(&suite, &window, &none)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
@@ -727,7 +727,7 @@ func (Approvals) Acknowledgement(ctx context.Context, id uuid.UUID) (string, err
 	if !none {
 		return "", nil
 	}
-	return fmt.Sprintf("The regression evidence replayed no case: suite %s holds none. Approve with a comment saying you accept the change without regression cases.", suite), nil
+	return fmt.Sprintf("The regression evidence replayed no case: suite %s holds none, captured over the %s days before it. Approve with a comment saying you accept the change without regression cases.", suite, window), nil
 }
 
 // Cancelled withdraws the change request: its author withdrew the approval request.

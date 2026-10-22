@@ -1875,11 +1875,12 @@ type Handler interface {
 	// `payments.release_role_missing`; 422 `workflow.unknown_role` when it names no active role). A
 	// configuration asking for more than one releaser (`payments.release_approvals` above 1, which
 	// validation now refuses) refuses the release with 422 `payments.release_approvals_unsupported` rather
-	// than letting one person release. Sets `decided_by` and `decided_at`. Requires status `proposed`, or
-	// `releasing` after a failed release operation, which resumes it. 409 `payments.discount_lapsed` when
-	// a payment takes a cash discount whose last day has passed (T36d): reject the run and propose again.
-	// 409 `ledger.withholding_changed` when an item would withhold another amount than its payment
-	// deducted (T46f); the payment is not posted.
+	// than letting one person release, the resumption of a failed release included, until a change request
+	// sets it to 1. Sets `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a
+	// failed release operation, which resumes it. 409 `payments.discount_lapsed` when a payment takes a
+	// cash discount whose last day has passed (T36d): reject the run and propose again. 409
+	// `ledger.withholding_changed` when an item would withhold another amount than its payment deducted
+	// (T46f); the payment is not posted.
 	//
 	// POST /v1/payment-runs/{id}:release
 	ReleasePaymentRun(ctx context.Context, req OptDecisionInput, params ReleasePaymentRunParams) (ReleasePaymentRunRes, error)

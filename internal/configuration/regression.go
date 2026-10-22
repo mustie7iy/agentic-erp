@@ -280,8 +280,10 @@ func regression(ctx context.Context, tx pgx.Tx, deps Dependencies, c ChangeReque
 // others' cases.
 func noCases(suite RegressionSuite, version int32) Simulation {
 	return Simulation{Passed: true,
-		Summary: fmt.Sprintf("Suite %s holds no cases: there were no supplier invoices on purchase orders to replay when it was captured, so nothing was replayed. Each approver acknowledges this in the comment of their approval.", suite.Number),
-		Detail:  map[string]any{"suite_id": suite.ID, "number": suite.Number, "config_version": version, noCasesKey: true}}
+		Summary: fmt.Sprintf("Suite %s holds no cases: there were no supplier invoices on purchase orders in the %d days before it was captured on %s, so nothing was replayed. Each approver acknowledges this in the comment of their approval.",
+			suite.Number, suite.WindowDays, suite.CapturedAt.UTC().Format(time.DateOnly)),
+		Detail: map[string]any{"suite_id": suite.ID, "number": suite.Number, "config_version": version, "window_days": suite.WindowDays,
+			"captured_at": suite.CapturedAt, noCasesKey: true}}
 }
 
 // noCasesKey marks the regression evidence of a suite of no cases.

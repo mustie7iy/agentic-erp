@@ -77,7 +77,9 @@ func (m *Middleware) begin(ctx context.Context, s database.Scope) (pgx.Tx, error
 	return database.BeginOr(ctx, m.Pool, m.Begin, s)
 }
 
-func unsafe(method string) bool {
+// Unsafe reports whether requests of the method change state and carry a
+// body: the unit of work reads, bounds and hashes those bodies.
+func Unsafe(method string) bool {
 	switch method {
 	case http.MethodGet, http.MethodHead, http.MethodOptions:
 		return false
@@ -93,7 +95,7 @@ func (m *Middleware) Wrap(next http.Handler) http.Handler {
 			// A safe method's transaction is read-only, as errorHandler
 			// translates its errors (ADR-0040).
 			from := problem.From
-			if !unsafe(r.Method) {
+			if !Unsafe(r.Method) {
 				from = problem.FromReadOnly
 			}
 			p := from(err)
@@ -112,7 +114,7 @@ type request struct {
 
 // readRequest validates the idempotency key and hashes the request.
 func readRequest(r *http.Request, w http.ResponseWriter) (*request, error) {
-	if !unsafe(r.Method) {
+	if !Unsafe(r.Method) {
 		return nil, nil
 	}
 	key := r.Header.Get("Idempotency-Key")

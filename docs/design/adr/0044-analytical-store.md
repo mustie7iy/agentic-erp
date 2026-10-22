@@ -596,7 +596,10 @@ stays operating profit over sales). A tenant whose configuration has an
 `analytics` section keeps its own definitions until a change request
 changes them; the seed is the code's, changed through review, and every
 tenant without the section reads it, under past configuration versions
-too. Until the next snapshot rewrites a tenant's accounts, a plan reading
+too. The determination is read as it is today for every line, so moving
+`cash_discount` or `fx_gain` to another account moves past revenue as
+well, like an account's reclassification. Until the next snapshot
+rewrites a tenant's accounts, a plan reading
 files without the column fails and the query is answered from the
 database.
 
