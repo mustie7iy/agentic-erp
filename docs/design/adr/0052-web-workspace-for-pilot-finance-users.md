@@ -1124,7 +1124,117 @@ Decisions for the product owner (T73b):
   way.
 - **D2:** whether the API's audit trail should record people's client
   addresses (for erp-web's users, the router would have to trust erp-web
-  to forward them, which it cannot authenticate today).
+  to forward them, which it cannot authenticate today). Decided
+  2026-10-21: yes, built in T73c (below).
+
+## Built in T73c (2026-10-21)
+What the API gaps settled, and where they depart from §3:
+- **G1 as built.** `listApprovalRequests?decidable_by=me` lists the
+  pending requests the caller may approve now, as `approveApprovalRequest`
+  decides it: a person, not the requester, who may use
+  `workflow.request.decide` (held, and not barred by a
+  segregation-of-duties rule, as `Authorize` checks it), holds the object
+  type's approval permission and the current step's role (identity's
+  `Directory.RolesHeld`, the same predicate as `HoldsRole`), has not
+  approved the request yet, and whom the owning context does not bar
+  (`Barrer`: the bank line's matcher). The bar is asked after the page is
+  read, so a page may hold fewer requests than `page_size`, even none,
+  with a next token; the token is taken before, so no request is skipped.
+  An agent's or a service's inbox is empty; any value but `me` is 400
+  `request.invalid_parameter`. The partial index
+  `approval_request_pending (tenant_id, created_at, id) WHERE status =
+  'pending'` serves the filter and the sort (04 §4.5; migration 000142);
+  the step and the caller's approvals are read by their keys.
+  `TestInbox` checks, for six kinds of caller and every request, that a
+  request is in the inbox exactly when approving it succeeds.
+- **G2 as built.** `getCurrentPrincipal` (`GET /v1/me`) returns the
+  principal (id, tenant, kind, name, own e-mail), `all_companies` and the
+  `legal_entity_ids` of its company access today (the UI names them with
+  `listLegalEntities`), `permissions` it may use now and
+  `barred_permissions` it holds but a rule in force bars
+  (`authz.Effective`), and an agent's `autonomy_level`. Permissions are not
+  company-scoped in this model (company access applies to all of them), so
+  there are no per-company permissions. The locale preference of §9 is
+  not there yet: no principal has one to give; T73l adds it with the
+  setting.
+- **`identity.self.read` is everyone's own** (departs from §3: "granted to
+  every role by a migration"). As T73b did for `identity.session.end`, it
+  is held whatever the roles (`authz.Own`), and by agents and services
+  too, so that an agent learns its own autonomy level and the names on
+  what it reads. Migration 000142 seeds it and grants it to no role; a
+  segregation-of-duties rule may not name it.
+- **G3 as built.** `listPrincipalNames` (`GET
+  /v1/principal-names?ids=…`, 1 to 100) returns id, display name and kind
+  of the tenant's principals among the ids, in their order, each once,
+  and nothing else. Row-level security keeps it to the caller's tenant;
+  an id of another tenant's principal is left out exactly as one of none,
+  and ids are random, so nothing can be enumerated. No company scoping:
+  principals belong to the tenant, not to a company, and an id reaches a
+  caller only on something the caller may already see. Agents may call it
+  (`x-autonomy` level 0 reads), as the ADR allows.
+- **G7 as built.** Every operation has `x-problem-codes`, and the document
+  has one for what the request pipeline answers on any operation
+  (authentication, sessions, authorization, rate limits, idempotency,
+  timeouts, the database's generic codes). They are derived from the
+  server's code, not written by hand: `api`'s `TestProblemCodes` builds
+  erp-server's call graph (SSA, VTA over CHA, golang.org/x/tools), traces
+  every `problem.New` code back to its constants, gives an operation the
+  codes reachable from its method on the API's handler, and the codes of
+  the registered constraints (`problem.RegisterConstraint`) on the tables
+  its statements write (constraint and table read from the migrations).
+  The lists must equal what it derives, and every listed code must be one
+  the server makes; `go test ./api -run TestProblemCodes -update` rewrites
+  them. Codes built at run time (partner's code kinds) are declared in
+  the test, which fails on an undeclared one. Two registrations that
+  looped over names (identity's, procurement's) became one call per
+  constraint so their tables can be told. Not in this step: the UI's
+  check that each code has a message (T73l), and the control plane's
+  contracts (T50).
+- **Client addresses in the API's audit trail (D2, PO 2026-10-21).**
+  - erp-web forwards the signed-in person's address, as its own load
+    balancer's PROXY header names it, in `Erp-Client-Address` on every
+    API call, and none when it has none (a caller's own header is
+    replaced).
+  - erp-web presents its SPIFFE identity to the router, a client
+    certificate alone (`erp-web-tls`, spiffe://<domain>/global/erp-web,
+    client auth only, no DNS name; departs from §6, where erp-web held no
+    identity). No cell accepts it: the cells take the router's alone.
+    Production refuses to start without it (`ERP_TLS_CERT`,
+    `ERP_TLS_KEY`), since every person would otherwise be recorded at
+    erp-web's address.
+  - The router's public listener asks for any client certificate (agents
+    bind tokens to self-signed ones); the router believes the header only
+    when the connection's certificate verifies against the deployment's
+    authority (the bundle alone, client auth) and names erp-web's ID
+    (`tlsconf.Store.VerifiedClient`). Otherwise, from the internet, an
+    agent, or another service, the header is dropped and the address is
+    the connection's (the client's, by the balancer's PROXY header, as
+    before). The router always sets the header towards the cell.
+  - The cell believes the header from the router's identity alone
+    (`httpapi.ClientAddress`, beside the client certificate's thumbprint);
+    without a trust domain (development) it records the connection's
+    address. The address rides the request's context into every audit
+    entry the request writes (`audit.audit_event.client_address`, inet,
+    migration 000142) and shows on `listAuditEvents`; work no request made
+    records none.
+  - It is personal data. It is kept outside the hash chain, so it can be
+    erased without breaking the chain or its anchors (ADR-0026's reason
+    for never rewriting details), and follows the entry's retention. The
+    erasure of an offboarded tenant (`platform.erase_tenant`, ADR-0021)
+    blanks the addresses of its events and keeps the events; an event is
+    otherwise insert-only, and the erasure may change nothing else of it
+    (`audit.event_immutable`). The erasure of one person's data (T66) is
+    to blank the addresses of that person's events the same way. The
+    offboarding export holds the addresses as it holds the rest of the
+    tenant's data, under the export's retention.
+- **Deployment.** The chart gives erp-web its certificate and mounts it;
+  `web.sessionKeyPrevious` mounts `<prefix>/web-session-key-previous` as
+  `ERP_WEB_SESSION_KEY_PREVIOUS` while the session key rotates (the
+  runbook is in the values; Terraform creates the entry empty).
+  `helm-checks.sh` holds erp-web's certificate to its client identity and
+  the previous key to a rotation.
+- **Migrations.** T73b's web client is 000141 here (main took 000139 and
+  000140), this step's 000142; integration renumbers as batches land.
 
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August

@@ -23,3 +23,20 @@ agents and configuration changes.
 ## Consequences
 - One extra insert per business transaction.
 - Verification is a scan per tenant and period.
+
+## Amendment (2026-10-21, T73c): where a request came from
+The product owner decided that the API's audit trail records each
+person's client address. Each event carries `client_address` (inet): a
+person's address in the web workspace as erp-web saw it, otherwise the
+client's connection as the router saw it through its load balancer; null
+for work no request made (workers, workflows) and for events recorded
+before. The router believes erp-web's forwarded address from erp-web's
+SPIFFE identity alone, and the cell believes the router's from the
+router's alone (ADR-0033, ADR-0052 "Built in T73c").
+
+The address is personal data, so it sits beside the event, outside the
+hash chain: the chain covers what happened, and the erasure of a tenant
+(ADR-0021) blanks the addresses of its events without breaking the chain
+or its anchors (ADR-0026). An event stays insert-only otherwise; the
+erasure may change its address alone, to null. The address has the
+event's retention.

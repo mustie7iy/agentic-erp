@@ -4529,9 +4529,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "API for the workspace (G1, G2, G3, G7), contract first: listApprovalRequests decidable_by=me with its index, getCurrentPrincipal (GET /v1/me) with identity.self.read held by every person (T73b made identity.session.end so through authz.PersonsOwn rather than a grant to every role, which a role made later would lack), listPrincipalNames, x-problem-codes on every operation with a spec test against the registered codes; schema and FailingTx tests",
-        "r": "T73c",
+        "s": "D",
+        "t": "API for the workspace (G1, G2, G3, G7), contract first: listApprovalRequests decidable_by=me (what approveApprovalRequest accepts: a person, not the requester, workflow.request.decide unbarred, the object type's approval permission, the step's role, not yet approved, not barred by the owning context) with its partial index; getCurrentPrincipal (GET /v1/me: who, companies, usable and SoD-barred permissions, an agent's level) and listPrincipalNames (id, name, kind; the tenant's alone), identity.self.read held by every principal (authz.Own); x-problem-codes on every operation and the document, derived from erp-server's call graph and the registered constraints' tables (TestProblemCodes, -update). PO D2: the API's audit trail records each person's client address (erp-web's SPIFFE identity towards the router, Erp-Client-Address believed from it alone, the cell from the router alone; audit_event.client_address outside the hash chain, blanked by the tenant's erasure). Chart: erp-web's certificate, the session key's rotation (web.sessionKeyPrevious)",
+        "r": "migration 000142 · internal/approvals inbox.go · internal/identity self.go · internal/platform/authz Effective, Own · api/problemcodes_test.go · internal/router forwardClientAddress · internal/platform/httpapi ClientAddress · tlsconf VerifiedClient · internal/web forwardAddress · TestInbox · TestCurrentPrincipal · TestPrincipalNames · TestProblemCodes · TestForwardsTheClientAddress · TestAuditClientAddresses · TestThePersonsAddressInTheAudit · ADR-0052 Built in T73c · ADR-0011, ADR-0033 amended · T73c",
         "c": []
        },
        {
@@ -4584,7 +4584,7 @@
        },
        {
         "s": "T",
-        "t": "Languages (P5): French (Canada) complete and reviewed by a native finance user if the Canadian company has Québec staff; Arabic with RTL when the UAE pilot asks; locale preference; every problem code translated; RTL and long-text scenarios green",
+        "t": "Languages (P5): French (Canada) complete and reviewed by a native finance user if the Canadian company has Québec staff; Arabic with RTL when the UAE pilot asks; locale preference (a principal setting, added to GET /v1/me, which has none yet: T73c); every problem code translated (x-problem-codes lists them, per operation and the pipeline's for all); RTL and long-text scenarios green",
         "r": "T73l",
         "c": []
        },
@@ -5657,8 +5657,8 @@
        },
        {
         "s": "T",
-        "t": "Logins of their own in the directory for the router and the cells, in place of its master user",
-        "r": "deploy/helm/erp-global · deploy/helm/erp-cell · T72h",
+        "t": "Logins of their own in the directory for the router and the cells, in place of its master user; erp-web too needs its own directory login before production (T73b review D1: it connects as the master login, working as the erp_web role, which keeps it to its schema against its own code but not against a stolen credential), with T73m at the latest",
+        "r": "deploy/helm/erp-global · deploy/helm/erp-cell · T72h · ADR-0052 D1",
         "c": []
        },
        {
@@ -6157,7 +6157,7 @@
      },
      {
       "s": "T",
-      "t": "GDPR: personal data inventory, blocking and deletion",
+      "t": "GDPR: personal data inventory, blocking and deletion; the inventory includes the API audit trail's client addresses (audit.audit_event.client_address, T73c), and a person's erasure blanks those of their events as the tenant's erasure does (audit.event_immutable allows that alone)",
       "r": "T66",
       "c": []
      },

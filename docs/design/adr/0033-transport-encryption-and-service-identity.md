@@ -132,3 +132,19 @@ token stolen in transit or from a log works from anywhere.
   material until that certificate expires. The error log is the alarm.
 - Tenants whose providers cannot bind tokens to certificates cannot run
   agents in production.
+
+## Amendment (2026-10-21, T73c): erp-web's identity and the client's address
+- erp-web, the web workspace (ADR-0052), presents its own SPIFFE identity,
+  `spiffe://<domain>/global/erp-web`, to the router's public listener: a
+  client certificate alone (client auth, no DNS name), issued as the
+  router's is. No cell accepts it.
+- With it erp-web forwards the signed-in person's address in
+  `Erp-Client-Address`. The public listener asks for any client
+  certificate without verifying it (agents' are self-signed), so the
+  router verifies the presented chain itself, against the deployment's
+  authority alone and for client authentication, and believes the header
+  only when the certificate names erp-web's ID. Any other caller's header
+  is dropped and replaced by the connection's own address.
+- The router always sends the cell `Erp-Client-Address`, which the cell,
+  like `Erp-Client-Cert-Thumbprint`, trusts from the router's SAN over
+  mutual TLS only. The audit trail records it (ADR-0011, amended).
