@@ -158,6 +158,12 @@ Errors use RFC 9457 Problem Details (`application/problem+json`):
 `code` values are stable and documented; clients and agents branch on `code`,
 never on `detail`. Database constraint violations are translated to these
 codes by the repository layer; a raw database message never reaches a client.
+Each operation lists the codes its handler can answer in `x-problem-codes`,
+and the document lists those the request pipeline can answer on any
+operation (authentication, authorization, rate limits, idempotency,
+timeouts, the database's generic codes). Both are derived from the code
+and checked to match it (`api`'s `TestProblemCodes`, ADR-0052 G7); `go
+test ./api -run TestProblemCodes -update` rewrites them.
 
 ## 4.7 Concurrency and idempotency
 
