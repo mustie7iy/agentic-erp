@@ -1,0 +1,57 @@
+package ui
+
+import "github.com/mustie7iy/agentic-erp/internal/web/i18n"
+
+// Layout is every page's document: language and direction from the
+// locale, the stylesheet and htmx (with the request's nonce), a skip link,
+// the header with the main navigation, the page's content and the footer
+// with help in the same place on every page.
+templ Layout(s Shell, content templ.Component) {
+	<!DOCTYPE html>
+	<html { htmlAttrs(ctx)... }>
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta { htmxMeta()... }/>
+			<link rel="icon" href="data:,"/>
+			<title>
+				@title(ctx, s.Title)
+			</title>
+			<link { stylesheet(s.CSS)... }/>
+			<script { script(ctx, s.Script)... }></script>
+		</head>
+		<body>
+			<a class="skip-link" href="#main">
+				@T(i18n.SkipLink)
+			</a>
+			<header class="header">
+				<div class="width-container header__bar">
+					<a class="header__name" href="/">
+						@T(i18n.AppName)
+					</a>
+					<nav class="navigation" { label(ctx, i18n.NavLabel)... }>
+						<ul class="navigation__list">
+							for _, item := range Nav {
+								<li>
+									<a class="navigation__link" { link(item.Path, s.Current)... }>
+										@T(item.Label)
+									</a>
+								</li>
+							}
+						</ul>
+					</nav>
+				</div>
+			</header>
+			<main class="main width-container" id="main" tabindex="-1">
+				@content
+			</main>
+			<footer class="footer">
+				<div class="width-container">
+					<p>
+						@T(i18n.FooterHelp)
+					</p>
+				</div>
+			</footer>
+		</body>
+	</html>
+}

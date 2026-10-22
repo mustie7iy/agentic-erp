@@ -991,9 +991,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Cash context and configuration: cash schema and package with its imports in TestImportRules, RLS, tenant_id first; liquidity items (tree, direction), derivation (accounts, planning groups, posting rules, defaults), planning groups, per company take_discounts, payment_days, value_days, buckets, rate_type, rate_max_age_days, order_lead_days, credit_lines, snapshot_time; tiers and the derivation simulation; planning_group on partner company data; packs suggest the operating/investing/financing tree",
-        "r": "T53b",
+        "s": "D",
+        "t": "Cash context and configuration: cash schema and package (a leaf: imports config only, no context imports it, TestImportRules' leaf rule), RLS, tenant_id first; liquidity items (tree of at most 4 levels, direction) and planning groups kept by cash.Setup; derivation (accounts in order with ALPHA ranges, planning groups, posting rules, defaults) and per company take_discounts, payment_days, value_days, buckets, rate_type (default planning), rate_max_age_days, order_lead_days, credit_lines, snapshot_time, validated and tiered (names and hierarchy 1, the rest 2), read from the document; cash.Derive with the proportional split; planning_group on partner company data with partner.PlanningGroupCodes; packs carry an optional cash.yaml, Canada 2026.2 suggests the operating/investing/financing tree; the derivation simulation moves to T53e",
+        "r": "internal/cash (Setup, PlanningGroups, Derive) · config.Cash, config.CompanyCash · migrations 000141-000143 · partner.PlanningGroups, partner.PlanningGroupCodes · SupplierCompany(Input).planning_group · countrypack cash.yaml · packs/ca/2026.2 · internal/layout leaves · db/cash_test.go · ADR-0051 (as built, T53b) · 03-data-model §3.18 · T53b",
         "c": []
        },
        {
@@ -1010,7 +1010,7 @@
        },
        {
         "s": "T",
-        "t": "Forecast from payables and payments (P5): ports for supplier open items (terms, discount tiers, supplier blocks, withholding, credit memos, items in runs excluded), parked and held invoices, down payment requests; the proposer's due-date and tier logic moved to ledger.ItemTerms and used by both; expected-date rule with payment days, value days and the company calendar; liquidity item derivation with proportional split; GET /v1/liquidity-forecast with buckets, certainty cut, per currency and converted, drill-down; performance budget measured at 100,000 open items",
+        "t": "Forecast from payables and payments (P5): ports for supplier open items (terms, discount tiers, supplier blocks, withholding, credit memos, items in runs excluded), parked and held invoices, down payment requests; the proposer's due-date and tier logic moved to ledger.ItemTerms and used by both; expected-date rule with payment days, value days and the company calendar; liquidity item derivation with proportional split (cash.Derive, T53b) and the derivation simulation listing the open flows whose item a rule change moves (moved from T53b); GET /v1/liquidity-forecast with buckets, certainty cut, per currency and converted, drill-down; performance budget measured at 100,000 open items",
         "r": "T53e",
         "c": []
        },
@@ -4314,8 +4314,8 @@
        },
        {
         "s": "T",
-        "t": "Canada pack 2026.2: the tax codes (GST/HST/QST/PST) in the component schema of T61a, from packs/ca/TAX-PENDING-T61a.md, with all their dated rates; released beside 2026.1 (which stays as released); signed off by the tax specialist before the pilot",
-        "r": "packs/ca/2026.2 · packs/released.sha256 · ADR-0048 · ADR-0049 · T62g",
+        "t": "Canada pack 2026.3: the tax codes (GST/HST/QST/PST) in the component schema of T61a, from packs/ca/TAX-PENDING-T61a.md, with all their dated rates; 2026.2 plus the tax codes, keeping its cash.yaml (a version without it would drop the suggested liquidity items from tenants that adopted 2026.2), released beside 2026.1 and 2026.2 (both stay as released); signed off by the tax specialist before the pilot",
+        "r": "packs/ca/2026.3 · packs/released.sha256 · ADR-0048 · ADR-0049 · T62g",
         "c": []
        }
       ]
@@ -4517,14 +4517,14 @@
       "r": "ADR-0052 · T73 (split T73a-T73m)",
       "c": [
        {
-        "s": "T",
-        "t": "Skeleton: cmd/erp-web and internal/web with templ (make generate, CI diff check), vendored htmx pinned by hash with allowEval and allowScriptTags off, layout, navigation shell and base CSS (logical properties only), message catalog with English and two pseudo-locales (long text, RTL), security headers and CSP with nonces, health and /version, TestImportRules entries, ko image and release, the erp-global chart's Deployment and network policy under helm-checks.sh, chromedp and axe harness in CI; ADR-0022/0032/0035 amended",
-        "r": "T73a",
+        "s": "D",
+        "t": "Skeleton: cmd/erp-web and internal/web with templ (make generate, CI diff check), vendored htmx pinned by hash with allowEval and allowScriptTags off, layout, navigation shell and base CSS (logical properties only), message catalog with English, French (Canada) and two pseudo-locales (long text, RTL), security headers and CSP with nonces, health and /version, TestImportRules entries, ko image and release, the erp-global chart's Deployment and network policy under helm-checks.sh with the web load balancer in Terraform, chromedp and axe harness in CI; ADR-0022/0032/0035 amended",
+        "r": "cmd/erp-web · internal/web · TestPagesInTheBrowser · TestPseudoLocales · TestComponentsRender · TestWebLinksNoBackend · modules/global web.tf · ADR-0052 · T73a",
         "c": []
        },
        {
         "s": "T",
-        "t": "Sign-in through the BFF (P2, P3, P4; G8, G9): web_client and login code on identity provider registrations (api/control.yaml) and the directory projection; authorization code flow with PKCE, state, nonce and private_key_jwt; ID token through authn; web schema in the directory database with sealed tokens and an hourly sweep; __Host-Http- Strict session cookie, Lax login cookie; CSRF by CrossOriginProtection and synchronizer token; refresh; 401 and RFC 9470 step-up handled; endCurrentSession and RP-initiated logout; authntest gains an authorization endpoint; production startup checks; security tests",
+        "t": "Sign-in through the BFF (P2, P3, P4; G8, G9): web_client and login code on identity provider registrations (api/control.yaml) and the directory projection; authorization code flow with PKCE, state, nonce and private_key_jwt; ID token through authn; web schema in the directory database with sealed tokens and an hourly sweep; __Host-Http- Strict session cookie, Lax login cookie; CSRF by CrossOriginProtection and synchronizer token; refresh; 401 and RFC 9470 step-up handled; endCurrentSession and RP-initiated logout; authntest gains an authorization endpoint; production startup checks; security tests; from T73a's review: the rollback drill checks erp-web in erp-global too, and a check that the pods' subnets never overlap the balancers' (erp-web's calls to the router carry no PROXY header)",
         "r": "T73b",
         "c": []
        },

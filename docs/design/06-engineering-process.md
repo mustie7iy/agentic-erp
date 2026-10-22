@@ -127,7 +127,7 @@ Every change passes, before it is merged:
 | Fuzz targets | Every target's seed corpus with the tests on PRs; `make fuzz` 30 s per target on `main`, 5 minutes weekly |
 | Image signing round trip | `make signing-roundtrip` against a registry service: push, sign and attest (SBOM, provenance) with a key pair made for the job, verify, and the refusals (another key, another commit, a tag, no signature, attestations without a signature, uncommitted changes) (ADR-0032). When signing or image inputs change, and weekly |
 | Release scripts | `scripts/test-release-scripts.sh`: the version rules and the changelog's grouping on throwaway repositories, with the pinned git-cliff (ADR-0032). When those scripts or their inputs change, and weekly |
-| Build and container images | `make build`; `make image-scan`: grype on each SBOM and the pinned base, failing on a fixable high or critical vulnerability; `make images-reproducible` (the three images built with ko twice, with private caches, and their digests compared) when image inputs change, and weekly (ADR-0032) |
+| Build and container images | `make build`; `make image-scan`: grype on each SBOM and the pinned base, failing on a fixable high or critical vulnerability; `make images-reproducible` (the four ko images and erp-analytics built twice, with private caches, and their digests compared) when image inputs change, and weekly (ADR-0032) |
 | Infrastructure (when `deploy/` changes) | `scripts/deploy-checks.sh`: `terraform fmt`, `validate` and `test` (mock provider, no credentials), tflint, and the encryption-at-rest policy with conftest: unit tests, every root and module, and a fixture it must refuse (ADR-0035) |
 
 The checks are split between the author's machine and GitHub (the hybrid
@@ -248,6 +248,10 @@ every production file under `internal/` and `cmd/`:
   The list is exact: a new dependency fails the test until it is added there,
   in the same change as the interface it uses (and an ADR if it reverses a
   dependency direction), and an entry no longer used fails it too.
+- A leaf context (today `cash`, ADR-0051 §2) is imported by no context,
+  whatever the allowlist says: it reads others through ports, and another
+  context that must ask it something declares a port of its own, which the
+  composition root wires (as `partner.PlanningGroups` is).
 - Tests are not checked: a test may import whatever it needs.
 
 The test also refuses a production import of test support (`pgtest`,

@@ -48,6 +48,9 @@ type Config struct {
 	// Controlling holds the tenant-wide rules about cost and profit
 	// centers (ADR-0050 §4); the centers themselves are master data.
 	Controlling Controlling `yaml:"controlling,omitempty" json:"controlling,omitzero"`
+	// Cash is the tenant's liquidity items, planning groups and the rules
+	// assigning flows their items (ADR-0051 §4).
+	Cash Cash `yaml:"cash,omitempty" json:"cash,omitzero"`
 }
 
 // Calendar is a company's holidays, each date once.
@@ -216,6 +219,9 @@ type Company struct {
 	// DefaultAssignments give the cost center a line on an account takes
 	// when none is entered or derived (SAP OKB9).
 	DefaultAssignments []DefaultAssignment `yaml:"default_assignments,omitempty" json:"default_assignments,omitempty"`
+	// Cash is how the company's cash position and liquidity forecast are
+	// computed (ADR-0051 §5, §8-§10).
+	Cash CompanyCash `yaml:"cash,omitempty" json:"cash,omitzero"`
 }
 
 // FXValuation is the company's foreign-currency valuation (ADR-0042): the

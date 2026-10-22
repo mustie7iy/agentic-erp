@@ -7,6 +7,9 @@ images:
   router:
     repository: 111111111111.dkr.ecr.eu-central-1.amazonaws.com/erp-router
     digest: sha256:3333333333333333333333333333333333333333333333333333333333333333
+  web:
+    repository: 111111111111.dkr.ecr.eu-central-1.amazonaws.com/erp-web
+    digest: sha256:4444444444444444444444444444444444444444444444444444444444444444
 trust:
   caBundle: |
     -----BEGIN CERTIFICATE-----
@@ -16,6 +19,11 @@ router:
   targetGroupArn: arn:aws:elasticloadbalancing:eu-central-1:222222222222:targetgroup/erp-dev-router/0123456789abcdef
   proxyFrom: [10.16.0.0/24, 10.16.1.0/24, 10.16.2.0/24]
   operatorIssuers: '[{"issuer":"https://operators.example.com","audience":"erp-control"}]'
+web:
+  hostname: app.dev.erp.example
+  apiUrl: https://api.dev.erp.example
+  targetGroupArn: arn:aws:elasticloadbalancing:eu-central-1:222222222222:targetgroup/erp-dev-web/0123456789abcdef
+  proxyFrom: [10.16.0.0/24, 10.16.1.0/24, 10.16.2.0/24]
 directory:
   endpoint: erp-dev-directory.abc.eu-central-1.rds.amazonaws.com:5432
   masterSecretArn: "arn:aws:secretsmanager:eu-central-1:222222222222:secret:rds!db-2"

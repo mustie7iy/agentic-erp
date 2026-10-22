@@ -4,6 +4,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,6 +42,27 @@ var testSupport = map[string]bool{
 	"llm/llmtest": true, "nfr": true,
 }
 
+// webPlatform are the platform packages the web workspace (internal/web
+// and cmd/erp-web) may import: none holds a database connection, a unit of
+// work or a tenant's scope. The workspace reaches business data only
+// through the public API's client (api/gen) as the signed-in person
+// (ADR-0052 §7), so it can never become a second backend.
+var webPlatform = map[string]bool{
+	"platform/authn": true, "platform/buildinfo": true, "platform/etag": true, "platform/problem": true,
+	"platform/proxyproto": true, "platform/secrets": true, "platform/telemetry": true, "platform/tlsconf": true,
+}
+
+// webForbidden are packages the workspace may not link even through
+// another package: they hold a database pool or write tenants' data.
+// platform/reqctx (and with it pgx's transaction type) is linked, through
+// telemetry and authn, which keep a request's identity in it; the
+// workspace cannot open a transaction without a pool (ADR-0052, Built in
+// T73a).
+var webForbidden = []string{"platform/database", "platform/uow", "platform/outbox", "platform/audit", "platform/fieldcrypt", "platform/workflow", "platform/config"}
+
+// webForbiddenModules are third-party packages likewise: a connection pool.
+var webForbiddenModules = []string{"github.com/jackc/pgx/v5/pgxpool"}
+
 // allowed is every import from one context to another that production code
 // makes today, by importing unit. A new one fails TestImportRules; one that
 // is no longer made fails it too, so the list stays exact.
@@ -52,6 +74,7 @@ var allowed = map[string][]string{
 	"approvals":               {"config"},
 	"audit":                   {"operations"},
 	"capture":                 {"llm"},
+	"cash":                    {"config"}, // a leaf (ADR-0051 §2): the ledger, payments, payables and procurement through ports the composition root wires
 	"config":                  {"bankfile"},
 	"configuration":           {"approvals", "config", "countrypack", "operations"},
 	"countrypack":             {"config"},
@@ -77,6 +100,14 @@ var allowed = map[string][]string{
 	"router":                  {"directory"},
 	"workflows":               {"approvals", "configuration", "integration", "operations", "payments"},
 }
+
+// leaves are contexts no other context may import, whatever allowed says:
+// they read others through ports and nothing depends on them, so a new
+// arrow into one turns a decided direction around (ADR-0051 §2). The
+// composition root and commands wire them like any context, and a context
+// may ask one a question through a port it declares itself, as partner
+// asks cash about planning groups.
+var leaves = map[string]bool{"cash": true}
 
 // unit is the context a package under internal/ belongs to: its first path
 // segment, the platform package itself, a delivery agent (each agent under
@@ -153,14 +184,18 @@ func walk(root, prefix string, out map[string]map[string]bool) error {
 
 // TestImportRules: production code (internal/ and cmd/) imports no test
 // support, platform packages (other than platformUsers) import no context,
-// the composition root and commands import any, and a context imports
-// another only where allowed says so.
+// the composition root and commands import any, a context imports no leaf
+// and another context only where allowed says so.
 func TestImportRules(t *testing.T) {
 	used := map[string]bool{}
 	for pkg, deps := range imports(t) {
 		from := unit(pkg)
 		for dep := range deps {
 			to := unit(dep)
+			if (from == "web" || pkg == "cmd/erp-web") && to != "web" && !shared[to] && !webPlatform[to] {
+				t.Errorf("%s imports %s: the web workspace imports only its own packages, the shared kernel and %v (ADR-0052 §7)", pkg, dep, slices.Sorted(maps.Keys(webPlatform)))
+				continue
+			}
 			if testSupport[dep] && !testSupport[pkg] {
 				t.Errorf("%s imports %s: production code may not import test support", pkg, dep)
 				continue
@@ -172,6 +207,8 @@ func TestImportRules(t *testing.T) {
 				if !platformUsers[from] {
 					t.Errorf("%s imports %s: a platform package may not depend on a context", pkg, dep)
 				}
+			case leaves[to]:
+				t.Errorf("%s imports %s: %s is a leaf context, which nothing depends on (ADR-0051 §2); declare a port and let the composition root wire it", pkg, dep, to)
 			case slices.Contains(allowed[from], to):
 				used[from+" -> "+to] = true
 			default:
@@ -193,6 +230,37 @@ func TestImportRules(t *testing.T) {
 	}
 }
 
+// TestWebLinksNoBackend: erp-web links no context and no package that
+// writes tenants' data, not even indirectly (ADR-0052 §7).
+func TestWebLinksNoBackend(t *testing.T) {
+	cmd := exec.CommandContext(t.Context(), "go", "list", "-deps", "-f", "{{.ImportPath}}", "../../cmd/erp-web")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go list: %v\n%s", err, out)
+	}
+	n := 0
+	for _, dep := range strings.Fields(string(out)) {
+		if slices.Contains(webForbiddenModules, dep) {
+			t.Errorf("erp-web links %s: the workspace holds no database pool (ADR-0052 §7)", dep)
+		}
+		pkg, ok := strings.CutPrefix(dep, module)
+		if !ok {
+			continue
+		}
+		n++
+		to := unit(pkg)
+		if !strings.HasPrefix(to, "platform/") && to != "web" && !shared[to] {
+			t.Errorf("erp-web links %s: a context; the workspace reaches it only through the API (ADR-0052 §7)", pkg)
+		}
+		if slices.Contains(webForbidden, to) {
+			t.Errorf("erp-web links %s, which holds a database pool or writes tenants' data (ADR-0052 §7)", pkg)
+		}
+	}
+	if n < 3 {
+		t.Fatalf("erp-web links %d internal packages: the check judged nothing", n)
+	}
+}
+
 // TestUnit pins how packages map to the units the rules are stated in.
 func TestUnit(t *testing.T) {
 	for pkg, want := range map[string]string{
@@ -210,11 +278,11 @@ func TestUnit(t *testing.T) {
 	}
 }
 
-// TestStaticBinaries: erp-server, erp-router and erp build without cgo and
+// TestStaticBinaries: erp-server, erp-router, erp-web and erp build without cgo and
 // link no DuckDB; erp-analytics alone carries the cgo exception (ADR-0032,
 // amended by ADR-0044).
 func TestStaticBinaries(t *testing.T) {
-	cmd := exec.CommandContext(t.Context(), "go", "list", "-deps", "-f", "{{.ImportPath}}", "../../cmd/erp-server", "../../cmd/erp-router", "../../cmd/erp")
+	cmd := exec.CommandContext(t.Context(), "go", "list", "-deps", "-f", "{{.ImportPath}}", "../../cmd/erp-server", "../../cmd/erp-router", "../../cmd/erp-web", "../../cmd/erp")
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	out, err := cmd.CombinedOutput()
 	if err != nil {

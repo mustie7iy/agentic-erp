@@ -28,6 +28,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/audit"
 	"github.com/mustie7iy/agentic-erp/internal/capture"
+	"github.com/mustie7iy/agentic-erp/internal/cash"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/countrypack"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
@@ -176,7 +177,7 @@ func New(cfg Config) (http.Handler, error) {
 		configAPI: &configuration.Endpoints{Pages: cfg.Pages, Packs: library, RefuseUnsignedPacks: cfg.RefuseUnsignedPacks,
 			Dependencies: Configuration(cfg)},
 		partnerAPI: &partner.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys, Schemas: configuration.Settings{}, Rules: configuration.Settings{},
-			PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, Approvals: opener()},
+			PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, PlanningGroups: cash.PlanningGroups{}, Approvals: opener()},
 		ledgerAPI: &ledger.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{},
 			Numbers: configuration.Numbers{}, Approvals: opener()},
 		workflowAPI: &approvals.Endpoints{Pages: cfg.Pages, Decider: approvals.Decider{Roles: identity.Directory{}, AgentKind: identity.AgentKind, Metrics: cfg.Metrics, Handlers: map[string]approvals.Handler{
@@ -263,7 +264,10 @@ func Configuration(cfg Config) configuration.Dependencies {
 			partner.WithholdingCodes{LegalEntities: tenancy.Directory{}},
 			partner.PaymentMethodCodes{LegalEntities: tenancy.Directory{}},
 			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Channels: integration.BankChannels{}, Keys: cfg.FieldKeys},
-			payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, endpoint.Section{}},
+			payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, endpoint.Section{},
+			// After the other sections that lock supplier codes: a partner
+			// change takes the planning group lock last too.
+			cash.Setup{}, partner.PlanningGroupCodes{LegalEntities: tenancy.Directory{}}},
 		Approvals: opener(),
 		Simulator: configuration.Simulators{payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
 			endpoint.Simulation{Endpoints: analyticsEndpoints(cfg, nil), Now: cfg.Now},
@@ -292,7 +296,7 @@ func Payments(cfg Config) *payments.Endpoints {
 // runs load through the same endpoints the API serves, built the same way.
 func Integration(cfg Config) *integration.Endpoints {
 	partners := partner.Ports{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys, Schemas: configuration.Settings{}, Rules: configuration.Settings{},
-		PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}}
+		PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, PlanningGroups: cash.PlanningGroups{}}
 	return &integration.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Settings: configuration.Settings{},
 		Partners: partner.Migration{Ports: partners}, Suppliers: partner.Suppliers{}, Orders: procurementEndpoints(cfg), OrderValues: procurement.Orders{},
 		Invoices: payablesEndpoints(cfg, uploads(cfg)), InvoiceCounts: payables.Invoices{}, Postings: postings(), Reports: ledger.Reports{},

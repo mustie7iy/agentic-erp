@@ -29,6 +29,7 @@ type Pack struct {
 	Calendar  Calendar
 	Numbering Numbering
 	Payments  Payments
+	Cash      Cash // optional: packs released before T53b have none
 }
 
 // Manifest is pack.yaml: what the pack is, from when it holds, the legal
@@ -97,21 +98,36 @@ type Payments struct {
 	PaymentTerms []config.PaymentTerm `yaml:"payment_terms"`
 }
 
+// Cash is cash.yaml: the liquidity items the pack suggests (ADR-0051 §4),
+// such as the operating, investing and financing activities of a cash
+// flow statement, which applying the pack merges into the tenant's items by
+// code, as payment terms are.
+type Cash struct {
+	LiquidityItems []config.LiquidityItem `yaml:"liquidity_items"`
+}
+
 // Files are the files of a pack directory, all required.
 var Files = []string{"pack.yaml", "accounts.yaml", "tax.yaml", "calendar.yaml", "numbering.yaml", "payments.yaml"}
+
+// OptionalFiles are the files a pack directory may have: added after packs
+// were released without them, which never change (ADR-0048).
+var OptionalFiles = []string{"cash.yaml"}
 
 // Parse reads a pack's files by name strictly: an unknown or missing file
 // and an unknown field are errors, so a typo never drops a setting.
 func Parse(files map[string][]byte) (*Pack, error) {
 	for name := range files {
-		if !slices.Contains(Files, name) {
+		if !slices.Contains(Files, name) && !slices.Contains(OptionalFiles, name) {
 			return nil, fmt.Errorf("countrypack: unknown file %s", name)
 		}
 	}
 	p := &Pack{}
-	targets := []any{&p.Manifest, &p.Accounts, &p.Tax, &p.Calendar, &p.Numbering, &p.Payments}
-	for i, name := range Files {
+	targets := []any{&p.Manifest, &p.Accounts, &p.Tax, &p.Calendar, &p.Numbering, &p.Payments, &p.Cash}
+	for i, name := range append(slices.Clone(Files), OptionalFiles...) {
 		b, ok := files[name]
+		if !ok && i >= len(Files) {
+			continue
+		}
 		if !ok {
 			return nil, fmt.Errorf("countrypack: missing file %s", name)
 		}

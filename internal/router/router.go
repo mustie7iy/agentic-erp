@@ -25,6 +25,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/proxyproto"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 )
@@ -87,7 +88,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		errs = append(errs, errors.New("ERP_LOG_LEVEL must be debug, info, warn or error"))
 	}
 	errs = append(errs, c.loadTLS(getenv)...)
-	if c.ProxyFrom, err = proxyFrom(getenv("ERP_ROUTER_PROXY_FROM")); err != nil {
+	if c.ProxyFrom, err = proxyproto.ParseFrom("ERP_ROUTER_PROXY_FROM", getenv("ERP_ROUTER_PROXY_FROM")); err != nil {
 		errs = append(errs, err)
 	}
 	return c, errors.Join(errs...)
@@ -106,22 +107,6 @@ func (c *Config) loadDirectoryPassword(getenv func(string) string) []error {
 		return []error{fmt.Errorf("ERP_DIRECTORY_PASSWORD (env: or file:): %w", err)}
 	}
 	return nil
-}
-
-// proxyFrom parses ERP_ROUTER_PROXY_FROM, a comma-separated list of CIDRs.
-func proxyFrom(raw string) ([]netip.Prefix, error) {
-	var from []netip.Prefix
-	for part := range strings.SplitSeq(raw, ",") {
-		if part = strings.TrimSpace(part); part == "" {
-			continue
-		}
-		p, err := netip.ParsePrefix(part)
-		if err != nil {
-			return nil, fmt.Errorf("ERP_ROUTER_PROXY_FROM must be a comma-separated list of CIDRs (the load balancer's subnets), not %q", part)
-		}
-		from = append(from, p.Masked())
-	}
-	return from, nil
 }
 
 // loadIssuers reads the static issuers and the operators' issuers, with

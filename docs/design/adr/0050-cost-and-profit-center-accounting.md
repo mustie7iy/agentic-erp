@@ -437,10 +437,11 @@ As built in T56c (migration 000140):
   (no cycle: configuration does not import the ledger).
 - **Packs.** A pack's accounts may carry `cost_element`, checked by the
   pack validator (`config.Account.CostElementProblem`) and merged with the
-  account. The released `ca/2026.1` pack is unchanged: its 5100 price
+  account. The released `ca/2026.1` pack is unchanged, and `ca/2026.2`
+  (T53b, cash.yaml) carries the same accounts: its 5100 price
   differences and 6900 FX losses are expenses the system posts to, so a
   Canadian company turning cost center accounting on needs default
-  assignments for them or sets them to `none`; 2026.2 (T62g) should decide
+  assignments for them or sets them to `none`; 2026.3 (T62g) should decide
   whether the pack sets `none` for FX gains and losses (4900, 6900), which
   many controllers keep out of cost centers.
 

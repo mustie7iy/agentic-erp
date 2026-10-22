@@ -100,6 +100,10 @@ run "the_small_shape_plans_and_wires_its_parts" {
     error_message = "the router's target group is an output for the erp-global chart"
   }
   assert {
+    condition     = output.global.web_target_group_arn == "arn:aws:elasticloadbalancing:eu-central-1:222222222222:targetgroup/erp-dev-router/0" && output.global.web_dns_name != null
+    error_message = "the web workspace's target group and DNS name are outputs for the erp-global chart and its record (ADR-0052)"
+  }
+  assert {
     condition     = !module.global.directory_multi_az && module.global.directory_zone == "eu-central-1a"
     error_message = "the directory follows the cell's single-AZ shape, in its first zone"
   }

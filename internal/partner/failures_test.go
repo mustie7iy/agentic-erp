@@ -12,6 +12,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/cash"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
@@ -25,7 +26,7 @@ import (
 func endpoints() *partner.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
 	return &partner.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: apitest.FieldKeys(), Approvals: fixture.Approvals(), Schemas: configuration.Settings{}, Rules: configuration.Settings{},
-		PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}}
+		PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, PlanningGroups: cash.PlanningGroups{}}
 }
 
 // TestDatabaseFailures calls every handler and context function outside a
@@ -34,6 +35,7 @@ func TestDatabaseFailures(t *testing.T) {
 	e := setup(t)
 	e.withholdingCodes(t)
 	e.paymentMethods(t)
+	e.planningGroups(t)
 	u := func(m map[string]any) uuid.UUID { return uuid.MustParse(id(m)) }
 	bankOf := func(p map[string]any) uuid.UUID {
 		page, _ := e.Must(200, "GET", "/v1/business-partners/"+id(p)+"/bank-accounts", "", "")
@@ -66,7 +68,7 @@ func TestDatabaseFailures(t *testing.T) {
 	newPartner := &gen.BusinessPartnerCreate{Kind: "organization", Name: "N", CountryCode: "DE", Roles: []string{"supplier"}, Reason: "r",
 		LegalName: gen.NewOptString("N GmbH"), Language: gen.NewOptString("de"),
 		SupplierCompanies: []gen.SupplierCompanyInput{{LegalEntityID: e.le, ReconciliationAccountID: e.recon, PaymentTermCode: "NT30", WithholdingTaxCodes: []string{"W1"},
-			PaymentMethods: []string{"T"}}},
+			PaymentMethods: []string{"T"}, PlanningGroup: gen.NewOptString("TAX")}},
 		Addresses: []gen.Address{{Purpose: "legal", Line1: "L", City: "C", CountryCode: "DE", ValidFrom: e.day, ValidTo: gen.NewOptDate(when),
 			Line2: gen.NewOptString("2"), PostalCode: gen.NewOptString("1"), Region: gen.NewOptString("BE")}},
 		TaxIdentifiers: []gen.TaxIdentifierInput{{Scheme: "EU_VAT", Value: "DE123456789"}},

@@ -20,6 +20,9 @@ export DATABASE_URL="${DATABASE_URL:-postgres://postgres:dev@localhost:55432/pos
 # the lanes' suites beside this one, so it is no quieter than a runner.
 # The budgets at scale 1 are checked in a cell-sized environment (06 §6.5).
 export ERP_BUDGET_SCALE="${ERP_BUDGET_SCALE:-2}"
+# The web workspace's browser suite runs, never skips (internal/web/e2e):
+# ERP_E2E_BROWSER names the Chromium when it is not in a usual place.
+export ERP_E2E_REQUIRE_BROWSER="${ERP_E2E_REQUIRE_BROWSER:-true}"
 # Kept equal to GITLEAKS_VERSION in .github/workflows/ci.yml.
 GITLEAKS_MODULE=github.com/zricethezav/gitleaks/v8@v8.30.1
 
@@ -84,7 +87,7 @@ step staticcheck staticcheck ./...
 step govulncheck govulncheck ./...
 step gosec gosec -quiet -exclude=G104,G115,G304,G107 -exclude-dir=api/gen ./...
 step secrets gitleaks git --redact --no-banner --log-opts="--no-merges $base..HEAD" .
-step generate bash -c 'make generate && git diff --exit-code -- api/gen'
+step generate bash -c 'make generate && git diff --exit-code -- api/gen internal/web && test -z "$(git status --porcelain -- api/gen internal/web)"'
 step contract vacuum lint -r api/vacuum-ruleset.yaml -b -q -d api/openapi.yaml api/control.yaml api/directory.yaml
 step breaking breaking
 step schema go test -count=1 ./db

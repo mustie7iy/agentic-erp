@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the container images of the four binaries (ADR-0032) into OUT
+# Builds the container images of the five binaries (ADR-0032) into OUT
 # (default dist/images), and pushes them to KO_DOCKER_REPO when PUSH=true
 # (the release workflow); otherwise nothing leaves the machine:
 #   OUT/images.txt  one image reference per line, the multi-platform index
@@ -7,7 +7,7 @@
 #                   by digest;
 #   OUT/sbom/       an SPDX SBOM per image (Go modules and the base image),
 #                   its first package the image's digest.
-# erp-server, erp-router and erp are ko's (.ko.yaml). erp-analytics links
+# erp-server, erp-router, erp-web and erp are ko's (.ko.yaml). erp-analytics links
 # DuckDB through cgo (ADR-0044), which ko does not cross-compile: docker
 # buildx builds it from deploy/images/erp-analytics.Dockerfile one platform
 # at a time (each compiles api/gen in a few GB of the Docker VM's memory),
@@ -40,7 +40,7 @@ mkdir -p "$OUT/sbom"
 KO_DOCKER_REPO="$repo" ERP_VERSION="${ERP_VERSION:-}" $KO build --push="${PUSH:-false}" --base-import-paths \
   --tags="${KO_TAGS:-latest}" ${KO_PLATFORMS:+--platform="$KO_PLATFORMS"} \
   --sbom=spdx --sbom-dir="$OUT/sbom" --image-refs="$OUT/images.txt" \
-  ./cmd/erp-server ./cmd/erp-router ./cmd/erp >/dev/null
+  ./cmd/erp-server ./cmd/erp-router ./cmd/erp-web ./cmd/erp >/dev/null
 
 # erp-analytics, for the same platforms.
 if [ -n "${KO_PLATFORMS:-}" ]; then

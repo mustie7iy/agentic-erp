@@ -133,6 +133,9 @@ type Supplier struct {
 	// PaymentMethods are the methods the supplier may be paid by in the
 	// legal entity, in order (ADR-0038).
 	PaymentMethods []string
+	// PlanningGroup is the supplier's planning group in the legal entity,
+	// "" for none (ADR-0051 §4).
+	PlanningGroup string
 }
 
 // Usable reports why the supplier cannot be ordered from or invoiced in
@@ -166,11 +169,11 @@ func (Suppliers) Supplier(ctx context.Context, partnerID, legalEntity uuid.UUID)
 			EXISTS (SELECT FROM partner.partner_role r WHERE r.tenant_id = p.tenant_id AND r.partner_id = p.id AND r.role = 'supplier'),
 			sc.reconciliation_account_id, sc.payment_term_code, sc.is_posting_blocked, sc.is_payment_blocked,
 			coalesce((SELECT array_agg(w.code ORDER BY w.code) FROM partner.supplier_withholding w WHERE w.tenant_id = p.tenant_id AND w.partner_id = p.id
-				AND w.legal_entity_id = $2 AND w.is_active), '{}'), coalesce(sc.payment_methods, '{}')
+				AND w.legal_entity_id = $2 AND w.is_active), '{}'), coalesce(sc.payment_methods, '{}'), coalesce(sc.planning_group, '')
 		FROM partner.business_partner p
 		LEFT JOIN partner.supplier_company sc ON sc.tenant_id = p.tenant_id AND sc.partner_id = p.id AND sc.legal_entity_id = $2
 		WHERE p.id = $1`, partnerID, legalEntity).Scan(&s.Number, &s.Name, &s.CountryCode, &s.Status, &s.IsSupplier, &recon, &term, &posting, &payment,
-		&s.WithholdingTaxCodes, &s.PaymentMethods)
+		&s.WithholdingTaxCodes, &s.PaymentMethods, &s.PlanningGroup)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Supplier{}, false, nil
 	}
@@ -283,6 +286,28 @@ func (m PaymentMethodCodes) Apply(ctx context.Context, doc *config.Config) error
 	return paymentMethodCodes.apply(ctx, m.LegalEntities, doc)
 }
 
+// PlanningGroupCodes is the configuration section of suppliers' planning
+// groups (ADR-0051 §4): the groups themselves are the cash context's, kept
+// from the document's cash.planning_groups by cash.Setup. Like
+// PaymentMethodCodes, a document taking away a group a supplier has, or a
+// pending partner change gives one, is refused, under the tenant's planning
+// group lock.
+type PlanningGroupCodes struct {
+	LegalEntities EntitiesByCode
+}
+
+// Check reports each planning group the proposed document no longer has
+// that suppliers, or pending partner changes, have.
+func (g PlanningGroupCodes) Check(ctx context.Context, base, proposed *config.Config) ([]config.Finding, error) {
+	return planningGroupCodes.check(ctx, g.LegalEntities, base, proposed)
+}
+
+// Apply refuses to activate a document that takes away a group suppliers
+// have (409 partner.planning_group_in_use): the activation rolls back.
+func (g PlanningGroupCodes) Apply(ctx context.Context, doc *config.Config) error {
+	return planningGroupCodes.apply(ctx, g.LegalEntities, doc)
+}
+
 // EntitiesByCode finds legal entities by their company code.
 type EntitiesByCode interface {
 	EntityByCode(ctx context.Context, code string) (tenancy.Entity, bool, error)
@@ -296,18 +321,26 @@ type supplierCodes struct {
 	noun  string // what a code is, for messages
 	// inUse selects the codes suppliers have in legal entity $1.
 	inUse string
-	// kept are the codes the document's company has.
-	kept func(co config.Company) []string
+	// kept are the codes the document has for its company.
+	kept func(doc *config.Config, co config.Company) []string
+	// path is where the document lacks a company's code.
+	path func(company, code string) string
 }
 
 const (
 	withholdingLock   = "partner.withholding."
 	paymentMethodLock = "partner.payment_method."
+	planningGroupLock = "partner.planning_group."
 )
 
+// companyPath is where a code of a company's own list is missing.
+func companyPath(field string) func(company, code string) string {
+	return func(company, code string) string { return "companies[" + company + "]." + field + "[" + code + "]" }
+}
+
 var withholdingCodes = supplierCodes{lock: withholdingLock, field: "withholding_tax_codes", noun: "withholding tax code",
-	inUse: `SELECT code FROM partner.supplier_withholding WHERE legal_entity_id = $1 AND is_active`,
-	kept: func(co config.Company) []string {
+	inUse: `SELECT code FROM partner.supplier_withholding WHERE legal_entity_id = $1 AND is_active`, path: companyPath("withholding_tax_codes"),
+	kept: func(_ *config.Config, co config.Company) []string {
 		out := make([]string, 0, len(co.WithholdingTaxCodes))
 		for _, c := range co.WithholdingTaxCodes {
 			out = append(out, c.Code)
@@ -316,11 +349,23 @@ var withholdingCodes = supplierCodes{lock: withholdingLock, field: "withholding_
 	}}
 
 var paymentMethodCodes = supplierCodes{lock: paymentMethodLock, field: "payment_methods", noun: "payment method",
-	inUse: `SELECT unnest(payment_methods) FROM partner.supplier_company WHERE legal_entity_id = $1`,
-	kept: func(co config.Company) []string {
+	inUse: `SELECT unnest(payment_methods) FROM partner.supplier_company WHERE legal_entity_id = $1`, path: companyPath("payment_methods"),
+	kept: func(_ *config.Config, co config.Company) []string {
 		out := make([]string, 0, len(co.PaymentMethods))
 		for _, m := range co.PaymentMethods {
 			out = append(out, m.Code)
+		}
+		return out
+	}}
+
+// planningGroupCodes are the tenant's, the same for every company.
+var planningGroupCodes = supplierCodes{lock: planningGroupLock, field: "planning_group", noun: "planning group",
+	inUse: `SELECT planning_group FROM partner.supplier_company WHERE legal_entity_id = $1 AND planning_group IS NOT NULL`,
+	path:  func(_, code string) string { return "cash.planning_groups[" + code + "]" },
+	kept: func(doc *config.Config, _ config.Company) []string {
+		out := make([]string, 0, len(doc.Cash.PlanningGroups))
+		for _, g := range doc.Cash.PlanningGroups {
+			out = append(out, g.Code)
 		}
 		return out
 	}}
@@ -340,8 +385,14 @@ func (c supplierCodes) check(ctx context.Context, entities EntitiesByCode, base,
 		return nil, err
 	}
 	var out []config.Finding
+	reported := map[string]bool{}
 	for _, u := range used {
-		out = append(out, config.Finding{Severity: config.SevError, Path: "companies[" + u[0] + "]." + c.field + "[" + u[1] + "]",
+		path := c.path(u[0], u[1])
+		if reported[path] { // a tenant's code, used in several companies
+			continue
+		}
+		reported[path] = true
+		out = append(out, config.Finding{Severity: config.SevError, Path: path,
 			Message: "suppliers have this " + c.noun + ", or a pending partner change gives it; take it off them first"})
 	}
 	return out, nil
@@ -363,7 +414,10 @@ func (c supplierCodes) apply(ctx context.Context, entities EntitiesByCode, doc *
 
 // taken are the company and code pairs suppliers have, or pending partner
 // changes give them, that the document's companies do not have, under the
-// lock.
+// lock. Only the document's companies are read: suppliers are set up only
+// in legal entities of configured companies (checkCompanies), and a
+// company is never removed from the document, so for a tenant's codes
+// (planning groups) these are every legal entity a supplier can use one in.
 func (c supplierCodes) taken(ctx context.Context, tx pgx.Tx, entities EntitiesByCode, doc *config.Config) ([][2]string, error) {
 	if err := lockCodes(ctx, tx, c.lock); err != nil {
 		return nil, err
@@ -378,11 +432,12 @@ func (c supplierCodes) taken(ctx context.Context, tx pgx.Tx, entities EntitiesBy
 			continue
 		}
 		rows, _ := tx.Query(ctx, `SELECT DISTINCT code FROM (`+c.inUse+`
-				UNION SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(sc->$3) = 'array' THEN sc->$3 ELSE '[]' END)
+				UNION SELECT jsonb_array_elements_text(CASE jsonb_typeof(sc->$3) WHEN 'array' THEN sc->$3 WHEN 'string' THEN jsonb_build_array(sc->$3)
+					ELSE '[]' END)
 				FROM partner.partner_change ch, jsonb_array_elements(CASE WHEN jsonb_typeof(ch.payload->'supplier_companies') = 'array'
 					THEN ch.payload->'supplier_companies' ELSE '[]' END) sc
 				WHERE ch.status = 'pending' AND sc->>'legal_entity_id' = $1::text) x(code)
-			WHERE code <> ALL($2) ORDER BY code`, le.ID, c.kept(co), c.field)
+			WHERE code <> ALL($2) ORDER BY code`, le.ID, c.kept(doc, co), c.field)
 		codes, err := pgx.CollectRows(rows, pgx.RowTo[string])
 		if err != nil {
 			return nil, fmt.Errorf("partner: %ss in use in %s: %w", c.noun, co.Code, err)
