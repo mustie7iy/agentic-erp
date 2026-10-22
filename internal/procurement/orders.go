@@ -75,6 +75,28 @@ func (Orders) Order(ctx context.Context, id uuid.UUID) (Order, bool, error) {
 	return o, true, nil
 }
 
+// LockItems locks the order's items an invoice posts against (payables),
+// FOR UPDATE in item order, as a goods movement locks them (lockItems),
+// until the caller's transaction ends: a receipt, a return or the reversal
+// of one on them, and another invoice's posting, wait for it, so the
+// received quantities and the postings of other invoices the caller reads
+// after the lock stay as it read them until it commits (an invoice's
+// reversal takes no item lock). The posting
+// takes the lock after its invoice's row and before the ledger's GR/IR
+// lock, which goods movements take after the items too, so no two wait in
+// a cycle.
+func (Orders) LockItems(ctx context.Context, id uuid.UUID, items []int32) error {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `SELECT FROM procurement.purchase_order_item WHERE purchase_order_id = $1 AND item_no = ANY($2)
+		ORDER BY item_no FOR UPDATE`, id, items); err != nil {
+		return fmt.Errorf("procurement: lock %d items of purchase order %s: %w", len(items), id, err)
+	}
+	return nil
+}
+
 // OrderByNumber returns the id of the legal entity's purchase order with
 // the document number, or ok = false.
 func (Orders) OrderByNumber(ctx context.Context, legalEntity uuid.UUID, number string) (uuid.UUID, bool, error) {

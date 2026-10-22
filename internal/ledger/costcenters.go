@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -26,6 +27,7 @@ type costCenterPayload struct {
 	ValidTo        string     `json:"valid_to,omitempty"`
 	Category       string     `json:"category,omitempty"`
 	ProfitCenterID *uuid.UUID `json:"profit_center_id,omitempty"` // create
+	StandardNodeID *uuid.UUID `json:"standard_node_id,omitempty"` // create: its leaf in the standard hierarchy (T56b)
 	LockCost       *bool      `json:"lock_actual_cost,omitempty"`
 	LockRevenue    *bool      `json:"lock_actual_revenue,omitempty"`
 	LockPlan       *bool      `json:"lock_plan,omitempty"`
@@ -45,6 +47,7 @@ type NewCostCenter struct {
 	Texts          Texts
 	Category       string
 	ProfitCenterID *uuid.UUID
+	StandardNodeID *uuid.UUID // its leaf in the standard hierarchy; nil: the UNASSIGNED leaf, at approval (unassignedLeaf)
 	ValidFrom      time.Time
 	ValidTo        time.Time // zero: open-ended
 	Reason         string
@@ -86,7 +89,13 @@ func (e *Endpoints) RequestCostCenter(ctx context.Context, in NewCostCenter) (Co
 		VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $8)`, p.TenantID, id, le.ID, in.Code, in.Texts.Name, in.Texts.Description, in.Texts.Responsible, p.ID); err != nil {
 		return CostCenter{}, fmt.Errorf("ledger: insert cost center %s: %w", in.Code, err)
 	}
-	payload := costCenterPayload{ValidFrom: dateText(in.ValidFrom), ValidTo: dateText(in.ValidTo), Category: in.Category, ProfitCenterID: in.ProfitCenterID}
+	if in.StandardNodeID != nil {
+		if err := checkStandardNode(ctx, tx, HierarchyCostCenters, id, *in.StandardNodeID); err != nil {
+			return CostCenter{}, err
+		}
+	}
+	payload := costCenterPayload{ValidFrom: dateText(in.ValidFrom), ValidTo: dateText(in.ValidTo), Category: in.Category, ProfitCenterID: in.ProfitCenterID,
+		StandardNodeID: in.StandardNodeID}
 	c := CostCenter{LegalEntityID: le.ID}
 	if _, err := planCostCenter(ctx, tx, c, KindCreate, payload); err != nil {
 		return CostCenter{}, err
@@ -159,14 +168,17 @@ func changeable(h centerHead, ifMatch func(int32) error) error {
 // checks them; it refuses a change that changes nothing.
 func planCostCenter(ctx context.Context, tx pgx.Tx, c CostCenter, kind string, p costCenterPayload) ([]span[CostCenterAttrs], error) {
 	from, to := parseDate(p.ValidFrom), parseDate(p.ValidTo)
+	cat, err := costCenterCategory(ctx, tx, p.Category)
+	if err != nil {
+		return nil, err
+	}
 	var spans []span[CostCenterAttrs]
 	switch kind {
 	case KindCreate:
-		attr := CostCenterAttrs{Category: p.Category}
 		if p.ProfitCenterID != nil {
-			attr.ProfitCenterID = *p.ProfitCenterID
+			cat.ProfitCenterID = *p.ProfitCenterID
 		}
-		spans = []span[CostCenterAttrs]{{From: from, To: to, Attr: attr}}
+		spans = []span[CostCenterAttrs]{{From: from, To: to, Attr: cat}}
 	case KindRedate:
 		if err := checkDates(from, to); err != nil {
 			return nil, err
@@ -195,10 +207,42 @@ func planCostCenter(ctx context.Context, tx pgx.Tx, c CostCenter, kind string, p
 		}
 		spans = setFrom(c.Periods, from, time.Time{}, func(a CostCenterAttrs) CostCenterAttrs { return moved(a, p) })
 	}
+	return spans, checkCostCenterSpans(ctx, tx, c, kind, spans)
+}
+
+// checkCostCenterSpans checks the cost center's periods after a change:
+// that they change something, that a default cost center stays usable
+// (keepsDefaultCostCenter) and their profit centers.
+func checkCostCenterSpans(ctx context.Context, tx pgx.Tx, c CostCenter, kind string, spans []span[CostCenterAttrs]) error {
 	if _, _, differ := diffSpans(c.Periods, spans); !differ {
-		return nil, nothingToChange()
+		return nothingToChange()
 	}
-	return spans, checkProfitCenters(ctx, tx, c.LegalEntityID, spans)
+	if kind == KindRedate || kind == KindLock {
+		if err := keepsDefaultCostCenter(ctx, tx, c.ID, spans); err != nil {
+			return err
+		}
+	}
+	return checkProfitCenters(ctx, tx, c.LegalEntityID, spans)
+}
+
+// costCenterCategory reads the category a change gives, an active one of
+// the configuration (controlling.cost_center_categories, T56c), as a new
+// cost center's attributes: the category and the locks it starts with; a
+// change that gives none has none. The category is read for share, so an
+// activation deactivating it waits for this transaction (422
+// ledger.cost_center_category_invalid otherwise).
+func costCenterCategory(ctx context.Context, tx pgx.Tx, code string) (CostCenterAttrs, error) {
+	a := CostCenterAttrs{Category: code}
+	if code == "" {
+		return a, nil
+	}
+	err := tx.QueryRow(ctx, `SELECT lock_actual_cost, lock_actual_revenue, lock_plan FROM ledger.cost_center_category
+		WHERE code = $1 AND is_active FOR SHARE`, code).Scan(&a.LockCost, &a.LockRevenue, &a.LockPlan)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return a, problem.Unprocessable("ledger.cost_center_category_invalid", "Category "+code+" is not one of the configuration's cost center categories.",
+			problem.FieldError{Field: "category", Code: "unknown", Message: "a category of controlling.cost_center_categories"})
+	}
+	return a, errs.Wrapf(err, "ledger: cost center category %s", code)
 }
 
 func flag(set *bool, current bool) bool {
@@ -268,11 +312,11 @@ func applyCostCenterChange(ctx context.Context, tx pgx.Tx, ch CenterChange) erro
 	if err := writeCostCenterPeriods(ctx, tx, c, ch.ID, retire, insert); err != nil {
 		return err
 	}
-	set := ""
-	if ch.Kind == KindCreate {
-		set = "status = 'active', "
-	}
-	if err := costCenters.touch(ctx, tx, c.ID, set); err != nil {
+	if ch.Kind != KindCreate {
+		if err := costCenters.touch(ctx, tx, c.ID, ""); err != nil {
+			return err
+		}
+	} else if err := activate(ctx, tx, costCenters, c.ID, ch.ID, p.StandardNodeID); err != nil {
 		return err
 	}
 	return recordCostCenter(ctx, tx, c.ID, ch.Kind, &ch.ID)

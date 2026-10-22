@@ -48,7 +48,10 @@ type Invoker interface {
 	//
 	// Creates and activates a new configuration version from an approved change request; each context
 	// applies its part. Human-only. Requires status `approved`; a change of validation rules also needs a
-	// passed simulation of this exact proposal (409 `config.rules_not_simulated`).
+	// passed simulation of this exact proposal (409 `config.rules_not_simulated`). The ledger checks the
+	// controlling rules again against its data, which may have changed since submission (a default cost or
+	// profit center no longer usable, postings in the year a center accounting switch turns on, a removed
+	// cost center category in use): 409 `ledger.controlling_invalid`, naming each finding (ADR-0050 §4).
 	//
 	// POST /v1/change-requests/{id}:activate
 	ActivateChangeRequest(ctx context.Context, params ActivateChangeRequestParams) (ActivateChangeRequestRes, error)
@@ -64,6 +67,18 @@ type Invoker interface {
 	//
 	// POST /v1/org-units/{id}:activate
 	ActivateOrgUnit(ctx context.Context, params ActivateOrgUnitParams) (ActivateOrgUnitRes, error)
+	// AddHierarchyNode invokes addHierarchyNode operation.
+	//
+	// Adds a node below the node, which must hold no centers (centers sit at leaves), at most 12 levels
+	// deep; the code is unique in the hierarchy (409 `ledger.hierarchy_node_exists`). Opens a pending
+	// center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a
+	// controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the
+	// change is planned again and applied when the request is approved, and refused then if the tree no
+	// longer allows it. `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is
+	// applied.
+	//
+	// POST /v1/hierarchies/{id}/nodes/{node_id}:add
+	AddHierarchyNode(ctx context.Context, request *HierarchyNodeAdd, params AddHierarchyNodeParams) (AddHierarchyNodeRes, error)
 	// ApplyCountryPack invokes applyCountryPack operation.
 	//
 	// Merges a country pack version into the active configuration for one company (ADR-0048: three-way,
@@ -297,7 +312,10 @@ type Invoker interface {
 	// that change's `center_change` approval request; it becomes `active`, with its first period, when a
 	// controller approves (ADR-0050 §11). A code is unique per legal entity among centers not rejected
 	// (409 `ledger.cost_center_exists`). The profit center, if given, must be active, assigned to the
-	// legal entity and valid over the whole validity (422 `ledger.profit_center_invalid`).
+	// legal entity and valid over the whole validity (422 `ledger.profit_center_invalid`). The category
+	// must be one of the configuration's active `controlling.cost_center_categories` (422
+	// `ledger.cost_center_category_invalid`). Its first period starts with the category's locks
+	// (`lock_actual_cost`, `lock_actual_revenue`, `lock_plan`).
 	//
 	// POST /v1/cost-centers
 	CreateCostCenter(ctx context.Context, request *CostCenterCreate, params CreateCostCenterParams) (CreateCostCenterRes, error)
@@ -317,6 +335,16 @@ type Invoker interface {
 	//
 	// POST /v1/exchange-rates
 	CreateExchangeRate(ctx context.Context, request *ExchangeRateCreate, params CreateExchangeRateParams) (CreateExchangeRateRes, error)
+	// CreateHierarchy invokes createHierarchy operation.
+	//
+	// Creates an empty hierarchy of cost or profit centers with its root node, which takes the hierarchy's
+	// code and name. A tenant has at most one standard hierarchy per kind (409
+	// `ledger.standard_hierarchy_exists`), and a code is unique per kind (409 `ledger.hierarchy_exists`).
+	// An empty tree changes no center; its nodes and centers are added through center changes (ADR-0050
+	// §11).
+	//
+	// POST /v1/hierarchies
+	CreateHierarchy(ctx context.Context, request *HierarchyCreate, params CreateHierarchyParams) (CreateHierarchyRes, error)
 	// CreateLegalEntity invokes createLegalEntity operation.
 	//
 	// Creates a legal entity in status `inactive`.
@@ -757,6 +785,21 @@ type Invoker interface {
 	//
 	// GET /v1/goods-receipts/{id}
 	GetGoodsReceipt(ctx context.Context, params GetGoodsReceiptParams) (GetGoodsReceiptRes, error)
+	// GetHierarchy invokes getHierarchy operation.
+	//
+	// Returns the hierarchy with its whole tree: its nodes in tree order (each after its parent, siblings
+	// by position and code), each with the centers placed at it. Hierarchies are not time-dependent
+	// (decision P7): reports read history under this tree.
+	//
+	// GET /v1/hierarchies/{id}
+	GetHierarchy(ctx context.Context, params GetHierarchyParams) (GetHierarchyRes, error)
+	// GetHierarchyNode invokes getHierarchyNode operation.
+	//
+	// Returns the hierarchy with the subtree below the node, the node first, in tree order, each node with
+	// the centers placed at it.
+	//
+	// GET /v1/hierarchies/{id}/nodes/{node_id}
+	GetHierarchyNode(ctx context.Context, params GetHierarchyNodeParams) (GetHierarchyNodeRes, error)
 	// GetJournalEntry invokes getJournalEntry operation.
 	//
 	// Returns one journal entry with its lines.
@@ -1085,6 +1128,14 @@ type Invoker interface {
 	//
 	// GET /v1/contracts
 	ListContracts(ctx context.Context, params ListContractsParams) (ListContractsRes, error)
+	// ListCostCenterPaths invokes listCostCenterPaths operation.
+	//
+	// Where the cost center sits in each hierarchy that holds it, the standard one included: the nodes
+	// from the root to its leaf. A cost center outside the legal entities the caller may act in is not
+	// found. Sortable by: `code` (the hierarchy's).
+	//
+	// GET /v1/cost-centers/{id}/hierarchy-paths
+	ListCostCenterPaths(ctx context.Context, params ListCostCenterPathsParams) (ListCostCenterPathsRes, error)
 	// ListCostCenters invokes listCostCenters operation.
 	//
 	// Cost centers of the legal entities the caller may act in, with their active periods. Sortable by:
@@ -1135,6 +1186,13 @@ type Invoker interface {
 	//
 	// GET /v1/gr-ir-balances
 	ListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (ListGrIrBalancesRes, error)
+	// ListHierarchies invokes listHierarchies operation.
+	//
+	// Standard and alternative hierarchies of cost and profit centers (ADR-0050 §3), without their trees.
+	// Sortable by: `code`.
+	//
+	// GET /v1/hierarchies
+	ListHierarchies(ctx context.Context, params ListHierarchiesParams) (ListHierarchiesRes, error)
 	// ListHouseBanks invokes listHouseBanks operation.
 	//
 	// The house banks of the companies the caller may access, as the configuration names them
@@ -1270,6 +1328,13 @@ type Invoker interface {
 	//
 	// GET /v1/principals
 	ListPrincipals(ctx context.Context, params ListPrincipalsParams) (ListPrincipalsRes, error)
+	// ListProfitCenterPaths invokes listProfitCenterPaths operation.
+	//
+	// Where the profit center sits in each hierarchy that holds it, the standard one included: the nodes
+	// from the root to its leaf. Sortable by: `code` (the hierarchy's).
+	//
+	// GET /v1/profit-centers/{id}/hierarchy-paths
+	ListProfitCenterPaths(ctx context.Context, params ListProfitCenterPathsParams) (ListProfitCenterPathsRes, error)
 	// ListProfitCenters invokes listProfitCenters operation.
 	//
 	// Profit centers of the tenant with their companies and active periods. Sortable by: `code`.
@@ -1370,11 +1435,13 @@ type Invoker interface {
 	// Sets or clears the cost center's locks for actual primary costs, actual revenue and plan from
 	// `valid_from` to `valid_to` (exclusive; absent: to the end of its validity), within its validity (422
 	// `ledger.invalid_validity`). Locking and unlocking are people's decisions: agents may not request
-	// them. Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval
-	// request, which a controller holding `ledger.cost_center.approve` decides, never its requester and
-	// never an agent; the change is applied when the request is approved. One pending change per center
-	// (409 `ledger.center_change_pending`). The center must be `active` (409
-	// `ledger.invalid_center_status`).
+	// them. A cost center that is a company's default cost center for accounts (the configuration's
+	// `default_assignments`, ADR-0050 §4) must stay valid from today with no end and unlocked for actual
+	// costs, so automatic postings can use it (409 `ledger.default_center_in_use`). Opens a pending center
+	// change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller
+	// holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is
+	// applied when the request is approved. One pending change per center (409
+	// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
 	//
 	// POST /v1/cost-centers/{id}:lock
 	LockCostCenter(ctx context.Context, request *CostCenterLock, params LockCostCenterParams) (LockCostCenterRes, error)
@@ -1390,7 +1457,9 @@ type Invoker interface {
 	//
 	// Sets or clears the profit center's lock from `valid_from` to `valid_to` (exclusive; absent: to the
 	// end of its validity), within its validity (422 `ledger.invalid_validity`). Locking and unlocking are
-	// people's decisions: agents may not request them. Opens a pending center change
+	// people's decisions: agents may not request them. A company's default profit center (the
+	// configuration's `default_profit_center`, ADR-0050 §4) must stay valid from today with no end and
+	// unlocked (409 `ledger.default_center_in_use`). Opens a pending center change
 	// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
 	// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
 	// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
@@ -1449,14 +1518,28 @@ type Invoker interface {
 	// Assigns the cost center to another profit center (`null`: none, so its lines take the company's
 	// default) or category from `valid_from` to the end of its validity, as a new period (ADR-0050 §3).
 	// The profit center must be active, assigned to the cost center's legal entity and valid from
-	// `valid_from` to the end of the cost center's validity (422 `ledger.profit_center_invalid`). Opens a
-	// pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request,
-	// which a controller holding `ledger.cost_center.approve` decides, never its requester and never an
-	// agent; the change is applied when the request is approved. One pending change per center (409
-	// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
+	// `valid_from` to the end of the cost center's validity (422 `ledger.profit_center_invalid`). The
+	// category must be one of the configuration's active `controlling.cost_center_categories` (422
+	// `ledger.cost_center_category_invalid`). Opens a pending center change
+	// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+	// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
+	// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
+	// The center must be `active` (409 `ledger.invalid_center_status`).
 	//
 	// POST /v1/cost-centers/{id}:move
 	MoveCostCenter(ctx context.Context, request *CostCenterMove, params MoveCostCenterParams) (MoveCostCenterRes, error)
+	// MoveHierarchyNode invokes moveHierarchyNode operation.
+	//
+	// Moves the node, with its subtree, below another node of the hierarchy that holds no centers; refused
+	// when the new parent is the node or below it (a cycle) or when the subtree would end deeper than 12
+	// levels (422 `ledger.hierarchy_change_invalid`). The root is not moved. Opens a pending center change
+	// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+	// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is planned
+	// again and applied when the request is approved, and refused then if the tree no longer allows it.
+	// `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is applied.
+	//
+	// POST /v1/hierarchies/{id}/nodes/{node_id}:move
+	MoveHierarchyNode(ctx context.Context, request *HierarchyNodeMove, params MoveHierarchyNodeParams) (MoveHierarchyNodeRes, error)
 	// MoveProfitCenter invokes moveProfitCenter operation.
 	//
 	// Assigns the profit center to another segment (`null`: none). Once lines carry the profit center
@@ -1509,6 +1592,20 @@ type Invoker interface {
 	//
 	// POST /v1/webhook-subscriptions/{id}:ping
 	PingWebhookSubscription(ctx context.Context, params PingWebhookSubscriptionParams) (PingWebhookSubscriptionRes, error)
+	// PlaceInHierarchy invokes placeInHierarchy operation.
+	//
+	// Places an active center of the hierarchy's kind at a leaf node (one without child nodes), or moves
+	// it there from its node; `node_id` null removes it from an alternative hierarchy. A center is at most
+	// once in a hierarchy, and in exactly one leaf of the standard one, which it cannot leave (422
+	// `ledger.hierarchy_change_invalid`). One pending change per center (409
+	// `ledger.center_change_pending`). Opens a pending center change (`GET /v1/center-changes/{id}`) and
+	// its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
+	// decides, never its requester and never an agent; the change is planned again and applied when the
+	// request is approved, and refused then if the tree no longer allows it. `If-Match` is the hierarchy's
+	// ETag, which moves on when a change to its tree is applied.
+	//
+	// POST /v1/hierarchies/{id}:place
+	PlaceInHierarchy(ctx context.Context, request *HierarchyPlace, params PlaceInHierarchyParams) (PlaceInHierarchyRes, error)
 	// PostBankStatementLine invokes postBankStatementLine operation.
 	//
 	// Posts a `matched` line (ADR-0047) to the house bank's main bank account (`main_gl_account`) against
@@ -1609,7 +1706,11 @@ type Invoker interface {
 	// status `parked`, a clean latest match of the invoice as it now stands for PO-based invoices (or an
 	// exception approved at the invoice's current version; 409 `payables.match_required` otherwise: an
 	// invoice changed after its match, including a hold and release by hand, is matched again, and an edit
-	// unlinks an approved exception), an open period and an unblocked supplier.
+	// unlinks an approved exception), an open period and an unblocked supplier. The invoice is matched
+	// again under its order items' locks: 409 `payables.match_outdated`, the invoice left parked, when
+	// documents posted on the order since (another invoice past the received quantity, a credit memo past
+	// the invoiced one), a change of the order or of the tolerances leave it with an issue its clean
+	// match, or the match its exception was approved on, did not have.
 	//
 	// POST /v1/supplier-invoices/{id}:post
 	PostSupplierInvoice(ctx context.Context, request OptSupplierInvoicePost, params PostSupplierInvoiceParams) (PostSupplierInvoiceRes, error)
@@ -1689,11 +1790,14 @@ type Invoker interface {
 	// RedateCostCenter invokes redateCostCenter operation.
 	//
 	// Extends or ends the cost center's validity: the first period starts at `valid_from`, the last ends
-	// at `valid_to` (exclusive; `null` open-ended). Opens a pending center change
-	// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
-	// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
-	// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
-	// The center must be `active` (409 `ledger.invalid_center_status`).
+	// at `valid_to` (exclusive; `null` open-ended). A cost center that is a company's default cost center
+	// for accounts (the configuration's `default_assignments`, ADR-0050 §4) must stay valid from today
+	// with no end and unlocked for actual costs, so automatic postings can use it (409
+	// `ledger.default_center_in_use`). Opens a pending center change (`GET /v1/center-changes/{id}`) and
+	// its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
+	// decides, never its requester and never an agent; the change is applied when the request is approved.
+	// One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409
+	// `ledger.invalid_center_status`).
 	//
 	// POST /v1/cost-centers/{id}:redate
 	RedateCostCenter(ctx context.Context, request *CenterRedate, params RedateCostCenterParams) (RedateCostCenterRes, error)
@@ -1701,11 +1805,13 @@ type Invoker interface {
 	//
 	// Extends or ends the profit center's validity: the first period starts at `valid_from`, the last ends
 	// at `valid_to` (exclusive; `null` open-ended). A validity that no longer covers an active cost center
-	// period naming the profit center is refused (409 `ledger.profit_center_in_use`). Opens a pending
-	// center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a
-	// controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the
-	// change is applied when the request is approved. One pending change per center (409
-	// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
+	// period naming the profit center is refused (409 `ledger.profit_center_in_use`). A company's default
+	// profit center (the configuration's `default_profit_center`, ADR-0050 §4) must stay valid from today
+	// with no end and unlocked (409 `ledger.default_center_in_use`). Opens a pending center change
+	// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+	// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
+	// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
+	// The center must be `active` (409 `ledger.invalid_center_status`).
 	//
 	// POST /v1/profit-centers/{id}:redate
 	RedateProfitCenter(ctx context.Context, request *CenterRedate, params RedateProfitCenterParams) (RedateProfitCenterRes, error)
@@ -1793,6 +1899,28 @@ type Invoker interface {
 	//
 	// POST /v1/supplier-invoices/{id}:release
 	ReleaseSupplierInvoice(ctx context.Context, request OptDecisionInput, params ReleaseSupplierInvoiceParams) (ReleaseSupplierInvoiceRes, error)
+	// RemoveHierarchyNode invokes removeHierarchyNode operation.
+	//
+	// Removes a node without child nodes or centers; the root is not removed (422
+	// `ledger.hierarchy_change_invalid`). Nothing is deleted: the node is kept as removed by the change.
+	// Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval
+	// request, which a controller holding `ledger.cost_center.approve` decides, never its requester and
+	// never an agent; the change is planned again and applied when the request is approved, and refused
+	// then if the tree no longer allows it. `If-Match` is the hierarchy's ETag, which moves on when a
+	// change to its tree is applied.
+	//
+	// POST /v1/hierarchies/{id}/nodes/{node_id}:remove
+	RemoveHierarchyNode(ctx context.Context, request *HierarchyNodeRemove, params RemoveHierarchyNodeParams) (RemoveHierarchyNodeRes, error)
+	// RenameHierarchyNode invokes renameHierarchyNode operation.
+	//
+	// Renames the node; its code is fixed. Opens a pending center change (`GET /v1/center-changes/{id}`)
+	// and its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
+	// decides, never its requester and never an agent; the change is planned again and applied when the
+	// request is approved, and refused then if the tree no longer allows it. `If-Match` is the hierarchy's
+	// ETag, which moves on when a change to its tree is applied.
+	//
+	// POST /v1/hierarchies/{id}/nodes/{node_id}:rename
+	RenameHierarchyNode(ctx context.Context, request *HierarchyNodeRename, params RenameHierarchyNodeParams) (RenameHierarchyNodeRes, error)
 	// RenewContract invokes renewContract operation.
 	//
 	// Creates a draft successor of an `active` or `expired` contract (409 `procurement.invalid_status`
@@ -2402,7 +2530,10 @@ func (c *Client) sendAcceptBankStatementLineProposal(ctx context.Context, reques
 //
 // Creates and activates a new configuration version from an approved change request; each context
 // applies its part. Human-only. Requires status `approved`; a change of validation rules also needs a
-// passed simulation of this exact proposal (409 `config.rules_not_simulated`).
+// passed simulation of this exact proposal (409 `config.rules_not_simulated`). The ledger checks the
+// controlling rules again against its data, which may have changed since submission (a default cost or
+// profit center no longer usable, postings in the year a center accounting switch turns on, a removed
+// cost center category in use): 409 `ledger.controlling_invalid`, naming each finding (ADR-0050 §4).
 //
 // POST /v1/change-requests/{id}:activate
 func (c *Client) ActivateChangeRequest(ctx context.Context, params ActivateChangeRequestParams) (ActivateChangeRequestRes, error) {
@@ -2864,6 +2995,191 @@ func (c *Client) sendActivateOrgUnit(ctx context.Context, params ActivateOrgUnit
 
 	stage = "DecodeResponse"
 	result, err := decodeActivateOrgUnitResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// AddHierarchyNode invokes addHierarchyNode operation.
+//
+// Adds a node below the node, which must hold no centers (centers sit at leaves), at most 12 levels
+// deep; the code is unique in the hierarchy (409 `ledger.hierarchy_node_exists`). Opens a pending
+// center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a
+// controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the
+// change is planned again and applied when the request is approved, and refused then if the tree no
+// longer allows it. `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is
+// applied.
+//
+// POST /v1/hierarchies/{id}/nodes/{node_id}:add
+func (c *Client) AddHierarchyNode(ctx context.Context, request *HierarchyNodeAdd, params AddHierarchyNodeParams) (AddHierarchyNodeRes, error) {
+	res, err := c.sendAddHierarchyNode(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendAddHierarchyNode(ctx context.Context, request *HierarchyNodeAdd, params AddHierarchyNodeParams) (res AddHierarchyNodeRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("addHierarchyNode"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/hierarchies/{id}/nodes/{node_id}:add"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, AddHierarchyNodeOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/hierarchies/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/nodes/"
+	{
+		// Encode "node_id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "node_id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.NodeID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":add"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeAddHierarchyNodeRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, AddHierarchyNodeOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeAddHierarchyNodeResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -7020,7 +7336,10 @@ func (c *Client) sendCreateContract(ctx context.Context, request *ContractCreate
 // that change's `center_change` approval request; it becomes `active`, with its first period, when a
 // controller approves (ADR-0050 §11). A code is unique per legal entity among centers not rejected
 // (409 `ledger.cost_center_exists`). The profit center, if given, must be active, assigned to the
-// legal entity and valid over the whole validity (422 `ledger.profit_center_invalid`).
+// legal entity and valid over the whole validity (422 `ledger.profit_center_invalid`). The category
+// must be one of the configuration's active `controlling.cost_center_categories` (422
+// `ledger.cost_center_category_invalid`). Its first period starts with the category's locks
+// (`lock_actual_cost`, `lock_actual_revenue`, `lock_plan`).
 //
 // POST /v1/cost-centers
 func (c *Client) CreateCostCenter(ctx context.Context, request *CostCenterCreate, params CreateCostCenterParams) (CreateCostCenterRes, error) {
@@ -7405,6 +7724,140 @@ func (c *Client) sendCreateExchangeRate(ctx context.Context, request *ExchangeRa
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateExchangeRateResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateHierarchy invokes createHierarchy operation.
+//
+// Creates an empty hierarchy of cost or profit centers with its root node, which takes the hierarchy's
+// code and name. A tenant has at most one standard hierarchy per kind (409
+// `ledger.standard_hierarchy_exists`), and a code is unique per kind (409 `ledger.hierarchy_exists`).
+// An empty tree changes no center; its nodes and centers are added through center changes (ADR-0050
+// §11).
+//
+// POST /v1/hierarchies
+func (c *Client) CreateHierarchy(ctx context.Context, request *HierarchyCreate, params CreateHierarchyParams) (CreateHierarchyRes, error) {
+	res, err := c.sendCreateHierarchy(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateHierarchy(ctx context.Context, request *HierarchyCreate, params CreateHierarchyParams) (res CreateHierarchyRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createHierarchy"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/hierarchies"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateHierarchyOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/hierarchies"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateHierarchyRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateHierarchyOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateHierarchyResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -15218,6 +15671,290 @@ func (c *Client) sendGetGoodsReceipt(ctx context.Context, params GetGoodsReceipt
 	return result, nil
 }
 
+// GetHierarchy invokes getHierarchy operation.
+//
+// Returns the hierarchy with its whole tree: its nodes in tree order (each after its parent, siblings
+// by position and code), each with the centers placed at it. Hierarchies are not time-dependent
+// (decision P7): reports read history under this tree.
+//
+// GET /v1/hierarchies/{id}
+func (c *Client) GetHierarchy(ctx context.Context, params GetHierarchyParams) (GetHierarchyRes, error) {
+	res, err := c.sendGetHierarchy(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetHierarchy(ctx context.Context, params GetHierarchyParams) (res GetHierarchyRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getHierarchy"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/hierarchies/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetHierarchyOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/hierarchies/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetHierarchyOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetHierarchyResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetHierarchyNode invokes getHierarchyNode operation.
+//
+// Returns the hierarchy with the subtree below the node, the node first, in tree order, each node with
+// the centers placed at it.
+//
+// GET /v1/hierarchies/{id}/nodes/{node_id}
+func (c *Client) GetHierarchyNode(ctx context.Context, params GetHierarchyNodeParams) (GetHierarchyNodeRes, error) {
+	res, err := c.sendGetHierarchyNode(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetHierarchyNode(ctx context.Context, params GetHierarchyNodeParams) (res GetHierarchyNodeRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getHierarchyNode"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/hierarchies/{id}/nodes/{node_id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetHierarchyNodeOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [4]string
+	pathParts[0] = "/v1/hierarchies/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/nodes/"
+	{
+		// Encode "node_id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "node_id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.NodeID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetHierarchyNodeOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetHierarchyNodeResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetJournalEntry invokes getJournalEntry operation.
 //
 // Returns one journal entry with its lines.
@@ -22180,6 +22917,23 @@ func (c *Client) sendListCenterChanges(ctx context.Context, params ListCenterCha
 		}
 	}
 	{
+		// Encode "hierarchy_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "hierarchy_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.HierarchyID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
 		// Encode "status" parameter.
 		cfg := uri.QueryParameterEncodingConfig{
 			Name:    "status",
@@ -23635,6 +24389,212 @@ func (c *Client) sendListContracts(ctx context.Context, params ListContractsPara
 
 	stage = "DecodeResponse"
 	result, err := decodeListContractsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListCostCenterPaths invokes listCostCenterPaths operation.
+//
+// Where the cost center sits in each hierarchy that holds it, the standard one included: the nodes
+// from the root to its leaf. A cost center outside the legal entities the caller may act in is not
+// found. Sortable by: `code` (the hierarchy's).
+//
+// GET /v1/cost-centers/{id}/hierarchy-paths
+func (c *Client) ListCostCenterPaths(ctx context.Context, params ListCostCenterPathsParams) (ListCostCenterPathsRes, error) {
+	res, err := c.sendListCostCenterPaths(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListCostCenterPaths(ctx context.Context, params ListCostCenterPathsParams) (res ListCostCenterPathsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCostCenterPaths"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/cost-centers/{id}/hierarchy-paths"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListCostCenterPathsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/cost-centers/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/hierarchy-paths"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Include.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListCostCenterPathsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListCostCenterPathsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -25309,6 +26269,243 @@ func (c *Client) sendListGrIrBalances(ctx context.Context, params ListGrIrBalanc
 
 	stage = "DecodeResponse"
 	result, err := decodeListGrIrBalancesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListHierarchies invokes listHierarchies operation.
+//
+// Standard and alternative hierarchies of cost and profit centers (ADR-0050 §3), without their trees.
+// Sortable by: `code`.
+//
+// GET /v1/hierarchies
+func (c *Client) ListHierarchies(ctx context.Context, params ListHierarchiesParams) (ListHierarchiesRes, error) {
+	res, err := c.sendListHierarchies(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListHierarchies(ctx context.Context, params ListHierarchiesParams) (res ListHierarchiesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listHierarchies"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/hierarchies"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListHierarchiesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/hierarchies"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "kind" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "kind",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Kind.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "code" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "code",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Code.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "is_standard" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "is_standard",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.IsStandard.Get(); ok {
+				return e.EncodeValue(conv.BoolToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Include.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListHierarchiesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListHierarchiesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -29602,6 +30799,211 @@ func (c *Client) sendListPrincipals(ctx context.Context, params ListPrincipalsPa
 	return result, nil
 }
 
+// ListProfitCenterPaths invokes listProfitCenterPaths operation.
+//
+// Where the profit center sits in each hierarchy that holds it, the standard one included: the nodes
+// from the root to its leaf. Sortable by: `code` (the hierarchy's).
+//
+// GET /v1/profit-centers/{id}/hierarchy-paths
+func (c *Client) ListProfitCenterPaths(ctx context.Context, params ListProfitCenterPathsParams) (ListProfitCenterPathsRes, error) {
+	res, err := c.sendListProfitCenterPaths(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListProfitCenterPaths(ctx context.Context, params ListProfitCenterPathsParams) (res ListProfitCenterPathsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listProfitCenterPaths"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/profit-centers/{id}/hierarchy-paths"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListProfitCenterPathsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/profit-centers/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/hierarchy-paths"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Include.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListProfitCenterPathsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListProfitCenterPathsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListProfitCenters invokes listProfitCenters operation.
 //
 // Profit centers of the tenant with their companies and active periods. Sortable by: `code`.
@@ -33083,11 +34485,13 @@ func (c *Client) sendListWebhookSubscriptions(ctx context.Context, params ListWe
 // Sets or clears the cost center's locks for actual primary costs, actual revenue and plan from
 // `valid_from` to `valid_to` (exclusive; absent: to the end of its validity), within its validity (422
 // `ledger.invalid_validity`). Locking and unlocking are people's decisions: agents may not request
-// them. Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval
-// request, which a controller holding `ledger.cost_center.approve` decides, never its requester and
-// never an agent; the change is applied when the request is approved. One pending change per center
-// (409 `ledger.center_change_pending`). The center must be `active` (409
-// `ledger.invalid_center_status`).
+// them. A cost center that is a company's default cost center for accounts (the configuration's
+// `default_assignments`, ADR-0050 §4) must stay valid from today with no end and unlocked for actual
+// costs, so automatic postings can use it (409 `ledger.default_center_in_use`). Opens a pending center
+// change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller
+// holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is
+// applied when the request is approved. One pending change per center (409
+// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
 //
 // POST /v1/cost-centers/{id}:lock
 func (c *Client) LockCostCenter(ctx context.Context, request *CostCenterLock, params LockCostCenterParams) (LockCostCenterRes, error) {
@@ -33408,7 +34812,9 @@ func (c *Client) sendLockFiscalPeriod(ctx context.Context, params LockFiscalPeri
 //
 // Sets or clears the profit center's lock from `valid_from` to `valid_to` (exclusive; absent: to the
 // end of its validity), within its validity (422 `ledger.invalid_validity`). Locking and unlocking are
-// people's decisions: agents may not request them. Opens a pending center change
+// people's decisions: agents may not request them. A company's default profit center (the
+// configuration's `default_profit_center`, ADR-0050 §4) must stay valid from today with no end and
+// unlocked (409 `ledger.default_center_in_use`). Opens a pending center change
 // (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
 // `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
 // when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
@@ -34096,11 +35502,13 @@ func (c *Client) sendMatchSupplierInvoice(ctx context.Context, params MatchSuppl
 // Assigns the cost center to another profit center (`null`: none, so its lines take the company's
 // default) or category from `valid_from` to the end of its validity, as a new period (ADR-0050 §3).
 // The profit center must be active, assigned to the cost center's legal entity and valid from
-// `valid_from` to the end of the cost center's validity (422 `ledger.profit_center_invalid`). Opens a
-// pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request,
-// which a controller holding `ledger.cost_center.approve` decides, never its requester and never an
-// agent; the change is applied when the request is approved. One pending change per center (409
-// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
+// `valid_from` to the end of the cost center's validity (422 `ledger.profit_center_invalid`). The
+// category must be one of the configuration's active `controlling.cost_center_categories` (422
+// `ledger.cost_center_category_invalid`). Opens a pending center change
+// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
+// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
+// The center must be `active` (409 `ledger.invalid_center_status`).
 //
 // POST /v1/cost-centers/{id}:move
 func (c *Client) MoveCostCenter(ctx context.Context, request *CostCenterMove, params MoveCostCenterParams) (MoveCostCenterRes, error) {
@@ -34251,6 +35659,191 @@ func (c *Client) sendMoveCostCenter(ctx context.Context, request *CostCenterMove
 
 	stage = "DecodeResponse"
 	result, err := decodeMoveCostCenterResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// MoveHierarchyNode invokes moveHierarchyNode operation.
+//
+// Moves the node, with its subtree, below another node of the hierarchy that holds no centers; refused
+// when the new parent is the node or below it (a cycle) or when the subtree would end deeper than 12
+// levels (422 `ledger.hierarchy_change_invalid`). The root is not moved. Opens a pending center change
+// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is planned
+// again and applied when the request is approved, and refused then if the tree no longer allows it.
+// `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is applied.
+//
+// POST /v1/hierarchies/{id}/nodes/{node_id}:move
+func (c *Client) MoveHierarchyNode(ctx context.Context, request *HierarchyNodeMove, params MoveHierarchyNodeParams) (MoveHierarchyNodeRes, error) {
+	res, err := c.sendMoveHierarchyNode(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendMoveHierarchyNode(ctx context.Context, request *HierarchyNodeMove, params MoveHierarchyNodeParams) (res MoveHierarchyNodeRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("moveHierarchyNode"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/hierarchies/{id}/nodes/{node_id}:move"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, MoveHierarchyNodeOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/hierarchies/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/nodes/"
+	{
+		// Encode "node_id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "node_id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.NodeID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":move"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeMoveHierarchyNodeRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, MoveHierarchyNodeOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeMoveHierarchyNodeResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -35034,6 +36627,174 @@ func (c *Client) sendPingWebhookSubscription(ctx context.Context, params PingWeb
 
 	stage = "DecodeResponse"
 	result, err := decodePingWebhookSubscriptionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// PlaceInHierarchy invokes placeInHierarchy operation.
+//
+// Places an active center of the hierarchy's kind at a leaf node (one without child nodes), or moves
+// it there from its node; `node_id` null removes it from an alternative hierarchy. A center is at most
+// once in a hierarchy, and in exactly one leaf of the standard one, which it cannot leave (422
+// `ledger.hierarchy_change_invalid`). One pending change per center (409
+// `ledger.center_change_pending`). Opens a pending center change (`GET /v1/center-changes/{id}`) and
+// its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
+// decides, never its requester and never an agent; the change is planned again and applied when the
+// request is approved, and refused then if the tree no longer allows it. `If-Match` is the hierarchy's
+// ETag, which moves on when a change to its tree is applied.
+//
+// POST /v1/hierarchies/{id}:place
+func (c *Client) PlaceInHierarchy(ctx context.Context, request *HierarchyPlace, params PlaceInHierarchyParams) (PlaceInHierarchyRes, error) {
+	res, err := c.sendPlaceInHierarchy(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendPlaceInHierarchy(ctx context.Context, request *HierarchyPlace, params PlaceInHierarchyParams) (res PlaceInHierarchyRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("placeInHierarchy"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/hierarchies/{id}:place"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, PlaceInHierarchyOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/hierarchies/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":place"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodePlaceInHierarchyRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, PlaceInHierarchyOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodePlaceInHierarchyResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -35837,7 +37598,11 @@ func (c *Client) sendPostRevaluationRun(ctx context.Context, request *Revaluatio
 // status `parked`, a clean latest match of the invoice as it now stands for PO-based invoices (or an
 // exception approved at the invoice's current version; 409 `payables.match_required` otherwise: an
 // invoice changed after its match, including a hold and release by hand, is matched again, and an edit
-// unlinks an approved exception), an open period and an unblocked supplier.
+// unlinks an approved exception), an open period and an unblocked supplier. The invoice is matched
+// again under its order items' locks: 409 `payables.match_outdated`, the invoice left parked, when
+// documents posted on the order since (another invoice past the received quantity, a credit memo past
+// the invoiced one), a change of the order or of the tolerances leave it with an issue its clean
+// match, or the match its exception was approved on, did not have.
 //
 // POST /v1/supplier-invoices/{id}:post
 func (c *Client) PostSupplierInvoice(ctx context.Context, request OptSupplierInvoicePost, params PostSupplierInvoiceParams) (PostSupplierInvoiceRes, error) {
@@ -36786,11 +38551,14 @@ func (c *Client) sendRecordAgentToolCall(ctx context.Context, request *AgentTool
 // RedateCostCenter invokes redateCostCenter operation.
 //
 // Extends or ends the cost center's validity: the first period starts at `valid_from`, the last ends
-// at `valid_to` (exclusive; `null` open-ended). Opens a pending center change
-// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
-// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
-// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
-// The center must be `active` (409 `ledger.invalid_center_status`).
+// at `valid_to` (exclusive; `null` open-ended). A cost center that is a company's default cost center
+// for accounts (the configuration's `default_assignments`, ADR-0050 §4) must stay valid from today
+// with no end and unlocked for actual costs, so automatic postings can use it (409
+// `ledger.default_center_in_use`). Opens a pending center change (`GET /v1/center-changes/{id}`) and
+// its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
+// decides, never its requester and never an agent; the change is applied when the request is approved.
+// One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409
+// `ledger.invalid_center_status`).
 //
 // POST /v1/cost-centers/{id}:redate
 func (c *Client) RedateCostCenter(ctx context.Context, request *CenterRedate, params RedateCostCenterParams) (RedateCostCenterRes, error) {
@@ -36952,11 +38720,13 @@ func (c *Client) sendRedateCostCenter(ctx context.Context, request *CenterRedate
 //
 // Extends or ends the profit center's validity: the first period starts at `valid_from`, the last ends
 // at `valid_to` (exclusive; `null` open-ended). A validity that no longer covers an active cost center
-// period naming the profit center is refused (409 `ledger.profit_center_in_use`). Opens a pending
-// center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a
-// controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the
-// change is applied when the request is approved. One pending change per center (409
-// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
+// period naming the profit center is refused (409 `ledger.profit_center_in_use`). A company's default
+// profit center (the configuration's `default_profit_center`, ADR-0050 §4) must stay valid from today
+// with no end and unlocked (409 `ledger.default_center_in_use`). Opens a pending center change
+// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
+// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
+// The center must be `active` (409 `ledger.invalid_center_status`).
 //
 // POST /v1/profit-centers/{id}:redate
 func (c *Client) RedateProfitCenter(ctx context.Context, request *CenterRedate, params RedateProfitCenterParams) (RedateProfitCenterRes, error) {
@@ -38452,6 +40222,374 @@ func (c *Client) sendReleaseSupplierInvoice(ctx context.Context, request OptDeci
 
 	stage = "DecodeResponse"
 	result, err := decodeReleaseSupplierInvoiceResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// RemoveHierarchyNode invokes removeHierarchyNode operation.
+//
+// Removes a node without child nodes or centers; the root is not removed (422
+// `ledger.hierarchy_change_invalid`). Nothing is deleted: the node is kept as removed by the change.
+// Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval
+// request, which a controller holding `ledger.cost_center.approve` decides, never its requester and
+// never an agent; the change is planned again and applied when the request is approved, and refused
+// then if the tree no longer allows it. `If-Match` is the hierarchy's ETag, which moves on when a
+// change to its tree is applied.
+//
+// POST /v1/hierarchies/{id}/nodes/{node_id}:remove
+func (c *Client) RemoveHierarchyNode(ctx context.Context, request *HierarchyNodeRemove, params RemoveHierarchyNodeParams) (RemoveHierarchyNodeRes, error) {
+	res, err := c.sendRemoveHierarchyNode(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendRemoveHierarchyNode(ctx context.Context, request *HierarchyNodeRemove, params RemoveHierarchyNodeParams) (res RemoveHierarchyNodeRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("removeHierarchyNode"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/hierarchies/{id}/nodes/{node_id}:remove"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RemoveHierarchyNodeOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/hierarchies/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/nodes/"
+	{
+		// Encode "node_id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "node_id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.NodeID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":remove"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeRemoveHierarchyNodeRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RemoveHierarchyNodeOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRemoveHierarchyNodeResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// RenameHierarchyNode invokes renameHierarchyNode operation.
+//
+// Renames the node; its code is fixed. Opens a pending center change (`GET /v1/center-changes/{id}`)
+// and its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
+// decides, never its requester and never an agent; the change is planned again and applied when the
+// request is approved, and refused then if the tree no longer allows it. `If-Match` is the hierarchy's
+// ETag, which moves on when a change to its tree is applied.
+//
+// POST /v1/hierarchies/{id}/nodes/{node_id}:rename
+func (c *Client) RenameHierarchyNode(ctx context.Context, request *HierarchyNodeRename, params RenameHierarchyNodeParams) (RenameHierarchyNodeRes, error) {
+	res, err := c.sendRenameHierarchyNode(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendRenameHierarchyNode(ctx context.Context, request *HierarchyNodeRename, params RenameHierarchyNodeParams) (res RenameHierarchyNodeRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("renameHierarchyNode"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/hierarchies/{id}/nodes/{node_id}:rename"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RenameHierarchyNodeOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/hierarchies/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/nodes/"
+	{
+		// Encode "node_id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "node_id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.NodeID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":rename"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeRenameHierarchyNodeRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RenameHierarchyNodeOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRenameHierarchyNodeResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

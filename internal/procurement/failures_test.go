@@ -316,6 +316,12 @@ func TestDatabaseFailures(t *testing.T) {
 			_, _, err := procurement.Orders{}.Order(ctx, u(f.released))
 			return err
 		})
+		if err := (procurement.Orders{}).LockItems(context.Background(), uuid.New(), []int32{1}); err == nil {
+			t.Error("order item locks outside a unit of work")
+		}
+		apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "order item locks", func(ctx context.Context) error {
+			return procurement.Orders{}.LockItems(ctx, u(f.released), []int32{1})
+		})
 	})
 	t.Run("page sizes", func(t *testing.T) {
 		e := e.in(t)

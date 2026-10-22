@@ -51,7 +51,7 @@ type positionEnv struct {
 
 func setupPosition(t *testing.T) positionEnv {
 	t.Helper()
-	f := fixture.NewWithCompanies(t, []fixture.Company{fixture.MapleCompany}, withPosition, "cash.position.read")
+	f := fixture.NewWith(t, []fixture.Company{fixture.MapleCompany}, withPosition, "cash.position.read")
 	f.API = apitest.NewWith(t, func(cfg *app.Config) { cfg.Now = func() time.Time { return readAt } })
 	e := positionEnv{Env: f, admin: pgtest.Admin(t), clearing: f.Account(t, "3000", "102000"), bankAccount: f.Account(t, "3000", "103000"),
 		cadClearing: f.Account(t, "3000", "100000"), expense: f.Account(t, "3000", "520000")}

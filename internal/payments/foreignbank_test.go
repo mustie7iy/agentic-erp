@@ -37,7 +37,7 @@ func mapleSetup(t *testing.T) mapleScenario {
 	store := blobstoretest.New(t)
 	objects := store.Store()
 	objects.Encryption = blobstore.Encryption{Algorithm: blobstore.SSEKMS}
-	f := fixture.NewWithCompanies(t, []fixture.Company{fixture.MapleCompany}, fixture.Maple,
+	f := fixture.NewWith(t, []fixture.Company{fixture.MapleCompany}, fixture.Maple,
 		append(append(slices.Clone(perms), statementPerms...), "payments.statement.match", "payments.statement.post", "cash.position.read")...)
 	e := setupIn(t, f, func(cfg *app.Config) { cfg.Objects, cfg.Retention = objects, time.Hour })
 	e.objects = objects

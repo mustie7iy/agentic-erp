@@ -324,3 +324,21 @@ func TestIssuedRangesStay(t *testing.T) {
 		})
 	}
 }
+
+// A pack's cost elements (ADR-0050 §4) reach the document with its
+// accounts: a pack sets none for the accounts it does not control.
+func TestPackCostElements(t *testing.T) {
+	lib := testLibrary(t)
+	next := *lib.Get("ZZ", "2026.1")
+	next.Accounts.Accounts = slices.Clone(next.Accounts.Accounts)
+	i := slices.IndexFunc(next.Accounts.Accounts, func(a config.Account) bool { return a.Type == config.Expense })
+	next.Accounts.Accounts[i].CostElement = config.CostElementNone
+	got, _, err := Apply(testDoc(), &next, lib, Options{Company: "C1", On: day("2026-10-20"), FiscalYear: 2026})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	number := next.Accounts.Accounts[i].Number
+	if a := got.Company("C1").Account(number); a == nil || a.CostElementOrDefault() != config.CostElementNone {
+		t.Errorf("account %s: got %+v, want cost element none", number, a)
+	}
+}

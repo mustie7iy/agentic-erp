@@ -6,7 +6,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 )
 
-// MapleCompany is Maple Inc's legal entity, for NewWithCompanies with
+// MapleCompany is Maple Inc's legal entity, for NewWith with
 // Maple.
 var MapleCompany = Company{Code: "3000", Name: "Maple Inc", Country: "CA", Currency: "CAD"}
 

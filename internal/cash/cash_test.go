@@ -22,6 +22,12 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 func withCash(t *testing.T) *config.Config {
 	t.Helper()
 	doc := fixture.Document(t)
+	setCash(doc)
+	return doc
+}
+
+// setCash gives doc withCash's cash section, for fixture.NewWith.
+func setCash(doc *config.Config) {
 	doc.Cash = config.Cash{
 		LiquidityItems: []config.LiquidityItem{
 			// A child before its parent: the document's order is free.
@@ -34,7 +40,6 @@ func withCash(t *testing.T) *config.Config {
 		Derivation: config.Derivation{PlanningGroups: []config.PlanningGroupDerivation{{Group: "TAX_AUTHORITY", Item: "TAX"}},
 			Defaults: config.DerivationDefaults{Outflow: "OP_SUPPLIERS", Inflow: "REC_CUSTOMERS"}},
 	}
-	return doc
 }
 
 // rows reads the tenant's items or groups as "code name direction parent
@@ -80,7 +85,7 @@ func wantRows(t *testing.T, what string, got, want []string) {
 // groups; one it no longer has becomes inactive, and comes back when a
 // later document has it again (ADR-0051 §4).
 func TestSetup(t *testing.T) {
-	f := fixture.NewWith(t, withCash(t))
+	f := fixture.NewWith(t, nil, setCash)
 	wantRows(t, "items after bootstrap", rows(t, f.Tenant, itemsQuery), []string{
 		"OPERATING Operating both - true", "OP_SUPPLIERS Supplier payments outflow OPERATING true",
 		"REC_CUSTOMERS Customer receipts inflow OPERATING true", "TAX Taxes outflow OPERATING true"})
@@ -127,13 +132,13 @@ func TestSetup(t *testing.T) {
 // TestPlanningGroups: the partner context's check is of the tenant's
 // active planning groups.
 func TestPlanningGroups(t *testing.T) {
-	f := fixture.NewWith(t, withCash(t))
+	f := fixture.NewWith(t, nil, setCash)
 	next := withCash(t)
 	next.Cash.PlanningGroups = next.Cash.PlanningGroups[:1]
 	if err := apitest.Committed(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) error { return cash.Setup{}.Apply(ctx, next) }); err != nil {
 		t.Fatal(err)
 	}
-	other := fixture.NewWith(t, fixture.Document(t))
+	other := fixture.New(t)
 	for _, c := range []struct {
 		name string
 		ten  pgtest.Tenant
@@ -164,7 +169,7 @@ func TestPlanningGroups(t *testing.T) {
 // TestDatabaseFailures calls every function outside a unit of work and with
 // each of its database statements failing in turn.
 func TestDatabaseFailures(t *testing.T) {
-	f := fixture.NewWith(t, withCash(t))
+	f := fixture.NewWith(t, nil, setCash)
 	for name, call := range map[string]func(ctx context.Context) error{
 		"apply": func(ctx context.Context) error { return cash.Setup{}.Apply(ctx, withCash(t)) },
 		"planning group": func(ctx context.Context) error {
@@ -185,7 +190,7 @@ func TestDatabaseFailures(t *testing.T) {
 // document's cash settings and refuses taking away a planning group a
 // supplier has (ADR-0051 §4).
 func TestServerWiring(t *testing.T) {
-	f := fixture.NewWith(t, withCash(t))
+	f := fixture.NewWith(t, nil, setCash)
 	pgtest.Exec(t, `UPDATE partner.supplier_company SET planning_group = 'DOMESTIC', version = version + 1 WHERE tenant_id = $1 AND partner_id = $2`,
 		f.Tenant.ID, f.Supplier)
 	activate := func(doc *config.Config) error {

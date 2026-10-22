@@ -64,6 +64,13 @@ var tierRules = []struct {
 	{rx(`^companies\[\*\]\.ledgers`), TierStructural},
 	// Flagging an account for revaluation changes what runs post (ADR-0042).
 	{rx(`^companies\[\*\]\.chart_of_accounts\[\*\]\.revalue_foreign_currency$`), TierPostingRelated},
+	// Which cost object an account's lines need, and the default cost
+	// center, change what postings carry or refuse: tier 3, simulated
+	// (ADR-0050 §4). Turning cost or profit center accounting on is
+	// structural: from then on every year's P&L must be complete by center.
+	{rx(`^companies\[\*\]\.chart_of_accounts\[\*\]\.cost_element$`), TierPostingRelated},
+	{rx(`^companies\[\*\]\.(default_assignments|default_profit_center)`), TierPostingRelated},
+	{rx(`^companies\[\*\]\.(cost_center_accounting|profit_center_accounting)$`), TierStructural},
 	{rx(`^companies\[\*\]\.chart_of_accounts`), TierStructural},
 	{rx(`^companies\[\*\]\.(name|country)$`), TierCosmetic},
 	{rx(`^companies\[\*\]\.tax_codes\[\*\]\.description$`), TierCosmetic},
@@ -115,6 +122,11 @@ var tierRules = []struct {
 	{rx(`^cash\.planning_groups\[\*\]\.name$`), TierCosmetic},
 	{rx(`^cash(\.|$)`), TierOperational},
 	{rx(`^companies\[\*\]\.cash(\.|$)`), TierOperational},
+	// A category's name changes nothing posted; what may be posted to its
+	// cost centers and the locks they start with do (ADR-0050 §11: the
+	// rules about centers are configuration at tier 3 or 4).
+	{rx(`^controlling\.cost_center_categories\[\*\]\.name$`), TierCosmetic},
+	{rx(`^controlling(\.|$)`), TierPostingRelated},
 }
 
 func rx(s string) *regexp.Regexp { return regexp.MustCompile(s) }
@@ -155,6 +167,7 @@ var listKeys = map[string]string{
 	// bank and method, its credit lines by bank.
 	"liquidity_items": "code", "planning_groups": "code",
 	"value_days": "house_bank,method", "credit_lines": "house_bank",
+	"cost_center_categories": "code", "default_assignments": "account",
 }
 
 // pathKeys override listKeys for a list at one path, where its name is
