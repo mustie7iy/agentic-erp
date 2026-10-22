@@ -21,6 +21,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/proxyproto"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf/tlstest"
 )
@@ -264,12 +265,13 @@ func TestRoutesOverMutualTLS(t *testing.T) {
 	// is production's: with an identity the router reaches cells over TLS
 	// only.
 	env["ERP_OIDC_ISSUERS"], env["ERP_ENV"] = issuers, "development"
-	var forwarded atomic.Value
+	var forwarded, address atomic.Value
 	cell := func(id string) (*httptest.Server, *atomic.Value) {
 		var peer atomic.Value
 		srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			peer.Store(tlsconf.PeerID(r.TLS))
 			forwarded.Store(r.Header.Get(tlsconf.ClientCertHeader))
+			address.Store(r.Header.Get(proxyproto.ClientAddressHeader))
 			w.Write([]byte(`{}`))
 		}))
 		srv.TLS = &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{ca.Issue(t, tlstest.Options{URIs: []string{id}}).Pair(t)},
@@ -347,6 +349,32 @@ func TestRoutesOverMutualTLS(t *testing.T) {
 	if got, want := forwarded.Load(), tlsconf.Thumbprint(agent.Leaf); got != want {
 		t.Errorf("forwarded thumbprint: got %v, want the agent's certificate's %s", got, want)
 	}
+	// The person's address erp-web forwards is believed from erp-web's
+	// identity alone; anyone else's claim gives way to the connection's.
+	for _, c := range []struct {
+		name string
+		cert tls.Certificate
+		want string
+	}{
+		{"erp-web", ca.Issue(t, tlstest.Options{URIs: []string{tlsconf.ID(trustDomain, "global", "erp-web")}}).Pair(t), "198.51.100.9"},
+		{"an agent", agent, "127.0.0.1"},
+		{"another service of the deployment", ca.Issue(t, tlstest.Options{URIs: []string{tlsconf.ID(trustDomain, "global", "erp-router")}}).Pair(t), "127.0.0.1"},
+	} {
+		t.Run("address from "+c.name, func(t *testing.T) {
+			client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: ca.Pool(), Certificates: []tls.Certificate{c.cert}}}}
+			req, _ := http.NewRequestWithContext(t.Context(), "GET", "https://"+a[0]+"/v1/balances", nil)
+			req.Header.Set("Authorization", "Bearer "+is.Token(t, good, "ada", nil))
+			req.Header.Set(proxyproto.ClientAddressHeader, "198.51.100.9")
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = resp.Body.Close() // only what the cell saw is asserted
+			if got := address.Load(); got != c.want {
+				t.Errorf("address at the cell: got %v, want %s", got, c.want)
+			}
+		})
+	}
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", "https://"+a[1]+"/livez", nil)
 	resp, err := trusting(ca).Do(req)
 	if err != nil {
@@ -384,7 +412,7 @@ func TestBehindTheLoadBalancer(t *testing.T) {
 	env["ERP_ROUTER_PROXY_FROM"] = "127.0.0.0/8"
 	forwarded := make(chan string, 1)
 	cell := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		forwarded <- r.Header.Get("X-Forwarded-For")
+		forwarded <- r.Header.Get("X-Forwarded-For") + " " + r.Header.Get(proxyproto.ClientAddressHeader)
 		w.Write([]byte(`{}`))
 	}))
 	defer cell.Close()
@@ -427,6 +455,7 @@ func TestBehindTheLoadBalancer(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("Authorization", "Bearer "+is.Token(t, tenant, "ada", nil))
+	req.Header.Set(proxyproto.ClientAddressHeader, "198.51.100.9") // the client's own claim, not believed
 	resp, err := balancer.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -435,8 +464,8 @@ func TestBehindTheLoadBalancer(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("status: got %d, want 200", resp.StatusCode)
 	}
-	if got := <-forwarded; got != "203.0.113.7" {
-		t.Errorf("X-Forwarded-For at the cell: got %q, want the client's 203.0.113.7", got)
+	if got := <-forwarded; got != "203.0.113.7 203.0.113.7" {
+		t.Errorf("X-Forwarded-For and Erp-Client-Address at the cell: got %q, want the client's 203.0.113.7 in both", got)
 	}
 	// A connection from the balancer's addresses without the header is not
 	// served: net/http answers the failed read with a bare 400 (behind the

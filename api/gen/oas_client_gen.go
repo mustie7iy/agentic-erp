@@ -775,6 +775,18 @@ type Invoker interface {
 	//
 	// GET /v1/cost-centers/{id}
 	GetCostCenter(ctx context.Context, params GetCostCenterParams) (GetCostCenterRes, error)
+	// GetCurrentPrincipal invokes getCurrentPrincipal operation.
+	//
+	// The caller's own principal (ADR-0052 G2): who they are, the companies they may act in, the
+	// permissions they may use now and those a segregation-of-duties rule bars (held together with the
+	// rule's other permission, so neither may be used until one is removed), and an agent's autonomy
+	// level. Every principal may read it, person, agent or service, whatever their roles
+	// (`identity.self.read` is held by everyone). It is advisory: a client builds its navigation from it
+	// and hides what the caller can never do, and the API still decides every call, which may refuse what
+	// this offered (a version changed meanwhile, an object's own rule, a grant ended since).
+	//
+	// GET /v1/me
+	GetCurrentPrincipal(ctx context.Context) (GetCurrentPrincipalRes, error)
 	// GetDownPaymentRequest invokes getDownPaymentRequest operation.
 	//
 	// Returns one down payment request.
@@ -1049,7 +1061,14 @@ type Invoker interface {
 	ListAgentToolCalls(ctx context.Context, params ListAgentToolCallsParams) (ListAgentToolCallsRes, error)
 	// ListApprovalRequests invokes listApprovalRequests operation.
 	//
-	// Approval requests; filter by `status=pending` for an inbox. Sortable by: `created_at`.
+	// Approval requests; filter by `status=pending` for everything waiting, or by `decidable_by=me` for
+	// the caller's inbox: the pending requests the caller may approve now, as `approveApprovalRequest`
+	// decides it (a person, not the requester, holding `workflow.request.decide` unbarred by a
+	// segregation-of-duties rule, the object type's approval permission and the current step's role, who
+	// has not approved the request yet and whom the owning context does not bar, such as whoever matched a
+	// bank statement line by hand). An agent's or a service's inbox is empty. A page of `decidable_by=me`
+	// may hold fewer requests than `page_size`, even none, while `next_page_token` is set: requests the
+	// owning context bars are left out after they are read. Sortable by: `created_at`.
 	//
 	// GET /v1/approval-requests
 	ListApprovalRequests(ctx context.Context, params ListApprovalRequestsParams) (ListApprovalRequestsRes, error)
@@ -1336,6 +1355,17 @@ type Invoker interface {
 	//
 	// GET /v1/payment-runs/{id}/payments
 	ListPayments(ctx context.Context, params ListPaymentsParams) (ListPaymentsRes, error)
+	// ListPrincipalNames invokes listPrincipalNames operation.
+	//
+	// The display name and kind of each principal of the caller's tenant among `ids` (ADR-0052 G3), so a
+	// client shows who asked, approved or created something, and whether that was a person, an agent or a
+	// service. Nothing else about a principal is given (no e-mail, status, roles or companies). An id that
+	// names no principal of the tenant is left out, exactly as one that never existed: ids are not
+	// guessable, and nothing tells the two apart. Items come in the order of `ids`, each id once. Every
+	// principal may read it, person, agent or service (`identity.self.read` is held by everyone).
+	//
+	// GET /v1/principal-names
+	ListPrincipalNames(ctx context.Context, params ListPrincipalNamesParams) (ListPrincipalNamesRes, error)
 	// ListPrincipals invokes listPrincipals operation.
 	//
 	// People, agents and services of the tenant. Sortable by: `display_name`, `created_at`.
@@ -15302,6 +15332,125 @@ func (c *Client) sendGetCostCenter(ctx context.Context, params GetCostCenterPara
 	return result, nil
 }
 
+// GetCurrentPrincipal invokes getCurrentPrincipal operation.
+//
+// The caller's own principal (ADR-0052 G2): who they are, the companies they may act in, the
+// permissions they may use now and those a segregation-of-duties rule bars (held together with the
+// rule's other permission, so neither may be used until one is removed), and an agent's autonomy
+// level. Every principal may read it, person, agent or service, whatever their roles
+// (`identity.self.read` is held by everyone). It is advisory: a client builds its navigation from it
+// and hides what the caller can never do, and the API still decides every call, which may refuse what
+// this offered (a version changed meanwhile, an object's own rule, a grant ended since).
+//
+// GET /v1/me
+func (c *Client) GetCurrentPrincipal(ctx context.Context) (GetCurrentPrincipalRes, error) {
+	res, err := c.sendGetCurrentPrincipal(ctx)
+	return res, err
+}
+
+func (c *Client) sendGetCurrentPrincipal(ctx context.Context) (res GetCurrentPrincipalRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCurrentPrincipal"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/me"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetCurrentPrincipalOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/me"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetCurrentPrincipalOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetCurrentPrincipalResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetDownPaymentRequest invokes getDownPaymentRequest operation.
 //
 // Returns one down payment request.
@@ -21180,7 +21329,14 @@ func (c *Client) sendListAgentToolCalls(ctx context.Context, params ListAgentToo
 
 // ListApprovalRequests invokes listApprovalRequests operation.
 //
-// Approval requests; filter by `status=pending` for an inbox. Sortable by: `created_at`.
+// Approval requests; filter by `status=pending` for everything waiting, or by `decidable_by=me` for
+// the caller's inbox: the pending requests the caller may approve now, as `approveApprovalRequest`
+// decides it (a person, not the requester, holding `workflow.request.decide` unbarred by a
+// segregation-of-duties rule, the object type's approval permission and the current step's role, who
+// has not approved the request yet and whom the owning context does not bar, such as whoever matched a
+// bank statement line by hand). An agent's or a service's inbox is empty. A page of `decidable_by=me`
+// may hold fewer requests than `page_size`, even none, while `next_page_token` is set: requests the
+// owning context bars are left out after they are read. Sortable by: `created_at`.
 //
 // GET /v1/approval-requests
 func (c *Client) ListApprovalRequests(ctx context.Context, params ListApprovalRequestsParams) (ListApprovalRequestsRes, error) {
@@ -21276,6 +21432,23 @@ func (c *Client) sendListApprovalRequests(ctx context.Context, params ListApprov
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.ObjectID.Get(); ok {
 				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "decidable_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "decidable_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.DecidableBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
 			}
 			return nil
 		}); err != nil {
@@ -30728,6 +30901,151 @@ func (c *Client) sendListPayments(ctx context.Context, params ListPaymentsParams
 
 	stage = "DecodeResponse"
 	result, err := decodeListPaymentsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListPrincipalNames invokes listPrincipalNames operation.
+//
+// The display name and kind of each principal of the caller's tenant among `ids` (ADR-0052 G3), so a
+// client shows who asked, approved or created something, and whether that was a person, an agent or a
+// service. Nothing else about a principal is given (no e-mail, status, roles or companies). An id that
+// names no principal of the tenant is left out, exactly as one that never existed: ids are not
+// guessable, and nothing tells the two apart. Items come in the order of `ids`, each id once. Every
+// principal may read it, person, agent or service (`identity.self.read` is held by everyone).
+//
+// GET /v1/principal-names
+func (c *Client) ListPrincipalNames(ctx context.Context, params ListPrincipalNamesParams) (ListPrincipalNamesRes, error) {
+	res, err := c.sendListPrincipalNames(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListPrincipalNames(ctx context.Context, params ListPrincipalNamesParams) (res ListPrincipalNamesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listPrincipalNames"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/principal-names"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListPrincipalNamesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/principal-names"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "ids" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "ids",
+			Style:   uri.QueryStyleForm,
+			Explode: false,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeArray(func(e uri.Encoder) error {
+				for i, item := range params.Ids {
+					if err := func() error {
+						return e.EncodeValue(conv.UUIDToString(item))
+					}(); err != nil {
+						return errors.Wrapf(err, "[%d]", i)
+					}
+				}
+				return nil
+			})
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListPrincipalNamesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListPrincipalNamesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

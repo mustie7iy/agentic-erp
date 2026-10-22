@@ -3,6 +3,7 @@ package audit_test
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"sync"
 	"testing"
 	"time"
@@ -415,5 +416,46 @@ func TestObjectTypeOf(t *testing.T) {
 				t.Errorf("got %q, want %q", got, want)
 			}
 		})
+	}
+}
+
+// TestClientAddress: an entry records where its request came from, and an
+// entry of work no request made records nowhere. The address is outside
+// the hash chain: the erasure blanking it leaves the chain intact
+// (ADR-0026).
+func TestClientAddress(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ten := pgtest.NewTenant(t)
+	from := netip.MustParseAddr("203.0.113.24")
+	for _, ctx := range []context.Context{reqctx.WithClientAddress(context.Background(), from), context.Background()} {
+		if err := asApp(t, pool, ten.ID, func(_ context.Context, tx pgx.Tx) error {
+			return audit.Write(ctx, tx, actor(ten), "", time.Now(), audit.Entry{Action: "x.y", ObjectType: "x", Outcome: "succeeded"})
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var got []*netip.Addr
+	pgtest.Scan(t, `SELECT array_agg(client_address ORDER BY seq) FROM audit.audit_event WHERE tenant_id = $1`, []any{ten.ID}, &got)
+	if len(got) != 2 || got[0] == nil || *got[0] != from || got[1] != nil {
+		t.Fatalf("addresses: got %v, want [%s <nil>]", got, from)
+	}
+	ctx := context.Background()
+	c := pgtest.Admin(t)
+	tx, err := c.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx) // committed below; a failed test leaves nothing behind
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true), set_config('app.erasing', $1, true)`, ten.ID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE audit.audit_event SET client_address = NULL WHERE tenant_id = $1`, ten.ID); err != nil {
+		t.Fatalf("blanking the addresses as the erasure does: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if res := verify(t, pool, ten.ID); res.Checked != 2 || res.BrokenAt != 0 {
+		t.Errorf("chain after the addresses were blanked: got %+v, want 2 checked, intact", res)
 	}
 }

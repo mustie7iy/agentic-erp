@@ -20,6 +20,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/proxyproto"
 	"github.com/mustie7iy/agentic-erp/internal/web/i18n"
 	"github.com/mustie7iy/agentic-erp/internal/web/session"
 	"github.com/mustie7iy/agentic-erp/internal/web/ui"
@@ -400,6 +401,9 @@ func (s *Server) signedIn(next func(http.ResponseWriter, *http.Request, *person)
 		}
 		p := &person{Session: sess}
 		ctx := context.WithValue(WithToken(r.Context(), p.AccessToken), personKey{}, p)
+		if addr, ok := proxyproto.RemoteIP(r); ok {
+			ctx = WithClientAddress(ctx, addr) // for the API's audit trail
+		}
 		next(w, r.WithContext(ctx), p)
 	}
 }

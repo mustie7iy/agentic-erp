@@ -96,13 +96,17 @@ func TestServes(t *testing.T) {
 	}
 }
 
-// TestServesTLS: with the public certificate the workspace is HTTPS only.
+// TestServesTLS: with the public certificate the workspace is HTTPS only;
+// with its identity too, which it presents to the router.
 func TestServesTLS(t *testing.T) {
 	ca, dir := tlstest.NewCA(t), t.TempDir()
 	leaf := ca.Issue(t, tlstest.Options{DNS: []string{"app.example.com"}, IPs: []net.IP{net.IPv4(127, 0, 0, 1)}})
+	identity := ca.Issue(t, tlstest.Options{URIs: []string{"spiffe://erp.example/global/erp-web"}})
 	env := environment()
 	env["ERP_WEB_PUBLIC_CERT"] = "file:" + tlstest.WriteFile(t, dir, "tls.crt", leaf.CertPEM)
 	env["ERP_WEB_PUBLIC_KEY"] = "file:" + tlstest.WriteFile(t, dir, "tls.key", leaf.KeyPEM)
+	env["ERP_TLS_CERT"] = "file:" + tlstest.WriteFile(t, dir, "id.crt", identity.CertPEM)
+	env["ERP_TLS_KEY"] = "file:" + tlstest.WriteFile(t, dir, "id.key", identity.KeyPEM)
 	public, _, _ := start(t, env)
 	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: ca.Pool(), MinVersion: tls.VersionTLS12}}}
 	if code, body := fetch(t, client, "https://"+public+"/health"); code != 200 || !strings.Contains(body, "erp-web") {

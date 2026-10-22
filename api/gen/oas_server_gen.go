@@ -754,6 +754,18 @@ type Handler interface {
 	//
 	// GET /v1/cost-centers/{id}
 	GetCostCenter(ctx context.Context, params GetCostCenterParams) (GetCostCenterRes, error)
+	// GetCurrentPrincipal implements getCurrentPrincipal operation.
+	//
+	// The caller's own principal (ADR-0052 G2): who they are, the companies they may act in, the
+	// permissions they may use now and those a segregation-of-duties rule bars (held together with the
+	// rule's other permission, so neither may be used until one is removed), and an agent's autonomy
+	// level. Every principal may read it, person, agent or service, whatever their roles
+	// (`identity.self.read` is held by everyone). It is advisory: a client builds its navigation from it
+	// and hides what the caller can never do, and the API still decides every call, which may refuse what
+	// this offered (a version changed meanwhile, an object's own rule, a grant ended since).
+	//
+	// GET /v1/me
+	GetCurrentPrincipal(ctx context.Context) (GetCurrentPrincipalRes, error)
 	// GetDownPaymentRequest implements getDownPaymentRequest operation.
 	//
 	// Returns one down payment request.
@@ -1028,7 +1040,14 @@ type Handler interface {
 	ListAgentToolCalls(ctx context.Context, params ListAgentToolCallsParams) (ListAgentToolCallsRes, error)
 	// ListApprovalRequests implements listApprovalRequests operation.
 	//
-	// Approval requests; filter by `status=pending` for an inbox. Sortable by: `created_at`.
+	// Approval requests; filter by `status=pending` for everything waiting, or by `decidable_by=me` for
+	// the caller's inbox: the pending requests the caller may approve now, as `approveApprovalRequest`
+	// decides it (a person, not the requester, holding `workflow.request.decide` unbarred by a
+	// segregation-of-duties rule, the object type's approval permission and the current step's role, who
+	// has not approved the request yet and whom the owning context does not bar, such as whoever matched a
+	// bank statement line by hand). An agent's or a service's inbox is empty. A page of `decidable_by=me`
+	// may hold fewer requests than `page_size`, even none, while `next_page_token` is set: requests the
+	// owning context bars are left out after they are read. Sortable by: `created_at`.
 	//
 	// GET /v1/approval-requests
 	ListApprovalRequests(ctx context.Context, params ListApprovalRequestsParams) (ListApprovalRequestsRes, error)
@@ -1315,6 +1334,17 @@ type Handler interface {
 	//
 	// GET /v1/payment-runs/{id}/payments
 	ListPayments(ctx context.Context, params ListPaymentsParams) (ListPaymentsRes, error)
+	// ListPrincipalNames implements listPrincipalNames operation.
+	//
+	// The display name and kind of each principal of the caller's tenant among `ids` (ADR-0052 G3), so a
+	// client shows who asked, approved or created something, and whether that was a person, an agent or a
+	// service. Nothing else about a principal is given (no e-mail, status, roles or companies). An id that
+	// names no principal of the tenant is left out, exactly as one that never existed: ids are not
+	// guessable, and nothing tells the two apart. Items come in the order of `ids`, each id once. Every
+	// principal may read it, person, agent or service (`identity.self.read` is held by everyone).
+	//
+	// GET /v1/principal-names
+	ListPrincipalNames(ctx context.Context, params ListPrincipalNamesParams) (ListPrincipalNamesRes, error)
 	// ListPrincipals implements listPrincipals operation.
 	//
 	// People, agents and services of the tenant. Sortable by: `display_name`, `created_at`.

@@ -667,7 +667,7 @@ func TestAPIDial(t *testing.T) {
 	t.Cleanup(srv.Close)
 	roots := x509.NewCertPool()
 	roots.AddCert(srv.Certificate())
-	c := apiClient(srv.Listener.Addr().String(), &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12})
+	c := apiClient(srv.Listener.Addr().String(), &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}, nil)
 	call := func(u string) (string, error) {
 		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, u, nil)
 		if err != nil {

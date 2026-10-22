@@ -71,7 +71,7 @@ func run(ctx context.Context, cfg router.Config, log *slog.Logger, started func(
 		transport = cellClient(cfg).Transport
 	}
 	handler := traced(&router.Router{Verifier: verifier, Directory: &directory.Cache{Store: dir, TTL: cfg.CacheTTL}, Log: log, Transport: transport,
-		RequireTLS: cfg.Identity != nil, PeerOf: peerOf(cfg)})
+		RequireTLS: cfg.Identity != nil, PeerOf: peerOf(cfg), Forwarder: forwarder(cfg)})
 	admin, err := adminMux(ctx, cfg, dir, metrics, traced, log)
 	if err != nil {
 		return err
@@ -174,6 +174,17 @@ func peerOf(cfg router.Config) func(cell string) string {
 		return nil
 	}
 	return func(cell string) string { return tlsconf.ID(cfg.TrustDomain, cell, "erp-server") }
+}
+
+// forwarder believes the client address erp-web forwards from its
+// SPIFFE identity alone, verified against the deployment's authority
+// (ADR-0033); without an identity and trust domain, nobody's.
+func forwarder(cfg router.Config) func(*tls.ConnectionState) bool {
+	if cfg.Identity == nil || cfg.TrustDomain == "" {
+		return nil
+	}
+	web := tlsconf.ID(cfg.TrustDomain, "global", "erp-web")
+	return func(cs *tls.ConnectionState) bool { return cfg.Identity.VerifiedClient(cs) == web }
 }
 
 // adminMux is the admin listener's handler: liveness, metrics, the build's

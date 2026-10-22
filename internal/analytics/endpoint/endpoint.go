@@ -130,8 +130,8 @@ func (e *Endpoints) slot() (func(), error) {
 	case e.slots <- struct{}{}:
 		return func() { <-e.slots }, nil
 	default:
-		busy := problem.Unavailable("Analytics queries are at their limit on this server; retry shortly.", 1)
-		busy.Code = "analytics.busy"
+		busy := problem.New(http.StatusServiceUnavailable, "analytics.busy", "Service unavailable", "Analytics queries are at their limit on this server; retry shortly.")
+		busy.RetryAfter = 1
 		return nil, busy
 	}
 }

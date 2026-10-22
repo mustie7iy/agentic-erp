@@ -53,26 +53,80 @@ func Permissions(ctx context.Context) (map[string]bool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("authz: permissions: %w", err)
 	}
-	set := make(map[string]bool, len(codes)+len(personsOwn))
-	for _, c := range codes {
+	own := Own(p.Kind)
+	set := make(map[string]bool, len(codes)+len(own))
+	for _, c := range slices.Concat(codes, own) {
 		set[c] = true
-	}
-	if p.Kind == reqctx.KindHuman {
-		for _, c := range personsOwn {
-			set[c] = true
-		}
 	}
 	return set, nil
 }
 
-// personsOwn are the permissions every person holds, whatever their roles:
-// acting on their own sign-in alone. Ending one's own session must not
-// depend on a role an administrator remembered to grant (ADR-0052 G9), and
-// a person without roles must be able to sign out too.
+// everyonesOwn are the permissions every principal holds, person, agent or
+// service, whatever its roles: reading who it is and the names of the
+// principals on what it sees (ADR-0052 G2, G3). A role made later would
+// lack a grant, and a principal without roles must still learn that it
+// has none.
+var everyonesOwn = []string{"identity.self.read"}
+
+// personsOwn are the permissions every person holds besides, whatever
+// their roles: acting on their own sign-in alone. Ending one's own session
+// must not depend on a role an administrator remembered to grant (ADR-0052
+// G9), and a person without roles must be able to sign out too.
 var personsOwn = []string{"identity.session.end"}
 
-// PersonsOwn returns the permissions every person holds (a copy).
-func PersonsOwn() []string { return slices.Clone(personsOwn) }
+// Own returns the permissions a principal of the kind holds whatever its
+// roles (a new slice).
+func Own(kind string) []string {
+	if kind == reqctx.KindHuman {
+		return slices.Concat(everyonesOwn, personsOwn)
+	}
+	return slices.Clone(everyonesOwn)
+}
+
+// IsOwn reports whether some principals hold the permission whatever their
+// roles: a segregation-of-duties rule naming it would bar everyone holding
+// the other.
+func IsOwn(permission string) bool {
+	return slices.Contains(everyonesOwn, permission) || slices.Contains(personsOwn, permission)
+}
+
+// Effective splits the principal's permissions as Authorize decides them
+// (getCurrentPrincipal, ADR-0052 G2): those it may use now, and those it
+// holds but may not use, as it holds both permissions of a
+// segregation-of-duties rule in force. Both are sorted.
+func Effective(ctx context.Context) (usable, barred []string, err error) {
+	set, err := Permissions(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	tx, _ := reqctx.TxFrom(ctx) // Permissions found it
+	// CollectRows below returns the query's error.
+	rows, _ := tx.Query(ctx, `SELECT permission_a, permission_b FROM identity.sod_rule
+		WHERE current_date >= valid_from AND (valid_to IS NULL OR current_date < valid_to)`)
+	pairs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) ([2]string, error) {
+		var p [2]string
+		return p, r.Scan(&p[0], &p[1])
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("authz: sod rules: %w", err)
+	}
+	bar := map[string]bool{}
+	for _, p := range pairs {
+		if set[p[0]] && set[p[1]] {
+			bar[p[0]], bar[p[1]] = true, true
+		}
+	}
+	for c := range set {
+		if bar[c] {
+			barred = append(barred, c)
+		} else {
+			usable = append(usable, c)
+		}
+	}
+	slices.Sort(usable)
+	slices.Sort(barred)
+	return usable, barred, nil
+}
 
 // Require checks one permission, for checks beyond the operation's own (for
 // example the approval permission of an object type).

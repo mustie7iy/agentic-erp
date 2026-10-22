@@ -219,3 +219,39 @@ func TestConnectionsKeptPerIdentity(t *testing.T) {
 		t.Errorf("after closing idle connections: %v", err)
 	}
 }
+
+// TestVerifiedClient: a client certificate the bundle vouches for names
+// its SPIFFE ID; another authority's, an expired one, none, or a store
+// not read yet name nobody.
+func TestVerifiedClient(t *testing.T) {
+	ca := tlstest.NewCA(t)
+	s := identity(t, ca, "none")
+	webID := tlsconf.ID(domain, "global", "erp-web")
+	leaf := func(ca *tlstest.CA, id string) *x509.Certificate {
+		return ca.Issue(t, tlstest.Options{URIs: []string{id}}).Pair(t).Leaf
+	}
+	web, stranger := leaf(ca, webID), leaf(tlstest.NewCA(t), webID)
+	for _, c := range []struct {
+		name  string
+		store *tlsconf.Store
+		cs    *tls.ConnectionState
+		want  string
+	}{
+		{"erp-web", s, &tls.ConnectionState{PeerCertificates: []*x509.Certificate{web}}, webID},
+		{"erp-web with a chain", s, &tls.ConnectionState{PeerCertificates: []*x509.Certificate{web, stranger}}, webID},
+		{"another authority's", s, &tls.ConnectionState{PeerCertificates: []*x509.Certificate{stranger}}, ""},
+		{"no certificate", s, &tls.ConnectionState{}, ""},
+		{"plaintext", s, nil, ""},
+		{"a store not read yet", &tlsconf.Store{}, &tls.ConnectionState{PeerCertificates: []*x509.Certificate{web}}, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := c.store.VerifiedClient(c.cs); got != c.want {
+				t.Errorf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+	s.Now = func() time.Time { return time.Now().Add(48 * time.Hour) }
+	if got := s.VerifiedClient(&tls.ConnectionState{PeerCertificates: []*x509.Certificate{web}}); got != "" {
+		t.Errorf("expired: got %q, want none", got)
+	}
+}

@@ -2,6 +2,7 @@ package reqctx
 
 import (
 	"context"
+	"net/netip"
 	"testing"
 
 	"github.com/google/uuid"
@@ -42,6 +43,21 @@ func TestContextValues(t *testing.T) {
 	}
 	if got := InfoFrom(ctx).Operation; got != "getOperation" {
 		t.Errorf("InfoFrom(ctx).Operation = %q, want %q", got, "getOperation")
+	}
+}
+
+// TestClientAddress: an address recorded is read back; none, or an invalid
+// one, is no address.
+func TestClientAddress(t *testing.T) {
+	if _, ok := ClientAddressFrom(context.Background()); ok {
+		t.Error("empty context: got an address, want none")
+	}
+	if _, ok := ClientAddressFrom(WithClientAddress(context.Background(), netip.Addr{})); ok {
+		t.Error("invalid address: got an address, want none")
+	}
+	want := netip.MustParseAddr("2001:db8::7")
+	if got, ok := ClientAddressFrom(WithClientAddress(context.Background(), want)); !ok || got != want {
+		t.Errorf("got %v %v, want %v", got, ok, want)
 	}
 }
 

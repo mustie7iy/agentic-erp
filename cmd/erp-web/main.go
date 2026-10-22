@@ -66,6 +66,9 @@ func run(ctx context.Context, cfg web.Config, log *slog.Logger, started func(pub
 	if err != nil {
 		return err
 	}
+	if cfg.Identity != nil {
+		go cfg.Identity.Run(ctx, tlsconf.RefreshInterval, log)
+	}
 	if cfg.Public != nil {
 		go cfg.Public.Run(ctx, tlsconf.RefreshInterval, log)
 		ln = tls.NewListener(ln, cfg.Public.ServerConfig(tlsconf.External, tls.NoClientCert))

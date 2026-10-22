@@ -34,6 +34,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 	"github.com/mustie7iy/agentic-erp/internal/web/i18n"
 	"github.com/mustie7iy/agentic-erp/internal/web/session"
@@ -105,7 +106,7 @@ func newServer(cfg Config, build buildinfo.Info, log *slog.Logger, catalog func(
 	if s.Assets, err = assets(); err != nil {
 		return nil, err
 	}
-	if s.API, err = NewAPI(cfg.APIURL.String(), apiClient(cfg.APIDial, nil)); err != nil {
+	if s.API, err = NewAPI(cfg.APIURL.String(), apiClient(cfg.APIDial, nil, cfg.Identity)); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -114,8 +115,19 @@ func newServer(cfg Config, build buildinfo.Info, log *slog.Logger, catalog func(
 // apiClient reaches the API, at dial when it is set: in the cluster the
 // router's Service, reached directly rather than through the internet and
 // its load balancer, still verified as the API's public name; trust is
-// the system's roots unless tlsConfig (tests) says otherwise.
-func apiClient(dial string, tlsConfig *tls.Config) *http.Client {
+// the system's roots unless tlsConfig (tests) says otherwise. With an
+// identity, each connection presents erp-web's SPIFFE certificate as read
+// last, so the router believes the person's address each call forwards.
+func apiClient(dial string, tlsConfig *tls.Config, identity *tlsconf.Store) *http.Client {
+	if identity != nil {
+		if tlsConfig == nil {
+			tlsConfig = &tls.Config{MinVersion: tlsconf.External}
+		}
+		tlsConfig.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+			cert, err := identity.Certificate()
+			return &cert, err // the handshake reports it; a store read has the certificate LoadConfig checked
+		}
+	}
 	t := &http.Transport{TLSClientConfig: tlsConfig, ForceAttemptHTTP2: true, MaxIdleConns: 100, IdleConnTimeout: 90 * time.Second, TLSHandshakeTimeout: 10 * time.Second}
 	if dial != "" {
 		dialer := &net.Dialer{Timeout: 10 * time.Second}
@@ -124,7 +136,7 @@ func apiClient(dial string, tlsConfig *tls.Config) *http.Client {
 		}
 	}
 	// One API call, under the router's 60 s write timeout.
-	return &http.Client{Timeout: 30 * time.Second, Transport: t}
+	return &http.Client{Timeout: 30 * time.Second, Transport: forwardAddress{next: t}}
 }
 
 // Handler is the workspace: its pages, its static files, and a page for

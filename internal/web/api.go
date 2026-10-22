@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/platform/proxyproto"
 )
 
 // ErrNoSession is the API client's answer for a call made without the
@@ -20,6 +22,29 @@ type tokenKey struct{}
 // hold it).
 func WithToken(ctx context.Context, token string) context.Context {
 	return context.WithValue(ctx, tokenKey{}, token)
+}
+
+type addressKey struct{}
+
+// WithClientAddress attaches the signed-in person's address, as erp-web's
+// load balancer named it, which the API client forwards to the router for
+// the API's audit trail (ADR-0011 as amended by T73c).
+func WithClientAddress(ctx context.Context, addr netip.Addr) context.Context {
+	return context.WithValue(ctx, addressKey{}, addr)
+}
+
+// forwardAddress sends the person's address (WithClientAddress) with each
+// API call as Erp-Client-Address, and none when the context has none, so
+// a call never carries another person's.
+type forwardAddress struct{ next http.RoundTripper }
+
+func (f forwardAddress) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context()) // a RoundTripper must not change the caller's request
+	r.Header.Del(proxyproto.ClientAddressHeader)
+	if addr, ok := r.Context().Value(addressKey{}).(netip.Addr); ok && addr.IsValid() {
+		r.Header.Set(proxyproto.ClientAddressHeader, addr.String())
+	}
+	return f.next.RoundTrip(r) //nolint:wrapcheck // the transport's errors reach the API client as they are, as without this wrapper
 }
 
 // personToken is the client's security source: the token WithToken

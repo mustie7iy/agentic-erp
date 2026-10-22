@@ -49,6 +49,24 @@ func (Directory) HoldsRole(ctx context.Context, principal, role uuid.UUID) (bool
 	return ok, nil
 }
 
+// RolesHeld returns the roles the principal is assigned today, each as
+// HoldsRole decides it: the approval inbox (decidable_by=me) asks once
+// for all of them.
+func (Directory) RolesHeld(ctx context.Context, principal uuid.UUID) ([]uuid.UUID, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// CollectRows below returns the query's error.
+	rows, _ := tx.Query(ctx, `SELECT DISTINCT role_id FROM identity.principal_role
+		WHERE principal_id = $1 AND valid_from <= current_date AND (valid_to IS NULL OR valid_to > current_date)`, principal)
+	roles, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return nil, fmt.Errorf("identity: roles of principal %s: %w", principal, err)
+	}
+	return roles, nil
+}
+
 // Actors answers who deferred work acts as: the principal that queued it,
 // read in the worker's own transaction before the unit of work starts (a
 // port of the contexts whose workers act as the requester: payments,

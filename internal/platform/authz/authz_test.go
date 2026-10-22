@@ -122,26 +122,77 @@ func TestOnlyCurrentGrantsCount(t *testing.T) {
 	pgtest.Exec(t, `UPDATE identity.role SET status = 'inactive', version = version + 1 WHERE tenant_id = $1`, ten.ID)
 	as(t, ten, ten.Human, func(ctx context.Context) {
 		set, _ := authz.Permissions(ctx)
-		if len(set) != len(authz.PersonsOwn()) {
-			t.Errorf("inactive role grants %v, want only %v", set, authz.PersonsOwn())
+		if own := authz.Own(reqctx.KindHuman); len(set) != len(own) {
+			t.Errorf("inactive role grants %v, want only %v", set, own)
 		}
 	})
 }
 
-// TestPersonsOwn: every person holds their own permissions without any
-// role (ADR-0052 G9); an agent or a service does not.
-func TestPersonsOwn(t *testing.T) {
+// TestOwn: every principal holds its own permissions without any role
+// (ADR-0052 G2, G3), and every person besides the ending of their session
+// (G9); an agent or a service does not hold that one.
+func TestOwn(t *testing.T) {
 	ten := pgtest.NewTenant(t)
+	pgtest.Exec(t, `DELETE FROM identity.principal_role WHERE tenant_id = $1`, ten.ID)
+	for _, c := range []struct {
+		name  string
+		actor pgtest.Actor
+		want  map[string]bool
+	}{
+		{"person", ten.Human, map[string]bool{"identity.self.read": true, "identity.session.end": true}},
+		{"agent", ten.Agent, map[string]bool{"identity.self.read": true, "identity.session.end": false}},
+		{"service", ten.Service, map[string]bool{"identity.self.read": true, "identity.session.end": false}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			as(t, ten, c.actor, func(ctx context.Context) {
+				for code, want := range c.want {
+					if got := authz.Require(ctx, code) == nil; got != want {
+						t.Errorf("%s held without roles: got %v, want %v", code, got, want)
+					}
+				}
+			})
+		})
+	}
+	for code, want := range map[string]bool{"identity.self.read": true, "identity.session.end": true, "identity.access.read": false} {
+		if got := authz.IsOwn(code); got != want {
+			t.Errorf("IsOwn(%s): got %v, want %v", code, got, want)
+		}
+	}
+}
+
+// TestEffective: the permissions a principal may use now, and those a
+// segregation-of-duties rule in force bars because it holds both; rules
+// not in force and rules of which it holds one side bar nothing.
+func TestEffective(t *testing.T) {
+	ten := pgtest.NewTenant(t, "platform.operation.read", "platform.operation.cancel", "audit.event.read")
+	pgtest.Exec(t, `INSERT INTO identity.sod_rule (tenant_id, id, permission_a, permission_b, description, valid_from, created_by) VALUES
+		($1, gen_random_uuid(), 'platform.operation.cancel', 'platform.operation.read', 'now', current_date, $2),
+		($1, gen_random_uuid(), 'audit.chain.verify', 'audit.event.read', 'one side', current_date, $2),
+		($1, gen_random_uuid(), 'audit.event.read', 'platform.operation.cancel', 'later', current_date + 3, $2)`, ten.ID, ten.Human.ID)
 	as(t, ten, ten.Human, func(ctx context.Context) {
-		if err := authz.Require(ctx, "identity.session.end"); err != nil {
-			t.Errorf("person without roles: got %v, want identity.session.end held", err)
+		usable, barred, err := authz.Effective(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{"audit.event.read", "identity.self.read", "identity.session.end"}; fmt.Sprint(usable) != fmt.Sprint(want) {
+			t.Errorf("usable: got %v, want %v", usable, want)
+		}
+		if want := []string{"platform.operation.cancel", "platform.operation.read"}; fmt.Sprint(barred) != fmt.Sprint(want) {
+			t.Errorf("barred: got %v, want %v", barred, want)
 		}
 	})
-	as(t, ten, ten.Agent, func(ctx context.Context) {
-		if s := status(authz.Require(ctx, "identity.session.end")); s != 403 {
-			t.Errorf("agent: got %d, want 403", s)
-		}
-	})
+	for n := 1; n <= 2; n++ {
+		t.Run(fmt.Sprintf("statement %d fails", n), func(t *testing.T) {
+			err := pgtest.Pool(t).InTx(context.Background(), database.Scope{Role: "erp_app", TenantID: ten.ID, ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
+				ctx = reqctx.WithPrincipal(reqctx.WithTx(ctx, &pgtest.FailingTx{Tx: tx, FailAt: n}), reqctx.Principal{ID: ten.Human.ID, Kind: "human", TenantID: ten.ID})
+				_, _, err := authz.Effective(ctx)
+				return err
+			})
+			if !errors.Is(err, pgtest.ErrInjected) {
+				t.Errorf("got %v, want %v", err, pgtest.ErrInjected)
+			}
+		})
+	}
 }
 
 func TestOutsideARequest(t *testing.T) {

@@ -16,16 +16,22 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
+// init registers the problem of the order item's constraints, each by its
+// own call, so the contract's test can tell each constraint's table (api's
+// TestProblemCodes). The application writes what the draft was checked
+// against; receipts posted since, or an item number removed before,
+// refuse it here.
 func init() {
-	// The application writes what the draft was checked against; receipts
-	// posted since, or an item number removed before, refuse it here.
-	for _, c := range []string{"purchase_order_item_received", "purchase_order_item_identity", "purchase_order_item_valued"} {
-		problem.RegisterConstraint(c, func() *problem.Problem {
-			return problem.Unprocessable("procurement.invalid_change", "The order change no longer fits the order: an item keeps its account, unit, "+
-				"material and contract item, and stays at or above what was received.",
-				problem.FieldError{Field: "items", Code: "invalid", Message: "items that keep what the order's items keep"})
-		})
-	}
+	problem.RegisterConstraint("purchase_order_item_received", invalidChange)
+	problem.RegisterConstraint("purchase_order_item_identity", invalidChange)
+	problem.RegisterConstraint("purchase_order_item_valued", invalidChange)
+}
+
+// invalidChange is the problem of a change that no longer fits its order.
+func invalidChange() *problem.Problem {
+	return problem.Unprocessable("procurement.invalid_change", "The order change no longer fits the order: an item keeps its account, unit, "+
+		"material and contract item, and stays at or above what was received.",
+		problem.FieldError{Field: "items", Code: "invalid", Message: "items that keep what the order's items keep"})
 }
 
 // submitChange submits a draft change of a released order, checked again

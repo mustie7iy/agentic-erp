@@ -156,7 +156,7 @@ run "the_routers_secrets_are_empty_entries_under_the_global_key" {
   command = apply
 
   assert {
-    condition     = length(aws_secretsmanager_secret.global) == 7 && alltrue([for s in aws_secretsmanager_secret.global : s.kms_key_id == aws_kms_key.directory.arn && startswith(s.name, "erp/global/")])
+    condition     = length(aws_secretsmanager_secret.global) == 8 && alltrue([for s in aws_secretsmanager_secret.global : s.kms_key_id == aws_kms_key.directory.arn && startswith(s.name, "erp/global/")])
     error_message = "the router's secrets are under erp/global/ and encrypted with the global tier's key"
   }
   assert {
@@ -177,7 +177,7 @@ run "pods_never_share_the_balancers_subnets" {
 run "the_web_workspaces_secrets_are_global" {
   command = apply
   assert {
-    condition     = contains(keys(aws_secretsmanager_secret.global), "web-session-key") && aws_secretsmanager_secret.global["web-clients"].name == "erp/global/web-clients"
-    error_message = "the web workspace's session key and client credentials are global secrets (T73b)"
+    condition     = contains(keys(aws_secretsmanager_secret.global), "web-session-key") && contains(keys(aws_secretsmanager_secret.global), "web-session-key-previous") && aws_secretsmanager_secret.global["web-clients"].name == "erp/global/web-clients"
+    error_message = "the web workspace's session keys, the current and the previous during a rotation, and client credentials are global secrets (T73b, T73c)"
   }
 }

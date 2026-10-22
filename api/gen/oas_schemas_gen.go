@@ -3017,6 +3017,12 @@ type AuditEvent struct {
 	Detail AuditEventDetail `json:"detail"`
 	// Trace id of the request.
 	TraceID OptString `json:"trace_id"`
+	// The IP address the request came from: a person's in the web workspace as erp-web saw it, otherwise
+	// the connection's as the router saw it through its load balancer (ADR-0011, amended by T73c).
+	// Personal data: kept with the entry for the trail's retention, outside its hash chain, and erased
+	// with the tenant's data (ADR-0021). Null for work no request made (workers, workflows) and for
+	// entries recorded before addresses were.
+	ClientAddress OptNilString `json:"client_address"`
 }
 
 // GetSeq returns the value of Seq.
@@ -3069,6 +3075,11 @@ func (s *AuditEvent) GetTraceID() OptString {
 	return s.TraceID
 }
 
+// GetClientAddress returns the value of ClientAddress.
+func (s *AuditEvent) GetClientAddress() OptNilString {
+	return s.ClientAddress
+}
+
 // SetSeq sets the value of Seq.
 func (s *AuditEvent) SetSeq(val int64) {
 	s.Seq = val
@@ -3117,6 +3128,11 @@ func (s *AuditEvent) SetDetail(val AuditEventDetail) {
 // SetTraceID sets the value of TraceID.
 func (s *AuditEvent) SetTraceID(val OptString) {
 	s.TraceID = val
+}
+
+// SetClientAddress sets the value of ClientAddress.
+func (s *AuditEvent) SetClientAddress(val OptNilString) {
+	s.ClientAddress = val
 }
 
 // Action-specific detail.
@@ -3390,6 +3406,7 @@ func (*BadRequestHeaders) getConfigVersionRes()                 {}
 func (*BadRequestHeaders) getConnectorRes()                     {}
 func (*BadRequestHeaders) getContractRes()                      {}
 func (*BadRequestHeaders) getCostCenterRes()                    {}
+func (*BadRequestHeaders) getCurrentPrincipalRes()              {}
 func (*BadRequestHeaders) getDownPaymentRequestRes()            {}
 func (*BadRequestHeaders) getExchangeRateRes()                  {}
 func (*BadRequestHeaders) getFiscalPeriodRes()                  {}
@@ -3473,6 +3490,7 @@ func (*BadRequestHeaders) listPartnerChangesRes()               {}
 func (*BadRequestHeaders) listPaymentExclusionsRes()            {}
 func (*BadRequestHeaders) listPaymentRunsRes()                  {}
 func (*BadRequestHeaders) listPaymentsRes()                     {}
+func (*BadRequestHeaders) listPrincipalNamesRes()               {}
 func (*BadRequestHeaders) listPrincipalsRes()                   {}
 func (*BadRequestHeaders) listProfitCenterPathsRes()            {}
 func (*BadRequestHeaders) listProfitCentersRes()                {}
@@ -13122,6 +13140,187 @@ func (s *CreateUploadCreatedHeaders) SetResponse(val Upload) {
 
 func (*CreateUploadCreatedHeaders) createUploadRes() {}
 
+// The caller (getCurrentPrincipal): advisory, as the API decides every call.
+// Ref: #/components/schemas/CurrentPrincipal
+type CurrentPrincipal struct {
+	// The caller's principal id.
+	ID uuid.UUID `json:"id"`
+	// The caller's tenant.
+	TenantID uuid.UUID `json:"tenant_id"`
+	// Kind of principal. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Kind string `json:"kind"`
+	// The caller's name as shown.
+	DisplayName string `json:"display_name"`
+	// The caller's own e-mail address, when one is recorded.
+	Email OptNilString `json:"email"`
+	// True: the caller may act in every legal entity, present and future, and `legal_entity_ids` is empty.
+	AllCompanies bool `json:"all_companies"`
+	// The legal entities of the caller's company access today, when not `all_companies`;
+	// `listLegalEntities` names them.
+	LegalEntityIds []uuid.UUID `json:"legal_entity_ids"`
+	// The permissions the caller may use now: through roles and grants valid today, and those every
+	// principal (or every person) holds; none a segregation-of-duties rule bars. Sorted.
+	Permissions []string `json:"permissions"`
+	// Permissions the caller holds but may not use, as they hold both permissions of a
+	// segregation-of-duties rule in force (403 `identity.sod_conflict`); an administrator removes one.
+	// Sorted.
+	BarredPermissions []string `json:"barred_permissions"`
+	// An agent's autonomy level (ADR-0036): 0 reads, 1 proposes, 2 writes, 3 acts within limits; null for
+	// people and services.
+	AutonomyLevel OptNilInt32 `json:"autonomy_level"`
+}
+
+// GetID returns the value of ID.
+func (s *CurrentPrincipal) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetTenantID returns the value of TenantID.
+func (s *CurrentPrincipal) GetTenantID() uuid.UUID {
+	return s.TenantID
+}
+
+// GetKind returns the value of Kind.
+func (s *CurrentPrincipal) GetKind() string {
+	return s.Kind
+}
+
+// GetDisplayName returns the value of DisplayName.
+func (s *CurrentPrincipal) GetDisplayName() string {
+	return s.DisplayName
+}
+
+// GetEmail returns the value of Email.
+func (s *CurrentPrincipal) GetEmail() OptNilString {
+	return s.Email
+}
+
+// GetAllCompanies returns the value of AllCompanies.
+func (s *CurrentPrincipal) GetAllCompanies() bool {
+	return s.AllCompanies
+}
+
+// GetLegalEntityIds returns the value of LegalEntityIds.
+func (s *CurrentPrincipal) GetLegalEntityIds() []uuid.UUID {
+	return s.LegalEntityIds
+}
+
+// GetPermissions returns the value of Permissions.
+func (s *CurrentPrincipal) GetPermissions() []string {
+	return s.Permissions
+}
+
+// GetBarredPermissions returns the value of BarredPermissions.
+func (s *CurrentPrincipal) GetBarredPermissions() []string {
+	return s.BarredPermissions
+}
+
+// GetAutonomyLevel returns the value of AutonomyLevel.
+func (s *CurrentPrincipal) GetAutonomyLevel() OptNilInt32 {
+	return s.AutonomyLevel
+}
+
+// SetID sets the value of ID.
+func (s *CurrentPrincipal) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetTenantID sets the value of TenantID.
+func (s *CurrentPrincipal) SetTenantID(val uuid.UUID) {
+	s.TenantID = val
+}
+
+// SetKind sets the value of Kind.
+func (s *CurrentPrincipal) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetDisplayName sets the value of DisplayName.
+func (s *CurrentPrincipal) SetDisplayName(val string) {
+	s.DisplayName = val
+}
+
+// SetEmail sets the value of Email.
+func (s *CurrentPrincipal) SetEmail(val OptNilString) {
+	s.Email = val
+}
+
+// SetAllCompanies sets the value of AllCompanies.
+func (s *CurrentPrincipal) SetAllCompanies(val bool) {
+	s.AllCompanies = val
+}
+
+// SetLegalEntityIds sets the value of LegalEntityIds.
+func (s *CurrentPrincipal) SetLegalEntityIds(val []uuid.UUID) {
+	s.LegalEntityIds = val
+}
+
+// SetPermissions sets the value of Permissions.
+func (s *CurrentPrincipal) SetPermissions(val []string) {
+	s.Permissions = val
+}
+
+// SetBarredPermissions sets the value of BarredPermissions.
+func (s *CurrentPrincipal) SetBarredPermissions(val []string) {
+	s.BarredPermissions = val
+}
+
+// SetAutonomyLevel sets the value of AutonomyLevel.
+func (s *CurrentPrincipal) SetAutonomyLevel(val OptNilInt32) {
+	s.AutonomyLevel = val
+}
+
+// CurrentPrincipalHeaders wraps CurrentPrincipal with response headers.
+type CurrentPrincipalHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           CurrentPrincipal
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *CurrentPrincipalHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *CurrentPrincipalHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *CurrentPrincipalHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *CurrentPrincipalHeaders) GetResponse() CurrentPrincipal {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *CurrentPrincipalHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *CurrentPrincipalHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *CurrentPrincipalHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CurrentPrincipalHeaders) SetResponse(val CurrentPrincipal) {
+	s.Response = val
+}
+
+func (*CurrentPrincipalHeaders) getCurrentPrincipalRes() {}
+
 // A tenant's custom field schema for one entity, as the active configuration version holds it
 // (ADR-0046).
 // Ref: #/components/schemas/CustomFieldSchema
@@ -15342,6 +15541,7 @@ func (*ForbiddenHeaders) getConfigVersionRes()                 {}
 func (*ForbiddenHeaders) getConnectorRes()                     {}
 func (*ForbiddenHeaders) getContractRes()                      {}
 func (*ForbiddenHeaders) getCostCenterRes()                    {}
+func (*ForbiddenHeaders) getCurrentPrincipalRes()              {}
 func (*ForbiddenHeaders) getDownPaymentRequestRes()            {}
 func (*ForbiddenHeaders) getExchangeRateRes()                  {}
 func (*ForbiddenHeaders) getFiscalPeriodRes()                  {}
@@ -15425,6 +15625,7 @@ func (*ForbiddenHeaders) listPartnerChangesRes()               {}
 func (*ForbiddenHeaders) listPaymentExclusionsRes()            {}
 func (*ForbiddenHeaders) listPaymentRunsRes()                  {}
 func (*ForbiddenHeaders) listPaymentsRes()                     {}
+func (*ForbiddenHeaders) listPrincipalNamesRes()               {}
 func (*ForbiddenHeaders) listPrincipalsRes()                   {}
 func (*ForbiddenHeaders) listProfitCenterPathsRes()            {}
 func (*ForbiddenHeaders) listProfitCentersRes()                {}
@@ -25814,6 +26015,74 @@ func (o OptNilDateTime) Or(d time.Time) time.Time {
 	return d
 }
 
+// NewOptNilInt32 returns new OptNilInt32 with value set to v.
+func NewOptNilInt32(v int32) OptNilInt32 {
+	return OptNilInt32{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptNilInt32 is optional nullable int32.
+type OptNilInt32 struct {
+	Value int32
+	Set   bool
+	Null  bool
+}
+
+// IsSet returns true if OptNilInt32 was set.
+func (o OptNilInt32) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptNilInt32) Reset() {
+	var v int32
+	o.Value = v
+	o.Set = false
+	o.Null = false
+}
+
+// SetTo sets value to v.
+func (o *OptNilInt32) SetTo(v int32) {
+	o.Set = true
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o OptNilInt32) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *OptNilInt32) SetToNull() {
+	o.Set = true
+	o.Null = true
+	var v int32
+	o.Value = v
+}
+
+// IsEmpty returns true if the field was omitted from the payload (not Set and not Null).
+func (o OptNilInt32) IsEmpty() bool {
+	return !o.Set && !o.Null
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptNilInt32) Get() (v int32, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptNilInt32) Or(d int32) int32 {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptNilString returns new OptNilString with value set to v.
 func NewOptNilString(v string) OptNilString {
 	return OptNilString{
@@ -29701,6 +29970,114 @@ func (s *PrincipalHeaders) SetResponse(val Principal) {
 }
 
 func (*PrincipalHeaders) createPrincipalRes() {}
+
+// A principal's id, name and kind, nothing else.
+// Ref: #/components/schemas/PrincipalName
+type PrincipalName struct {
+	// The principal's id.
+	ID uuid.UUID `json:"id"`
+	// Its name as shown.
+	DisplayName string `json:"display_name"`
+	// Kind of principal. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Kind string `json:"kind"`
+}
+
+// GetID returns the value of ID.
+func (s *PrincipalName) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetDisplayName returns the value of DisplayName.
+func (s *PrincipalName) GetDisplayName() string {
+	return s.DisplayName
+}
+
+// GetKind returns the value of Kind.
+func (s *PrincipalName) GetKind() string {
+	return s.Kind
+}
+
+// SetID sets the value of ID.
+func (s *PrincipalName) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetDisplayName sets the value of DisplayName.
+func (s *PrincipalName) SetDisplayName(val string) {
+	s.DisplayName = val
+}
+
+// SetKind sets the value of Kind.
+func (s *PrincipalName) SetKind(val string) {
+	s.Kind = val
+}
+
+// Names of principals (listPrincipalNames): the ones found, in the order asked.
+// Ref: #/components/schemas/PrincipalNames
+type PrincipalNames struct {
+	Items []PrincipalName `json:"items"`
+}
+
+// GetItems returns the value of Items.
+func (s *PrincipalNames) GetItems() []PrincipalName {
+	return s.Items
+}
+
+// SetItems sets the value of Items.
+func (s *PrincipalNames) SetItems(val []PrincipalName) {
+	s.Items = val
+}
+
+// PrincipalNamesHeaders wraps PrincipalNames with response headers.
+type PrincipalNamesHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           PrincipalNames
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *PrincipalNamesHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *PrincipalNamesHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *PrincipalNamesHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *PrincipalNamesHeaders) GetResponse() PrincipalNames {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *PrincipalNamesHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *PrincipalNamesHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *PrincipalNamesHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *PrincipalNamesHeaders) SetResponse(val PrincipalNames) {
+	s.Response = val
+}
+
+func (*PrincipalNamesHeaders) listPrincipalNamesRes() {}
 
 // One page of principals.
 // Ref: #/components/schemas/PrincipalPage
@@ -39055,6 +39432,7 @@ func (*TooManyRequestsHeaders) getConfigVersionRes()                 {}
 func (*TooManyRequestsHeaders) getConnectorRes()                     {}
 func (*TooManyRequestsHeaders) getContractRes()                      {}
 func (*TooManyRequestsHeaders) getCostCenterRes()                    {}
+func (*TooManyRequestsHeaders) getCurrentPrincipalRes()              {}
 func (*TooManyRequestsHeaders) getDownPaymentRequestRes()            {}
 func (*TooManyRequestsHeaders) getExchangeRateRes()                  {}
 func (*TooManyRequestsHeaders) getFiscalPeriodRes()                  {}
@@ -39138,6 +39516,7 @@ func (*TooManyRequestsHeaders) listPartnerChangesRes()               {}
 func (*TooManyRequestsHeaders) listPaymentExclusionsRes()            {}
 func (*TooManyRequestsHeaders) listPaymentRunsRes()                  {}
 func (*TooManyRequestsHeaders) listPaymentsRes()                     {}
+func (*TooManyRequestsHeaders) listPrincipalNamesRes()               {}
 func (*TooManyRequestsHeaders) listPrincipalsRes()                   {}
 func (*TooManyRequestsHeaders) listProfitCenterPathsRes()            {}
 func (*TooManyRequestsHeaders) listProfitCentersRes()                {}
@@ -39382,6 +39761,7 @@ func (*UnauthorizedHeaders) getConfigVersionRes()                 {}
 func (*UnauthorizedHeaders) getConnectorRes()                     {}
 func (*UnauthorizedHeaders) getContractRes()                      {}
 func (*UnauthorizedHeaders) getCostCenterRes()                    {}
+func (*UnauthorizedHeaders) getCurrentPrincipalRes()              {}
 func (*UnauthorizedHeaders) getDownPaymentRequestRes()            {}
 func (*UnauthorizedHeaders) getExchangeRateRes()                  {}
 func (*UnauthorizedHeaders) getFiscalPeriodRes()                  {}
@@ -39465,6 +39845,7 @@ func (*UnauthorizedHeaders) listPartnerChangesRes()               {}
 func (*UnauthorizedHeaders) listPaymentExclusionsRes()            {}
 func (*UnauthorizedHeaders) listPaymentRunsRes()                  {}
 func (*UnauthorizedHeaders) listPaymentsRes()                     {}
+func (*UnauthorizedHeaders) listPrincipalNamesRes()               {}
 func (*UnauthorizedHeaders) listPrincipalsRes()                   {}
 func (*UnauthorizedHeaders) listProfitCenterPathsRes()            {}
 func (*UnauthorizedHeaders) listProfitCentersRes()                {}

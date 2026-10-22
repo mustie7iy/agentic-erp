@@ -7,6 +7,7 @@ package router
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -189,7 +190,12 @@ type Router struct {
 	// PeerOf is the SPIFFE ID the tenant's cell must present; nil: the
 	// transport's own rule.
 	PeerOf func(cell string) string
-	Now    func() time.Time // nil: time.Now
+	// Forwarder reports whether a request's connection is erp-web's
+	// verified identity, whose Erp-Client-Address names the person using
+	// the workspace (ADR-0011 as amended by T73c); nil believes nobody's,
+	// and every request is the connection's.
+	Forwarder func(*tls.ConnectionState) bool
+	Now       func() time.Time // nil: time.Now
 }
 
 // ModelTimeout is how long a model call's answer may take to come back
@@ -222,6 +228,7 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			pr.Out.Host = target.url.Host
 			pr.SetXForwarded()
 			forwardClientCert(pr)
+			rt.forwardClientAddress(pr)
 		},
 		Transport: rt.Transport,
 		ModifyResponse: func(resp *http.Response) error {
@@ -248,6 +255,28 @@ func forwardClientCert(pr *httputil.ProxyRequest) {
 	pr.Out.Header.Del(tlsconf.ClientCertHeader)
 	if cs := pr.In.TLS; cs != nil && len(cs.PeerCertificates) > 0 {
 		pr.Out.Header.Set(tlsconf.ClientCertHeader, tlsconf.Thumbprint(cs.PeerCertificates[0]))
+	}
+}
+
+// forwardClientAddress tells the cell where the request came from, for its
+// audit trail: the person's address that erp-web, verified by its
+// identity, forwarded, otherwise the connection's own (the client's, by
+// the load balancer's PROXY header). An address anyone else sent is
+// dropped, so no caller names another's (ADR-0033). erp-web's call
+// without a usable address names none: erp-web's own address is no
+// person's.
+func (rt *Router) forwardClientAddress(pr *httputil.ProxyRequest) {
+	forwarded := pr.In.Header.Get(proxyproto.ClientAddressHeader)
+	pr.Out.Header.Del(proxyproto.ClientAddressHeader)
+	var addr netip.Addr
+	var ok bool
+	if rt.Forwarder != nil && rt.Forwarder(pr.In.TLS) {
+		addr, ok = proxyproto.ParseClientAddress(forwarded)
+	} else {
+		addr, ok = proxyproto.RemoteIP(pr.In)
+	}
+	if ok {
+		pr.Out.Header.Set(proxyproto.ClientAddressHeader, addr.String())
 	}
 }
 

@@ -2097,7 +2097,10 @@ erDiagram
 
 Database rules: one approval per actor per request (partial unique index);
 the requester cannot decide (check against `approval_request.requester_id` in
-the decision trigger); decisions are insert-only.
+the decision trigger); decisions are insert-only. The inbox
+(`decidable_by=me`, ADR-0052 G1) reads the pending requests newest first
+through the partial index `approval_request_pending (tenant_id,
+created_at, id) WHERE status = 'pending'` (000151).
 
 A `manual_entry` request (T35) is opened for a parked manual journal entry
 whose debits, converted exactly into its company's currency at the average
@@ -2130,7 +2133,7 @@ activate, and orders under them are refused.
 
 | Table | Key | Notes |
 |---|---|---|
-| `audit_event` | `(tenant_id, occurred_at, seq)` | Insert-only, monthly partitions, `prev_hash`/`hash` chain per tenant |
+| `audit_event` | `(tenant_id, occurred_at, seq)` | Insert-only, monthly partitions, `prev_hash`/`hash` chain per tenant; `client_address` (inet, 000151) where the request came from, outside the chain, which the tenant's erasure alone may blank (`audit.event_immutable`, ADR-0011 amended) |
 | `chain_head` | `tenant_id` | Last sequence and hash per tenant |
 | `anchor` | `(tenant_id, seq)` | Chain heads written to write-once storage |
 | `verification` | `(tenant_id, verified_at)` | Insert-only; one row per scheduled verification round: head, events and anchors checked, the first broken sequence (ADR-0025) |

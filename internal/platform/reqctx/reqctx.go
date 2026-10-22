@@ -7,6 +7,7 @@ package reqctx
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
@@ -87,6 +88,7 @@ const (
 	txKey
 	traceKey
 	clientCertKey
+	clientAddressKey
 )
 
 // WithClientCert records the thumbprint (RFC 8705 x5t#S256) of the client
@@ -99,6 +101,20 @@ func WithClientCert(ctx context.Context, thumbprint string) context.Context {
 func ClientCertFrom(ctx context.Context) string {
 	t, _ := ctx.Value(clientCertKey).(string)
 	return t
+}
+
+// WithClientAddress records the IP address the request came from, as the
+// cell established it (httpapi.ClientAddress): the person's in the web
+// workspace, otherwise the connection's. The audit trail records it.
+func WithClientAddress(ctx context.Context, addr netip.Addr) context.Context {
+	return context.WithValue(ctx, clientAddressKey, addr)
+}
+
+// ClientAddressFrom is the request's client address; ok is false when none
+// is known (work no request made).
+func ClientAddressFrom(ctx context.Context) (addr netip.Addr, ok bool) {
+	addr, ok = ctx.Value(clientAddressKey).(netip.Addr)
+	return addr, ok && addr.IsValid()
 }
 
 func WithClaims(ctx context.Context, c Claims) context.Context {

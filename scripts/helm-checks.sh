@@ -505,14 +505,16 @@ if gates != ["target-health.elbv2.k8s.aws/erp-router"]:
 # The web workspace (ADR-0052): its own balancer's subnets alone, in
 # production on its https hostname, reaching the router's public listener,
 # the directory database (its sessions, over verified TLS) and the
-# identity providers on 443, nothing else, with no SPIFFE certificate.
+# identity providers on 443, nothing else; its SPIFFE identity a client
+# certificate for the router alone, which no cell accepts (T73c).
 web = next(d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"] == "erp-web")
 pod = web["spec"]["template"]["spec"]
 env = {e["name"]: e.get("value") for e in pod["containers"][0]["env"]}
 for name, value in {"ERP_ENV": "production", "ERP_WEB_PROXY_FROM": ",".join(want), "ERP_WEB_PUBLIC_URL": "https://app.dev.erp.example",
                     "ERP_WEB_API_URL": "https://api.dev.erp.example", "ERP_WEB_API_DIAL": "erp-router.erp-global.svc.cluster.local:8081",
                     "ERP_WEB_DIRECTORY_PASSWORD": "file:/etc/erp/secrets/directory-password", "ERP_WEB_SESSION_KEY": "file:/etc/erp/secrets/session-key",
-                    "ERP_WEB_CLIENT_CREDENTIALS": "file:/etc/erp/web-clients/"}.items():
+                    "ERP_WEB_CLIENT_CREDENTIALS": "file:/etc/erp/web-clients/", "ERP_TLS_CERT": "file:/etc/erp/tls/tls.crt",
+                    "ERP_TLS_KEY": "file:/etc/erp/tls/tls.key"}.items():
     if env.get(name) != value:
         sys.exit("helm-checks: erp-web's %s is %r, want %r" % (name, env.get(name), value))
 if "sslmode=verify-full&sslrootcert=/etc/erp/trust/rds-ca.pem" not in (env.get("ERP_WEB_DIRECTORY_URL") or ""):
@@ -533,8 +535,25 @@ if egress != [(["erp-router"], [8081]), (["10.16.0.0/16"], [5432]), (["0.0.0.0/0
 into = next(d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == "erp-router-from-web")
 if [p["podSelector"]["matchLabels"]["app.kubernetes.io/name"] for rule in into["spec"]["ingress"] for p in rule["from"]] != ["erp-web"]:
     sys.exit("helm-checks: the router's listener is opened to more than erp-web")
-if any(d["kind"] == "Certificate" and "erp-web" in d["metadata"]["name"] for d in docs):
-    sys.exit("helm-checks: erp-web has a SPIFFE certificate; it holds no identity a cell would accept (ADR-0052 §6)")
+certs = [d for d in docs if d["kind"] == "Certificate" and "erp-web" in d["metadata"]["name"]]
+if [(c["metadata"]["name"], c["spec"].get("uris"), sorted(c["spec"].get("usages", [])), c["spec"].get("dnsNames")) for c in certs] != \
+        [("erp-web-tls", ["spiffe://dev.erp.example/global/erp-web"], ["client auth", "digital signature"], None)]:
+    sys.exit("helm-checks: erp-web's certificates %r: want one, its SPIFFE identity as a client alone (ADR-0033)" % certs)
+if "ERP_WEB_SESSION_KEY_PREVIOUS" in env:
+    sys.exit("helm-checks: erp-web opens sessions under a previous key while no rotation runs")
+PY
+# During a rotation of the session key the previous one is mounted too.
+"$HELM" template erp-global "$chart" --namespace erp-global -f "$values" --set web.sessionKeyPrevious=true >"$work/erp-global-rotating.yaml"
+"$CONFTEST" parse --parser yaml "$work/erp-global-rotating.yaml" >"$work/erp-global-rotating.json"
+python3 - "$work/erp-global-rotating.json" <<'PY'
+import json, sys
+docs = [d for d in json.load(open(sys.argv[1])) if d]
+web = next(d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"] == "erp-web")
+env = {e["name"]: e.get("value") for e in web["spec"]["template"]["spec"]["containers"][0]["env"]}
+secret = next(d for d in docs if d["kind"] == "ExternalSecret" and d["metadata"]["name"] == "erp-web")
+keys = {x["secretKey"]: x["remoteRef"]["key"] for x in secret["spec"]["data"]}
+if env.get("ERP_WEB_SESSION_KEY_PREVIOUS") != "file:/etc/erp/secrets/session-key-previous" or keys.get("session-key-previous") != "erp/global/web-session-key-previous":
+    sys.exit("helm-checks: a rotation's previous session key is not mounted (%r, %r)" % (env.get("ERP_WEB_SESSION_KEY_PREVIOUS"), keys))
 PY
 for value in trustDomain vpcCidr trust.caBundle secrets.prefix images.router.repository images.router.digest \
   router.targetGroupArn router.proxyFrom router.operatorIssuers directory.endpoint directory.masterSecretArn directory.caBundle \
