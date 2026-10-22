@@ -182,6 +182,8 @@ erDiagram
     text_array acr_values "prove multi-factor"
     text_array amr_values "prove multi-factor (RFC 8176)"
     bool certificate_bound "binds tokens to client certificates (RFC 8705)"
+    text web_login_code "the web client's login code, active unique (000139)"
+    text web_client_id "with web_auth_method, web_credential_ref, web_scope: all or none"
     text status "active | retired" }
   auth_policy { uuid tenant_id PK
     bool mfa_required
@@ -258,6 +260,24 @@ people could not sign in (provisioning registers one, the last one cannot
 be retired and a production import refuses a tenant without one, so a
 change by hand or a tenant from before gets there); the remedy,
 `erp-server register-provider`, needs no running server.
+
+A provider may carry the **web workspace's client** there (ADR-0052 G8,
+T73b, migration 000139): its client id, how erp-web authenticates at the
+token endpoint (`private_key_jwt` or `client_secret_basic`), a secret
+reference to the credential (never the value), the login code people
+sign in with and the scope; all five or none
+(`identity_provider_web_client`). Like the issuer and audience, a login
+code names a tenant, so it is unique among active registrations across
+tenants (`identity_provider_login_code`, also not led by `tenant_id`);
+`erp_control` reads it to project it into the global directory, whose
+`directory.issuer` keeps it with the issuer's claim, unique across cells.
+The directory database's `web` schema (`directory.WebSchema`) holds
+erp-web's sessions (`web.session`: the session id's SHA-256, tenant,
+issuer, subject, login code, times, and the tokens and CSRF secret sealed
+with AES-256-GCM) and the view `web.login_client` of the web clients by
+login code, which the role `erp_web` alone reads and writes; it sees no
+other table of the directory. Nothing in it is business data, exported or
+fingerprinted.
 
 People's **sessions** are kept in `session` (T37f, migration 000057): one
 row per authentication at the identity provider, keyed per principal by a

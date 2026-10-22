@@ -54,12 +54,16 @@ elif verb == "patch":
         rel = app["spec"].get("source", {}).get("helm", {}).get("valuesObject") or \
             json.loads(subprocess.run(["git", "show", rev + ":deploy/environments/staging/stg1/release.json"],
                                       capture_output=True, text=True, check=True).stdout)
-        image, deployment = {"erp-cell": ("server", "erp-server"), "erp-global": ("router", "erp-router")}[a[4]]
-        i = rel["images"][image]
-        ref = "%s@%s" % (i["repository"], i["digest"])
-        if os.environ.get("STALE_IMAGE") == str(state["n"]):
-            ref += "0"
-        state["deployment"][deployment] = {"spec": {"template": {"spec": {"containers": [{"image": ref}]}}}}
+        runs = {"erp-cell": [("server", "erp-server")], "erp-global": [("router", "erp-router"), ("web", "erp-web")]}[a[4]]
+        for image, deployment in runs:
+            if image not in rel["images"]:
+                state["deployment"].pop(deployment, None)  # a release from before it has none
+                continue
+            i = rel["images"][image]
+            ref = "%s@%s" % (i["repository"], i["digest"])
+            if os.environ.get("STALE_IMAGE") == str(state["n"]) and image != "web" or os.environ.get("STALE_WEB") == str(state["n"]) and image == "web":
+                ref += "0"
+            state["deployment"][deployment] = {"spec": {"template": {"spec": {"containers": [{"image": ref}]}}}}
     save()
 elif verb == "rollout":
     pass
@@ -71,7 +75,10 @@ release() {
   local d c
   d="$(printf "%064d" 0 | tr 0 "$2")" c="$(printf "%040d" 0 | tr 0 "$2")"
   printf '{"release": {"version": "%s", "commit": "%s"}, "images": {' "$1" "$c"
-  for i in server router web pgbouncer nats analytics; do
+  local images="server router pgbouncer nats analytics"
+  # NO_WEB: v1.0.0 is a release from before the web workspace.
+  if [ -z "${NO_WEB:-}" ] || [ "$1" != v1.0.0 ]; then images="$images web"; fi
+  for i in $images; do
     printf '"%s": {"repository": "r.example/erp-%s", "digest": "sha256:%s"}, ' "$i" "$i" "$d"
   done
   printf '"temporal": {"repository": "r.example/erp-temporal", "digest": "sha256:%s"}}}\n' "$d"
@@ -139,6 +146,10 @@ sys.exit(any({"release", "images"} & set(a["spec"].get("source", {}).get("helm",
 
 SYNCS=3 case_ passes passed "v1.1.0 passed (rolled back to v1.0.0)"
 SYNCS=6 case_ home-cell passed "" home
+# The web workspace is checked on a home cell too (T73b), and is not looked
+# for in a release from before it (NO_WEB: v1.0.0 has no web image).
+STALE_WEB=4 SYNCS=4 case_ home-cell-stale-web failed "deploy N+1: erp-web runs" home
+NO_WEB=1 SYNCS=6 case_ home-cell-before-the-web passed "" home
 FAIL_SYNC=erp-cell@2 SYNCS=2 case_ failed-upgrade failed "deploy N+1 erp-cell: sync Failed"
 STALE_IMAGE=3 case_ stale-image failed "revert to N: erp-server runs"
 SMOKE='test "$DRILL_STEP" != "revert to N"' case_ smoke-fails failed "the smoke tests failed"

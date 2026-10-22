@@ -506,6 +506,20 @@ type Handler interface {
 	//
 	// POST /v1/company-access/{id}:end
 	EndCompanyAccess(ctx context.Context, req *EndInput, params EndCompanyAccessParams) (EndCompanyAccessRes, error)
+	// EndCurrentSession implements endCurrentSession operation.
+	//
+	// Ends the session the bearer token belongs to (ADR-0031: one authentication at the identity provider,
+	// by its `sid` or the subject's `auth_time`), as `revoked`, recorded in the tenant's audit trail. From
+	// then on every token of that session gets 401 `identity.session_revoked`, as an ended session does: a
+	// token refreshed at the provider does not revive it, and the person signs in again. The web workspace
+	// calls it when a person signs out, before the provider's own logout (ADR-0052 G9). Any person may end
+	// their own session (`identity.session.end` is held by every person, whatever their roles). `ended` is
+	// false for a token whose provider keeps no session (a deployment's own issuer, outside production).
+	// Other replicas of the cell may accept the session's tokens for up to a minute more, while they
+	// remember having seen it (the session check's cache).
+	//
+	// POST /v1/sessions/current:end
+	EndCurrentSession(ctx context.Context, params EndCurrentSessionParams) (EndCurrentSessionRes, error)
 	// EndRoleAssignment implements endRoleAssignment operation.
 	//
 	// Ends the assignment. Sets `valid_to` (never into the past, only brought forward); nothing is

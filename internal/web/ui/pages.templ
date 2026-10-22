@@ -8,16 +8,31 @@ var Jobs = []i18n.Key{
 	i18n.JobJournal, i18n.JobClose, i18n.JobReports,
 }
 
-// Home is the placeholder home page until sign-in (T73b) and the jobs'
-// screens (T73d-T73j) exist: what is coming, and no business data.
-templ Home(s Shell) {
-	@Layout(s, homeContent())
+// Home is the signed-in person's home until the jobs' screens
+// (T73d-T73j) exist: the companies they may work in, as the API lists
+// them, and what is coming.
+templ Home(s Shell, h HomePage) {
+	@Layout(s, homeContent(h))
 }
 
-templ homeContent() {
+templ homeContent(h HomePage) {
 	<h1>
 		@T(i18n.HomeTitle)
 	</h1>
+	<h2>
+		@T(i18n.HomeCompanies)
+	</h2>
+	if len(h.Companies) == 0 {
+		@Paragraph(i18n.HomeNoCompanies)
+	} else {
+		<ul class="list">
+			for _, c := range h.Companies {
+				<li class="list__item">
+					@Value(c)
+				</li>
+			}
+		</ul>
+	}
 	@Notice("home-notice", i18n.HomeNotice, Paragraph(i18n.HomeNoticeMsg))
 	<h2>
 		@T(i18n.HomeJobs)
@@ -67,4 +82,67 @@ templ notFoundContent() {
 	</h1>
 	@Paragraph(i18n.NotFoundBody)
 	@ButtonLink("/", i18n.NotFoundHome)
+}
+
+// SignIn asks for the company's sign-in code (ADR-0052 P4): a plain field
+// that takes paste and autofill (WCAG 3.3.8); the provider's own page
+// then signs the person in.
+templ SignIn(s Shell, f SignInForm) {
+	@Layout(s, signInContent(f))
+}
+
+templ signInContent(f SignInForm) {
+	<h1>
+		@T(i18n.SignInTitle)
+	</h1>
+	@Paragraph(i18n.SignInLead)
+	<form method="post" action="/login" novalidate>
+		<input { hidden("return", f.Return)... }/>
+		<div { fieldClass(f.Error)... }>
+			<label class="field__label" for="code">
+				@T(i18n.SignInCode)
+			</label>
+			<p class="field__hint" id="code-hint">
+				@T(i18n.SignInCodeHint)
+			</p>
+			if f.Error != "" {
+				<p class="field__error" id="code-error">
+					@T(f.Error)
+				</p>
+			}
+			<input class="input" id="code" name="code" type="text" spellcheck="false" autocapitalize="none" autocomplete="on" { codeInput(f)... }/>
+		</div>
+		<button class="button" type="submit">
+			@T(i18n.SignInSubmit)
+		</button>
+	</form>
+}
+
+// Problem is a page that says what went wrong and offers the way on: a
+// sign-in that did not complete, a request refused.
+templ Problem(s Shell, title, body i18n.Key, next string, nextText i18n.Key) {
+	@Layout(s, problemContent(title, body, next, nextText))
+}
+
+templ problemContent(title, body i18n.Key, next string, nextText i18n.Key) {
+	<h1>
+		@T(title)
+	</h1>
+	@Paragraph(body)
+	@ButtonLink(next, nextText)
+}
+
+// Continue goes on at once to a same-site path, with a link where the
+// browser does not (ADR-0052 §5): an arrival from another site carries no
+// SameSite=Strict cookie, the navigation this page starts does.
+templ Continue(s Shell) {
+	@Layout(s, continueContent(s.Continue))
+}
+
+templ continueContent(next string) {
+	<h1>
+		@T(i18n.ContinueTitle)
+	</h1>
+	@Paragraph(i18n.ContinueBody)
+	@ButtonLink(next, i18n.ContinueLink)
 }

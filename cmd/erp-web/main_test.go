@@ -74,7 +74,7 @@ func fetch(t *testing.T, c *http.Client, u string) (int, string) {
 // stops cleanly.
 func TestServes(t *testing.T) {
 	public, admin, logs := start(t, environment())
-	for path, want := range map[string]int{"/": 200, "/health": 200, "/nothing": 404} {
+	for path, want := range map[string]int{"/": 503, "/login": 503, "/health": 200, "/nothing": 404} { // no directory: no sign-in
 		t.Run(path, func(t *testing.T) {
 			if code, _ := fetch(t, http.DefaultClient, "http://"+public+path); code != want {
 				t.Errorf("status: got %d, want %d", code, want)

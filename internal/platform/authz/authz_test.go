@@ -117,11 +117,29 @@ func TestOnlyCurrentGrantsCount(t *testing.T) {
 			t.Errorf("ended grant used: %d", s)
 		}
 	})
-	// An inactive role grants nothing.
+	// An inactive role grants nothing: the person holds their own
+	// permissions alone.
 	pgtest.Exec(t, `UPDATE identity.role SET status = 'inactive', version = version + 1 WHERE tenant_id = $1`, ten.ID)
 	as(t, ten, ten.Human, func(ctx context.Context) {
-		if set, _ := authz.Permissions(ctx); len(set) != 0 {
-			t.Errorf("inactive role grants %v", set)
+		set, _ := authz.Permissions(ctx)
+		if len(set) != len(authz.PersonsOwn()) {
+			t.Errorf("inactive role grants %v, want only %v", set, authz.PersonsOwn())
+		}
+	})
+}
+
+// TestPersonsOwn: every person holds their own permissions without any
+// role (ADR-0052 G9); an agent or a service does not.
+func TestPersonsOwn(t *testing.T) {
+	ten := pgtest.NewTenant(t)
+	as(t, ten, ten.Human, func(ctx context.Context) {
+		if err := authz.Require(ctx, "identity.session.end"); err != nil {
+			t.Errorf("person without roles: got %v, want identity.session.end held", err)
+		}
+	})
+	as(t, ten, ten.Agent, func(ctx context.Context) {
+		if s := status(authz.Require(ctx, "identity.session.end")); s != 403 {
+			t.Errorf("agent: got %d, want 403", s)
 		}
 	})
 }

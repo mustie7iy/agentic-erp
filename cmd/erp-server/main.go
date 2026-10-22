@@ -463,6 +463,9 @@ func cellIssuers(ctx context.Context, tx pgx.Tx) ([]directory.Issuer, error) {
 	out := make([]directory.Issuer, len(keys))
 	for i, k := range keys {
 		out[i] = directory.Issuer{Issuer: k.Issuer, Audience: k.Audience, TenantID: k.TenantID, ProviderID: k.ID}
+		if w := k.Web; w != nil {
+			out[i].Web = &directory.WebClient{LoginCode: w.LoginCode, ClientID: w.ClientID, AuthMethod: w.AuthMethod, CredentialRef: w.CredentialRef, Scope: w.Scope}
+		}
 	}
 	return out, nil
 }

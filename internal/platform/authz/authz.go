@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -52,12 +53,26 @@ func Permissions(ctx context.Context) (map[string]bool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("authz: permissions: %w", err)
 	}
-	set := make(map[string]bool, len(codes))
+	set := make(map[string]bool, len(codes)+len(personsOwn))
 	for _, c := range codes {
 		set[c] = true
 	}
+	if p.Kind == reqctx.KindHuman {
+		for _, c := range personsOwn {
+			set[c] = true
+		}
+	}
 	return set, nil
 }
+
+// personsOwn are the permissions every person holds, whatever their roles:
+// acting on their own sign-in alone. Ending one's own session must not
+// depend on a role an administrator remembered to grant (ADR-0052 G9), and
+// a person without roles must be able to sign out too.
+var personsOwn = []string{"identity.session.end"}
+
+// PersonsOwn returns the permissions every person holds (a copy).
+func PersonsOwn() []string { return slices.Clone(personsOwn) }
 
 // Require checks one permission, for checks beyond the operation's own (for
 // example the approval permission of an object type).

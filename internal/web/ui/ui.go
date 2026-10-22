@@ -42,7 +42,27 @@ type Shell struct {
 	Current string   // the path of the navigation entry the page belongs to
 	CSS     string   // the stylesheet's content-hashed path
 	Script  string   // htmx's content-hashed path
+	// Person is the signed-in person's part of the page; nil before
+	// sign-in.
+	Person *Person
+	// Continue, when set, is the same-site path the page goes on to at
+	// once (a continue page, ADR-0052 §5).
+	Continue string
 }
+
+// Person is what a page needs of the signed-in person: the session's CSRF
+// token, which every state-changing form carries and htmx sends as a
+// header (ADR-0052 §5).
+type Person struct {
+	CSRF string
+}
+
+// CSRFField is the name of the CSRF token's form field; CSRFHeader the
+// header htmx sends it in.
+const (
+	CSRFField  = "csrf_token"
+	CSRFHeader = "X-CSRF-Token"
+)
 
 // NavItem is one entry of the main navigation.
 type NavItem struct {
@@ -145,4 +165,59 @@ func statusRows(st Status) []Row {
 		{Key: i18n.StatusRev, Value: revision},
 		{Key: i18n.StatusLang, Value: T(i18n.LanguageName)},
 	}
+}
+
+// bodyAttrs gives htmx the CSRF token of a signed-in person's page, sent
+// with every request htmx makes from it.
+func bodyAttrs(s Shell) templ.Attributes {
+	if s.Person == nil {
+		return templ.Attributes{}
+	}
+	return templ.Attributes{"hx-headers": `{"` + CSRFHeader + `":"` + s.Person.CSRF + `"}`}
+}
+
+// csrfInput is the CSRF token's hidden field.
+func csrfInput(token string) templ.Attributes { return hidden(CSRFField, token) }
+
+// refresh goes on to path at once: a navigation the page itself starts,
+// so the browser sends the same-site cookies (ADR-0052 §5).
+func refresh(path string) templ.Attributes {
+	return templ.Attributes{"http-equiv": "refresh", "content": "0;url=" + string(templ.URL(path))}
+}
+
+// SignInForm is the sign-in form's state: the code typed and what is wrong
+// with it ("" for nothing).
+type SignInForm struct {
+	Code   string
+	Return string // the same-site path to come back to
+	Error  i18n.Key
+}
+
+// hidden is a hidden form field.
+func hidden(name, value string) templ.Attributes {
+	return templ.Attributes{"type": "hidden", "name": name, "value": value}
+}
+
+// fieldClass is a field's class, marked when it has an error.
+func fieldClass(err i18n.Key) templ.Attributes {
+	if err == "" {
+		return templ.Attributes{"class": "field"}
+	}
+	return templ.Attributes{"class": "field field--error"}
+}
+
+// codeInput is the login code's input: its value, its hint and error, and
+// no constraint on pasting or autofill (WCAG 3.3.8).
+func codeInput(f SignInForm) templ.Attributes {
+	a := templ.Attributes{"value": f.Code, "aria-describedby": "code-hint"}
+	if f.Error != "" {
+		a["aria-describedby"], a["aria-invalid"] = "code-hint code-error", "true"
+	}
+	return a
+}
+
+// HomePage is the home page's data: the companies the person may work in,
+// as the API lists them, or none.
+type HomePage struct {
+	Companies []string
 }

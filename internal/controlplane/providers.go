@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
@@ -42,17 +43,20 @@ type IdentityProvider struct {
 	AMRValues   []string  `json:"amr_values"`
 	// CertificateBound is certificate_bound_tokens: the provider binds its
 	// tokens to the client's certificate (RFC 8705, ADR-0033).
-	CertificateBound bool       `json:"certificate_bound_tokens"`
-	Status           string     `json:"status"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
-	RetiredAt        *time.Time `json:"retired_at"`
-	Version          int32      `json:"version"`
+	CertificateBound bool `json:"certificate_bound_tokens"`
+	// Web is web_client: the web workspace's client (ADR-0052 G8), null
+	// without one.
+	Web       *identity.WebClient `json:"web_client"`
+	Status    string              `json:"status"`
+	CreatedAt time.Time           `json:"created_at"`
+	UpdatedAt time.Time           `json:"updated_at"`
+	RetiredAt *time.Time          `json:"retired_at"`
+	Version   int32               `json:"version"`
 }
 
 func providerView(p identity.IdentityProvider) IdentityProvider {
 	return IdentityProvider{ID: p.ID, TenantID: p.TenantID, Issuer: p.Issuer, Audience: p.Audience, TenantClaim: p.TenantClaim,
-		ACRValues: p.ACRValues, AMRValues: p.AMRValues, CertificateBound: p.CertificateBound, Status: p.Status, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
+		ACRValues: p.ACRValues, AMRValues: p.AMRValues, CertificateBound: p.CertificateBound, Web: p.Web, Status: p.Status, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
 		RetiredAt: p.RetiredAt, Version: p.Version}
 }
 
@@ -224,11 +228,34 @@ func (s *Service) probe(ctx context.Context, issuer string) error {
 	return nil
 }
 
+// claim claims the provider's issuer and audience in the global directory,
+// then its web client's login code, before the registration commits.
 func (s *Service) claim(ctx context.Context, tenant uuid.UUID, p identity.IdentityProvider) error {
 	if s.Directory == nil {
 		return nil
 	}
-	return s.Directory.ClaimIssuer(ctx, tenant, p.ID, p.Issuer, p.Audience)
+	if err := s.Directory.ClaimIssuer(ctx, tenant, p.ID, p.Issuer, p.Audience); err != nil {
+		return err
+	}
+	return s.claimWeb(ctx, tenant, p)
+}
+
+// claimWeb projects the provider's web client, or its removal, into the
+// global directory before the change commits: a login code another
+// provider holds there is 409 identity.login_code_taken (ADR-0052 G8).
+func (s *Service) claimWeb(ctx context.Context, tenant uuid.UUID, p identity.IdentityProvider) error {
+	if s.Directory == nil {
+		return nil
+	}
+	return s.Directory.ClaimWebClient(ctx, directory.Issuer{Issuer: p.Issuer, Audience: p.Audience, TenantID: tenant, ProviderID: p.ID, Web: webClaim(p.Web)})
+}
+
+// webClaim is a web client as the directory keeps it.
+func webClaim(w *identity.WebClient) *directory.WebClient {
+	if w == nil {
+		return nil
+	}
+	return &directory.WebClient{LoginCode: w.LoginCode, ClientID: w.ClientID, AuthMethod: w.AuthMethod, CredentialRef: w.CredentialRef, Scope: w.Scope}
 }
 
 // claimKey claims the registration's key before anything else, as the unit
@@ -289,6 +316,11 @@ func (s *Service) UpdateProvider(ctx context.Context, op Operator, tenant, id uu
 		p, err := identity.UpdateIdentityProvider(ctx, tx, op.ID, id, etag.IfMatch(ifMatch), ch)
 		if err != nil {
 			return err
+		}
+		if ch.Web != nil {
+			if err := s.claimWeb(ctx, tenant, p); err != nil {
+				return err
+			}
 		}
 		out = providerView(p)
 		return s.record(ctx, tx, op, tenant, change{entry: identity.ProviderEntry("update", p)})

@@ -22,6 +22,21 @@ type Endpoints struct {
 	// Certifications bounds agents' levels by their type's certification
 	// (agents.Certifications, ADR-0039).
 	Certifications Certifications
+	// Sessions are people's sessions, which endCurrentSession ends.
+	Sessions *Sessions
+}
+
+// EndCurrentSession implements POST /v1/sessions/current:end (ADR-0052 G9).
+func (e *Endpoints) EndCurrentSession(ctx context.Context, _ gen.EndCurrentSessionParams) (gen.EndCurrentSessionRes, error) {
+	at, err := e.Sessions.End(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := gen.SessionEnd{Ended: at != nil}
+	if at != nil {
+		out.EndedAt.SetTo(*at)
+	}
+	return &gen.SessionEndHeaders{Response: out}, nil
 }
 
 func profileInput(p gen.AgentProfile) *ProfileInput {

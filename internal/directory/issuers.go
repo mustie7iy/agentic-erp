@@ -1,9 +1,11 @@
 package directory
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -38,7 +40,25 @@ type Issuer struct {
 	// ProviderID is the registration that claims the pair: a release gives
 	// up only its own registration's claim.
 	ProviderID uuid.UUID
+	// Web is the registration's web workspace client (ADR-0052 G8), which
+	// erp-web finds by its login code; nil: none.
+	Web *WebClient
 }
+
+// WebClient is a registration's web workspace client as the directory
+// projects it: what erp-web needs to start a sign-in before it knows
+// anyone (web.login_client).
+type WebClient struct {
+	LoginCode     string
+	ClientID      string
+	AuthMethod    string
+	CredentialRef string
+	Scope         string
+}
+
+// ErrLoginCodeTaken means another registration holds the web client's
+// login code.
+var ErrLoginCodeTaken = errors.New("directory: the login code belongs to another identity provider")
 
 // Issuers is a directory that keeps issuers (the Postgres one).
 type Issuers interface {
@@ -48,11 +68,68 @@ type Issuers interface {
 }
 
 // claimSQL takes the pair for the tenant, or refreshes the tenant's own
-// claim; another tenant's claim is left alone and nothing is returned.
+// claim; another tenant's claim is left alone and nothing is returned. A
+// claim taken over by another registration of the tenant loses the old
+// one's web client (claimWebSQL sets the new one's).
 const claimSQL = `INSERT INTO directory.issuer (issuer, audience, tenant_id, cell, provider_id) VALUES ($1, $2, $3, $4, $5)
-	ON CONFLICT (issuer, audience) DO UPDATE SET cell = EXCLUDED.cell, provider_id = EXCLUDED.provider_id, updated_at = now()
+	ON CONFLICT (issuer, audience) DO UPDATE SET cell = EXCLUDED.cell, provider_id = EXCLUDED.provider_id, updated_at = now(),
+		login_code = CASE WHEN ` + sameProvider + ` THEN directory.issuer.login_code END,
+		client_id = CASE WHEN ` + sameProvider + ` THEN directory.issuer.client_id END,
+		auth_method = CASE WHEN ` + sameProvider + ` THEN directory.issuer.auth_method END,
+		credential_ref = CASE WHEN ` + sameProvider + ` THEN directory.issuer.credential_ref END,
+		scope = CASE WHEN ` + sameProvider + ` THEN directory.issuer.scope END
 	WHERE directory.issuer.tenant_id = EXCLUDED.tenant_id
 	RETURNING true`
+
+const sameProvider = `directory.issuer.provider_id IS NOT DISTINCT FROM EXCLUDED.provider_id`
+
+// claimWebSQL sets the registration's web client on its claim, or clears
+// it (all NULL), unless another claim holds the login code: then the
+// claim keeps no web client and free is false. No row: the registration
+// holds no claim of the pair.
+const claimWebSQL = `WITH c AS (SELECT NOT EXISTS (SELECT FROM directory.issuer o WHERE o.login_code = $4 AND (o.issuer, o.audience) <> ($1, $2)) AS free)
+	UPDATE directory.issuer SET login_code = CASE WHEN free THEN $4 END, client_id = CASE WHEN free THEN $5 END,
+		auth_method = CASE WHEN free THEN $6 END, credential_ref = CASE WHEN free THEN $7 END, scope = CASE WHEN free THEN $8 END
+	FROM c WHERE issuer = $1 AND audience = $2 AND provider_id = $3 RETURNING free`
+
+func claimWebIn(ctx context.Context, tx pgx.Tx, is Issuer) (bool, error) {
+	args := []any{is.Issuer, is.Audience, is.ProviderID, nil, nil, nil, nil, nil}
+	if w := is.Web; w != nil {
+		args = append(args[:3], w.LoginCode, w.ClientID, w.AuthMethod, w.CredentialRef, w.Scope)
+		// Claims of one code, from any cell, wait for each other here
+		// until commit, so the second sees the first's and none breaks the
+		// unique index (which would abort a round's whole transaction).
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('directory.login_code'), hashtext($1))`, w.LoginCode); err != nil {
+			return false, fmt.Errorf("lock login code %s: %w", w.LoginCode, err)
+		}
+	}
+	var free bool
+	if err := tx.QueryRow(ctx, claimWebSQL, args...).Scan(&free); err != nil {
+		return false, fmt.Errorf("claim web client of %s %s: %w", is.Issuer, is.Audience, err)
+	}
+	return free, nil
+}
+
+// ClaimWebClient sets the registration's web client on its claim of the
+// issuer and audience, or clears it; ErrLoginCodeTaken when another
+// registration holds the login code. The registration must hold the claim
+// (ClaimIssuer, or a round, made it).
+func (p *Postgres) ClaimWebClient(ctx context.Context, is Issuer) error {
+	err := p.inTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
+		free, err := claimWebIn(ctx, tx, is)
+		if err == nil && !free {
+			err = ErrLoginCodeTaken
+		}
+		return err
+	})
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return fmt.Errorf("directory: %s %s is not claimed by provider %s: %w", is.Issuer, is.Audience, is.ProviderID, err)
+	case err != nil && !errors.Is(err, ErrLoginCodeTaken):
+		return fmt.Errorf("directory: %w", err)
+	}
+	return err
+}
 
 func claimIn(ctx context.Context, tx pgx.Tx, is Issuer) (bool, error) {
 	var ok bool
@@ -114,8 +191,18 @@ func (p *Postgres) SyncIssuers(ctx context.Context, cell string, issuers []Issue
 	taken := 0
 	err := p.inTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
 		names, audiences := make([]string, len(issuers)), make([]string, len(issuers))
+		// In one order across cells (login code, then issuer and audience),
+		// so two rounds sharing codes take their locks alike and never
+		// deadlock.
+		issuers = slices.Clone(issuers)
+		slices.SortFunc(issuers, func(a, b Issuer) int {
+			return cmp.Or(cmp.Compare(loginCodeOf(a), loginCodeOf(b)), cmp.Compare(a.Issuer, b.Issuer), cmp.Compare(a.Audience, b.Audience))
+		})
 		for i, is := range issuers {
 			ok, err := claimIn(ctx, tx, is)
+			if err == nil && ok {
+				ok, err = claimWebIn(ctx, tx, is)
+			}
 			if err != nil {
 				return err
 			}
@@ -154,6 +241,34 @@ func (s *Sync) ClaimIssuer(ctx context.Context, tenant, provider uuid.UUID, issu
 		return problem.Unavailable("The global directory could not be reached; try again shortly.", 30).WithCause(err)
 	}
 	return nil
+}
+
+// ClaimWebClient projects a registration's web client, or its removal,
+// into the directory before the change commits: 409
+// identity.login_code_taken when another registration holds the login
+// code, 503 when the directory cannot be reached. Without a directory that
+// keeps issuers there is nothing to claim: the cell's own index keeps the
+// code unique.
+func (s *Sync) ClaimWebClient(ctx context.Context, is Issuer) error {
+	dir, ok := s.Directory.(WebClients)
+	if !ok {
+		return nil
+	}
+	is.Cell = s.Cell
+	err := dir.ClaimWebClient(ctx, is)
+	switch {
+	case errors.Is(err, ErrLoginCodeTaken):
+		return problem.Conflict("identity.login_code_taken", "This login code belongs to another identity provider; choose another.").WithCause(err)
+	case err != nil:
+		return problem.Unavailable("The global directory could not be reached; try again shortly.", 30).WithCause(err)
+	}
+	return nil
+}
+
+// WebClients is a directory that keeps web clients with the issuers (the
+// Postgres one).
+type WebClients interface {
+	ClaimWebClient(ctx context.Context, is Issuer) error
 }
 
 // ReleaseIssuer gives up the provider's claim after it was retired.
@@ -200,7 +315,11 @@ func (p *Postgres) LookupIssuer(ctx context.Context, issuer string, audiences []
 		rows, _ := tx.Query(ctx, `SELECT issuer, audience, tenant_id, cell, coalesce(provider_id, '00000000-0000-0000-0000-000000000000')
 			FROM directory.issuer WHERE issuer = $1 AND audience = ANY($2) ORDER BY audience`, issuer, audiences)
 		var err error
-		if out, err = pgx.CollectRows(rows, pgx.RowToStructByPos[Issuer]); err != nil {
+		if out, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (Issuer, error) {
+			var is Issuer
+			err := row.Scan(&is.Issuer, &is.Audience, &is.TenantID, &is.Cell, &is.ProviderID)
+			return is, err //nolint:wrapcheck // wrapped below with the issuer
+		}); err != nil {
 			return fmt.Errorf("look up issuer %s: %w", issuer, err)
 		}
 		return nil
@@ -231,4 +350,12 @@ func (r IssuerRegistry) Resolve(ctx context.Context, issuer string, audiences []
 	}
 	c := claims[0]
 	return authn.Registration{ProviderID: c.ProviderID, TenantID: c.TenantID, Issuer: c.Issuer, Audience: c.Audience}, nil
+}
+
+// loginCodeOf is the claim's web client's login code, "" without one.
+func loginCodeOf(is Issuer) string {
+	if is.Web == nil {
+		return ""
+	}
+	return is.Web.LoginCode
 }

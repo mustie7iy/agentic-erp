@@ -1527,7 +1527,10 @@ func TestAPanickingWorkerIsContained(t *testing.T) {
 func TestCellIssuers(t *testing.T) {
 	ten := pgtest.NewTenant(t)
 	issuer := "https://cell-" + uuid.NewString() + ".example.com"
-	pgtest.Exec(t, `INSERT INTO identity.identity_provider (tenant_id, id, issuer, audience, created_by, updated_by) VALUES ($1, gen_random_uuid(), $2, 'erp', $1, $1)`, ten.ID, issuer)
+	code := "c-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:20]
+	pgtest.Exec(t, `INSERT INTO identity.identity_provider (tenant_id, id, issuer, audience, created_by, updated_by,
+		web_client_id, web_auth_method, web_credential_ref, web_login_code, web_scope)
+		VALUES ($1, gen_random_uuid(), $2, 'erp', $1, $1, 'erp-web', 'private_key_jwt', 'file:/k', $3, 'openid erp')`, ten.ID, issuer, code)
 	ctx := context.Background()
 	tx, err := pgtest.Pool(t).Begin(ctx, database.Scope{Role: "erp_control", ReadOnly: true})
 	if err != nil {
@@ -1539,9 +1542,9 @@ func TestCellIssuers(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !slices.ContainsFunc(got, func(is directory.Issuer) bool {
-		return is.Issuer == issuer && is.Audience == "erp" && is.TenantID == ten.ID && is.ProviderID != uuid.Nil
+		return is.Issuer == issuer && is.Audience == "erp" && is.TenantID == ten.ID && is.ProviderID != uuid.Nil && is.Web != nil && is.Web.LoginCode == code
 	}) {
-		t.Errorf("issuers: got %d without %s of the tenant, want it listed with its provider", len(got), issuer)
+		t.Errorf("issuers: got %d without %s of the tenant, want it listed with its provider and web client", len(got), issuer)
 	}
 }
 

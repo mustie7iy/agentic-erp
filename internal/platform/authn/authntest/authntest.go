@@ -41,6 +41,8 @@ type Issuer struct {
 	cacheControl string
 	blocked      chan struct{}
 	bodies       map[string][]byte
+
+	as authorization // the authorization server's state (server.go)
 }
 
 type signingKey struct {
@@ -97,17 +99,23 @@ func start() (is *Issuer, stop func(), err error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	is = &Issuer{keys: []signingKey{k}, bodies: map[string][]byte{}}
+	is = &Issuer{keys: []signingKey{k}, bodies: map[string][]byte{}, as: newAuthorization()}
 	mux := http.NewServeMux()
 	srv := httptest.NewServer(mux)
 	is.URL = srv.URL
 	mux.HandleFunc(DiscoveryPath, is.serve(DiscoveryPath, func() any {
 		return map[string]any{
 			"issuer": is.URL, "jwks_uri": is.URL + KeysPath,
-			"authorization_endpoint": is.URL + "/auth", "token_endpoint": is.URL + "/token",
-			"id_token_signing_alg_values_supported": []string{"RS256"},
+			"authorization_endpoint": is.URL + AuthorizePath, "token_endpoint": is.URL + TokenPath, "end_session_endpoint": is.URL + EndSessionPath,
+			"id_token_signing_alg_values_supported": []string{"RS256"}, "response_types_supported": []string{"code"},
+			"code_challenge_methods_supported":               []string{"S256"},
+			"token_endpoint_auth_methods_supported":          []string{"private_key_jwt", "client_secret_basic"},
+			"authorization_response_iss_parameter_supported": true,
 		}
 	}))
+	mux.HandleFunc(AuthorizePath, is.authorize)
+	mux.HandleFunc(TokenPath, is.token)
+	mux.HandleFunc(EndSessionPath, is.endSession)
 	mux.HandleFunc(KeysPath, is.serve(KeysPath, func() any {
 		set := jose.JSONWebKeySet{}
 		for _, k := range is.keys {

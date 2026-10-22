@@ -54,10 +54,12 @@ func cli(ctx context.Context, getenv func(string) string, stderr io.Writer, star
 
 func run(ctx context.Context, cfg web.Config, log *slog.Logger, started func(public, admin net.Listener)) error {
 	build := buildinfo.Get()
-	srv, err := web.New(cfg, build, log)
+	srv, err := web.New(ctx, cfg, build, log)
 	if err != nil {
 		return err
 	}
+	defer srv.Close()
+	go srv.RunSweeper(ctx)
 	metrics := telemetry.NewMetrics()
 	handler := telemetry.Middleware(log, metrics, tracenoop.NewTracerProvider())(srv.Handler())
 	ln, adminLn, err := listen(ctx, cfg)

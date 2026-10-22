@@ -3,6 +3,18 @@
 # directory follows the cell's shape, the home cell reads the global
 # tier's secrets, and the outputs are the charts' values. The modules' own
 # tests check what each one builds.
+# The global tier's subnets, as AWS has them: the balancers' public ones
+# apart from the private ones of the nodes and pods (modules/global).
+override_data {
+  target = module.global.data.aws_subnet.public
+  values = { cidr_block = "10.20.0.0/24" }
+}
+
+override_data {
+  target = module.global.data.aws_subnet.private
+  values = { cidr_block = "10.20.128.0/20" }
+}
+
 mock_provider "aws" {
   mock_data "aws_caller_identity" {
     defaults = { account_id = "222222222222" }

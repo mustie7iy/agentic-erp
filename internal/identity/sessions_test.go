@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -633,5 +634,101 @@ func TestSweeperIsFairToTenants(t *testing.T) {
 	}
 	if _, ended, _ := quiet.row("sid-quiet"); ended == nil {
 		t.Error("the other tenant's idle session: got not ended, want ended in the first round")
+	}
+}
+
+// end runs Sessions.End as endCurrentSession does: in the request's
+// transaction (tx wraps it, when given) with the token's claims, then
+// commits and runs the commit hooks.
+func (f *sessionFixture) end(c reqctx.Claims, wrap func(pgx.Tx) pgx.Tx) (*time.Time, error) {
+	f.t.Helper()
+	ctx := context.Background()
+	tx, err := f.s.Pool.Begin(ctx, database.Scope{Role: "erp_app", TenantID: f.ten.ID})
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // after a commit it does nothing
+	inTx := pgx.Tx(tx)
+	if wrap != nil {
+		inTx = wrap(tx)
+	}
+	ctx, commit := reqctx.WithCommit(reqctx.WithClaims(reqctx.WithPrincipal(reqctx.WithTx(ctx, inTx), f.person), c))
+	at, err := f.s.End(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		f.t.Fatal(err)
+	}
+	commit.Run()
+	return at, nil
+}
+
+// TestSessionEndedAtSignOut: a person ends their own session (ADR-0052
+// G9); its next token is refused here at once, as revoked, though this
+// replica saw it a moment ago, and the end is audited.
+func TestSessionEndedAtSignOut(t *testing.T) {
+	f := newSessions(t)
+	c := f.claims("sid-sign-out")
+	if err := f.check(c); err != nil {
+		t.Fatalf("first sighting: %v", err)
+	}
+	at, err := f.end(c, nil)
+	if err != nil || at == nil || !at.Equal(f.clock.Now()) {
+		t.Fatalf("end: got %v, %v, want now", at, err)
+	}
+	_, ended, reason := f.row("sid-sign-out")
+	if ended == nil || reason == nil || *reason != "revoked" {
+		t.Errorf("row: got ended %v reason %v, want revoked", ended, reason)
+	}
+	wantCode(t, f.check(c), "identity.session_revoked")
+	if n := auditCount(t, f.ten.ID, "identity.session.end"); n != 1 {
+		t.Errorf("audited ends: got %d, want 1", n)
+	}
+	t.Run("again", func(t *testing.T) {
+		if at, err := f.end(c, nil); at != nil || err != nil {
+			t.Errorf("got %v, %v, want nothing ended", at, err)
+		}
+	})
+	t.Run("no session kept", func(t *testing.T) {
+		none := f.claims("sid-none")
+		none.Session = reqctx.SessionRule{}
+		if at, err := f.end(none, nil); at != nil || err != nil {
+			t.Errorf("got %v, %v, want nothing ended", at, err)
+		}
+	})
+	t.Run("outside a request", func(t *testing.T) {
+		if _, err := f.s.End(context.Background()); err == nil {
+			t.Error("got nil, want the missing request's error")
+		}
+	})
+}
+
+func TestSessionEndDatabaseFailures(t *testing.T) {
+	f := newSessions(t)
+	for n := 1; ; n++ {
+		c := f.claims("sid-" + uuid.NewString())
+		if err := f.check(c); err != nil {
+			t.Fatal(err)
+		}
+		_, err := f.end(c, func(tx pgx.Tx) pgx.Tx { return &pgtest.FailingTx{Tx: tx, FailAt: n} })
+		if err == nil {
+			if n < 3 {
+				t.Fatalf("statement %d: ended with fewer statements than an update and its audit", n)
+			}
+			return
+		}
+		if !errors.Is(err, pgtest.ErrInjected) {
+			t.Fatalf("statement %d: got %v, want the injected failure", n, err)
+		}
+	}
+}
+
+// TestEndCurrentSessionOutsideARequest: the endpoint reports the missing
+// request rather than answering.
+func TestEndCurrentSessionOutsideARequest(t *testing.T) {
+	e := &identity.Endpoints{Sessions: &identity.Sessions{}}
+	if res, err := e.EndCurrentSession(context.Background(), gen.EndCurrentSessionParams{}); err == nil || res != nil {
+		t.Errorf("got %v, %v, want the missing request's error", res, err)
 	}
 }

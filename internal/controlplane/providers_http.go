@@ -66,6 +66,13 @@ type providerBody struct {
 	AMRValues   []string `json:"amr_values"`
 	// CertificateBound is certificate_bound_tokens (ADR-0033).
 	CertificateBound bool `json:"certificate_bound_tokens"`
+	// Web is web_client, the web workspace's client (ADR-0052 G8).
+	Web *identity.WebClient `json:"web_client"`
+}
+
+func (b providerBody) registration() identity.NewIdentityProvider {
+	return identity.NewIdentityProvider{Issuer: b.Issuer, Audience: b.Audience, TenantClaim: b.TenantClaim, ACRValues: b.ACRValues, AMRValues: b.AMRValues,
+		CertificateBound: b.CertificateBound, Web: b.Web}
 }
 
 func (h *handler) register(w http.ResponseWriter, r *http.Request, tenant uuid.UUID) error {
@@ -77,9 +84,7 @@ func (h *handler) register(w http.ResponseWriter, r *http.Request, tenant uuid.U
 	if err := strictJSON(body, &in); err != nil {
 		return err
 	}
-	p, replayed, err := h.s.RegisterProvider(r.Context(), operator(r.Context()), tenant,
-		identity.NewIdentityProvider{Issuer: in.Issuer, Audience: in.Audience, TenantClaim: in.TenantClaim, ACRValues: in.ACRValues, AMRValues: in.AMRValues,
-			CertificateBound: in.CertificateBound}, key)
+	p, replayed, err := h.s.RegisterProvider(r.Context(), operator(r.Context()), tenant, in.registration(), key)
 	if err != nil {
 		return err
 	}
@@ -183,6 +188,7 @@ func providerChange(body []byte) (identity.IdentityProviderChange, error) {
 		ACRValues   json.RawMessage `json:"acr_values"`
 		AMRValues   json.RawMessage `json:"amr_values"`
 		Bound       json.RawMessage `json:"certificate_bound_tokens"`
+		Web         json.RawMessage `json:"web_client"`
 	}
 	var ch identity.IdentityProviderChange
 	if err := strictJSON(body, &patch); err != nil {
@@ -204,6 +210,15 @@ func providerChange(body []byte) (identity.IdentityProviderChange, error) {
 			return ch, problem.BadRequest("request.invalid_body", "certificate_bound_tokens must be true or false.").WithCause(err)
 		}
 		ch.CertificateBound = bound
+	}
+	if patch.Web != nil {
+		// Replaced as a whole, null removes it; a field missing from the
+		// object is invalid (ValidateProvider), never kept from before.
+		var web *identity.WebClient
+		if err := strictJSON(patch.Web, &web); err != nil {
+			return ch, problem.BadRequest("request.invalid_body", "web_client must be a web client or null.").WithCause(err)
+		}
+		ch.Web = &web
 	}
 	for _, f := range []struct {
 		raw json.RawMessage

@@ -3362,6 +3362,7 @@ func (*BadRequestHeaders) disableConnectorRes()                 {}
 func (*BadRequestHeaders) enableConnectorRes()                  {}
 func (*BadRequestHeaders) endAgentSessionRes()                  {}
 func (*BadRequestHeaders) endCompanyAccessRes()                 {}
+func (*BadRequestHeaders) endCurrentSessionRes()                {}
 func (*BadRequestHeaders) endRoleAssignmentRes()                {}
 func (*BadRequestHeaders) endRolePermissionRes()                {}
 func (*BadRequestHeaders) endSodRuleRes()                       {}
@@ -14650,6 +14651,7 @@ func (*ForbiddenHeaders) disableConnectorRes()                 {}
 func (*ForbiddenHeaders) enableConnectorRes()                  {}
 func (*ForbiddenHeaders) endAgentSessionRes()                  {}
 func (*ForbiddenHeaders) endCompanyAccessRes()                 {}
+func (*ForbiddenHeaders) endCurrentSessionRes()                {}
 func (*ForbiddenHeaders) endRoleAssignmentRes()                {}
 func (*ForbiddenHeaders) endRolePermissionRes()                {}
 func (*ForbiddenHeaders) endSodRuleRes()                       {}
@@ -24998,6 +25000,74 @@ func (o OptNilDate) Get() (v time.Time, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptNilDate) Or(d time.Time) time.Time {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptNilDateTime returns new OptNilDateTime with value set to v.
+func NewOptNilDateTime(v time.Time) OptNilDateTime {
+	return OptNilDateTime{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptNilDateTime is optional nullable time.Time.
+type OptNilDateTime struct {
+	Value time.Time
+	Set   bool
+	Null  bool
+}
+
+// IsSet returns true if OptNilDateTime was set.
+func (o OptNilDateTime) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptNilDateTime) Reset() {
+	var v time.Time
+	o.Value = v
+	o.Set = false
+	o.Null = false
+}
+
+// SetTo sets value to v.
+func (o *OptNilDateTime) SetTo(v time.Time) {
+	o.Set = true
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o OptNilDateTime) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *OptNilDateTime) SetToNull() {
+	o.Set = true
+	o.Null = true
+	var v time.Time
+	o.Value = v
+}
+
+// IsEmpty returns true if the field was omitted from the payload (not Set and not Null).
+func (o OptNilDateTime) IsEmpty() bool {
+	return !o.Set && !o.Null
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptNilDateTime) Get() (v time.Time, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptNilDateTime) Or(d time.Time) time.Time {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -35706,6 +35776,96 @@ func (*ServiceUnavailableHeaders) updateWebhookSubscriptionRes()        {}
 func (*ServiceUnavailableHeaders) verifyAuditChainRes()                 {}
 func (*ServiceUnavailableHeaders) withdrawChangeRequestRes()            {}
 
+// The end of the caller's session (endCurrentSession).
+// Ref: #/components/schemas/SessionEnd
+type SessionEnd struct {
+	// True when the session was ended now; false when the token's provider keeps no session.
+	Ended bool `json:"ended"`
+	// When the session ended; null when none was kept.
+	EndedAt OptNilDateTime `json:"ended_at"`
+}
+
+// GetEnded returns the value of Ended.
+func (s *SessionEnd) GetEnded() bool {
+	return s.Ended
+}
+
+// GetEndedAt returns the value of EndedAt.
+func (s *SessionEnd) GetEndedAt() OptNilDateTime {
+	return s.EndedAt
+}
+
+// SetEnded sets the value of Ended.
+func (s *SessionEnd) SetEnded(val bool) {
+	s.Ended = val
+}
+
+// SetEndedAt sets the value of EndedAt.
+func (s *SessionEnd) SetEndedAt(val OptNilDateTime) {
+	s.EndedAt = val
+}
+
+// SessionEndHeaders wraps SessionEnd with response headers.
+type SessionEndHeaders struct {
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           SessionEnd
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *SessionEndHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *SessionEndHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *SessionEndHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *SessionEndHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *SessionEndHeaders) GetResponse() SessionEnd {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *SessionEndHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *SessionEndHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *SessionEndHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *SessionEndHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *SessionEndHeaders) SetResponse(val SessionEnd) {
+	s.Response = val
+}
+
+func (*SessionEndHeaders) endCurrentSessionRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/SodRule
 type SodRule struct {
@@ -38115,6 +38275,7 @@ func (*TooManyRequestsHeaders) disableConnectorRes()                 {}
 func (*TooManyRequestsHeaders) enableConnectorRes()                  {}
 func (*TooManyRequestsHeaders) endAgentSessionRes()                  {}
 func (*TooManyRequestsHeaders) endCompanyAccessRes()                 {}
+func (*TooManyRequestsHeaders) endCurrentSessionRes()                {}
 func (*TooManyRequestsHeaders) endRoleAssignmentRes()                {}
 func (*TooManyRequestsHeaders) endRolePermissionRes()                {}
 func (*TooManyRequestsHeaders) endSodRuleRes()                       {}
@@ -38440,6 +38601,7 @@ func (*UnauthorizedHeaders) disableConnectorRes()                 {}
 func (*UnauthorizedHeaders) enableConnectorRes()                  {}
 func (*UnauthorizedHeaders) endAgentSessionRes()                  {}
 func (*UnauthorizedHeaders) endCompanyAccessRes()                 {}
+func (*UnauthorizedHeaders) endCurrentSessionRes()                {}
 func (*UnauthorizedHeaders) endRoleAssignmentRes()                {}
 func (*UnauthorizedHeaders) endRolePermissionRes()                {}
 func (*UnauthorizedHeaders) endSodRuleRes()                       {}
@@ -38754,6 +38916,7 @@ func (*UnprocessableHeaders) disableConnectorRes()                 {}
 func (*UnprocessableHeaders) enableConnectorRes()                  {}
 func (*UnprocessableHeaders) endAgentSessionRes()                  {}
 func (*UnprocessableHeaders) endCompanyAccessRes()                 {}
+func (*UnprocessableHeaders) endCurrentSessionRes()                {}
 func (*UnprocessableHeaders) endRoleAssignmentRes()                {}
 func (*UnprocessableHeaders) endRolePermissionRes()                {}
 func (*UnprocessableHeaders) endSodRuleRes()                       {}

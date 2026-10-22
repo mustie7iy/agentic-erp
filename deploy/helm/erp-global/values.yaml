@@ -100,7 +100,9 @@ secrets:
   # router-public-certificate (the public listener's chain, PEM, from a
   # public CA) and router-public-key (its key, PEM), and the same pair for
   # the web workspace (web-public-certificate, web-public-key), which
-  # operators load.
+  # operators load; the workspace's web-session-key (at least 32 random
+  # bytes) and web-clients (a JSON object of file name to the web clients'
+  # PEM keys or secrets, ADR-0052 G8).
   prefix: erp/global
   # The store of the erp-cluster chart.
   store: erp-cell

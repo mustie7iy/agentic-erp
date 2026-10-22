@@ -2,8 +2,11 @@
 // backend-for-frontend that renders pages on the server with templ
 // (internal/web/ui) and calls the public API with the typed ogen client
 // (api/gen) as the signed-in person, never as itself (§7). It holds no
-// business logic and no business data; sign-in and its sealed sessions
-// arrive with T73b.
+// business logic and no business data: its own store
+// (internal/web/session) keeps who signed in, with their tokens sealed, in
+// the directory database (§6). Sign-in is the authorization code flow at
+// the tenant's provider (signin.go, oidc.go); every API call carries the
+// person's own access token.
 //
 // Every response carries a strict Content Security Policy with a fresh
 // nonce, HSTS and the other headers of ADR-0052 §8; the only script is the
@@ -21,14 +24,19 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/a-h/templ"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
+	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
+	"github.com/mustie7iy/agentic-erp/internal/platform/worker"
 	"github.com/mustie7iy/agentic-erp/internal/web/i18n"
+	"github.com/mustie7iy/agentic-erp/internal/web/session"
 	"github.com/mustie7iy/agentic-erp/internal/web/ui"
 )
 
@@ -38,16 +46,54 @@ type Server struct {
 	Assets  *Assets
 	Build   buildinfo.Info
 	Log     *slog.Logger
-	// API is the public API's typed client. The jobs' screens call it with
-	// the signed-in person's token (WithToken, T73b); nothing calls it yet.
+	// API is the public API's typed client, called with the signed-in
+	// person's token (WithToken, put on each request by signedIn).
 	API *gen.Client
+	// Store keeps the sessions, Clients finds the web clients and OIDC
+	// signs people in at their providers; a nil Store: no one can sign in
+	// (development without a directory).
+	Store   *session.Store
+	Clients *session.Clients
+	OIDC    *OIDC
+	Now     func() time.Time // nil: the wall clock
 }
 
 // New is the workspace for cfg: its catalog (the pseudo-locales outside
 // production), its static files and the API's client, which reaches the
 // API within the router's own limits.
-func New(cfg Config, build buildinfo.Info, log *slog.Logger) (*Server, error) {
-	return newServer(cfg, build, log, i18n.Load, LoadAssets)
+func New(ctx context.Context, cfg Config, build buildinfo.Info, log *slog.Logger) (*Server, error) {
+	s, err := newServer(cfg, build, log, i18n.Load, LoadAssets)
+	if err != nil {
+		return nil, err
+	}
+	return s, s.signIn(ctx, cfg)
+}
+
+// signIn opens the session store and makes the OIDC client, with a
+// directory; without one (development) no one can sign in.
+func (s *Server) signIn(ctx context.Context, cfg Config) error {
+	if cfg.DirectoryURL == "" {
+		return nil
+	}
+	sealer, err := session.NewSealer(cfg.SessionSecrets...)
+	if err != nil {
+		return err
+	}
+	if s.Store, err = session.Open(ctx, cfg.DirectoryURL, cfg.DirectoryPassword, sealer); err != nil {
+		return err
+	}
+	public := strings.TrimSuffix(cfg.PublicURL.String(), "/")
+	s.Clients = &session.Clients{Store: s.Store}
+	s.OIDC = &OIDC{Providers: &authn.Providers{Production: cfg.Environment == string(authn.Production)},
+		Credentials: secrets.Local{}, Prefix: cfg.CredentialPrefix, Callback: public + "/callback", SignedOut: public + "/signed-out"}
+	return nil
+}
+
+// Close releases the session store's connections.
+func (s *Server) Close() {
+	if s.Store != nil {
+		s.Store.Close()
+	}
 }
 
 func newServer(cfg Config, build buildinfo.Info, log *slog.Logger, catalog func(pseudo bool) (*i18n.Catalog, error), assets func() (*Assets, error)) (*Server, error) {
@@ -82,7 +128,12 @@ func apiClient(dial string, tlsConfig *tls.Config) *http.Client {
 }
 
 // Handler is the workspace: its pages, its static files, and a page for
-// every other address, each response with the security headers.
+// every other address, each response with the security headers. No route
+// changes state on GET, HEAD or OPTIONS, which CrossOriginProtection lets
+// through from anywhere (ADR-0052 §5), but for the sign-in's own two: the
+// start (a sign-in's cookies, nothing a person owns) and the callback,
+// which the provider's redirect reaches as a GET and which the sign-in's
+// state binds to the browser that started it (RFC 6749 §10.12).
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	route := func(pattern string, h http.HandlerFunc) {
@@ -91,9 +142,13 @@ func (s *Server) Handler() http.Handler {
 			h(w, r)
 		})
 	}
-	route("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		s.render(w, r, http.StatusOK, ui.Home(s.shell(i18n.HomeTitle, "/")))
-	})
+	route("GET /{$}", s.signedIn(s.home))
+	route("GET /login", s.loginPage)
+	route("POST /login", s.loginForm)
+	route("GET /login/{code}", s.login)
+	route("GET /callback", s.callback)
+	route("POST /logout", s.signedIn(s.csrf(s.logout)))
+	route("GET /signed-out", s.signedOut)
 	route("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		st := ui.Status{Version: s.Build.Version, Revision: s.Build.Revision}
 		s.render(w, r, http.StatusOK, ui.StatusPage(s.shell(i18n.StatusTitle, "/health"), st))
@@ -102,7 +157,9 @@ func (s *Server) Handler() http.Handler {
 	route("/", func(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, http.StatusNotFound, ui.NotFound(s.shell(i18n.NotFoundTitle, "")))
 	})
-	return secure(s.localized(mux))
+	cop := http.NewCrossOriginProtection()
+	cop.SetDenyHandler(http.HandlerFunc(s.refused))
+	return secure(s.localized(cop.Handler(mux)))
 }
 
 func (s *Server) shell(title i18n.Key, current string) ui.Shell {
@@ -168,4 +225,26 @@ func secure(next http.Handler) http.Handler {
 		h.Set("Permissions-Policy", permissionsPolicy)
 		next.ServeHTTP(w, r.WithContext(templ.WithNonce(r.Context(), nonce)))
 	})
+}
+
+// SweepInterval is how often ended sessions nobody came back to are
+// deleted (ADR-0052 §6).
+const SweepInterval = time.Hour
+
+// RunSweeper deletes ended sessions every SweepInterval until ctx ends;
+// without a store there is nothing to sweep.
+func (s *Server) RunSweeper(ctx context.Context) {
+	if s.Store == nil {
+		return
+	}
+	worker.Loop(ctx, SweepInterval, SweepInterval, s.sweep, s.Log, "web: the session sweep failed")
+}
+
+// sweep is one round of the sweeper.
+func (s *Server) sweep(ctx context.Context) (bool, error) {
+	n, err := s.Store.Sweep(ctx)
+	if n > 0 {
+		s.Log.InfoContext(ctx, "web: ended sessions deleted", "sessions", n)
+	}
+	return false, err
 }

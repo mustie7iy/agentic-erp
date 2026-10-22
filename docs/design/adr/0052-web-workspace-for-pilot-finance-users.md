@@ -85,10 +85,10 @@ The parts of the platform a browser client meets:
     client certificate** (for agents' RFC 8705 binding), finds the cell by
     the token's issuer and forwards the request.
   - A cell's API accepts only the router's SPIFFE identity.
-  - From memory, to verify: when a server requests a client certificate
-    and the user has certificates installed (common on managed corporate
-    machines), browsers can show a certificate picker. That makes the
-    router's hostname a poor place for a browser to land.
+  - When a server requests a client certificate and the user has
+    certificates installed (common on managed corporate machines),
+    browsers show a certificate picker (verified in T73b, Sources). That
+    makes the router's hostname a poor place for a browser to land.
 - **Images** (ADR-0032). One ko-built, reproducible, distroless, cosign-
   signed image per pure-Go binary (`CGO_ENABLED=0`). The only exception is
   `erp-analytics`, which has a scoped Dockerfile. There is no Node.js
@@ -962,6 +962,170 @@ What the skeleton settled that the decision above left open:
   header's product link below the 24 px target size (WCAG 2.5.8), and the
   focused skip link overlapping it.
 
+## Built in T73b (2026-10-21)
+What sign-in settled that §§5-6 left open, and where it departs from them:
+- **Packages.** `internal/web/session` is the store (sessions, the web
+  clients by login code, the sealer) and the workspace's one database
+  pool: `TestImportRules` lets only it import `platform/database`, and
+  `TestWebLinksNoBackend` lets only it link the pool, through that
+  package. The sign-in is `internal/web/signin.go` (handlers, cookies,
+  CSRF, sessions' renewal) and `oidc.go` (the provider: authorization URL,
+  code exchange, client authentication, token checks, logout URL).
+  `authn.Providers` gained `Endpoints` (the provider's authorization,
+  token and end-session endpoints from the discovery document Verify
+  already keeps) and `Client` (its guarded HTTP client, which the token
+  endpoint is called with): the ID token is verified by the API's own
+  verifier and key cache, for the client id as audience; the access token
+  by the same, for the registration's audience; both of one subject.
+- **The web schema and its role (departs from §6).** The directory
+  database's DDL (`directory.Schema`, run by whoever opens the directory,
+  the router among them) creates the `web` schema, its `web.session`
+  table, the view `web.login_client` over the web clients that
+  `directory.issuer` projects, and the role `erp_web`, which may use that
+  schema and nothing else (`TestWebSchema`). The RDS directory has one
+  managed login, the master user the router and the cells use, so
+  erp-web connects as that login, verified TLS, its rotating password read
+  for each new connection, and runs every transaction as `erp_web`
+  (`SET LOCAL ROLE`), as the cells run as `erp_app`. A login of erp-web's
+  own needs a password lifecycle of its own (a rotating secret and
+  someone to create the login); that is decision D1 below. erp-web checks
+  the schema at startup and fails while it is missing.
+- **Sessions.** The cookie holds a random 256-bit id; the store keeps its
+  SHA-256, the tenant, issuer, subject and login code, the times, and the
+  access, refresh and ID tokens with the CSRF token, sealed with
+  AES-256-GCM under a key derived from `ERP_WEB_SESSION_KEY` (a
+  reference; `ERP_WEB_SESSION_KEY_PREVIOUS` opens sessions sealed before a
+  rotation), bound to the id's hash. Idle 8 h and lifetime 24 h (the
+  maxima a tenant may set, so the cell's stricter rule is what people
+  meet), seen at most once a minute, swept hourly. Tokens are not size
+  bound: an Entra ID token with its groups (below) fits.
+- **Renewal.** An access token within 30 s of its expiry is renewed with
+  the refresh token once for all concurrent requests on any replica, so a
+  rotating refresh token is spent once (`TestRefresh`: eight at once, one
+  refresh). The first request claims the renewal on the session's row
+  (`renewing_until`, 30 s by the database's clock, the claim's owner
+  token) and calls the provider holding no transaction or connection, so
+  a slow provider, one tenant's, stalls no one else; the call and the
+  write outlive the request, so a client gone loses no rotated refresh
+  token; it writes the result back guarded on the version and its own
+  claim, and gives up only its own claim; the others look again every
+  100 ms and take it, as does a holder whose claim lapsed and whose write
+  was refused. A refusal ends the session, as does a
+  refreshed ID token that is not the provider's for the client and the
+  person; a session without a refresh token ends with its access token.
+  The store's pool is ten connections per replica.
+- **A session stays its provider's.** A session and a sign-in under way
+  are bound to the issuer and tenant they began with: the web client
+  found by their login code must still be that provider's, or the
+  renewal, the sign-out's logout and the callback end without calling
+  anyone (`TestALoginCodeReclaimed`), since a code freed by a retired
+  provider may be claimed by another tenant's.
+- **The flow.** `GET /login` asks for the code (or goes on with the
+  remembered one, P4: `__Host-erp-login-code`, a year, set only once a
+  sign-in completed, so a link from elsewhere cannot choose the provider
+  of the person's next visits), `GET
+  /login/{code}` seals state, nonce, PKCE verifier (256 bits each), the
+  return path and, for a step-up, the challenge's `acr_values` or
+  `max_age` into `__Host-erp-sign-in` (Lax, ten minutes, deleted at the
+  callback) and goes to the provider; `GET /callback` checks the state,
+  the provider's `error`, RFC 9207's `iss` (required where the provider's
+  metadata says it sends it), exchanges the code
+  and checks nonce, `azp` (several audiences), `auth_time` (when `max_age`
+  was asked, two minutes' skew) and, for a step-up, that the `acr` is one
+  asked; a new session replaces any the browser had. The return path is
+  a path of at most 1 KB without dot segments, never a URL nor a step of
+  the sign-in itself.
+- **`form-action 'self'` and redirects (found by the browser suite).**
+  The CSP's `form-action` governs a form submission's redirects too, so
+  `POST /login` and `POST /logout` cannot redirect on to the provider's
+  origin. They answer with the continue page instead, whose meta refresh
+  is a navigation no form made; the same page carries the provider's
+  redirect back past the `SameSite=Strict` cookie (§5).
+- **Client authentication.** `private_key_jwt`: a JWT by and about the
+  client, `aud` the token endpoint, a fresh `jti`, valid a minute, `kid`
+  the key's RFC 7638 thumbprint, and `x5t`/`x5t#S256` when the PEM holds
+  the key's certificate after it (Entra ID asks for the certificate's
+  thumbprint); RS256 for RSA, ES256 for P-256. `client_secret_basic`
+  where nothing else is offered. A credential reference must start with
+  `ERP_WEB_CLIENT_CREDENTIALS` (`file:/etc/erp/web-clients/`): a
+  registration cannot point erp-web at another of its secrets (the
+  session key) and have it sent to a provider. The credentials are one
+  Secrets Manager entry, `erp/global/web-clients`, a JSON object of file
+  name to PEM key or secret, which operators load when they register a
+  tenant's web client; mounted optional, so none is needed until then.
+- **G8 as built.** `web_client` on `IdentityProviderCreate`, `Update` and
+  the representation (`api/control.yaml`); the cell keeps it (migration
+  000139) with its login code unique among active providers; the
+  control plane claims it in the global directory with the issuer before
+  the change commits (409 `identity.login_code_taken` for a code another
+  cell's provider holds); every round of the directory sync projects it,
+  leaving out a code another claim holds. A provider provisioned with a
+  web client reaches the directory with the next round (a minute).
+- **G9 as built.** `endCurrentSession` returns `{ended, ended_at}`
+  (`ended` false for a token whose provider keeps no session). Its
+  permission `identity.session.end` is held by every person whatever
+  their roles (`authz.PersonsOwn`), not granted to every role by a
+  migration: a role made later would lack it, and a person without roles
+  could not sign out of the API. Other replicas of the cell honour the end
+  within a minute (ADR-0031, amended). The spec's rule that collection
+  methods return 202 gained `/current:` methods, the caller's own one
+  resource, as an exception.
+- **The API's answers.** A 401 that is not RFC 9470's challenge ends the
+  session and signs in again, back to the page. The challenge signs in
+  again with its `acr_values`, or `max_age=0` when it names none; a
+  second challenge within two minutes of a step-up is shown, never looped.
+- **CSRF.** `http.CrossOriginProtection` wraps every route, its refusal
+  rendered as the "request refused" page; every state-changing route
+  (`POST /logout` so far) needs the session's synchronizer token, from the
+  form or htmx's `X-CSRF-Token` (set by `hx-headers` on `body`). The only
+  GETs that change anything are the sign-in's start (a sign-in's cookies)
+  and the callback (bound by the state); `TestSafeMethodsChangeNothing`
+  walks the rest.
+- **The person's address (decided).** erp-web does not forward the
+  person's address to the API. The router sets `X-Forwarded-For` from the
+  connection itself (its `ReverseProxy` drops what the client sent) and
+  trusts an address only from the balancer's PROXY header, and the cells'
+  audit trail records no client address today. erp-web logs the person's
+  address, from its own balancer's PROXY header, on sign-in, sign-out and
+  a failed sign-in. Recording it in the API's audit trail is decision D2.
+- **Deployment.** The chart gives erp-web the directory URL
+  (`sslmode=verify-full`, the RDS bundle), the password, the session key
+  and the credentials, and egress to the VPC's 5432 and 443 outside the
+  VPC and the private, shared and link-local ranges
+  (`helm-checks.sh` holds it to that). Terraform creates
+  `erp/global/web-session-key` and `web-clients` empty, and refuses
+  private subnets (the nodes' and pods') that overlap the balancers', since
+  erp-web's calls to the router carry no PROXY header. The rollback drill
+  checks erp-web on a home cell for a release that has its image.
+- **Tests.** `authntest` gained an authorization server (the code flow
+  with PKCE S256, `private_key_jwt` and `client_secret_basic`, rotated
+  refresh tokens, RP-initiated logout, hooks to issue wrong tokens), and
+  the workspace's tests run against it, the real API and the directory
+  database: every refusal (state, cookie, expiry, the provider's error,
+  `iss`, a replayed or forged code, nonce, issuer, audiences, `azp`,
+  expired tokens, an access token of another audience or subject, a key
+  the provider does not hold), CSRF missing, wrong or cross-site, expiry,
+  concurrent renewal, step-up, sign-out, and the store failing at each
+  statement. The browser suite signs in by the login code page, checks
+  the session cookie (HttpOnly, Secure, Strict, out of scripts' reach),
+  signs out through the provider, and runs axe on every page before and
+  after sign-in.
+
+Decisions for the product owner (T73b):
+- **D1:** erp-web's own directory login, or the shared master login with
+  the `erp_web` role as built. A login of its own needs a rotating secret
+  and a bootstrap that creates it; the role keeps erp-web to its schema
+  against its own code, not against a stolen credential, and the master
+  login can rewrite `directory.issuer`, which decides each token's
+  tenant. The reviewer recommends erp-web's own login before production
+  (with T73m at the latest). To confirm on RDS meanwhile: whether the
+  master may `SET ROLE` to a role it created on PostgreSQL 17
+  (`createrole_self_grant`); `erp_app` in the cells is created the same
+  way.
+- **D2:** whether the API's audit trail should record people's client
+  addresses (for erp-web's users, the router would have to trust erp-web
+  to forward them, which it cannot authenticate today).
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF
@@ -1033,14 +1197,40 @@ What the skeleton settled that the decision above left open:
   the npm package bootstrap 5.3.8 (MIT) ships `dist/css/bootstrap.rtl.css`
   and `.rtl.min.css` (16 RTL files in all).
 
+**Verified in T73b (2026-10-21)**, from primary sources:
+- **Browsers and an optional client certificate: confirmed** for Chromium
+  (Chrome, Edge) and Firefox; Safari not confirmed from a primary source.
+  The router asks with Go's `tls.RequestClientCert` and no
+  `certificate_authorities`, and an empty list lets the client send any
+  certificate (RFC 5246 §7.4.4; RFC 8446 §4.2.4). Chromium offers every
+  installed certificate when the list is empty
+  (`net/ssl/client_cert_store_mac.cc`: "request.cert_authorities.empty()
+  || …"), shows the selector when any is left
+  (`chrome/browser/ui/views/ssl_client_certificate_selector.cc`;
+  `ChromeContentBrowserClient::SelectClientCertificate`), continues
+  silently with none, and skips the selector only for URLs the
+  `AutoSelectCertificateForUrls` enterprise policy names. Firefox's
+  default is `security.default_personal_cert` = "Ask Every Time"
+  (`modules/libpref/init/all.js`; `TLSClientAuthCertSelection.cpp`).
+  So a person with certificates installed, common on managed machines,
+  would meet a picker on the router's hostname: the reason for §6.
+- **Entra ID tokens and a cookie: confirmed** by Microsoft's own limits.
+  A JWT carries up to 200 group object ids before Entra ID replaces them
+  with an overage claim, "to stay within the size limit of the HTTP
+  header" (access token and ID token claims references,
+  learn.microsoft.com/entra/identity-platform/access-token-claims-reference,
+  /id-token-claims-reference; 150 for SAML, and the implicit flow's limit
+  is five groups, "Configure group claims"). 200 GUIDs are about 7.8 KB
+  before base64url, against the 4096 bytes per cookie RFC 6265 §6.1
+  guarantees; Microsoft's own ASP.NET Core splits its cookies at 4050
+  characters (`ChunkingCookieManager`). Server-side sessions (§6) hold
+  tokens of any size.
+
 **From memory, to verify.** Each is an open item. The step named
 verifies it and records the source here, or corrects the text:
 - (T73d-T73k, with the pilot) the SAP Fiori app names in "What SAP gives these users";
-- (T73b) browsers showing a certificate picker when a server requests an
-  optional client certificate;
 - (T73l, with the pilot) English as the usual working language of UAE
   finance teams;
 - (T73m) AODA and the Accessible Canada Act referencing WCAG 2.0/2.1 AA;
-- (T73b) Entra ID tokens exceeding a cookie's size with group claims;
 - (T73l) the Charter of the French Language's consolidated text (ss. 41
   and 52.1), and whether the Canadian company is in scope.

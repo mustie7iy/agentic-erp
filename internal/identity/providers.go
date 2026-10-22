@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -34,6 +35,14 @@ func init() {
 	problem.RegisterConstraint("identity_provider_issuer_audience", func() *problem.Problem {
 		return problem.Conflict("identity.provider_taken", "This issuer is already registered with this audience, by this tenant or another.")
 	})
+	problem.RegisterConstraint("identity_provider_login_code", LoginCodeTaken)
+}
+
+// LoginCodeTaken is the answer for a web client whose login code another
+// active provider holds, in this cell or, through the global directory,
+// in another.
+func LoginCodeTaken() *problem.Problem {
+	return problem.Conflict("identity.login_code_taken", "This login code belongs to another identity provider; choose another.")
 }
 
 // Statuses of an identity provider.
@@ -73,13 +82,16 @@ type IdentityProvider struct {
 	// certificate (RFC 8705), which production requires of agents' tokens
 	// (ADR-0033).
 	CertificateBound bool
-	Status           string
-	CreatedAt        time.Time
-	CreatedBy        uuid.UUID
-	UpdatedAt        time.Time
-	UpdatedBy        uuid.UUID
-	RetiredAt        *time.Time
-	Version          int32
+	// Web is the web workspace's client at the provider (ADR-0052 G8); nil:
+	// its people cannot sign in to the workspace.
+	Web       *WebClient
+	Status    string
+	CreatedAt time.Time
+	CreatedBy uuid.UUID
+	UpdatedAt time.Time
+	UpdatedBy uuid.UUID
+	RetiredAt *time.Time
+	Version   int32
 }
 
 // NewIdentityProvider is a registration request.
@@ -90,7 +102,29 @@ type NewIdentityProvider struct {
 	ACRValues        []string
 	AMRValues        []string
 	CertificateBound bool
+	Web              *WebClient
 }
+
+// WebClient is the web workspace's OAuth client at a provider (ADR-0052
+// §5, G8): erp-web signs the provider's people in as it. CredentialRef is
+// a secret reference (ADR-0017) to its private key or secret, never the
+// value; LoginCode is what people sign in with, unique across the
+// deployment.
+type WebClient struct {
+	ClientID      string `json:"client_id"`
+	AuthMethod    string `json:"auth_method"`
+	CredentialRef string `json:"credential_ref"`
+	LoginCode     string `json:"login_code"`
+	Scope         string `json:"scope"`
+}
+
+// The client authentication methods a web client may use at the token
+// endpoint: a key, or a secret where the provider offers nothing else
+// (ADR-0052 P2).
+const (
+	PrivateKeyJWT     = "private_key_jwt"
+	ClientSecretBasic = "client_secret_basic"
+)
 
 // IdentityProviderChange is a merge patch: nil fields are unchanged; a
 // TenantClaim pointing at nil clears it. Issuer and audience never change.
@@ -99,6 +133,7 @@ type IdentityProviderChange struct {
 	ACRValues        *[]string
 	AMRValues        *[]string
 	CertificateBound *bool
+	Web              **WebClient // pointing at nil: removed
 }
 
 // AuthPolicy is a tenant's authentication policy.
@@ -134,12 +169,37 @@ type Registration struct {
 }
 
 const providerColumns = `id, tenant_id, issuer, audience, tenant_claim, acr_values, amr_values, certificate_bound, status,
-	created_at, created_by, updated_at, updated_by, retired_at, version`
+	created_at, created_by, updated_at, updated_by, retired_at, version, ` + webColumns
+
+// webColumns are a web client's, all NULL or none (identity_provider_web_client).
+const webColumns = `web_client_id, web_auth_method, web_credential_ref, web_login_code, web_scope`
+
+// webFields are a web client's scan targets; client reads them after Scan.
+type webFields struct{ id, method, ref, code, scope *string }
+
+func (f *webFields) targets() []any { return []any{&f.id, &f.method, &f.ref, &f.code, &f.scope} }
+
+func (f *webFields) client() *WebClient {
+	if f.id == nil {
+		return nil
+	}
+	return &WebClient{ClientID: *f.id, AuthMethod: *f.method, CredentialRef: *f.ref, LoginCode: *f.code, Scope: *f.scope}
+}
+
+// webArgs are a web client's column values, all nil without one.
+func webArgs(w *WebClient) []any {
+	if w == nil {
+		return []any{nil, nil, nil, nil, nil}
+	}
+	return []any{w.ClientID, w.AuthMethod, w.CredentialRef, w.LoginCode, w.Scope}
+}
 
 func scanProvider(row pgx.Row) (IdentityProvider, error) {
 	var p IdentityProvider
-	err := row.Scan(&p.ID, &p.TenantID, &p.Issuer, &p.Audience, &p.TenantClaim, &p.ACRValues, &p.AMRValues, &p.CertificateBound, &p.Status,
-		&p.CreatedAt, &p.CreatedBy, &p.UpdatedAt, &p.UpdatedBy, &p.RetiredAt, &p.Version)
+	var web webFields
+	err := row.Scan(append([]any{&p.ID, &p.TenantID, &p.Issuer, &p.Audience, &p.TenantClaim, &p.ACRValues, &p.AMRValues, &p.CertificateBound, &p.Status,
+		&p.CreatedAt, &p.CreatedBy, &p.UpdatedAt, &p.UpdatedBy, &p.RetiredAt, &p.Version}, web.targets()...)...)
+	p.Web = web.client()
 	return p, err //nolint:wrapcheck // callers wrap with the provider they read
 }
 
@@ -152,9 +212,10 @@ func RegisterIdentityProvider(ctx context.Context, tx pgx.Tx, actor uuid.UUID, i
 		return IdentityProvider{}, err
 	}
 	p, err := scanProvider(tx.QueryRow(ctx, `INSERT INTO identity.identity_provider
-		(tenant_id, id, issuer, audience, tenant_claim, acr_values, amr_values, certificate_bound, created_by, updated_by)
-		VALUES (platform.current_tenant(), $1, $2, $3, $4, $5, $6, $7, $8, $8) RETURNING `+providerColumns,
-		uuid.Must(uuid.NewV7()), in.Issuer, in.Audience, in.TenantClaim, values(in.ACRValues), values(in.AMRValues), in.CertificateBound, actor))
+		(tenant_id, id, issuer, audience, tenant_claim, acr_values, amr_values, certificate_bound, created_by, updated_by, `+webColumns+`)
+		VALUES (platform.current_tenant(), $1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13) RETURNING `+providerColumns,
+		append([]any{uuid.Must(uuid.NewV7()), in.Issuer, in.Audience, in.TenantClaim, values(in.ACRValues), values(in.AMRValues), in.CertificateBound, actor},
+			webArgs(in.Web)...)...))
 	if err != nil {
 		return p, fmt.Errorf("identity: register identity provider %s: %w", in.Issuer, err)
 	}
@@ -201,7 +262,10 @@ func UpdateIdentityProvider(ctx context.Context, tx pgx.Tx, actor, id uuid.UUID,
 		return p, err
 	}
 	in := NewIdentityProvider{Issuer: p.Issuer, Audience: p.Audience, TenantClaim: p.TenantClaim, ACRValues: p.ACRValues, AMRValues: p.AMRValues,
-		CertificateBound: p.CertificateBound}
+		CertificateBound: p.CertificateBound, Web: p.Web}
+	if ch.Web != nil {
+		in.Web = *ch.Web
+	}
 	if ch.TenantClaim != nil {
 		in.TenantClaim = *ch.TenantClaim
 	}
@@ -221,8 +285,9 @@ func UpdateIdentityProvider(ctx context.Context, tx pgx.Tx, actor, id uuid.UUID,
 		return p, err
 	}
 	p, err = scanProvider(tx.QueryRow(ctx, `UPDATE identity.identity_provider SET tenant_claim = $2, acr_values = $3, amr_values = $4,
-		certificate_bound = $5, updated_by = $6, version = version + 1 WHERE id = $1 RETURNING `+providerColumns,
-		id, in.TenantClaim, values(in.ACRValues), values(in.AMRValues), in.CertificateBound, actor))
+		certificate_bound = $5, updated_by = $6, version = version + 1, (`+webColumns+`) = ($7, $8, $9, $10, $11)
+		WHERE id = $1 RETURNING `+providerColumns,
+		append([]any{id, in.TenantClaim, values(in.ACRValues), values(in.AMRValues), in.CertificateBound, actor}, webArgs(in.Web)...)...))
 	if err != nil {
 		return p, fmt.Errorf("identity: update identity provider %s: %w", id, err)
 	}
@@ -462,7 +527,37 @@ func ValidateProvider(in NewIdentityProvider) error {
 	if !validValues(in.AMRValues, 64) {
 		return invalid("amr_values", "at most 16 values of 1 to 64 printable ASCII characters without spaces")
 	}
+	if in.Web != nil {
+		if field, msg := webClientProblem(*in.Web); field != "" {
+			return invalid("web_client."+field, msg)
+		}
+	}
 	return nil
+}
+
+var (
+	loginCode     = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$`)
+	credentialRef = regexp.MustCompile(`^(env|file|vault):[!-~]+$`)
+)
+
+// webClientProblem names a web client's invalid field and says what it
+// must be, as the database checks; "" when it is valid.
+func webClientProblem(w WebClient) (field, msg string) {
+	switch {
+	case !validValues([]string{w.ClientID}, 255):
+		return "client_id", "1 to 255 printable ASCII characters without spaces"
+	case w.AuthMethod != PrivateKeyJWT && w.AuthMethod != ClientSecretBasic:
+		return "auth_method", "private_key_jwt or client_secret_basic"
+	case len(w.CredentialRef) > 512 || !credentialRef.MatchString(w.CredentialRef):
+		return "credential_ref", "a secret reference (env:, file: or vault:) of at most 512 characters, never the secret itself"
+	case !loginCode.MatchString(w.LoginCode):
+		return "login_code", "2 to 32 lower-case letters, digits and inner hyphens"
+	}
+	scopes := strings.Split(w.Scope, " ")
+	if len(w.Scope) > 1024 || !validValues(scopes, 1024) || !slices.Contains(scopes, "openid") {
+		return "scope", "space-separated scopes, openid among them, at most 1024 characters"
+	}
+	return "", ""
 }
 
 // issuerProblem says what is wrong with an issuer URL, or "".
@@ -527,14 +622,22 @@ type ProviderKey struct {
 	TenantID uuid.UUID
 	Issuer   string
 	Audience string
+	Web      *WebClient // the web workspace's client, projected with the claim (ADR-0052 G8)
 }
 
 // ActiveIdentityProviders lists every tenant's active providers, across
 // tenants: tx runs as the control role, for the cell's claims in the global
 // directory (ADR-0031).
 func ActiveIdentityProviders(ctx context.Context, tx pgx.Tx) ([]ProviderKey, error) {
-	rows, _ := tx.Query(ctx, `SELECT id, tenant_id, issuer, audience FROM identity.identity_provider WHERE status = 'active' ORDER BY tenant_id, issuer, audience`)
-	keys, err := pgx.CollectRows(rows, pgx.RowToStructByPos[ProviderKey])
+	rows, _ := tx.Query(ctx, `SELECT id, tenant_id, issuer, audience, `+webColumns+`
+		FROM identity.identity_provider WHERE status = 'active' ORDER BY tenant_id, issuer, audience`)
+	keys, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (ProviderKey, error) {
+		var k ProviderKey
+		var web webFields
+		err := row.Scan(append([]any{&k.ID, &k.TenantID, &k.Issuer, &k.Audience}, web.targets()...)...)
+		k.Web = web.client()
+		return k, err //nolint:wrapcheck // wrapped below
+	})
 	if err != nil {
 		return nil, fmt.Errorf("identity: list active identity providers: %w", err)
 	}
@@ -591,7 +694,7 @@ func RetiredEvent(p IdentityProvider) outbox.Event {
 func ProviderEntry(verb string, p IdentityProvider) audit.Entry {
 	return audit.Entry{Action: "identity.identity_provider." + verb, ObjectType: "identity.identity_provider", ObjectID: p.ID,
 		Detail: map[string]any{"issuer": p.Issuer, "audience": p.Audience, "tenant_claim": p.TenantClaim, "acr_values": p.ACRValues, "amr_values": p.AMRValues,
-			"certificate_bound": p.CertificateBound}}
+			"certificate_bound": p.CertificateBound, "web_client": p.Web}}
 }
 
 // ProductionIssuer refuses an issuer other than https where production
