@@ -1385,7 +1385,7 @@
        {
         "s": "D",
         "t": "Output tax from the pilot's sales: output codes on manual and integration journal entries, per sales invoice or summary per code and jurisdiction (P2), each code's tax lines checked against its base lines within a minor unit per component (ledger.output_tax_mismatch), the jurisdiction on lines where a component levies its lines' subdivision (UAE emirates), items per jurisdiction, zero-rated and exempt bases recorded at rate 0",
-        "r": "db/migrations/000148 · ledger.checkOutputTax · journal_line.tax_jurisdiction · tax_component.jurisdiction_on_line · ADR-0049 §7 · T61f",
+        "r": "db/migrations/000150 · ledger.checkOutputTax · journal_line.tax_jurisdiction · tax_component.jurisdiction_on_line · ADR-0049 §7 · T61f",
         "c": []
        },
        {

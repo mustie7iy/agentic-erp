@@ -507,7 +507,7 @@ func TestTaxBaseRules(t *testing.T) {
 
 // TestLineJurisdictionRules: a taxed line names a jurisdiction exactly
 // when its code's component levies its lines' subdivision, one of that
-// component's country (000148, T61f), but for a reversal, which repeats
+// component's country (000150, T61f), but for a reversal, which repeats
 // the original's; a component levies its lines' subdivisions only as a
 // country; the items are per jurisdiction.
 func TestLineJurisdictionRules(t *testing.T) {

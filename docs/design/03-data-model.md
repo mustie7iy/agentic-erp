@@ -869,7 +869,7 @@ a liability that reconciles no supplier, the withholding tax payable; a code
 the document no longer has is deactivated).
 
 A journal line of an output code may name the subdivision its tax is
-levied in (`tax_jurisdiction`, ISO 3166-2; migration 000148, T61f,
+levied in (`tax_jurisdiction`, ISO 3166-2; migration 000150, T61f,
 ADR-0049 §7), exactly where a component of its code levies its lines'
 (`tax_component.jurisdiction_on_line`, its jurisdiction then a country,
 `tax_component_jurisdiction_on_line`); only with a tax code

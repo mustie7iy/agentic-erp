@@ -547,7 +547,7 @@ carries its jurisdiction (province or emirate) when the code's components need
 one. Zero-rated and exempt bases carry their codes with no tax line, so lines
 101 and boxes 4/5 see them. How granular the pilot's import is (one entry per
 sales invoice or a daily summary per code and jurisdiction) is decision P2.
-- **As built (T61f, migration 000148):** a manual or integration entry
+- **As built (T61f, migration 000150):** a manual or integration entry
   (`POST /v1/journal-entries`, idempotent by its `Idempotency-Key`; parked
   ones alike) posts output codes on its base lines (the sales, credits) and
   tax lines (on the code's component accounts). The ledger calculates each
@@ -580,7 +580,7 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   postings that build lines of their own (a cash discount's tax
   correction, a down payment's transfer, `ledger.Posting`): all are
   supplier-side today, and a customer cash discount on such a code will
-  need it. **Rolling upgrade (06 §6.4):** 000148 is additive and runs ahead
+  need it. **Rolling upgrade (06 §6.4):** 000150 is additive and runs ahead
   of the code; an instance of the previous release posting a code that
   levies its lines' subdivision fails the trigger (409), and its parked
   line upserts leave `tax_jurisdiction` as it was, so
