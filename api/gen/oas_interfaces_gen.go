@@ -5,6 +5,10 @@ type AcceptBankStatementLineProposalRes interface {
 	acceptBankStatementLineProposalRes()
 }
 
+type AcceptMemoRecordProposalRes interface {
+	acceptMemoRecordProposalRes()
+}
+
 type ActivateChangeRequestRes interface {
 	activateChangeRequestRes()
 }
@@ -59,6 +63,10 @@ type CancelContractRes interface {
 
 type CancelDownPaymentRequestRes interface {
 	cancelDownPaymentRequestRes()
+}
+
+type CancelMemoRecordRes interface {
+	cancelMemoRecordRes()
 }
 
 type CancelOperationRes interface {
@@ -147,6 +155,10 @@ type CreateHierarchyRes interface {
 
 type CreateLegalEntityRes interface {
 	createLegalEntityRes()
+}
+
+type CreateMemoRecordRes interface {
+	createMemoRecordRes()
 }
 
 type CreateMigrationRunRes interface {
@@ -353,6 +365,10 @@ type GetCostCenterRes interface {
 	getCostCenterRes()
 }
 
+type GetCurrentPrincipalRes interface {
+	getCurrentPrincipalRes()
+}
+
 type GetDownPaymentRequestRes interface {
 	getDownPaymentRequestRes()
 }
@@ -387,6 +403,10 @@ type GetLegalEntityRes interface {
 
 type GetMatchResultRes interface {
 	getMatchResultRes()
+}
+
+type GetMemoRecordRes interface {
+	getMemoRecordRes()
 }
 
 type GetMigrationRunRes interface {
@@ -645,6 +665,10 @@ type ListMatchResultsRes interface {
 	listMatchResultsRes()
 }
 
+type ListMemoRecordsRes interface {
+	listMemoRecordsRes()
+}
+
 type ListMigrationRunsRes interface {
 	listMigrationRunsRes()
 }
@@ -683,6 +707,10 @@ type ListPaymentRunsRes interface {
 
 type ListPaymentsRes interface {
 	listPaymentsRes()
+}
+
+type ListPrincipalNamesRes interface {
+	listPrincipalNamesRes()
 }
 
 type ListPrincipalsRes interface {
@@ -841,8 +869,16 @@ type ProposeBankStatementLineRes interface {
 	proposeBankStatementLineRes()
 }
 
+type ProposeMemoRecordRes interface {
+	proposeMemoRecordRes()
+}
+
 type ProposePaymentRunRes interface {
 	proposePaymentRunRes()
+}
+
+type RealiseMemoRecordRes interface {
+	realiseMemoRecordRes()
 }
 
 type ReconcileMigrationRunRes interface {
@@ -871,6 +907,10 @@ type RejectApprovalRequestRes interface {
 
 type RejectBankStatementLineProposalRes interface {
 	rejectBankStatementLineProposalRes()
+}
+
+type RejectMemoRecordProposalRes interface {
+	rejectMemoRecordProposalRes()
 }
 
 type RejectPaymentRunRes interface {
@@ -1017,6 +1057,10 @@ type UpdateLegalEntityRes interface {
 	updateLegalEntityRes()
 }
 
+type UpdateMemoRecordRes interface {
+	updateMemoRecordRes()
+}
+
 type UpdateOrgUnitRes interface {
 	updateOrgUnitRes()
 }
@@ -1059,6 +1103,10 @@ type UpdateSupplierInvoiceRes interface {
 
 type UpdateWebhookSubscriptionRes interface {
 	updateWebhookSubscriptionRes()
+}
+
+type UploadMemoRecordsRes interface {
+	uploadMemoRecordsRes()
 }
 
 type VerifyAuditChainRes interface {

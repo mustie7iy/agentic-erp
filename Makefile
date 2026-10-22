@@ -1,4 +1,4 @@
-.PHONY: temporal-checks generate run-server build images images-reproducible image-scan test-image-scripts signing-roundtrip test-release-scripts lint lint-all test test-short ci-local db-up test-db coverage fuzz perf load soak resilience failover restore-drill demo clean
+.PHONY: temporal-checks generate run-server build images images-reproducible image-scan test-image-scripts signing-roundtrip test-release-scripts lint lint-all test test-short ci-local db-up test-db coverage fuzz perf load soak resilience failover restore-drill demo walkthrough clean
 
 build:
 	go build -o bin/erp ./cmd/erp
@@ -169,6 +169,14 @@ restore-drill:
 # and analytics. Needs `make db-up`.
 demo:
 	DATABASE_URL="$(DATABASE_URL)" go test -count=1 -v ./cmd/erp -run TestEndToEnd
+
+# The pilot walkthrough for the product owner: a Canadian company's story,
+# narrated step by step against the real erp-server and erp, on
+# DATABASE_URL (scripts/walkthrough.sh). WALKTHROUGH_PAUSE=1 waits after
+# each step; WALKTHROUGH_KEEP=1 keeps the server up at the end. Needs
+# `make db-up` and jq.
+walkthrough:
+	DATABASE_URL="$(DATABASE_URL)" ./scripts/walkthrough.sh
 
 clean:
 	rm -rf bin data dist

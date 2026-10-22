@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -46,6 +47,9 @@ type Event struct {
 	Outcome    string
 	Detail     map[string]json.RawMessage
 	TraceID    *string
+	// ClientAddress is where the request came from (ADR-0011 as amended
+	// by T73c); nil for work no request made, and after an erasure.
+	ClientAddress *netip.Addr
 }
 
 type cursor struct {
@@ -89,14 +93,18 @@ func (e *Endpoints) ListAuditEvents(ctx context.Context, params gen.ListAuditEve
 		}
 		after = &c.Seq
 	}
-	rows, _ := tx.Query(ctx, `SELECT seq, occurred_at, actor_id, actor_kind, action, object_type, object_id, outcome, detail, trace_id
+	// A masked reader's addresses never leave the database (people only,
+	// product owner 2026-10-22).
+	masked := reqctx.Masked(ctx)
+	rows, _ := tx.Query(ctx, `SELECT seq, occurred_at, actor_id, actor_kind, action, object_type, object_id, outcome, detail, trace_id,
+			CASE WHEN $7::boolean THEN NULL ELSE client_address END
 		FROM audit.audit_event WHERE ($1 = '' OR object_type = $1) AND ($2::uuid IS NULL OR object_id = $2)
 			AND ($3::timestamptz IS NULL OR occurred_at >= $3) AND ($4::timestamptz IS NULL OR occurred_at <= $4)
 			AND ($5::bigint IS NULL OR seq `+cmp+` $5)
-		ORDER BY seq `+dir+` LIMIT $6`, pagination.PlanPerCall, params.ObjectType.Value, objectID, from, to, after, size+1)
+		ORDER BY seq `+dir+` LIMIT $6`, pagination.PlanPerCall, params.ObjectType.Value, objectID, from, to, after, size+1, masked)
 	events, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Event, error) {
 		var v Event
-		err := r.Scan(&v.Seq, &v.OccurredAt, &v.ActorID, &v.ActorKind, &v.Action, &v.ObjectType, &v.ObjectID, &v.Outcome, &v.Detail, &v.TraceID)
+		err := r.Scan(&v.Seq, &v.OccurredAt, &v.ActorID, &v.ActorKind, &v.Action, &v.ObjectType, &v.ObjectID, &v.Outcome, &v.Detail, &v.TraceID, &v.ClientAddress)
 		return v, errs.Wrapf(err, "scan audit event")
 	})
 	if err != nil {
@@ -109,7 +117,7 @@ func (e *Endpoints) ListAuditEvents(ctx context.Context, params gen.ListAuditEve
 		page.NextPageToken.SetTo(tok)
 	}
 	for _, v := range events {
-		page.Items = append(page.Items, auditEventItem(v))
+		page.Items = append(page.Items, auditEventItem(v, masked))
 	}
 	return &gen.AuditEventPageHeaders{Response: page}, nil
 }
@@ -129,8 +137,11 @@ func auditOrder(orderBy string) (cmp, dir string, err error) {
 	return cmp, dir, nil
 }
 
-// auditEventItem is an event as the API answers it.
-func auditEventItem(v Event) gen.AuditEvent {
+// auditEventItem is an event as the API answers it. Masked (any reader but
+// a person) omits the client address: it is personal data only people
+// holding audit.event.read see (product owner 2026-10-22). Omitted, not
+// null, so it is not mistaken for work no request made.
+func auditEventItem(v Event, masked bool) gen.AuditEvent {
 	item := gen.AuditEvent{Seq: v.Seq, OccurredAt: v.OccurredAt, ActorID: v.ActorID, ActorKind: v.ActorKind, Action: v.Action,
 		ObjectType: v.ObjectType, Outcome: v.Outcome, Detail: gen.AuditEventDetail{}}
 	if v.ObjectID != nil {
@@ -138,6 +149,13 @@ func auditEventItem(v Event) gen.AuditEvent {
 	}
 	if v.TraceID != nil {
 		item.TraceID.SetTo(*v.TraceID)
+	}
+	switch {
+	case masked:
+	case v.ClientAddress != nil:
+		item.ClientAddress.SetTo(v.ClientAddress.String())
+	default:
+		item.ClientAddress.SetToNull()
 	}
 	for k, raw := range v.Detail {
 		item.Detail[k] = jx.Raw(raw)

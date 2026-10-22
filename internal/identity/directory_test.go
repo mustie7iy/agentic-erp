@@ -36,6 +36,13 @@ func TestDirectory(t *testing.T) {
 		if holds, _ := d.HoldsRole(ctx, ten.Agent.ID, role); holds {
 			t.Error("the agent holds the human role")
 		}
+		roles, err := d.RolesHeld(ctx, ten.Human.ID)
+		if err != nil {
+			t.Errorf("roles held: %v", err)
+		}
+		if len(roles) != 1 || roles[0] != role {
+			t.Errorf("roles held: got %v, want [%s]", roles, role)
+		}
 		return nil
 	})
 	if err != nil {
@@ -44,6 +51,7 @@ func TestDirectory(t *testing.T) {
 	for name, call := range map[string]func(ctx context.Context) error{
 		"role":  func(ctx context.Context) error { _, _, err := d.RoleByCode(ctx, "all"); return err },
 		"holds": func(ctx context.Context) error { _, err := d.HoldsRole(ctx, ten.Human.ID, uuid.New()); return err },
+		"held":  func(ctx context.Context) error { _, err := d.RolesHeld(ctx, ten.Human.ID); return err },
 	} {
 		t.Run(name, func(t *testing.T) {
 			if call(context.Background()) == nil {

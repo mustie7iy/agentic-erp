@@ -64,9 +64,10 @@ var requestSort = pagination.Sort{Default: "created_at", DefaultDesc: true, Fiel
 	{Name: "created_at", Column: "r.created_at", Type: "timestamptz"},
 }}
 
-// ListApprovalRequests implements GET /v1/approval-requests.
+// ListApprovalRequests implements GET /v1/approval-requests, and with
+// decidable_by=me the caller's inbox (ADR-0052 G1).
 func (e *Endpoints) ListApprovalRequests(ctx context.Context, params gen.ListApprovalRequestsParams) (gen.ListApprovalRequestsRes, error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -74,22 +75,43 @@ func (e *Endpoints) ListApprovalRequests(ctx context.Context, params gen.ListApp
 	if params.ObjectID.Set {
 		object = &params.ObjectID.Value
 	}
-	scope := fmt.Sprintf("listApprovalRequests|%s|%s|%s", params.Status.Value, params.ObjectType.Value, params.ObjectID.Value)
+	scope := fmt.Sprintf("listApprovalRequests|%s|%s|%s|%s", params.Status.Value, params.ObjectType.Value, params.ObjectID.Value, params.DecidableBy.Value)
 	ks, err := e.Pages.Keyset(requestSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
-	q, args := ks.SQL(requestSelect+` WHERE ($1 = '' OR r.status = $1) AND ($2 = '' OR r.object_type = $2) AND ($3::uuid IS NULL OR r.object_id = $3)`,
-		[]any{params.Status.Value, params.ObjectType.Value, object})
+	in, err := e.inboxOf(ctx, p, params.DecidableBy.Value)
+	if err != nil {
+		return nil, err
+	}
+	if in.none {
+		return &gen.ApprovalRequestPageHeaders{Response: gen.ApprovalRequestPage{Items: []gen.ApprovalRequest{}}}, nil
+	}
+	q, args := ks.SQL(requestSelect+` WHERE ($1 = '' OR r.status = $1) AND ($2 = '' OR r.object_type = $2) AND ($3::uuid IS NULL OR r.object_id = $3)`+in.where,
+		append([]any{params.Status.Value, params.ObjectType.Value, object}, in.args...))
 	rows, _ := tx.Query(ctx, q, args...)
 	requests, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Request, error) { return scanRequest(r) })
 	if err != nil {
 		return nil, fmt.Errorf("approvals: list approval requests: %w", err)
 	}
-	items, next := apitypes.PageOf(ks, requests, func(r Request) (string, uuid.UUID) {
+	// The page and its token first: a request left out below must not
+	// pull the next page's first one in, nor move the token.
+	page, next := pagination.Page(ks, requests, func(r Request) (string, uuid.UUID) {
 		return r.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999Z07:00"), r.ID
-	}, toAPI)
-	return &gen.ApprovalRequestPageHeaders{Response: gen.ApprovalRequestPage{Items: items, NextPageToken: next}}, nil
+	})
+	if in.on {
+		if page, err = e.unbarred(ctx, p.ID, page); err != nil {
+			return nil, err
+		}
+	}
+	out := gen.ApprovalRequestPage{Items: make([]gen.ApprovalRequest, len(page))}
+	for i, r := range page {
+		out.Items[i] = toAPI(r)
+	}
+	if next != "" {
+		out.NextPageToken.SetTo(next)
+	}
+	return &gen.ApprovalRequestPageHeaders{Response: out}, nil
 }
 
 // ApproveApprovalRequest implements POST /v1/approval-requests/{id}:approve.

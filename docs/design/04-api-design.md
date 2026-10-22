@@ -158,6 +158,12 @@ Errors use RFC 9457 Problem Details (`application/problem+json`):
 `code` values are stable and documented; clients and agents branch on `code`,
 never on `detail`. Database constraint violations are translated to these
 codes by the repository layer; a raw database message never reaches a client.
+Each operation lists the codes its handler can answer in `x-problem-codes`,
+and the document lists those the request pipeline can answer on any
+operation (authentication, authorization, rate limits, idempotency,
+timeouts, the database's generic codes). Both are derived from the code
+and checked to match it (`api`'s `TestProblemCodes`, ADR-0052 G7); `go
+test ./api -run TestProblemCodes -update` rewrites them.
 
 ## 4.7 Concurrency and idempotency
 
@@ -391,8 +397,12 @@ its own, as a change request or a draft is: the reconciliation agent
 (ADR-0047, T49g) proposes for a bank statement line in its session
 (`proposeBankStatementLine`, `x-autonomy: propose`), and a person accepts
 or rejects it (`acceptBankStatementLineProposal`,
-`rejectBankStatementLineProposal`, `x-agent: false`); free-text advice is a
-recommendation. Bank statements reach agents with the accounts masked to
+`rejectBankStatementLineProposal`, `x-agent: false`), and an agent proposes
+a memo record of an expected receipt or payment (ADR-0051 §13, T53d:
+`proposeMemoRecord`, `x-autonomy: propose`, counted nowhere until a person
+takes it up with `acceptMemoRecordProposal` or turns it down with
+`rejectMemoRecordProposal`, `x-agent: false`, as every other memo record
+write is); free-text advice is a recommendation. Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation
 (`getBankReconciliation`, ADR-0047, T49h: its statements' balances against
@@ -417,7 +427,7 @@ with the month's total against the tenant's cap.
 | procurement | `requisitions`, `purchase-orders`, `contracts`, `goods-receipts` | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse` |
 | payables | `supplier-invoices`, `match-results`, `uploads` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
 | payments | `payment-runs`, `bank-files` | `:propose` (202), `:release` (202, ADR-0012), `:reject`, `:transmit` (202), `:report` |
-| cash | `cash-position` (computed on read, ADR-0051) | |
+| cash | `cash-position` (computed on read, ADR-0051), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
 | workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |
 | audit | `audit-events` | `:verify` |
 | integration | `migration-runs`, `connectors` | `:start`, `:reconcile`, `:enable`, `:disable` |

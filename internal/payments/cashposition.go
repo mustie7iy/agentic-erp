@@ -146,3 +146,60 @@ func (c CashPosition) Released(ctx context.Context, ids []uuid.UUID) ([]CashPaym
 func (c CashPosition) Pending(ctx context.Context, legalEntity uuid.UUID) ([]CashPayment, error) {
 	return c.payments(ctx, "pending payments", `r.legal_entity_id = $1 AND r.status IN ('proposed', 'releasing') AND p.journal_entry_id IS NULL`, legalEntity)
 }
+
+// CashHouseBank is an active house bank as the cash context's memo
+// records name it.
+type CashHouseBank struct {
+	ID             uuid.UUID
+	Code, Currency string
+}
+
+// HouseBanks are the legal entity's active house banks by code: the banks
+// a memo record may be expected on (ADR-0051 §7, T53d).
+func (CashPosition) HouseBanks(ctx context.Context, legalEntity uuid.UUID) ([]CashHouseBank, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT id, code, currency FROM payments.house_bank WHERE legal_entity_id = $1 AND status = 'active' ORDER BY code`, legalEntity)
+	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (CashHouseBank, error) {
+		var b CashHouseBank
+		err := r.Scan(&b.ID, &b.Code, &b.Currency)
+		return b, errs.Wrapf(err, "scan house bank")
+	})
+	if err != nil {
+		return nil, fmt.Errorf("payments: house banks of %s for memo records: %w", legalEntity, err)
+	}
+	return out, nil
+}
+
+// CashStatementLine is a bank statement line as a memo record's
+// realisation or an agent's evidence reads it: its statement's legal
+// entity, house bank and currency, its signed amount and value date.
+type CashStatementLine struct {
+	LegalEntityID, HouseBankID uuid.UUID
+	Currency                   string
+	Amount                     money.Minor
+	ValueDate                  time.Time
+}
+
+// StatementLine is a line of a bank statement; found is false when there
+// is none. The caller checks the line's legal entity against the record's.
+func (CashPosition) StatementLine(ctx context.Context, statement uuid.UUID, lineNo int32) (CashStatementLine, bool, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return CashStatementLine{}, false, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT s.legal_entity_id, s.house_bank_id, s.currency, l.amount, l.value_date
+		FROM payments.bank_statement_line l JOIN payments.bank_statement s ON s.tenant_id = l.tenant_id AND s.id = l.statement_id
+		WHERE l.statement_id = $1 AND l.line_no = $2`, statement, lineNo)
+	lines, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (CashStatementLine, error) {
+		var l CashStatementLine
+		err := r.Scan(&l.LegalEntityID, &l.HouseBankID, &l.Currency, &l.Amount, &l.ValueDate)
+		return l, errs.Wrapf(err, "scan statement line")
+	})
+	if err != nil || len(lines) == 0 {
+		return CashStatementLine{}, false, errs.Wrapf(err, "payments: line %d of statement %s", lineNo, statement)
+	}
+	return lines[0], true, nil
+}

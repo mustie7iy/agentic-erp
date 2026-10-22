@@ -3,14 +3,18 @@
 # with the operators' certificate, takes the client's address from the
 # balancer's PROXY v2 header (its subnets alone) and calls the public API
 # through the router's public listener, at the router's Service, verifying
-# the API's public name. It holds no SPIFFE identity a cell would accept
-# and no token of its own: every API call carries the signed-in person's
-# token. People sign in at their tenant's identity provider (T73b); their
+# the API's public name. It presents its own SPIFFE identity there,
+# spiffe://<trustDomain>/global/erp-web, a client certificate alone, from
+# which alone the router believes the person's address erp-web forwards
+# for the API's audit trail (Erp-Client-Address, ADR-0033); no cell
+# accepts it, and erp-web has no token of its own: every API call carries
+# the signed-in person's token. People sign in at their tenant's identity provider (T73b); their
 # sessions are kept in the directory database's web schema, which erp-web
 # reaches over verified TLS as the directory's login, working as the
 # erp_web role that sees that schema alone, with the tokens sealed under
 # the session key. Its admin listener (plain HTTP) serves liveness,
 # metrics and the build's version to the kubelet alone.
+{{- $td := required "trustDomain is required" .Values.trustDomain }}
 {{- $hostname := required "web.hostname is required: the workspace's own hostname, app.<domain>" .Values.web.hostname }}
 {{- if not (regexMatch "^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$" $hostname) }}
 {{- fail (printf "web.hostname must be a DNS name such as app.example.com, not %q" $hostname) }}
@@ -37,6 +41,31 @@ metadata:
   labels:
     {{- include "erp-global.labels" (dict "root" . "component" "erp-web") | nindent 4 }}
 automountServiceAccountToken: false
+---
+# erp-web's identity towards the router: a client certificate only (no
+# server use, no DNS name), which no cell accepts (they take the
+# router's alone).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: erp-web-tls
+  labels:
+    {{- include "erp-global.labels" (dict "root" . "component" "erp-web") | nindent 4 }}
+spec:
+  secretName: erp-web-tls
+  duration: {{ .Values.certificates.duration }}
+  renewBefore: {{ .Values.certificates.renewBefore }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages: [digital signature, client auth]
+  uris:
+    - {{ printf "spiffe://%s/global/erp-web" $td }}
+  issuerRef:
+    group: awspca.cert-manager.io
+    kind: AWSPCAClusterIssuer
+    name: erp-subordinate
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -103,6 +132,10 @@ spec:
             - {name: ERP_SHUTDOWN_TIMEOUT, value: "20s"}
             - {name: ERP_WEB_PUBLIC_CERT, value: file:/etc/erp/public/tls.crt}
             - {name: ERP_WEB_PUBLIC_KEY, value: file:/etc/erp/public/tls.key}
+            # Its identity towards the router (erp-web-tls), read again
+            # while it runs as cert-manager renews it.
+            - {name: ERP_TLS_CERT, value: file:/etc/erp/tls/tls.crt}
+            - {name: ERP_TLS_KEY, value: file:/etc/erp/tls/tls.key}
             # Sessions: the directory over verified TLS, its rotating
             # password read again for each new connection; the sealing key;
             # and where the web clients' credentials are (credential_ref
@@ -110,6 +143,11 @@ spec:
             - {name: ERP_WEB_DIRECTORY_URL, value: {{ printf "postgres://%s@%s/%s?sslmode=verify-full&sslrootcert=/etc/erp/trust/rds-ca.pem" (.Values.directory.user | urlquery) $directory .Values.directory.name | quote }}}
             - {name: ERP_WEB_DIRECTORY_PASSWORD, value: file:/etc/erp/secrets/directory-password}
             - {name: ERP_WEB_SESSION_KEY, value: file:/etc/erp/secrets/session-key}
+            {{- if .Values.web.sessionKeyPrevious }}
+            # A rotation runs: sessions sealed under the previous key
+            # still open (ADR-0028).
+            - {name: ERP_WEB_SESSION_KEY_PREVIOUS, value: file:/etc/erp/secrets/session-key-previous}
+            {{- end }}
             - {name: ERP_WEB_CLIENT_CREDENTIALS, value: file:/etc/erp/web-clients/}
             {{- range $name, $value := .Values.web.extraEnv }}
             - {name: {{ $name }}, value: {{ $value | quote }}}
@@ -139,6 +177,7 @@ spec:
             {{- toYaml .Values.web.resources | nindent 12 }}
           volumeMounts:
             - {name: public, mountPath: /etc/erp/public, readOnly: true}
+            - {name: tls, mountPath: /etc/erp/tls, readOnly: true}
             - {name: secrets, mountPath: /etc/erp/secrets, readOnly: true}
             - {name: trust, mountPath: /etc/erp/trust, readOnly: true}
             - {name: clients, mountPath: /etc/erp/web-clients, readOnly: true}
@@ -146,6 +185,9 @@ spec:
         - name: public
           secret:
             secretName: erp-web-public-tls
+        - name: tls
+          secret:
+            secretName: erp-web-tls
         - name: secrets
           secret:
             secretName: erp-web
@@ -229,7 +271,9 @@ spec:
         key: {{ printf "%s/web-public-key" .Values.secrets.prefix }}
 ---
 # erp-web's sessions' secrets, from AWS Secrets Manager (ADR-0017): the
-# sealing key (<prefix>/web-session-key) and the directory's RDS-managed
+# sealing key (<prefix>/web-session-key), during a rotation the previous
+# one (<prefix>/web-session-key-previous, web.sessionKeyPrevious), and the
+# directory's RDS-managed
 # master password, refreshed every five minutes as the router's is; and
 # the web clients' credentials (<prefix>/web-clients, a JSON object of
 # file name to PEM key or client secret, one file each), which operators
@@ -252,6 +296,11 @@ spec:
     - secretKey: session-key
       remoteRef:
         key: {{ printf "%s/web-session-key" .Values.secrets.prefix }}
+    {{- if .Values.web.sessionKeyPrevious }}
+    - secretKey: session-key-previous
+      remoteRef:
+        key: {{ printf "%s/web-session-key-previous" .Values.secrets.prefix }}
+    {{- end }}
     - secretKey: directory-password
       remoteRef:
         key: {{ required "directory.masterSecretArn is required: global.directory_master_secret_arn" .Values.directory.masterSecretArn }}

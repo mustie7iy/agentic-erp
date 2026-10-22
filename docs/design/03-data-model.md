@@ -868,6 +868,15 @@ invoice's net, the default, or gross, deducted at invoice or at payment, to
 a liability that reconciles no supplier, the withholding tax payable; a code
 the document no longer has is deactivated).
 
+A journal line of an output code may name the subdivision its tax is
+levied in (`tax_jurisdiction`, ISO 3166-2; migration 000150, T61f,
+ADR-0049 §7), exactly where a component of its code levies its lines'
+(`tax_component.jurisdiction_on_line`, its jurisdiction then a country,
+`tax_component_jurisdiction_on_line`); only with a tax code
+(`journal_line_tax_jurisdiction`), one of the component's country (trigger
+`journal_line_tax_jurisdiction_code`, passed by reversals). The items are
+per jurisdiction. A parked line keeps it (`parked_entry_line.tax_jurisdiction`).
+
 A journal line may declare a tax base (`tax_base_tc`, `tax_base_lc`;
 migration 000147, T61e, ADR-0049 §9): a tax line of an `import` code posted
 from a customs declaration, whose base, the declared value, no line of the
@@ -2088,7 +2097,10 @@ erDiagram
 
 Database rules: one approval per actor per request (partial unique index);
 the requester cannot decide (check against `approval_request.requester_id` in
-the decision trigger); decisions are insert-only.
+the decision trigger); decisions are insert-only. The inbox
+(`decidable_by=me`, ADR-0052 G1) reads the pending requests newest first
+through the partial index `approval_request_pending (tenant_id,
+created_at, id) WHERE status = 'pending'` (000151).
 
 A `manual_entry` request (T35) is opened for a parked manual journal entry
 whose debits, converted exactly into its company's currency at the average
@@ -2121,7 +2133,7 @@ activate, and orders under them are refused.
 
 | Table | Key | Notes |
 |---|---|---|
-| `audit_event` | `(tenant_id, occurred_at, seq)` | Insert-only, monthly partitions, `prev_hash`/`hash` chain per tenant |
+| `audit_event` | `(tenant_id, occurred_at, seq)` | Insert-only, monthly partitions, `prev_hash`/`hash` chain per tenant; `client_address` (inet, 000151) where the request came from, outside the chain, which the tenant's erasure alone may blank (`audit.event_immutable`, ADR-0011 amended) |
 | `chain_head` | `tenant_id` | Last sequence and hash per tenant |
 | `anchor` | `(tenant_id, seq)` | Chain heads written to write-once storage |
 | `verification` | `(tenant_id, verified_at)` | Insert-only; one row per scheduled verification round: head, events and anchors checked, the first broken sequence (ADR-0025) |
@@ -2237,8 +2249,8 @@ line or reservation. An agent's budget is identity's
 A leaf context (ADR-0051 §2): it reads the ledger, payments, payables and
 procurement through ports they publish and owns only what it adds; no
 context imports it (`internal/layout`). Migration 000141 (T53b) creates the
-schema with the configuration it keeps; memo records, snapshots and
-variance comments follow in T53d and T53f.
+schema with the configuration it keeps; memo records follow in T53d
+(000152), snapshots and variance comments in T53f.
 
 ```mermaid
 erDiagram
@@ -2251,12 +2263,34 @@ erDiagram
   planning_group { text code PK
     text name
     bool is_active }
+  liquidity_item ||--o{ memo_record : "classifies"
+  memo_record ||--o{ memo_record : "overridden occurrence of"
+  memo_record { uuid id PK
+    uuid legal_entity_id "tenancy context"
+    uuid house_bank_id "payments context; null: forecast only"
+    char currency
+    bigint amount "minor units, signed: a receipt positive"
+    date value_date "a series' first occurrence"
+    date expires_on
+    date counts_until "last occurrence's expiry; null: no end"
+    text certainty "confirmed | expected | planned"
+    text liquidity_item FK
+    text recurrence "weekly | monthly | quarterly"
+    uuid recurrence_of FK
+    date occurrence_date
+    text status "proposed | active | realised | cancelled | rejected"
+    text origin "manual | upload | agent"
+    uuid session_id "agents context"
+    text batch_key
+    uuid realised_statement_id "payments context" }
 ```
 
 | Table | Purpose |
 |---|---|
 | `cash.liquidity_item` | The configuration's `cash.liquidity_items` (SAP FLQLITEM), kept by `cash.Setup`: cash by purpose in one tree, a code of upper-case letters, digits and underscores, a direction, a parent of the tenant (never itself). One the document drops becomes inactive, never deleted, since memo records and snapshots name items; the configuration's validation keeps the tree acyclic, at most four levels, children of their parent's direction or of one for both |
 | `cash.planning_group` | The configuration's `cash.planning_groups` (SAP T035), kept by `cash.Setup`, inactive once dropped; suppliers name one per company (`partner.supplier_company.planning_group`, §3.6) |
+| `cash.memo_record` | An expected receipt or payment (SAP's memo records, ADR-0051 §7; T53d): a signed, non-zero amount in minor units of its currency, a value date and an expiry date on or after it, a certainty, an active liquidity item of the amount's direction (`cash.check_memo_item`, when the item or amount is written; `cash.Setup` refuses taking away an item an open record names), a house bank or none (forecast only), optionally a series (`weekly`, `monthly` on the value date's day, `quarterly`; until a day or a count of 2-520, or neither) expanded at read time, `counts_until` the last occurrence's expiry (a one-off record's `expires_on`, null for a series without end; an active record past it is shown `expired`). An override (`recurrence_of`, `occurrence_date`) replaces one occurrence of a series, once per occurrence (`memo_record_override_once`). `origin` `agent` records carry their session and reason and are the only ones `proposed` or `rejected`; `upload` ones carry their batch key and a reference unique per company and key (`memo_record_batch_reference`). Realised by a statement line or by a person; a series only through an override of an occurrence. Changes are versions; never deleted |
+| `cash.outbox`, `cash.inbox` | The context's events (`MemoRecordChanged`), relayed as every context's (000152, `outbox.Contexts`) |
 
 What is not stored, and read from the active document when a position or
 forecast is computed: the derivation rules (`cash.derivation`: account
@@ -2279,5 +2313,8 @@ ledger's open lines on the clearing accounts (`ledger.Accounts.OpenLines`,
 leading ledger, neither cleared nor reversed; only lines an entry posted
 for a payment count, never a revaluation's) and rates of a type
 (`ledger.Rates.OfType`). Migration 000149 seeds its permission,
-`cash.position.read`.
+`cash.position.read`. Its one stored source is the context's own: the
+active memo records on the banks not expired at the read (T53d), each
+occurrence on its value date moved to the next working day. Migration
+000152 seeds `cash.memo.read`, `cash.memo.write` and `cash.memo.propose`.
 

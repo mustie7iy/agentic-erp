@@ -95,6 +95,7 @@ info:
     - name: workflow
     - name: integration
     - name: agents
+    - name: cash
     - name: platform
 
 defaultContentType: application/json
@@ -323,6 +324,14 @@ channels:
       RecommendationDecided: {$ref: '#/components/messages/RecommendationDecided'}
       BudgetThresholdReached: {$ref: '#/components/messages/BudgetThresholdReached'}
       AiPolicyChanged: {$ref: '#/components/messages/AiPolicyChanged'}
+  cash:
+    address: 'erp.{cell}.cash.{tenant}.{event}'
+    title: Cash management events
+    description: Memo records of expected receipts and payments (ADR-0051).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      MemoRecordChanged: {$ref: '#/components/messages/MemoRecordChanged'}
   platform:
     address: 'erp.{cell}.platform.{tenant}.{event}'
     title: Platform operation events
@@ -505,6 +514,12 @@ operations:
       - $ref: '#/channels/agents/messages/RecommendationDecided'
       - $ref: '#/channels/agents/messages/BudgetThresholdReached'
       - $ref: '#/channels/agents/messages/AiPolicyChanged'
+  publishCashEvents:
+    action: send
+    title: Cash management publishes
+    channel: {$ref: '#/channels/cash'}
+    messages:
+      - $ref: '#/channels/cash/messages/MemoRecordChanged'
   publishPlatformEvents:
     action: send
     title: Platform publishes
@@ -2667,6 +2682,32 @@ components:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e0000000006a", "source": "/erp/eu-1/agents", "type": "com.example.erp.agents.recommendation_decided.v1", "subject": "0192a000-0000-7000-8000-000000000c02", "time": "2026-10-08T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000102"}
           payload: {"recommendation_id": "0192a000-0000-7000-8000-000000000c02", "session_id": "0192a000-0000-7000-8000-000000000c01", "object_type": "supplier_invoice", "object_id": "0192a000-0000-7000-8000-000000000701", "kind": "release_hold", "outcome": "accepted", "decided_by": "0192a000-0000-7000-8000-000000000102"}
+    MemoRecordChanged:
+      name: MemoRecordChanged
+      x-webhook: true
+      title: Memo record changed
+      summary: A memo record of an expected receipt or payment was created, proposed, changed or decided.
+      description: |
+        Emitted by `memo-records` (POST, `created`), `memo-record-proposals`
+        (`proposed`, an agent's), `memo-record-uploads` (per record written:
+        `created`, `updated` or `cancelled`), `memo-records/{id}` (PATCH,
+        `updated`) and its `:acceptProposal` (`accepted`), `:rejectProposal`
+        (`rejected`), `:realise` (`realised`) and `:cancel` (`cancelled`),
+        the last two on the override of an occurrence when a series'
+        occurrence is closed (ADR-0051 §7). It says what changed, not the record, which
+        `GET /v1/memo-records/{id}` returns at `version`. Subject is the
+        memo record id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.cash.memo_record_changed.v1}
+      payload: {$ref: '#/components/schemas/MemoRecordChangedV1'}
+      examples:
+        - name: created
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000501, source: /erp/eu-1/cash, type: com.example.erp.cash.memo_record_changed.v1, subject: 0192a000-0000-7000-8000-000000000d01, time: '2026-10-21T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {memo_record_id: 0192a000-0000-7000-8000-000000000d01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, change: created, status: active, version: 1}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -3082,6 +3123,15 @@ components:
               valid_from: {$ref: '#/components/schemas/Date'}
               valid_to: {$ref: '#/components/schemas/NullableDate'}
               locked: {type: boolean}
+    MemoRecordChangedV1:
+      type: object
+      required: [memo_record_id, legal_entity_id, change, status, version]
+      properties:
+        memo_record_id: {$ref: '#/components/schemas/Uuid', description: '`cash.memo_record.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        change: {type: string, description: 'Open enum: created, proposed, updated, accepted, rejected, realised, cancelled.'}
+        status: {type: string, description: 'The stored status after the change. Open enum: proposed, active, realised, cancelled, rejected.'}
+        version: {type: integer, description: The record's version after the change.}
     SegmentChangedV1:
       type: object
       required: [segment_id, code, name, change]

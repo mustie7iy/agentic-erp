@@ -160,14 +160,14 @@ var listKeys = map[string]string{
 	// The analytics section's; a metric's own dimensions are names, listed
 	// by position.
 	"metrics": "name", "dimensions": "name",
-	"packs":                  "company",
-	"calendars":              "company",
-	"holidays":               "date",
-	"cost_center_categories": "code", "default_assignments": "account",
+	"packs":     "company",
+	"calendars": "company",
+	"holidays":  "date",
 	// Cash (ADR-0051): items and groups by code; a company's value days by
 	// bank and method, its credit lines by bank.
 	"liquidity_items": "code", "planning_groups": "code",
 	"value_days": "house_bank,method", "credit_lines": "house_bank",
+	"cost_center_categories": "code", "default_assignments": "account",
 }
 
 // pathKeys override listKeys for a list at one path, where its name is

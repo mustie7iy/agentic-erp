@@ -14,15 +14,17 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 // The daily cash position (ADR-0051 §8, T53c) is computed at the read
 // from the payments context's house banks, statements and payments and
-// the ledger's open lines and rates, through the ports below, all in the
-// request's transaction, which the contract's x-snapshot runs at
-// REPEATABLE READ: every figure is of one database state.
+// the ledger's open lines and rates, through the ports below, and the
+// context's own memo records on the banks (T53d), all in the request's
+// transaction, which the contract's x-snapshot runs at REPEATABLE READ:
+// every figure is of one database state.
 
 // Endpoints implements the cash part of the generated API.
 type Endpoints struct {
@@ -30,7 +32,9 @@ type Endpoints struct {
 	Settings      Settings
 	Payments      Payments
 	Ledger        Ledger
-	Now           func() time.Time // the read date's clock; nil: time.Now
+	Sessions      Sessions          // agents' sessions, for their proposals
+	Pages         *pagination.Codec // list page tokens
+	Now           func() time.Time  // the read date's clock; nil: time.Now
 }
 
 // LegalEntities finds a legal entity (tenancy context).
@@ -60,6 +64,11 @@ type Payments interface {
 	// Pending are the legal entity's payments of runs proposed or being
 	// released that are not posted yet.
 	Pending(ctx context.Context, legalEntity uuid.UUID) ([]Payment, error)
+	// HouseBanks are the legal entity's active house banks by code.
+	HouseBanks(ctx context.Context, legalEntity uuid.UUID) ([]HouseBank, error)
+	// StatementLine is a bank statement line; found is false when there is
+	// none.
+	StatementLine(ctx context.Context, statement uuid.UUID, lineNo int32) (l StatementLine, found bool, err error)
 }
 
 // Ledger is what the cash position reads of the ledger context.
@@ -258,6 +267,9 @@ func (e *Endpoints) Position(ctx context.Context, q Query) (Position, error) {
 	if err != nil {
 		return Position{}, err
 	}
+	if err := memoFlows(ctx, tx, r, q.LegalEntity, banks, p.From.AddDate(0, 0, p.Days-1), flows); err != nil {
+		return Position{}, err
+	}
 	p.Banks = r.banks(banks, flows, p.From, p.Days)
 	p.Currencies = r.sums.currencies(p.Banks)
 	if p.Converted, err = e.convert(ctx, r, p.Currencies, display, displayExp, p.From, p.Days); err != nil {
@@ -347,10 +359,16 @@ type flow struct {
 }
 
 // valueDate is a payment's day at the bank: its run date plus the bank's
-// value days, on a working day; one before the read date is late and
-// expected the working day after it.
+// value days.
 func (r reader) valueDate(b Bank, p Payment) (time.Time, bool) {
-	d := r.onOrAfter(clock.Day(p.RunDate).AddDate(0, 0, r.settings.ValueDaysFor(b.Code, p.Method)))
+	return r.atBank(clock.Day(p.RunDate).AddDate(0, 0, r.settings.ValueDaysFor(b.Code, p.Method)))
+}
+
+// atBank is the day a flow dated d is at the bank: the working day on or
+// after d; one before the read date is late and expected the working day
+// after it.
+func (r reader) atBank(d time.Time) (time.Time, bool) {
+	d = r.onOrAfter(d)
 	if d.Before(r.read) {
 		return r.onOrAfter(r.read.AddDate(0, 0, 1)), true
 	}

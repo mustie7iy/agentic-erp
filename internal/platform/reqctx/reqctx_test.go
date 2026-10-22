@@ -2,6 +2,7 @@ package reqctx
 
 import (
 	"context"
+	"net/netip"
 	"testing"
 
 	"github.com/google/uuid"
@@ -42,6 +43,44 @@ func TestContextValues(t *testing.T) {
 	}
 	if got := InfoFrom(ctx).Operation; got != "getOperation" {
 		t.Errorf("InfoFrom(ctx).Operation = %q, want %q", got, "getOperation")
+	}
+}
+
+// TestMasked: only a person sees unmasked data; an agent, a service
+// principal, an unknown kind and a caller the context does not name do not.
+func TestMasked(t *testing.T) {
+	for name, tc := range map[string]struct {
+		ctx  context.Context
+		want bool
+	}{
+		"no principal": {context.Background(), true},
+		"agent":        {WithPrincipal(context.Background(), Principal{Kind: KindAgent}), true},
+		"person":       {WithPrincipal(context.Background(), Principal{Kind: KindHuman}), false},
+		"service":      {WithPrincipal(context.Background(), Principal{Kind: KindService}), true},
+		"system":       {WithPrincipal(context.Background(), Principal{Kind: KindSystem}), true},
+		"unknown kind": {WithPrincipal(context.Background(), Principal{Kind: "robot"}), true},
+		"no kind":      {WithPrincipal(context.Background(), Principal{}), true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := Masked(tc.ctx); got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestClientAddress: an address recorded is read back; none, or an invalid
+// one, is no address.
+func TestClientAddress(t *testing.T) {
+	if _, ok := ClientAddressFrom(context.Background()); ok {
+		t.Error("empty context: got an address, want none")
+	}
+	if _, ok := ClientAddressFrom(WithClientAddress(context.Background(), netip.Addr{})); ok {
+		t.Error("invalid address: got an address, want none")
+	}
+	want := netip.MustParseAddr("2001:db8::7")
+	if got, ok := ClientAddressFrom(WithClientAddress(context.Background(), want)); !ok || got != want {
+		t.Errorf("got %v %v, want %v", got, ok, want)
 	}
 }
 

@@ -30,7 +30,8 @@ func entryToAPI(e Entry) gen.JournalEntry {
 	for i, l := range e.Lines {
 		line := gen.JournalLine{LineNo: l.LineNo, AccountID: l.AccountID, Amount: apitypes.Money(l.TC, e.CurrencyTC, e.ExpTC),
 			AmountLc: apitypes.Money(l.LC, e.CurrencyLC, e.ExpLC), AmountGc: apitypes.Money(l.GC, e.CurrencyGC, e.ExpGC), PartnerID: apitypes.OptUUID(l.PartnerID),
-			TaxCode: apitypes.OptString(l.TaxCode), LineText: apitypes.OptString(l.Text), PurchaseOrderID: apitypes.OptUUID(l.PurchaseOrderID)}
+			TaxCode: apitypes.OptString(l.TaxCode), LineText: apitypes.OptString(l.Text), PurchaseOrderID: apitypes.OptUUID(l.PurchaseOrderID),
+			TaxJurisdiction: apitypes.OptString(l.TaxJurisdiction)}
 		if l.Quantity != nil {
 			line.Quantity.SetTo(gen.Quantity{Value: *l.Quantity, Unit: *l.Unit})
 		}
@@ -225,7 +226,7 @@ func newEntry(req *gen.JournalEntryCreate) NewEntry {
 		HeaderText: apitypes.Ptr[string](req.HeaderText), Lines: make([]NewLine, len(req.Lines))}
 	for i, l := range req.Lines {
 		line := NewLine{AccountID: l.AccountID, Amount: l.Amount.Amount, Currency: l.Amount.Currency, PartnerID: apitypes.Ptr[uuid.UUID](l.PartnerID),
-			TaxCode: apitypes.Ptr[string](l.TaxCode), Text: apitypes.Ptr[string](l.LineText)}
+			TaxCode: apitypes.Ptr[string](l.TaxCode), Text: apitypes.Ptr[string](l.LineText), TaxJurisdiction: apitypes.Ptr[string](l.TaxJurisdiction)}
 		if q, ok := l.Quantity.Get(); ok {
 			line.Quantity, line.Unit = &q.Value, &q.Unit
 		}

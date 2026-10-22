@@ -35,6 +35,26 @@ func encodeAcceptBankStatementLineProposalRequest(
 	return nil
 }
 
+func encodeAcceptMemoRecordProposalRequest(
+	req OptMemoRecordAccept,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	if !req.Set {
+		// Keep request with empty body if value is not set.
+		return nil
+	}
+	e := new(jx.Encoder)
+	{
+		if req.Set {
+			req.Encode(e)
+		}
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeAddHierarchyNodeRequest(
 	req *HierarchyNodeAdd,
 	r *http.Request,
@@ -175,6 +195,26 @@ func encodeCancelDownPaymentRequestRequest(
 	e := new(jx.Encoder)
 	{
 		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCancelMemoRecordRequest(
+	req OptMemoRecordCancel,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	if !req.Set {
+		// Keep request with empty body if value is not set.
+		return nil
+	}
+	e := new(jx.Encoder)
+	{
+		if req.Set {
+			req.Encode(e)
+		}
 	}
 	encoded := e.Bytes()
 	ht.SetBody(r, bytes.NewReader(encoded), contentType)
@@ -442,6 +482,20 @@ func encodeCreateHierarchyRequest(
 
 func encodeCreateLegalEntityRequest(
 	req *LegalEntityCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateMemoRecordRequest(
+	req *MemoRecordCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -1111,6 +1165,20 @@ func encodeProposeBankStatementLineRequest(
 	return nil
 }
 
+func encodeProposeMemoRecordRequest(
+	req *MemoRecordProposal,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeProposePaymentRunRequest(
 	req *PaymentRunPropose,
 	r *http.Request,
@@ -1119,6 +1187,26 @@ func encodeProposePaymentRunRequest(
 	e := new(jx.Encoder)
 	{
 		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeRealiseMemoRecordRequest(
+	req OptMemoRecordRealise,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	if !req.Set {
+		// Keep request with empty body if value is not set.
+		return nil
+	}
+	e := new(jx.Encoder)
+	{
+		if req.Set {
+			req.Encode(e)
+		}
 	}
 	encoded := e.Bytes()
 	ht.SetBody(r, bytes.NewReader(encoded), contentType)
@@ -1182,6 +1270,20 @@ func encodeRejectApprovalRequestRequest(
 }
 
 func encodeRejectBankStatementLineProposalRequest(
+	req *ReasonInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeRejectMemoRecordProposalRequest(
 	req *ReasonInput,
 	r *http.Request,
 ) error {
@@ -1555,6 +1657,20 @@ func encodeUpdateLegalEntityRequest(
 	return nil
 }
 
+func encodeUpdateMemoRecordRequest(
+	req *MemoRecordUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeUpdateOrgUnitRequest(
 	req *OrgUnitUpdate,
 	r *http.Request,
@@ -1706,6 +1822,63 @@ func encodeUpdateWebhookSubscriptionRequest(
 	}
 	encoded := e.Bytes()
 	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUploadMemoRecordsRequest(
+	req *MemoRecordUploadMultipart,
+	r *http.Request,
+) error {
+	const contentType = "multipart/form-data"
+	request := req
+
+	q := uri.NewFormEncoder(map[string]string{})
+	{
+		// Encode "legal_entity_id" form field.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(request.LegalEntityID))
+		}); err != nil {
+			return errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "batch_key" form field.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "batch_key",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(request.BatchKey))
+		}); err != nil {
+			return errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "file" form field.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "file",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(request.File))
+		}); err != nil {
+			return errors.Wrap(err, "encode query")
+		}
+	}
+	body, boundary := ht.CreateMultipartBody(func(w *multipart.Writer) error {
+		if err := q.WriteMultipart(w); err != nil {
+			return errors.Wrap(err, "write multipart")
+		}
+		return nil
+	})
+	ht.SetCloserBody(r, body, mime.FormatMediaType(contentType, map[string]string{"boundary": boundary}))
 	return nil
 }
 

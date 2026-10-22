@@ -1003,14 +1003,14 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Memo records: table, API (create, change with If-Match, cancel, realise by a statement line, list), recurrence expanded at read with overrides, expiry, upload idempotent by batch key, agent proposals not counted until accepted; audit and events; schema tests for each database rule",
-        "r": "T53d",
+        "s": "D",
+        "t": "Memo records: table, API (create, change with If-Match, cancel, realise by a statement line, list), recurrence expanded at read with overrides, expiry, upload idempotent by batch key, agent proposals not counted until accepted; audit and events; schema tests for each database rule; memo records on a house bank a source of the cash position; no approval (ADR-0051 §7: they post nothing; large amounts are the PO's to revisit)",
+        "r": "cash.memo_record (migration 000152: cash outbox, cash.check_memo_item, cash.memo.read|write|propose) · GET/POST /v1/memo-records, GET/PATCH /v1/memo-records/{id}, :cancel, :realise, :acceptProposal, :rejectProposal, POST /v1/memo-record-proposals (x-autonomy: propose), POST /v1/memo-record-uploads (CSV by batch key) · MemoRecordChanged (cash channel, outbox.Contexts) · cash.Endpoints memo flows in GET /v1/cash-position (source memo) · cash.Setup refuses taking away an item open records name (409 cash.liquidity_item_in_use) · payments.CashPosition.HouseBanks, StatementLine · agents.Sessions wired · db/cash_test.go TestMemoRecordRules · internal/cash memo*_test.go · ADR-0051 (as built, T53d) · 03-data-model §3.18 · 04-api-design · T53d",
         "c": []
        },
        {
         "s": "T",
-        "t": "Forecast from payables and payments (P5): ports for supplier open items (terms, discount tiers, supplier blocks, withholding, credit memos, items in runs excluded), parked and held invoices, down payment requests; the proposer's due-date and tier logic moved to ledger.ItemTerms and used by both; expected-date rule with payment days, value days and the company calendar; liquidity item derivation with proportional split (cash.Derive, T53b) and the derivation simulation listing the open flows whose item a rule change moves (moved from T53b); GET /v1/liquidity-forecast with buckets, certainty cut, per currency and converted, drill-down; performance budget measured at 100,000 open items",
+        "t": "Forecast from payables and payments (P5): ports for supplier open items (terms, discount tiers, supplier blocks, withholding, credit memos, items in runs excluded), parked and held invoices, down payment requests; the proposer's due-date and tier logic moved to ledger.ItemTerms and used by both; expected-date rule with payment days, value days and the company calendar; liquidity item derivation with proportional split (cash.Derive, T53b) and the derivation simulation listing the open flows whose item a rule change moves (moved from T53b); self-assessment pairs (T61e's self_output/self_input, reverse charge) netted out of the offsetting lines before derivation, since they are not cash (batch 6 review); GET /v1/liquidity-forecast with buckets, certainty cut, per currency and converted, drill-down; performance budget measured at 100,000 open items",
         "r": "T53e",
         "c": []
        },
@@ -1319,7 +1319,7 @@
      },
      {
       "s": "P",
-      "t": "Tax determination, calculation and returns (T61), split T61a-T61m; PO decisions P1-P8 2026-10-20",
+      "t": "Tax determination, calculation and returns (T61), split T61a-T61n; PO decisions P1-P8 2026-10-20",
       "r": "ADR-0049 · T61",
       "c": [
        {
@@ -1378,14 +1378,14 @@
        },
        {
         "s": "T",
-        "t": "Import tax follow-up: the declared tax base on the journal_entry_posted event's lines (asyncapi), so analytics sees import bases",
+        "t": "Tax follow-up: the declared tax base and the jurisdiction on the journal_entry_posted event's lines (asyncapi), so analytics sees import bases and sales by emirate",
         "r": "ADR-0049 §9 · after T61e",
         "c": []
        },
        {
-        "s": "T",
-        "t": "Output tax from the pilot's sales: output codes on manual and integration journal entries, per sales invoice or summary per code and jurisdiction (P2), tax checked within tolerance, zero-rated and exempt bases recorded",
-        "r": "T61f",
+        "s": "D",
+        "t": "Output tax from the pilot's sales: output codes on manual and integration journal entries, per sales invoice or summary per code and jurisdiction (P2), each code's tax lines checked against its base lines within a minor unit per component (ledger.output_tax_mismatch), the jurisdiction on lines where a component levies its lines' subdivision (UAE emirates), items per jurisdiction, zero-rated and exempt bases recorded at rate 0; a billing system's tax summary carries a base line per invoice it sums, the tolerance staying one minor unit per base line (product owner 2026-10-22)",
+        "r": "db/migrations/000150 · ledger.checkOutputTax · journal_line.tax_jurisdiction · tax_component.jurisdiction_on_line · ADR-0049 §7 · T61f",
         "c": []
        },
        {
@@ -1428,6 +1428,12 @@
         "s": "T",
         "t": "Engine connector port (deferred, P1): quote stored on parked documents, posting uses the stored quote, commit through the outbox; provider chosen when a country needs one",
         "r": "T61m · also the phase 1 Integrations item \"Tax engine (Avalara, Vertex)\" (triage, PO 2026-10-21)",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Service principals' posting limit: a per-company limit for entries a service principal (an integration such as the pilot's billing system) posts, separate from the manual entry approval limit for people; an entry above it is parked for a person's approval instead of refused with 409 ledger.approval_required (product owner 2026-10-22; finance lane)",
+        "r": "T61n · ADR-0049 §7 · after T61f",
         "c": []
        }
       ]
@@ -4553,9 +4559,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "API for the workspace (G1, G2, G3, G7), contract first: listApprovalRequests decidable_by=me with its index, getCurrentPrincipal (GET /v1/me) with identity.self.read held by every person (T73b made identity.session.end so through authz.PersonsOwn rather than a grant to every role, which a role made later would lack), listPrincipalNames, x-problem-codes on every operation with a spec test against the registered codes; schema and FailingTx tests",
-        "r": "T73c",
+        "s": "D",
+        "t": "API for the workspace (G1, G2, G3, G7), contract first: listApprovalRequests decidable_by=me (what approveApprovalRequest accepts: a person, not the requester, workflow.request.decide unbarred, the object type's approval permission, the step's role, not yet approved, not barred by the owning context) with its partial index; getCurrentPrincipal (GET /v1/me: who, companies, usable and SoD-barred permissions, an agent's level) and listPrincipalNames (id, name, kind; the tenant's alone), identity.self.read held by every principal (authz.Own); x-problem-codes on every operation and the document, derived from erp-server's call graph and the registered constraints' tables (TestProblemCodes, -update). PO D2: the API's audit trail records each person's client address (erp-web's SPIFFE identity towards the router, Erp-Client-Address believed from it alone, the cell from the router alone; audit_event.client_address outside the hash chain, blanked by the tenant's erasure). Chart: erp-web's certificate, the session key's rotation (web.sessionKeyPrevious); listAuditEvents shows client_address to people only, omitted and not read for agents, service principals and any other kind (reqctx.Masked, an allow-list; product owner 2026-10-22)",
+        "r": "migration 000151 · internal/approvals inbox.go · internal/identity self.go · internal/platform/authz Effective, Own · api/problemcodes_test.go · internal/router forwardClientAddress · internal/platform/httpapi ClientAddress · tlsconf VerifiedClient · internal/web forwardAddress · TestInbox · TestCurrentPrincipal · TestPrincipalNames · TestProblemCodes · TestForwardsTheClientAddress · TestAuditClientAddresses · TestThePersonsAddressInTheAudit · ADR-0052 Built in T73c · ADR-0011, ADR-0033 amended · T73c",
         "c": []
        },
        {
@@ -4608,7 +4614,7 @@
        },
        {
         "s": "T",
-        "t": "Languages (P5): French (Canada) complete and reviewed by a native finance user if the Canadian company has Québec staff; Arabic with RTL when the UAE pilot asks; locale preference; every problem code translated; RTL and long-text scenarios green",
+        "t": "Languages (P5): French (Canada) complete and reviewed by a native finance user if the Canadian company has Québec staff; Arabic with RTL when the UAE pilot asks; locale preference (a principal setting, added to GET /v1/me, which has none yet: T73c); every problem code translated (x-problem-codes lists them, per operation and the pipeline's for all); RTL and long-text scenarios green",
         "r": "T73l",
         "c": []
        },
@@ -5681,8 +5687,8 @@
        },
        {
         "s": "T",
-        "t": "Logins of their own in the directory for the router and the cells, in place of its master user",
-        "r": "deploy/helm/erp-global · deploy/helm/erp-cell · T72h",
+        "t": "Logins of their own in the directory for the router and the cells, in place of its master user; erp-web too needs its own directory login before production (T73b review D1: it connects as the master login, working as the erp_web role, which keeps it to its schema against its own code but not against a stolen credential), with T73m at the latest",
+        "r": "deploy/helm/erp-global · deploy/helm/erp-cell · T72h · ADR-0052 D1",
         "c": []
        },
        {
@@ -6181,7 +6187,7 @@
      },
      {
       "s": "T",
-      "t": "GDPR: personal data inventory, blocking and deletion",
+      "t": "GDPR: personal data inventory, blocking and deletion; the inventory includes the API audit trail's client addresses (audit.audit_event.client_address, T73c), and a person's erasure blanks those of their events as the tenant's erasure does (audit.event_immutable allows that alone)",
       "r": "T66",
       "c": []
      },
@@ -7036,6 +7042,12 @@
       "t": "Web UI for pilot finance users (PO 2026-10-21: needed for the pilot): the web workspace of ADR-0052",
       "r": "Phase 1 triage (PO 2026-10-21) · \"Server-rendered web workspaces (templ + HTMX)\" (Platform / User interface) · built by T73a–T73m, ADR-0052 · T72k",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "Company time zone: business dates (statement staleness, value dates, 'today' in cash, close calendars) in the company's time zone, not UTC (found in T53c)",
+      "r": "found in T53c (ADR-0051 as built: the cash position's read date is the clock's date in UTC; a Canadian or UAE company's evening is the next UTC day) · T72l",
+      "c": []
      }
     ]
    }
@@ -7200,6 +7212,12 @@
       "s": "D",
       "t": "CI image and signing checks run only when their inputs change, and weekly",
       "r": "scripts/ci-changes.sh · .github/workflows/ci.yml · .github/workflows/weekly.yml · T39",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "Every GitHub check runs once before a merge, locally (PO 2026-10-21): make ci-local adds the image build and scan, the signing round trip, the release scripts, the deploy workflow's jobs (terraform, tflint, conftest, actionlint, helm and admission, mirroring, NATS, the temporal module) and the promotion self-test on scripts/ci-changes.sh's path classes, with the workflows' pinned tools; the pull-request check is light (format, vet, lint, generated code, contract, build, short tests); main runs the full suite as the second line, a red main reverted at once or fixed within the hour; merge-pr.sh requires the head to contain main, so the tested tree is the merged one",
+      "r": "scripts/ci-local.sh · scripts/ci-local-tools.sh · scripts/ci-changes.sh · scripts/test-ci-changes.sh · scripts/merge-pr.sh · .github/workflows/ci.yml · .github/workflows/deploy.yml · 06 §6.5",
       "c": []
      },
      {

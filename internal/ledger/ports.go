@@ -391,6 +391,9 @@ type TaxComponent struct {
 	RecoverablePct string // decimal, e.g. "100"
 	AccountID      *uuid.UUID
 	RatePct        string // decimal, e.g. "19.000000"
+	// JurisdictionOnLine: it levies the subdivision of its Jurisdiction (a
+	// country) each line names (T61f).
+	JurisdictionOnLine bool
 }
 
 // Single is the code's one component when it has exactly one, which posts
@@ -440,7 +443,7 @@ func readTaxCodes(ctx context.Context, legalEntity uuid.UUID, code *string, date
 		return nil, err
 	}
 	rows, _ := tx.Query(ctx, `SELECT d.code, d.direction, d.kind, coalesce(d.category, ''), c.component, coalesce(c.jurisdiction, ''), c.account_key,
-			trim_scale(c.recoverable_pct)::text, c.account_id, r.rate_pct::text
+			trim_scale(c.recoverable_pct)::text, c.account_id, r.rate_pct::text, c.jurisdiction_on_line
 		FROM ledger.tax_code_definition d
 		JOIN ledger.tax_component c ON c.tenant_id = d.tenant_id AND c.legal_entity_id = d.legal_entity_id AND c.code = d.code
 		JOIN ledger.tax_rate r ON r.tenant_id = c.tenant_id AND r.legal_entity_id = c.legal_entity_id AND r.code = c.code AND r.component = c.component
@@ -451,7 +454,7 @@ func readTaxCodes(ctx context.Context, legalEntity uuid.UUID, code *string, date
 	var t TaxCode
 	var c TaxComponent
 	if _, err := pgx.ForEachRow(rows, []any{&t.Code, &t.Direction, &t.Kind, &t.Category, &c.Key, &c.Jurisdiction, &c.AccountKey, &c.RecoverablePct,
-		&c.AccountID, &c.RatePct}, func() error {
+		&c.AccountID, &c.RatePct, &c.JurisdictionOnLine}, func() error {
 		if n := len(out); n == 0 || out[n-1].Code != t.Code {
 			out = append(out, TaxCode{Code: t.Code, Direction: t.Direction, Kind: t.Kind, Category: t.Category})
 		}

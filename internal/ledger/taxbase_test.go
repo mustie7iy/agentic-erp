@@ -84,10 +84,11 @@ func TestImportFromCustomsDeclaration(t *testing.T) {
 		"Canada CBSA": {importEntry(t, e, "CAD", importLine{"140000", "650.00", "IC5", "13000.00"}, importLine{"219500", "-650.00", "", ""}),
 			"IC5/gst 2026-03-10 1300000 65000 65000 (910000 45500 45500) at 5"},
 		// Half recovered: the recovered part on the input account, the
-		// rest an expense without a code.
+		// rest an expense without a code; the claim item has the whole tax
+		// and the part recovered, as a supplier invoice's has.
 		"half recovered": {importEntry(t, e, "AED", importLine{"140000", "250.00", "IH5", "10000.00"}, importLine{"520000", "250.00", "", ""},
 			importLine{"240000", "-500.00", "IH5", "10000.00"}),
-			"IH5/claim 2026-03-10 1000000 25000 25000 (250000 6250 6250) at 5; IH5/due 2026-03-10 1000000 -50000 0 (250000 -12500 0) at 5"},
+			"IH5/claim 2026-03-10 1000000 50000 25000 (250000 12500 6250) at 5; IH5/due 2026-03-10 1000000 -50000 0 (250000 -12500 0) at 5"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			je, tag := e.in(t).Must(201, "POST", "/v1/journal-entries", c.body, "")
@@ -153,6 +154,8 @@ func TestTaxBaseRefused(t *testing.T) {
 			importLine{"520000", "5.00", "", ""}), "ledger.tax_base_inconsistent", 422},
 		"a base line beside it": {importEntry(t, e, "EUR", importLine{"520000", "100.00", "IC5", ""}, importLine{"140000", "5.00", "IC5", "100.00"},
 			importLine{"219500", "-105.00", "", ""}), "ledger.tax_base_inconsistent", 422},
+		"another code beside": {importEntry(t, e, "EUR", importLine{"140000", "5.00", "IC5", "100.00"}, importLine{"520000", "10.00", "V1", ""},
+			importLine{"140000", "1.90", "V1", ""}, importLine{"219500", "-16.90", "", ""}), "ledger.tax_base_inconsistent", 422},
 		"another currency": {strings.Replace(importEntry(t, e, "EUR", importLine{"140000", "5.00", "IC5", "100.00"}, importLine{"219500", "-5.00", "", ""}),
 			`"amount": "100.00", "currency": "EUR"`, `"amount": "100.00", "currency": "USD"`, 1), "ledger.currency_mismatch", 422},
 	} {

@@ -31,6 +31,17 @@ func (UnimplementedHandler) AcceptBankStatementLineProposal(ctx context.Context,
 	return r, ht.ErrNotImplemented
 }
 
+// AcceptMemoRecordProposal implements acceptMemoRecordProposal operation.
+//
+// A person accepts an agent's `proposed` memo record (409 `cash.memo_record_not_proposed` otherwise):
+// it becomes `active` and counts. Its liquidity item and house bank are checked again (422). Audited,
+// and published as MemoRecordChanged.
+//
+// POST /v1/memo-records/{id}:acceptProposal
+func (UnimplementedHandler) AcceptMemoRecordProposal(ctx context.Context, req OptMemoRecordAccept, params AcceptMemoRecordProposalParams) (r AcceptMemoRecordProposalRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ActivateChangeRequest implements activateChangeRequest operation.
 //
 // Creates and activates a new configuration version from an approved change request; each context
@@ -192,6 +203,20 @@ func (UnimplementedHandler) CancelContract(ctx context.Context, params CancelCon
 //
 // POST /v1/down-payment-requests/{id}:cancel
 func (UnimplementedHandler) CancelDownPaymentRequest(ctx context.Context, req *ReasonInput, params CancelDownPaymentRequestParams) (r CancelDownPaymentRequestRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CancelMemoRecord implements cancelMemoRecord operation.
+//
+// Cancels an `active` or `expired` memo record (409 `cash.memo_record_closed`; an agent's proposal is
+// accepted or rejected instead, 409 `cash.memo_record_proposed`): it stops counting. On a series,
+// `occurrence_date` cancels that occurrence only (a skipped occurrence: a `cancelled` override of it,
+// returned with status 201), or the whole series without it (its overrides are records of their own
+// and stay as they are). An occurrence with an override is acted on through the override (409
+// `cash.occurrence_overridden`). Audited, and published as MemoRecordChanged.
+//
+// POST /v1/memo-records/{id}:cancel
+func (UnimplementedHandler) CancelMemoRecord(ctx context.Context, req OptMemoRecordCancel, params CancelMemoRecordParams) (r CancelMemoRecordRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -443,6 +468,32 @@ func (UnimplementedHandler) CreateHierarchy(ctx context.Context, req *HierarchyC
 //
 // POST /v1/legal-entities
 func (UnimplementedHandler) CreateLegalEntity(ctx context.Context, req *LegalEntityCreate, params CreateLegalEntityParams) (r CreateLegalEntityRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateMemoRecord implements createMemoRecord operation.
+//
+// Creates an `active` memo record (ADR-0051 §7, T53d): an expected receipt (positive amount) or
+// payment (negative), one-off or recurring (`recurrence`: `weekly`, `monthly` on the value date's day,
+// the month's last day when shorter, or `quarterly`, ending `until` a day or after `count`
+// occurrences, or open-ended), with its liquidity item, certainty (`confirmed`, `expected` default,
+// `planned`) and expiry date (default the value date plus 7 days; for a series each occurrence expires
+// as many days after its own date). A memo record counts in the cash position
+// (`GET /v1/cash-position`, source `memo`, its own certainty) when it is `active` and names a house
+// bank, on its value date moved to the next working day of the company's calendar; one dated before
+// the read date and not expired is `late`, expected the working day after the read date, as a late
+// payment is; without a house bank it is for the liquidity forecast only (T53e). The house bank, if
+// given, must be an active house bank of the legal entity in the record's currency (422
+// `cash.house_bank_invalid`); the liquidity item an active one whose direction fits the amount's sign
+// (422 `cash.liquidity_item_invalid`). With `recurrence_of` and `occurrence_date` the record overrides
+// one occurrence of an active series of the same legal entity and currency (422
+// `cash.occurrence_invalid`), once per occurrence (409 `cash.occurrence_overridden`). No approval: a
+// memo record posts nothing (ADR-0051 §7). People and integrations create them; an agent proposes
+// (`:propose`). A legal entity the caller cannot act in is 404. Audited, and published as
+// MemoRecordChanged.
+//
+// POST /v1/memo-records
+func (UnimplementedHandler) CreateMemoRecord(ctx context.Context, req *MemoRecordCreate, params CreateMemoRecordParams) (r CreateMemoRecordRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -932,19 +983,21 @@ func (UnimplementedHandler) GetBusinessPartner(ctx context.Context, params GetBu
 // matches (a revaluation's valuation and reset lines on the account are not payments and never count),
 // and `payment_run`, the payments of runs `proposed` or `releasing` not posted yet, both `confirmed`,
 // each dated its run date plus the bank's `cash.value_days` (by method), moved to the next working
-// day; one dated before the read date is expected the working day after it and marked `late`.
-// `book_balance` checks the opening statement against the ledger as the reconciliation report does
-// (`GET /v1/house-banks/{id}/reconciliation`: the main bank account's balance on the statement's date,
-// in the bank's currency, and what the statement lines explain of the difference), with the payments
-// in transit, posted and not yet at the bank. A bank's `cash.credit_lines` amount is shown, and added
-// to its closing balance as `available`; no limit is enforced. `currencies` sums the banks of each
-// currency. `converted` totals every currency in `display_currency` (default the company's currency)
-// at the latest rate of the company's `cash.rate_type` (default `planning`; with no planning rate,
-// `average`) valid on the read date, one rate for every day; a rate valid from more than
-// `cash.rate_max_age_days` (default 7) before the read date is used and marked `stale`, and a currency
-// without a rate is left out of the total and listed in `incomplete_currencies`. Bank accounts appear
-// by house bank code and last four characters, so agents read the position as people do. A legal
-// entity the caller cannot act in is 404.
+// day; one dated before the read date is expected the working day after it and marked `late`; and
+// `memo`, the `active` memo records on the bank not expired at the read (`GET /v1/memo-records`), at
+// their own certainty, each occurrence of a series once, on its value date moved to the next working
+// day, late as a payment is. `book_balance` checks the opening statement against the ledger as the
+// reconciliation report does (`GET /v1/house-banks/{id}/reconciliation`: the main bank account's
+// balance on the statement's date, in the bank's currency, and what the statement lines explain of the
+// difference), with the payments in transit, posted and not yet at the bank. A bank's
+// `cash.credit_lines` amount is shown, and added to its closing balance as `available`; no limit is
+// enforced. `currencies` sums the banks of each currency. `converted` totals every currency in
+// `display_currency` (default the company's currency) at the latest rate of the company's
+// `cash.rate_type` (default `planning`; with no planning rate, `average`) valid on the read date, one
+// rate for every day; a rate valid from more than `cash.rate_max_age_days` (default 7) before the read
+// date is used and marked `stale`, and a currency without a rate is left out of the total and listed
+// in `incomplete_currencies`. Bank accounts appear by house bank code and last four characters, so
+// agents read the position as people do. A legal entity the caller cannot act in is 404.
 //
 // GET /v1/cash-position
 func (UnimplementedHandler) GetCashPosition(ctx context.Context, params GetCashPositionParams) (r GetCashPositionRes, _ error) {
@@ -1020,6 +1073,21 @@ func (UnimplementedHandler) GetContract(ctx context.Context, params GetContractP
 //
 // GET /v1/cost-centers/{id}
 func (UnimplementedHandler) GetCostCenter(ctx context.Context, params GetCostCenterParams) (r GetCostCenterRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetCurrentPrincipal implements getCurrentPrincipal operation.
+//
+// The caller's own principal (ADR-0052 G2): who they are, the companies they may act in, the
+// permissions they may use now and those a segregation-of-duties rule bars (held together with the
+// rule's other permission, so neither may be used until one is removed), and an agent's autonomy
+// level. Every principal may read it, person, agent or service, whatever their roles
+// (`identity.self.read` is held by everyone). It is advisory: a client builds its navigation from it
+// and hides what the caller can never do, and the API still decides every call, which may refuse what
+// this offered (a version changed meanwhile, an object's own rule, a grant ended since).
+//
+// GET /v1/me
+func (UnimplementedHandler) GetCurrentPrincipal(ctx context.Context) (r GetCurrentPrincipalRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1104,6 +1172,16 @@ func (UnimplementedHandler) GetLegalEntity(ctx context.Context, params GetLegalE
 //
 // GET /v1/match-results/{id}
 func (UnimplementedHandler) GetMatchResult(ctx context.Context, params GetMatchResultParams) (r GetMatchResultRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetMemoRecord implements getMemoRecord operation.
+//
+// One memo record, with its status as of the read date. A memo record of a legal entity the caller
+// cannot act in is not found.
+//
+// GET /v1/memo-records/{id}
+func (UnimplementedHandler) GetMemoRecord(ctx context.Context, params GetMemoRecordParams) (r GetMemoRecordRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1420,7 +1498,14 @@ func (UnimplementedHandler) ListAgentToolCalls(ctx context.Context, params ListA
 
 // ListApprovalRequests implements listApprovalRequests operation.
 //
-// Approval requests; filter by `status=pending` for an inbox. Sortable by: `created_at`.
+// Approval requests; filter by `status=pending` for everything waiting, or by `decidable_by=me` for
+// the caller's inbox: the pending requests the caller may approve now, as `approveApprovalRequest`
+// decides it (a person, not the requester, holding `workflow.request.decide` unbarred by a
+// segregation-of-duties rule, the object type's approval permission and the current step's role, who
+// has not approved the request yet and whom the owning context does not bar, such as whoever matched a
+// bank statement line by hand). An agent's or a service's inbox is empty. A page of `decidable_by=me`
+// may hold fewer requests than `page_size`, even none, while `next_page_token` is set: requests the
+// owning context bars are left out after they are read. Sortable by: `created_at`.
 //
 // GET /v1/approval-requests
 func (UnimplementedHandler) ListApprovalRequests(ctx context.Context, params ListApprovalRequestsParams) (r ListApprovalRequestsRes, _ error) {
@@ -1740,6 +1825,19 @@ func (UnimplementedHandler) ListMatchResults(ctx context.Context, params ListMat
 	return r, ht.ErrNotImplemented
 }
 
+// ListMemoRecords implements listMemoRecords operation.
+//
+// The memo records of the legal entities the caller may act in (ADR-0051 §7, T53d): expected receipts
+// and payments entered by people, uploaded, or proposed by an agent. `status` is the record's as of
+// the read date: an `active` record whose last occurrence's expiry date has passed is `expired` (it no
+// longer counts until a person moves, extends or cancels it). Sortable by: `value_date` (default),
+// `created_at`.
+//
+// GET /v1/memo-records
+func (UnimplementedHandler) ListMemoRecords(ctx context.Context, params ListMemoRecordsParams) (r ListMemoRecordsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListMigrationRuns implements listMigrationRuns operation.
 //
 // Migration runs and rehearsals. Sortable by: `created_at`.
@@ -1830,6 +1928,20 @@ func (UnimplementedHandler) ListPaymentRuns(ctx context.Context, params ListPaym
 //
 // GET /v1/payment-runs/{id}/payments
 func (UnimplementedHandler) ListPayments(ctx context.Context, params ListPaymentsParams) (r ListPaymentsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListPrincipalNames implements listPrincipalNames operation.
+//
+// The display name and kind of each principal of the caller's tenant among `ids` (ADR-0052 G3), so a
+// client shows who asked, approved or created something, and whether that was a person, an agent or a
+// service. Nothing else about a principal is given (no e-mail, status, roles or companies). An id that
+// names no principal of the tenant is left out, exactly as one that never existed: ids are not
+// guessable, and nothing tells the two apart. Items come in the order of `ids`, each id once. Every
+// principal may read it, person, agent or service (`identity.self.read` is held by everyone).
+//
+// GET /v1/principal-names
+func (UnimplementedHandler) ListPrincipalNames(ctx context.Context, params ListPrincipalNamesParams) (r ListPrincipalNamesRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -2271,7 +2383,13 @@ func (UnimplementedHandler) PostGoodsReceipt(ctx context.Context, req *GoodsRece
 // every ledger its company keeps as linked entries of one posting group sharing the document number
 // (`posting_group_id`), each period checked open in its ledger, and returns the leading ledger's;
 // `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to those ledgers
-// only (ADR-0045). Human-only: agents propose entries by parking them.
+// only (ADR-0045). Output tax (ADR-0049 §7, T61f): a billing system posts its sales here, one entry
+// per sales invoice or a summary per code and jurisdiction, idempotent by its `Idempotency-Key`; each
+// output code's tax lines (in a jurisdiction, where the code levies its lines' subdivision) are the
+// tax its base lines give at the rates of the tax date, within one minor unit per component, or 422
+// `ledger.output_tax_mismatch`; a code with tax lines and no base line is an adjustment of tax alone.
+// Zero-rated and exempt bases carry their codes without tax lines and are recorded as tax items at
+// rate 0. Human-only: agents propose entries by parking them.
 //
 // POST /v1/journal-entries
 func (UnimplementedHandler) PostJournalEntry(ctx context.Context, req *JournalEntryCreate, params PostJournalEntryParams) (r PostJournalEntryRes, _ error) {
@@ -2386,6 +2504,22 @@ func (UnimplementedHandler) ProposeBankStatementLine(ctx context.Context, req *S
 	return r, ht.ErrNotImplemented
 }
 
+// ProposeMemoRecord implements proposeMemoRecord operation.
+//
+// An agent proposes a memo record in its running session (`session_id`; another's or an ended one is
+// refused as `createRecommendation` refuses it), with the reason and the bank statement lines that are
+// its evidence (each a line of the legal entity, 422 `cash.statement_line_invalid`): an expected flow
+// it sees in history and not in the forecast, such as a monthly receipt or a quarterly tax instalment
+// (ADR-0051 §13). The record is `proposed`, checked as `createMemoRecord` checks one, and counts
+// nowhere until a person accepts it (`:acceptProposal`); a person may change it first (`PATCH`) or
+// reject it (`:rejectProposal`). Agents never create, change, accept or close a memo record otherwise.
+// Audited, and published as MemoRecordChanged.
+//
+// POST /v1/memo-record-proposals
+func (UnimplementedHandler) ProposeMemoRecord(ctx context.Context, req *MemoRecordProposal, params ProposeMemoRecordParams) (r ProposeMemoRecordRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ProposePaymentRun implements proposePaymentRun operation.
 //
 // Creates a run in status `proposing` (the Operation's `resource` points to it from the start), then
@@ -2398,6 +2532,21 @@ func (UnimplementedHandler) ProposeBankStatementLine(ctx context.Context, req *S
 //
 // POST /v1/payment-runs:propose
 func (UnimplementedHandler) ProposePaymentRun(ctx context.Context, req *PaymentRunPropose, params ProposePaymentRunParams) (r ProposePaymentRunRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// RealiseMemoRecord implements realiseMemoRecord operation.
+//
+// Marks an `active` or `expired` memo record `realised` (409 `cash.memo_record_closed`; an agent's
+// proposal is accepted or rejected instead, 409 `cash.memo_record_proposed`): the expected flow
+// happened, so it stops counting at once. With `statement_id` and `line_no` it is realised by that
+// bank statement line, which must be of the record's legal entity, currency and house bank if it names
+// one, in the amount's direction (422 `cash.statement_line_invalid`); without them a person closes it
+// as realised. On a series, `occurrence_date` is required (422) and realises that occurrence: a
+// `realised` override of it, returned with status 201. Audited, and published as MemoRecordChanged.
+//
+// POST /v1/memo-records/{id}:realise
+func (UnimplementedHandler) RealiseMemoRecord(ctx context.Context, req OptMemoRecordRealise, params RealiseMemoRecordParams) (r RealiseMemoRecordRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -2493,6 +2642,17 @@ func (UnimplementedHandler) RejectApprovalRequest(ctx context.Context, req *Comm
 //
 // POST /v1/bank-statements/{id}/lines/{line_no}:rejectProposal
 func (UnimplementedHandler) RejectBankStatementLineProposal(ctx context.Context, req *ReasonInput, params RejectBankStatementLineProposalParams) (r RejectBankStatementLineProposalRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// RejectMemoRecordProposal implements rejectMemoRecordProposal operation.
+//
+// A person rejects an agent's `proposed` memo record, with a reason (409
+// `cash.memo_record_not_proposed` otherwise): it becomes `rejected` and never counts. Audited, and
+// published as MemoRecordChanged.
+//
+// POST /v1/memo-records/{id}:rejectProposal
+func (UnimplementedHandler) RejectMemoRecordProposal(ctx context.Context, req *ReasonInput, params RejectMemoRecordProposalParams) (r RejectMemoRecordProposalRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -2954,6 +3114,23 @@ func (UnimplementedHandler) UpdateLegalEntity(ctx context.Context, req *LegalEnt
 	return r, ht.ErrNotImplemented
 }
 
+// UpdateMemoRecord implements updateMemoRecord operation.
+//
+// Changes a memo record that is `proposed`, `active` or `expired` (409 `cash.memo_record_closed`
+// otherwise), checked as a new one is: confirm or move an expected flow (a new `value_date` without
+// `expires_on` keeps the days between them), change its amount, item, certainty, bank or texts, or a
+// series' `recurrence`. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears the
+// house bank, description or reference. A series stays a series, a one-off a one-off. While a series
+// has overrides of its occurrences, its value date, rule and currency stay (409
+// `cash.series_has_overrides`), and an override keeps its series' currency (422
+// `cash.occurrence_invalid`); an uploaded record keeps its reference (422). Audited, and published as
+// MemoRecordChanged.
+//
+// PATCH /v1/memo-records/{id}
+func (UnimplementedHandler) UpdateMemoRecord(ctx context.Context, req *MemoRecordUpdate, params UpdateMemoRecordParams) (r UpdateMemoRecordRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // UpdateOrgUnit implements updateOrgUnit operation.
 //
 // Changes master data of an org unit. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null`
@@ -3071,6 +3248,30 @@ func (UnimplementedHandler) UpdateSupplierInvoice(ctx context.Context, req *Supp
 //
 // PATCH /v1/webhook-subscriptions/{id}
 func (UnimplementedHandler) UpdateWebhookSubscription(ctx context.Context, req *WebhookSubscriptionUpdate, params UpdateWebhookSubscriptionParams) (r UpdateWebhookSubscriptionRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UploadMemoRecords implements uploadMemoRecords operation.
+//
+// Uploads a batch of memo records for a legal entity from a CSV file (ADR-0051 §7, T53d), such as the
+// expected receipts of the system that issues the company's invoices until receivables exist. The file
+// is UTF-8, at most 1 MB and 5,000 rows, with a header row naming its columns in any order:
+// `reference` (required, unique in the file, at most 100 characters), `value_date` (YYYY-MM-DD),
+// `amount` (signed decimal with the currency's minor-unit digits: a receipt positive, a payment
+// negative), `currency`, `liquidity_item`, and optionally `certainty` (default `expected`),
+// `house_bank` (a house bank code of the legal entity), `expires_on` and `description`; another column
+// is refused. Each row is checked as `createMemoRecord` checks a record; if any row is wrong nothing
+// is written and the 422 `cash.memo_upload_invalid` names every wrong field as `rows[N].column`, N the
+// file's line number (at most 100 of them). Idempotent by `batch_key`: a batch replaces the records of
+// its key and legal entity that are not realised, by reference: a reference new to the key is created,
+// one whose record differs is changed (and becomes `active` again if it was cancelled), one that is
+// the same is left as it is, a realised one is kept as it is, and an `active` record of the key whose
+// reference the file no longer has is cancelled. The same file again changes nothing and publishes
+// nothing. Uploaded records are `active` with origin `upload`. Audited per record, and published as
+// MemoRecordChanged per record written.
+//
+// POST /v1/memo-record-uploads
+func (UnimplementedHandler) UploadMemoRecords(ctx context.Context, req *MemoRecordUploadMultipart, params UploadMemoRecordsParams) (r UploadMemoRecordsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

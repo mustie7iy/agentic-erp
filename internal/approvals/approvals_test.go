@@ -436,6 +436,10 @@ func TestDatabaseFailures(t *testing.T) {
 			_, err := e.ListApprovalRequests(ctx, gen.ListApprovalRequestsParams{ObjectID: gen.NewOptUUID(uuid.New())})
 			return err
 		}},
+		"inbox": {f.Approver, func(ctx context.Context) error {
+			_, err := e.ListApprovalRequests(ctx, gen.ListApprovalRequestsParams{DecidableBy: gen.NewOptString("me")})
+			return err
+		}},
 		"approve": {f.Approver, func(ctx context.Context) error {
 			_, err := e.ApproveApprovalRequest(ctx, gen.OptDecisionInput{}, gen.ApproveApprovalRequestParams{ID: ids[0], IfMatch: "*"})
 			return err

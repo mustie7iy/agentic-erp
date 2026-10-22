@@ -7,6 +7,7 @@ package reqctx
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
@@ -87,6 +88,7 @@ const (
 	txKey
 	traceKey
 	clientCertKey
+	clientAddressKey
 )
 
 // WithClientCert records the thumbprint (RFC 8705 x5t#S256) of the client
@@ -99,6 +101,20 @@ func WithClientCert(ctx context.Context, thumbprint string) context.Context {
 func ClientCertFrom(ctx context.Context) string {
 	t, _ := ctx.Value(clientCertKey).(string)
 	return t
+}
+
+// WithClientAddress records the IP address the request came from, as the
+// cell established it (httpapi.ClientAddress): the person's in the web
+// workspace, otherwise the connection's. The audit trail records it.
+func WithClientAddress(ctx context.Context, addr netip.Addr) context.Context {
+	return context.WithValue(ctx, clientAddressKey, addr)
+}
+
+// ClientAddressFrom is the request's client address; ok is false when none
+// is known (work no request made).
+func ClientAddressFrom(ctx context.Context) (addr netip.Addr, ok bool) {
+	addr, ok = ctx.Value(clientAddressKey).(netip.Addr)
+	return addr, ok && addr.IsValid()
 }
 
 func WithClaims(ctx context.Context, c Claims) context.Context {
@@ -117,6 +133,16 @@ func WithPrincipal(ctx context.Context, p Principal) context.Context {
 func PrincipalFrom(ctx context.Context) (Principal, bool) {
 	p, ok := ctx.Value(principalKey).(Principal)
 	return p, ok
+}
+
+// Masked reports whether personal data only people may see is withheld
+// from the caller, such as client addresses in the audit trail (T73c,
+// product owner 2026-10-22: people only). It is an allow-list: false for a
+// person alone, true for agents, service principals, any other kind and a
+// caller the request does not name, so a new kind fails closed.
+func Masked(ctx context.Context) bool {
+	p, ok := PrincipalFrom(ctx)
+	return !ok || p.Kind != KindHuman
 }
 
 // WithTx attaches the request's transaction. Everything a handler reads or

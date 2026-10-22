@@ -4,7 +4,8 @@
 # router's and the web workspace's public certificate chains and keys
 # (ADR-0052), which operators load from a public CA (ADR-0035: no ACME),
 # the web workspace's session sealing key (web-session-key, at least 32
-# random bytes) and its clients' credentials at the tenants' identity
+# random bytes; web-session-key-previous during a rotation, ADR-0028) and
+# its clients' credentials at the tenants' identity
 # providers (web-clients: a JSON object of file name to PEM key or
 # secret, which web_client credential_ref names as
 # file:/etc/erp/web-clients/<name>, T73b). Created empty, encrypted with
@@ -14,7 +15,7 @@
 variable "secrets" {
   description = "Names of the global tier's secrets, under erp/global/ (values are set outside Terraform)."
   type        = list(string)
-  default     = ["page-token-key", "router-public-certificate", "router-public-key", "web-public-certificate", "web-public-key", "web-session-key", "web-clients"]
+  default     = ["page-token-key", "router-public-certificate", "router-public-key", "web-public-certificate", "web-public-key", "web-session-key", "web-session-key-previous", "web-clients"]
 }
 
 resource "aws_secretsmanager_secret" "global" {

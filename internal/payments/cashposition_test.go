@@ -18,9 +18,11 @@ import (
 func TestCashPositionOutsideRequest(t *testing.T) {
 	c, ctx := payments.CashPosition{}, context.Background()
 	for name, call := range map[string]func() error{
-		"banks":    func() error { _, err := c.Banks(ctx, uuid.Nil, time.Now()); return err },
-		"released": func() error { _, err := c.Released(ctx, nil); return err },
-		"pending":  func() error { _, err := c.Pending(ctx, uuid.Nil); return err },
+		"banks":          func() error { _, err := c.Banks(ctx, uuid.Nil, time.Now()); return err },
+		"released":       func() error { _, err := c.Released(ctx, nil); return err },
+		"pending":        func() error { _, err := c.Pending(ctx, uuid.Nil); return err },
+		"house banks":    func() error { _, err := c.HouseBanks(ctx, uuid.Nil); return err },
+		"statement line": func() error { _, _, err := c.StatementLine(ctx, uuid.Nil, 1); return err },
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := call(); !errors.Is(err, reqctx.ErrOutsideRequest) {

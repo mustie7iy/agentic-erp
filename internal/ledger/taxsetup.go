@@ -114,12 +114,14 @@ func ratePath(p string, co config.Company, code, key string) string {
 func taxDefinitions(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, chart uuid.UUID, co config.Company) error {
 	var codes, descriptions, directions, kinds, categories []string
 	var cCodes, keys, jurisdictions, accountKeys, recoverables, numbers []string
+	var onLine []bool
 	for _, t := range co.TaxCodes {
 		codes, descriptions, directions = append(codes, t.Code), append(descriptions, t.Description), append(directions, t.DirectionOrInput())
 		kinds, categories = append(kinds, t.KindOrStandard()), append(categories, t.Category)
 		for _, c := range t.Parts() {
 			cCodes, keys, jurisdictions = append(cCodes, t.Code), append(keys, c.Key), append(jurisdictions, c.Jurisdiction)
 			accountKeys, recoverables, numbers = append(accountKeys, c.AccountKey), append(recoverables, c.Recoverable()), append(numbers, c.Account)
+			onLine = append(onLine, c.JurisdictionOnLine)
 		}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.tax_code_definition AS d (tenant_id, legal_entity_id, code, description, direction, kind, category,
@@ -133,15 +135,17 @@ func taxDefinitions(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, char
 		return fmt.Errorf("ledger: tax code definitions of %s: %w", le, err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.tax_component AS c (tenant_id, legal_entity_id, code, component, jurisdiction, account_key,
-			recoverable_pct, account_id, created_by, updated_by)
-		SELECT $1, $2, x.code, x.component, nullif(x.jurisdiction, ''), x.account_key, x.recoverable::numeric, g.id, $3, $3
-		FROM unnest($4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[])
-			AS x(code, component, jurisdiction, account_key, recoverable, number)
+			recoverable_pct, account_id, jurisdiction_on_line, created_by, updated_by)
+		SELECT $1, $2, x.code, x.component, nullif(x.jurisdiction, ''), x.account_key, x.recoverable::numeric, g.id, x.on_line, $3, $3
+		FROM unnest($4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $11::boolean[])
+			AS x(code, component, jurisdiction, account_key, recoverable, number, on_line)
 		LEFT JOIN ledger.gl_account g ON g.chart_id = $10 AND g.number = x.number
 		ON CONFLICT (tenant_id, legal_entity_id, code, component) DO UPDATE SET jurisdiction = EXCLUDED.jurisdiction,
-			recoverable_pct = EXCLUDED.recoverable_pct, account_id = EXCLUDED.account_id, version = c.version + 1, updated_by = $3
-		WHERE (c.jurisdiction, c.recoverable_pct, c.account_id) IS DISTINCT FROM (EXCLUDED.jurisdiction, EXCLUDED.recoverable_pct, EXCLUDED.account_id)`,
-		p.TenantID, le, p.ID, cCodes, keys, jurisdictions, accountKeys, recoverables, numbers, chart); err != nil {
+			recoverable_pct = EXCLUDED.recoverable_pct, account_id = EXCLUDED.account_id, jurisdiction_on_line = EXCLUDED.jurisdiction_on_line,
+			version = c.version + 1, updated_by = $3
+		WHERE (c.jurisdiction, c.recoverable_pct, c.account_id, c.jurisdiction_on_line)
+			IS DISTINCT FROM (EXCLUDED.jurisdiction, EXCLUDED.recoverable_pct, EXCLUDED.account_id, EXCLUDED.jurisdiction_on_line)`,
+		p.TenantID, le, p.ID, cCodes, keys, jurisdictions, accountKeys, recoverables, numbers, chart, onLine); err != nil {
 		return fmt.Errorf("ledger: tax code components of %s: %w", le, err)
 	}
 	return nil
