@@ -85,6 +85,7 @@ const (
 	GetBankStatementFileOperation             OperationName = "GetBankStatementFile"
 	GetBankStatementRulesOperation            OperationName = "GetBankStatementRules"
 	GetBusinessPartnerOperation               OperationName = "GetBusinessPartner"
+	GetCashPositionOperation                  OperationName = "GetCashPosition"
 	GetCenterChangeOperation                  OperationName = "GetCenterChange"
 	GetChangeRequestOperation                 OperationName = "GetChangeRequest"
 	GetClearingOperation                      OperationName = "GetClearing"

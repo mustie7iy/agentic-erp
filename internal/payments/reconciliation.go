@@ -82,7 +82,7 @@ func scanReconBank(row pgx.Row) (reconBank, error) {
 
 // figures are the house bank's figures on each date, each with the
 // closing balance given for it.
-func (e *Endpoints) figures(ctx context.Context, tx pgx.Tx, b reconBank, dates []time.Time, closing []money.Minor) ([]Figures, error) {
+func figures(ctx context.Context, tx pgx.Tx, accounts Accounts, b reconBank, dates []time.Time, closing []money.Minor) ([]Figures, error) {
 	rows, _ := tx.Query(ctx, `WITH per AS (
 			SELECT s.closing_date AS c, coalesce(sum(l.amount) FILTER (WHERE l.status = 'excluded'), 0) AS excluded,
 				coalesce(sum(l.amount) FILTER (WHERE l.status NOT IN ('posted', 'excluded')), 0) AS in_transit
@@ -104,7 +104,7 @@ func (e *Endpoints) figures(ctx context.Context, tx pgx.Tx, b reconBank, dates [
 	if b.Main == nil {
 		return figs, nil
 	}
-	ledger, err := e.Accounts.Balances(ctx, b.LegalEntityID, *b.Main, b.Currency, dates)
+	ledger, err := accounts.Balances(ctx, b.LegalEntityID, *b.Main, b.Currency, dates)
 	if err != nil {
 		return nil, fmt.Errorf("payments: ledger balances of house bank %s: %w", b.ID, err)
 	}
@@ -136,7 +136,7 @@ func (e *Endpoints) reconcile(ctx context.Context, tx pgx.Tx, p reqctx.Principal
 	for i, d := range done {
 		dates[i], closing[i] = d.ClosingDate, d.Closing
 	}
-	figs, err := e.figures(ctx, tx, b, dates, closing)
+	figs, err := figures(ctx, tx, e.Accounts, b, dates, closing)
 	if err != nil {
 		return err
 	}
@@ -315,7 +315,7 @@ func (e *Endpoints) periodSummary(ctx context.Context, tx pgx.Tx, b reconBank, q
 	if last == nil {
 		return out, nil
 	}
-	figs, err := e.figures(ctx, tx, b, []time.Time{*last}, []money.Minor{*closing})
+	figs, err := figures(ctx, tx, e.Accounts, b, []time.Time{*last}, []money.Minor{*closing})
 	if err != nil {
 		return out, err
 	}
@@ -343,7 +343,7 @@ func (e *Endpoints) reconciledStatements(ctx context.Context, tx pgx.Tx, b recon
 	for i, s := range statements {
 		ids[i], dates[i], closing[i] = s.ID, s.ClosingDate, s.Closing
 	}
-	figs, err := e.figures(ctx, tx, b, dates, closing)
+	figs, err := figures(ctx, tx, e.Accounts, b, dates, closing)
 	if err != nil {
 		return nil, err
 	}

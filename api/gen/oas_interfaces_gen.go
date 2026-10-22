@@ -317,6 +317,10 @@ type GetBusinessPartnerRes interface {
 	getBusinessPartnerRes()
 }
 
+type GetCashPositionRes interface {
+	getCashPositionRes()
+}
+
 type GetCenterChangeRes interface {
 	getCenterChangeRes()
 }

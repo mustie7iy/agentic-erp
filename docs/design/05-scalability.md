@@ -91,6 +91,13 @@ also routes every lookup to one partition.
   yet projected, so they stay fast as history grows (target p95 1 s). The
   ledger reconciliation reads the same for two ledgers (T52e; budget
   `TestLedgerReconciliationBudget`, p95 1 s for a year of 5,000 accounts).
+- **The cash position** is computed on read in one repeatable-read
+  snapshot (ADR-0051 §6): its cost is the open lines of the house banks'
+  clearing accounts, found among every line ever posted there, and the
+  payments they name (budget `TestCashPositionBudget`, p95 2 s for 100,000
+  payments in two ledgers, 2,000 in transit, over 31 days; measured about
+  0.5 s median). A stored flow table kept from events is the path if a
+  larger tenant breaks it.
 - **Analytics** reads a columnar store (ADR-0044): per-tenant Parquet
   extracted incrementally under the tenant's RLS on a read replica, queried
   by DuckDB in `erp-analytics`; freshness p95 15 min, with a fallback to the

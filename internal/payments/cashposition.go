@@ -1,0 +1,148 @@
+package payments
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+)
+
+// CashPosition is what the cash context reads of payments for the daily
+// cash position (ADR-0051 §8, T53c): a legal entity's house banks with
+// their latest statement before a day and its reconciliation figures, the
+// released payments its clearing accounts still hold open, and the
+// payments of runs not released yet. It reads in the request's transaction
+// under row-level security; the caller checks company access. The
+// composition root wires it behind the cash context's port, so neither
+// context imports the other.
+type CashPosition struct {
+	Accounts Accounts // the main bank account's balance on the statement's date
+}
+
+// CashBank is a house bank as the cash position reads it.
+type CashBank struct {
+	ID                uuid.UUID
+	Code, Last4       string
+	Currency          string
+	Exponent          int
+	ClearingAccountID uuid.UUID      // where its payments are open until the bank books them
+	Statement         *CashStatement // the latest closing before the day; nil: none
+}
+
+// CashStatement is a house bank's statement the position opens at: its
+// closing balance, whether a statement up to it is in gap, and its
+// reconciliation figures on its closing date.
+type CashStatement struct {
+	Closing money.Minor
+	Gap     bool
+	Figures Figures
+}
+
+// CashPayment is a payment as the cash position reads it: Amount is what
+// it pays, positive, in Currency, from the house bank.
+type CashPayment struct {
+	ID, RunID   uuid.UUID
+	HouseBankID uuid.UUID
+	Method      string // "" for a run proposed for its bank
+	RunDate     time.Time
+	Amount      money.Minor
+	Currency    string
+	// EntryID is the payment's journal entry, once posted.
+	EntryID *uuid.UUID
+	// MatchedOn is the closing date of the statement whose line's decided
+	// match clears it: the bank has booked it, though the posting may still
+	// wait for approval.
+	MatchedOn *time.Time
+}
+
+// Banks are the legal entity's active house banks by code, each with its
+// latest statement closing before the day.
+func (c CashPosition) Banks(ctx context.Context, legalEntity uuid.UUID, before time.Time) ([]CashBank, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	type bankRow struct {
+		CashBank
+		main    *uuid.UUID
+		closing *time.Time
+		balance *money.Minor
+		gap     bool
+	}
+	rows, _ := tx.Query(ctx, `SELECT h.id, h.code, h.iban_last4, h.currency, c.exponent, h.gl_account_id, h.main_gl_account_id, s.closing_date, s.closing_balance,
+			s.closing_date IS NOT NULL AND EXISTS (SELECT FROM payments.bank_statement g WHERE g.tenant_id = h.tenant_id AND g.house_bank_id = h.id
+				AND g.status = 'gap' AND g.closing_date <= s.closing_date)
+		FROM payments.house_bank h JOIN ref.currency c ON c.code = h.currency
+		LEFT JOIN LATERAL (SELECT closing_date, closing_balance FROM payments.bank_statement b WHERE b.tenant_id = h.tenant_id AND b.house_bank_id = h.id
+			AND b.closing_date < $2 ORDER BY b.closing_date DESC, b.id DESC LIMIT 1) s ON true
+		WHERE h.legal_entity_id = $1 AND h.status = 'active' ORDER BY h.code`, legalEntity, before)
+	banks, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (bankRow, error) {
+		var b bankRow
+		err := r.Scan(&b.ID, &b.Code, &b.Last4, &b.Currency, &b.Exponent, &b.ClearingAccountID, &b.main, &b.closing, &b.balance, &b.gap)
+		return b, errs.Wrapf(err, "scan house bank")
+	})
+	if err != nil {
+		return nil, fmt.Errorf("payments: house banks of %s for the cash position: %w", legalEntity, err)
+	}
+	out := make([]CashBank, len(banks))
+	for i, b := range banks {
+		out[i] = b.CashBank
+		if b.closing == nil {
+			continue
+		}
+		figs, err := figures(ctx, tx, c.Accounts, reconBank{ID: b.ID, LegalEntityID: legalEntity, Currency: b.Currency, Exponent: b.Exponent, Main: b.main},
+			[]time.Time{*b.closing}, []money.Minor{*b.balance})
+		if err != nil {
+			return nil, err
+		}
+		out[i].Statement = &CashStatement{Closing: *b.balance, Gap: b.gap, Figures: figs[0]}
+	}
+	return out, nil
+}
+
+// cashPaymentSelect reads payments with their paying bank, their run and
+// the statement that booked them; $1 is the filter's argument.
+const cashPaymentSelect = `SELECT p.id, p.payment_run_id, coalesce(p.house_bank_id, r.house_bank_id), coalesce(p.payment_method, ''), r.run_date, p.amount,
+		p.currency, p.journal_entry_id,
+		(SELECT max(s.closing_date) FROM payments.statement_match_target t
+			JOIN payments.statement_match m ON m.tenant_id = t.tenant_id AND m.id = t.match_id AND m.status = 'matched'
+			JOIN payments.bank_statement s ON s.tenant_id = m.tenant_id AND s.id = m.statement_id
+			WHERE t.tenant_id = p.tenant_id AND t.payment_id = p.id)
+	FROM payments.payment p JOIN payments.payment_run r ON r.tenant_id = p.tenant_id AND r.id = p.payment_run_id
+	WHERE coalesce(p.house_bank_id, r.house_bank_id) IS NOT NULL AND NOT ` + dropped
+
+func (CashPosition) payments(ctx context.Context, what, filter string, arg any) ([]CashPayment, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, cashPaymentSelect+` AND `+filter+` ORDER BY r.run_date, p.id`, arg)
+	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (CashPayment, error) {
+		var p CashPayment
+		err := r.Scan(&p.ID, &p.RunID, &p.HouseBankID, &p.Method, &p.RunDate, &p.Amount, &p.Currency, &p.EntryID, &p.MatchedOn)
+		return p, errs.Wrapf(err, "scan payment")
+	})
+	if err != nil {
+		return nil, fmt.Errorf("payments: %s for the cash position: %w", what, err)
+	}
+	return out, nil
+}
+
+// Released are the posted payments among the ids, whatever their run's
+// status since: what a clearing account's open lines name, the line being
+// what says the money has not left yet.
+func (c CashPosition) Released(ctx context.Context, ids []uuid.UUID) ([]CashPayment, error) {
+	return c.payments(ctx, "released payments", `p.id = ANY($1) AND p.journal_entry_id IS NOT NULL`, ids)
+}
+
+// Pending are the legal entity's payments of runs proposed or being
+// released that are not posted yet: confirmed, not yet in the ledger.
+func (c CashPosition) Pending(ctx context.Context, legalEntity uuid.UUID) ([]CashPayment, error) {
+	return c.payments(ctx, "pending payments", `r.legal_entity_id = $1 AND r.status IN ('proposed', 'releasing') AND p.journal_entry_id IS NULL`, legalEntity)
+}

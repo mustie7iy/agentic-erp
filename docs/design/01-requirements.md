@@ -51,6 +51,7 @@ The architecture must reach these numbers by adding capacity
 | Approval decision | 150 ms | 400 ms |
 | Trial balance for one company and period | 1 s | 3 s |
 | Ledger reconciliation of two ledgers of one company and year, every page | 1 s | 3 s |
+| Daily cash position of one company, 31 days (ADR-0051) | 2 s | 4 s |
 | Payment proposal over 100,000 open items | async, < 60 s | < 120 s |
 
 ### Availability and recovery

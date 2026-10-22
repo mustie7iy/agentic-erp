@@ -2269,3 +2269,15 @@ posting rules by transaction code, then a default per direction;
 `credit_lines` in the bank's currency, `snapshot_time`). All of them post
 nothing: names and the hierarchy are tier 1, the rest tier 2.
 
+The daily cash position (T53c, `GET /v1/cash-position`) stores nothing
+either: it is computed at the read, in one repeatable-read snapshot, from
+the payments context's house banks, statements (the latest closing before
+the first day, `gap` up to it, the reconciliation figures on its date) and
+payments (posted ones whose line on the bank's clearing account is still
+open, and unposted ones of runs `proposed` or `releasing`), and from the
+ledger's open lines on the clearing accounts (`ledger.Accounts.OpenLines`,
+leading ledger, neither cleared nor reversed; only lines an entry posted
+for a payment count, never a revaluation's) and rates of a type
+(`ledger.Rates.OfType`). Migration 000150 seeds its permission,
+`cash.position.read`.
+
