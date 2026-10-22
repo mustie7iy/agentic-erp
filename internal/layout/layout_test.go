@@ -93,7 +93,7 @@ var allowed = map[string][]string{
 	"eval":                    {"apitools", "llm"},
 	"globalplane":             {"directory", "offboarding"},
 	"integration":             {"bankfile", "config", "ledger", "operations", "partner", "payables", "procurement", "sap", "tenancy"},
-	"ledger":                  {"approvals", "config", "tenancy"},
+	"ledger":                  {"approvals", "config", "configuration", "tenancy"},
 	"nfr":                     {"analytics", "app", "ledger"},
 	"offboarding":             {"tenancy"},
 	"partner":                 {"approvals", "bankfile", "config", "tenancy"},

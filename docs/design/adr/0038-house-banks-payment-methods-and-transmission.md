@@ -253,3 +253,69 @@ account is an institution number (3 digits), a transit (branch) number
   bank. No Canadian account is entered until the upgrade completes. The
   SAP load (vendor accounts, T012K) still takes accounts as IBAN or
   domestic: loading Canadian ones with their routing is a tracker item.
+
+## Amendment: foreign-currency house banks (T53a, ADR-0051 §3, product owner 2026-10-21)
+
+A house bank was always in its company's currency, so a Canadian
+company's USD account, or a UAE company's, could not be a house bank: its
+statements were refused as not of the bank's currency. The product owner
+decided (ADR-0051, P2) that a house bank may hold another currency.
+
+- **Configuration.** `companies[].house_bank(s)[].currency` (ISO 4217;
+  empty is the company's currency) is stored in the existing
+  `payments.house_bank.currency`; no migration. It is posting-related
+  (tier 3), as every house bank field is. Validation refuses a currency
+  the reference data does not know, a foreign-currency bank whose
+  clearing, main or incoming account is not flagged
+  `revalue_foreign_currency` (ADR-0042: so the period-end valuation
+  covers its balance, and the flag needs the account's valuation
+  accounts), and a ranking (`payment_methods[].ranking[]`) that names a
+  bank for another currency than its own: such a ranking never paid,
+  since the routing skips banks of another currency, and is now refused
+  rather than ignored. No account is shared between house banks at all,
+  so none is shared between banks of different currencies.
+- **A currency never changes under a code**, as an IBAN does not: the
+  check refuses a document that gives an existing bank another currency
+  ("already has another currency, EUR; give the new bank account a new
+  name"), and the apply never rewrites a bank's currency. A bank of a
+  document from before T53a has no currency and keeps its company's.
+- **Payments.** A run proposed for the bank takes its currency; a run
+  without a bank pays from the ranked banks in the run's currency (T45c,
+  unchanged). The release posts in the run's currency at the run date's
+  rate, as for any document currency (ADR-0042). The bank file's debtor
+  account names its currency (`DbtrAcct/Ccy`) when the bank's currency is
+  not its company's, so a bank keeping several currencies under one
+  account number debits the right one; files of local-currency banks are
+  unchanged, byte for byte.
+- **Statements and reconciliation** (ADR-0047). A statement must be in
+  the bank's currency (unchanged); its lines post at the posting date's
+  rate with the realised difference on `fx_gain`/`fx_loss` (T49f,
+  unchanged). The reconciliation compares in the bank's currency: the
+  ledger's balance of the main bank account is, for a bank in the local
+  currency, its local amounts (as before), and for a foreign-currency
+  bank the transaction amounts of the entries in the bank's currency
+  (`ledger.Accounts.Balances` takes the currency), so exchange
+  differences and the period-end valuation, both in local currency, are
+  not unexplained. The amount rule's tolerance still applies only to a
+  statement in the company's currency; a foreign-currency statement is
+  matched exactly (ADR-0047, accepted 2026-10-20).
+- **Canadian accounts** (T45d) work alike in any currency: a Canadian
+  company's USD account is written in `Othr` with the bank's `CACPA`
+  member id.
+- **Known limits** (review 2026-10-21, for the product owner): the
+  valuation of a flagged clearing account posts on the account itself,
+  so at a month end with payments in transit its valuation and reset
+  lines stay open items there beside the payments' lines; the statement
+  posting clears only the payments' lines, and readers of in-transit
+  payments (T53c) take payment lines only. An entry in another currency
+  posted by hand to a foreign-currency bank's main account (a CAD fee on
+  the USD account) is not in the bank's USD balance, so the
+  reconciliation report does not show it as unexplained; refusing such
+  postings would be a database rule of its own, not built. The SAP load
+  (T012K) carries no currency, so an SAP foreign-currency house bank is
+  loaded in its company's currency until the extract maps it (tracked);
+  since a currency never changes under a code, check it before go-live.
+- Tested end to end on a CAD company with a USD bank: configuration, a
+  USD run, its file, the USD statement imported, matched, posted with the
+  realised loss, reconciled, and the bank account revalued at the month's
+  end (`TestForeignCurrencyHouseBankEndToEnd`).

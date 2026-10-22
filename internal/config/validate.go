@@ -89,6 +89,7 @@ func Validate(c *Config, exponents currency.Exponents) []Finding {
 	v.rules(c)
 	v.packs(c)
 	v.calendars(c)
+	v.controlling(c)
 	switch c.Output.PurchaseOrderChannel {
 	case "email", "edi", "print":
 	default:
@@ -255,6 +256,7 @@ func (v *validator) company(p string, co *Company) {
 	v.houseBanks(p, co)
 	v.paymentMethods(p, co)
 	v.bankStatements(p, co, exp, known)
+	v.companyControlling(p, co)
 }
 
 // isTaxAccount reports whether the account is the input tax account or a
@@ -284,6 +286,7 @@ func (v *validator) houseBanks(p string, co *Company) {
 		}
 		codes[hb.Name] = true
 		v.houseBankAccount(hp, hb)
+		v.houseBankCurrency(hp, co, hb)
 		if !bicRe.MatchString(hb.BIC) {
 			v.err(hp+".bic", "BIC %q is not a valid SWIFT code", hb.BIC)
 		}
@@ -305,6 +308,29 @@ func (v *validator) houseBanks(p string, co *Company) {
 	}
 	for i, hb := range co.AllHouseBanks() {
 		v.statementAccounts(houseBankPath(p, i, hb), co, hb, accounts)
+	}
+}
+
+// houseBankCurrency checks a house bank in another currency than the
+// company's (ADR-0051 §3, T53a): a currency of the reference data, and
+// each of the bank's accounts flagged revalue_foreign_currency, so the
+// period-end valuation (ADR-0042) covers its balance. That no account is
+// shared with a bank of another currency follows from no account being
+// shared at all.
+func (v *validator) houseBankCurrency(hp string, co *Company, hb HouseBank) {
+	if hb.Currency == "" || hb.Currency == co.Currency {
+		return
+	}
+	if _, known := v.exponents[hb.Currency]; !known {
+		v.err(hp+".currency", "currency %q is not in the currency reference data", hb.Currency)
+		return
+	}
+	for _, a := range []struct{ field, number string }{{"gl_account", co.HouseBankAccount(hb)}, {"main_gl_account", hb.MainGLAccount},
+		{"incoming_gl_account", hb.IncomingGLAccount}} {
+		if acc := co.Account(a.number); a.number != "" && acc != nil && !acc.RevalueForeignCurrency {
+			v.err(hp+"."+a.field, "house bank %s is in %s: account %s must be revalue_foreign_currency, so period-end valuation covers it",
+				hb.Name, hb.Currency, a.number)
+		}
 	}
 }
 
@@ -505,9 +531,9 @@ func (v *validator) chartOfAccounts(p string, co *Company) {
 // ranking house banks for at least one currency, each currency once, and
 // each ranking naming house banks of the company, each once.
 func (v *validator) paymentMethods(p string, co *Company) {
-	banks := map[string]bool{}
+	banks := map[string]string{} // name → currency
 	for _, hb := range co.AllHouseBanks() {
-		banks[hb.Name] = true
+		banks[hb.Name] = co.HouseBankCurrency(hb)
 	}
 	codes := map[string]bool{}
 	for _, m := range co.PaymentMethods {
@@ -529,21 +555,27 @@ func (v *validator) paymentMethods(p string, co *Company) {
 				v.err(rp, "a currency of the currency reference data, each once in the method's ranking")
 			}
 			currencies[r.Currency] = true
-			v.rankedBanks(rp, banks, r.HouseBanks)
+			v.rankedBanks(rp, banks, r)
 		}
 	}
 }
 
 // rankedBanks checks that a ranking names at least one house bank, each a
-// house bank of the company and named once.
-func (v *validator) rankedBanks(rp string, banks map[string]bool, ranked []string) {
-	if len(ranked) == 0 {
+// house bank of the company in the ranking's currency, named once: a bank
+// pays only in its own currency (ADR-0051 §3), so ranking it for another
+// would never pay.
+func (v *validator) rankedBanks(rp string, banks map[string]string, r BankRanking) {
+	if len(r.HouseBanks) == 0 {
 		v.err(rp+".house_banks", "rank at least one house bank")
 	}
 	seen := map[string]bool{}
-	for _, name := range ranked {
-		if !banks[name] || seen[name] {
+	for _, name := range r.HouseBanks {
+		currency, ok := banks[name]
+		switch {
+		case !ok || seen[name]:
 			v.err(rp+".house_banks", "house bank %s: a house bank of the company, each once", name)
+		case currency != r.Currency:
+			v.err(rp+".house_banks", "house bank %s is in %s and pays only in it, not in %s", name, currency, r.Currency)
 		}
 		seen[name] = true
 	}

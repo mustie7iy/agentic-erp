@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
@@ -68,7 +69,14 @@ func (sc matchScenario) live(t *testing.T, n int) map[string]any {
 // posting is what a posted line's journal entry booked, by account number.
 func posting(t *testing.T, entry string) map[string]money.Minor {
 	t.Helper()
-	rows, err := pgtest.Admin(t).Query(context.Background(), `SELECT a.number, l.amount_tc FROM ledger.journal_line l
+	return booked(t, entry, "amount_tc")
+}
+
+// booked is what a journal entry booked in a currency (the column
+// amount_tc, amount_lc or amount_gc), by account number.
+func booked(t *testing.T, entry, column string) map[string]money.Minor {
+	t.Helper()
+	rows, err := pgtest.Admin(t).Query(context.Background(), `SELECT a.number, l.`+pgx.Identifier{column}.Sanitize()+` FROM ledger.journal_line l
 		JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id WHERE l.journal_entry_id = $1 ORDER BY l.line_no`, entry)
 	if err != nil {
 		t.Fatal(err)
@@ -82,6 +90,9 @@ func posting(t *testing.T, entry string) map[string]money.Minor {
 			t.Fatal(err)
 		}
 		out[number] += amount
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
 	}
 	return out
 }
