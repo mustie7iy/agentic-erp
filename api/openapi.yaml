@@ -11949,8 +11949,11 @@ paths:
         - payments.invalid_status
         - payments.nothing_to_pay
         - payments.proposal_outdated
+        - payments.release_approvals_unsupported
         - payments.release_in_progress
+        - payments.release_role_missing
         - request.version_mismatch
+        - workflow.unknown_role
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -12010,9 +12013,13 @@ paths:
       x-permission: payments.run.release
       x-agent: false
       x-problem-codes:
+        - config.not_bootstrapped
         - ledger.item_reserved
         - payments.invalid_status
+        - payments.release_approvals_unsupported
+        - payments.release_role_missing
         - request.version_mismatch
+        - workflow.unknown_role
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -14381,6 +14388,7 @@ paths:
         - request.invalid_amount
         - request.validation_failed
         - request.version_mismatch
+        - workflow.acknowledgement_required
         - workflow.already_approved
         - workflow.not_pending
         - workflow.own_request

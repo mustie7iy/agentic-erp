@@ -286,7 +286,7 @@ start() {
   say ""
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
-  say "  - tax returns (T61g-T61l), and the Canada pack's tax codes (T62g, Canada pack 2026.3): step 11 configures one code"
+  say "  - tax returns (T61g-T61l), and the Canada pack's tax codes (T62g, Canada pack 2026.3): step 2 configures one code, step 11 uses it"
   say "  - the liquidity forecast (T53e-T53k): step 13 shows the daily cash position with a memo record"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - accounts receivable, fixed assets (T57), period-end close (T64), consolidation (T68)"

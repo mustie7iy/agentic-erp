@@ -4572,6 +4572,12 @@
        },
        {
         "s": "T",
+        "t": "The approvals inbox explains workflow.acknowledgement_required (en, fr-CA) in i18n.Problems: a configuration change with no-case regression evidence is refused an approval without a comment, which the inbox now shows by the API's English title (found in batch 8 integration)",
+        "r": "batch 8 review · internal/web/i18n problems.go · internal/web approvals.go · approvals.Acknowledger (T72l) · T73d2",
+        "c": []
+       },
+       {
+        "s": "T",
         "t": "Approvals beyond the inbox: my requests and all I can see (listApprovalRequests by status and object type), the object's own summary per type (getRequisition, getPartnerChange, getSupplierInvoice, …) on the request's page, cancel own with a comment; a signed-in person's 404 and refused-form pages with their navigation; a decision's text kept across a step-up sign-in; walked through by a pilot approver",
         "r": "T73d2 (split from T73d, 2026-10-22)",
         "c": []
