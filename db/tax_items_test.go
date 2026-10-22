@@ -562,6 +562,16 @@ func TestLineJurisdictionRules(t *testing.T) {
 	if want := "AE-AZ -1000 -50; AE-DU -1000 -50"; got != want {
 		t.Errorf("items: got %s, want %s", got, want)
 	}
+	parkedLine := func(code, jurisdiction string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			pe := id()
+			return all(tx, step(`INSERT INTO ledger.parked_entry (tenant_id, id, legal_entity_id, ledger_id, document_type, document_date, posting_date,
+					currency, created_by_kind, owner_id, created_by, updated_by) VALUES ($1, $2, $3, $4, 'SA', '2026-03-10', '2026-03-10', 'USD', 'human', $5, $5, $5)`,
+				s.tenant, pe, s.entity, s.ledger, s.actor),
+				step(`INSERT INTO ledger.parked_entry_line (tenant_id, parked_entry_id, line_no, account_id, amount, tax_code, tax_jurisdiction)
+					VALUES ($1, $2, 1, $3, 500, nullif($4, ''), $5)`, s.tenant, pe, s.tax, code, jurisdiction))
+		}
+	}
 	for name, c := range map[string]struct {
 		write func(tx pgx.Tx) error
 		fails string
@@ -582,6 +592,15 @@ func TestLineJurisdictionRules(t *testing.T) {
 			}
 			return err
 		}, "journal_line_tax_jurisdiction"},
+		"not a subdivision": {func(tx pgx.Tx) error {
+			je, err := s.header(tx, true)
+			if err == nil {
+				err = line(tx, je, 1, s.expense, -1000, "S5", "AE-dubai")
+			}
+			return err
+		}, "journal_line_tax_jurisdiction"},
+		"a parked line's without a code": {parkedLine("", "AE-DU"), "parked_entry_line_tax_jurisdiction"},
+		"a parked line's not a subdivision": {parkedLine("S5", "AE"), "parked_entry_line_tax_jurisdiction"},
 		"a subdivision levying its lines'": {func(tx pgx.Tx) error {
 			return exec(tx, `UPDATE ledger.tax_component SET jurisdiction = 'AE-DU', version = version + 1 WHERE code = 'S5'`)
 		}, "tax_component_jurisdiction_on_line"},

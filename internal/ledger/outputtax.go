@@ -22,7 +22,8 @@ import (
 // taxed line names the subdivision its code's component levies, where one
 // does (checkJurisdictions), and the tax lines of each output code and
 // jurisdiction are the tax its base lines give at the rates of the tax
-// date, within one minor unit per component (checkOutputLines). Zero-rated
+// date, within one minor unit per base line and component, a sum of
+// per-invoice roundings (checkOutputLines). Zero-rated
 // and exempt bases carry their codes without tax lines and are items at
 // rate 0 (ledger.write_tax_items).
 func checkOutputTax(ctx context.Context, le uuid.UUID, date time.Time, lines []Line, expTC int) error {
@@ -140,8 +141,11 @@ func checkOutputLines(lines []Line, byCode map[string]TaxCode, date time.Time, e
 		if err != nil {
 			return calculationFailed(t.Code, err)
 		}
+		// One minor unit per base line: a billing system rounds each
+		// invoice (or line) it sums, the calculator the sum once.
+		units := money.Minor(len(split.bases[g]))
 		for k, it := range res.Items {
-			if got := split.posted[g][k]; t.Components[k].AccountID != nil && (got-it.Tax > 1 || it.Tax-got > 1) {
+			if got := split.posted[g][k]; t.Components[k].AccountID != nil && (got-it.Tax > units || it.Tax-got > units) {
 				return outputMismatch(g, it, got, expTC)
 			}
 		}
@@ -158,7 +162,7 @@ func outputMismatch(g outputGroup, it tax.ComponentTax, got money.Minor, expTC i
 	}
 	return problem.Unprocessable("ledger.output_tax_mismatch", fmt.Sprintf("Tax code %s%s: its tax lines post %s of %s, the rate on the tax date "+
 		"gives %s on its base lines of %s.", g.code, where, got.Plain(expTC), it.Key, it.Tax.Plain(expTC), it.Base.Plain(expTC)),
-		problem.FieldError{Field: "lines", Code: "output_tax_mismatch", Message: "tax lines of the code's tax on its base lines, within one minor unit"})
+		problem.FieldError{Field: "lines", Code: "output_tax_mismatch", Message: "tax lines of the code's tax on its base lines, within a minor unit per base line"})
 }
 
 // calculationFailed is the calculator's error: base lines adding up to more

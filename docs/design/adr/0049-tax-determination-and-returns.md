@@ -554,8 +554,13 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   output code's tax over its base lines, per jurisdiction, at the rates of
   the tax date (`checkOutputTax`, `internal/tax`, rounded once per code and
   component), and holds the tax lines on each component's account to it
-  within one minor unit (422 `ledger.output_tax_mismatch` with the
-  figures); a code with tax lines and no base line is an adjustment of tax
+  within one minor unit per base line (422 `ledger.output_tax_mismatch`
+  with the figures): a billing system rounds each invoice or line it sums,
+  the calculator the sum once, so four invoices of 100.10 at 5% post 20.04
+  where the sum gives 20.02 (proposed; **for the product owner and the tax
+  specialist:** a summary carrying one base line per code and jurisdiction
+  for many invoices needs a base line per invoice, or a count of the
+  invoices it sums, for its rounding to pass); a code with tax lines and no base line is an adjustment of tax
   alone, recorded as posted (base 0). Where a component levies its lines'
   subdivision (`jurisdiction_on_line`, its jurisdiction the country: one
   UAE code for every emirate, VAT 201 boxes 1a-1g), every line with the
@@ -563,11 +568,25 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   `ledger.jurisdiction_required`), a subdivision of that country, and no
   other line names one (422 `ledger.jurisdiction_not_levied`; database
   trigger `journal_line_tax_jurisdiction_code`, which a reversal passes, as
-  it repeats the original's); the items are then per jurisdiction. A code
+  it repeats the original's); the items are then per jurisdiction, the
+  line's on the component that levies it and its own on the others. A
+  component has one rate, so it levies its lines' subdivisions only where
+  they share it (the UAE's emirates); provinces with rates of their own
+  keep codes of their own. A code
   of a province's own (Ontario's HST, `CA-ON`) needs none. Zero-rated and
   exempt bases carry their codes without tax lines and are items at rate 0
   (GST34 line 101, VAT 201 boxes 4/5). The posted event's lines do not
-  carry the declared base or the jurisdiction yet (tracker). **For the
+  carry the declared base or the jurisdiction yet (tracker); nor do
+  postings that build lines of their own (a cash discount's tax
+  correction, a down payment's transfer, `ledger.Posting`): all are
+  supplier-side today, and a customer cash discount on such a code will
+  need it. **Rolling upgrade (06 §6.4):** 000148 is additive and runs ahead
+  of the code; an instance of the previous release posting a code that
+  levies its lines' subdivision fails the trigger (409), and its parked
+  line upserts leave `tax_jurisdiction` as it was, so
+  `jurisdiction_on_line` is configured only once the rollout is complete,
+  and an entry parked before T61f with output tax lines off its base is
+  refused when approved (release notes). **For the
   product owner:** an integration posting sales entries is held to the
   company's manual entry approval limit like a person (409
   `ledger.approval_required` above it), which a billing system cannot

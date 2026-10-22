@@ -89,6 +89,11 @@ func TestOutputTax(t *testing.T) {
 		// 5% of 100.10 is 5.005, 5.01 rounded; 5.00 is within a unit.
 		"within a minor unit": {saleEntry(t, e, saleLine{"100000", "105.10", "", ""}, saleLine{"400000", "-100.10", "S5", "AE-DU"},
 			saleLine{"240000", "-5.00", "S5", "AE-DU"}), "S5/AE-DU -10010 -500 at 5"},
+		// A summary of four invoices of 100.10, each taxed 5.01: 20.04,
+		// where 5% of the sum is 20.02; a unit per base line allows it.
+		"a summary of rounded invoices": {saleEntry(t, e, saleLine{"100000", "420.44", "", ""}, saleLine{"400000", "-100.10", "S5", "AE-DU"},
+			saleLine{"400000", "-100.10", "S5", "AE-DU"}, saleLine{"400000", "-100.10", "S5", "AE-DU"}, saleLine{"400000", "-100.10", "S5", "AE-DU"},
+			saleLine{"240000", "-20.04", "S5", "AE-DU"}), "S5/AE-DU -40040 -2004 at 5"},
 		"an adjustment of tax alone": {saleEntry(t, e, saleLine{"240000", "5.00", "S5", "AE-DU"}, saleLine{"100000", "-5.00", "", ""}),
 			"S5/AE-DU 0 500 at 5"},
 	} {
@@ -115,6 +120,8 @@ func TestOutputTaxRefused(t *testing.T) {
 	for name, c := range map[string]struct{ body, code string }{
 		"the wrong tax": {saleEntry(t, e, saleLine{"100000", "106.00", "", ""}, saleLine{"400000", "-100.00", "S5", "AE-DU"},
 			saleLine{"240000", "-6.00", "S5", "AE-DU"}), "ledger.output_tax_mismatch"},
+		"beyond a unit per base line": {saleEntry(t, e, saleLine{"100000", "102.03", "", ""}, saleLine{"400000", "-50.00", "S5", "AE-DU"},
+			saleLine{"400000", "-47.00", "S5", "AE-DU"}, saleLine{"240000", "-5.03", "S5", "AE-DU"}), "ledger.output_tax_mismatch"},
 		"no tax line": {saleEntry(t, e, saleLine{"100000", "100.00", "", ""}, saleLine{"400000", "-100.00", "HON", ""}), "ledger.output_tax_mismatch"},
 		"no jurisdiction": {saleEntry(t, e, saleLine{"100000", "105.00", "", ""}, saleLine{"400000", "-100.00", "S5", ""},
 			saleLine{"240000", "-5.00", "S5", ""}), "ledger.jurisdiction_required"},

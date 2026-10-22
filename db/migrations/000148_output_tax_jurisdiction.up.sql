@@ -59,7 +59,7 @@ LANGUAGE sql AS $$
     SELECT l.tax_code, l.tax_jurisdiction j, sum(l.amount_tc)::bigint tc, sum(l.amount_lc)::bigint lc FROM lines l
     WHERE NOT EXISTS (SELECT FROM accounts x WHERE x.code = l.tax_code AND x.a = l.account_id) GROUP BY 1, 2
   ), comps AS (
-    SELECT c.legal_entity_id, c.code, c.component, c.jurisdiction, c.account_key, c.recoverable_pct, c.account_id, c.former_account_ids,
+    SELECT c.legal_entity_id, c.code, c.component, c.jurisdiction, c.jurisdiction_on_line, c.account_key, c.recoverable_pct, c.account_id, c.former_account_ids,
       d.direction, d.kind, r.id rate_id, r.rate_pct
     FROM ledger.tax_component c JOIN codes ON codes.legal_entity_id = c.legal_entity_id AND codes.tax_code = c.code
     JOIN ledger.tax_code_definition d ON d.tenant_id = c.tenant_id AND d.legal_entity_id = c.legal_entity_id AND d.code = c.code
@@ -77,7 +77,7 @@ LANGUAGE sql AS $$
     INSERT INTO ledger.tax_item (tenant_id, fiscal_year, journal_entry_id, item_no, legal_entity_id, code, component, jurisdiction, direction, kind,
       account_key, account_id, tax_date, tax_rate_id, rate_pct, recoverable_pct, base_tc, tax_tc, recoverable_tc, base_lc, tax_lc, recoverable_lc)
     SELECT t, y, e, row_number() OVER (ORDER BY x.code, x.component, x.j NULLS FIRST, x.tax_account), x.legal_entity_id, x.code, x.component,
-      coalesce(x.j, x.jurisdiction),
+      CASE WHEN x.jurisdiction_on_line THEN x.j ELSE x.jurisdiction END,
       x.direction, x.kind, x.account_key, x.tax_account, day, x.rate_id, x.rate_pct, x.recoverable_pct,
       -- The code's base in the jurisdiction once per component, on its first account's item.
       CASE WHEN row_number() OVER (PARTITION BY x.code, x.component, x.j ORDER BY x.tax_account) = 1 THEN coalesce(b.tc, 0) ELSE 0 END
