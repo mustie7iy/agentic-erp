@@ -79,6 +79,7 @@ func TestUploadMemoRecords(t *testing.T) {
 
 	p, _ := e.Must(200, "GET", "/v1/memo-records?batch_key=billing-04&order_by=value_date", "", "")
 	inv1 := p["items"].([]any)[0].(map[string]any)
+	e.Problem(422, "request.validation_failed", "PATCH", path(inv1, ""), `{"reference": "INV-9"}`, fmt.Sprintf(`"%v"`, inv1["version"]))
 	e.Must(200, "POST", path(inv1, "realise"), ``, fmt.Sprintf(`"%v"`, inv1["version"]))
 	third := "reference,value_date,amount,currency,liquidity_item\nINV-1,2026-04-21,130.00,USD,REC_CUSTOMERS\nINV-2,2026-04-22,200.00,USD,REC_CUSTOMERS\n"
 	want(t, "third", e.uploaded(t, "billing-04", third), "rows 2 created 0 changed 1 unchanged 0 cancelled 2 kept 1")

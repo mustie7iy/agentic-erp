@@ -36,8 +36,9 @@ import (
 // (partner.PlanningGroupCodes).
 type Setup struct{}
 
-// Check reports each liquidity item the proposed document no longer has
-// that an open memo record (proposed or active, expired or not) names.
+// Check reports each liquidity item the proposed document no longer has,
+// or turns against its amount's direction, that an open memo record
+// (proposed or active, expired or not) names.
 func (Setup) Check(ctx context.Context, base, proposed *config.Config) ([]config.Finding, error) {
 	if base == nil {
 		return nil, nil
@@ -53,7 +54,7 @@ func (Setup) Check(ctx context.Context, base, proposed *config.Config) ([]config
 	out := make([]config.Finding, len(used))
 	for i, code := range used {
 		out[i] = config.Finding{Severity: config.SevError, Path: "cash.liquidity_items[" + code + "]",
-			Message: "open memo records name this liquidity item; move them to another item, or cancel them, first"}
+			Message: "open memo records name this liquidity item, of a direction it would no longer have; move them to another item, or cancel them, first"}
 	}
 	return out, nil
 }
@@ -78,7 +79,7 @@ func (Setup) Apply(ctx context.Context, doc *config.Config) error {
 	}
 	if len(used) > 0 {
 		return problem.Conflict("cash.liquidity_item_in_use", "Open memo records name liquidity item "+used[0]+
-			", which the configuration no longer has; move them to another item, or cancel them, first.")
+			", which the configuration no longer has for their direction; move them to another item, or cancel them, first.")
 	}
 	if err := applyGroups(ctx, tx, p, doc.Cash.PlanningGroups); err != nil {
 		return fmt.Errorf("cash: planning groups: %w", err)
@@ -87,14 +88,17 @@ func (Setup) Apply(ctx context.Context, doc *config.Config) error {
 }
 
 // itemsInUse are the codes open memo records name that items does not
-// have, in order.
+// have, or has for the other direction than a record's amount, in order.
 func itemsInUse(ctx context.Context, tx pgx.Tx, items []config.LiquidityItem) ([]string, error) {
-	codes := []string{}
+	codes, directions := []string{}, []string{}
 	for _, it := range items {
-		codes = append(codes, it.Code)
+		codes, directions = append(codes, it.Code), append(directions, it.Direction)
 	}
-	rows, _ := tx.Query(ctx, `SELECT DISTINCT liquidity_item FROM cash.memo_record WHERE status IN ('proposed', 'active') AND liquidity_item <> ALL($1)
-		ORDER BY liquidity_item`, codes)
+	rows, _ := tx.Query(ctx, `SELECT DISTINCT m.liquidity_item FROM cash.memo_record m
+		LEFT JOIN unnest($1::text[], $2::text[]) AS d(code, direction) ON d.code = m.liquidity_item
+		WHERE m.status IN ('proposed', 'active')
+			AND (d.code IS NULL OR (d.direction = 'inflow' AND m.amount < 0) OR (d.direction = 'outflow' AND m.amount > 0))
+		ORDER BY m.liquidity_item`, codes, directions)
 	used, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	if err != nil {
 		return nil, fmt.Errorf("cash: liquidity items in use: %w", err)

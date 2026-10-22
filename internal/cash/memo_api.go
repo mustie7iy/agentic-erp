@@ -17,20 +17,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-func optDate(d *time.Time) gen.OptDate {
-	if d == nil {
-		return gen.OptDate{}
-	}
-	return gen.NewOptDate(*d)
-}
-
-func optInt32(n *int32) gen.OptInt32 {
-	if n == nil {
-		return gen.OptInt32{}
-	}
-	return gen.NewOptInt32(*n)
-}
-
 func lineToAPI(l LineRef) gen.StatementLineRef {
 	return gen.StatementLineRef{StatementID: l.StatementID, LineNo: l.LineNo}
 }
@@ -45,14 +31,14 @@ func memoToAPI(m MemoRecord, read time.Time) gen.MemoRecord {
 		LegalEntityID: m.LegalEntityID, HouseBankID: apitypes.OptUUID(m.HouseBankID), Amount: apitypes.Money(m.Amount, m.Currency, m.Exponent),
 		Direction: direction, ValueDate: m.ValueDate, ExpiresOn: m.ExpiresOn, Certainty: m.Certainty, LiquidityItem: m.Item,
 		Description: apitypes.OptString(m.Description), Reference: apitypes.OptString(m.Reference), RecurrenceOf: apitypes.OptUUID(m.RecurrenceOf),
-		OccurrenceDate: optDate(m.OccurrenceDate), Status: m.StatusOn(read), Origin: m.Origin, SessionID: apitypes.OptUUID(m.SessionID),
+		OccurrenceDate: apitypes.OptDate(m.OccurrenceDate), Status: m.StatusOn(read), Origin: m.Origin, SessionID: apitypes.OptUUID(m.SessionID),
 		Reason: apitypes.OptString(m.Reason), Evidence: make([]gen.StatementLineRef, len(m.Evidence)), BatchKey: apitypes.OptString(m.BatchKey),
 		DecidedBy: apitypes.OptUUID(m.DecidedBy), Comment: apitypes.OptString(m.Comment)}
 	for i, l := range m.Evidence {
 		out.Evidence[i] = lineToAPI(l)
 	}
 	if r := m.Recurrence; r != nil {
-		out.Recurrence.SetTo(gen.MemoRecurrence{Frequency: r.Frequency, Until: optDate(r.Until), Count: optInt32(r.Count)})
+		out.Recurrence.SetTo(gen.MemoRecurrence{Frequency: r.Frequency, Until: apitypes.OptDate(r.Until), Count: apitypes.OptInt32(r.Count)})
 	}
 	if m.RealisedBy != nil {
 		out.RealisedBy.SetTo(lineToAPI(*m.RealisedBy))

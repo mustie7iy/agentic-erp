@@ -69,7 +69,9 @@ func (r Recurrence) occurrences(start, to time.Time) []time.Time {
 	}
 }
 
-// last is the series' last occurrence, false for a series without end.
+// last is the series' last occurrence, false for a series without end. A
+// bounded series has its value date as its first occurrence: its count is
+// at least 2 and its end on or after the value date (memoValues.dates).
 func (r Recurrence) last(start time.Time) (time.Time, bool) {
 	if r.Until == nil && r.Count == nil {
 		return time.Time{}, false

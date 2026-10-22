@@ -1010,7 +1010,7 @@
        },
        {
         "s": "T",
-        "t": "Forecast from payables and payments (P5): ports for supplier open items (terms, discount tiers, supplier blocks, withholding, credit memos, items in runs excluded), parked and held invoices, down payment requests; the proposer's due-date and tier logic moved to ledger.ItemTerms and used by both; expected-date rule with payment days, value days and the company calendar; liquidity item derivation with proportional split (cash.Derive, T53b) and the derivation simulation listing the open flows whose item a rule change moves (moved from T53b); GET /v1/liquidity-forecast with buckets, certainty cut, per currency and converted, drill-down; performance budget measured at 100,000 open items",
+        "t": "Forecast from payables and payments (P5): ports for supplier open items (terms, discount tiers, supplier blocks, withholding, credit memos, items in runs excluded), parked and held invoices, down payment requests; the proposer's due-date and tier logic moved to ledger.ItemTerms and used by both; expected-date rule with payment days, value days and the company calendar; liquidity item derivation with proportional split (cash.Derive, T53b) and the derivation simulation listing the open flows whose item a rule change moves (moved from T53b); self-assessment pairs (T61e's self_output/self_input, reverse charge) netted out of the offsetting lines before derivation, since they are not cash (batch 6 review); GET /v1/liquidity-forecast with buckets, certainty cut, per currency and converted, drill-down; performance budget measured at 100,000 open items",
         "r": "T53e",
         "c": []
        },

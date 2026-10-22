@@ -158,9 +158,9 @@ type Handler interface {
 	// Cancels an `active` or `expired` memo record (409 `cash.memo_record_closed`; an agent's proposal is
 	// accepted or rejected instead, 409 `cash.memo_record_proposed`): it stops counting. On a series,
 	// `occurrence_date` cancels that occurrence only (a skipped occurrence: a `cancelled` override of it,
-	// returned with status 201), or the whole series without it. An occurrence with an override is acted
-	// on through the override (409 `cash.occurrence_overridden`). Audited, and published as
-	// MemoRecordChanged.
+	// returned with status 201), or the whole series without it (its overrides are records of their own
+	// and stay as they are). An occurrence with an override is acted on through the override (409
+	// `cash.occurrence_overridden`). Audited, and published as MemoRecordChanged.
 	//
 	// POST /v1/memo-records/{id}:cancel
 	CancelMemoRecord(ctx context.Context, req OptMemoRecordCancel, params CancelMemoRecordParams) (CancelMemoRecordRes, error)
@@ -2273,8 +2273,11 @@ type Handler interface {
 	// otherwise), checked as a new one is: confirm or move an expected flow (a new `value_date` without
 	// `expires_on` keeps the days between them), change its amount, item, certainty, bank or texts, or a
 	// series' `recurrence`. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears the
-	// house bank, description or reference. A series stays a series, a one-off a one-off. Audited, and
-	// published as MemoRecordChanged.
+	// house bank, description or reference. A series stays a series, a one-off a one-off. While a series
+	// has overrides of its occurrences, its value date, rule and currency stay (409
+	// `cash.series_has_overrides`), and an override keeps its series' currency (422
+	// `cash.occurrence_invalid`); an uploaded record keeps its reference (422). Audited, and published as
+	// MemoRecordChanged.
 	//
 	// PATCH /v1/memo-records/{id}
 	UpdateMemoRecord(ctx context.Context, req *MemoRecordUpdate, params UpdateMemoRecordParams) (UpdateMemoRecordRes, error)

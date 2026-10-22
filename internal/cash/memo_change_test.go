@@ -45,6 +45,21 @@ func TestOverrideMemoRecordOccurrence(t *testing.T) {
 	got, _ := e.create(t, override(id(s), "2026-04-10"))
 	want(t, "override", fmt.Sprint(got["recurrence_of"], " ", got["occurrence_date"], " ", got["value_date"]), id(s)+" 2026-04-10 2026-04-17")
 	e.Problem(409, "cash.occurrence_overridden", "POST", "/v1/memo-records", e.body(override(id(s), "2026-04-10")), "")
+	// While it has an override, a series keeps its value date, rule and
+	// currency, so the override's occurrence stays one and counts once; an
+	// override keeps the series' currency.
+	stag := `"1"`
+	for name, patch := range map[string]string{
+		"value date": `{"value_date": "2026-04-06"}`,
+		"rule":       `{"recurrence": {"frequency": "weekly", "count": 5}}`,
+		"currency":   `{"amount": {"amount": "100.00", "currency": "CAD"}, "house_bank_id": null}`,
+	} {
+		t.Run("a series with an override: "+name, func(t *testing.T) {
+			e.In(t).Problem(409, "cash.series_has_overrides", "PATCH", path(s, ""), patch, stag)
+		})
+	}
+	_, stag = e.Must(200, "PATCH", path(s, ""), `{"description": "Weekly receipts", "amount": {"amount": "110.00", "currency": "USD"}}`, stag)
+	e.Problem(422, "cash.occurrence_invalid", "PATCH", path(got, ""), `{"amount": {"amount": "90.00", "currency": "CAD"}, "house_bank_id": null}`, `"1"`)
 	for name, c := range map[string]struct{ body, code string }{
 		"not an occurrence":    {override(id(s), "2026-04-11"), "cash.occurrence_invalid"},
 		"past the series' end": {override(id(s), "2026-05-01"), "cash.occurrence_invalid"},

@@ -209,10 +209,44 @@ func (e *Endpoints) UpdateMemo(ctx context.Context, id uuid.UUID, ifMatch func(i
 	if err != nil {
 		return MemoRecord{}, err
 	}
+	if err := keepsOccurrences(ctx, tx, m, v); err != nil {
+		return MemoRecord{}, err
+	}
 	if err := updateValues(ctx, tx, p, id, v, false); err != nil {
 		return MemoRecord{}, err
 	}
 	return written(ctx, tx, id, "update", "updated")
+}
+
+// keepsOccurrences refuses a change that would part a series' occurrences
+// from their overrides (its value date, rule or currency, while it has
+// overrides: the override's occurrence would no longer be one, and both
+// would count), an override from its series' currency, and an uploaded
+// record's reference, by which its batch knows it. The series is locked,
+// so no override is created meanwhile.
+func keepsOccurrences(ctx context.Context, tx pgx.Tx, m MemoRecord, v memoValues) error {
+	switch {
+	case m.RecurrenceOf != nil && v.currency != m.Currency:
+		return occurrenceInvalid("An override keeps its series' currency.")
+	case m.Origin == OriginUpload && !eq(m.Reference, v.reference):
+		return invalid("request.validation_failed", "An uploaded record's reference is how its batch knows it; it does not change.", "reference",
+			"the reference of the upload")
+	case m.Recurrence == nil || (m.ValueDate.Equal(v.valueDate) && m.Currency == v.currency && sameRule(*m.Recurrence, *v.recurrence)):
+		return nil
+	}
+	var overridden bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM cash.memo_record WHERE recurrence_of = $1)`, m.ID).Scan(&overridden); err != nil {
+		return fmt.Errorf("cash: overrides of series %s: %w", m.ID, err)
+	}
+	if overridden {
+		return problem.Conflict("cash.series_has_overrides", "The series has overrides of its occurrences; its value date, rule and currency stay while they do.")
+	}
+	return nil
+}
+
+// sameRule reports whether two series' rules give the same occurrences.
+func sameRule(a, b Recurrence) bool {
+	return a.Frequency == b.Frequency && eq(a.Count, b.Count) && (a.Until == nil) == (b.Until == nil) && (a.Until == nil || a.Until.Equal(*b.Until))
 }
 
 // Closing is how a person closes an active memo record, or one occurrence

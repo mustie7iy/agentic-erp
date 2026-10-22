@@ -363,6 +363,12 @@ As built (T53b):
   merged into the tenant's by code; the Canada pack 2026.2 (2026.1 plus
   that file and IAS 7 as a source) suggests OPERATING, INVESTING and
   FINANCING, each for both directions.
+- **For T53e (batch 6 review, T61e):** a supplier invoice's
+  self-assessed tax (T61e's `self_output`/`self_input` pair, reverse charge)
+  posts an offsetting +x/−x that moves no cash; if the two accounts derive
+  to different liquidity items, the flow would be split into a positive and
+  a negative share. The forecast reader nets self-assessment pairs out of
+  the offsetting lines before `cash.Derive`, so they classify nothing.
 - **Deferred to T53e:** the derivation simulation (the open flows whose
   item a rule change moves) needs the flow readers T53e builds; until then
   a rule change is approved on its diff alone, at tier 2.
@@ -502,9 +508,10 @@ As built (T53d):
   (`TestMemoRecordRules`), and a trigger (`cash.check_memo_item`) that the
   item is active and of the amount's direction when the item or amount is
   written; the item's row is locked, so a configuration deactivating it
-  waits, and `cash.Setup` refuses a document that takes away an item an
-  open (proposed or active) record names (finding, 409
-  `cash.liquidity_item_in_use`). No foreign key crosses a schema: the legal
+  waits; the trigger fires too when a cancelled record becomes active again
+  (an upload's row again). `cash.Setup` refuses a document that takes away
+  an item an open (proposed or active) record names, or turns it against
+  such a record's direction (finding, 409 `cash.liquidity_item_in_use`). No foreign key crosses a schema: the legal
   entity, house bank, statement lines and session are checked through
   ports (`Payments.HouseBanks`, `Payments.StatementLine` adapted from
   `payments.CashPosition`, `agents.Sessions`), and a record's house bank is
@@ -517,7 +524,11 @@ As built (T53d):
   record naming the series and occurrence (`POST /v1/memo-records` with
   `recurrence_of`, `occurrence_date`), once per occurrence; `:cancel` or
   `:realise` with `occurrence_date` closes one occurrence by such an
-  override (201), and a series is realised only that way.
+  override (201), and a series is realised only that way. While a series
+  has overrides its value date, rule and currency stay (409
+  `cash.series_has_overrides`), so an override's occurrence stays one and
+  counts once; an override keeps its series' currency. Cancelling a whole
+  series leaves its overrides, records of their own, as they are.
 - **Operations.** `listMemoRecords` (filters legal entity, status as of the
   read date, house bank, batch key, value dates; sorted by `value_date` or
   `created_at`), `createMemoRecord`, `getMemoRecord`, `updateMemoRecord`
@@ -531,7 +542,8 @@ As built (T53d):
   `acceptMemoRecordProposal` (checked again) and `rejectMemoRecordProposal`
   (with a reason), and `uploadMemoRecords` (`POST /v1/memo-record-uploads`).
   Every write but the proposal is `x-agent: false`: an agent never creates,
-  changes, accepts or closes a memo record. Writes take If-Match on a
+  changes, accepts or closes a memo record; an uploaded record's reference
+  does not change. Writes take If-Match on a
   record (ADR-0008, rows read `FOR UPDATE`) and an Idempotency-Key, are
   audited (`cash.memo_record.<verb>`) and publish `MemoRecordChanged`
   (`created`, `proposed`, `updated`, `accepted`, `rejected`, `realised`,

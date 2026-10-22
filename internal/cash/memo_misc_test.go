@@ -85,9 +85,26 @@ func TestLiquidityItemInUse(t *testing.T) {
 		}
 		return fs
 	}
-	want(t, "check", fmt.Sprint(check()), "[[error] cash.liquidity_items[TAX]: open memo records name this liquidity item; move them to another item, or cancel them, first]")
+	want(t, "check", fmt.Sprint(check()), "[[error] cash.liquidity_items[TAX]: open memo records name this liquidity item, of a direction it would no longer have; move them to another item, or cancel them, first]")
 	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error { return cash.Setup{}.Apply(ctx, without) })
 	pgtest.WantErr(t, err, "cash.liquidity_item_in_use")
+	flipped := withCash(t)
+	for i := range flipped.Cash.LiquidityItems {
+		if flipped.Cash.LiquidityItems[i].Code == "TAX" {
+			flipped.Cash.LiquidityItems[i].Direction = config.DirectionInflow
+		}
+	}
+	err = apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error { return cash.Setup{}.Apply(ctx, flipped) })
+	pgtest.WantErr(t, err, "cash.liquidity_item_in_use")
+	both := withCash(t)
+	for i := range both.Cash.LiquidityItems {
+		if both.Cash.LiquidityItems[i].Code == "TAX" {
+			both.Cash.LiquidityItems[i].Direction = config.DirectionBoth
+		}
+	}
+	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error { return cash.Setup{}.Apply(ctx, both) }); err != nil {
+		t.Errorf("an item for both directions: got %v, want none", err)
+	}
 	e.Must(200, "POST", path(m, "cancel"), ``, tag)
 	want(t, "check after the cancellation", len(check()), 0)
 	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error { return cash.Setup{}.Apply(ctx, without) }); err != nil {

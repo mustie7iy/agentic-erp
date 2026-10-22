@@ -22,7 +22,7 @@ func init() {
 		return problem.Conflict("cash.occurrence_overridden", "The occurrence already has an override; change, realise or cancel that record instead.")
 	})
 	problem.RegisterConstraint("memo_record_batch_reference", func() *problem.Problem {
-		return problem.Conflict("cash.memo_upload_concurrent", "Another upload of the batch key wrote a reference of this file at the same time; upload it again.")
+		return problem.Conflict("cash.memo_upload_concurrent", "A record of the batch key already has this reference; upload the batch again.")
 	})
 	for _, c := range []string{"memo_record_item_active", "memo_record_item_direction"} {
 		problem.RegisterConstraint(c, func() *problem.Problem {

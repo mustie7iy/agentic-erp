@@ -232,6 +232,12 @@ var memoCases = []memoCase{
 			step(`UPDATE cash.liquidity_item SET is_active = false, version = version + 1 WHERE code = 'BOTH'`),
 			step(`UPDATE cash.memo_record SET status = 'realised', decided_by = $2, decided_at = now(), version = version + 1 WHERE id = $1`, r, f.actor)}
 	}, ""},
+	{"a cancelled record made active on an inactive item", func(f fixture) []stmt {
+		r := id()
+		return []stmt{memoRow(f, map[string]any{"id": r, "liquidity_item": "BOTH", "status": "cancelled"}),
+			step(`UPDATE cash.liquidity_item SET is_active = false, version = version + 1 WHERE code = 'BOTH'`),
+			step(`UPDATE cash.memo_record SET status = 'active', version = version + 1 WHERE id = $1`, r)}
+	}, "memo_record_item_active"},
 	{"a record moved to an inactive item", func(f fixture) []stmt {
 		r := id()
 		return []stmt{memoRow(f, map[string]any{"id": r}), step(`UPDATE cash.memo_record SET liquidity_item = 'OLD', version = version + 1 WHERE id = $1`, r)}

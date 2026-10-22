@@ -23367,8 +23367,8 @@ func (*MemoRecordPageHeaders) listMemoRecordsRes() {}
 type MemoRecordProposal struct {
 	// The caller's running agent session.
 	SessionID uuid.UUID `json:"session_id"`
-	// Why, with the history that supports it; recorded on the record, in the audit trail and on the event,
-	// for the person who decides.
+	// Why, with the history that supports it; recorded on the record and in the audit trail, for the
+	// person who decides; the event carries no free text.
 	Reason string `json:"reason"`
 	// The statement lines of the legal entity the proposal rests on.
 	Evidence []StatementLineRef `json:"evidence"`

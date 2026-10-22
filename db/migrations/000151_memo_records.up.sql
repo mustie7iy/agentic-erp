@@ -89,7 +89,8 @@ CREATE INDEX memo_record_by_company ON cash.memo_record (tenant_id, legal_entity
 SELECT platform.secure_table('cash.memo_record'::regclass);
 
 -- A record names an active liquidity item whose direction fits its sign,
--- checked when it is written with an item or amount: an item becomes
+-- checked when it is written with an item or amount, or opened again
+-- (cancelled, then active: an upload's row again): an item becomes
 -- inactive only when no open record names it (cash.Setup), and a record
 -- realised, cancelled or rejected keeps the item it had. The item's row is
 -- locked, so a configuration deactivating it waits for this transaction.
@@ -97,7 +98,8 @@ CREATE FUNCTION cash.check_memo_item() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE active boolean; dir text;
 BEGIN
-  IF TG_OP = 'UPDATE' AND NEW.liquidity_item = OLD.liquidity_item AND NEW.amount = OLD.amount THEN
+  IF TG_OP = 'UPDATE' AND NEW.liquidity_item = OLD.liquidity_item AND NEW.amount = OLD.amount
+     AND NOT (OLD.status NOT IN ('proposed', 'active') AND NEW.status IN ('proposed', 'active')) THEN
     RETURN NEW;
   END IF;
   SELECT i.is_active, i.direction INTO active, dir FROM cash.liquidity_item i
@@ -113,7 +115,7 @@ BEGIN
   RETURN NEW;
 END $$;
 ALTER FUNCTION cash.check_memo_item() OWNER TO erp_owner;
-CREATE TRIGGER memo_record_item BEFORE INSERT OR UPDATE OF liquidity_item, amount ON cash.memo_record
+CREATE TRIGGER memo_record_item BEFORE INSERT OR UPDATE OF liquidity_item, amount, status ON cash.memo_record
   FOR EACH ROW EXECUTE FUNCTION cash.check_memo_item();
 
 -- Reading, writing and proposing (ADR-0051 §7, §15). Accepting or
