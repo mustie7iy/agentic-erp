@@ -326,8 +326,9 @@ func TestDecide(t *testing.T) {
 		t.Errorf("decisions: got %d, want 1", decisions)
 	}
 	inbox := b.get("/approvals?done=approved").page(t)
-	if got := inbox.mainText(); !strings.Contains(got, "You approved the request.") || strings.Contains(got, "EUR 12,000.00") {
-		t.Errorf("inbox after approving: got %q", got)
+	holds(t, "inbox after approving", inbox.mainText(), "You approved the request.")
+	if got := inbox.mainText(); strings.Contains(got, "EUR 12,000.00") {
+		t.Errorf("inbox after approving: got %q, want the requisition gone", got)
 	}
 	after := b.get(requestPath(sd.requisition)).page(t).mainText()
 	for _, want := range []string{"Approved approver1", "Checked against the budget", "You have already approved this request.", "Step 2 Approvals: 0 of 1 Current step"} {
@@ -338,30 +339,24 @@ func TestDecide(t *testing.T) {
 
 	partner := b.get(requestPath(sd.partner)).page(t).form(requestPath(sd.partner) + "/reject")
 	empty := b.do(http.MethodPost, requestPath(sd.partner)+"/reject", values(partner, "  "))
-	if empty.status != http.StatusUnprocessableEntity || !strings.Contains(empty.body, "Enter the reason for rejecting.") {
-		t.Errorf("reject without a reason: got %d", empty.status)
-	}
+	status(t, "reject without a reason", empty, http.StatusUnprocessableEntity)
+	holds(t, "reject without a reason", empty.body, "Enter the reason for rejecting.")
 	long := b.do(http.MethodPost, requestPath(sd.partner)+"/approve", values(partner, strings.Repeat("x", 2001)))
-	if long.status != http.StatusUnprocessableEntity || !strings.Contains(long.body, "at most 2,000 characters") {
-		t.Errorf("a comment too long: got %d", long.status)
-	}
+	status(t, "a comment too long", long, http.StatusUnprocessableEntity)
+	holds(t, "a comment too long", long.body, "at most 2,000 characters")
 	if r := b.do(http.MethodPost, requestPath(sd.partner)+"/reject", values(partner, planted)); r.status != http.StatusSeeOther || r.location() != "/approvals?done=rejected" {
 		t.Fatalf("reject: got %d to %q %s", r.status, r.location(), r.body)
 	}
 	rejected := b.get(requestPath(sd.partner)).page(t)
 	checkInert(t, rejected)
-	if got := rejected.mainText(); !strings.Contains(got, "Rejected approver1") || !strings.Contains(got, "Nothing is left to decide") {
-		t.Errorf("rejected: got %q", got)
-	}
+	holds(t, "rejected", rejected.mainText(), "Rejected approver1", "Nothing is left to decide")
 
 	stale := values(b.get(requestPath(sd.partner2)).page(t).form(requestPath(sd.partner2)+"/approve"), "My comment")
 	stale.Set("if_match", `"999"`)
 	r = b.do(http.MethodPost, requestPath(sd.partner2)+"/approve", stale)
 	sp := r.page(t)
-	if r.status != http.StatusPreconditionFailed || !strings.Contains(sp.mainText(), "The request changed since you opened it.") ||
-		!strings.Contains(sp.mainText(), "request.version_mismatch") {
-		t.Errorf("stale: got %d %q", r.status, sp.mainText())
-	}
+	status(t, "stale", r, http.StatusPreconditionFailed)
+	holds(t, "stale", sp.mainText(), "The request changed since you opened it.", "request.version_mismatch")
 	kept := ""
 	walk(sp.form(requestPath(sd.partner2)+"/approve"), func(n *html.Node) {
 		if n.Data == "textarea" && n.FirstChild != nil {
@@ -389,16 +384,16 @@ func TestDecideRefusals(t *testing.T) {
 		t.Error("own request: decision forms offered")
 	}
 	// The requester holds none of the steps' roles: nothing waits for them.
-	if got := own.get("/approvals").page(t); len(got.all("li", "card")) != 0 || !strings.Contains(got.mainText(), "Nothing is waiting for your decision.") {
-		t.Errorf("the requester's inbox: got %q, want it empty", got.mainText())
+	ownInbox := own.get("/approvals").page(t)
+	if got := len(ownInbox.all("li", "card")); got != 0 {
+		t.Errorf("the requester's inbox: got %d requests, want none", got)
 	}
+	holds(t, "the requester's inbox", ownInbox.mainText(), "Nothing is waiting for your decision.")
 	approverForm := values(approver.get(requestPath(sd.partner2)).page(t).form(requestPath(sd.partner2)+"/approve"), "")
 	ownForm := url.Values{"csrf_token": {own.csrf()}, "if_match": {approverForm.Get("if_match")}, "idempotency_key": {uuid.NewString()}}
 	r := own.do(http.MethodPost, requestPath(sd.partner2)+"/approve", ownForm)
-	if r.status != http.StatusForbidden || !strings.Contains(r.body, "You asked for this approval, so you cannot decide it.") ||
-		!strings.Contains(r.body, "workflow.own_request") {
-		t.Errorf("own request decided: got %d %s", r.status, r.page(t).mainText())
-	}
+	status(t, "own request decided", r, http.StatusForbidden)
+	holds(t, "own request decided", r.body, "You asked for this approval, so you cannot decide it.", "workflow.own_request")
 
 	for name, tc := range map[string]struct {
 		path   string
@@ -416,17 +411,14 @@ func TestDecideRefusals(t *testing.T) {
 			}
 		})
 	}
-	for path, status := range map[string]int{requestPath(uuid.New()): http.StatusNotFound, "/approvals/x": http.StatusNotFound} {
-		if r := approver.get(path); r.status != status {
-			t.Errorf("%s: got %d, want %d", path, r.status, status)
-		}
+	for _, path := range []string{requestPath(uuid.New()), "/approvals/x"} {
+		t.Run("GET "+path, func(t *testing.T) { status(t, "no such request", approver.get(path), http.StatusNotFound) })
 	}
 	// A page token the API does not take: its code has no message in the
 	// catalog, so the API's own title says it.
 	r = approver.get("/approvals?page=garbage")
-	if r.status != http.StatusBadRequest || !strings.Contains(r.body, "The ERP refused it:") || !strings.Contains(r.body, "request.invalid_page_token") {
-		t.Errorf("a bad page token: got %d %s", r.status, r.page(t).mainText())
-	}
+	status(t, "a bad page token", r, http.StatusBadRequest)
+	holds(t, "a bad page token", r.body, "The ERP refused it:", "request.invalid_page_token")
 	// htmx sends the CSRF token as a header, and no form token.
 	htmx := url.Values{"if_match": {approverForm.Get("if_match")}, "idempotency_key": {uuid.NewString()}}
 	if r := approver.do(http.MethodPost, requestPath(sd.partner2)+"/approve", htmx, "X-CSRF-Token", approverForm.Get("csrf_token")); r.status != http.StatusSeeOther {
@@ -447,9 +439,8 @@ func TestNoPermission(t *testing.T) {
 	}
 	for _, path := range []string{"/approvals", requestPath(sd.partner)} {
 		r := b.get(path)
-		if r.status != http.StatusForbidden || !strings.Contains(r.body, "You do not have the permission this needs.") {
-			t.Errorf("%s: got %d %s, want the API's 403 explained", path, r.status, r.page(t).mainText())
-		}
+		status(t, path, r, http.StatusForbidden)
+		holds(t, path, r.body, "You do not have the permission this needs.")
 	}
 }
 
@@ -470,12 +461,30 @@ func TestSegregationOfDuties(t *testing.T) {
 		}
 	}
 	req := b.get(requestPath(sd.partner)).page(t)
-	if !strings.Contains(req.mainText(), "You may not decide this request") || len(req.all("form", "decide")) != 0 {
-		t.Errorf("request: got %q, want no forms", req.mainText())
+	holds(t, "request", req.mainText(), "You may not decide this request")
+	if got := len(req.all("form", "decide")); got != 0 {
+		t.Errorf("request: got %d decision forms, want none", got)
 	}
 	r := b.do(http.MethodPost, requestPath(sd.partner)+"/approve", form)
-	if got := r.page(t).mainText(); r.status != http.StatusForbidden || !strings.Contains(got, "A segregation-of-duties rule bars this") ||
-		!strings.Contains(got, "Your barred permissions: workflow.request.cancel workflow.request.decide") {
-		t.Errorf("decided anyway: got %d %q", r.status, got)
+	status(t, "decided anyway", r, http.StatusForbidden)
+	holds(t, "decided anyway", r.page(t).mainText(), "A segregation-of-duties rule bars this",
+		"Your barred permissions: workflow.request.cancel workflow.request.decide")
+}
+
+// holds checks that got holds each of wants.
+func holds(t *testing.T, what, got string, wants ...string) {
+	t.Helper()
+	for _, w := range wants {
+		if !strings.Contains(got, w) {
+			t.Errorf("%s: got %q, want %q in it", what, got, w)
+		}
+	}
+}
+
+// status checks a response's status.
+func status(t *testing.T, what string, r response, want int) {
+	t.Helper()
+	if r.status != want {
+		t.Errorf("%s: got status %d, want %d", what, r.status, want)
 	}
 }

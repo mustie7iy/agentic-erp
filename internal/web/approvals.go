@@ -87,6 +87,9 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request, p *person) {
 	if token != "" {
 		in.More = ui.ApprovalsPath + "?page=" + url.QueryEscape(token)
 	}
+	if in.Refusal != nil {
+		reqs = nil // a refused read shows the refusal alone
+	}
 	ids := make([]uuid.UUID, 0, len(reqs))
 	for _, a := range reqs {
 		ids = append(ids, a.RequesterID)

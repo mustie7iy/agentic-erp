@@ -1306,7 +1306,9 @@ where it departs from the step as first written:
   with its ISO 4217 code in the locale's order (`EUR 12,000.00`,
   `12 000,00 EUR`), never through a float: the whole part is an integer
   and the fraction keeps the API's digits. Dates stay ISO 8601 until T73l
-  formats them per locale.
+  formats them per locale. A negative amount takes an ASCII minus; the
+  locale's own minus sign (U+2212, Arabic's marks) is T73l's, as no
+  negative amount reaches an approval.
 - **Contract drift.** `internal/web/operations.go` is the inventory of the
   operations each route calls, with the permission it hides by and a
   human-only mark; `TestScreensAgainstTheContract` holds it to the
@@ -1319,8 +1321,12 @@ where it departs from the step as first written:
   agent's request) as approver, requester, a person without the role and
   under a segregation-of-duties rule; CSRF, a stale If-Match (412, input
   kept), a replayed idempotency key, a missing reason, an unknown page
-  token; the API's rarer answers (a thinned page, a server error, a rate
-  limit, a 401 challenge) from a stub; the browser suite runs axe on the
+  token. **Departs from §10 ("never a mocked API"):** the API's rarer
+  answers (a page the owning context thinned, a server error, a rate
+  limit, an aborted call, a 401 challenge) come from an `httptest` stub
+  behind the real sign-in, as T73b's tests already did for the home page;
+  the thinned page needs a bank line matched by the approver to reach for
+  real. Everything else runs against the real API; the browser suite runs axe on the
   inbox and two requests in English, French and both pseudo-locales at
   1280 and 390 px, and walks the decisions at both widths.
 
