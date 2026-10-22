@@ -286,8 +286,8 @@ start() {
   say ""
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
-  say "  - tax on invoices and tax returns (T61c-T61l), and the Canada tax codes (T62g, Canada pack 2026.3)"
-  say "  - the cash position and liquidity forecast (T53c-T53k)"
+  say "  - tax returns (T61g-T61l), and the Canada pack's tax codes (T62g, Canada pack 2026.3): step 11 configures one code"
+  say "  - the liquidity forecast (T53e-T53k): step 13 shows the daily cash position with a memo record"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - accounts receivable, fixed assets (T57), period-end close (T64), consolidation (T68)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
@@ -465,13 +465,22 @@ step_migrate() {
 # The pilot's own settings, proposed with the pack: a CAD and a USD house
 # bank at a Canadian bank with their accounts, the USD accounts revalued
 # at period end, statements matched by end-to-end id or amount and posted
-# with the controller's approval, a cash discount term and the cost center
-# categories.
+# with the controller's approval, a cash discount term, the cost center
+# categories, the liquidity items memo records name (T53d) and, until the
+# Canada pack carries tax codes (T62g), one output tax code for the
+# walkthrough's sales entry: GST at 5% (Excise Tax Act, Part IX, s. 165(1);
+# CRA, "Charge and collect the tax - Which rate to charge",
+# https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html).
+# @YEAR@ is replaced with this year.
 PILOT_SETTINGS='
 .payment_terms += [{"key": "2/10N30", "description": "2% in 10 days, 30 days net", "net_days": 30,
     "discounts": [{"days": 10, "percent": "2"}]}]
 | .controlling = {"cost_center_categories": [{"code": "ADMIN", "name": "Administration"},
     {"code": "SALES", "name": "Sales", "revenue_allowed": true}]}
+| .cash = {"liquidity_items": [{"code": "OPERATING", "name": "Operating", "direction": "both"},
+    {"code": "REC_CUSTOMERS", "name": "Customer receipts", "direction": "inflow", "parent": "OPERATING"},
+    {"code": "OP_SUPPLIERS", "name": "Supplier payments", "direction": "outflow", "parent": "OPERATING"}],
+    "derivation": {"defaults": {"outflow": "OP_SUPPLIERS", "inflow": "REC_CUSTOMERS"}}}
 | (.companies[] | select(.code == "1000")) |= (
     .chart_of_accounts += [
       {"number": "1010", "name": "Bank clearing - RBC CAD", "type": "asset", "open_items": true},
@@ -479,6 +488,9 @@ PILOT_SETTINGS='
       {"number": "1020", "name": "Bank clearing - RBC USD", "type": "asset", "open_items": true, "revalue_foreign_currency": true},
       {"number": "1030", "name": "Bank - RBC USD", "type": "asset", "revalue_foreign_currency": true},
       {"number": "1040", "name": "Bank incoming - RBC USD", "type": "asset", "open_items": true, "revalue_foreign_currency": true}]
+    | .tax_codes = ((.tax_codes // []) + [{"code": "GO5", "description": "GST 5% on sales (walkthrough, until Canada pack 2026.3)",
+        "direction": "output", "kind": "standard", "category": "S", "components": [{"key": "gst", "jurisdiction": "CA",
+        "account_key": "output", "account": "2300", "rates": [{"rate_percent": "5", "valid_from": "@YEAR@-01-01"}]}]}])
     | .house_banks = ((.house_banks // []) + [
       {"name": "RBC", "bic": "ROYCCAT2", "institution_number": "003", "transit_number": "00002", "account_number": "1000001",
        "gl_account": "1010", "main_gl_account": "1000", "incoming_gl_account": "1015"},
@@ -506,8 +518,8 @@ step_pack() {
   say "  ($(field '[.notes[] | select(.message | startswith("conflict"))] | length') more notes list where SAP's settings were kept over the pack's)"
   say "Ada adds the pilot's own settings to the proposal: RBC house banks in CAD and USD, USD accounts revalued"
   say "at month end, bank statement rules (match by end-to-end id, approval above CAD 10,000), a 2/10 net 30"
-  say "cash discount term and cost center categories."
-  jq "{title: \"Canada pack $version and the pilot's settings\", rationale: \"Pilot company set-up\", proposed: (.proposed | $PILOT_SETTINGS)}" \
+  say "cash discount term, cost center categories, liquidity items and an output tax code for GST (step 11)."
+  jq "{title: \"Canada pack $version and the pilot's settings\", rationale: \"Pilot company set-up\", proposed: (.proposed | ${PILOT_SETTINGS//@YEAR@/$YEAR})}" \
     "$WORK/last.json" >"$WORK/proposal.json"
   api 200 '"\(.number): \(.title)"' updateChangeRequest -p "id=$cr" -if-match "$ETAG" -body @proposal.json
   api 200 '"\(.status), tier \(.tier) (structural): \(.items | length) changes"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
@@ -791,12 +803,38 @@ step_ledgers() {
 }
 
 step_tax() {
-  heading "Step 11 — Tax: the Canada tax codes and an invoice's calculated tax"
-  as alex
+  heading "Step 11 — Tax: the tax on a sales entry, calculated and checked by the ledger"
+  as carla
   api 200 '.items[] | select(.country == "CA") | "pack CA \(.version): \(.contents.tax_codes) tax codes"' listCountryPacks
-  say "The released Canada packs carry no tax codes: GST/HST, QST and PST come with Canada pack 2026.3 (T62g),"
-  say "and the calculator (T61b) is applied to supplier invoices by T61d; both are in batch 6."
-  skipped "coming in batch 6 (T62g tax codes, T61c-T61e tax on documents)"
+  say "The released Canada packs carry no tax codes yet: GST/HST, QST and PST come with Canada pack 2026.3 (T62g)."
+  say "Step 3 configured one output code for the pilot instead: GO5, GST at 5% from 1 January, to the pack's 2300 GST/HST payable."
+  say "The ERP issues no sales invoices before phase 3, so the pilot's billing system posts its sales as journal"
+  say "entries (T61f): CAD 1,000.00 of sales with GO5 and its CAD 50.00 of GST."
+  local cash sales gst
+  cash=$(account 100000)
+  sales=$(account 4000)
+  gst=$(account 2300)
+  # sale LINES is a sales entry of today in CAD with the lines given as
+  # "account amount [code]" triples' JSON.
+  sale() {
+    printf '{"legal_entity_id": "%s", "document_date": "%s", "posting_date": "%s", "currency": "CAD", "header_text": "%s", "lines": [%s]}' \
+      "$LE" "$TODAY" "$TODAY" "$1" "$2"
+  }
+  line() {
+    printf '{"account_id": "%s", "amount": {"amount": "%s", "currency": "CAD"}%s}' "$1" "$2" "${3:+, \"tax_code\": \"$3\"}"
+  }
+  local entry='"journal entry \(.document_number): \([.lines[] | "\(.amount.amount)\(if .tax_code then " \(.tax_code)" else "" end)"] | join(" / "))"'
+  api 201 "$entry" postJournalEntry -body "$(sale "Billing: invoice 1042" "$(line "$cash" 1050.00), $(line "$sales" -1000.00 GO5), $(line "$gst" -50.00 GO5)")"
+  say "The ledger calculates 5% of the base itself at the rate of the tax date and holds the tax lines to it:"
+  refused 422 ledger.output_tax_mismatch postJournalEntry \
+    -body "$(sale "Billing: invoice 1043" "$(line "$cash" 1060.00), $(line "$sales" -1000.00 GO5), $(line "$gst" -60.00 GO5)")"
+  say "A daily summary of four invoices of CAD 100.10, each taxed 5.01 by the billing system, carries a base line"
+  say "per invoice: its 20.04 is within one cent per base line of 5% of 400.40 (20.02), so it posts (product owner,"
+  say "2026-10-22); one base line of 400.40 with 20.04 would be refused."
+  api 201 "$entry" postJournalEntry -body "$(sale "Billing: summary of invoices 1044-1047" "$(line "$cash" 420.44), $(line "$sales" -100.10 GO5), $(line "$sales" -100.10 GO5), $(line "$sales" -100.10 GO5), $(line "$sales" -100.10 GO5), $(line "$gst" -20.04 GO5)")"
+  refused 422 ledger.output_tax_mismatch postJournalEntry \
+    -body "$(sale "Billing: one base line" "$(line "$cash" 420.44), $(line "$sales" -400.40 GO5), $(line "$gst" -20.04 GO5)")"
+  passed
 }
 
 # center_approved REQUESTER has the controller approve the center change
@@ -858,10 +896,21 @@ step_centers() {
 }
 
 step_cash() {
-  heading "Step 13 — The cash position"
-  say "The cash context and its configuration are on main (T53b), but not the position itself:"
-  say "GET /v1/cash-position per bank, currency and day is T53c."
-  skipped "coming in batch 6 (T53c)"
+  heading "Step 13 — The cash position, with an expected receipt"
+  as tom
+  local due
+  due=$(date_add "$TODAY" 3)
+  say "Tom expects a customer's CAD 25,000.00 at RBC on $due and records it as a memo record (T53d)."
+  api 201 '"memo record \(.reference): \(.amount.amount) \(.amount.currency) on \(.value_date), \(.liquidity_item), \(.certainty), \(.status)"' createMemoRecord \
+    -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBC\", \"amount\": {\"amount\": \"25000.00\", \"currency\": \"CAD\"}, \"value_date\": \"$due\", \"liquidity_item\": \"REC_CUSTOMERS\", \"description\": \"Northwind Traders, invoice 1042\", \"reference\": \"WT-1042\"}"
+  say "The position per bank and day from tomorrow (T53c): today's reconciled statement of step 8 opens it,"
+  say "and the memo record flows on its value date (the next working day, if that is not one):"
+  api 200 '.banks[] | select(.code == "RBC") | "bank \(.code) \(.currency): statement balance \(.opening.balance.amount) of \(.opening.statement_date // "none")",
+    (.days[] | "  \(.date): \(.opening.amount) -> \(.closing.amount)\([.flows[]? | ", \(.source) \(.certainty) \(.amount.amount)"] | join(""))")' \
+    getCashPosition -p "legal_entity_id=$LE" -p "from=$(date_add "$TODAY" 1)" -p days=7
+  expect "the statement balance the position opens with" "$(field '.banks[] | select(.code == "RBC") | .opening.balance.amount')" "$CLOSING"
+  expect "the memo record's flow" "$(field '[.banks[] | select(.code == "RBC") | .days[].flows[]? | select(.source == "memo") | .amount.amount] | join(" ")')" 25000.00
+  passed
 }
 
 step_reports() {
@@ -888,7 +937,8 @@ step_reports() {
   "$ERP" query -measures revenue -by fiscal_year -companies 1000 >"$WORK/query.out" 2>&1 || { sed 's/^/     /' "$WORK/query.out"; fail "the query failed"; }
   sed 's/^/     /' "$WORK/query.out"
   grep -q "$YEAR" "$WORK/query.out" || fail "the query has no row for $YEAR"
-  say "That is SAP's sales (400000) and the 94.00 cash discount of step 7: the metric sums every revenue account."
+  say "That is SAP's sales (400000), the pack's 4000 Sales of step 11 and the 94.00 cash discount of step 7: the metric"
+  say "sums every revenue account."
   passed
 }
 
