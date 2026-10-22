@@ -39,7 +39,7 @@ func TestAuditClientAddresses(t *testing.T) {
 			t.Fatal(err)
 		}
 		if _, err := tx.Exec(ctx, sql+` WHERE tenant_id = $1`, f.tenant); err != nil {
-			return err //nolint:wrapcheck // the database's error is what the test asserts
+			return err
 		}
 		return tx.Commit(ctx)
 	}

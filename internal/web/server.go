@@ -125,7 +125,7 @@ func apiClient(dial string, tlsConfig *tls.Config, identity *tlsconf.Store) *htt
 		}
 		tlsConfig.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
 			cert, err := identity.Certificate()
-			return &cert, err //nolint:wrapcheck // the handshake reports it; a store read always has the certificate LoadConfig checked
+			return &cert, err // the handshake reports it; a store read has the certificate LoadConfig checked
 		}
 	}
 	t := &http.Transport{TLSClientConfig: tlsConfig, ForceAttemptHTTP2: true, MaxIdleConns: 100, IdleConnTimeout: 90 * time.Second, TLSHandshakeTimeout: 10 * time.Second}
