@@ -81,7 +81,7 @@ func (Setup) Apply(ctx context.Context, doc *config.Config) error {
 	}
 	if len(used) > 0 {
 		return problem.Conflict("cash.liquidity_item_in_use", "Open memo records name liquidity item "+used[0]+
-			", which the configuration no longer has for their direction; move them to another item, or cancel them, first.")
+			", which the configuration no longer has, or no longer has for their direction; move them to another item, or cancel them, first.")
 	}
 	if err := applyGroups(ctx, tx, p, doc.Cash.PlanningGroups); err != nil {
 		return fmt.Errorf("cash: planning groups: %w", err)
