@@ -83,13 +83,18 @@ const ApprovalsPath = "/approvals"
 
 // SignedInNav is a signed-in person's navigation: the approvals inbox
 // where approvals is true (the person may read approval requests, by
-// getCurrentPrincipal; advisory, as the API decides each call), between
+// getCurrentPrincipal; advisory, as the API decides each call) and the
+// supplier invoices where invoices is (they may read invoices), between
 // home and the service's status.
-func SignedInNav(approvals bool) []NavItem {
-	if !approvals {
-		return Nav
+func SignedInNav(approvals, invoices bool) []NavItem {
+	nav := []NavItem{Nav[0]}
+	if approvals {
+		nav = append(nav, NavItem{Path: ApprovalsPath, Label: i18n.JobApprovals})
 	}
-	return []NavItem{Nav[0], {Path: ApprovalsPath, Label: i18n.JobApprovals}, Nav[1]}
+	if invoices {
+		nav = append(nav, NavItem{Path: InvoicesPath, Label: i18n.NavInvoices})
+	}
+	return append(nav, Nav[1])
 }
 
 // navOf is the page's navigation.

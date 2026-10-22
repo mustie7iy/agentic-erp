@@ -67,9 +67,18 @@ func TestScreensAgainstTheContract(t *testing.T) {
 	for route, calls := range Screens {
 		t.Run(route, func(t *testing.T) {
 			method, path, _ := strings.Cut(route, " ")
-			r := httptest.NewRequest(method, strings.ReplaceAll(strings.TrimSuffix(path, "{$}"), "{id}", "0192"), nil)
+			r := httptest.NewRequest(method, strings.NewReplacer("{$}", "", "{id}", "0192", "{rec}", "0193").Replace(path), nil)
 			if _, pattern := mux.Handler(r); pattern != route {
 				t.Errorf("the workspace serves %s %s as %q, want the inventory's %q", method, r.URL.Path, pattern, route)
+			}
+			// ADR-0052 §10: at most six API calls render a page; a form's
+			// own write comes first and is not one of them.
+			reads := calls
+			if method == "POST" && len(calls) > 1 {
+				reads = calls[1:]
+			}
+			if len(reads) > 6 {
+				t.Errorf("%d calls to render the page, want at most six", len(reads))
 			}
 			for _, call := range calls {
 				op, ok := ops[call.ID]
@@ -94,9 +103,11 @@ func TestScreensAgainstTheContract(t *testing.T) {
 			t.Errorf("%s: x-object-permissions %v, want the workspace's %v", id, got, objectApprovers)
 		}
 	}
-	for _, code := range slices.Sorted(maps.Keys(i18n.Problems)) {
-		if !answerable[code] {
-			t.Errorf("problem %s: explained by the catalog, but no operation the screens call answers it", code)
+	for _, explained := range []map[string]i18n.Key{i18n.Problems, i18n.InvoiceProblems} {
+		for _, code := range slices.Sorted(maps.Keys(explained)) {
+			if !answerable[code] {
+				t.Errorf("problem %s: explained by the catalog, but no operation the screens call answers it", code)
+			}
 		}
 	}
 	for kind := range objectApprovers {

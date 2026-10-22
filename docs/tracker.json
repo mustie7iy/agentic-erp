@@ -4571,9 +4571,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Invoices and the AP exception queue: the queue by status (on hold: the exceptions) with the API's filters (company, supplier, document number, invoice dates) and cursor pages, an agent's capture badged; an invoice's page with its summary, lines and tax codes, the latest match and its issues, the exception's approval request, its order and goods receipts (a section htmx loads), the captured document beside it served sandboxed, the agents' recommendations as inert text with decide; match, post, hold, release, cancel and reverse as forms with If-Match and a fresh idempotency key, refusals explained by code (payables.match_required, payables.tax_mismatch, workflow.request_pending, …) with what was typed kept; EN and FR; axe at zero at 1280 and 390 px; scenarios: clean post, price variance released by hand and matched again, exception approved by someone else, stale version, planted text in a recommendation shown inert, a person who may only read",
+        "r": "internal/web invoices.go · invoice.go · invoice_actions.go · operations.go · ui/invoices.templ · i18n InvoiceProblems · fixture payables.go · TestInvoiceQueue · TestInvoicePage · TestCleanPost · TestExceptionDecidedElsewhere · TestVarianceReleasedByHand · TestInvoiceRefusals · TestDecideRecommendation · TestInvoicesAsOthers · TestInvoiceDocument · TestInvoicesInTheBrowser · TestInvoiceJobsInTheBrowser · ADR-0052 Built in T73e · T73e",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Invoices and the AP exception queue: queue by status and exception, invoice detail with the sandboxed document beside it, match results, hold, release, post, cancel and reverse with ETags and idempotency keys, capture by upload through the API's signed path, the agent's recommendation with decide, agent text escaped and inert; walked through by a pilot AP clerk",
-        "r": "T73e",
+        "t": "Invoices beyond the queue: capture by upload through the API's signed path (createUpload, the bytes relayed by erp-web, captureSupplierInvoice's 202 polled to the new invoice), editing a parked invoice (updateSupplierInvoice), clearing down payments; tax per code on the invoice's page once the API gives it (the representation has none: only a refused post's detail names each code's tax); walked through by a pilot AP clerk",
+        "r": "T73e2 (split from T73e, 2026-10-22)",
         "c": []
        },
        {

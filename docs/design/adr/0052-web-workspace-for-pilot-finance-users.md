@@ -1330,6 +1330,110 @@ where it departs from the step as first written:
   inbox and two requests in English, French and both pseudo-locales at
   1280 and 390 px, and walks the decisions at both widths.
 
+## Built in T73e (2026-10-22)
+Supplier invoices and the AP exception queue. What it settled, and where
+it departs from the step as first written:
+- **Scope split.** T73e built the queue, an invoice's page and the
+  actions on it. Capture by upload (createUpload, the bytes relayed by
+  erp-web, the 202 polled to the new invoice), editing a parked invoice,
+  clearing down payments and the pilot AP clerk's walk-through are T73e2.
+- **Pages.** `GET /invoices` (cards, one per invoice, usable at 390 px):
+  status tabs (on hold is the exception queue: a match with issues holds
+  the invoice and opens its approval request), and the API's own filters
+  as a plain GET form (company, document number, invoice dates); a
+  supplier is chosen from an invoice's card, since the API filters by id
+  and there is no picker of suppliers yet. 25 invoices a page, latest
+  invoice date first, the API's token in the next page's link. A date
+  that is no date is said so before any call, an id in the address that
+  is no id refuses the filters. `GET /invoices/{id}`: the summary, the
+  lines with their tax codes, the latest match (`listMatchResults`, one
+  result) with each issue's code in words and the API's explanation as
+  data, the exception's approval request linked to its page in the
+  inbox, the agents' recommendations (`listRecommendations` on the
+  invoice), the actions its status offers, and the document beside it.
+- **Calls.** The queue makes at most four calls (`getCurrentPrincipal`,
+  `listLegalEntities` for the companies' names and the company filter,
+  `listSupplierInvoices` with the supplier expanded, `listPrincipalNames`
+  for the creators), an invoice's page six (with `getSupplierInvoice`,
+  `listMatchResults`, `listRecommendations`). The order and its receipts
+  (`getPurchaseOrder`, `listGoodsReceipts`) are a section of their own,
+  `GET /invoices/{id}/order`, which htmx loads into the page once it is
+  there (`hx-trigger="load"`) and which is a page of its own without
+  htmx, so no render passes six. A refused action re-renders the
+  invoice's page: the write and the page's six reads.
+  `TestScreensAgainstTheContract` now holds every route to six reads.
+- **Actions.** Match, post (optional posting date), hold (reason),
+  release (optional comment), cancel (reason) and reverse (reason,
+  optional posting date), each a form with the invoice's ETag and a
+  fresh idempotency key, offered by status and by the operation's
+  `x-permission` (advisory: match only on an order). Done, the invoice's
+  page says so (`?done=…`); refused, it is rendered again with the
+  refusal and what was typed. The API releases an invoice whose
+  exception waits by withdrawing the request, and posting it then needs a
+  new match (`payables.match_required`): the page says both, where it
+  was first thought the release was refused.
+- **Refusals.** `i18n.InvoiceProblems` explains the payables codes the
+  scenarios meet (`match_outdated`, `match_required`, `tax_mismatch`,
+  `invalid_status`, `amounts_mismatch`, `supplier_not_usable`,
+  `no_purchase_order`, `invoice_cleared`, `invoice_in_payment_run`,
+  `agents.already_decided`) and the general ones in an invoice's words,
+  before `i18n.Problems`; any other code shows the API's title. The
+  contract test holds these codes to the operations' `x-problem-codes`
+  too. As §8 says, a refusal's `detail` is not shown: for
+  `payables.tax_mismatch` it names each tax code's calculated tax, which
+  the page cannot show otherwise (decision D3 below).
+- **Agents' work.** An invoice an agent entered is badged in the queue
+  and says on its page that it is a proposal to check against the
+  document. A recommendation (the AP exceptions agent's kinds named,
+  others as they are) is escaped text inside `hx-disable` with the
+  agent's badge; while open, a person holding
+  `agents.recommendation.decide` records what they did with it
+  (accepted, overridden, ignored, with a comment): one form per
+  recommendation, its own ETag and key. The decision changes nothing on
+  the invoice; the page says to take the action, or decide the
+  exception's request, first (§7).
+- **The document.** `GET /invoices/{id}/document` relays
+  `getSupplierInvoiceDocument` with `Content-Security-Policy: sandbox;
+  default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline';
+  frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`, `nosniff` and
+  `no-store`, in a `sandbox` iframe beside the invoice. **Departs from
+  §7:** the API answers `application/octet-stream`, not the stored type,
+  so erp-web detects the type as capture did (`http.DetectContentType`):
+  a PDF, PNG or JPEG inline as itself, XML (an e-invoice) inline as plain
+  text, anything else as a download. Not verified from a primary source,
+  to check with the pilot's browsers: whether Chrome's and Edge's PDF
+  viewers render a PDF under a sandboxing CSP and in a sandboxed frame
+  (from memory, they may not); the link "open the document on its own"
+  is there either way (decision D4 below).
+- **Layout.** `body` breaks words longer than a line (`overflow-wrap`),
+  found by the en-XA scenario at 390 px; tables scroll sideways in a
+  focusable region of their own, never the page; the invoice and its
+  document sit side by side from 64 rem.
+- **Tests.** Handlers against the real API and PostgreSQL with
+  object storage (`fixture` gained `Order`, `Receive`, `SupplierInvoice`,
+  `Recommend`, `Captured`): the queue and its filters, an invoice's page
+  per state, a clean match and post replayed on resubmit, a variance
+  approved by a second approver in the inbox and posted, a variance
+  released by hand and refused posting until matched again, a stale
+  ETag, a tax that disagrees with its codes, a recommendation decided
+  and an old form refused, a person who may only read and one who may
+  not; the rarer answers from the stub as in T73d. The browser suite
+  runs axe on the queue, an exception, an invoice beside its document and
+  an order's page in English, French and both pseudo-locales at 1280 and
+  390 px, and walks a recommendation's decision, a clean match and post,
+  and a refused post.
+
+Decisions for the product owner (T73e):
+- **D3:** whether a refusal's English `detail` may be shown beside its
+  translated message for codes whose figures the page has no other way
+  to show (`payables.tax_mismatch`: each code's calculated tax;
+  `payables.match_outdated`: what changed), or whether the API should
+  carry those figures as fields (a contract change), as §8 now has it.
+- **D4:** if the pilot's browsers do not render a sandboxed PDF, either
+  serve PDFs as downloads (no preview), or loosen the sandbox for PDFs
+  (`sandbox allow-scripts` without `allow-same-origin`, an opaque origin),
+  an amendment of §7.
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF

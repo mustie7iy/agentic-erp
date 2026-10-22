@@ -23,3 +23,27 @@ var Problems = map[string]Key{
 	"request.idempotency_key_reused": ProblemKeyReused,
 	"ledger.period_not_open":         ProblemPeriodNotOpen,
 }
+
+// InvoiceProblems are the codes the invoice screens (T73e) explain in
+// their own words, looked up before Problems: the payables codes, and the
+// general ones whose Problems message speaks of an approval request.
+var InvoiceProblems = map[string]Key{
+	"request.version_mismatch":        ProblemInvoiceVersion,
+	"request.not_found":               ProblemInvoiceNotFound,
+	"request.invalid_body":            ProblemInvoiceBody,
+	"request.validation_failed":       ProblemInvoiceValidation,
+	"request.idempotency_key_reused":  ProblemInvoiceKeyReused,
+	"workflow.request_pending":        ProblemInvoicePending,
+	"ledger.period_not_open":          ProblemInvoicePeriod,
+	"identity.agent_not_allowed":      ProblemInvoiceAgent,
+	"payables.match_outdated":         ProblemMatchOutdated,
+	"payables.match_required":         ProblemMatchRequired,
+	"payables.tax_mismatch":           ProblemTaxMismatch,
+	"payables.invalid_status":         ProblemInvalidStatus,
+	"payables.amounts_mismatch":       ProblemAmountsMismatch,
+	"payables.supplier_not_usable":    ProblemSupplierBlocked,
+	"payables.no_purchase_order":      ProblemNoOrder,
+	"payables.invoice_cleared":        ProblemInvoiceCleared,
+	"payables.invoice_in_payment_run": ProblemInPaymentRun,
+	"agents.already_decided":          ProblemAlreadyDecided,
+}

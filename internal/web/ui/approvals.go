@@ -60,6 +60,7 @@ func statusKind(status Label) string {
 // support; and, for a segregation-of-duties refusal, the permissions the
 // person holds but may not use (getCurrentPrincipal's barred_permissions).
 type Refusal struct {
+	ID       string // its element's id, unique on the page; "" for "refusal"
 	Title    i18n.Key
 	Message  i18n.Key // "" when the catalog does not hold the code
 	Fallback string   // the API's title, shown when Message is ""
@@ -156,6 +157,14 @@ func date(t time.Time) templ.Attributes {
 
 // dateText is the date's text.
 func dateText(t time.Time) templ.Component { return Value(t.UTC().Format(time.DateOnly)) }
+
+// refusalID is the id of a refusal's title.
+func refusalID(r Refusal) string {
+	if r.ID == "" {
+		return "refusal-title"
+	}
+	return r.ID + "-title"
+}
 
 // approvalRows are a request's summary.
 func approvalRows(a Approval) []Row {

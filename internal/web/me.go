@@ -71,7 +71,7 @@ func (s *Server) apiFailed(w http.ResponseWriter, r *http.Request, p *person, op
 func (s *Server) page(title i18n.Key, current string, p *person, m me) ui.Shell {
 	sh := s.shell(title, current)
 	sh.Person = &ui.Person{CSRF: p.CSRF}
-	sh.Nav = ui.SignedInNav(m.may(permReadApprovals))
+	sh.Nav = ui.SignedInNav(m.may(permReadApprovals), m.may(permReadInvoices))
 	return sh
 }
 

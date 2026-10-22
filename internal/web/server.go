@@ -174,6 +174,14 @@ func (s *Server) mux() *http.ServeMux {
 	route("GET "+ui.ApprovalsPath+"/{id}", s.signedIn(s.request))
 	route("POST "+ui.ApprovalsPath+"/{id}/approve", s.signedIn(s.csrf(s.decide(true))))
 	route("POST "+ui.ApprovalsPath+"/{id}/reject", s.signedIn(s.csrf(s.decide(false))))
+	route("GET "+ui.InvoicesPath, s.signedIn(s.invoices))
+	route("GET "+ui.InvoicesPath+"/{id}", s.signedIn(s.invoice))
+	route("GET "+ui.InvoicesPath+"/{id}/order", s.signedIn(s.order))
+	route("GET "+ui.InvoicesPath+"/{id}/document", s.signedIn(s.document))
+	for verb := range actionOps {
+		route("POST "+ui.InvoicesPath+"/{id}/"+verb, s.signedIn(s.csrf(s.act(verb))))
+	}
+	route("POST "+ui.InvoicesPath+"/{id}/recommendations/{rec}/decide", s.signedIn(s.csrf(s.decideRecommendation)))
 	route("GET /signed-out", s.signedOut)
 	route("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		st := ui.Status{Version: s.Build.Version, Revision: s.Build.Revision}

@@ -136,8 +136,8 @@ templ Barred(message i18n.Key, permissions []string) {
 // and the trace id for support, and the barred permissions where a
 // segregation-of-duties rule refused it.
 templ RefusalNotice(r Refusal) {
-	<div class="refusal" role="alert" { labelledBy("refusal-title")... }>
-		<h2 class="refusal__title" { idAttr("refusal-title")... }>
+	<div class="refusal" role="alert" { labelledBy(refusalID(r))... }>
+		<h2 class="refusal__title" { idAttr(refusalID(r))... }>
 			@T(r.Title)
 		</h2>
 		if r.Message != "" {

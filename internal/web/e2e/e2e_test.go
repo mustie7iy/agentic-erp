@@ -131,6 +131,13 @@ func newStack(t *testing.T) stack {
 // person signing in first.
 func stackFor(t *testing.T, ten pgtest.Tenant, person pgtest.Actor) stack {
 	t.Helper()
+	return stackWith(t, ten, person, nil)
+}
+
+// stackWith is stackFor with the API's configuration changed by configure
+// (nil: as it is).
+func stackWith(t *testing.T, ten pgtest.Tenant, person pgtest.Actor, configure func(*app.Config)) stack {
+	t.Helper()
 	ctx := context.Background()
 	is := authntest.NewSeparate(t)
 	pgtest.Exec(t, `UPDATE identity.principal SET external_issuer = $2, version = version + 1 WHERE tenant_id = $1`, ten.ID, is.URL)
@@ -141,6 +148,9 @@ func stackFor(t *testing.T, ten pgtest.Tenant, person pgtest.Actor) stack {
 			t.Fatal(err)
 		}
 		cfg.Verifier = v
+		if configure != nil {
+			configure(cfg)
+		}
 	})
 	apiSrv := httptest.NewServer(api.Handler)
 	t.Cleanup(apiSrv.Close)

@@ -29,6 +29,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
@@ -85,23 +86,24 @@ func (c *testClock) Advance(d time.Duration) {
 // whose cell knows the provider with its session rule, and the directory
 // database with the web schema and the provider's web client.
 type stack struct {
-	t      *testing.T
-	is     *authntest.Issuer
-	ten    pgtest.Tenant
-	reg    *registry
-	api    *httptest.Server
-	srv    *Server
-	web    *httptest.Server
-	dir    *directory.Postgres
-	dirURL string
-	clock  *testClock
-	key    *rsa.PrivateKey
-	public string
-	logs   *pgtest.SyncBuffer
-	client authntest.Client
-	remote string
-	f      fixture.Env  // the configured tenant, with stackOptions.seed
-	person pgtest.Actor // who signs in: the tenant's human, or the fixture's approver
+	t       *testing.T
+	is      *authntest.Issuer
+	ten     pgtest.Tenant
+	reg     *registry
+	api     *httptest.Server
+	srv     *Server
+	web     *httptest.Server
+	dir     *directory.Postgres
+	dirURL  string
+	clock   *testClock
+	key     *rsa.PrivateKey
+	public  string
+	logs    *pgtest.SyncBuffer
+	client  authntest.Client
+	remote  string
+	f       fixture.Env   // the configured tenant, with stackOptions.seed
+	person  pgtest.Actor  // who signs in: the tenant's human, or the fixture's approver
+	objects blobstore.Dir // the API's object storage (captured documents)
 }
 
 // stackOptions change the stack before it starts.
@@ -115,6 +117,10 @@ type stackOptions struct {
 	// tenant's principals move to the stack's provider (the fixture's own
 	// client then no longer signs in; apitest.Committed still acts).
 	seed func(f fixture.Env)
+	// permissions are the configured tenant's besides its usual ones.
+	permissions []string
+	// objects is the API's object storage; a fresh one when its Root is "".
+	objects blobstore.Dir
 }
 
 const loginCodeOf = "acme"
@@ -122,13 +128,16 @@ const loginCodeOf = "acme"
 func newStack(t *testing.T, opts stackOptions) *stack {
 	t.Helper()
 	ctx := context.Background()
-	s := &stack{t: t, is: authntest.NewSeparate(t), clock: &testClock{now: time.Now()}, logs: &pgtest.SyncBuffer{}}
+	s := &stack{t: t, is: authntest.NewSeparate(t), clock: &testClock{now: time.Now()}, logs: &pgtest.SyncBuffer{}, objects: opts.objects}
+	if s.objects.Root == "" {
+		s.objects.Root = t.TempDir()
+	}
 	if opts.discovery != nil {
 		s.is.Serve(authntest.DiscoveryPath, bytes.ReplaceAll(opts.discovery, []byte("ISSUER"), []byte(s.is.URL)))
 	}
 	if opts.seed != nil {
-		s.f = fixture.New(t, "tenancy.org.read", "procurement.requisition.read", "procurement.requisition.create",
-			"partner.supplier.read", "partner.supplier.create", "partner.supplier.change")
+		s.f = fixture.New(t, append([]string{"tenancy.org.read", "procurement.requisition.read", "procurement.requisition.create",
+			"partner.supplier.read", "partner.supplier.create", "partner.supplier.change"}, opts.permissions...)...)
 		s.ten, s.person = s.f.Tenant, s.f.Approver
 		opts.seed(s.f)
 	} else {
@@ -147,6 +156,7 @@ func newStack(t *testing.T, opts stackOptions) *stack {
 		}
 		cfg.Verifier = v
 		cfg.Now = s.clock.Now // the cell's sessions age with erp-web's
+		cfg.Objects = s.objects
 	})
 	// The cell believes the address erp-web forwards, as it believes the
 	// router's, which passes erp-web's on (ADR-0033).
