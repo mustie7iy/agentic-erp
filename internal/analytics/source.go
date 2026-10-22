@@ -101,6 +101,22 @@ type account struct {
 	ID, Number, Name   string
 	AccountType        string `json:"account_type"`
 	ReconciliationKind string `json:"reconciliation_kind"`
+	Settings           []struct {
+		LegalEntityID     string   `json:"legal_entity_id"`
+		DeterminationKeys []string `json:"determination_keys"`
+	} `json:"company_settings"`
+}
+
+// determination is the account determination keys that name the account
+// in the legal entity, comma-separated in key order, or "none", as the
+// extractor writes the accounts dataset's column.
+func (a account) determination(legalEntity string) string {
+	for _, s := range a.Settings {
+		if s.LegalEntityID == legalEntity && len(s.DeterminationKeys) > 0 {
+			return strings.Join(s.DeterminationKeys, ",")
+		}
+	}
+	return "none"
 }
 
 type journalEntry struct {
@@ -277,7 +293,7 @@ func (b *factBuilder) addEntry(le legalEntity, je journalEntry, chart map[string
 		recon := a.ReconciliationKind == "supplier"
 		v := b.vendors[l.PartnerID]
 		dims := map[string]string{"company": le.Code, "account": a.Number, "account_name": a.Name, "account_type": a.AccountType,
-			"document_type": je.DocumentType, "vendor": v.Number, "vendor_name": v.Name, "vendor_recon": strconv.FormatBool(recon),
+			"determination": a.determination(le.ID), "document_type": je.DocumentType, "vendor": v.Number, "vendor_name": v.Name, "vendor_recon": strconv.FormatBool(recon),
 			"cleared": strconv.FormatBool(recon && !isOpen[je.ID+"/"+strconv.Itoa(l.LineNo)])}
 		amt, err := b.minor(l.AmountLC)
 		if err == nil {

@@ -63,7 +63,7 @@ func accountToAPI(a Account) gen.Account {
 		CompanySettings: make([]gen.CompanyAccountSettings, len(a.Settings))}
 	for i, s := range a.Settings {
 		out.CompanySettings[i] = gen.CompanyAccountSettings{LegalEntityID: s.LegalEntityID, IsPostingBlocked: s.IsPostingBlocked,
-			IsOpenItemManaged: s.IsOpenItemManaged}
+			IsOpenItemManaged: s.IsOpenItemManaged, DeterminationKeys: s.DeterminationKeys}
 	}
 	return out
 }

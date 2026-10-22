@@ -18331,6 +18331,7 @@ components:
         - legal_entity_id
         - is_posting_blocked
         - is_open_item_managed
+        - determination_keys
       properties:
         legal_entity_id:
           type: string
@@ -18345,10 +18346,18 @@ components:
           type: boolean
           description: Lines are managed as open items.
           readOnly: true
+        determination_keys:
+          type: array
+          items:
+            type: string
+            description: "An account determination key (`companies[].account_determination` of the configuration, SAP T030), such as `cash_discount` or `fx_gain`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "The account determination keys that name the account for automatic postings in this legal entity, in key order; empty when none does. Analytics tells sales from the income automatic postings book (cash discounts received, exchange gains) by them."
+          readOnly: true
       examples:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
           is_posting_blocked: false
           is_open_item_managed: false
+          determination_keys: []
     Account:
       description: A general ledger account. Maintained through configuration change requests, so read-only here.
       allOf:
@@ -18433,6 +18442,7 @@ components:
             - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
               is_posting_blocked: false
               is_open_item_managed: false
+              determination_keys: []
     AccountPage:
       type: object
       description: One page of accounts.
@@ -18471,6 +18481,7 @@ components:
                 - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
                   is_posting_blocked: false
                   is_open_item_managed: false
+                  determination_keys: []
     CostCenterPeriod:
       type: object
       description: "An effective-dated period of a cost center: what postings dated in it read (ADR-0050 §3)."

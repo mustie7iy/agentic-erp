@@ -25,6 +25,7 @@ dimensions:
   - {name: posting_date, label: Posting date}
   - {name: account, label: G/L account}
   - {name: account_name, label: G/L account name}
+  - {name: determination, label: Account determination, description: "The account determination keys that name the account for automatic postings in its company, e.g. cash_discount or fx_gain; none for the others"}
   - {name: document_type, label: Document type, description: "SAP document type, e.g. RE invoice, KZ payment, SA general"}
   - {name: vendor, label: Vendor}
   - {name: vendor_name, label: Vendor name}
@@ -33,14 +34,25 @@ dimensions:
 metrics:
   - name: revenue
     label: Revenue
-    description: Net sales recognized in the general ledger (credits to revenue accounts, net of reversals).
-    synonyms: [sales, net sales, turnover, income]
+    description: Net sales recognized in the general ledger (credits to revenue accounts, net of reversals). Not the revenue accounts the account determination names for automatic postings, such as cash discounts received and exchange gains, which are other income (see income).
+    synonyms: [sales, net sales, turnover]
+    type: money
+    source: gl_lines
+    aggregate: sum
+    sign: -1
+    filter: {account_type: [revenue], determination: [none]}
+    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, posting_date, account, account_name, document_type]
+
+  - name: income
+    label: Income
+    description: Credits to every revenue account in the general ledger, net of reversals - revenue and other income such as cash discounts received and exchange gains.
+    synonyms: [total income, revenue and other income]
     type: money
     source: gl_lines
     aggregate: sum
     sign: -1
     filter: {account_type: [revenue]}
-    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, posting_date, account, account_name, document_type]
+    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, posting_date, account, account_name, determination, document_type]
 
   - name: expenses
     label: Operating expenses
@@ -55,10 +67,10 @@ metrics:
 
   - name: operating_profit
     label: Operating profit
-    description: Revenue minus operating expenses.
+    description: Income (revenue and other income) minus operating expenses.
     synonyms: [profit, operating income]
     type: money
-    derived: {op: subtract, left: revenue, right: expenses}
+    derived: {op: subtract, left: income, right: expenses}
 
   - name: operating_margin
     label: Operating margin

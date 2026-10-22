@@ -433,7 +433,7 @@ func TestComparisonHelpers(t *testing.T) {
 // A JPY company's amounts are scaled by its minor unit.
 func TestZeroDecimalCurrency(t *testing.T) {
 	dims := func(typ string) map[string]string {
-		return map[string]string{"company": "3000", "account_type": typ, "fiscal_year": "2026", "fiscal_month": "1", "posting_date": "2026-01-05"}
+		return map[string]string{"company": "3000", "account_type": typ, "determination": "none", "fiscal_year": "2026", "fiscal_month": "1", "posting_date": "2026-01-05"}
 	}
 	f := &Facts{Companies: map[string]string{"3000": "JPY"}, Exponents: map[string]int{"JPY": 0}, Tables: map[string][]Fact{"gl_lines": {
 		{ID: "J1", Dims: dims("asset"), Amount: 5000, Currency: "JPY"}, {ID: "J1", Dims: dims("revenue"), Amount: -5000, Currency: "JPY"}}}}

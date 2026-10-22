@@ -10180,6 +10180,10 @@ type CompanyAccountSettings struct {
 	IsPostingBlocked bool `json:"is_posting_blocked"`
 	// Lines are managed as open items.
 	IsOpenItemManaged bool `json:"is_open_item_managed"`
+	// The account determination keys that name the account for automatic postings in this legal entity, in
+	// key order; empty when none does. Analytics tells sales from the income automatic postings book (cash
+	// discounts received, exchange gains) by them.
+	DeterminationKeys []string `json:"determination_keys"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -10197,6 +10201,11 @@ func (s *CompanyAccountSettings) GetIsOpenItemManaged() bool {
 	return s.IsOpenItemManaged
 }
 
+// GetDeterminationKeys returns the value of DeterminationKeys.
+func (s *CompanyAccountSettings) GetDeterminationKeys() []string {
+	return s.DeterminationKeys
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *CompanyAccountSettings) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -10210,6 +10219,11 @@ func (s *CompanyAccountSettings) SetIsPostingBlocked(val bool) {
 // SetIsOpenItemManaged sets the value of IsOpenItemManaged.
 func (s *CompanyAccountSettings) SetIsOpenItemManaged(val bool) {
 	s.IsOpenItemManaged = val
+}
+
+// SetDeterminationKeys sets the value of DeterminationKeys.
+func (s *CompanyAccountSettings) SetDeterminationKeys(val []string) {
+	s.DeterminationKeys = val
 }
 
 // An immutable, activated configuration version. Insert-only; `activated_*` play the role of

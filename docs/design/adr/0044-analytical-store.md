@@ -579,6 +579,27 @@ active metrics, read through the endpoint (`getAnalyticsModel`,
 `config_version`'s), not the seed, so a metric a change request added is
 offered and a changed definition described as it now is (T55n).
 
+*Sales and other income (T72l, walkthrough 2026-10-22).* The seed's
+`revenue` summed every revenue account, so cash discounts received (the
+Canada pack's 4800) and exchange gains counted as sales. An account's
+type cannot tell them apart, and the seed cannot name a tenant's account
+numbers, so the accounts carry the account determination keys that name
+them for automatic postings in their company: a new nullable column
+`determination` of the `accounts` dataset (keys comma-separated in key
+order, `none` for the others; additive) and `determination_keys` on the
+API's `CompanyAccountSettings` (additive), both read from
+`ledger.account_determination`, so both paths see the same values.
+`revenue` is now the revenue accounts with `determination: none`; a new
+base metric `income` is every revenue account, and `operating_profit` is
+`income` minus `expenses`, so its value does not change (operating margin
+stays operating profit over sales). A tenant whose configuration has an
+`analytics` section keeps its own definitions until a change request
+changes them; the seed is the code's, changed through review, and every
+tenant without the section reads it, under past configuration versions
+too. Until the next snapshot rewrites a tenant's accounts, a plan reading
+files without the column fails and the query is answered from the
+database.
+
 *Agents propose, people activate.* An agent may create, submit and
 simulate a change request (`x-autonomy: propose`); activation is
 `x-agent: false`, as approval decisions are, so no agent activates a

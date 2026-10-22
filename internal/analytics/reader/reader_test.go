@@ -49,6 +49,8 @@ type accountRow struct {
 	AccountName string    `parquet:"account_name"`
 	AccountType string    `parquet:"account_type"`
 	VendorRecon bool      `parquet:"vendor_recon"`
+	// Determination is "" (null) in these files: no plan here reads it.
+	Determination string `parquet:"determination,optional"`
 }
 
 type partnerRow struct {

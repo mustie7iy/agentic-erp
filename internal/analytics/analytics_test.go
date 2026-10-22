@@ -83,7 +83,7 @@ func twoYears(t *testing.T) *Facts {
 				amt, _ := money.ParseDecimal(l.HSL, 2)
 				acct := sap.Alpha(l.RACCT)
 				add("gl_lines", l.RBUKRS+"/"+l.GJAHR+"/"+l.BELNR, l.RBUKRS, l.BUDAT, currency[l.RBUKRS], amt, map[string]string{
-					"account": acct, "account_name": accounts[acct], "account_type": types(acct), "document_type": l.BLART,
+					"account": acct, "account_name": accounts[acct], "account_type": types(acct), "determination": "none", "document_type": l.BLART,
 					"vendor": sap.Alpha(l.LIFNR), "vendor_name": names[sap.Alpha(l.LIFNR)], "vendor_recon": strconv.FormatBool(recon[acct]),
 					"cleared": strconv.FormatBool(recon[acct] && l.AUGBL != "")})
 				if l.RBUKRS == "1000" && acct == "400000" {
